@@ -98,13 +98,15 @@ impl Gradient {
     }
 
     /// Sample the gradient at regular intervals.
-    /// 
+    ///
     /// Create a list of sample points starting at ratio `start` and spaced with `inc`
     /// delta ratio. The number of samples is equal to the length of the `dst` slice.
     /// Sample the gradient at all those points, and fill the `dst` slice with the
     /// resulting values.
-    /// 
+    ///
     /// This is equivalent to calling [`sample()`] in a loop, but is more efficient.
+    ///
+    /// [`sample()`]: Gradient::sample
     pub fn sample_by(&self, start: f32, inc: f32, dst: &mut [Vec4]) {
         let count = dst.len();
         assert!(!self.keys.is_empty());
