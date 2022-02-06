@@ -24,8 +24,15 @@ version = "0.6"
 default-features = false
 features = [ "render" ]
 
+[dev-dependencies]
+bevy-inspector-egui = "0.8"
+
 [[example]]
 name = "spawn"
+required-features = [ "bevy/bevy_winit" ]
+
+[[example]]
+name = "gradient"
 required-features = [ "bevy/bevy_winit", "bevy/png" ]
 
 [workspace]

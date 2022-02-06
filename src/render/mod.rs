@@ -64,6 +64,17 @@ pub enum EffectSystems {
     QueueEffects,
 }
 
+trait ToWgslFloat {
+    fn to_float_string(&self) -> String;
+}
+
+impl ToWgslFloat for f32 {
+    fn to_float_string(&self) -> String {
+        let s = format!("{:.6}", self);
+        s.trim_end_matches("0").to_string()
+    }
+}
+
 trait ShaderCode {
     fn to_shader_code(&self) -> String;
 }
@@ -80,10 +91,15 @@ impl ShaderCode for Gradient {
             .map(|(index, key)| {
                 format!(
                     "let t{0} = {1};\nlet c{0} = vec4<f32>({2}, {3}, {4}, {5});",
-                    index, key.ratio, key.color.x, key.color.y, key.color.z, key.color.w
+                    index,
+                    key.ratio.to_float_string(),
+                    key.color.x.to_float_string(),
+                    key.color.y.to_float_string(),
+                    key.color.z.to_float_string(),
+                    key.color.w.to_float_string()
                 )
             })
-            .fold("".into(), |s, key| s + &key + "\n");
+            .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
         if self.keys().len() == 1 {
             s + "out.color = c0;\n"
         } else {
@@ -378,10 +394,15 @@ impl SpecializedPipeline for ParticlesRenderPipeline {
             ],
         };
 
-        let mut shader_defs = Vec::new();
+        let mut layout = vec![
+            self.view_layout.clone(),
+            self.particles_buffer_layout.clone(),
+        ];
+        let mut shader_defs = vec![];
 
         // Key: PARTICLE_TEXTURE
         if key.particle_texture.is_some() {
+            layout.push(self.material_layout.clone());
             shader_defs.push("PARTICLE_TEXTURE".to_string());
             // // [[location(1)]] vertex_uv: vec2<f32>
             // vertex_buffer_layout.attributes.push(VertexAttribute {
@@ -409,11 +430,7 @@ impl SpecializedPipeline for ParticlesRenderPipeline {
                     write_mask: ColorWrites::ALL,
                 }],
             }),
-            layout: Some(vec![
-                self.view_layout.clone(),
-                self.particles_buffer_layout.clone(),
-                self.material_layout.clone(),
-            ]),
+            layout: Some(layout),
             primitive: PrimitiveState {
                 front_face: FrontFace::Ccw,
                 cull_mode: None,
@@ -441,6 +458,7 @@ impl SpecializedPipeline for ParticlesRenderPipeline {
 }
 
 /// A single effect instance extracted from a [`ParticleEffect`] as a [`RenderWorld`] item.
+#[derive(Component)]
 pub struct ExtractedEffect {
     /// Handle to the effect asset this instance is based on.
     /// The handle is weak to prevent refcount cycles and gracefully handle assets unloaded
@@ -609,6 +627,17 @@ pub(crate) fn extract_effects(
                 PARTICLES_RENDER_SHADER_TEMPLATE.replace("{{VERTEX_MODIFIERS}}", &vertex_modifiers);
             let shader = pipeline_registry.configure(&shader_source, &mut shaders);
 
+            trace!(
+                "extracted: handle={:?} shader={:?} has_image={}",
+                effect.handle,
+                shader,
+                if asset.render_layout.particle_texture.is_some() {
+                    "Y"
+                } else {
+                    "N"
+                }
+            );
+
             extracted_effects.effects.insert(
                 entity,
                 ExtractedEffect {
@@ -707,9 +736,15 @@ const QUAD_VERTEX_POSITIONS: &[Vec3] = &[
 ];
 
 bitflags! {
-    #[derive(Default)]
     struct LayoutFlags: u32 {
+        const NONE = 0;
         const PARTICLE_TEXTURE = 0b00000001;
+    }
+}
+
+impl Default for LayoutFlags {
+    fn default() -> Self {
+        LayoutFlags::NONE
     }
 }
 
@@ -721,8 +756,10 @@ pub struct EffectBatch {
     buffer_index: u32,
     /// Index of the first Spawner of the effects in the batch.
     spawner_base: u32,
-    /// Range of particles in the GPU effect buffer for the entire batch.
-    range: Range<u32>,
+    /// Size of a single particle.
+    item_size: u32,
+    /// Slice of particles in the GPU effect buffer for the entire batch.
+    slice: Range<u32>,
     /// Handle of the underlying effect asset describing the effect.
     handle: Handle<EffectAsset>,
     /// Flags describing the render layout.
@@ -825,23 +862,24 @@ pub(crate) fn prepare_effects(
     // Loop on all extracted effects in order
     effects_meta.spawner_buffer.clear();
     let mut spawner_base = 0;
+    let mut item_size = 0;
     let mut current_buffer_index = u32::MAX;
     let mut asset: Handle<EffectAsset> = Default::default();
-    let mut layout_flags = LayoutFlags::default();
+    let mut layout_flags = LayoutFlags::NONE;
     let mut image_handle_id: HandleId = HandleId::default::<Image>();
     let mut shader: Handle<Shader> = Default::default();
     let mut start = 0;
     let mut end = 0;
+    let mut num_emitted = 0;
     for (slice, extracted_effect) in effect_entity_list {
         let buffer_index = slice.group_index;
         let range = slice.slice;
         layout_flags = if extracted_effect.has_image {
             LayoutFlags::PARTICLE_TEXTURE
         } else {
-            LayoutFlags::default()
+            LayoutFlags::NONE
         };
         image_handle_id = extracted_effect.image_handle_id;
-        shader = extracted_effect.shader.clone();
         trace!("Effect: buffer #{} | range {:?}", buffer_index, range);
 
         // Check the buffer the effect is in
@@ -858,21 +896,26 @@ pub(crate) fn prepare_effects(
                 trace!("+ Prev: {} - {}", start, end);
                 if end > start {
                     assert_ne!(asset, Handle::<EffectAsset>::default());
+                    assert!(item_size > 0);
                     trace!(
-                        "Emit batch: buffer #{} | spawner_base {} | range {:?}",
-                        buffer_index,
+                        "Emit batch: buffer #{} | spawner_base {} | slice {:?} | item_size {} | shader {:?}",
+                        current_buffer_index,
                         spawner_base,
-                        start..end
+                        start..end,
+                        item_size,
+                        shader
                     );
                     commands.spawn_bundle((EffectBatch {
-                        buffer_index,
+                        buffer_index: current_buffer_index,
                         spawner_base: spawner_base as u32,
-                        range: start..end,
+                        slice: start..end,
+                        item_size,
                         handle: asset.clone_weak(),
                         layout_flags,
                         image_handle_id,
                         shader: shader.clone(),
                     },));
+                    num_emitted += 1;
                 }
             }
 
@@ -885,9 +928,15 @@ pub(crate) fn prepare_effects(
             // Each effect buffer contains effect instances with a compatible layout
             // FIXME - Currently this means same effect asset, so things are easier...
             asset = extracted_effect.handle.clone_weak();
+            item_size = slice.item_size;
         }
 
         assert_ne!(asset, Handle::<EffectAsset>::default());
+
+        shader = extracted_effect.shader.clone();
+        trace!("shader = {:?}", shader);
+
+        trace!("item_size = {}B", slice.item_size);
 
         // Prepare the spawner block for the current slice
         let spawner_params = SpawnerParams {
@@ -896,32 +945,38 @@ pub(crate) fn prepare_effects(
             count: 0,
             ..Default::default()
         };
-        trace!("spawn = {}", spawner_params.spawn);
+        trace!("spawner_params = {:?}", spawner_params);
         effects_meta.spawner_buffer.push(spawner_params);
 
         trace!("slice = {}-{} | prev end = {}", range.start, range.end, end);
-        if range.start > end {
+        if (range.start > end) || (item_size != slice.item_size) {
             // Discontinuous slices; create a new batch
             if end > start {
                 // Record the previous batch
                 assert_ne!(asset, Handle::<EffectAsset>::default());
+                assert!(item_size > 0);
                 trace!(
-                    "Emit batch: buffer #{} | spawner_base {} | range {:?}",
+                    "Emit batch: buffer #{} | spawner_base {} | slice {:?} | item_size {} | shader {:?}",
                     buffer_index,
                     spawner_base,
-                    start..end
+                    start..end,
+                    item_size,
+                    shader
                 );
                 commands.spawn_bundle((EffectBatch {
                     buffer_index,
                     spawner_base: spawner_base as u32,
-                    range: start..end,
+                    slice: start..end,
+                    item_size,
                     handle: asset.clone_weak(),
                     layout_flags,
                     image_handle_id,
                     shader: shader.clone(),
                 },));
+                num_emitted += 1;
             }
             start = range.start;
+            item_size = slice.item_size;
         }
         end = range.end;
     }
@@ -929,24 +984,30 @@ pub(crate) fn prepare_effects(
     // Record last open batch if any
     if end > start {
         assert_ne!(asset, Handle::<EffectAsset>::default());
+        assert!(item_size > 0);
         trace!(
-            "Emit LAST batch: buffer #{} | spawner_base {} | range {:?}",
+            "Emit LAST batch: buffer #{} | spawner_base {} | slice {:?} | item_size {} | shader {:?}",
             current_buffer_index,
             spawner_base,
-            start..end
+            start..end,
+            item_size,
+            shader
         );
         commands.spawn_bundle((EffectBatch {
             buffer_index: current_buffer_index,
             spawner_base: spawner_base as u32,
-            range: start..end,
+            slice: start..end,
+            item_size,
             handle: asset.clone_weak(),
             layout_flags,
             image_handle_id,
             shader: shader.clone(),
         },));
+        num_emitted += 1;
     }
     trace!(
-        "Final spawner_buffer len = {}",
+        "Emitted {} buffers, spawner_buffer len = {}",
+        num_emitted,
         effects_meta.spawner_buffer.len()
     );
 
@@ -1042,12 +1103,19 @@ pub(crate) fn queue_effects(
             .values
             .entry(buffer_index as u32)
             .or_insert_with(|| {
+                trace!(
+                    "Create new update bind group for buffer_index={}",
+                    buffer_index
+                );
                 render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &[BindGroupEntry {
                         binding: 0,
                         resource: buffer.binding(32768 * 32),
                     }],
-                    label: Some("particles_particles_bind_group_compute"),
+                    label: Some(&format!(
+                        "particles_particles_bind_group_compute{}",
+                        buffer_index
+                    )),
                     layout: &update_pipeline.particles_buffer_layout,
                 })
             });
@@ -1056,12 +1124,19 @@ pub(crate) fn queue_effects(
             .render_values
             .entry(buffer_index as u32)
             .or_insert_with(|| {
+                trace!(
+                    "Create new render bind group for buffer_index={}",
+                    buffer_index
+                );
                 render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &[BindGroupEntry {
                         binding: 0,
                         resource: buffer.binding(32768 * 32),
                     }],
-                    label: Some("particles_particles_bind_group_render"),
+                    label: Some(&format!(
+                        "particles_particles_bind_group_render{}",
+                        buffer_index
+                    )),
                     layout: &render_pipeline.particles_buffer_layout,
                 })
             });
@@ -1079,14 +1154,21 @@ pub(crate) fn queue_effects(
     let draw_effects_function = draw_functions.read().get_id::<DrawEffects>().unwrap();
     for mut transparent_phase in views.iter_mut() {
         for (entity, batch) in effect_batches.iter() {
+            trace!(
+                "Process batch entity={:?} buffer_index={} spawner_base={} slice={:?}",
+                entity,
+                batch.buffer_index,
+                batch.spawner_base,
+                batch.slice
+            );
             // Ensure the particle texture is available as a GPU resource and create a bind group for it
             let particle_texture = if batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE) {
                 let image_handle = Handle::weak(batch.image_handle_id);
                 if image_bind_groups.values.get(&image_handle).is_none() {
                     trace!(
-                        "Batch buffer #{} range={:?} has missing GPU image bind group, creating...",
+                        "Batch buffer #{} slice={:?} has missing GPU image bind group, creating...",
                         batch.buffer_index,
-                        batch.range
+                        batch.slice
                     );
                     // If texture doesn't have a bind group yet from another instance of the same effect,
                     // then try to create one now
@@ -1125,7 +1207,8 @@ pub(crate) fn queue_effects(
 
             // Specialize the pipeline based on the effect batch
             trace!(
-                "Specializing render pipeline: particle_texture={:?}",
+                "Specializing render pipeline: shader={:?} particle_texture={:?}",
+                batch.shader,
                 particle_texture
             );
             let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -1139,7 +1222,7 @@ pub(crate) fn queue_effects(
             trace!("Render pipeline specialized: id={:?}", render_pipeline_id);
 
             // Add a draw pass for the effect batch
-            trace!("Add Transparent3d for batch on entity {:?}: buffer_index={} spawner_base={} range={:?} handle={:?}", entity, batch.buffer_index, batch.spawner_base, batch.range, batch.handle);
+            trace!("Add Transparent3d for batch on entity {:?}: buffer_index={} spawner_base={} slice={:?} handle={:?}", entity, batch.buffer_index, batch.spawner_base, batch.slice, batch.handle);
             transparent_phase.add(Transparent3d {
                 draw_function: draw_effects_function,
                 pipeline: render_pipeline_id,
@@ -1206,7 +1289,8 @@ impl DrawEffects {
 
 /// Component to hold all the entities with a [`ExtractedEffect`] component on them
 /// that need to be updated this frame with a compute pass. This is view-independent
-/// because the update pass itself is also view-independent.
+/// because the update phase itself is also view-independent (effects like camera
+/// facing are applied in the render phase, which runs once per view).
 #[derive(Component)]
 pub struct ExtractedEffectEntities {
     pub entities: Vec<Entity>,
@@ -1245,7 +1329,14 @@ impl Draw<Transparent3d> for DrawEffects {
                 effects_meta.view_bind_group.as_ref().unwrap(),
                 &[view_uniform.offset],
             );
-            pass.set_bind_group(1, effect_bind_groups.render_values.get(&0).unwrap(), &[]);
+            pass.set_bind_group(
+                1,
+                effect_bind_groups
+                    .render_values
+                    .get(&effect_batch.buffer_index)
+                    .unwrap(),
+                &[],
+            );
             if effect_batch
                 .layout_flags
                 .contains(LayoutFlags::PARTICLE_TEXTURE)
@@ -1256,15 +1347,15 @@ impl Draw<Transparent3d> for DrawEffects {
                 } else {
                     // Texture not ready; skip this drawing for now
                     trace!(
-                        "Particle texture bind group not available for batch buf={} range={:?}. Skipping draw call.",
+                        "Particle texture bind group not available for batch buf={} slice={:?}. Skipping draw call.",
                         effect_batch.buffer_index,
-                        effect_batch.range
+                        effect_batch.slice
                     );
                     return; //continue;
                 }
             }
 
-            let count = effect_batch.range.end - effect_batch.range.start;
+            let count = effect_batch.slice.end - effect_batch.slice.start;
 
             trace!(
                 "Draw {} particles for batch from buffer #{}.",
@@ -1280,7 +1371,8 @@ impl Draw<Transparent3d> for DrawEffects {
 pub struct ParticleUpdateNode {
     /// Query to retrieve the list of entities holding an extracted particle effect to update.
     entity_query: QueryState<&'static ExtractedEffectEntities>,
-    //effect_query: QueryState<&'static ExtractedEffect>,
+    /// Query to retrieve the
+    effect_query: QueryState<&'static EffectBatch>,
 }
 
 impl ParticleUpdateNode {
@@ -1292,7 +1384,7 @@ impl ParticleUpdateNode {
     pub fn new(world: &mut World) -> Self {
         Self {
             entity_query: QueryState::new(world),
-            //effect_query: QueryState::new(world),
+            effect_query: QueryState::new(world),
         }
     }
 }
@@ -1312,7 +1404,7 @@ impl Node for ParticleUpdateNode {
     fn update(&mut self, world: &mut World) {
         trace!("ParticleUpdateNode::update()");
         self.entity_query.update_archetypes(world);
-        //self.effect_query.update_archetypes(world);
+        self.effect_query.update_archetypes(world);
     }
 
     fn run(
@@ -1328,10 +1420,16 @@ impl Node for ParticleUpdateNode {
         //let view_entity = graph.get_input_entity(Self::IN_VIEW)?;
 
         // Begin encoder
+        // trace!(
+        //     "begin compute update pass... (world={:?} ents={:?} comps={:?})",
+        //     world,
+        //     world.entities(),
+        //     world.components()
+        // );
         trace!("begin compute update pass...");
         render_context
             .command_encoder
-            .push_debug_group("ParticleUpdate");
+            .push_debug_group("hanabi_update");
 
         // Compute update pass
         {
@@ -1339,7 +1437,7 @@ impl Node for ParticleUpdateNode {
                 render_context
                     .command_encoder
                     .begin_compute_pass(&ComputePassDescriptor {
-                        label: Some("ParticleUpdate"),
+                        label: Some("update_compute_pass"),
                     });
 
             let effects_meta = world.get_resource::<EffectsMeta>().unwrap();
@@ -1347,38 +1445,40 @@ impl Node for ParticleUpdateNode {
 
             // Retrieve the ExtractedEffectEntities component itself
             //if let Ok(extracted_effect_entities) = self.entity_query.get_manual(world, view_entity)
+            //if let Ok(effect_batches) = self.effect_query.get_manual(world, )
             {
                 // Loop on all entities recorded inside the ExtractedEffectEntities input
-                trace!("loop over entities...");
+                trace!("loop over effect batches...");
                 //for effect_entity in extracted_effect_entities.entities.iter().copied() {
-                for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
+
+                for batch in self.effect_query.iter_manual(world) {
+                    //for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
                     // Retrieve the ExtractedEffect from the entity
-                    //let effect = self.effect_query.get_manual(world, effect_entity).unwrap();
+                    //trace!("effect_entity={:?} effect_slice={:?}", effect_entity, effect_slice);
+                    //let effect = self.effect_query.get_manual(world, *effect_entity).unwrap();
 
                     // Get the slice to update
                     //let effect_slice = effects_meta.get(&effect_entity);
                     let effect_group =
-                        &effects_meta.effect_cache.buffers()[effect_slice.group_index as usize];
-                    let particles_bind_group = effect_bind_groups
-                        .values
-                        .get(&effect_slice.group_index)
-                        .unwrap();
+                        &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
+                    let particles_bind_group =
+                        effect_bind_groups.values.get(&batch.buffer_index).unwrap();
 
-                    let item_size = effect_slice.item_size;
-                    let item_count =
-                        (effect_slice.slice.end - effect_slice.slice.start) / item_size;
+                    let item_size = batch.item_size;
+                    let item_count = (batch.slice.end - batch.slice.start) / item_size;
                     let workgroup_count = item_count / 64;
 
-                    let spawner_base = effect_slice.slice.start / 1048576; // TODO
+                    let spawner_base = batch.spawner_base;
+                    let buffer_offset = batch.slice.start / item_size;
 
                     trace!(
-                        "record commands for pipeline of effect {:?} on entity {:?} ({} items / {}B/item = {} workgroups) spawner_base={}...",
-                        effect_slice,
-                        effect_entity,
+                        "record commands for pipeline of effect {:?} ({} items / {}B/item = {} workgroups) spawner_base={} buffer_offset={}...",
+                        batch.handle,
                         item_count,
                         item_size,
                         workgroup_count,
-                        spawner_base
+                        spawner_base,
+                        buffer_offset,
                     );
 
                     // Setup compute pass
@@ -1388,11 +1488,7 @@ impl Node for ParticleUpdateNode {
                         effects_meta.sim_params_bind_group.as_ref().unwrap(),
                         &[],
                     );
-                    compute_pass.set_bind_group(
-                        1,
-                        particles_bind_group,
-                        &[effect_slice.slice.start / item_size],
-                    );
+                    compute_pass.set_bind_group(1, particles_bind_group, &[buffer_offset]);
                     compute_pass.set_bind_group(
                         2,
                         effects_meta.spawner_bind_group.as_ref().unwrap(),
@@ -1416,6 +1512,12 @@ impl Node for ParticleUpdateNode {
 mod tests {
     use super::*;
     use bevy::math::Vec4;
+
+    #[test]
+    fn layout_flags() {
+        let flags = LayoutFlags::default();
+        assert_eq!(flags, LayoutFlags::NONE);
+    }
 
     #[test]
     fn to_shader_code() {

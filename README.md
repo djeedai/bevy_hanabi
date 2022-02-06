@@ -28,12 +28,14 @@ App::default()
 
 See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
 
+![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/main/examples/gradient.gif)
+
 ## Feature List
 
 - Spawn
   - [x] Constant rate
-  - [ ] Burst
-  - [ ] Repeated burst
+  - [x] One-time burst
+  - [x] Repeated burst
 - Initialize
   - [ ] Constant position
   - [ ] Position over shape
@@ -54,10 +56,20 @@ See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
     - [ ] Bounded (AABB, etc.)
   - [x] Lifetime
   - [ ] Size change over lifetime
-  - [ ] Color change over lifetime
+  - [x] Color change over lifetime
   - [ ] Face camera
   - [ ] Face constant direction
 - Render
   - [x] Quad (sprite)
     - [x] Textured
   - [ ] Generic 3D mesh
+
+## Compatible Bevy versions
+
+The `main` branch is compatible with the latest Bevy release.
+
+Compatibility of `bevy_hanabi` versions:
+
+| `bevy_hanabi` | `bevy` |
+| :--           | :--    |
+| `0.1`         | `0.6`  |

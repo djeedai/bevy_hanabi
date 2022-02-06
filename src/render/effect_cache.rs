@@ -110,11 +110,12 @@ impl EffectBuffer {
         asset: Handle<EffectAsset>,
         compute_pipeline: ComputePipeline,
         render_device: &RenderDevice,
+        label: Option<&str>,
     ) -> Self {
         trace!("EffectBuffer::new()");
         let capacity = 64 * 65536;
         let buffer = render_device.create_buffer(&BufferDescriptor {
-            label: None,
+            label,
             size: capacity as BufferAddress,
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
             mapped_at_creation: false,
@@ -313,8 +314,19 @@ impl EffectCache {
             .or_else(|| {
                 // Cannot find any suitable buffer; allocate a new one
                 let buffer_index = self.buffers.len();
-                self.buffers
-                    .push(EffectBuffer::new(asset, pipeline, &self.device));
+                trace!(
+                    "Creating new effect buffer #{} for effect {:?} (capacity={}, item_size={})",
+                    buffer_index,
+                    asset,
+                    capacity,
+                    item_size
+                );
+                self.buffers.push(EffectBuffer::new(
+                    asset,
+                    pipeline,
+                    &self.device,
+                    Some(&format!("effect_buffer{}", self.buffers.len())),
+                ));
                 let buffer = self.buffers.last_mut().unwrap();
                 Some((
                     buffer_index,
@@ -323,6 +335,13 @@ impl EffectCache {
             })
             .unwrap();
         let id = EffectCacheId::new();
+        trace!(
+            "Insert effect id={:?} buffer_index={} slice={:?}x{}",
+            id,
+            buffer_index,
+            slice.range,
+            slice.item_size
+        );
         self.effects.insert(id, (buffer_index, slice));
         return id;
     }

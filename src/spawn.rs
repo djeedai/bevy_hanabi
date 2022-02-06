@@ -53,8 +53,8 @@ impl Spawner {
     pub fn tick(&mut self, dt: f32) -> u32 {
         match &self.mode {
             SpawnMode::Once(count) => {
-                if self.limit >= 0. {
-                    self.spawn += count.sample() * dt;
+                if self.limit > -0.5 {
+                    self.spawn += count.sample();
                     self.limit = -1.;
                 }
             }
