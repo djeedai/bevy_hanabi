@@ -1,4 +1,4 @@
-use serde::{Deserialize,Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum Value<T: Copy> {
@@ -28,6 +28,20 @@ pub enum SpawnMode {
     Rate(SpawnRate),
     /// Emit a number of particles by bursts every given delay.
     Burst((SpawnCount, SpawnRate)),
+}
+
+impl SpawnMode {
+    pub fn once(count: f32) -> Self {
+        SpawnMode::Once(SpawnCount::Single(count))
+    }
+
+    pub fn rate(rate: f32) -> Self {
+        SpawnMode::Rate(SpawnRate::Single(rate))
+    }
+
+    pub fn burst(count: f32, rate: f32) -> Self {
+        SpawnMode::Burst((SpawnCount::Single(count), SpawnRate::Single(rate)))
+    }
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]

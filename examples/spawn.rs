@@ -64,8 +64,7 @@ fn setup(
         EffectAsset {
             name: "emit:rate".to_string(),
             capacity: 32768,
-            spawner: Spawner::new(SpawnMode::Rate(Value::Single(5.))),
-            render_layout: Default::default(),
+            spawner: Spawner::new(SpawnMode::rate(5.)),
         }
         .with(ColorOverLifetimeModifier {
             gradient: gradient1,
@@ -97,8 +96,7 @@ fn setup(
         EffectAsset {
             name: "emit:once".to_string(),
             capacity: 32768,
-            spawner: Spawner::new(SpawnMode::Once(Value::Single(1000.))),
-            render_layout: Default::default(),
+            spawner: Spawner::new(SpawnMode::once(1000.)),
         }
         .with(ColorOverLifetimeModifier {
             gradient: gradient2,
@@ -130,8 +128,7 @@ fn setup(
         EffectAsset {
             name: "emit:burst".to_string(),
             capacity: 32768,
-            spawner: Spawner::new(SpawnMode::Burst((Value::Single(40.), Value::Single(3.)))),
-            render_layout: Default::default(),
+            spawner: Spawner::new(SpawnMode::burst(40., 3.)),
         }
         .with(ColorOverLifetimeModifier {
             gradient: gradient3,
