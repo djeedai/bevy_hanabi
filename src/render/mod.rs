@@ -123,14 +123,18 @@ impl ShaderCode for Gradient {
     }
 }
 
+/// Simulation parameters.
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct SimParams {
+    /// Current simulation time.
     time: f64,
+    /// Frame timestep.
     dt: f32,
 }
 
+/// GPU representation of [`SimParams`].
 #[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable, AsStd140)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable, AsStd140)]
 struct SimParamsUniform {
     dt: f32,
     time: f32,
@@ -141,6 +145,15 @@ impl Default for SimParamsUniform {
         SimParamsUniform {
             dt: 0.04,
             time: 0.0,
+        }
+    }
+}
+
+impl From<SimParams> for SimParamsUniform {
+    fn from(src: SimParams) -> Self {
+        SimParamsUniform {
+            dt: src.dt,
+            time: src.time as f32,
         }
     }
 }
@@ -790,11 +803,11 @@ pub(crate) fn prepare_effects(
 
     // Update simulation parameters
     {
-        let mut sim_params_uni = effects_meta.sim_params_uniforms.get_mut(0);
-        sim_params_uni.dt = sim_params.dt;
-        sim_params_uni.time = sim_params.time as f32;
+        let sim_params_uni = effects_meta.sim_params_uniforms.get_mut(0);
+        let sim_params = *sim_params;
+        *sim_params_uni = sim_params.into();
     }
-    //trace!("t={} dt={}", sim_params.time, sim_params.dt);
+    trace!("Simulation parameters: time={} dt={}", sim_params.time, sim_params.dt);
     effects_meta
         .sim_params_uniforms
         .write_buffer(&render_device, &render_queue);
