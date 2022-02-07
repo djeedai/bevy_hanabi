@@ -19,6 +19,7 @@ struct SimParams {
 struct Spawner {
     origin: vec3<f32>;
     spawn: atomic<i32>;
+    accel: vec3<f32>;
     count: atomic<i32>;
 };
 
@@ -86,6 +87,9 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
             return;
         }
     }
+
+    // integration
+    vVel = vVel + (spawner.accel * sim_params.dt);
 
     // kinematic update
     vPos = vPos + (vVel * sim_params.dt);

@@ -1,12 +1,20 @@
 use bevy::{
     asset::{AssetLoader, Handle, LoadContext, LoadedAsset},
+    math::Vec3,
     reflect::TypeUuid,
     render::texture::Image,
     utils::BoxedFuture,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{Gradient, Modifier, Spawner};
+use crate::{Gradient, Modifier, Spawner, UpdateModifier};
+
+#[derive(Default, Clone, Copy)]
+pub struct UpdateLayout {
+    /// Constant accelereation to apply to all particles.
+    /// Generally used to simulate some kind of gravity.
+    pub accel: Vec3,
+}
 
 #[derive(Default, Clone)]
 pub struct RenderLayout {
@@ -29,6 +37,9 @@ pub struct EffectAsset {
     pub spawner: Spawner,
     ///
     #[serde(skip)] // TODO
+    pub update_layout: UpdateLayout,
+    ///
+    #[serde(skip)] // TODO
     pub render_layout: RenderLayout,
 }
 ///
@@ -38,6 +49,12 @@ pub struct EffectAsset {
 impl EffectAsset {
     pub fn with<M: Modifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
         modifier.apply(&mut self.render_layout);
+        //self.modifiers.push(Box::new(modifier));
+        self
+    }
+
+    pub fn update<M: UpdateModifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
+        modifier.apply(&mut self.update_layout);
         //self.modifiers.push(Box::new(modifier));
         self
     }

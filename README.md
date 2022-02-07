@@ -51,8 +51,8 @@ See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
   - [ ] Random color
 - Update
   - [x] Motion integration
-  - [ ] Apply forces
-    - [ ] Constant
+  - [x] Apply forces
+    - [x] Constant (gravity)
     - [ ] Bounded (AABB, etc.)
   - [x] Lifetime
   - [ ] Size change over lifetime
@@ -63,6 +63,12 @@ See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
   - [x] Quad (sprite)
     - [x] Textured
   - [ ] Generic 3D mesh
+- Debug
+  - [x] GPU debug labels / groups
+  - [ ] Debug visualization
+    - [ ] Position magnitude
+    - [ ] Velocity magnitude
+    - [ ] Age / lifetime
 
 ## Compatible Bevy versions
 

@@ -163,13 +163,14 @@ impl From<SimParams> for SimParamsUniform {
 struct SpawnerParams {
     /// Origin of the effect. This is either added to emitted particles at spawn time, if the effect simulated
     /// in world space, or to all simulated particles if the effect is simulated in local space.
-    origin: [f32; 3],
+    origin: Vec3,
     /// Number of particles to spawn this frame.
     spawn: i32,
+    /// Global acceleration applied to all particles each frame.
+    /// TODO - This is NOT a spawner/emitter thing, but is a per-effect one. Rename SpawnerParams?
+    accel: Vec3,
     /// Current number of used particles.
     count: i32,
-    ///
-    __pad: [f32; 3], // FIXME - Add StorageVec<> handling Std430 padding
 }
 
 pub struct ParticlesUpdatePipeline {
@@ -482,6 +483,8 @@ pub struct ExtractedEffect {
     pub spawn_count: u32,
     /// Global transform of the effect origin.
     pub transform: Mat4,
+    /// Constant acceleration applied to all particles.
+    pub accel: Vec3,
     /// Particles tint to modulate with the texture image.
     pub color: Color,
     pub rect: Rect,
@@ -626,6 +629,9 @@ pub(crate) fn extract_effects(
             let spawner = effect.spawner(&asset.spawner);
             let spawn_count = spawner.tick(dt);
 
+            // Extract the acceleration
+            let accel = asset.update_layout.accel;
+
             // Generate the shader code for the color over lifetime gradient.
             // TODO - Move that to a pre-pass, not each frame!
             let vertex_modifiers = if let Some(grad) = &asset.render_layout.lifetime_color_gradient
@@ -658,6 +664,7 @@ pub(crate) fn extract_effects(
                     spawn_count,
                     color: Color::RED, //effect.color,
                     transform: transform.compute_matrix(),
+                    accel,
                     rect: Rect {
                         min: Vec2::ZERO,
                         max: Vec2::new(0.2, 0.2), // effect
@@ -952,10 +959,12 @@ pub(crate) fn prepare_effects(
         trace!("item_size = {}B", slice.item_size);
 
         // Prepare the spawner block for the current slice
+        // FIXME - This is once per EFFECT/SLICE, not once per BATCH, so indeed this is spawner_BASE, and need an array of them in the compute shader!!!!!!!!!!!!!!
         let spawner_params = SpawnerParams {
-            origin: extracted_effect.transform.col(3).truncate().to_array(),
             spawn: extracted_effect.spawn_count as i32,
             count: 0,
+            origin: extracted_effect.transform.col(3).truncate(),
+            accel: extracted_effect.accel,
             ..Default::default()
         };
         trace!("spawner_params = {:?}", spawner_params);

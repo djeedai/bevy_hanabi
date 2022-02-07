@@ -1,9 +1,16 @@
 use bevy::prelude::*;
 
-use crate::{asset::RenderLayout, gradient::Gradient};
+use crate::{
+    asset::{RenderLayout, UpdateLayout},
+    gradient::Gradient,
+};
 
 pub trait Modifier {
     fn apply(&self, render_layout: &mut RenderLayout);
+}
+
+pub trait UpdateModifier {
+    fn apply(&self, update_modifier: &mut UpdateLayout);
 }
 
 pub trait RenderModifier: Modifier {}
@@ -33,3 +40,14 @@ impl Modifier for ColorOverLifetimeModifier {
     }
 }
 impl RenderModifier for ColorOverLifetimeModifier {}
+
+#[derive(Default, Clone, Copy)]
+pub struct AccelModifier {
+    pub accel: Vec3,
+}
+
+impl UpdateModifier for AccelModifier {
+    fn apply(&self, layout: &mut UpdateLayout) {
+        layout.accel = self.accel;
+    }
+}

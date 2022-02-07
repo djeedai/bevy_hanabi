@@ -41,7 +41,10 @@ mod spawn;
 pub use asset::EffectAsset;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
-pub use modifiers::{ColorOverLifetimeModifier, Modifier, ParticleTextureModifier, RenderModifier};
+pub use modifiers::{
+    ColorOverLifetimeModifier, AccelModifier, Modifier, ParticleTextureModifier, RenderModifier,
+    UpdateModifier,
+};
 pub use plugin::HanabiPlugin;
 pub use render::EffectCacheId;
 pub use spawn::{SpawnCount, SpawnMode, SpawnRate, Spawner, Value};

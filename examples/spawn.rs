@@ -69,6 +69,9 @@ fn setup(
         }
         .with(ColorOverLifetimeModifier {
             gradient: gradient1,
+        })
+        .update(AccelModifier {
+            accel: Vec3::new(0., -3., 0.),
         }),
     );
 
@@ -135,6 +138,9 @@ fn setup(
         }
         .with(ColorOverLifetimeModifier {
             gradient: gradient3,
+        })
+        .update(AccelModifier {
+            accel: Vec3::new(0., 5., 0.),
         }),
     );
 
