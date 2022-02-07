@@ -65,6 +65,7 @@ fn setup(
             name: "emit:rate".to_string(),
             capacity: 32768,
             spawner: Spawner::new(SpawnMode::rate(5.)),
+            ..Default::default()
         }
         .with(ColorOverLifetimeModifier {
             gradient: gradient1,
@@ -97,6 +98,7 @@ fn setup(
             name: "emit:once".to_string(),
             capacity: 32768,
             spawner: Spawner::new(SpawnMode::once(1000.)),
+            ..Default::default()
         }
         .with(ColorOverLifetimeModifier {
             gradient: gradient2,
@@ -129,6 +131,7 @@ fn setup(
             name: "emit:burst".to_string(),
             capacity: 32768,
             spawner: Spawner::new(SpawnMode::burst(40., 3.)),
+            ..Default::default()
         }
         .with(ColorOverLifetimeModifier {
             gradient: gradient3,

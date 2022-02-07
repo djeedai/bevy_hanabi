@@ -18,7 +18,7 @@ pub struct RenderLayout {
     pub lifetime_color_gradient: Option<Gradient>,
 }
 
-#[derive(Serialize, Deserialize, TypeUuid)]
+#[derive(Default, Serialize, Deserialize, TypeUuid)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.

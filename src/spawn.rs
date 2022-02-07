@@ -54,6 +54,12 @@ pub struct Spawner {
     spawn: f32,
 }
 
+impl Default for Spawner {
+    fn default() -> Self {
+        Spawner::new(SpawnMode::once(1.))
+    }
+}
+
 impl Spawner {
     pub fn new(mode: SpawnMode) -> Self {
         Spawner {
