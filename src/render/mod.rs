@@ -33,6 +33,7 @@ use bevy::{
 };
 use bitflags::bitflags;
 use bytemuck::cast_slice_mut;
+use rand::random;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 use crate::Gradient;
@@ -171,6 +172,14 @@ struct SpawnerParams {
     accel: Vec3,
     /// Current number of used particles.
     count: i32,
+    ///
+    __pad0: Vec3,
+    /// Spawn seed, for randomized modifiers.
+    seed: u32,
+    ///
+    __pad1: Vec3,
+    ///
+    __pad2: f32,
 }
 
 pub struct ParticlesUpdatePipeline {
@@ -814,7 +823,11 @@ pub(crate) fn prepare_effects(
         let sim_params = *sim_params;
         *sim_params_uni = sim_params.into();
     }
-    trace!("Simulation parameters: time={} dt={}", sim_params.time, sim_params.dt);
+    trace!(
+        "Simulation parameters: time={} dt={}",
+        sim_params.time,
+        sim_params.dt
+    );
     effects_meta
         .sim_params_uniforms
         .write_buffer(&render_device, &render_queue);
@@ -965,6 +978,7 @@ pub(crate) fn prepare_effects(
             count: 0,
             origin: extracted_effect.transform.col(3).truncate(),
             accel: extracted_effect.accel,
+            seed: random::<u32>(),
             ..Default::default()
         };
         trace!("spawner_params = {:?}", spawner_params);
@@ -1227,7 +1241,7 @@ pub(crate) fn queue_effects(
                 None
             };
 
-            // Specialize the pipeline based on the effect batch
+            // Specialize the render pipeline based on the effect batch
             trace!(
                 "Specializing render pipeline: shader={:?} particle_texture={:?}",
                 batch.shader,
