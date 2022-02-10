@@ -4,8 +4,11 @@ use bevy::prelude::*;
 /// A component bundle for a particle effect.
 #[derive(Bundle, Clone)]
 pub struct ParticleEffectBundle {
+    /// The particle effect itself.
     pub effect: ParticleEffect,
+    /// Transform of the entity, representing the frame of reference for the particle emission.
     pub transform: Transform,
+    /// Computed global transform.
     pub global_transform: GlobalTransform,
     /// User indication of whether an entity is visible.
     pub visibility: Visibility,
@@ -20,6 +23,7 @@ impl Default for ParticleEffectBundle {
 }
 
 impl ParticleEffectBundle {
+    /// Create a new particle effect bundle from an effect description.
     pub fn new(handle: Handle<EffectAsset>) -> Self {
         ParticleEffectBundle {
             effect: ParticleEffect::new(handle),

@@ -256,18 +256,22 @@ impl EffectBuffer {
     }
 }
 
+/// Identifier referencing an effect cached in an [`EffectCache`].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EffectCacheId(u64);
 
 impl EffectCacheId {
+    /// An invalid handle, corresponding to nothing.
     pub const INVALID: Self = EffectCacheId(u64::MAX);
 
+    /// Generate a new valid effect cache identifier.
     pub fn new() -> EffectCacheId {
         static NEXT_EFFECT_CACHE_ID: AtomicU64 = AtomicU64::new(0);
         EffectCacheId(NEXT_EFFECT_CACHE_ID.fetch_add(1, AtomicOrdering::Relaxed))
     }
 }
 
+/// Cache for effect instances sharing common GPU data structures.
 pub struct EffectCache {
     device: RenderDevice,
     buffers: Vec<EffectBuffer>,

@@ -4,7 +4,11 @@ use std::vec::Vec;
 /// A single key point for a [`Gradient`].
 #[derive(Default, Clone, Copy, PartialEq)]
 pub struct GradientKey {
+    /// Ratio in \[0:1\] where the key is located.
     pub ratio: f32,
+    /// Color value associated with the key (RGBA).
+    /// The color is uploaded as is to the render shader, and does not imply any
+    /// particular color space by itself.
     pub color: Vec4,
 }
 

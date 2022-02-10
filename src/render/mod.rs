@@ -1636,16 +1636,17 @@ mod tests {
 
         grad.add_key(0.0, Vec4::splat(0.0));
         assert_eq!(
-            "let t0 = 0;\nlet c0 = vec4<f32>(0, 0, 0, 0);\nout.color = c0;\n",
+            "// Gradient\nlet t0 = 0.;\nlet c0 = vec4<f32>(0., 0., 0., 0.);\nout.color = c0;\n",
             grad.to_shader_code()
         );
 
         grad.add_key(1.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
         assert_eq!(
-            r#"let t0 = 0;
-let c0 = vec4<f32>(0, 0, 0, 0);
-let t1 = 1;
-let c1 = vec4<f32>(1, 0, 0, 1);
+            r#"// Gradient
+let t0 = 0.;
+let c0 = vec4<f32>(0., 0., 0., 0.);
+let t1 = 1.;
+let c1 = vec4<f32>(1., 0., 0., 1.);
 let life = particle.age / particle.lifetime;
 if (life <= t0) { out.color = c0; }
 else if (life <= t1) { out.color = mix(c0, c1, (life - t0) / (t1 - t0)); }
