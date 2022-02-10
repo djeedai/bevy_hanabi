@@ -42,7 +42,7 @@ pub use asset::EffectAsset;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifiers::{
-    AccelModifier, ColorOverLifetimeModifier, InitModifier, Modifier, ParticleTextureModifier,
+    AccelModifier, ColorOverLifetimeModifier, InitModifier, ParticleTextureModifier,
     PositionSphereModifier, RenderModifier, UpdateModifier,
 };
 pub use plugin::HanabiPlugin;

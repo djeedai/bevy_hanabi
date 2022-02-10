@@ -7,7 +7,7 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{Gradient, InitModifier, Modifier, Spawner, UpdateModifier};
+use crate::{Gradient, InitModifier, RenderModifier, Spawner, UpdateModifier};
 
 #[derive(Default, Clone)]
 pub struct InitLayout {
@@ -55,20 +55,23 @@ pub struct EffectAsset {
 //modifiers: Vec<Box<dyn Modifier + Send + Sync + 'static>>,
 
 impl EffectAsset {
-    pub fn with<M: Modifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
-        modifier.apply(&mut self.render_layout);
-        //self.modifiers.push(Box::new(modifier));
-        self
-    }
-
+    /// Add an initialization modifier to the effect.
     pub fn init<M: InitModifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
         modifier.apply(&mut self.init_layout);
         //self.modifiers.push(Box::new(modifier));
         self
     }
 
+    /// Add an update modifier to the effect.
     pub fn update<M: UpdateModifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
         modifier.apply(&mut self.update_layout);
+        //self.modifiers.push(Box::new(modifier));
+        self
+    }
+
+    /// Add a render modifier to the effect.
+    pub fn render<M: RenderModifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
+        modifier.apply(&mut self.render_layout);
         //self.modifiers.push(Box::new(modifier));
         self
     }

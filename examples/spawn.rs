@@ -71,11 +71,11 @@ fn setup(
             center: Vec3::ZERO,
             radius: 2.,
         })
-        .with(ColorOverLifetimeModifier {
-            gradient: gradient1,
-        })
         .update(AccelModifier {
             accel: Vec3::new(0., -3., 0.),
+        })
+        .render(ColorOverLifetimeModifier {
+            gradient: gradient1,
         }),
     );
 
@@ -111,7 +111,7 @@ fn setup(
             center: Vec3::ZERO,
             radius: 2.,
         })
-        .with(ColorOverLifetimeModifier {
+        .render(ColorOverLifetimeModifier {
             gradient: gradient2,
         }),
     );
@@ -148,11 +148,11 @@ fn setup(
             center: Vec3::ZERO,
             radius: 2.,
         })
-        .with(ColorOverLifetimeModifier {
-            gradient: gradient3,
-        })
         .update(AccelModifier {
             accel: Vec3::new(0., 5., 0.),
+        })
+        .render(ColorOverLifetimeModifier {
+            gradient: gradient3,
         }),
     );
 
