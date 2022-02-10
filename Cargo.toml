@@ -10,6 +10,7 @@ documentation = "https://docs.rs/bevy_hanabi"
 keywords = ["bevy", "particle-system", "particles", "vfx"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
+exclude = ["examples/*.gif", ".github"]
 
 [dependencies]
 bytemuck = "1.5"

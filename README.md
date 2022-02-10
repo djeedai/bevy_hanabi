@@ -82,6 +82,8 @@ See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
 
 ![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/main/examples/gradient.gif)
 
+![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/main/examples/spawn.gif)
+
 ## Feature List
 
 - Spawn
