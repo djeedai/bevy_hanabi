@@ -67,6 +67,10 @@ fn setup(
             spawner: Spawner::new(SpawnMode::rate(5.)),
             ..Default::default()
         }
+        .init(PositionSphereModifier {
+            center: Vec3::ZERO,
+            radius: 2.,
+        })
         .with(ColorOverLifetimeModifier {
             gradient: gradient1,
         })
@@ -103,6 +107,10 @@ fn setup(
             spawner: Spawner::new(SpawnMode::once(1000.)),
             ..Default::default()
         }
+        .init(PositionSphereModifier {
+            center: Vec3::ZERO,
+            radius: 2.,
+        })
         .with(ColorOverLifetimeModifier {
             gradient: gradient2,
         }),
@@ -136,6 +144,10 @@ fn setup(
             spawner: Spawner::new(SpawnMode::burst(40., 3.)),
             ..Default::default()
         }
+        .init(PositionSphereModifier {
+            center: Vec3::ZERO,
+            radius: 2.,
+        })
         .with(ColorOverLifetimeModifier {
             gradient: gradient3,
         })

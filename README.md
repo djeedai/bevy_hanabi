@@ -38,9 +38,9 @@ See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
   - [x] Repeated burst
 - Initialize
   - [ ] Constant position
-  - [ ] Position over shape
+  - [x] Position over shape
     - [ ] cube
-    - [ ] sphere
+    - [x] sphere
     - [ ] cone
     - [ ] plane
     - [ ] generic mesh / point cloud (?)
@@ -53,7 +53,13 @@ See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
   - [x] Motion integration
   - [x] Apply forces
     - [x] Constant (gravity)
-    - [ ] Bounded (AABB, etc.)
+    - [ ] Force field
+  - [ ] Collision
+    - [ ] Shape
+      - [ ] plane
+      - [ ] cube
+      - [ ] sphere
+    - [ ] Depth buffer
   - [x] Lifetime
   - [ ] Size change over lifetime
   - [x] Color change over lifetime
@@ -63,6 +69,8 @@ See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
   - [x] Quad (sprite)
     - [x] Textured
   - [ ] Generic 3D mesh
+  - [ ] Deformation
+    - [ ] Velocity (trail)
 - Debug
   - [x] GPU debug labels / groups
   - [ ] Debug visualization

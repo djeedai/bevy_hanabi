@@ -42,12 +42,23 @@ pub use asset::EffectAsset;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifiers::{
-    ColorOverLifetimeModifier, AccelModifier, Modifier, ParticleTextureModifier, RenderModifier,
-    UpdateModifier,
+    AccelModifier, ColorOverLifetimeModifier, InitModifier, Modifier, ParticleTextureModifier,
+    PositionSphereModifier, RenderModifier, UpdateModifier,
 };
 pub use plugin::HanabiPlugin;
 pub use render::EffectCacheId;
 pub use spawn::{SpawnCount, SpawnMode, SpawnRate, Spawner, Value};
+
+trait ToWgslFloat {
+    fn to_float_string(&self) -> String;
+}
+
+impl ToWgslFloat for f32 {
+    fn to_float_string(&self) -> String {
+        let s = format!("{:.6}", self);
+        s.trim_end_matches("0").to_string()
+    }
+}
 
 #[derive(Debug, Clone, Component, TypeUuid)]
 #[uuid = "c48df8b5-7eca-4d25-831e-513c2575cf6c"]

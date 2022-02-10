@@ -10,10 +10,10 @@ use bevy::{
 use crate::{
     asset::{EffectAsset, EffectAssetLoader},
     render::{
-        extract_effect_events, extract_effects, prepare_effects, queue_effects, DrawEffects,
-        EffectAssetEvents, EffectBindGroups, EffectSystems, EffectsMeta, ExtractedEffects,
-        ImageBindGroups, ParticleUpdateNode, ParticlesRenderPipeline, ParticlesUpdatePipeline,
-        PipelineRegistry, SimParams, PARTICLES_RENDER_SHADER_HANDLE,
+        extract_effect_events, extract_effects, prepare_effects, queue_effects, ComputeCache,
+        DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems, EffectsMeta,
+        ExtractedEffects, ImageBindGroups, ParticleUpdateNode, ParticlesRenderPipeline,
+        ParticlesUpdatePipeline, PipelineRegistry, SimParams, PARTICLES_RENDER_SHADER_HANDLE,
         PARTICLES_UPDATE_SHADER_HANDLE,
     },
 };
@@ -60,6 +60,7 @@ impl Plugin for HanabiPlugin {
             .init_resource::<ImageBindGroups>()
             .init_resource::<EffectBindGroups>()
             .init_resource::<ParticlesUpdatePipeline>()
+            .init_resource::<ComputeCache<ParticlesUpdatePipeline>>()
             .init_resource::<ParticlesRenderPipeline>()
             .init_resource::<SpecializedPipelines<ParticlesRenderPipeline>>()
             .init_resource::<ExtractedEffects>()

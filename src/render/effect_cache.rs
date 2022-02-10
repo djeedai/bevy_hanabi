@@ -91,7 +91,7 @@ pub struct EffectBuffer {
     /// Map of entities and slices.
     slice_from_entity: HashMap<Entity, usize>,
     /// Compute pipeline for the effect update pass.
-    pub compute_pipeline: ComputePipeline, // FIXME - ComputePipelineId, to avoid duplicating per instance!
+    //pub compute_pipeline: ComputePipeline, // FIXME - ComputePipelineId, to avoid duplicating per instance!
     /// Handle of all effects common in this buffer. TODO - replace with compatible layout
     asset: Handle<EffectAsset>,
     /// The buffer has pending changes and needs to be written to GPU.
@@ -108,7 +108,7 @@ impl EffectBuffer {
     /// Create a new group and a GPU buffer to back it up.
     pub fn new(
         asset: Handle<EffectAsset>,
-        compute_pipeline: ComputePipeline,
+        //compute_pipeline: ComputePipeline,
         render_device: &RenderDevice,
         label: Option<&str>,
     ) -> Self {
@@ -127,7 +127,7 @@ impl EffectBuffer {
             slices: vec![],
             free_slices: vec![],
             slice_from_entity: HashMap::default(),
-            compute_pipeline,
+            //compute_pipeline,
             asset,
             pending_changes: vec![],
         }
@@ -292,7 +292,7 @@ impl EffectCache {
         asset: Handle<EffectAsset>,
         capacity: u32,
         item_size: u32,
-        pipeline: ComputePipeline,
+        //pipeline: ComputePipeline,
         _queue: &RenderQueue,
     ) -> EffectCacheId {
         let (buffer_index, slice) = self
@@ -323,7 +323,7 @@ impl EffectCache {
                 );
                 self.buffers.push(EffectBuffer::new(
                     asset,
-                    pipeline,
+                    //pipeline,
                     &self.device,
                     Some(&format!("effect_buffer{}", self.buffers.len())),
                 ));

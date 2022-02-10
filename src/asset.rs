@@ -7,7 +7,12 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{Gradient, Modifier, Spawner, UpdateModifier};
+use crate::{Gradient, InitModifier, Modifier, Spawner, UpdateModifier};
+
+#[derive(Default, Clone)]
+pub struct InitLayout {
+    pub position_code: String,
+}
 
 #[derive(Default, Clone, Copy)]
 pub struct UpdateLayout {
@@ -37,6 +42,9 @@ pub struct EffectAsset {
     pub spawner: Spawner,
     ///
     #[serde(skip)] // TODO
+    pub init_layout: InitLayout,
+    ///
+    #[serde(skip)] // TODO
     pub update_layout: UpdateLayout,
     ///
     #[serde(skip)] // TODO
@@ -49,6 +57,12 @@ pub struct EffectAsset {
 impl EffectAsset {
     pub fn with<M: Modifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
         modifier.apply(&mut self.render_layout);
+        //self.modifiers.push(Box::new(modifier));
+        self
+    }
+
+    pub fn init<M: InitModifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
+        modifier.apply(&mut self.init_layout);
         //self.modifiers.push(Box::new(modifier));
         self
     }
