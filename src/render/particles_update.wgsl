@@ -94,21 +94,6 @@ struct PosVel {
     vel: vec3<f32>;
 };
 
-// fn init_pos_vel(index: u32) -> PosVel {
-//     var ret : PosVel;
-//     // Sphere radius
-//     var r = 2.0;
-//     // Radial speed
-//     var speed = 2.0;
-//     // Spawn randomly along the sphere surface
-//     var dir = rand3() * 2. - 1.;
-//     dir = normalize(dir);
-//     ret.pos = dir * r;
-//     // Radial speed away from sphere center
-//     ret.vel = dir * speed;
-//     return ret;
-// }
-
 fn init_pos_vel(index: u32) -> PosVel {
     var ret : PosVel;
 {{INIT_POS_VEL}}

@@ -107,10 +107,6 @@ fn setup(
             spawner: Spawner::new(SpawnMode::once(1000.)),
             ..Default::default()
         }
-        .init(PositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 2.,
-        })
         .render(ColorOverLifetimeModifier {
             gradient: gradient2,
         }),

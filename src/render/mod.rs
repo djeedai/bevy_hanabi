@@ -52,6 +52,14 @@ pub const PARTICLES_RENDER_SHADER_HANDLE: HandleUntyped =
 const PARTICLES_UPDATE_SHADER_TEMPLATE: &'static str = include_str!("particles_update.wgsl");
 const PARTICLES_RENDER_SHADER_TEMPLATE: &'static str = include_str!("particles_render.wgsl");
 
+const DEFAULT_POSITION_CODE: &'static str = r##"
+    ret.pos = vec3<f32>(0., 0., 0.);
+    var dir = rand3() * 2. - 1.;
+    dir = normalize(dir);
+    var speed = 2.;
+    ret.vel = dir * speed;
+"##;
+
 /// Labels for the Hanabi systems.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
 pub enum EffectSystems {
@@ -660,7 +668,12 @@ pub(crate) fn extract_effects(
 
             // Generate the shader code for the position initializing of newly emitted particles
             // TODO - Move that to a pre-pass, not each frame!
-            let position_code = asset.init_layout.position_code.clone();
+            let position_code = &asset.init_layout.position_code;
+            let position_code = if position_code.is_empty() {
+                DEFAULT_POSITION_CODE.to_owned()
+            } else {
+                position_code.clone()
+            };
 
             // Generate the shader code for the color over lifetime gradient.
             // TODO - Move that to a pre-pass, not each frame!
