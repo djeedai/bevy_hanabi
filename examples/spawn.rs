@@ -70,6 +70,8 @@ fn setup(
         .init(PositionSphereModifier {
             center: Vec3::ZERO,
             radius: 2.,
+            dimension: ShapeDimension::Surface,
+            speed: 6.,
         })
         .update(AccelModifier {
             accel: Vec3::new(0., -3., 0.),
@@ -137,12 +139,14 @@ fn setup(
         EffectAsset {
             name: "emit:burst".to_string(),
             capacity: 32768,
-            spawner: Spawner::new(SpawnMode::burst(40., 3.)),
+            spawner: Spawner::new(SpawnMode::burst(400., 3.)),
             ..Default::default()
         }
         .init(PositionSphereModifier {
             center: Vec3::ZERO,
-            radius: 2.,
+            radius: 5.,
+            dimension: ShapeDimension::Volume,
+            speed: 2.,
         })
         .update(AccelModifier {
             accel: Vec3::new(0., 5., 0.),
