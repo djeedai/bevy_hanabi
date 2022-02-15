@@ -5,8 +5,6 @@
 
 Hanabi — a particle system plugin for the Bevy game engine.
 
-⚠ _Bevy 0.6.0 does not build with the `nightly` toolchain. This breaks `docs.rs` builds. A fix is expected for 0.6.1._
-
 ## Usage
 
 This plugin is only compatible with Bevy v0.6.
