@@ -256,7 +256,7 @@ impl EffectBuffer {
     }
 }
 
-/// Identifier referencing an effect cached in an [`EffectCache`].
+/// Identifier referencing an effect cached in an internal effect cache.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct EffectCacheId(u64);
 
@@ -273,8 +273,11 @@ impl EffectCacheId {
 
 /// Cache for effect instances sharing common GPU data structures.
 pub struct EffectCache {
+    /// Render device the GPU resources (buffers) are allocated from.
     device: RenderDevice,
+    /// Collection of effect buffers managed by this cache.
     buffers: Vec<EffectBuffer>,
+    /// Map from an effect cache ID to the index of the buffer and the slice into that buffer.
     effects: HashMap<EffectCacheId, (usize, SliceRef)>,
 }
 

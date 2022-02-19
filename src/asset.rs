@@ -35,6 +35,9 @@ pub struct RenderLayout {
 /// Asset describing a visual effect.
 ///
 /// The effect can be instanciated with a [`ParticleEffect`] component, or a [`ParticleEffectBundle`].
+///
+/// [`ParticleEffect`]: crate::ParticleEffect
+/// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
 #[derive(Default, Serialize, Deserialize, TypeUuid)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
