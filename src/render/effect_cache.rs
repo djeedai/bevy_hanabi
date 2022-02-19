@@ -11,7 +11,7 @@ use bevy::{
         prelude::*,
         system::{lifetimeless::*, SystemState},
     },
-    log::trace,
+    log::{trace, warn},
     math::{const_vec3, Mat4, Vec2, Vec3, Vec4Swizzles},
     reflect::TypeUuid,
     render::{
@@ -81,9 +81,9 @@ pub struct EffectBuffer {
     /// GPU buffer holding all particles for the entire group of effects.
     buffer: Buffer,
     /// Total buffer capacity in bytes.
-    capacity: usize,
+    capacity: u32,
     /// Used buffer size, either from allocated slices or from slices in the free list.
-    used_size: usize,
+    used_size: u32,
     /// Collection of slices into the buffer, each slice being one effect instance.
     slices: Vec<EffectSlice>,
     /// Array of free ranges for new allocations.
@@ -100,20 +100,24 @@ pub struct EffectBuffer {
 
 struct BestRange {
     range: Range<u32>,
-    capacity: usize,
+    capacity: u32,
     index: usize,
 }
 
 impl EffectBuffer {
+    /// Minimum buffer capacity to allocate.
+    pub const MIN_CAPACITY_BYTES: u32 = 64 * 65536; // at least 64k particles of size 64B
+
     /// Create a new group and a GPU buffer to back it up.
     pub fn new(
         asset: Handle<EffectAsset>,
+        capacity: u32,
         //compute_pipeline: ComputePipeline,
         render_device: &RenderDevice,
         label: Option<&str>,
     ) -> Self {
-        trace!("EffectBuffer::new()");
-        let capacity = 64 * 65536;
+        trace!("EffectBuffer::new(capacity={}B)", capacity);
+        let capacity = capacity.max(Self::MIN_CAPACITY_BYTES);
         let buffer = render_device.create_buffer(&BufferDescriptor {
             label,
             size: capacity as BufferAddress,
@@ -137,30 +141,40 @@ impl EffectBuffer {
         &self.buffer
     }
 
-    pub fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> u32 {
         self.capacity
     }
 
-    pub fn binding(&self, size: u64) -> BindingResource {
+    /// Return a binding for the entire buffer.
+    pub fn max_binding(&self) -> BindingResource {
         BindingResource::Buffer(BufferBinding {
             buffer: &self.buffer,
             offset: 0,
-            size: Some(NonZeroU64::new(size).unwrap()),
+            size: Some(NonZeroU64::new(self.capacity as u64).unwrap()),
         })
     }
 
-    fn pop_free_slice(&mut self, size: usize) -> Option<Range<u32>> {
+    /// Return a binding of the buffer for a starting range of a given size (in bytes).
+    pub fn binding(&self, size: u32) -> BindingResource {
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.buffer,
+            offset: 0,
+            size: Some(NonZeroU64::new(size as u64).unwrap()),
+        })
+    }
+
+    fn pop_free_slice(&mut self, size: u32) -> Option<Range<u32>> {
         if self.free_slices.is_empty() {
             return None;
         }
         let slice0 = &self.free_slices[0];
         let mut result = BestRange {
             range: slice0.clone(),
-            capacity: (slice0.end - slice0.start) as usize,
+            capacity: (slice0.end - slice0.start),
             index: 0,
         };
         for (index, slice) in self.free_slices.iter().skip(1).enumerate() {
-            let capacity = (slice.end - slice.start) as usize;
+            let capacity = slice.end - slice.start;
             if size > capacity {
                 continue;
             }
@@ -185,8 +199,8 @@ impl EffectBuffer {
         );
         assert_eq!(item_size as usize, std::mem::size_of::<Particle>()); // TODO
 
-        let size = (capacity as usize)
-            .checked_mul(item_size as usize)
+        let size = capacity
+            .checked_mul(item_size)
             .expect("Effect slice size overflow");
 
         let range = if let Some(range) = self.pop_free_slice(size) {
@@ -194,17 +208,20 @@ impl EffectBuffer {
         } else {
             let new_size = self.used_size.checked_add(size).unwrap();
             if new_size <= self.capacity {
-                let range = self.used_size as u32..new_size as u32;
+                let range = self.used_size..new_size;
                 self.used_size = new_size;
                 range
             } else {
+                if self.used_size == 0 {
+                    warn!("Cannot allocate slice of size {} Bytes in effect cache buffer of capacity {} Bytes.", size, self.capacity());
+                }
                 return None;
             }
         };
 
         let mut rng = rand::thread_rng();
-        let mut data: Vec<u8> = Vec::with_capacity(size);
-        data.resize(size, 0); // FIXME - more efficient not to use Vec<>?
+        let mut data: Vec<u8> = Vec::with_capacity(size as usize);
+        data.resize(size as usize, 0); // FIXME - more efficient not to use Vec<>?
         for i in 0..capacity {
             let offset = i as usize * item_size as usize;
             // trace!(
@@ -321,15 +338,21 @@ impl EffectCache {
             .or_else(|| {
                 // Cannot find any suitable buffer; allocate a new one
                 let buffer_index = self.buffers.len();
+                let byte_size = capacity.checked_mul(item_size).expect(&format!(
+                    "Effect size overflow: capacity={} item_size={}",
+                    capacity, item_size
+                ));
                 trace!(
-                    "Creating new effect buffer #{} for effect {:?} (capacity={}, item_size={})",
+                    "Creating new effect buffer #{} for effect {:?} (capacity={}, item_size={}, byte_size={})",
                     buffer_index,
                     asset,
                     capacity,
-                    item_size
+                    item_size,
+                    byte_size
                 );
                 self.buffers.push(EffectBuffer::new(
                     asset,
+                    byte_size,
                     //pipeline,
                     &self.device,
                     Some(&format!("effect_buffer{}", self.buffers.len())),

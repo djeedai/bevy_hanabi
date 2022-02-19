@@ -237,6 +237,12 @@ impl FromWorld for ParticlesUpdatePipeline {
         let world = world.cell();
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
+        let limits = render_device.limits();
+        bevy::log::info!(
+            "GPU limits:\n- max_compute_invocations_per_workgroup={}\n- max_compute_workgroup_size_x={}\n- max_compute_workgroup_size_y={}\n- max_compute_workgroup_size_z={}\n- max_compute_workgroups_per_dimension={}",
+            limits.max_compute_invocations_per_workgroup, limits.max_compute_workgroup_size_x, limits.max_compute_workgroup_size_y, limits.max_compute_workgroup_size_z, limits.max_compute_workgroups_per_dimension
+        );
+
         trace!(
             "SimParamsUniform: std140_size_static = {}",
             SimParamsUniform::std140_size_static()
@@ -723,12 +729,12 @@ pub(crate) fn extract_effects(
 
             // Generate the shader code for the color over lifetime gradient.
             // TODO - Move that to a pre-pass, not each frame!
-            let mut vertex_modifiers = if let Some(grad) = &asset.render_layout.lifetime_color_gradient
-            {
-                grad.to_shader_code()
-            } else {
-                String::new()
-            };
+            let mut vertex_modifiers =
+                if let Some(grad) = &asset.render_layout.lifetime_color_gradient {
+                    grad.to_shader_code()
+                } else {
+                    String::new()
+                };
             if let Some(grad) = &asset.render_layout.size_color_gradient {
                 vertex_modifiers += &grad.to_shader_code();
             }
@@ -1247,7 +1253,7 @@ pub(crate) fn queue_effects(
                 render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &[BindGroupEntry {
                         binding: 0,
-                        resource: buffer.binding(32768 * 32),
+                        resource: buffer.max_binding(),
                     }],
                     label: Some(&format!(
                         "particles_particles_bind_group_compute{}",
@@ -1268,7 +1274,7 @@ pub(crate) fn queue_effects(
                 render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &[BindGroupEntry {
                         binding: 0,
-                        resource: buffer.binding(32768 * 32),
+                        resource: buffer.max_binding(),
                     }],
                     label: Some(&format!(
                         "particles_particles_bind_group_render{}",
