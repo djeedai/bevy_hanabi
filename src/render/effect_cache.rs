@@ -72,11 +72,6 @@ impl SliceRef {
     }
 }
 
-struct PendingChange {
-    data: Vec<u8>,
-    range: Range<u32>,
-}
-
 pub struct EffectBuffer {
     /// GPU buffer holding all particles for the entire group of effects.
     buffer: Buffer,
@@ -94,8 +89,6 @@ pub struct EffectBuffer {
     //pub compute_pipeline: ComputePipeline, // FIXME - ComputePipelineId, to avoid duplicating per instance!
     /// Handle of all effects common in this buffer. TODO - replace with compatible layout
     asset: Handle<EffectAsset>,
-    /// The buffer has pending changes and needs to be written to GPU.
-    pending_changes: Vec<PendingChange>,
 }
 
 struct BestRange {
@@ -133,7 +126,6 @@ impl EffectBuffer {
             slice_from_entity: HashMap::default(),
             //compute_pipeline,
             asset,
-            pending_changes: vec![],
         }
     }
 
@@ -219,37 +211,6 @@ impl EffectBuffer {
             }
         };
 
-        let mut rng = rand::thread_rng();
-        let mut data: Vec<u8> = Vec::with_capacity(size as usize);
-        data.resize(size as usize, 0); // FIXME - more efficient not to use Vec<>?
-        for i in 0..capacity {
-            let offset = i as usize * item_size as usize;
-            // trace!(
-            //     "offset={} range={:?}",
-            //     offset,
-            //     offset..offset + item_size as usize
-            // );
-            let particle = &mut data[offset..offset + item_size as usize];
-            let particle: &mut [Particle] = cast_slice_mut(particle);
-            let mut particle = &mut particle[0];
-            *particle = Particle::zeroed();
-            particle.age = 0.0;
-            // let mut arr: [f32; 3] = rng.gen();
-            // arr[0] = arr[0] * 10.0 - 5.0;
-            // arr[1] = arr[1] * 10.0 - 5.0;
-            // arr[2] = arr[2] * 10.0 - 5.0;
-            // particle.position = arr;
-            let mut arr: [f32; 3] = rng.gen();
-            arr[0] = arr[0] * 10.0 - 5.0;
-            arr[1] = arr[1] * 10.0 - 5.0;
-            arr[2] = arr[2] * 10.0 - 5.0;
-            particle.velocity = arr;
-            //trace!("particle {}: {:?}", i, particle);
-        }
-        self.pending_changes.push(PendingChange {
-            data,
-            range: range.clone(),
-        });
         Some(SliceRef { range, item_size })
     }
 
@@ -262,14 +223,6 @@ impl EffectBuffer {
     pub fn is_compatible(&self, handle: &Handle<EffectAsset>) -> bool {
         // TODO - replace with check particle layout is compatible to allow update in the same single dispatch call
         *handle == self.asset
-    }
-
-    pub fn flush(&mut self, queue: &RenderQueue) {
-        for change in self.pending_changes.drain(..) {
-            assert!(change.data.len() as u32 <= (change.range.end - change.range.start));
-            let bytes: &[u8] = cast_slice(&change.data[..]);
-            queue.write_buffer(&self.buffer, change.range.start.into(), &bytes[..]);
-        }
     }
 }
 
@@ -385,11 +338,5 @@ impl EffectCache {
                 item_size: slice_ref.item_size,
             })
             .unwrap()
-    }
-
-    pub fn flush(&mut self, queue: &RenderQueue) {
-        for buffer in &mut self.buffers {
-            buffer.flush(queue);
-        }
     }
 }

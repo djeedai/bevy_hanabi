@@ -954,10 +954,6 @@ pub(crate) fn prepare_effects(
         effects_meta.entity_map.insert(entity, slice);
     }
 
-    // Upload modified groups to GPU (either completely new group/buffer, or existing one with one or more
-    // newly added slices into it).
-    effects_meta.effect_cache.flush(&render_queue);
-
     // Deallocate GPU data for destroyed effect instances. This will automatically drop any group where
     // there is no more effect slice.
     for _entity in extracted_effects.removed_effect_entities.iter() {
