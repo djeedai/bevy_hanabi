@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        toolchain: [stable, nightly]
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-build-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.toml') }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
+          override: true
+      - name: Install Bevy dependencies
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libxcb-shape0-dev libxcb-xfixes0-dev
+        if: runner.os == 'linux'
+      - name: Install graphic drivers
+        run: |
+          sudo apt-get update -y -qq
+          sudo add-apt-repository ppa:oibaf/graphics-drivers -y
+          sudo apt-get update
+          sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+        if: runner.os == 'linux'
+      - name: Build & run tests
+        run: cargo test
+        env:
+          CARGO_INCREMENTAL: 0
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-build-stable-${{ hashFiles('**/Cargo.toml') }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Install Bevy dependencies
+        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libxcb-shape0-dev libxcb-xfixes0-dev
+        if: runner.os == 'linux'
+      - name: Install graphic drivers
+        run: |
+          sudo apt-get update -y -qq
+          sudo add-apt-repository ppa:oibaf/graphics-drivers -y
+          sudo apt-get update
+          sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+        if: runner.os == 'linux'
+      - name: Install cargo-tarpaulin
+        run: |
+          RUST_BACKTRACE=1 cargo install --version 0.19.1 cargo-tarpaulin
+      - name: Generate code coverage
+        run: |
+          RUST_BACKTRACE=1 cargo tarpaulin --verbose --timeout 120 --out Lcov --workspace
+          ls -la
+      - name: Upload code coverage
+        uses: coverallsapp/github-action@master
+        with:
+          path-to-lcov: 'lcov.info'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
