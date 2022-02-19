@@ -67,7 +67,7 @@
 //!     // lifetime.
 //!     .render(ColorOverLifetimeModifier { gradient })
 //!     );
-//! 
+//!
 //!     commands
 //!         .spawn()
 //!         .insert(Name::new("MyEffectInstance"))
@@ -94,7 +94,8 @@ pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifiers::{
     AccelModifier, ColorOverLifetimeModifier, InitModifier, ParticleTextureModifier,
-    PositionSphereModifier, RenderModifier, ShapeDimension, UpdateModifier,
+    PositionSphereModifier, RenderModifier, ShapeDimension, SizeOverLifetimeModifier,
+    UpdateModifier,
 };
 pub use plugin::HanabiPlugin;
 pub use render::EffectCacheId;

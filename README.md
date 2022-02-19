@@ -115,7 +115,7 @@ See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
       - [ ] sphere
     - [ ] Depth buffer
   - [x] Lifetime
-  - [ ] Size change over lifetime
+  - [x] Size change over lifetime
   - [x] Color change over lifetime
   - [ ] Face camera
   - [ ] Face constant direction

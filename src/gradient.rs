@@ -1,39 +1,92 @@
-use bevy::{core::FloatOrd, math::Vec4};
+use bevy::{
+    core::FloatOrd,
+    math::{Quat, Vec2, Vec3, Vec3A, Vec4},
+};
 use std::vec::Vec;
+
+/// Describes a type that can be linearly interpolated between two keys.
+///
+/// This trait is used for values in a gradient, which are primitive types and are
+/// therefore copyable.
+pub trait Lerp: Copy {
+    fn lerp(self, other: Self, ratio: f32) -> Self;
+}
+
+impl Lerp for f32 {
+    #[inline]
+    fn lerp(self, other: Self, ratio: f32) -> Self {
+        self * (1. - ratio) + other * ratio
+    }
+}
+
+impl Lerp for f64 {
+    #[inline]
+    fn lerp(self, other: Self, ratio: f32) -> Self {
+        self * (1. - ratio) as f64 + other * ratio as f64
+    }
+}
+
+macro_rules! impl_lerp_vecn {
+    ($t:ty) => {
+        impl Lerp for $t {
+            #[inline]
+            fn lerp(self, other: Self, ratio: f32) -> Self {
+                // Force use of type's own lerp() to disambiguate and prevent infinite recursion
+                <$t>::lerp(self, other, ratio)
+            }
+        }
+    };
+}
+
+impl_lerp_vecn!(Vec2);
+impl_lerp_vecn!(Vec3);
+impl_lerp_vecn!(Vec3A);
+impl_lerp_vecn!(Vec4);
+
+impl Lerp for Quat {
+    fn lerp(self, other: Self, ratio: f32) -> Self {
+        // We use slerp() instead of lerp() as conceptually we want a smooth interpolation
+        // and we expect Quat to be used to represent a rotation. lerp() would produce an
+        // interpolation with varying speed, which feels non-natural.
+        self.slerp(other, ratio)
+    }
+}
 
 /// A single key point for a [`Gradient`].
 #[derive(Default, Clone, Copy, PartialEq)]
-pub struct GradientKey {
+pub struct GradientKey<T: Lerp> {
     /// Ratio in \[0:1\] where the key is located.
     pub ratio: f32,
-    /// Color value associated with the key (RGBA).
-    /// The color is uploaded as is to the render shader, and does not imply any
-    /// particular color space by itself.
-    pub color: Vec4,
+    /// Value associated with the key.
+    /// The value is uploaded as is to the render shader. For colors, this means it does not
+    /// imply any particular color space by itself.
+    pub value: T,
 }
 
 /// A gradient curve made of keypoints and associated values.
-/// 
+///
 /// The gradient can be sampled anywhere, and will return a linear interpolation
 /// of the values of its closest keys.
 #[derive(Default, Clone, PartialEq)]
-pub struct Gradient {
-    keys: Vec<GradientKey>,
+pub struct Gradient<T: Lerp> {
+    keys: Vec<GradientKey<T>>,
 }
 
-impl Gradient {
+impl<T: Default + Lerp> Gradient<T> {
     /// Create a new empty gradient.
     pub fn new() -> Self {
         Self::default()
     }
+}
 
+impl<T: Lerp> Gradient<T> {
     /// Add a key to the gradient.
     ///
     /// If one or more duplicate ratios already exist, append the new key after all
     /// the existing keys with same ratio.
-    /// 
+    ///
     /// The ratio must be a finite floating point value.
-    pub fn add_key(&mut self, ratio: f32, color: Vec4) {
+    pub fn add_key(&mut self, ratio: f32, value: T) {
         let index = match self
             .keys
             .binary_search_by(|key| FloatOrd(key.ratio).cmp(&FloatOrd(ratio)))
@@ -49,16 +102,16 @@ impl Gradient {
             }
             Err(upper_index) => upper_index,
         };
-        self.keys.insert(index, GradientKey { ratio, color });
+        self.keys.insert(index, GradientKey { ratio, value });
     }
 
     /// Get the gradient keys.
-    pub fn keys(&self) -> &[GradientKey] {
+    pub fn keys(&self) -> &[GradientKey<T>] {
         &self.keys[..]
     }
 
     /// Get mutable access to the gradient keys.
-    pub fn keys_mut(&mut self) -> &mut [GradientKey] {
+    pub fn keys_mut(&mut self) -> &mut [GradientKey<T>] {
         &mut self.keys[..]
     }
 
@@ -68,7 +121,7 @@ impl Gradient {
     /// in the collection. If the ratio falls between two keys, return a linear interpolation
     /// of their values. If the ratio is before the first key or after the last one, return
     /// the first and last value, respectively.
-    pub fn sample(&self, ratio: f32) -> Vec4 {
+    pub fn sample(&self, ratio: f32) -> T {
         assert!(!self.keys.is_empty());
         match self
             .keys
@@ -80,7 +133,7 @@ impl Gradient {
                 while index > 0 && self.keys[index - 1].ratio == self.keys[index].ratio {
                     index -= 1;
                 }
-                self.keys[index].color
+                self.keys[index].value
             }
             Err(upper_index) => {
                 if upper_index > 0 {
@@ -88,14 +141,14 @@ impl Gradient {
                         let key0 = &self.keys[upper_index - 1];
                         let key1 = &self.keys[upper_index];
                         let t = (ratio - key0.ratio) / (key1.ratio - key0.ratio);
-                        key0.color.lerp(key1.color, t)
+                        key0.value.lerp(key1.value, t)
                     } else {
                         // post: sampling point located after the last key
-                        self.keys[upper_index - 1].color
+                        self.keys[upper_index - 1].value
                     }
                 } else {
                     // pre: sampling point located before the first key
-                    self.keys[upper_index].color
+                    self.keys[upper_index].value
                 }
             }
         }
@@ -111,13 +164,13 @@ impl Gradient {
     /// This is equivalent to calling [`sample()`] in a loop, but is more efficient.
     ///
     /// [`sample()`]: Gradient::sample
-    pub fn sample_by(&self, start: f32, inc: f32, dst: &mut [Vec4]) {
+    pub fn sample_by(&self, start: f32, inc: f32, dst: &mut [T]) {
         let count = dst.len();
         assert!(!self.keys.is_empty());
         let mut ratio = start;
         // pre: sampling points located before the first key
         let first_ratio = self.keys[0].ratio;
-        let first_col = self.keys[0].color;
+        let first_col = self.keys[0].value;
         let mut idst = 0;
         while idst < count && ratio <= first_ratio {
             dst[idst] = first_col;
@@ -134,19 +187,19 @@ impl Gradient {
             }
             if ikey >= len {
                 // post: sampling points located after the last key
-                let last_col = self.keys[len - 1].color;
+                let last_col = self.keys[len - 1].value;
                 for j in i..count {
                     dst[j] = last_col;
                 }
                 return;
             }
             if self.keys[ikey].ratio == ratio {
-                dst[i] = self.keys[ikey].color;
+                dst[i] = self.keys[ikey].value;
             } else {
                 let k0 = &self.keys[ikey - 1];
                 let k1 = &self.keys[ikey];
                 let t = (ratio - k0.ratio) / (k1.ratio - k0.ratio);
-                dst[i] = k0.color.lerp(k1.color, t);
+                dst[i] = k0.value.lerp(k1.value, t);
             }
             ratio += inc;
         }
@@ -178,10 +231,10 @@ mod tests {
         g.add_key(0.7, green);
         let keys = g.keys();
         assert_eq!(4, keys.len());
-        assert!(color_approx_eq(red, keys[0].color, 1.0e-5));
-        assert!(color_approx_eq(red, keys[1].color, 1.0e-5));
-        assert!(color_approx_eq(blue, keys[2].color, 1.0e-5));
-        assert!(color_approx_eq(green, keys[3].color, 1.0e-5));
+        assert!(color_approx_eq(red, keys[0].value, 1e-5));
+        assert!(color_approx_eq(red, keys[1].value, 1e-5));
+        assert!(color_approx_eq(blue, keys[2].value, 1e-5));
+        assert!(color_approx_eq(green, keys[3].value, 1e-5));
     }
 
     #[test]
@@ -201,7 +254,7 @@ mod tests {
         assert_eq!(red, g.sample(0.5));
         let expected = red.lerp(blue, 1. / 3.);
         let actual = g.sample(0.6);
-        assert!(color_approx_eq(actual.into(), expected, 1.0e-5));
+        assert!(color_approx_eq(actual.into(), expected, 1e-5));
         assert_eq!(blue, g.sample(0.8));
         assert_eq!(green, g.sample(0.801));
         assert_eq!(green, g.sample(1.0));
@@ -222,7 +275,7 @@ mod tests {
         for i in 0..COUNT {
             let ratio = start + inc * i as f32;
             let expected = g.sample(ratio);
-            assert!(color_approx_eq(expected, data[i], 1.0e-5));
+            assert!(color_approx_eq(expected, data[i], 1e-5));
         }
     }
 }

@@ -118,12 +118,25 @@ impl RenderModifier for ParticleTextureModifier {
 #[derive(Default, Clone)]
 pub struct ColorOverLifetimeModifier {
     /// The color gradient defining the particle color based on its lifetime.
-    pub gradient: Gradient,
+    pub gradient: Gradient<Vec4>,
 }
 
 impl RenderModifier for ColorOverLifetimeModifier {
     fn apply(&self, render_layout: &mut RenderLayout) {
         render_layout.lifetime_color_gradient = Some(self.gradient.clone());
+    }
+}
+
+/// A modifier modulating each particle's size over its lifetime with a gradient curve.
+#[derive(Default, Clone)]
+pub struct SizeOverLifetimeModifier {
+    /// The size gradient defining the particle size based on its lifetime.
+    pub gradient: Gradient<Vec2>,
+}
+
+impl RenderModifier for SizeOverLifetimeModifier {
+    fn apply(&self, render_layout: &mut RenderLayout) {
+        render_layout.size_color_gradient = Some(self.gradient.clone());
     }
 }
 

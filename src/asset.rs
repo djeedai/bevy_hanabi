@@ -1,6 +1,6 @@
 use bevy::{
     asset::{AssetLoader, Handle, LoadContext, LoadedAsset},
-    math::Vec3,
+    math::{Vec2, Vec3, Vec4},
     reflect::TypeUuid,
     render::texture::Image,
     utils::BoxedFuture,
@@ -28,7 +28,8 @@ pub struct RenderLayout {
     /// shaders.
     pub particle_texture: Option<Handle<Image>>,
 
-    pub lifetime_color_gradient: Option<Gradient>,
+    pub lifetime_color_gradient: Option<Gradient<Vec4>>,
+    pub size_color_gradient: Option<Gradient<Vec2>>,
 }
 
 /// Asset describing a visual effect.

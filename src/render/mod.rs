@@ -9,7 +9,7 @@ use bevy::{
         system::{lifetimeless::*, SystemState},
     },
     log::trace,
-    math::{const_vec3, Mat4, Vec2, Vec3, Vec4Swizzles},
+    math::{const_vec3, Mat4, Vec2, Vec3, Vec4, Vec4Swizzles},
     reflect::TypeUuid,
     render::{
         color::Color,
@@ -73,11 +73,56 @@ pub enum EffectSystems {
     QueueEffects,
 }
 
+/// Trait to convert any data structure to its equivalent shader code.
 trait ShaderCode {
+    /// Generate the shader code for the current state of the object.
     fn to_shader_code(&self) -> String;
 }
 
-impl ShaderCode for Gradient {
+impl ShaderCode for Gradient<Vec2> {
+    fn to_shader_code(&self) -> String {
+        if self.keys().len() == 0 {
+            return String::new();
+        }
+        let mut s: String = self
+            .keys()
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                format!(
+                    "let t{0} = {1};\nlet v{0} = vec2<f32>({2}, {3});",
+                    index,
+                    key.ratio.to_float_string(),
+                    key.value.x.to_float_string(),
+                    key.value.y.to_float_string()
+                )
+            })
+            .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
+        if self.keys().len() == 1 {
+            s + "size = v0;\n"
+        } else {
+            // FIXME - particle.age and particle.lifetime are unrelated to Gradient<Vec4>
+            s += "let life = particle.age / particle.lifetime;\nif (life <= t0) { size = v0; }\n";
+            let mut s = self
+                .keys()
+                .iter()
+                .skip(1)
+                .enumerate()
+                .map(|(index, _key)| {
+                    format!(
+                        "else if (life <= t{1}) {{ size = mix(v{0}, v{1}, (life - t{0}) / (t{1} - t{0})); }}\n",
+                        index,
+                        index + 1
+                    )
+                })
+                .fold(s, |s, key| s + &key);
+            s += &format!("else {{ size = v{}; }}\n", self.keys().len() - 1);
+            s
+        }
+    }
+}
+
+impl ShaderCode for Gradient<Vec4> {
     fn to_shader_code(&self) -> String {
         if self.keys().len() == 0 {
             return String::new();
@@ -91,16 +136,17 @@ impl ShaderCode for Gradient {
                     "let t{0} = {1};\nlet c{0} = vec4<f32>({2}, {3}, {4}, {5});",
                     index,
                     key.ratio.to_float_string(),
-                    key.color.x.to_float_string(),
-                    key.color.y.to_float_string(),
-                    key.color.z.to_float_string(),
-                    key.color.w.to_float_string()
+                    key.value.x.to_float_string(),
+                    key.value.y.to_float_string(),
+                    key.value.z.to_float_string(),
+                    key.value.w.to_float_string()
                 )
             })
             .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
         if self.keys().len() == 1 {
             s + "out.color = c0;\n"
         } else {
+            // FIXME - particle.age and particle.lifetime are unrelated to Gradient<Vec4>
             s += "let life = particle.age / particle.lifetime;\nif (life <= t0) { out.color = c0; }\n";
             let mut s = self
                 .keys()
@@ -677,12 +723,16 @@ pub(crate) fn extract_effects(
 
             // Generate the shader code for the color over lifetime gradient.
             // TODO - Move that to a pre-pass, not each frame!
-            let vertex_modifiers = if let Some(grad) = &asset.render_layout.lifetime_color_gradient
+            let mut vertex_modifiers = if let Some(grad) = &asset.render_layout.lifetime_color_gradient
             {
                 grad.to_shader_code()
             } else {
                 String::new()
             };
+            if let Some(grad) = &asset.render_layout.size_color_gradient {
+                vertex_modifiers += &grad.to_shader_code();
+            }
+            trace!("vertex_modifiers={}", vertex_modifiers);
 
             // Configure the shader template, and make sure a corresponding shader asset exists
             let shader_source =

@@ -54,11 +54,17 @@ fn setup(
     let cube = meshes.add(Mesh::from(Cube { size: 1.0 }));
     let mat = materials.add(Color::PURPLE.into());
 
-    let mut gradient1 = Gradient::new();
-    gradient1.add_key(0.0, Vec4::splat(1.0));
-    gradient1.add_key(0.1, Vec4::new(1.0, 1.0, 0.0, 1.0));
-    gradient1.add_key(0.4, Vec4::new(1.0, 0.0, 0.0, 1.0));
-    gradient1.add_key(1.0, Vec4::splat(0.0));
+    let mut color_gradient1 = Gradient::new();
+    color_gradient1.add_key(0.0, Vec4::splat(1.0));
+    color_gradient1.add_key(0.1, Vec4::new(1.0, 1.0, 0.0, 1.0));
+    color_gradient1.add_key(0.4, Vec4::new(1.0, 0.0, 0.0, 1.0));
+    color_gradient1.add_key(1.0, Vec4::splat(0.0));
+
+    let mut size_gradient1 = Gradient::new();
+    size_gradient1.add_key(0.0, Vec2::splat(1.0));
+    size_gradient1.add_key(0.5, Vec2::splat(5.0));
+    size_gradient1.add_key(0.8, Vec2::splat(0.8));
+    size_gradient1.add_key(1.0, Vec2::splat(0.0));
 
     let effect1 = effects.add(
         EffectAsset {
@@ -77,7 +83,10 @@ fn setup(
             accel: Vec3::new(0., -3., 0.),
         })
         .render(ColorOverLifetimeModifier {
-            gradient: gradient1,
+            gradient: color_gradient1,
+        })
+        .render(SizeOverLifetimeModifier {
+            gradient: size_gradient1,
         }),
     );
 
