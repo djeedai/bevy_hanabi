@@ -3,17 +3,25 @@
 [![License: MIT or Apache 2.0](https://img.shields.io/badge/License-MIT%20or%20Apache2-blue.svg)](./LICENSE) [![Doc](https://docs.rs/bevy_hanabi/badge.svg)](https://docs.rs/bevy_hanabi) [![Crate](https://img.shields.io/crates/v/bevy_hanabi.svg)](https://crates.io/crates/bevy_hanabi)
 [![Bevy tracking](https://img.shields.io/badge/Bevy%20tracking-v0.6-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
 
-Hanabi — a particle system plugin for the Bevy game engine.
+Hanabi — a GPU particle system for the Bevy game engine.
+
+## Overview
+
+The Hanabi particle system is a modern GPU-based particle system for the Bevy game engine. It focuses on scale to produce stunning visual effects (VFX) in real time, offloading most of the work to the GPU, with minimal CPU intervention. The design is inspired by modern particle systems found in other industry-leading game engines.
+
+🚧 _This project is under heavy development, and is currently lacking both features and performance / usability polish. However, for moderate-size effects, it can already be used in your project. Feedback and contributions on both design and features are very much welcome._
 
 ## Usage
 
-This plugin is only compatible with Bevy v0.6.
+The 🎆 Bevy Hanabi plugin is only compatible with Bevy v0.6.
 
 ### System setup
 
-Add the Hanabi plugin to your app:
+Add the `HanabiPlugin` to your app:
 
 ```rust
+use bevy_hanabi::*;
+
 App::default()
     .add_plugins(DefaultPlugins)
     .add_plugin(HanabiPlugin)
@@ -80,7 +88,29 @@ commands
 
 See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
 
+### Gradient
+
+Animate an emitter by moving its `Transform` component, and emit textured quad particles with a `ColorOverLifetimeModifier`.
+
+```shell
+cargo run --example gradient -features="bevy/bevy_winit bevy/png"
+```
+
 ![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/main/examples/gradient.gif)
+
+### Spawn
+
+This example demonstrates the three built-in spawn modes:
+
+- **Left:** Continuous emission with a fixed rate (particles/second).
+- **Center:** One-shot burst emission of a fixed count of particles.
+- **Right:** Continuous bursts of particles, an hybrid between the previous two.
+
+It also shows the applying of constant force (downward gravity-like, or upward smoke-style).
+
+```shell
+cargo run --example spawn --features="bevy/bevy_winit"
+```
 
 ![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/main/examples/spawn.gif)
 
