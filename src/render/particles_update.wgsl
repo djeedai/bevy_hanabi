@@ -1,5 +1,3 @@
-// Adapted from https://github.com/gfx-rs/wgpu/blob/master/wgpu/examples/boids/compute.wgsl
-
 struct Particle {
     pos: vec3<f32>;
     age: f32;
@@ -104,7 +102,6 @@ fn init_lifetime() -> f32 {
     return 5.0;
 }
 
-// https://github.com/austinEng/Project6-Vulkan-Flocking/blob/master/data/shaders/computeparticles/particle.comp
 [[stage(compute), workgroup_size(64)]]
 fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
     let total : u32 = arrayLength(&particles.particles);
@@ -112,8 +109,6 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
     if (index >= total) {
         return;
     }
-
-    seed = pcg_hash(index ^ spawner.seed);
 
     var vPos : vec3<f32> = particles.particles[index].pos;
     var vVel : vec3<f32> = particles.particles[index].vel;
@@ -124,6 +119,7 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
     if (vAge >= vLifetime) {
         // Particle dead; try to recycle into newly-spawned one
         if (atomicSub(&spawner.spawn, 1) > 0) {
+            seed = pcg_hash(index ^ spawner.seed);
             var posVel = init_pos_vel(index);
             vPos = posVel.pos + spawner.origin;
             vVel = posVel.vel;
