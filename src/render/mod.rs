@@ -583,9 +583,9 @@ pub struct ExtractedEffect {
     pub position_code: String,
 }
 
-/// Extracted data for newly-added ParticleEffect component requiring a new GPU allocation.
+/// Extracted data for newly-added [`ParticleEffect`] component requiring a new GPU allocation.
 pub struct AddedEffect {
-    /// Entity with a newly-added ParticleEffect component.
+    /// Entity with a newly-added [`ParticleEffect`] component.
     pub entity: Entity,
     /// Capacity of the effect (and therefore, the particle buffer), in number of particles.
     pub capacity: u32,
@@ -601,7 +601,7 @@ pub struct AddedEffect {
 pub struct ExtractedEffects {
     /// Map of extracted effects from the entity the source [`ParticleEffect`] is on.
     pub effects: HashMap<Entity, ExtractedEffect>,
-    /// Entites which had their ParticleEffect component removed.
+    /// Entites which had their [`ParticleEffect`] component removed.
     pub removed_effect_entities: Vec<Entity>,
     /// Newly added effects without a GPU allocation yet.
     pub added_effects: Vec<AddedEffect>,
@@ -785,39 +785,56 @@ pub(crate) fn extract_effects(
     }
 }
 
+/// A single particle as stored in a GPU buffer.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable, AsStd430)]
 struct Particle {
+    /// Particle position in effect space (local or world).
     pub position: [f32; 3],
+    /// Current particle age in \[0:`lifetime`\].
     pub age: f32,
+    /// Particle velocity in effect space (local or world).
     pub velocity: [f32; 3],
-    pub pad: f32,
+    /// Total particle lifetime.
+    pub lifetime: f32,
 }
 
+/// A single vertex of a particle mesh as stored in a GPU buffer.
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct ParticleVertex {
+    /// Vertex position.
     pub position: [f32; 3],
+    /// UV coordinates of vertex.
     pub uv: [f32; 2],
 }
 
-/// Global resource containing the GPU data to draw all the particle effects.
+/// Global resource containing the GPU data to draw all the particle effects in all views.
 ///
 /// The resource is populated by [`prepare_effects()`] with all the effects to render
-/// for the current frame, and consumed by [`queue_effects()`] to actually enqueue the
-/// drawning commands to draw those effects.
+/// for the current frame, for all views in the frame, and consumed by [`queue_effects()`]
+/// to actually enqueue the drawning commands to draw those effects.
 pub(crate) struct EffectsMeta {
+    /// Map from an entity with a [`ParticleEffect`] component attached to it, to the associated
+    /// effect slice allocated in an [`EffectCache`].
     entity_map: HashMap<Entity, EffectSlice>,
+    /// Global effect cache for all effects in use.
     effect_cache: EffectCache,
     /// Bind group for the camera view, containing the camera projection and other uniform
     /// values related to the camera.
     view_bind_group: Option<BindGroup>,
+    /// Bind group for the simulation parameters, like the current time and frame delta time.
     sim_params_bind_group: Option<BindGroup>,
+    /// Bind group for the particles buffer itself.
     particles_bind_group: Option<BindGroup>,
+    /// Bind group for the spawning parameters (number of particles to spawn this frame, ...).
     spawner_bind_group: Option<BindGroup>,
     sim_params_uniforms: UniformVec<SimParamsUniform>,
     spawner_buffer: BufferVec<SpawnerParams>,
-    /// TEMP
+    /// Unscaled vertices of the mesh of a single particle, generally a quad.
+    /// The mesh is later scaled during rendering by the "particle size".
+    // FIXME - This is a per-effect thing, unless we merge all meshes into a single buffer (makes
+    // sense) but in that case we need a vertex slice too to know which mesh to draw per effect.
     vertices: BufferVec<ParticleVertex>,
 }
 
@@ -1206,7 +1223,17 @@ pub(crate) fn queue_effects(
         }
     };
 
-    // Create the bind group for global the simulation parameters
+    // Create the bind group for the camera/view parameters
+    effects_meta.view_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
+        entries: &[BindGroupEntry {
+            binding: 0,
+            resource: view_binding,
+        }],
+        label: Some("particles_view_bind_group"),
+        layout: &render_pipeline.view_layout,
+    }));
+
+    // Create the bind group for the global simulation parameters
     effects_meta.sim_params_bind_group =
         Some(render_device.create_bind_group(&BindGroupDescriptor {
             entries: &[BindGroupEntry {
@@ -1217,7 +1244,7 @@ pub(crate) fn queue_effects(
             layout: &update_pipeline.sim_params_layout,
         }));
 
-    // Create the bind group for the spawner
+    // Create the bind group for the spawner parameters
     effects_meta.spawner_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
         entries: &[BindGroupEntry {
             binding: 0,
@@ -1234,7 +1261,7 @@ pub(crate) fn queue_effects(
     // Queue the update compute
     trace!("queue effects from cache...");
     for (buffer_index, buffer) in effects_meta.effect_cache.buffers().iter().enumerate() {
-        // Ensure all effect groups have a binding for the entire buffer of the group,
+        // Ensure all effect groups have a bind group for the entire buffer of the group,
         // since the update phase runs on an entire group/buffer at once, with all the
         // effect instances in it batched together.
         trace!("effect buffer_index=#{}", buffer_index);
@@ -1259,6 +1286,7 @@ pub(crate) fn queue_effects(
                 })
             });
 
+        // Same for the render pipeline, ensure all buffers have a bind group.
         effect_bind_groups
             .render_values
             .entry(buffer_index as u32)
@@ -1301,17 +1329,12 @@ pub(crate) fn queue_effects(
         batch.compute_pipeline = Some(compute_pipeline.clone());
     }
 
-    // Queue the rendering
-    effects_meta.view_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
-        entries: &[BindGroupEntry {
-            binding: 0,
-            resource: view_binding,
-        }],
-        label: Some("particles_view_bind_group"),
-        layout: &render_pipeline.view_layout,
-    }));
+    // Loop over all cameras/views that need to render effects
     let draw_effects_function = draw_functions.read().get_id::<DrawEffects>().unwrap();
     for mut transparent_phase in views.iter_mut() {
+        trace!("Process new Transparent3d view");
+        // For each view, loop over all the effect batches to determine if the effect needs to be rendered
+        // for that view, and enqueue a view-dependent batch if so.
         for (entity, batch) in effect_batches.iter() {
             trace!(
                 "Process batch entity={:?} buffer_index={} spawner_base={} slice={:?}",
@@ -1389,38 +1412,6 @@ pub(crate) fn queue_effects(
                 distance: 0.0, // TODO ??????
             });
         }
-        // for (_buffer_index, _buffer) in effects_meta.effect_cache.buffers().iter().enumerate() {
-        //     let entity = *effects_meta.entity_map.keys().next().unwrap(); // TODO
-
-        //     //for (entity, batch) in effect_batches.iter_mut() {
-        //     // image_bind_groups
-        //     //     .values
-        //     //     .entry(batch.image.clone_weak())
-        //     //     .or_insert_with(|| {
-        //     //         let gpu_image = gpu_images.get(&batch.image).unwrap();
-        //     //         render_device.create_bind_group(&BindGroupDescriptor {
-        //     //             entries: &[
-        //     //                 BindGroupEntry {
-        //     //                     binding: 0,
-        //     //                     resource: BindingResource::TextureView(&gpu_image.texture_view),
-        //     //                 },
-        //     //                 BindGroupEntry {
-        //     //                     binding: 1,
-        //     //                     resource: BindingResource::Sampler(&gpu_image.sampler),
-        //     //                 },
-        //     //             ],
-        //     //             label: Some("particles_material_bind_group"),
-        //     //             layout: &render_pipeline.material_layout,
-        //     //         })
-        //     //     });
-
-        //     transparent_phase.add(Transparent3d {
-        //         draw_function: draw_effects_function,
-        //         pipeline: render_pipeline_id,
-        //         entity,
-        //         distance: 0.0, // TODO ??????
-        //     });
-        // }
     }
 }
 
@@ -1482,12 +1473,18 @@ impl Draw<Transparent3d> for DrawEffects {
             //let effect_group = &effects_meta.effect_cache.buffers()[0]; // TODO
 
             pass.set_render_pipeline(pipeline);
+
+            // Vertex buffer containing the particle model to draw. Generally a quad.
             pass.set_vertex_buffer(0, effects_meta.vertices.buffer().unwrap().slice(..));
+
+            // View properties (camera matrix, etc.)
             pass.set_bind_group(
                 0,
                 effects_meta.view_bind_group.as_ref().unwrap(),
                 &[view_uniform.offset],
             );
+
+            // Particles buffer
             pass.set_bind_group(
                 1,
                 effect_bind_groups
@@ -1496,6 +1493,8 @@ impl Draw<Transparent3d> for DrawEffects {
                     .unwrap(),
                 &[],
             );
+
+            // Particle texture
             if effect_batch
                 .layout_flags
                 .contains(LayoutFlags::PARTICLE_TEXTURE)
@@ -1514,14 +1513,16 @@ impl Draw<Transparent3d> for DrawEffects {
                 }
             }
 
-            let count = effect_batch.slice.end - effect_batch.slice.start;
+            let vertex_count = effects_meta.vertices.len() as u32;
+            let particle_count = effect_batch.slice.end - effect_batch.slice.start;
 
             trace!(
-                "Draw {} particles for batch from buffer #{}.",
-                count,
+                "Draw {} particles with {} vertices per particle for batch from buffer #{}.",
+                particle_count,
+                vertex_count,
                 effect_batch.buffer_index
             );
-            pass.draw(0..6, 0..count); // TODO vertex count
+            pass.draw(0..vertex_count, 0..particle_count);
         }
     }
 }

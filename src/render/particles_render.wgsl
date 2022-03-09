@@ -9,7 +9,7 @@ struct Particle {
     lifetime: f32;
 };
 
-struct Particles {
+struct ParticlesBuffer {
     particles: [[stride(32)]] array<Particle>;
 };
 
@@ -22,7 +22,7 @@ struct VertexOutput {
 };
 
 [[group(0), binding(0)]] var<uniform> view: View;
-[[group(1), binding(0)]] var<storage, read> particles : Particles;
+[[group(1), binding(0)]] var<storage, read> particle_buffer : ParticlesBuffer;
 #ifdef PARTICLE_TEXTURE
 [[group(2), binding(0)]] var particle_texture: texture_2d<f32>;
 [[group(2), binding(1)]] var particle_sampler: sampler;
@@ -50,7 +50,7 @@ struct VertexOutput {
 
 [[stage(vertex)]]
 fn vertex(
-    [[builtin(instance_index)]] particle_index: u32,
+    [[builtin(instance_index)]] instance_index: u32,
     [[location(0)]] vertex_position: vec3<f32>,
 #ifdef PARTICLE_TEXTURE
     [[location(1)]] vertex_uv: vec2<f32>,
@@ -58,7 +58,7 @@ fn vertex(
     //[[location(1)]] vertex_color: u32,
     //[[location(1)]] vertex_velocity: vec3<f32>,
 ) -> VertexOutput {
-    var particle = particles.particles[particle_index];
+    var particle = particle_buffer.particles[instance_index];
     var out: VertexOutput;
 #ifdef PARTICLE_TEXTURE
     out.uv = vertex_uv;
