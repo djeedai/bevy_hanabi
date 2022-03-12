@@ -74,7 +74,11 @@ impl SliceRef {
 
 pub struct EffectBuffer {
     /// GPU buffer holding all particles for the entire group of effects.
-    buffer: Buffer,
+    particle_buffer: Buffer,
+    /// GPU buffer holding the indirection indices for the entire group of effects.
+    indirect_buffer: Buffer,
+    /// Size of each particle, in bytes.
+    item_size: u32,
     /// Total buffer capacity in bytes.
     capacity: u32,
     /// Used buffer size, either from allocated slices or from slices in the free list.
@@ -98,27 +102,43 @@ struct BestRange {
 }
 
 impl EffectBuffer {
-    /// Minimum buffer capacity to allocate.
-    pub const MIN_CAPACITY_BYTES: u32 = 64 * 65536; // at least 64k particles of size 64B
+    /// Minimum buffer capacity to allocate, in number of particles.
+    pub const MIN_CAPACITY: u32 = 65536; // at least 64k particles
 
     /// Create a new group and a GPU buffer to back it up.
     pub fn new(
         asset: Handle<EffectAsset>,
         capacity: u32,
+        item_size: u32,
         //compute_pipeline: ComputePipeline,
         render_device: &RenderDevice,
         label: Option<&str>,
     ) -> Self {
-        trace!("EffectBuffer::new(capacity={}B)", capacity);
-        let capacity = capacity.max(Self::MIN_CAPACITY_BYTES);
-        let buffer = render_device.create_buffer(&BufferDescriptor {
+        trace!("EffectBuffer::new(capacity={}, item_size={}B)", capacity, item_size);
+        let capacity = capacity.max(Self::MIN_CAPACITY);
+        let particle_capacity_bytes : BufferAddress = capacity as u64 * item_size as u64;
+        let particle_buffer = render_device.create_buffer(&BufferDescriptor {
             label,
-            size: capacity as BufferAddress,
+            size: particle_capacity_bytes,
+            usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let indirect_label = if let Some(label) = label {
+            format!("{}_indirect", label)
+        } else {
+            "vfx_indirect_buffer".to_owned()
+        };
+        let indirect_capacity_bytes : BufferAddress = capacity as u64 * std::mem::size_of::<u32>() as u64;
+        let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some(&indirect_label),
+            size: indirect_capacity_bytes,
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
         EffectBuffer {
-            buffer,
+            particle_buffer,
+            indirect_buffer,
+            item_size,
             capacity,
             used_size: 0,
             slices: vec![],
@@ -129,8 +149,12 @@ impl EffectBuffer {
         }
     }
 
-    pub fn buffer(&self) -> &Buffer {
-        &self.buffer
+    pub fn particle_buffer(&self) -> &Buffer {
+        &self.particle_buffer
+    }
+
+    pub fn indirect_buffer(&self) -> &Buffer {
+        &self.indirect_buffer
     }
 
     pub fn capacity(&self) -> u32 {
@@ -139,19 +163,30 @@ impl EffectBuffer {
 
     /// Return a binding for the entire buffer.
     pub fn max_binding(&self) -> BindingResource {
+        let capacity_bytes = self.capacity as u64 * self.item_size as u64;
         BindingResource::Buffer(BufferBinding {
-            buffer: &self.buffer,
+            buffer: &self.particle_buffer,
             offset: 0,
-            size: Some(NonZeroU64::new(self.capacity as u64).unwrap()),
+            size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
         })
     }
 
     /// Return a binding of the buffer for a starting range of a given size (in bytes).
     pub fn binding(&self, size: u32) -> BindingResource {
         BindingResource::Buffer(BufferBinding {
-            buffer: &self.buffer,
+            buffer: &self.particle_buffer,
             offset: 0,
             size: Some(NonZeroU64::new(size as u64).unwrap()),
+        })
+    }
+
+    /// Return a binding for the entire indirect buffer associated with the current effect buffer.
+    pub fn indirect_max_binding(&self) -> BindingResource {
+        let capacity_bytes = self.capacity as u64 * std::mem::size_of::<u32>() as u64;
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.indirect_buffer,
+            offset: 0,
+            size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
         })
     }
 
@@ -185,27 +220,26 @@ impl EffectBuffer {
     /// Allocate a new slice in the buffer to store the particles of a single effect.
     pub fn allocate_slice(&mut self, capacity: u32, item_size: u32) -> Option<SliceRef> {
         trace!(
-            "EffectBuffer::allocate_slice: cap={} itemsz={}",
+            "EffectBuffer::allocate_slice: capacity={} item_size={}",
             capacity,
             item_size
         );
-        assert_eq!(item_size as usize, std::mem::size_of::<Particle>()); // TODO
 
-        let size = capacity
+        let byte_size = capacity
             .checked_mul(item_size)
             .expect("Effect slice size overflow");
 
-        let range = if let Some(range) = self.pop_free_slice(size) {
+        let range = if let Some(range) = self.pop_free_slice(capacity) {
             range
         } else {
-            let new_size = self.used_size.checked_add(size).unwrap();
+            let new_size = self.used_size.checked_add(capacity).unwrap();
             if new_size <= self.capacity {
                 let range = self.used_size..new_size;
                 self.used_size = new_size;
                 range
             } else {
                 if self.used_size == 0 {
-                    warn!("Cannot allocate slice of size {} Bytes in effect cache buffer of capacity {} Bytes.", size, self.capacity());
+                    warn!("Cannot allocate slice of size {} ({} B) in effect cache buffer of capacity {}.", capacity, byte_size, self.capacity);
                 }
                 return None;
             }
@@ -305,7 +339,8 @@ impl EffectCache {
                 );
                 self.buffers.push(EffectBuffer::new(
                     asset,
-                    byte_size,
+                    capacity,
+                    item_size,
                     //pipeline,
                     &self.device,
                     Some(&format!("effect_buffer{}", self.buffers.len())),
@@ -319,7 +354,7 @@ impl EffectCache {
             .unwrap();
         let id = EffectCacheId::new();
         trace!(
-            "Insert effect id={:?} buffer_index={} slice={:?}x{}",
+            "Insert effect id={:?} buffer_index={} slice={:?}x{}B",
             id,
             buffer_index,
             slice.range,

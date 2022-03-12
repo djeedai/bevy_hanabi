@@ -5,7 +5,7 @@ struct Particle {
     lifetime: f32;
 };
 
-struct Particles {
+struct ParticleBuffer {
     particles: [[stride(32)]] array<Particle>;
 };
 
@@ -24,9 +24,14 @@ struct Spawner {
     __pad1: vec4<f32>;
 };
 
+struct IndirectBuffer {
+    indices: [[stride(4)]] array<u32>;
+};
+
 [[group(0), binding(0)]] var<uniform> sim_params : SimParams;
-[[group(1), binding(0)]] var<storage, read_write> particles : Particles;
+[[group(1), binding(0)]] var<storage, read_write> particle_buffer : ParticleBuffer;
 [[group(2), binding(0)]] var<storage, read_write> spawner : Spawner;
+[[group(3), binding(0)]] var<storage, read_write> indirect_buffer : IndirectBuffer;
 
 var<private> seed : u32 = 0u;
 
@@ -104,42 +109,48 @@ fn init_lifetime() -> f32 {
 
 [[stage(compute), workgroup_size(64)]]
 fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
-    let total : u32 = arrayLength(&particles.particles);
+    let max_particles : u32 = arrayLength(&particle_buffer.particles);
     let index = global_invocation_id.x;
-    if (index >= total) {
+    if (index >= max_particles) {
         return;
     }
 
-    var vPos : vec3<f32> = particles.particles[index].pos;
-    var vVel : vec3<f32> = particles.particles[index].vel;
-    var vAge : f32 = particles.particles[index].age;
-    var vLifetime : f32 = particles.particles[index].lifetime;
+    var vPos : vec3<f32> = particle_buffer.particles[index].pos;
+    var vVel : vec3<f32> = particle_buffer.particles[index].vel;
+    var vAge : f32 = particle_buffer.particles[index].age;
+    var vLifetime : f32 = particle_buffer.particles[index].lifetime;
 
+    // Age the particle
     vAge = vAge + sim_params.dt;
     if (vAge >= vLifetime) {
         // Particle dead; try to recycle into newly-spawned one
         if (atomicSub(&spawner.spawn, 1) > 0) {
+            // Update PRNG seed
             seed = pcg_hash(index ^ spawner.seed);
+
+            // Initialize new particle
             var posVel = init_pos_vel(index);
             vPos = posVel.pos + spawner.origin;
             vVel = posVel.vel;
             vAge = 0.0;
             vLifetime = init_lifetime();
         } else {
+            // Nothing to spawn; simply return without writing any update
             return;
         }
     }
 
-    // integration
+    // Euler integration
     vVel = vVel + (spawner.accel * sim_params.dt);
-
-    // kinematic update
     vPos = vPos + (vVel * sim_params.dt);
 
-    // Write back
-    atomicAdd(&spawner.count, 1);
-    particles.particles[index].pos = vPos;
-    particles.particles[index].vel = vVel;
-    particles.particles[index].age = vAge;
-    particles.particles[index].lifetime = vLifetime;
+    // Increment alive particle count and write indirection index
+    let indirect_index = atomicAdd(&spawner.count, 1);
+    indirect_buffer.indices[indirect_index] = index;
+
+    // Write back particle itself
+    particle_buffer.particles[index].pos = vPos;
+    particle_buffer.particles[index].vel = vVel;
+    particle_buffer.particles[index].age = vAge;
+    particle_buffer.particles[index].lifetime = vLifetime;
 }
