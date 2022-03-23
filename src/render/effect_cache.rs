@@ -114,9 +114,13 @@ impl EffectBuffer {
         render_device: &RenderDevice,
         label: Option<&str>,
     ) -> Self {
-        trace!("EffectBuffer::new(capacity={}, item_size={}B)", capacity, item_size);
+        trace!(
+            "EffectBuffer::new(capacity={}, item_size={}B)",
+            capacity,
+            item_size
+        );
         let capacity = capacity.max(Self::MIN_CAPACITY);
-        let particle_capacity_bytes : BufferAddress = capacity as u64 * item_size as u64;
+        let particle_capacity_bytes: BufferAddress = capacity as u64 * item_size as u64;
         let particle_buffer = render_device.create_buffer(&BufferDescriptor {
             label,
             size: particle_capacity_bytes,
@@ -128,7 +132,8 @@ impl EffectBuffer {
         } else {
             "vfx_indirect_buffer".to_owned()
         };
-        let indirect_capacity_bytes : BufferAddress = capacity as u64 * std::mem::size_of::<u32>() as u64;
+        let indirect_capacity_bytes: BufferAddress =
+            capacity as u64 * std::mem::size_of::<u32>() as u64;
         let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
             size: indirect_capacity_bytes,
