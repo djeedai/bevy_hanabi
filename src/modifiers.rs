@@ -79,10 +79,7 @@ impl InitModifier for PositionCircleModifier {
             ShapeDimension::Volume => {
                 // Radius uniformly distributed in [0:1], then square-rooted
                 // to account for the increased perimeter covered by increased radii.
-                format!(
-                    "let r = sqrt(rand()) * {};",
-                    self.radius.to_float_string()
-                )
+                format!("let r = sqrt(rand()) * {};", self.radius.to_float_string())
             }
         };
 
