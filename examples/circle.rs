@@ -90,7 +90,7 @@ fn setup(
         })
         .render(ColorOverLifetimeModifier { gradient })
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(2.0),
+            gradient: Gradient::constant([2.0; 2].into()),
         }),
     );
 
@@ -113,7 +113,9 @@ fn setup(
             transform: Transform::from_translation(Vec3::Y),
             ..Default::default()
         })
-        .insert(Bounce::new(2.0, effect));
+        .insert(Bounce::new(2.0, effect.clone()));
+
+    commands.spawn_bundle(ParticleEffectBundle::new(effect));
 }
 
 fn update(time: Res<Time>, mut query: Query<&mut Transform, With<ParticleEffect>>) {}
