@@ -39,6 +39,40 @@ impl Default for ShapeDimension {
     }
 }
 
+/// An initialization modifier spawning particles on a circle/disc.
+#[derive(Clone, Copy)]
+pub struct PositionCircleModifier {
+    /// The circle center, relative to the emitter position.
+    pub center: Vec3,
+    /// The circle axis, which is the normalized normal of the circle's plane.
+    /// Set this to `Vec3::Z` for a 2D game.
+    pub axis: Vec3,
+    /// The circle radius.
+    pub radius: f32,
+    /// The radial speed of the particles on spawn.
+    pub speed: f32,
+    /// The shape dimension to spawn from.
+    pub dimension: ShapeDimension,
+}
+
+impl Default for PositionCircleModifier {
+    fn default() -> Self {
+        Self {
+            center: Default::default(),
+            axis: Vec3::Z,
+            radius: Default::default(),
+            speed: Default::default(),
+            dimension: Default::default(),
+        }
+    }
+}
+
+impl InitModifier for PositionCircleModifier {
+    fn apply(&self, _init_layout: &mut InitLayout) {
+        todo!()
+    }
+}
+
 /// An initialization modifier spawning particles on a sphere.
 #[derive(Default, Clone, Copy)]
 pub struct PositionSphereModifier {
