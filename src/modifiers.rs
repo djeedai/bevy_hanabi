@@ -68,8 +68,57 @@ impl Default for PositionCircleModifier {
 }
 
 impl InitModifier for PositionCircleModifier {
-    fn apply(&self, _init_layout: &mut InitLayout) {
-        todo!()
+    fn apply(&self, init_layout: &mut InitLayout) {
+        let (tangent, bitangent) = self.axis.any_orthonormal_pair();
+
+        let radius_code = match self.dimension {
+            ShapeDimension::Surface => {
+                // Constant radius
+                format!("let r = {};", self.radius.to_float_string())
+            }
+            ShapeDimension::Volume => {
+                // Radius uniformly distributed in [0:1], then square-rooted
+                // to account for the increased perimeter covered by increased radii.
+                format!(
+                    "let r = sqrt(rand()) * {};",
+                    self.radius.to_float_string()
+                )
+            }
+        };
+
+        init_layout.position_code = format!(
+            r##"
+    // >>> [PositionCircleModifier]
+    // Circle center
+    let c = vec3<f32>({}, {}, {});
+    // Circle basis
+    let tangent = vec3<f32>({}, {}, {});
+    let bitangent = vec3<f32>({}, {}, {});
+    // Circle radius
+    {}
+    // Radial speed
+    let speed = {};
+    // Spawn random point on/in circle
+    let theta = rand() * tau;
+    let dir = tangent * cos(theta) + bitangent * sin(theta);
+    ret.pos = c + r * dir;
+    // Velocity away from center
+    ret.vel = dir * speed;
+    // <<< [PositionCircleModifier]
+            "##,
+            self.center.x.to_float_string(),
+            self.center.y.to_float_string(),
+            self.center.z.to_float_string(),
+            tangent.x.to_float_string(),
+            tangent.y.to_float_string(),
+            tangent.z.to_float_string(),
+            bitangent.x.to_float_string(),
+            bitangent.y.to_float_string(),
+            bitangent.z.to_float_string(),
+            radius_code,
+            self.speed.to_float_string()
+        )
+        .to_string();
     }
 }
 
@@ -112,8 +161,8 @@ impl InitModifier for PositionSphereModifier {
     {3}
     // Radial speed
     let speed = {4};
-    // Spawn randomly along the sphere surface using Archimede's theorem
-    var theta = rand() * 6.283185307179586476925286766559;
+    // Spawn randomly along the sphere surface using Archimedes's theorem
+    var theta = rand() * tau;
     var z = rand() * 2. - 1.;
     var phi = acos(z);
     var sinphi = sin(phi);

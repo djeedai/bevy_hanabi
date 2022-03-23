@@ -35,6 +35,8 @@ struct IndirectBuffer {
 
 var<private> seed : u32 = 0u;
 
+let tau: f32 = 6.283185307179586476925286766559;
+
 // Rand: PCG
 // https://www.reedbeta.com/blog/hash-functions-for-gpu-rendering/
 fn pcg_hash(input: u32) -> u32 {
