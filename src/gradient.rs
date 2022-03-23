@@ -77,6 +77,14 @@ impl<T: Default + Lerp> Gradient<T> {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Create a constant gradient.
+    /// Inserts the value at 0.0 and nowhere else.
+    pub fn constant(value: T) -> Self {
+        let mut grad = Self::default();
+        grad.add_key(0.0, value);
+        grad
+    }
 }
 
 impl<T: Lerp> Gradient<T> {
@@ -215,6 +223,14 @@ mod tests {
             && ((c0.y - c1.y).abs() < tol)
             && ((c0.z - c1.z).abs() < tol)
             && ((c0.w - c1.w).abs() < tol)
+    }
+
+    #[test]
+    fn constant() {
+        let grad = Gradient::constant(3.0);
+        assert_eq!(grad.sample(0.0), 3.0);
+        assert_eq!(grad.sample(0.3), 3.0);
+        assert_eq!(grad.sample(1.0), 3.0);
     }
 
     #[test]

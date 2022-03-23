@@ -93,7 +93,7 @@ pub use asset::EffectAsset;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifiers::{
-    AccelModifier, ColorOverLifetimeModifier, InitModifier, ParticleTextureModifier,
+    AccelModifier, ColorOverLifetimeModifier, InitModifier, ParticleTextureModifier, PositionCircleModifier,
     PositionSphereModifier, RenderModifier, ShapeDimension, SizeOverLifetimeModifier,
     UpdateModifier,
 };

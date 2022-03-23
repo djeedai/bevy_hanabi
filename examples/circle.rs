@@ -78,10 +78,18 @@ fn setup(
             spawner: Spawner::new(SpawnMode::Once(SpawnCount::Single(32.0))),
             ..Default::default()
         }
+        .init(PositionCircleModifier {
+            center: Vec3::Y * 0.1,
+            axis: Vec3::Y,
+            radius: 0.4,
+            speed: 1.0,
+            dimension: ShapeDimension::Surface,
+        })
         .render(ParticleTextureModifier {
             texture: texture_handle.clone(),
         })
-        .render(ColorOverLifetimeModifier { gradient }),
+        .render(ColorOverLifetimeModifier { gradient })
+        .render(SizeOverLifetimeModifier { gradient: Gradient::constant(2.0) }),
     );
 
     // The ground
