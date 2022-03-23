@@ -89,7 +89,9 @@ fn setup(
             texture: texture_handle.clone(),
         })
         .render(ColorOverLifetimeModifier { gradient })
-        .render(SizeOverLifetimeModifier { gradient: Gradient::constant(2.0) }),
+        .render(SizeOverLifetimeModifier {
+            gradient: Gradient::constant(2.0),
+        }),
     );
 
     // The ground
