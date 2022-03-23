@@ -22,11 +22,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .insert_resource(options)
         .insert_resource(bevy::log::LogSettings {
             level: bevy::log::Level::WARN,
-            filter: "bevy_hanabi=error,spawn=trace".to_string(),
+            filter: "bevy_hanabi=trace,circle=trace".to_string(),
         })
         .add_plugins(DefaultPlugins)
         .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::new())
+        //.add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .add_system(update)
         .run();
@@ -74,6 +74,7 @@ fn setup(
     let effect = effects.add(
         EffectAsset {
             name: "Gradient".to_string(),
+            // TODO: Figure out why no particle spawns if this is 1
             capacity: 32768,
             spawner: Spawner::new(SpawnMode::Once(SpawnCount::Single(32.0))),
             ..Default::default()
@@ -90,7 +91,7 @@ fn setup(
         })
         .render(ColorOverLifetimeModifier { gradient })
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant([2.0; 2].into()),
+            gradient: Gradient::constant([0.2; 2].into()),
         }),
     );
 
@@ -115,7 +116,7 @@ fn setup(
         })
         .insert(Bounce::new(2.0, effect.clone()));
 
-    commands.spawn_bundle(ParticleEffectBundle::new(effect));
+    //commands.spawn_bundle(ParticleEffectBundle::new(effect));
 }
 
 fn update(time: Res<Time>, mut query: Query<&mut Transform, With<ParticleEffect>>) {}
