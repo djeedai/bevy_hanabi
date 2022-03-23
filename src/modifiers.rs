@@ -20,7 +20,7 @@ pub trait UpdateModifier {
 
 /// Trait to customize the rendering of alive particles each frame.
 pub trait RenderModifier {
-    /// Apply the modifier to the init layout of the effect instance.
+    /// Apply the modifier to the render layout of the effect instance.
     fn apply(&self, render_layout: &mut RenderLayout);
 }
 
