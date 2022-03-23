@@ -1,5 +1,5 @@
 //! Example of using the circle spawner.
-//! A sphere bounces on the ground and spawns dust in a circle.
+//! A sphere spawns dust in a circle.
 
 use bevy::{
     prelude::*,
@@ -28,28 +28,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugin(HanabiPlugin)
         //.add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
-        .add_system(update)
         .run();
 
     Ok(())
-}
-
-/// Labels the sphere that bounces
-#[derive(Clone, Component)]
-struct Bounce {
-    bounce_velocity: f32,
-    velocity: f32,
-    dust: Handle<EffectAsset>,
-}
-
-impl Bounce {
-    fn new(bounce_velocity: f32, dust: Handle<EffectAsset>) -> Self {
-        Self {
-            bounce_velocity,
-            velocity: bounce_velocity,
-            dust,
-        }
-    }
 }
 
 fn setup(
@@ -102,7 +83,7 @@ fn setup(
         ..Default::default()
     });
 
-    // The bouncing sphere
+    // The sphere
     commands
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::UVSphere {
@@ -113,10 +94,7 @@ fn setup(
             material: materials.add(Color::CYAN.into()),
             transform: Transform::from_translation(Vec3::Y),
             ..Default::default()
-        })
-        .insert(Bounce::new(2.0, effect.clone()));
+        });
 
-    //commands.spawn_bundle(ParticleEffectBundle::new(effect));
+    commands.spawn_bundle(ParticleEffectBundle::new(effect));
 }
-
-fn update(time: Res<Time>, mut query: Query<&mut Transform, With<ParticleEffect>>) {}
