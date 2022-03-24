@@ -25,43 +25,6 @@ impl<T: Copy> From<T> for Value<T> {
     }
 }
 
-/// Spawn rate, in particles per second.
-pub type SpawnRate = Value<f32>;
-
-/// Spawn count, in particles per second.
-///
-/// This is fractional, but only emit one particle once the accumulated spawn count
-/// reaches an integral number.
-pub type SpawnCount = Value<f32>;
-
-/// Mode of spawning new particles.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub enum SpawnMode {
-    /// Emit once, then idle until effect is reset.
-    Once(SpawnCount),
-    /// Emit at constant or variable rate, accumulated each frame.
-    Rate(SpawnRate),
-    /// Emit a number of particles by bursts every given delay.
-    Burst((SpawnCount, SpawnRate)),
-}
-
-impl SpawnMode {
-    /// Create a [`SpawnMode::Once`] with a constant (non-random) value.
-    pub fn once(count: f32) -> Self {
-        SpawnMode::Once(SpawnCount::Single(count))
-    }
-
-    /// Create a [`SpawnMode::Rate`] with a constant (non-random) value.
-    pub fn rate(rate: f32) -> Self {
-        SpawnMode::Rate(SpawnRate::Single(rate))
-    }
-
-    /// Create a [`SpawnMode::Burst`] with constant (non-random) values.
-    pub fn burst(count: f32, rate: f32) -> Self {
-        SpawnMode::Burst((SpawnCount::Single(count), SpawnRate::Single(rate)))
-    }
-}
-
 /// Spawner defining how new particles are created.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct Spawner {
@@ -87,54 +50,74 @@ pub struct Spawner {
 
     /// Fractional remainder of particle count to spawn.
     spawn: f32,
+
+    /// Whether the system is active
+    active: bool,
 }
 
 impl Default for Spawner {
     fn default() -> Self {
-        Spawner::new(SpawnMode::once(1.))
+        Spawner::once(1.0f32.into())
     }
 }
 
 impl Spawner {
-    /// Create a new spawner with a given spawn mode.
-    pub fn new(mode: SpawnMode) -> Self {
-        let (num_particles, spawn_time, period) = match mode {
-            SpawnMode::Once(count) => (count, 0.0f32.into(), f32::INFINITY.into()),
-            SpawnMode::Rate(rate) => (rate, 1.0f32.into(), 1.0f32.into()),
-            SpawnMode::Burst((count, rate)) => (count, 0.0f32.into(), rate),
-        };
-
+    /// Create a spawner with a given count, time, and period.
+    /// 
+    /// - `count` is the number of particles to spawn over `time` in a burst
+    /// - `time` is how long to spawn particles for. If this is
+    ///   0, then the particles spawn all at once.
+    /// - `period` is the amount of time between bursts of particles.
+    ///   If this is `time`, then the spawner spawns a steady stream of particles.
+    ///   If this is infinity, then there is only 1 burst.
+    pub fn new(count: Value<f32>, time: Value<f32>, period: Value<f32>) -> Self {
         Spawner {
-            num_particles,
-            spawn_time,
+            num_particles: count,
+            spawn_time: time,
             period,
             time: 0.,
             curr_spawn_time: 0.,
             limit: 0.,
             spawn: 0.5,
+            active: true,
         }
     }
 
-    /// Create a new spawner that spawns `count` particles,
-    /// but doesn't spawn them yet until reset.
-    pub fn new_inactive(count: Value<f32>) -> Self {
-        Spawner {
-            num_particles: count,
-            spawn_time: 0.0f32.into(),
-            period: f32::INFINITY.into(),
-            time: 1.,
-            curr_spawn_time: 0.,
-            limit: f32::INFINITY,
-            spawn: 0.5,
-        }
+    /// Sets whether the spawner starts active.
+    pub fn with_active(mut self, active: bool) -> Self {
+        self.active = active;
+        self
     }
 
-    /// Resets the spawner.
+    /// Create a spawner that spawns `count` particles, then waits until reset.
+    pub fn once(count: Value<f32>) -> Self {
+        Self::new(count, 0.0.into(), f32::INFINITY.into())
+    }
+
+    /// Create a spawner that spawns particles at `rate`, accumulated each frame.
+    /// `rate` is in particles per second.
+    pub fn rate(rate: Value<f32>) -> Self {
+        Self::new(rate, 1.0.into(), 1.0.into())
+    }
+
+    /// Create a spawner that spawns `count` particles, waits `period` seconds,
+    /// and repeats forever.
+    pub fn burst(count: Value<f32>, period: Value<f32>) -> Self {
+        Self::new(count, 0.0.into(), period)
+    }
+
+    /// Resets and activates the spawner.
     /// Use this, for example, to immediately spawn some particles.
     pub fn reset(&mut self) {
         self.time = 0.;
         self.limit = 0.;
         self.spawn = 0.5;
+        self.active = true;
+    }
+
+    /// Sets whether the spawner is active.
+    pub fn set_active(&mut self, active: bool) {
+        self.active = active;
     }
 
     /// Resamples the spawn time and period.
@@ -144,6 +127,8 @@ impl Spawner {
     }
 
     pub(crate) fn tick(&mut self, mut dt: f32) -> u32 {
+        if !self.active { return 0 }
+
         // The limit can be reached multiple times, so use a loop
         loop {
             if self.limit == 0.0 {
@@ -186,7 +171,7 @@ mod test {
 
     #[test]
     fn test_once() {
-        let mut spawner = Spawner::new(SpawnMode::once(5.0));
+        let mut spawner = Spawner::once(5.0.into());
         let count = spawner.tick(0.001);
         assert_eq!(count, 5);
         let count = spawner.tick(100.0);
@@ -195,16 +180,26 @@ mod test {
 
     #[test]
     fn test_once_reset() {
-        let mut spawner = Spawner::new(SpawnMode::once(5.0));
-        spawner.tick(0.001);
+        let mut spawner = Spawner::once(5.0.into());
+        spawner.tick(1.0);
         spawner.reset();
-        let count = spawner.tick(100.0);
+        let count = spawner.tick(1.0);
+        assert_eq!(count, 5);
+    }
+
+    #[test]
+    fn test_once_inactive() {
+        let mut spawner = Spawner::once(5.0.into()).with_active(false);
+        let count = spawner.tick(1.0);
+        assert_eq!(count, 0);
+        spawner.reset();
+        let count = spawner.tick(1.0);
         assert_eq!(count, 5);
     }
 
     #[test]
     fn test_rate() {
-        let mut spawner = Spawner::new(SpawnMode::rate(5.0));
+        let mut spawner = Spawner::rate(5.0.into());
         let count = spawner.tick(1.0);
         assert_eq!(count, 5);
         let count = spawner.tick(0.4);
@@ -212,8 +207,20 @@ mod test {
     }
 
     #[test]
+    fn test_rate_active() {
+        let mut spawner = Spawner::rate(5.0.into());
+        spawner.tick(1.0);
+        spawner.set_active(false);
+        let count = spawner.tick(0.4);
+        assert_eq!(count, 0);
+        spawner.set_active(true);
+        let count = spawner.tick(0.4);
+        assert_eq!(count, 2);
+    }
+
+    #[test]
     fn test_rate_accumulate() {
-        let mut spawner = Spawner::new(SpawnMode::rate(5.0));
+        let mut spawner = Spawner::rate(5.0.into());
 
         let count = (0..12).map(|_| spawner.tick(1.0 / 60.0)).sum::<u32>();
         assert_eq!(count, 1);
@@ -221,7 +228,7 @@ mod test {
 
     #[test]
     fn test_burst() {
-        let mut spawner = Spawner::new(SpawnMode::burst(5.0, 2.0));
+        let mut spawner = Spawner::burst(5.0.into(), 2.0.into());
         let count = spawner.tick(1.0);
         assert_eq!(count, 5);
         let count = spawner.tick(4.0);

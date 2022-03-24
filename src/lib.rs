@@ -99,7 +99,7 @@ pub use modifiers::{
 };
 pub use plugin::HanabiPlugin;
 pub use render::EffectCacheId;
-pub use spawn::{SpawnCount, SpawnMode, SpawnRate, Spawner, Value};
+pub use spawn::{Spawner, Value};
 
 /// Helper trait to write a floating point number in a format which compiles in WGSL.
 ///
