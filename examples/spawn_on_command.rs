@@ -3,7 +3,7 @@
 //! 
 use bevy::{
     prelude::*,
-    render::{mesh::shape::Cube, options::WgpuOptions, render_resource::WgpuFeatures, camera::ScalingMode},
+    render::{mesh::shape::Cube, options::WgpuOptions, render_resource::WgpuFeatures, camera::ScalingMode}, math::Vec3Swizzles,
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
 
@@ -24,10 +24,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
+        .add_system(update)
         .run();
 
     Ok(())
 }
+
+#[derive(Component)]
+struct Ball {
+    velocity: Vec2
+}
+
+const BOX_SIZE: f32 = 2.0;
+const BALL_RADIUS: f32 = 0.05;
 
 fn setup(
     mut commands: Commands,
@@ -37,12 +46,12 @@ fn setup(
 ) {
     let mut camera = OrthographicCameraBundle::new_3d();
     camera.orthographic_projection.scale = 1.2;
-    camera.orthographic_projection.scaling_mode = ScalingMode::FixedVertical;
+    camera.transform.translation.z = camera.orthographic_projection.far / 2.0;
     commands.spawn_bundle(camera);
 
     commands.spawn_bundle(PbrBundle {
         mesh: meshes.add(Mesh::from(shape::Quad {
-            size: Vec2::splat(1.0),
+            size: Vec2::splat(BOX_SIZE),
             ..Default::default()
         })),
         material: materials.add(StandardMaterial {
@@ -53,4 +62,78 @@ fn setup(
         ..Default::default()
     });
 
+    commands.spawn_bundle(PbrBundle {
+        mesh: meshes.add(Mesh::from(shape::UVSphere {
+            sectors: 32,
+            stacks: 2,
+            radius: BALL_RADIUS,
+        })),
+        material: materials.add(StandardMaterial {
+            base_color: Color::WHITE,
+            unlit: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    }).insert(Ball {
+        velocity: Vec2::new(1.0, 2f32.sqrt())
+    });
+
+    let effect = effects.add(
+        EffectAsset {
+            name: "Impact".into(),
+            capacity: 32768,
+            spawner: Spawner::once(30.0.into()).with_active(false),
+            ..Default::default()
+        }
+        .init(PositionSphereModifier {
+            radius: BALL_RADIUS,
+            speed: 0.2,
+            dimension: ShapeDimension::Surface,
+            ..Default::default()
+        })
+        .render(SizeOverLifetimeModifier {
+            gradient: Gradient::constant(Vec2::splat(0.05))
+        })
+        .render(ColorOverLifetimeModifier {
+            gradient: Gradient::constant(Color::CYAN.as_linear_rgba_f32().into())
+        })
+    );
+
+    commands.spawn_bundle(ParticleEffectBundle::new(effect));
+}
+
+struct Plane {
+    normal: Vec2,
+    distance: f32,
+}
+
+fn update(
+    mut balls: Query<(&mut Ball, &mut Transform)>,
+    mut effect: Query<(&mut ParticleEffect, &mut Transform), Without<Ball>>,
+    time: Res<Time>,
+) {
+    const HALF_SIZE: f32 = BOX_SIZE / 2.0 - BALL_RADIUS;
+
+    let (effect, effect_transform) = effect.single_mut();
+
+    for (mut ball, mut transform) in balls.iter_mut() {
+        let mut pos = transform.translation.xy() + ball.velocity * time.delta_seconds();
+
+        for (coord, vel_coord) in pos.as_mut().into_iter().zip(ball.velocity.as_mut()) {
+            while *coord < -HALF_SIZE || *coord > HALF_SIZE {
+                if *coord < -HALF_SIZE {
+                    *coord = 2.0 * -HALF_SIZE - *coord;
+                } else if *coord > HALF_SIZE {
+                    *coord = 2.0 * HALF_SIZE - *coord;
+                }
+                *vel_coord *= -1.0;
+            }
+        }
+
+        transform.translation = pos.extend(transform.translation.z);
+
+        // This isn't the most accurate place to spawn the particle effect,
+        // but this is just for demonstration, so whatever.
+        effect_transform.translation = transform.translation;
+    }
 }
