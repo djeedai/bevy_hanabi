@@ -63,7 +63,7 @@ impl Default for Spawner {
 
 impl Spawner {
     /// Create a spawner with a given count, time, and period.
-    /// 
+    ///
     /// - `count` is the number of particles to spawn over `time` in a burst
     /// - `time` is how long to spawn particles for. If this is
     ///   0, then the particles spawn all at once.
@@ -127,7 +127,9 @@ impl Spawner {
     }
 
     pub(crate) fn tick(&mut self, mut dt: f32) -> u32 {
-        if !self.active { return 0 }
+        if !self.active {
+            return 0;
+        }
 
         // The limit can be reached multiple times, so use a loop
         loop {
