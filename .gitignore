@@ -3,3 +3,6 @@ Cargo.lock
 
 .vs*
 .DS_Store
+perf.data
+perf.data.old
+ignore/

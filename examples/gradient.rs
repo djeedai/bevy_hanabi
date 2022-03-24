@@ -56,12 +56,12 @@ fn setup(
             name: "Gradient".to_string(),
             capacity: 32768,
             spawner: Spawner::new(SpawnMode::Rate(Value::Single(1000.))),
-            render_layout: Default::default(),
+            ..Default::default()
         }
-        .with(ParticleTextureModifier {
+        .render(ParticleTextureModifier {
             texture: texture_handle.clone(),
         })
-        .with(ColorOverLifetimeModifier { gradient }),
+        .render(ColorOverLifetimeModifier { gradient }),
     );
 
     commands

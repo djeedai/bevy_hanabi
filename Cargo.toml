@@ -36,6 +36,10 @@ required-features = [ "bevy/bevy_winit" ]
 name = "gradient"
 required-features = [ "bevy/bevy_winit", "bevy/png" ]
 
+[[example]]
+name = "circle"
+required-features = [ "bevy/bevy_winit", "bevy/png" ]
+
 [workspace]
 resolver = "2"
 members = ["."]

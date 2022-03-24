@@ -1248,6 +1248,11 @@ pub(crate) fn queue_effects(
         }
     };
 
+    if effects_meta.spawner_buffer.buffer().is_none() {
+        // No spawners are active
+        return;
+    }
+
     // Create the bind group for the camera/view parameters
     effects_meta.view_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
         entries: &[BindGroupEntry {

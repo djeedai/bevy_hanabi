@@ -20,7 +20,7 @@ pub trait UpdateModifier {
 
 /// Trait to customize the rendering of alive particles each frame.
 pub trait RenderModifier {
-    /// Apply the modifier to the init layout of the effect instance.
+    /// Apply the modifier to the render layout of the effect instance.
     fn apply(&self, render_layout: &mut RenderLayout);
 }
 
@@ -36,6 +36,86 @@ pub enum ShapeDimension {
 impl Default for ShapeDimension {
     fn default() -> Self {
         ShapeDimension::Surface
+    }
+}
+
+/// An initialization modifier spawning particles on a circle/disc.
+#[derive(Clone, Copy)]
+pub struct PositionCircleModifier {
+    /// The circle center, relative to the emitter position.
+    pub center: Vec3,
+    /// The circle axis, which is the normalized normal of the circle's plane.
+    /// Set this to `Vec3::Z` for a 2D game.
+    pub axis: Vec3,
+    /// The circle radius.
+    pub radius: f32,
+    /// The radial speed of the particles on spawn.
+    pub speed: f32,
+    /// The shape dimension to spawn from.
+    pub dimension: ShapeDimension,
+}
+
+impl Default for PositionCircleModifier {
+    fn default() -> Self {
+        Self {
+            center: Default::default(),
+            axis: Vec3::Z,
+            radius: Default::default(),
+            speed: Default::default(),
+            dimension: Default::default(),
+        }
+    }
+}
+
+impl InitModifier for PositionCircleModifier {
+    fn apply(&self, init_layout: &mut InitLayout) {
+        let (tangent, bitangent) = self.axis.any_orthonormal_pair();
+
+        let radius_code = match self.dimension {
+            ShapeDimension::Surface => {
+                // Constant radius
+                format!("let r = {};", self.radius.to_float_string())
+            }
+            ShapeDimension::Volume => {
+                // Radius uniformly distributed in [0:1], then square-rooted
+                // to account for the increased perimeter covered by increased radii.
+                format!("let r = sqrt(rand()) * {};", self.radius.to_float_string())
+            }
+        };
+
+        init_layout.position_code = format!(
+            r##"
+    // >>> [PositionCircleModifier]
+    // Circle center
+    let c = vec3<f32>({}, {}, {});
+    // Circle basis
+    let tangent = vec3<f32>({}, {}, {});
+    let bitangent = vec3<f32>({}, {}, {});
+    // Circle radius
+    {}
+    // Radial speed
+    let speed = {};
+    // Spawn random point on/in circle
+    let theta = rand() * tau;
+    let dir = tangent * cos(theta) + bitangent * sin(theta);
+    ret.pos = c + r * dir;
+    // Velocity away from center
+    ret.vel = dir * speed;
+    // <<< [PositionCircleModifier]
+            "##,
+            self.center.x.to_float_string(),
+            self.center.y.to_float_string(),
+            self.center.z.to_float_string(),
+            tangent.x.to_float_string(),
+            tangent.y.to_float_string(),
+            tangent.z.to_float_string(),
+            bitangent.x.to_float_string(),
+            bitangent.y.to_float_string(),
+            bitangent.z.to_float_string(),
+            radius_code,
+            self.speed.to_float_string()
+        )
+        .to_string();
     }
 }
 
@@ -78,8 +158,8 @@ impl InitModifier for PositionSphereModifier {
     {3}
     // Radial speed
     let speed = {4};
-    // Spawn randomly along the sphere surface using Archimede's theorem
-    var theta = rand() * 6.283185307179586476925286766559;
+    // Spawn randomly along the sphere surface using Archimedes's theorem
+    var theta = rand() * tau;
     var z = rand() * 2. - 1.;
     var phi = acos(z);
     var sinphi = sin(phi);
