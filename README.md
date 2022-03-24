@@ -128,6 +128,7 @@ cargo run --example spawn --features="bevy/bevy_winit"
   - [ ] Constant position
   - [x] Position over shape
     - [ ] cube
+    - [x] circle
     - [x] sphere
     - [ ] cone
     - [ ] plane
