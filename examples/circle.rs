@@ -57,7 +57,7 @@ fn setup(
             name: "Gradient".to_string(),
             // TODO: Figure out why no particle spawns if this is 1
             capacity: 32768,
-            spawner: Spawner::new(SpawnMode::Once(SpawnCount::Single(32.0))),
+            spawner: Spawner::once(32.0.into()),
             ..Default::default()
         }
         .init(PositionCircleModifier {

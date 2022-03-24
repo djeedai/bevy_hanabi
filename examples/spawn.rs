@@ -70,7 +70,7 @@ fn setup(
         EffectAsset {
             name: "emit:rate".to_string(),
             capacity: 32768,
-            spawner: Spawner::new(SpawnMode::rate(5.)),
+            spawner: Spawner::rate(5.0.into()),
             ..Default::default()
         }
         .init(PositionSphereModifier {
@@ -115,7 +115,7 @@ fn setup(
         EffectAsset {
             name: "emit:once".to_string(),
             capacity: 32768,
-            spawner: Spawner::new(SpawnMode::once(1000.)),
+            spawner: Spawner::once(1000.0.into()),
             ..Default::default()
         }
         .render(ColorOverLifetimeModifier {
@@ -148,7 +148,7 @@ fn setup(
         EffectAsset {
             name: "emit:burst".to_string(),
             capacity: 32768,
-            spawner: Spawner::new(SpawnMode::burst(400., 3.)),
+            spawner: Spawner::burst(400.0.into(), 3.0.into()),
             ..Default::default()
         }
         .init(PositionSphereModifier {
