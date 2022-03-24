@@ -111,7 +111,7 @@ impl Spawner {
             time: 0.,
             curr_spawn_time: 0.,
             limit: 0.,
-            spawn: 0.,
+            spawn: 0.5,
         }
     }
 
@@ -125,7 +125,7 @@ impl Spawner {
             time: 1.,
             curr_spawn_time: 0.,
             limit: f32::INFINITY,
-            spawn: 0.,
+            spawn: 0.5,
         }
     }
 
@@ -134,7 +134,7 @@ impl Spawner {
     pub fn reset(&mut self) {
         self.time = 0.;
         self.limit = 0.;
-        self.spawn = 0.;
+        self.spawn = 0.5;
     }
 
     /// Resamples the spawn time and period.
@@ -145,7 +145,7 @@ impl Spawner {
 
     pub(crate) fn tick(&mut self, mut dt: f32) -> u32 {
         // The limit can be reached multiple times, so use a loop
-        while dt > 0.0 {
+        loop {
             if self.limit == 0.0 {
                 self.resample();
                 continue;
@@ -177,5 +177,56 @@ impl Spawner {
         let count = self.spawn.floor();
         self.spawn -= count;
         count as u32
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_once() {
+        let mut spawner = Spawner::new(SpawnMode::once(5.0));
+        let count = spawner.tick(0.001);
+        assert_eq!(count, 5);
+        let count = spawner.tick(100.0);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_once_reset() {
+        let mut spawner = Spawner::new(SpawnMode::once(5.0));
+        spawner.tick(0.001);
+        spawner.reset();
+        let count = spawner.tick(100.0);
+        assert_eq!(count, 5);
+    }
+
+    #[test]
+    fn test_rate() {
+        let mut spawner = Spawner::new(SpawnMode::rate(5.0));
+        let count = spawner.tick(1.0);
+        assert_eq!(count, 5);
+        let count = spawner.tick(0.4);
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_rate_accumulate() {
+        let mut spawner = Spawner::new(SpawnMode::rate(5.0));
+
+        let count = (0..12).map(|_| spawner.tick(1.0 / 60.0)).sum::<u32>();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_burst() {
+        let mut spawner = Spawner::new(SpawnMode::burst(5.0, 2.0));
+        let count = spawner.tick(1.0);
+        assert_eq!(count, 5);
+        let count = spawner.tick(4.0);
+        assert_eq!(count, 10);
+        let count = spawner.tick(0.1);
+        assert_eq!(count, 0);
     }
 }
