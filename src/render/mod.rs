@@ -1700,7 +1700,7 @@ impl Node for ParticleUpdateNode {
 
                         let item_size = batch.item_size;
                         let item_count = batch.slice.end - batch.slice.start;
-                        let workgroup_count = item_count / 64;
+                        let workgroup_count = (item_count + 63) / 64;
 
                         let spawner_base = batch.spawner_base;
                         let buffer_offset = batch.slice.start;
