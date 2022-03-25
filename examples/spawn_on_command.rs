@@ -4,9 +4,7 @@
 use bevy::{
     math::Vec3Swizzles,
     prelude::*,
-    render::{
-        camera::ScalingMode, mesh::shape::Cube, options::WgpuOptions, render_resource::WgpuFeatures,
-    },
+    render::{options::WgpuOptions, render_resource::WgpuFeatures},
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
 
