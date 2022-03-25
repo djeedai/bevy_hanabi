@@ -19,6 +19,23 @@ impl<T: Copy> Value<T> {
     }
 }
 
+impl<T: Copy + PartialOrd> Value<T> {
+    /// Returns the range of values this can be
+    /// in the form `[minimum, maximum]`
+    pub fn range(&self) -> [T; 2] {
+        match self {
+            Value::Single(x) => [*x; 2],
+            Value::Uniform((a, b)) => {
+                if a <= b {
+                    [*a, *b]
+                } else {
+                    [*b, *a]
+                }
+            }
+        }
+    }
+}
+
 impl<T: Copy> From<T> for Value<T> {
     fn from(t: T) -> Self {
         Self::Single(t)
@@ -66,11 +83,19 @@ impl Spawner {
     ///
     /// - `count` is the number of particles to spawn over `time` in a burst
     /// - `time` is how long to spawn particles for. If this is
-    ///   0, then the particles spawn all at once.
+    ///   <= 0, then the particles spawn all at once.
     /// - `period` is the amount of time between bursts of particles.
-    ///   If this is `time`, then the spawner spawns a steady stream of particles.
+    ///   If this is >= `time`, then the spawner spawns a steady stream of particles.
     ///   If this is infinity, then there is only 1 burst.
+    ///
+    /// # Panics:
+    /// Panics if `period` can be a negative number, or can only be 0.
     pub fn new(count: Value<f32>, time: Value<f32>, period: Value<f32>) -> Self {
+        assert!(
+            period.range()[0] >= 0. && period.range()[1] > 0.,
+            "`period` must be able to generate a positive number and no negative numbers"
+        );
+
         Spawner {
             num_particles: count,
             spawn_time: time,
@@ -120,10 +145,15 @@ impl Spawner {
         self.active = active;
     }
 
+    /// Gets whether the spawner is active.
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
     /// Resamples the spawn time and period.
     fn resample(&mut self) {
-        self.curr_spawn_time = self.spawn_time.sample();
         self.limit = self.period.sample();
+        self.curr_spawn_time = self.spawn_time.sample().clamp(0.0, self.limit);
     }
 
     pub(crate) fn tick(&mut self, mut dt: f32) -> u32 {
@@ -140,12 +170,11 @@ impl Spawner {
 
             let new_time = self.time + dt;
             if self.time <= self.curr_spawn_time {
-                self.spawn += if self.curr_spawn_time == 0.0 {
+                self.spawn += if self.curr_spawn_time < dt / 100.0 {
                     self.num_particles.sample()
-                } else if new_time <= self.curr_spawn_time {
-                    self.num_particles.sample() * dt / self.curr_spawn_time
                 } else {
-                    self.num_particles.sample() * (1.0 - self.time / self.curr_spawn_time)
+                    self.num_particles.sample() * (new_time.min(self.curr_spawn_time) - self.time)
+                        / self.curr_spawn_time
                 };
             }
 
@@ -170,6 +199,24 @@ impl Spawner {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_range_single() {
+        let value = Value::Single(1.0);
+        assert_eq!(value.range(), [1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_range_uniform() {
+        let value = Value::Uniform((1.0, 3.0));
+        assert_eq!(value.range(), [1.0, 3.0]);
+    }
+
+    #[test]
+    fn test_range_uniform_reverse() {
+        let value = Value::Uniform((3.0, 1.0));
+        assert_eq!(value.range(), [1.0, 3.0]);
+    }
 
     #[test]
     fn test_once() {
@@ -213,9 +260,11 @@ mod test {
         let mut spawner = Spawner::rate(5.0.into());
         spawner.tick(1.0);
         spawner.set_active(false);
+        assert!(!spawner.is_active());
         let count = spawner.tick(0.4);
         assert_eq!(count, 0);
         spawner.set_active(true);
+        assert!(spawner.is_active());
         let count = spawner.tick(0.4);
         assert_eq!(count, 2);
     }
