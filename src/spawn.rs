@@ -74,7 +74,7 @@ pub struct Spawner {
 
 impl Default for Spawner {
     fn default() -> Self {
-        Spawner::once(1.0f32.into())
+        Spawner::once(1.0f32.into(), true)
     }
 }
 
@@ -103,7 +103,7 @@ impl Spawner {
             time: 0.,
             curr_spawn_time: 0.,
             limit: 0.,
-            spawn: 0.5,
+            spawn: 0.,
             active: true,
         }
     }
@@ -115,8 +115,14 @@ impl Spawner {
     }
 
     /// Create a spawner that spawns `count` particles, then waits until reset.
-    pub fn once(count: Value<f32>) -> Self {
-        Self::new(count, 0.0.into(), f32::INFINITY.into())
+    /// If `spawn_immediately` is false, this waits until reset before
+    /// spawning its first burst of particles.
+    pub fn once(count: Value<f32>, spawn_immediately: bool) -> Self {
+        let mut spawner = Self::new(count, 0.0.into(), f32::INFINITY.into());
+        if !spawn_immediately {
+            spawner.time = 1.0;
+        }
+        spawner
     }
 
     /// Create a spawner that spawns particles at `rate`, accumulated each frame.
@@ -131,13 +137,13 @@ impl Spawner {
         Self::new(count, 0.0.into(), period)
     }
 
-    /// Resets and activates the spawner.
-    /// Use this, for example, to immediately spawn some particles.
+    /// Resets the spawner.
+    /// Use this, for example, to immediately spawn some particles
+    /// in a spawner constructed with `Spawner::once`.
     pub fn reset(&mut self) {
         self.time = 0.;
         self.limit = 0.;
-        self.spawn = 0.5;
-        self.active = true;
+        self.spawn = 0.;
     }
 
     /// Sets whether the spawner is active.
@@ -170,7 +176,7 @@ impl Spawner {
 
             let new_time = self.time + dt;
             if self.time <= self.curr_spawn_time {
-                self.spawn += if self.curr_spawn_time < dt / 100.0 {
+                self.spawn += if self.curr_spawn_time < 1e-5f32.max(dt / 100.0) {
                     self.num_particles.sample()
                 } else {
                     self.num_particles.sample() * (new_time.min(self.curr_spawn_time) - self.time)
@@ -220,7 +226,7 @@ mod test {
 
     #[test]
     fn test_once() {
-        let mut spawner = Spawner::once(5.0.into());
+        let mut spawner = Spawner::once(5.0.into(), true);
         let count = spawner.tick(0.001);
         assert_eq!(count, 5);
         let count = spawner.tick(100.0);
@@ -229,7 +235,7 @@ mod test {
 
     #[test]
     fn test_once_reset() {
-        let mut spawner = Spawner::once(5.0.into());
+        let mut spawner = Spawner::once(5.0.into(), true);
         spawner.tick(1.0);
         spawner.reset();
         let count = spawner.tick(1.0);
@@ -237,8 +243,8 @@ mod test {
     }
 
     #[test]
-    fn test_once_inactive() {
-        let mut spawner = Spawner::once(5.0.into()).with_active(false);
+    fn test_once_not_immediate() {
+        let mut spawner = Spawner::once(5.0.into(), false);
         let count = spawner.tick(1.0);
         assert_eq!(count, 0);
         spawner.reset();
@@ -249,7 +255,8 @@ mod test {
     #[test]
     fn test_rate() {
         let mut spawner = Spawner::rate(5.0.into());
-        let count = spawner.tick(1.0);
+        // Slightly over 1.0 to avoid edge case
+        let count = spawner.tick(1.01);
         assert_eq!(count, 5);
         let count = spawner.tick(0.4);
         assert_eq!(count, 2);
@@ -258,7 +265,7 @@ mod test {
     #[test]
     fn test_rate_active() {
         let mut spawner = Spawner::rate(5.0.into());
-        spawner.tick(1.0);
+        spawner.tick(1.01);
         spawner.set_active(false);
         assert!(!spawner.is_active());
         let count = spawner.tick(0.4);
@@ -272,8 +279,8 @@ mod test {
     #[test]
     fn test_rate_accumulate() {
         let mut spawner = Spawner::rate(5.0.into());
-
-        let count = (0..12).map(|_| spawner.tick(1.0 / 60.0)).sum::<u32>();
+        // 13 ticks instead of 12 to avoid edge case
+        let count = (0..13).map(|_| spawner.tick(1.0 / 60.0)).sum::<u32>();
         assert_eq!(count, 1);
     }
 

@@ -85,7 +85,7 @@ fn setup(
     gradient.add_key(0.0, Vec4::new(0.0, 1.0, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.0, 1.0, 1.0, 0.0));
 
-    let spawner = Spawner::once(30.0.into()).with_active(false);
+    let spawner = Spawner::once(30.0.into(), false);
     let effect = effects.add(
         EffectAsset {
             name: "Impact".into(),

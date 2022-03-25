@@ -115,7 +115,7 @@ fn setup(
         EffectAsset {
             name: "emit:once".to_string(),
             capacity: 32768,
-            spawner: Spawner::once(1000.0.into()),
+            spawner: Spawner::once(1000.0.into(), true),
             ..Default::default()
         }
         .render(ColorOverLifetimeModifier {
