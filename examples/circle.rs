@@ -84,17 +84,16 @@ fn setup(
     });
 
     // The sphere
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::UVSphere {
-                radius: 1.0,
-                sectors: 32,
-                stacks: 16,
-            })),
-            material: materials.add(Color::CYAN.into()),
-            transform: Transform::from_translation(Vec3::Y),
-            ..Default::default()
-        });
+    commands.spawn_bundle(PbrBundle {
+        mesh: meshes.add(Mesh::from(shape::UVSphere {
+            radius: 1.0,
+            sectors: 32,
+            stacks: 16,
+        })),
+        material: materials.add(Color::CYAN.into()),
+        transform: Transform::from_translation(Vec3::Y),
+        ..Default::default()
+    });
 
     commands.spawn_bundle(ParticleEffectBundle::new(effect));
 }

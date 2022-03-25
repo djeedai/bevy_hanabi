@@ -152,6 +152,11 @@ impl ParticleEffect {
         }
     }
 
+    /// Sets the spawner of this particle effect.
+    pub fn set_spawner(&mut self, spawner: Spawner) {
+        self.spawner = Some(spawner);
+    }
+
     /// Configure the spawner of a new particle effect.
     ///
     /// The call returns a reference to the added spawner, allowing to chain
@@ -161,5 +166,13 @@ impl ParticleEffect {
             self.spawner = Some(spawner.clone());
         }
         self.spawner.as_mut().unwrap()
+    }
+
+    /// Get the spawner of this particle effect.
+    ///
+    /// Returns None if `with_spawner` was not called
+    /// and the effect has not rendered yet.
+    pub fn maybe_spawner(&mut self) -> Option<&mut Spawner> {
+        self.spawner.as_mut()
     }
 }
