@@ -104,7 +104,7 @@ cargo run --example gradient -features="bevy/bevy_winit bevy/png"
 
 ### Spawn
 
-This example demonstrates the three built-in spawn modes:
+This example demonstrates three spawn modes:
 
 - **Left:** Continuous emission with a fixed rate (particles/second).
 - **Center:** One-shot burst emission of a fixed count of particles.
