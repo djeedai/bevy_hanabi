@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .insert_resource(options)
         .insert_resource(bevy::log::LogSettings {
             level: bevy::log::Level::WARN,
-            filter: "bevy_hanabi=trace,circle=trace".to_string(),
+            filter: "bevy_hanabi=error,circle=trace".to_string(),
         })
         .add_plugins(DefaultPlugins)
         .add_plugin(HanabiPlugin)
@@ -57,7 +57,7 @@ fn setup(
             name: "Gradient".to_string(),
             // TODO: Figure out why no particle spawns if this is 1
             capacity: 32768,
-            spawner: Spawner::new(SpawnMode::Once(SpawnCount::Single(32.0))),
+            spawner: Spawner::once(32.0.into(), true),
             ..Default::default()
         }
         .init(PositionCircleModifier {
@@ -84,17 +84,16 @@ fn setup(
     });
 
     // The sphere
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::UVSphere {
-                radius: 1.0,
-                sectors: 32,
-                stacks: 16,
-            })),
-            material: materials.add(Color::CYAN.into()),
-            transform: Transform::from_translation(Vec3::Y),
-            ..Default::default()
-        });
+    commands.spawn_bundle(PbrBundle {
+        mesh: meshes.add(Mesh::from(shape::UVSphere {
+            radius: 1.0,
+            sectors: 32,
+            stacks: 16,
+        })),
+        material: materials.add(Color::CYAN.into()),
+        transform: Transform::from_translation(Vec3::Y),
+        ..Default::default()
+    });
 
     commands.spawn_bundle(ParticleEffectBundle::new(effect));
 }

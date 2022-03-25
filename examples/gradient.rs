@@ -55,7 +55,7 @@ fn setup(
         EffectAsset {
             name: "Gradient".to_string(),
             capacity: 32768,
-            spawner: Spawner::new(SpawnMode::Rate(Value::Single(1000.))),
+            spawner: Spawner::rate(1000.0.into()),
             ..Default::default()
         }
         .render(ParticleTextureModifier {

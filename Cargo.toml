@@ -40,6 +40,14 @@ required-features = [ "bevy/bevy_winit", "bevy/png" ]
 name = "circle"
 required-features = [ "bevy/bevy_winit", "bevy/png" ]
 
+[[example]]
+name = "spawn_on_command"
+required-features = [ "bevy/bevy_winit" ]
+
+[[example]]
+name = "activate"
+required-features = [ "bevy/bevy_winit" ]
+
 [workspace]
 resolver = "2"
 members = ["."]

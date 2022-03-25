@@ -49,7 +49,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
             // Maximum number of particles alive at a time
             capacity: 32768,
             // Spawn at a rate of 5 particles per second
-            spawner: Spawner::new(SpawnMode::rate(5.)),
+            spawner: Spawner::rate(5.0.into()),
             ..Default::default()
         }
         // On spawn, randomly initialize the position and velocity
@@ -104,7 +104,7 @@ cargo run --example gradient -features="bevy/bevy_winit bevy/png"
 
 ### Spawn
 
-This example demonstrates the three built-in spawn modes:
+This example demonstrates three spawn modes:
 
 - **Left:** Continuous emission with a fixed rate (particles/second).
 - **Center:** One-shot burst emission of a fixed count of particles.
@@ -124,6 +124,8 @@ cargo run --example spawn --features="bevy/bevy_winit"
   - [x] Constant rate
   - [x] One-time burst
   - [x] Repeated burst
+  - [x] Spawner resetting
+  - [x] Spawner activation/deactivation
 - Initialize
   - [ ] Constant position
   - [x] Position over shape

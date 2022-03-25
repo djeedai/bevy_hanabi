@@ -1,4 +1,4 @@
-use crate::{EffectAsset, ParticleEffect};
+use crate::{EffectAsset, ParticleEffect, Spawner};
 use bevy::prelude::*;
 
 /// A component bundle for a particle effect.
@@ -32,5 +32,11 @@ impl ParticleEffectBundle {
             visibility: Default::default(),
             computed_visibility: Default::default(),
         }
+    }
+
+    /// Gives the particle effect a spawner.
+    pub fn with_spawner(mut self, spawner: Spawner) -> Self {
+        self.effect.set_spawner(spawner);
+        self
     }
 }
