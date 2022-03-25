@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add `SizeOverLifetimeModifier`.
 
+### Fixed
+
+- Fixed depth sorting of particles relative to opaque objects. Particles are now correctly hidden when behind opaque objects.
+- Fixed truncation in compute workgroup count preventing update of some particles, and in degenerate cases (`capacity < 64`) completely disabling update.
+
 ## [0.1.1] 2022-02-15
 
 ### Fixed
