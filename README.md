@@ -49,7 +49,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
             // Maximum number of particles alive at a time
             capacity: 32768,
             // Spawn at a rate of 5 particles per second
-            spawner: Spawner::new(SpawnMode::rate(5.)),
+            spawner: Spawner::rate(5.0.into()),
             ..Default::default()
         }
         // On spawn, randomly initialize the position and velocity
