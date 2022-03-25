@@ -559,7 +559,8 @@ impl SpecializedPipeline for ParticlesRenderPipeline {
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: false,
-                depth_compare: CompareFunction::Always,
+                // Bevy uses reverse-Z, so Greater really means closer
+                depth_compare: CompareFunction::Greater,
                 stencil: StencilState::default(),
                 bias: DepthBiasState::default(),
             }),
