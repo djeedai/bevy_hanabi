@@ -124,6 +124,8 @@ cargo run --example spawn --features="bevy/bevy_winit"
   - [x] Constant rate
   - [x] One-time burst
   - [x] Repeated burst
+  - [x] Spawner resetting
+  - [x] Spawner activation/deactivation
 - Initialize
   - [ ] Constant position
   - [x] Position over shape
