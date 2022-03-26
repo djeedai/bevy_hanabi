@@ -101,27 +101,72 @@ pub use plugin::HanabiPlugin;
 pub use render::EffectCacheId;
 pub use spawn::{Spawner, Value};
 
-/// Helper trait to write a floating point number in a format which compiles in WGSL.
+/// Extension trait to write a floating point scalar or vector constant in a format
+/// matching the WGSL grammar.
 ///
 /// This is required because WGSL doesn't support a floating point constant without
-/// a decimal separator (e.g. "0." instead of "0"), which would be what a regular float
-/// to string formatting produces.
-trait ToWgslFloat {
-    /// Convert a floating point value to a string representing a WGSL constant.
-    fn to_float_string(&self) -> String;
+/// a decimal separator (e.g. `0.` instead of `0`), which would be what a regular float
+/// to string formatting produces, but is interpreted as an integral type by WGSL.
+///
+/// # Example
+///
+/// ```
+/// # use bevy_hanabi::ToWgslString;
+/// let x = 2.0_f32;
+/// assert_eq!("let x = 2.;", format!("let x = {};", x.to_wgsl_string()));
+/// ```
+pub trait ToWgslString {
+    /// Convert a floating point scalar or vector to a string representing a WGSL constant.
+    fn to_wgsl_string(&self) -> String;
 }
 
-impl ToWgslFloat for f32 {
-    fn to_float_string(&self) -> String {
+impl ToWgslString for f32 {
+    fn to_wgsl_string(&self) -> String {
         let s = format!("{:.6}", self);
         s.trim_end_matches("0").to_string()
     }
 }
 
-impl ToWgslFloat for f64 {
-    fn to_float_string(&self) -> String {
+impl ToWgslString for f64 {
+    fn to_wgsl_string(&self) -> String {
         let s = format!("{:.15}", self);
         s.trim_end_matches("0").to_string()
+    }
+}
+
+impl ToWgslString for Vec2 {
+    fn to_wgsl_string(&self) -> String {
+        let s = format!(
+            "vec2<f32>({0}, {1})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string()
+        );
+        s.to_string()
+    }
+}
+
+impl ToWgslString for Vec3 {
+    fn to_wgsl_string(&self) -> String {
+        let s = format!(
+            "vec3<f32>({0}, {1}, {2})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string(),
+            self.z.to_wgsl_string()
+        );
+        s.to_string()
+    }
+}
+
+impl ToWgslString for Vec4 {
+    fn to_wgsl_string(&self) -> String {
+        let s = format!(
+            "vec4<f32>({0}, {1}, {2}, {3})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string(),
+            self.z.to_wgsl_string(),
+            self.w.to_wgsl_string()
+        );
+        s.to_string()
     }
 }
 
@@ -174,5 +219,48 @@ impl ParticleEffect {
     /// and the effect has not rendered yet.
     pub fn maybe_spawner(&mut self) -> Option<&mut Spawner> {
         self.spawner.as_mut()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn to_wgsl_f32() {
+        let s = 1.0_f32.to_wgsl_string();
+        assert_eq!(s, "1.");
+        let s = (-1.0_f32).to_wgsl_string();
+        assert_eq!(s, "-1.");
+        let s = 1.5_f32.to_wgsl_string();
+        assert_eq!(s, "1.5");
+        let s = 0.5_f32.to_wgsl_string();
+        assert_eq!(s, "0.5");
+        let s = 0.123456789_f32.to_wgsl_string();
+        assert_eq!(s, "0.123457"); // 6 digits
+    }
+
+    #[test]
+    fn to_wgsl_f64() {
+        let s = 1.0_f64.to_wgsl_string();
+        assert_eq!(s, "1.");
+        let s = (-1.0_f64).to_wgsl_string();
+        assert_eq!(s, "-1.");
+        let s = 1.5_f64.to_wgsl_string();
+        assert_eq!(s, "1.5");
+        let s = 0.5_f64.to_wgsl_string();
+        assert_eq!(s, "0.5");
+        let s = 0.1234567890123456789_f64.to_wgsl_string();
+        assert_eq!(s, "0.123456789012346"); // 15 digits
+    }
+
+    #[test]
+    fn to_wgsl_vec() {
+        let s = Vec2::new(1., 2.).to_wgsl_string();
+        assert_eq!(s, "vec2<f32>(1., 2.)");
+        let s = Vec3::new(1., 2., -1.).to_wgsl_string();
+        assert_eq!(s, "vec3<f32>(1., 2., -1.)");
+        let s = Vec4::new(1., 2., -1., 2.).to_wgsl_string();
+        assert_eq!(s, "vec4<f32>(1., 2., -1., 2.)");
     }
 }

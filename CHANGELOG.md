@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Spawners can be reset with `Spawner::reset`. This gives control over when to spawn a burst of particles.
   - Spawners can be activated or deactivated with `Spawner::set_active`.
   - `ParticleEffectBundle`s can be initialized with a spawner with `ParticleEffectBundle::with_spawner`.
+- Implemented `ToWgslFloat` for `Vec2` / `Vec3` / `Vec4`.
+
+### Changed
+
+- Renamed the `ToWgslFloat` trait into `ToWgslString`, and its `to_float_string()` method into `to_wgsl_string()`. Also made the trait public.
 
 ### Fixed
 

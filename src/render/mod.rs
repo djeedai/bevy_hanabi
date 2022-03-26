@@ -33,7 +33,7 @@ use rand::Rng;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
 
-use crate::{asset::EffectAsset, Gradient, ParticleEffect, ToWgslFloat};
+use crate::{asset::EffectAsset, Gradient, ParticleEffect, ToWgslString};
 
 mod compute_cache;
 mod effect_cache;
@@ -90,11 +90,10 @@ impl ShaderCode for Gradient<Vec2> {
             .enumerate()
             .map(|(index, key)| {
                 format!(
-                    "let t{0} = {1};\nlet v{0} = vec2<f32>({2}, {3});",
+                    "let t{0} = {1};\nlet v{0} = {2};",
                     index,
-                    key.ratio().to_float_string(),
-                    key.value.x.to_float_string(),
-                    key.value.y.to_float_string()
+                    key.ratio().to_wgsl_string(),
+                    key.value.to_wgsl_string()
                 )
             })
             .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
@@ -133,13 +132,10 @@ impl ShaderCode for Gradient<Vec4> {
             .enumerate()
             .map(|(index, key)| {
                 format!(
-                    "let t{0} = {1};\nlet c{0} = vec4<f32>({2}, {3}, {4}, {5});",
+                    "let t{0} = {1};\nlet c{0} = {2};",
                     index,
-                    key.ratio().to_float_string(),
-                    key.value.x.to_float_string(),
-                    key.value.y.to_float_string(),
-                    key.value.z.to_float_string(),
-                    key.value.w.to_float_string()
+                    key.ratio().to_wgsl_string(),
+                    key.value.to_wgsl_string()
                 )
             })
             .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
