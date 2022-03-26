@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use crate::{
     asset::{InitLayout, RenderLayout, UpdateLayout},
     gradient::Gradient,
-    ToWgslFloat,
+    ToWgslString,
 };
 
 /// Trait to customize the initializing of newly spawned particles.
@@ -74,12 +74,12 @@ impl InitModifier for PositionCircleModifier {
         let radius_code = match self.dimension {
             ShapeDimension::Surface => {
                 // Constant radius
-                format!("let r = {};", self.radius.to_float_string())
+                format!("let r = {};", self.radius.to_wgsl_string())
             }
             ShapeDimension::Volume => {
                 // Radius uniformly distributed in [0:1], then square-rooted
                 // to account for the increased perimeter covered by increased radii.
-                format!("let r = sqrt(rand()) * {};", self.radius.to_float_string())
+                format!("let r = sqrt(rand()) * {};", self.radius.to_wgsl_string())
             }
         };
 
@@ -87,10 +87,10 @@ impl InitModifier for PositionCircleModifier {
             r##"
     // >>> [PositionCircleModifier]
     // Circle center
-    let c = vec3<f32>({}, {}, {});
+    let c = {};
     // Circle basis
-    let tangent = vec3<f32>({}, {}, {});
-    let bitangent = vec3<f32>({}, {}, {});
+    let tangent = {};
+    let bitangent = {};
     // Circle radius
     {}
     // Radial speed
@@ -103,17 +103,11 @@ impl InitModifier for PositionCircleModifier {
     ret.vel = dir * speed;
     // <<< [PositionCircleModifier]
             "##,
-            self.center.x.to_float_string(),
-            self.center.y.to_float_string(),
-            self.center.z.to_float_string(),
-            tangent.x.to_float_string(),
-            tangent.y.to_float_string(),
-            tangent.z.to_float_string(),
-            bitangent.x.to_float_string(),
-            bitangent.y.to_float_string(),
-            bitangent.z.to_float_string(),
+            self.center.to_wgsl_string(),
+            tangent.to_wgsl_string(),
+            bitangent.to_wgsl_string(),
             radius_code,
-            self.speed.to_float_string()
+            self.speed.to_wgsl_string()
         )
         .to_string();
     }
@@ -137,7 +131,7 @@ impl InitModifier for PositionSphereModifier {
         let radius_code = match self.dimension {
             ShapeDimension::Surface => {
                 // Constant radius
-                format!("let r = {};", self.radius.to_float_string())
+                format!("let r = {};", self.radius.to_wgsl_string())
             }
             ShapeDimension::Volume => {
                 // Radius uniformly distributed in [0:1], then scaled by ^(1/3) in 3D
@@ -145,7 +139,7 @@ impl InitModifier for PositionSphereModifier {
                 // https://stackoverflow.com/questions/54544971/how-to-generate-uniform-random-points-inside-d-dimension-ball-sphere
                 format!(
                     "var r = pow(rand(), 1./3.) * {};",
-                    self.radius.to_float_string()
+                    self.radius.to_wgsl_string()
                 )
             }
         };
@@ -153,11 +147,11 @@ impl InitModifier for PositionSphereModifier {
             r##"
     // >>> [PositionSphereModifier]
     // Sphere center
-    let c = vec3<f32>({0}, {1}, {2});
+    let c = {0};
     // Sphere radius
-    {3}
+    {1}
     // Radial speed
-    let speed = {4};
+    let speed = {2};
     // Spawn randomly along the sphere surface using Archimedes's theorem
     var theta = rand() * tau;
     var z = rand() * 2. - 1.;
@@ -171,11 +165,9 @@ impl InitModifier for PositionSphereModifier {
     ret.vel = dir * speed;
     // <<< [PositionSphereModifier]
 "##,
-            self.center.x.to_float_string(),
-            self.center.y.to_float_string(),
-            self.center.z.to_float_string(),
+            self.center.to_wgsl_string(),
             radius_code,
-            self.speed.to_float_string()
+            self.speed.to_wgsl_string()
         )
         .to_string();
     }
