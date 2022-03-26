@@ -53,21 +53,31 @@ impl Lerp for Quat {
 }
 
 /// A single key point for a [`Gradient`].
-#[derive(Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct GradientKey<T: Lerp> {
     /// Ratio in \[0:1\] where the key is located.
-    pub ratio: f32,
+    ratio: f32,
+
     /// Value associated with the key.
-    /// The value is uploaded as is to the render shader. For colors, this means it does not
-    /// imply any particular color space by itself.
+    ///
+    /// The value is uploaded as is to the render shader. For colors, this means
+    /// the value does not imply any particular color space by itself.
     pub value: T,
+}
+
+impl<T: Lerp> GradientKey<T> {
+    /// Get the ratio where the key point is located, in \[0:1\].
+    pub fn ratio(&self) -> f32 {
+        self.ratio
+    }
 }
 
 /// A gradient curve made of keypoints and associated values.
 ///
 /// The gradient can be sampled anywhere, and will return a linear interpolation
-/// of the values of its closest keys.
-#[derive(Default, Clone, PartialEq)]
+/// of the values of its closest keys. Sampling before 0 or after 1 returns a
+/// constant value equal to the one of the closest bound.
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Gradient<T: Lerp> {
     keys: Vec<GradientKey<T>>,
 }
@@ -88,13 +98,19 @@ impl<T: Default + Lerp> Gradient<T> {
 }
 
 impl<T: Lerp> Gradient<T> {
-    /// Add a key to the gradient.
+    /// Add a key point to the gradient.
     ///
     /// If one or more duplicate ratios already exist, append the new key after all
     /// the existing keys with same ratio.
     ///
     /// The ratio must be a finite floating point value.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if `ratio` is not in the \[0:1\] range.
     pub fn add_key(&mut self, ratio: f32, value: T) {
+        assert!(ratio >= 0.0);
+        assert!(ratio <= 1.0);
         let index = match self
             .keys
             .binary_search_by(|key| FloatOrd(key.ratio).cmp(&FloatOrd(ratio)))
@@ -129,6 +145,10 @@ impl<T: Lerp> Gradient<T> {
     /// in the collection. If the ratio falls between two keys, return a linear interpolation
     /// of their values. If the ratio is before the first key or after the last one, return
     /// the first and last value, respectively.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the gradient is empty (has no key point).
     pub fn sample(&self, ratio: f32) -> T {
         assert!(!self.keys.is_empty());
         match self
