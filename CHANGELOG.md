@@ -10,15 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `SizeOverLifetimeModifier`.
 - Add `PositionCircleModifier` to allow spawning from a circle or disc.
 - Revamped spawning system:
-    - `SpawnMode` is gone; `Spawner`s are constructed with associated functions `new`, `once`, `rate`, and `burst`.
-    - Spawners can be reset with `Spawner::reset`. This gives control over when to spawn a burst of particles.
-    - Spawners can be activated or deactivated with `Spawner::set_active`.
-    - `ParticleEffectBundle`s can be initialized with a spawner with `ParticleEffectBundle::with_spawner`.
+  - `SpawnMode` is gone; `Spawner`s are constructed with associated functions `new`, `once`, `rate`, and `burst`.
+  - Spawners can be reset with `Spawner::reset`. This gives control over when to spawn a burst of particles.
+  - Spawners can be activated or deactivated with `Spawner::set_active`.
+  - `ParticleEffectBundle`s can be initialized with a spawner with `ParticleEffectBundle::with_spawner`.
 
 ### Fixed
 
 - Fixed depth sorting of particles relative to opaque objects. Particles are now correctly hidden when behind opaque objects.
 - Fixed truncation in compute workgroup count preventing update of some particles, and in degenerate cases (`capacity < 64`) completely disabling update.
+- Made the `GradientKey<T>::ratio` field private to avoid any modification via `Gradient<T>::keys_mut()` which would corrupt the internal sorting of keys.
 
 ## [0.1.1] 2022-02-15
 

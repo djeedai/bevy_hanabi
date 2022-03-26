@@ -92,7 +92,7 @@ impl ShaderCode for Gradient<Vec2> {
                 format!(
                     "let t{0} = {1};\nlet v{0} = vec2<f32>({2}, {3});",
                     index,
-                    key.ratio.to_float_string(),
+                    key.ratio().to_float_string(),
                     key.value.x.to_float_string(),
                     key.value.y.to_float_string()
                 )
@@ -135,7 +135,7 @@ impl ShaderCode for Gradient<Vec4> {
                 format!(
                     "let t{0} = {1};\nlet c{0} = vec4<f32>({2}, {3}, {4}, {5});",
                     index,
-                    key.ratio.to_float_string(),
+                    key.ratio().to_float_string(),
                     key.value.x.to_float_string(),
                     key.value.y.to_float_string(),
                     key.value.z.to_float_string(),
