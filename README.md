@@ -97,7 +97,7 @@ See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
 Animate an emitter by moving its `Transform` component, and emit textured quad particles with a `ColorOverLifetimeModifier`.
 
 ```shell
-cargo run --example gradient -features="bevy/bevy_winit bevy/png"
+cargo run --example gradient --features="bevy/bevy_winit bevy/png"
 ```
 
 ![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/main/examples/gradient.gif)
