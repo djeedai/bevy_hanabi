@@ -57,7 +57,7 @@
 //!         center: Vec3::ZERO,
 //!         radius: 2.,
 //!         dimension: ShapeDimension::Surface,
-//!         speed: 6.,
+//!         speed: 6.0.into(),
 //!     })
 //!     // Every frame, add a gravity-like acceleration downward
 //!     .update(AccelModifier {
