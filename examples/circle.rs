@@ -1,4 +1,4 @@
-//! Example of using the circle spawner.
+//! Example of using the circle spawner with random velocity.
 //! A sphere spawns dust in a circle.
 
 use bevy::{
@@ -64,7 +64,7 @@ fn setup(
             center: Vec3::Y * 0.1,
             axis: Vec3::Y,
             radius: 0.4,
-            speed: 1.0,
+            speed: Value::Uniform((1.0, 1.5)),
             dimension: ShapeDimension::Surface,
         })
         .render(ParticleTextureModifier {

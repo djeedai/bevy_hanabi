@@ -176,9 +176,9 @@ impl ToWgslString for Value<f32> {
             Self::Single(x) => x.to_wgsl_string(),
             Self::Uniform((a, b)) => format!(
                 "rand() * ({1} - {0}) + {0}",
-                a,
-                b
-            )
+                a.to_wgsl_string(),
+                b.to_wgsl_string(),
+            ),
         }
     }
 }
