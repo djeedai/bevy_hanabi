@@ -137,7 +137,7 @@ cargo run --example spawn --features="bevy/bevy_winit"
     - [ ] generic mesh / point cloud (?)
   - [ ] Random position offset
   - [x] Constant velocity
-  - [ ] Random velocity
+  - [x] Random velocity
   - [ ] Constant color
   - [ ] Random color
 - Update
