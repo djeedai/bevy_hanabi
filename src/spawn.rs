@@ -13,6 +13,9 @@ pub(crate) fn new_rng() -> Pcg32 {
     Pcg32::from_seed(seed)
 }
 
+/// An RNG resource
+pub struct Random(pub Pcg32);
+
 /// A constant or random value.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Value<T: Copy> {
