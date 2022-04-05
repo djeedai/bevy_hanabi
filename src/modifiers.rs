@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use crate::{
     asset::{InitLayout, RenderLayout, UpdateLayout},
     gradient::Gradient,
-    ToWgslString,
+    ToWgslString, Value,
 };
 
 /// Trait to customize the initializing of newly spawned particles.
@@ -50,7 +50,7 @@ pub struct PositionCircleModifier {
     /// The circle radius.
     pub radius: f32,
     /// The radial speed of the particles on spawn.
-    pub speed: f32,
+    pub speed: Value<f32>,
     /// The shape dimension to spawn from.
     pub dimension: ShapeDimension,
 }
@@ -121,7 +121,7 @@ pub struct PositionSphereModifier {
     /// The sphere radius.
     pub radius: f32,
     /// The radial speed of the particles on spawn.
-    pub speed: f32,
+    pub speed: Value<f32>,
     /// The shape dimension to spawn from.
     pub dimension: ShapeDimension,
 }

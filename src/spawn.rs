@@ -9,6 +9,12 @@ pub enum Value<T: Copy> {
     Uniform((T, T)),
 }
 
+impl<T: Copy + Default> Default for Value<T> {
+    fn default() -> Self {
+        Self::Single(T::default())
+    }
+}
+
 impl<T: Copy> Value<T> {
     /// Sample the value.
     pub fn sample(&self) -> T {
