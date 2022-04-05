@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented `ToWgslFloat` for `Vec2` / `Vec3` / `Vec4`.
 - Implemented `ToWgslFloat` for `Value<f32>`.
 - Derive-implemented `PartialEq` for `Value<T>` and `Spawner`.
+- Implemented randomization for randomized spawning parameters
 
 ### Changed
 
