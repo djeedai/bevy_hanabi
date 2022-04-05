@@ -7,7 +7,10 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{Gradient, InitModifier, RenderModifier, Spawner, UpdateModifier};
+use crate::{
+    modifiers::PullingForceFieldParam, render::FFNUM, Gradient, InitModifier, RenderModifier,
+    Spawner, UpdateModifier,
+};
 
 #[derive(Default, Clone)]
 pub struct InitLayout {
@@ -19,6 +22,9 @@ pub struct UpdateLayout {
     /// Constant accelereation to apply to all particles.
     /// Generally used to simulate some kind of gravity.
     pub accel: Vec3,
+    pub force_field: [PullingForceFieldParam; FFNUM],
+    pub box_lower_bounds: Vec3,
+    pub box_upper_bounds: Vec3,
 }
 
 #[derive(Default, Clone)]

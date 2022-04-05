@@ -48,6 +48,12 @@ required-features = [ "bevy/bevy_winit" ]
 name = "activate"
 required-features = [ "bevy/bevy_winit" ]
 
+[[example]]
+name = "force_field"
+required-features = [ "bevy/bevy_winit" ]
+
+# [[example]]
+
 [workspace]
 resolver = "2"
 members = ["."]

@@ -14,11 +14,21 @@ struct SimParams {
     time: f32;
 };
 
+struct PullingForceFieldParam {
+    position_or_direction: vec3<f32>;
+    max_radius: f32;
+    min_radius: f32;
+    mass: f32;
+    force_type: i32;
+    __pad0: u32;
+};
+
 struct Spawner {
     origin: vec3<f32>;
     spawn: atomic<i32>;
     accel: vec3<f32>;
     count: atomic<i32>;
+    force_field: array<PullingForceFieldParam, 16>;
     __pad0: vec3<f32>;
     seed: u32;
     __pad1: vec4<f32>;
@@ -109,6 +119,14 @@ fn init_lifetime() -> f32 {
     return 5.0;
 }
 
+// fn get_force_field(pos: vec3<f32>) -> vec4<f32> {
+//     var ret : vec4<f32>;
+// {{FORCE_FIELD}}
+//     return ret;
+// }
+
+
+
 [[stage(compute), workgroup_size(64)]]
 fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
     let max_particles : u32 = arrayLength(&particle_buffer.particles);
@@ -142,8 +160,41 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
         }
     }
 
+    var pulling_force: vec3<f32> = vec3<f32>(0.0); 
+
+    for (var kk: i32 = 0; kk < 16; kk=kk+1) {
+        // As soon as a field component has a null mass, skip it and all subsequent ones
+        if (spawner.force_field[kk].mass == 0.0) {
+            break;
+        }
+
+        let particle_to_point_source = vPos - spawner.force_field[kk].position_or_direction;
+        let distance = length(particle_to_point_source);
+
+        let min_dist_check = step(spawner.force_field[kk].min_radius, distance);
+        let max_dist_check = 1.0 - step(spawner.force_field[kk].max_radius, distance);
+        let force_type_check = 1.0 - step(f32(spawner.force_field[kk].force_type), 0.5);
+
+        let constant_field = (1.0 - force_type_check) * spawner.force_field[kk].position_or_direction;
+        
+        let point_source_force =             
+            force_type_check * normalize(particle_to_point_source) 
+            * min_dist_check * max_dist_check
+            * spawner.force_field[kk].mass / 
+                (0.0000001 + pow(distance, f32(spawner.force_field[kk].force_type)));
+
+        let force_component = constant_field + point_source_force;
+            
+        pulling_force =  pulling_force + force_component;
+            
+    }
+
+    // delete this when working in 3d
+    pulling_force.z = 0.0;
+    
+
     // Euler integration
-    vVel = vVel + (spawner.accel * sim_params.dt);
+    vVel = vVel + (spawner.accel * sim_params.dt)  + (pulling_force * sim_params.dt);
     vPos = vPos + (vVel * sim_params.dt);
 
     // Increment alive particle count and write indirection index
