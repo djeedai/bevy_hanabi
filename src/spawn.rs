@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A constant or random value.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Value<T: Copy> {
     /// Single constant value.
     Single(T),
@@ -49,7 +49,7 @@ impl<T: Copy> From<T> for Value<T> {
 }
 
 /// Spawner defining how new particles are created.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Spawner {
     /// Number of particles to spawn over `spawn_time`
     num_particles: Value<f32>,
