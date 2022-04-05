@@ -1,5 +1,5 @@
-//! A circle bounces around in a box and spawns particles
-//! when it hits the wall.
+//! A circle bobs up and down in the water,
+//! spawning square bubbles when in the water.
 //!
 use bevy::{
     prelude::*,
