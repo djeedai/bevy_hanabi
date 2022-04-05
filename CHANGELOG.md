@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ParticleEffectBundle`s can be initialized with a spawner with `ParticleEffectBundle::with_spawner`.
 - Implemented `ToWgslFloat` for `Vec2` / `Vec3` / `Vec4`.
 - Implemented `ToWgslFloat` for `Value<f32>`.
+- Derive-implemented `PartialEq` for `Value<T>` and `Spawner`.
 
 ### Changed
 
