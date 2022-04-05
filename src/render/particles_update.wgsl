@@ -162,6 +162,7 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
 
     var pulling_force: vec3<f32> = vec3<f32>(0.0); 
 
+    ///////////// Start of force field computation /////////////
     for (var kk: i32 = 0; kk < 16; kk=kk+1) {
         // As soon as a field component has a null mass, skip it and all subsequent ones
         if (spawner.force_field[kk].mass == 0.0) {
@@ -188,6 +189,7 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
         pulling_force =  pulling_force + force_component;
             
     }
+    ///////////// End of force field computation /////////////
 
     // delete this when working in 3d
     pulling_force.z = 0.0;

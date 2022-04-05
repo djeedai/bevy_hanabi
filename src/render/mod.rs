@@ -241,7 +241,7 @@ struct SpawnerParams {
     /// Current number of used particles.
     count: i32,
 
-    /// Force field components. One PullingForceFieldParam takes up 8 * 4 bytes.
+    /// Force field components. One PullingForceFieldParam takes up 32 bytes.
     force_field: [ForceFieldStd430; FFNUM],
     ///
     __pad0: Vec3,

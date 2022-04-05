@@ -2,7 +2,6 @@
 //! when it hits the wall.
 //!
 use bevy::{
-    math::Vec3Swizzles,
     prelude::*,
     render::{options::WgpuOptions, render_resource::WgpuFeatures},
 };
@@ -17,6 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
     App::default()
         .insert_resource(options)
+        .insert_resource(MousePosition::default())
         .insert_resource(bevy::log::LogSettings {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=error,spawn=trace".to_string(),
@@ -26,17 +26,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .add_system(update)
+        .add_system(record_mouse_events_system)
         .run();
 
     Ok(())
 }
 
-#[derive(Component)]
-struct Ball {
-    velocity: Vec2,
-}
-
-const BOX_SIZE: f32 = 2.0;
 const BALL_RADIUS: f32 = 0.05;
 
 fn setup(
@@ -47,39 +42,26 @@ fn setup(
 ) {
     let mut camera = OrthographicCameraBundle::new_3d();
     camera.orthographic_projection.scale = 1.2;
-    camera.transform.translation.z = camera.orthographic_projection.far / 2.0;
+    camera.transform.translation.z = camera.orthographic_projection.far / 2.0 * 1.0;
     commands.spawn_bundle(camera);
 
-    commands.spawn_bundle(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::Quad {
-            size: Vec2::splat(BOX_SIZE),
-            ..Default::default()
-        })),
-        material: materials.add(StandardMaterial {
-            base_color: Color::BLACK,
-            unlit: true,
-            ..Default::default()
-        }),
-        ..Default::default()
-    });
-
-    commands
-        .spawn_bundle(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::UVSphere {
-                sectors: 32,
-                stacks: 2,
-                radius: BALL_RADIUS,
-            })),
-            material: materials.add(StandardMaterial {
-                base_color: Color::WHITE,
-                unlit: true,
-                ..Default::default()
-            }),
-            ..Default::default()
-        })
-        .insert(Ball {
-            velocity: Vec2::new(1.0, 2f32.sqrt()),
-        });
+    // commands
+    //     .spawn_bundle(PbrBundle {
+    //         mesh: meshes.add(Mesh::from(shape::UVSphere {
+    //             sectors: 32,
+    //             stacks: 2,
+    //             radius: BALL_RADIUS,
+    //         })),
+    //         material: materials.add(StandardMaterial {
+    //             base_color: Color::WHITE,
+    //             unlit: true,
+    //             ..Default::default()
+    //         }),
+    //         ..Default::default()
+    //     })
+    //     .insert(Ball {
+    //         velocity: Vec2::new(1.0, 2f32.sqrt()),
+    //     });
 
     let attractor1_position = Vec3::new(0.01, 0.0, 0.0);
     let attractor2_position = Vec3::new(1.0, 0.5, 0.0);
@@ -158,38 +140,55 @@ fn setup(
 }
 
 fn update(
-    mut balls: Query<(&mut Ball, &mut Transform)>,
-    mut effect: Query<(&mut ParticleEffect, &mut Transform), Without<Ball>>,
-    time: Res<Time>,
+    mut effect: Query<(&mut ParticleEffect, &mut Transform)>,
+    mouse_button_input: Res<Input<MouseButton>>,
+    mouse_position: Res<MousePosition>,
 ) {
-    const HALF_SIZE: f32 = BOX_SIZE / 2.0 - BALL_RADIUS;
-
     let (mut effect, mut effect_transform) = effect.single_mut();
 
-    for (mut ball, mut transform) in balls.iter_mut() {
-        let mut pos = transform.translation.xy() + ball.velocity * time.delta_seconds();
-        let mut collision = false;
+    if mouse_button_input.just_pressed(MouseButton::Left) {
+        effect_transform.translation = mouse_position.position.extend(0.0);
 
-        for (coord, vel_coord) in pos.as_mut().into_iter().zip(ball.velocity.as_mut()) {
-            while *coord < -HALF_SIZE || *coord > HALF_SIZE {
-                if *coord < -HALF_SIZE {
-                    *coord = 2.0 * -HALF_SIZE - *coord;
-                } else if *coord > HALF_SIZE {
-                    *coord = 2.0 * HALF_SIZE - *coord;
-                }
-                *vel_coord *= -1.0;
-                collision = true;
-            }
+        // Spawn the particles
+        effect.maybe_spawner().unwrap().reset();
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct MousePosition {
+    pub position: Vec2,
+}
+
+fn record_mouse_events_system(
+    mut cursor_moved_events: EventReader<CursorMoved>,
+    mut cursor_res: ResMut<MousePosition>,
+    mut windows: ResMut<Windows>,
+    cam_transform_query: Query<&Transform, With<OrthographicProjection>>,
+    cam_ortho_query: Query<&OrthographicProjection>,
+) {
+    for event in cursor_moved_events.iter() {
+        let cursor_in_pixels = event.position; // lower left is origin
+        let window_size = Vec2::new(
+            windows.get_primary_mut().unwrap().width(),
+            windows.get_primary_mut().unwrap().height(),
+        );
+
+        let screen_position = cursor_in_pixels - window_size / 2.0;
+
+        let cam_transform = cam_transform_query.iter().next().unwrap();
+
+        let mut scale = 1.0;
+
+        for ortho in cam_ortho_query.iter() {
+            scale = ortho.scale;
         }
 
-        transform.translation = pos.extend(transform.translation.z);
+        let cursor_vec4: Vec4 = cam_transform.compute_matrix()
+            * screen_position.extend(0.0).extend(1.0 / (scale))
+            * scale
+            / 350.0; // Why 350?
 
-        if collision {
-            // This isn't the most accurate place to spawn the particle effect,
-            // but this is just for demonstration, so whatever.
-            effect_transform.translation = transform.translation;
-            // Spawn the particles
-            effect.maybe_spawner().unwrap().reset();
-        }
+        let cursor_pos = Vec2::new(cursor_vec4.x, cursor_vec4.y);
+        cursor_res.position = cursor_pos;
     }
 }
