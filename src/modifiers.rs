@@ -3,9 +3,12 @@ use bevy::prelude::*;
 use crate::{
     asset::{InitLayout, RenderLayout, UpdateLayout},
     gradient::Gradient,
-    render::FFNUM,
+    // render::FFNUM,
     ToWgslString,
 };
+
+/// Maximum number of components in the force field.
+pub const FFNUM: usize = 16;
 
 /// Trait to customize the initializing of newly spawned particles.
 pub trait InitModifier {
@@ -269,7 +272,8 @@ impl PullingForceType {
 pub struct PullingForceFieldParam {
     /// The particle_update.wgsl shader interprets this field as a position when the force type is set
     /// to either [`PullingForceType::Linear`], [`PullingForceType::Quadratic`] or [`PullingForceType::Cubic`].
-    /// The interpretation is direction in the case of a [`PullingForceType::Constant`].
+    /// In the case of a [`PullingForceType::Constant`], the field is interpreted is as the direction
+    /// of the constant field.
     /// [`PullingForceType::Constant`]
     pub position_or_direction: Vec3,
     /// For a pulling/repulsing force, this is the maximum radius of the sphere of influence, outside of which
@@ -303,7 +307,7 @@ impl Default for PullingForceFieldParam {
 /// point sources and/or constant fields. The maximum number of components is set with [`FFNUM`].
 #[derive(Default, Clone, Copy)]
 pub struct PullingForceFieldModifier {
-    /// Force Field.
+    /// Array of force field components.
     pub force_field: [PullingForceFieldParam; FFNUM],
 }
 

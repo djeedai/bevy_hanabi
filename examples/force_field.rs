@@ -81,7 +81,7 @@ fn setup(
             velocity: Vec2::new(1.0, 2f32.sqrt()),
         });
 
-    let attractor1_position = Vec3::new(0.0, 0.0, 0.0);
+    let attractor1_position = Vec3::new(0.01, 0.0, 0.0);
     let attractor2_position = Vec3::new(1.0, 0.5, 0.0);
 
     commands.spawn_bundle(PbrBundle {
@@ -138,12 +138,12 @@ fn setup(
                 max_radius: 1000000.0,
                 min_radius: BALL_RADIUS * 2.0,
                 mass: -1.0,
-                force_type: PullingForceType::Quadratic,
+                force_type: PullingForceType::Linear,
             },
             PullingForceFieldParam {
                 position_or_direction: attractor2_position,
                 max_radius: 1000000.0,
-                min_radius: BALL_RADIUS,
+                min_radius: BALL_RADIUS * 2.0,
                 mass: -0.5,
                 force_type: PullingForceType::Quadratic,
             },

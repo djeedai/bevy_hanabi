@@ -96,7 +96,7 @@ pub use modifiers::{
     AccelModifier, ColorOverLifetimeModifier, InitModifier, ParticleTextureModifier,
     PositionCircleModifier, PositionSphereModifier, PullingForceFieldModifier,
     PullingForceFieldParam, PullingForceType, RenderModifier, ShapeDimension,
-    SizeOverLifetimeModifier, UpdateModifier,
+    SizeOverLifetimeModifier, UpdateModifier, FFNUM,
 };
 pub use plugin::HanabiPlugin;
 pub use render::EffectCacheId;

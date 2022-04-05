@@ -34,7 +34,9 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
 
 use crate::{
-    asset::EffectAsset, modifiers::PullingForceFieldParam, Gradient, ParticleEffect, ToWgslString,
+    asset::EffectAsset,
+    modifiers::{PullingForceFieldParam, FFNUM},
+    Gradient, ParticleEffect, ToWgslString,
 };
 
 mod compute_cache;
@@ -44,8 +46,6 @@ mod pipeline_template;
 pub use compute_cache::{ComputeCache, SpecializedComputePipeline};
 pub use effect_cache::{EffectBuffer, EffectCache, EffectCacheId, EffectSlice};
 pub use pipeline_template::PipelineRegistry;
-
-pub const FFNUM: usize = 16;
 
 pub const PARTICLES_UPDATE_SHADER_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 2763343953151597126);

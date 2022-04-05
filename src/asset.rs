@@ -8,7 +8,7 @@ use bevy::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    modifiers::PullingForceFieldParam, render::FFNUM, Gradient, InitModifier, RenderModifier,
+    modifiers::PullingForceFieldParam, modifiers::FFNUM, Gradient, InitModifier, RenderModifier,
     Spawner, UpdateModifier,
 };
 

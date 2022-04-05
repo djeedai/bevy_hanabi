@@ -175,7 +175,7 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
         let max_dist_check = 1.0 - step(spawner.force_field[kk].max_radius, distance);
         let force_type_check = 1.0 - step(f32(spawner.force_field[kk].force_type), 0.5);
 
-        let constant_field = (1.0 - force_type_check) * spawner.force_field[kk].position_or_direction;
+        let constant_field = (1.0 - force_type_check) * normalize(spawner.force_field[kk].position_or_direction);
         
         let point_source_force =             
             force_type_check * normalize(particle_to_point_source) 
