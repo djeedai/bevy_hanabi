@@ -1,5 +1,4 @@
-//! A circle bounces around in a box and spawns particles
-//! when it hits the wall.
+//! Clicking spawns particles that gravitate around two points.
 //!
 use bevy::{
     prelude::*,
@@ -44,24 +43,6 @@ fn setup(
     camera.orthographic_projection.scale = 1.2;
     camera.transform.translation.z = camera.orthographic_projection.far / 2.0 * 1.0;
     commands.spawn_bundle(camera);
-
-    // commands
-    //     .spawn_bundle(PbrBundle {
-    //         mesh: meshes.add(Mesh::from(shape::UVSphere {
-    //             sectors: 32,
-    //             stacks: 2,
-    //             radius: BALL_RADIUS,
-    //         })),
-    //         material: materials.add(StandardMaterial {
-    //             base_color: Color::WHITE,
-    //             unlit: true,
-    //             ..Default::default()
-    //         }),
-    //         ..Default::default()
-    //     })
-    //     .insert(Ball {
-    //         velocity: Vec2::new(1.0, 2f32.sqrt()),
-    //     });
 
     let attractor1_position = Vec3::new(0.01, 0.0, 0.0);
     let attractor2_position = Vec3::new(1.0, 0.5, 0.0);
@@ -116,16 +97,16 @@ fn setup(
         })
         .update(bevy_hanabi::PullingForceFieldModifier::new(vec![
             PullingForceFieldParam {
-                position_or_direction: attractor1_position,
+                position_or_direction: attractor2_position,
                 max_radius: 1000000.0,
-                min_radius: BALL_RADIUS * 2.0,
+                min_radius: BALL_RADIUS * 6.0,
                 mass: -1.0,
                 force_type: PullingForceType::Linear,
             },
             PullingForceFieldParam {
-                position_or_direction: attractor2_position,
+                position_or_direction: attractor1_position,
                 max_radius: 1000000.0,
-                min_radius: BALL_RADIUS * 2.0,
+                min_radius: BALL_RADIUS * 6.0,
                 mass: -0.5,
                 force_type: PullingForceType::Quadratic,
             },

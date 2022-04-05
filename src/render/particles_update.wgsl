@@ -119,12 +119,9 @@ fn init_lifetime() -> f32 {
     return 5.0;
 }
 
-// fn get_force_field(pos: vec3<f32>) -> vec4<f32> {
-//     var ret : vec4<f32>;
-// {{FORCE_FIELD}}
-//     return ret;
-// }
-
+fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
+    return dot(v, u) / dot(u,u) * u;
+}
 
 
 [[stage(compute), workgroup_size(64)]]
@@ -160,44 +157,99 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
         }
     }
 
-    var pulling_force: vec3<f32> = vec3<f32>(0.0); 
 
     ///////////// Start of force field computation /////////////
+    var pulling_force: vec3<f32> = vec3<f32>(0.0); 
+    var not_conformed_to_sphere: f32 = 1.0;
+    var unit_p2p_conformed: vec3<f32> = vec3<f32>(0.0);
+    var conforming_source: vec3<f32> = vec3<f32>(0.0);
+    var conforming_radius: f32 = 0.0;
+
     for (var kk: i32 = 0; kk < 16; kk=kk+1) {
-        // As soon as a field component has a null mass, skip it and all subsequent ones
+        // As soon as a field component has a null mass, skip it and all subsequent ones.
+        // Is this better than not having the if statement in the first place?
         if (spawner.force_field[kk].mass == 0.0) {
             break;
         }
 
         let particle_to_point_source = vPos - spawner.force_field[kk].position_or_direction;
         let distance = length(particle_to_point_source);
+        let unit_p2p = normalize(particle_to_point_source) ;
 
         let min_dist_check = step(spawner.force_field[kk].min_radius, distance);
         let max_dist_check = 1.0 - step(spawner.force_field[kk].max_radius, distance);
-        let force_type_check = 1.0 - step(f32(spawner.force_field[kk].force_type), 0.5);
+        let force_type_check = 1.0 - step(f32(spawner.force_field[kk].force_type), 0.5); // 1.0 when constant field
+
+        // this turns into 0 when the field is an attractor and the particle is inside the min_radius
+        not_conformed_to_sphere = not_conformed_to_sphere * min_dist_check ;
+
+        unit_p2p_conformed = 
+            unit_p2p_conformed 
+            + (1.0 - not_conformed_to_sphere) 
+            * unit_p2p 
+            * (1.0 - min_dist_check);
+
+        conforming_source = 
+            conforming_source 
+            + (1.0 - not_conformed_to_sphere) 
+            * spawner.force_field[kk].position_or_direction
+            * (1.0 - min_dist_check);
+
+        conforming_radius = conforming_radius 
+            + (1.0 - not_conformed_to_sphere) 
+            * spawner.force_field[kk].min_radius / 1.2
+            * (1.0 - min_dist_check);
 
         let constant_field = (1.0 - force_type_check) * normalize(spawner.force_field[kk].position_or_direction);
         
         let point_source_force =             
-            force_type_check * normalize(particle_to_point_source) 
+            force_type_check * unit_p2p
             * min_dist_check * max_dist_check
             * spawner.force_field[kk].mass / 
                 (0.0000001 + pow(distance, f32(spawner.force_field[kk].force_type)));
 
+
         let force_component = constant_field + point_source_force;
-            
-        pulling_force =  pulling_force + force_component;
+        
+        // if the particle is within the min_radius of a source, then forget about
+        // the other sources and only use the conformed field, thus the "* min_dist_check"
+        pulling_force =  pulling_force * min_dist_check + force_component;
             
     }
     ///////////// End of force field computation /////////////
 
     // delete this when working in 3d
     pulling_force.z = 0.0;
-    
 
-    // Euler integration
-    vVel = vVel + (spawner.accel * sim_params.dt)  + (pulling_force * sim_params.dt);
-    vPos = vPos + (vVel * sim_params.dt);
+
+    // conform to a sphere of radius min_radius/2 by projecting the velocity vector
+    // onto a plane that is tangent to the sphere.
+    let eps = vec3<f32>(0.000001);
+    let v1 = vVel - proj(unit_p2p_conformed + eps, vVel + eps);
+
+    let conformed_field = 
+        (1.0 - not_conformed_to_sphere) * normalize(v1) * length(vVel);
+
+    // // Euler integration
+    vVel = 
+        (vVel + (spawner.accel * sim_params.dt)  + (pulling_force * sim_params.dt)) 
+        * not_conformed_to_sphere +
+        conformed_field ;
+
+
+    let temp_vPos = vPos;
+
+    vPos = (vPos + (vVel * sim_params.dt));
+    
+    // project on the sphere if within conforming distance
+    let pos_to_source = conforming_source - vPos ;
+    let difference = length(pos_to_source) - conforming_radius;
+    vPos = vPos  + difference * normalize(pos_to_source ) * (1.0 - not_conformed_to_sphere) ;
+
+
+
+
+    vVel = (vPos - temp_vPos) / sim_params.dt;
 
     // Increment alive particle count and write indirection index
     let indirect_index = atomicAdd(&spawner.count, 1);
