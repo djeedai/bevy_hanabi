@@ -25,8 +25,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             filter: "bevy_hanabi=error,circle=trace".to_string(),
         })
         .add_plugins(DefaultPlugins)
+        .add_system(bevy::input::system::exit_on_esc_system)
         .add_plugin(HanabiPlugin)
-        //.add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .run();
 
@@ -77,23 +78,29 @@ fn setup(
     );
 
     // The ground
-    commands.spawn_bundle(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::Plane { size: 4.0 })),
-        material: materials.add(Color::BLUE.into()),
-        ..Default::default()
-    });
+    commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Plane { size: 4.0 })),
+            material: materials.add(Color::BLUE.into()),
+            ..Default::default()
+        })
+        .insert(Name::new("ground"));
 
     // The sphere
-    commands.spawn_bundle(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::UVSphere {
-            radius: 1.0,
-            sectors: 32,
-            stacks: 16,
-        })),
-        material: materials.add(Color::CYAN.into()),
-        transform: Transform::from_translation(Vec3::Y),
-        ..Default::default()
-    });
+    commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::UVSphere {
+                radius: 1.0,
+                sectors: 32,
+                stacks: 16,
+            })),
+            material: materials.add(Color::CYAN.into()),
+            transform: Transform::from_translation(Vec3::Y),
+            ..Default::default()
+        })
+        .insert(Name::new("sphere"));
 
-    commands.spawn_bundle(ParticleEffectBundle::new(effect));
+    commands
+        .spawn_bundle(ParticleEffectBundle::new(effect))
+        .insert(Name::new("effect"));
 }

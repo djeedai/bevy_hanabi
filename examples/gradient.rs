@@ -23,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             filter: "bevy_hanabi=error,spawn=trace".to_string(),
         })
         .add_plugins(DefaultPlugins)
+        .add_system(bevy::input::system::exit_on_esc_system)
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
@@ -66,7 +67,7 @@ fn setup(
 
     commands
         .spawn()
-        .insert(Name::new("Hanabi Particle Effect"))
+        .insert(Name::new("effect"))
         .insert_bundle(ParticleEffectBundle::new(effect))
         .with_children(|p| {
             p.spawn().insert_bundle(PbrBundle {
