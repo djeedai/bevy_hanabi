@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             filter: "bevy_hanabi=error,spawn=trace".to_string(),
         })
         .add_plugins(DefaultPlugins)
+        .add_system(bevy::input::system::exit_on_esc_system)
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
@@ -100,11 +101,13 @@ fn setup(
         })
         .with_children(|p| {
             // Reference cube to visualize the emit origin
-            p.spawn().insert_bundle(PbrBundle {
-                mesh: cube.clone(),
-                material: mat.clone(),
-                ..Default::default()
-            });
+            p.spawn()
+                .insert_bundle(PbrBundle {
+                    mesh: cube.clone(),
+                    material: mat.clone(),
+                    ..Default::default()
+                })
+                .insert(Name::new("source"));
         });
 
     let mut gradient2 = Gradient::new();
@@ -133,11 +136,13 @@ fn setup(
         })
         .with_children(|p| {
             // Reference cube to visualize the emit origin
-            p.spawn().insert_bundle(PbrBundle {
-                mesh: cube.clone(),
-                material: mat.clone(),
-                ..Default::default()
-            });
+            p.spawn()
+                .insert_bundle(PbrBundle {
+                    mesh: cube.clone(),
+                    material: mat.clone(),
+                    ..Default::default()
+                })
+                .insert(Name::new("source"));
         });
 
     let mut gradient3 = Gradient::new();
@@ -175,10 +180,12 @@ fn setup(
         })
         .with_children(|p| {
             // Reference cube to visualize the emit origin
-            p.spawn().insert_bundle(PbrBundle {
-                mesh: cube.clone(),
-                material: mat.clone(),
-                ..Default::default()
-            });
+            p.spawn()
+                .insert_bundle(PbrBundle {
+                    mesh: cube.clone(),
+                    material: mat.clone(),
+                    ..Default::default()
+                })
+                .insert(Name::new("source"));
         });
 }
