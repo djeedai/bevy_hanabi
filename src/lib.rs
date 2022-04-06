@@ -93,10 +93,9 @@ pub use asset::EffectAsset;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifiers::{
-    AccelModifier, ColorOverLifetimeModifier, ForceFieldParam, ForceType, InitModifier,
-    ParticleTextureModifier, PositionCircleModifier, PositionSphereModifier,
-    PullingForceFieldModifier, RenderModifier, ShapeDimension, SizeOverLifetimeModifier,
-    UpdateModifier, FFNUM,
+    AccelModifier, ColorOverLifetimeModifier, ForceFieldModifier, ForceFieldParam, ForceType,
+    InitModifier, ParticleTextureModifier, PositionCircleModifier, PositionSphereModifier,
+    RenderModifier, ShapeDimension, SizeOverLifetimeModifier, UpdateModifier, FFNUM,
 };
 pub use plugin::HanabiPlugin;
 pub use render::EffectCacheId;

@@ -223,7 +223,7 @@ pub struct ForceFieldStd430 {
 impl Into<ForceFieldStd430> for ForceFieldParam {
     fn into(self) -> ForceFieldStd430 {
         ForceFieldStd430 {
-            position_or_direction: self.position_or_direction,
+            position_or_direction: self.position,
             max_radius: self.max_radius,
             min_radius: self.min_radius,
             mass: self.mass,

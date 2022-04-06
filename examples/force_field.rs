@@ -1,6 +1,7 @@
 //! Left clicking spawns particles that are repulsed by one point and attracted by another.
 //! The attractor also conforms the particles that are close to a sphere around it.
 //! Left Control + Mouse movement orbits the camera.
+//! Mouse scroll wheel zooms the camera.
 use bevy::{
     prelude::*,
     render::{options::WgpuOptions, render_resource::WgpuFeatures},
@@ -115,22 +116,24 @@ fn setup(
             dimension: ShapeDimension::Surface,
             ..Default::default()
         })
-        .update(bevy_hanabi::PullingForceFieldModifier::new(vec![
+        .update(bevy_hanabi::ForceFieldModifier::new(vec![
             ForceFieldParam {
-                position_or_direction: attractor2_position,
+                position: attractor2_position,
                 max_radius: 1000000.0,
                 min_radius: BALL_RADIUS * 6.0,
-                mass: 3.0,
+                mass: 0.5,
                 force_type: ForceType::Linear,
                 conform_to_sphere: true,
             },
             ForceFieldParam {
-                position_or_direction: attractor1_position,
+                position: attractor1_position,
                 max_radius: 1000000.0,
                 min_radius: BALL_RADIUS * 6.0,
-                mass: -0.5,
+                // change the mass to a negative value to produce
+                // a repulsive force instead of an attractive one
+                mass: 3.0,
                 force_type: ForceType::Quadratic,
-                conform_to_sphere: false,
+                conform_to_sphere: true,
             },
         ]))
         .render(SizeOverLifetimeModifier {
@@ -159,8 +162,9 @@ fn update(
 
     if let Some(mouse_pos) = window.cursor_position() {
         if mouse_button_input.just_pressed(MouseButton::Left) {
-            let screen_mouse_pos =
-                (mouse_pos - Vec2::new(window.width(), window.height()) / 2.0) / 145.0;
+            let screen_mouse_pos = (mouse_pos - Vec2::new(window.width(), window.height()) / 2.0)
+                * camera_transform.translation.length()
+                / 870.0; // investigate: why 870?
 
             // converts the mouse position to a position on the view plane centered at the origin.
             let spawning_pos = screen_mouse_pos.x * right + screen_mouse_pos.y * up;

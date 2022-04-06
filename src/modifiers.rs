@@ -231,21 +231,17 @@ impl UpdateModifier for AccelModifier {
     }
 }
 
-/// The [`PullingForceFieldParam`] allows for either a constant force accross all of space, or a
-/// pulling/repulsing force originating from a point source.
+/// The [`ForceFieldParam`] allows for an either an attractive or a repulsive force originating
+/// from a point source.
 #[derive(Clone, Copy, PartialEq)]
 pub enum ForceType {
-    /// Constant field in all space. The position_or_direction field is interpreted as a direction.
-    /// For this particular case, the radii field of [`PullingForceFieldParam`] are ignored.
-    Constant,
-
-    /// Linear pulling force. The position_or_direction field is interpreted as the source position.
+    /// Linear attractive or repulsive force.
     Linear,
 
-    /// Quadratic pulling force. The position_or_direction field is interpreted as the source position.
+    /// Quadratic attractive or repulsive force.
     Quadratic,
 
-    /// Cubic pulling force. The position_or_direction field is interpreted as the source position.
+    /// Cubic attractive or repulsive force.
     Cubic,
 
     /// None is the default. No force field is applied.
@@ -254,15 +250,14 @@ pub enum ForceType {
 
 impl Default for ForceType {
     fn default() -> Self {
-        ForceType::Constant
+        ForceType::None
     }
 }
 
 impl ForceType {
-    /// Converts the instance of PullingForceType into an integer, preparing to be sent to the GPU.
+    /// Converts the instance of ForceType into an integer, preparing to be sent to the GPU.
     pub fn to_int(self) -> i32 {
         match self {
-            ForceType::Constant => 0,
             ForceType::Linear => 1,
             ForceType::Quadratic => 2,
             ForceType::Cubic => 3,
@@ -275,23 +270,20 @@ impl ForceType {
 #[derive(Clone, Copy)]
 pub struct ForceFieldParam {
     /// The particle_update.wgsl shader interprets this field as a position when the force type is set
-    /// to either [`PullingForceType::Linear`], [`PullingForceType::Quadratic`] or [`PullingForceType::Cubic`].
-    /// In the case of a [`PullingForceType::Constant`], the field is interpreted is as the direction
-    /// of the constant field.
-    /// [`PullingForceType::Constant`]
-    pub position_or_direction: Vec3,
-    /// For a pulling/repulsing force, this is the maximum radius of the sphere of influence, outside of which
+    /// to either [`ForceType::Linear`], [`ForceType::Quadratic`] or [`ForceType::Cubic`].
+    pub position: Vec3,
+    /// For a attracting/repulsing force, this is the maximum radius of the sphere of influence, outside of which
     /// the force field is null.
     pub max_radius: f32,
-    /// For a pulling/repulsing force, this is the minimum radius of the sphere of influence, inside of which
+    /// For a attracting/repulsing force, this is the minimum radius of the sphere of influence, inside of which
     /// the force field is null, avoiding the singularity at the source position.
     pub min_radius: f32,
     /// The intensity of the force is proportional to mass. Note that the particles_update.wgsl shader will
     /// ignore all subsequent force field components after it encounters a component with a mass of zero.
     /// To change the force from an attracting one to a repulsive one, simply set the mass to a negative value.
     pub mass: f32,
-    /// Defines whether the field is constant or a pulling/repulsing force with an exponent of either one,
-    /// two or three.
+    /// Defines whether the field is proportional to the distance from the source linearly, quadratically,
+    /// cubicly or not at all.
     pub force_type: ForceType,
     /// If set to true, the particles that enter within the `min_radius` will conform to a sphere around the
     /// source position, appearing like a recharging effect.
@@ -302,7 +294,7 @@ impl Default for ForceFieldParam {
     fn default() -> Self {
         // defaults to no force field (a mass of 0)
         ForceFieldParam {
-            position_or_direction: Vec3::new(0., 0., 0.),
+            position: Vec3::new(0., 0., 0.),
             min_radius: 0.1,
             max_radius: 0.0,
             mass: 0.,
@@ -313,15 +305,15 @@ impl Default for ForceFieldParam {
 }
 
 /// A modifier to apply a force field to all particles each frame. The force field is made up of
-/// point sources and/or constant fields. The maximum number of components is set with [`FFNUM`].
+/// point sources, also called 'components'. The maximum number of components is set with [`FFNUM`].
 #[derive(Default, Clone, Copy)]
-pub struct PullingForceFieldModifier {
+pub struct ForceFieldModifier {
     /// Array of force field components.
     pub force_field: [ForceFieldParam; FFNUM],
 }
 
-impl PullingForceFieldModifier {
-    /// Instantiate a PullingForceFieldModifier.
+impl ForceFieldModifier {
+    /// Instantiate a ForceFieldModifier.
     ///
     /// # Panics
     ///
@@ -346,7 +338,7 @@ impl PullingForceFieldModifier {
     }
 }
 
-impl UpdateModifier for PullingForceFieldModifier {
+impl UpdateModifier for ForceFieldModifier {
     fn apply(&self, layout: &mut UpdateLayout) {
         layout.force_field = self.force_field;
     }

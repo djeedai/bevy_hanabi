@@ -23,7 +23,6 @@
 
         let min_dist_check = step(spawner.force_field[kk].min_radius, distance);
         let max_dist_check = 1.0 - step(spawner.force_field[kk].max_radius, distance);
-        let force_type_check = 1.0 - step(f32(spawner.force_field[kk].force_type), 0.5); // 1.0 when constant field
 
         // this turns into 0 when the field is an attractor and the particle is inside the min_radius and the source
         // is an attractor.
@@ -49,20 +48,15 @@
                 * (1.0 - min_dist_check);
         }
 
-        let constant_field = (1.0 - force_type_check) * normalize(spawner.force_field[kk].position_or_direction);
-        
         let point_source_force =             
-            - force_type_check * unit_p2p
+            - unit_p2p
             * min_dist_check * max_dist_check
             * spawner.force_field[kk].mass / 
                 (0.0000001 + pow(distance, f32(spawner.force_field[kk].force_type)));
-
-
-        let force_component = constant_field + point_source_force;
         
         // if the particle is within the min_radius of a source, then forget about
         // the other sources and only use the conformed field, thus the "* min_dist_check"
-        ff_acceleration =  ff_acceleration * min_dist_check + force_component;
+        ff_acceleration =  ff_acceleration * min_dist_check + point_source_force;
     }
 
     // conform to a sphere of radius min_radius/2 by projecting the velocity vector
@@ -72,18 +66,13 @@
     let conformed_field = 
         (1.0 - not_conformed_to_sphere) * normalize(projected_on_sphere) * length(vVel);
 
-    ///////////// End of force field computation /////////////
-
-
     // // Euler integration
     vVel = (vVel + (spawner.accel * sim_params.dt)  + (ff_acceleration * sim_params.dt)) 
         * not_conformed_to_sphere + conformed_field;
 
-
     // let temp_vPos = vPos;
     vPos = (vPos + (vVel * sim_params.dt));
     
-
     // project on the sphere if within conforming distance
     let pos_to_source = conforming_source - vPos ;
     let difference = length(pos_to_source) - conforming_radius;
