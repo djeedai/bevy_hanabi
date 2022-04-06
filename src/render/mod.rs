@@ -33,7 +33,7 @@ use rand::Rng;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
 
-use crate::{asset::EffectAsset, Gradient, ParticleEffect, ToWgslString};
+use crate::{asset::EffectAsset, spawn::Random, Gradient, ParticleEffect, ToWgslString};
 
 mod compute_cache;
 mod effect_cache;
@@ -666,6 +666,7 @@ pub(crate) fn extract_effects(
     _images: Res<Assets<Image>>,
     mut shaders: ResMut<Assets<Shader>>,
     mut pipeline_registry: ResMut<PipelineRegistry>,
+    mut rng: ResMut<Random>,
     mut query: QuerySet<(
         // All existing ParticleEffect components
         QueryState<(
@@ -728,7 +729,7 @@ pub(crate) fn extract_effects(
 
             // Tick the effect's spawner to determine the spawn count for this frame
             let spawner = effect.spawner(&asset.spawner);
-            let spawn_count = spawner.tick(dt);
+            let spawn_count = spawner.tick(dt, &mut rng.0);
 
             // Extract the acceleration
             let accel = asset.update_layout.accel;

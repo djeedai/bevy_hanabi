@@ -1,4 +1,20 @@
+use rand::{
+    distributions::{uniform::SampleUniform, Distribution, Uniform},
+    SeedableRng,
+};
+use rand_pcg::Pcg32;
 use serde::{Deserialize, Serialize};
+
+/// An RNG to be used in the CPU for the particle system engine
+pub(crate) fn new_rng() -> Pcg32 {
+    let mut rng = rand::thread_rng();
+    let mut seed = [0u8; 16];
+    seed.copy_from_slice(&Uniform::from(0..=u128::MAX).sample(&mut rng).to_le_bytes());
+    Pcg32::from_seed(seed)
+}
+
+/// An RNG resource
+pub struct Random(pub Pcg32);
 
 /// A constant or random value.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
@@ -15,12 +31,12 @@ impl<T: Copy + Default> Default for Value<T> {
     }
 }
 
-impl<T: Copy> Value<T> {
+impl<T: Copy + SampleUniform> Value<T> {
     /// Sample the value.
-    pub fn sample(&self) -> T {
+    pub fn sample(&self, rng: &mut Pcg32) -> T {
         match self {
             Value::Single(x) => *x,
-            Value::Uniform((a, _b)) => *a, // TODO rand_uniform(*a, *b)
+            Value::Uniform((a, b)) => Uniform::new_inclusive(*a, *b).sample(rng),
         }
     }
 }
@@ -163,12 +179,12 @@ impl Spawner {
     }
 
     /// Resamples the spawn time and period.
-    fn resample(&mut self) {
-        self.limit = self.period.sample();
-        self.curr_spawn_time = self.spawn_time.sample().clamp(0.0, self.limit);
+    fn resample(&mut self, rng: &mut Pcg32) {
+        self.limit = self.period.sample(rng);
+        self.curr_spawn_time = self.spawn_time.sample(rng).clamp(0.0, self.limit);
     }
 
-    pub(crate) fn tick(&mut self, mut dt: f32) -> u32 {
+    pub(crate) fn tick(&mut self, mut dt: f32, rng: &mut Pcg32) -> u32 {
         if !self.active {
             return 0;
         }
@@ -176,16 +192,17 @@ impl Spawner {
         // The limit can be reached multiple times, so use a loop
         loop {
             if self.limit == 0.0 {
-                self.resample();
+                self.resample(rng);
                 continue;
             }
 
             let new_time = self.time + dt;
             if self.time <= self.curr_spawn_time {
                 self.spawn += if self.curr_spawn_time < 1e-5f32.max(dt / 100.0) {
-                    self.num_particles.sample()
+                    self.num_particles.sample(rng)
                 } else {
-                    self.num_particles.sample() * (new_time.min(self.curr_spawn_time) - self.time)
+                    self.num_particles.sample(rng)
+                        * (new_time.min(self.curr_spawn_time) - self.time)
                         / self.curr_spawn_time
                 };
             }
@@ -196,7 +213,7 @@ impl Spawner {
             if self.time >= self.limit {
                 dt -= self.limit - old_time;
                 self.time = 0.0; // dt will be added on in the next iteration
-                self.resample();
+                self.resample(rng);
             } else {
                 break;
             }
@@ -232,72 +249,79 @@ mod test {
 
     #[test]
     fn test_once() {
+        let rng = &mut new_rng();
         let mut spawner = Spawner::once(5.0.into(), true);
-        let count = spawner.tick(0.001);
+        let count = spawner.tick(0.001, rng);
         assert_eq!(count, 5);
-        let count = spawner.tick(100.0);
+        let count = spawner.tick(100.0, rng);
         assert_eq!(count, 0);
     }
 
     #[test]
     fn test_once_reset() {
+        let rng = &mut new_rng();
         let mut spawner = Spawner::once(5.0.into(), true);
-        spawner.tick(1.0);
+        spawner.tick(1.0, rng);
         spawner.reset();
-        let count = spawner.tick(1.0);
+        let count = spawner.tick(1.0, rng);
         assert_eq!(count, 5);
     }
 
     #[test]
     fn test_once_not_immediate() {
+        let rng = &mut new_rng();
         let mut spawner = Spawner::once(5.0.into(), false);
-        let count = spawner.tick(1.0);
+        let count = spawner.tick(1.0, rng);
         assert_eq!(count, 0);
         spawner.reset();
-        let count = spawner.tick(1.0);
+        let count = spawner.tick(1.0, rng);
         assert_eq!(count, 5);
     }
 
     #[test]
     fn test_rate() {
+        let rng = &mut new_rng();
         let mut spawner = Spawner::rate(5.0.into());
         // Slightly over 1.0 to avoid edge case
-        let count = spawner.tick(1.01);
+        let count = spawner.tick(1.01, rng);
         assert_eq!(count, 5);
-        let count = spawner.tick(0.4);
+        let count = spawner.tick(0.4, rng);
         assert_eq!(count, 2);
     }
 
     #[test]
     fn test_rate_active() {
+        let rng = &mut new_rng();
         let mut spawner = Spawner::rate(5.0.into());
-        spawner.tick(1.01);
+        spawner.tick(1.01, rng);
         spawner.set_active(false);
         assert!(!spawner.is_active());
-        let count = spawner.tick(0.4);
+        let count = spawner.tick(0.4, rng);
         assert_eq!(count, 0);
         spawner.set_active(true);
         assert!(spawner.is_active());
-        let count = spawner.tick(0.4);
+        let count = spawner.tick(0.4, rng);
         assert_eq!(count, 2);
     }
 
     #[test]
     fn test_rate_accumulate() {
+        let rng = &mut new_rng();
         let mut spawner = Spawner::rate(5.0.into());
         // 13 ticks instead of 12 to avoid edge case
-        let count = (0..13).map(|_| spawner.tick(1.0 / 60.0)).sum::<u32>();
+        let count = (0..13).map(|_| spawner.tick(1.0 / 60.0, rng)).sum::<u32>();
         assert_eq!(count, 1);
     }
 
     #[test]
     fn test_burst() {
+        let rng = &mut new_rng();
         let mut spawner = Spawner::burst(5.0.into(), 2.0.into());
-        let count = spawner.tick(1.0);
+        let count = spawner.tick(1.0, rng);
         assert_eq!(count, 5);
-        let count = spawner.tick(4.0);
+        let count = spawner.tick(4.0, rng);
         assert_eq!(count, 10);
-        let count = spawner.tick(0.1);
+        let count = spawner.tick(0.1, rng);
         assert_eq!(count, 0);
     }
 }
