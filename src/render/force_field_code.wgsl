@@ -17,7 +17,7 @@
             break;
         }
 
-        let particle_to_point_source = vPos - spawner.force_field[kk].position_or_direction;
+        let particle_to_point_source = vPos - spawner.force_field[kk].position;
         let distance = length(particle_to_point_source);
         let unit_p2p = normalize(particle_to_point_source) ;
 
@@ -39,7 +39,7 @@
             conforming_source = 
                 conforming_source 
                 + (1.0 - not_conformed_to_sphere) 
-                * spawner.force_field[kk].position_or_direction
+                * spawner.force_field[kk].position
                 * (1.0 - min_dist_check);
 
             conforming_radius = conforming_radius 
@@ -52,7 +52,7 @@
             - unit_p2p
             * min_dist_check * max_dist_check
             * spawner.force_field[kk].mass / 
-                (0.0000001 + pow(distance, f32(spawner.force_field[kk].force_type)));
+                (0.0000001 + pow(distance, spawner.force_field[kk].force_exponent));
         
         // if the particle is within the min_radius of a source, then forget about
         // the other sources and only use the conformed field, thus the "* min_dist_check"
@@ -66,8 +66,8 @@
     let conformed_field = 
         (1.0 - not_conformed_to_sphere) * normalize(projected_on_sphere) * length(vVel);
 
-    // // Euler integration
-    vVel = (vVel + (spawner.accel * sim_params.dt)  + (ff_acceleration * sim_params.dt)) 
+    // Euler integration
+    vVel = (vVel + (spawner.accel  + ff_acceleration) * sim_params.dt) 
         * not_conformed_to_sphere + conformed_field;
 
     // let temp_vPos = vPos;

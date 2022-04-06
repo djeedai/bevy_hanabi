@@ -231,40 +231,40 @@ impl UpdateModifier for AccelModifier {
     }
 }
 
-/// The [`ForceFieldParam`] allows for an either an attractive or a repulsive force originating
-/// from a point source.
-#[derive(Clone, Copy, PartialEq)]
-pub enum ForceType {
-    /// Linear attractive or repulsive force.
-    Linear,
+// /// The [`ForceFieldParam`] allows for an either an attractive or a repulsive force originating
+// /// from a point source.
+// #[derive(Clone, Copy, PartialEq)]
+// pub enum ForceType {
+//     /// Linear attractive or repulsive force.
+//     Linear,
 
-    /// Quadratic attractive or repulsive force.
-    Quadratic,
+//     /// Quadratic attractive or repulsive force.
+//     Quadratic,
 
-    /// Cubic attractive or repulsive force.
-    Cubic,
+//     /// Cubic attractive or repulsive force.
+//     Cubic,
 
-    /// None is the default. No force field is applied.
-    None,
-}
+//     /// None is the default. No force field is applied.
+//     None,
+// }
 
-impl Default for ForceType {
-    fn default() -> Self {
-        ForceType::None
-    }
-}
+// impl Default for ForceType {
+//     fn default() -> Self {
+//         ForceType::None
+//     }
+// }
 
-impl ForceType {
-    /// Converts the instance of ForceType into an integer, preparing to be sent to the GPU.
-    pub fn to_int(self) -> i32 {
-        match self {
-            ForceType::Linear => 1,
-            ForceType::Quadratic => 2,
-            ForceType::Cubic => 3,
-            ForceType::None => -1,
-        }
-    }
-}
+// impl ForceType {
+//     /// Converts the instance of ForceType into an integer, preparing to be sent to the GPU.
+//     pub fn to_int(self) -> i32 {
+//         match self {
+//             ForceType::Linear => 1,
+//             ForceType::Quadratic => 2,
+//             ForceType::Cubic => 3,
+//             ForceType::None => -1,
+//         }
+//     }
+// }
 
 /// Parameters for the components making the force field.
 #[derive(Clone, Copy)]
@@ -272,19 +272,18 @@ pub struct ForceFieldParam {
     /// The particle_update.wgsl shader interprets this field as a position when the force type is set
     /// to either [`ForceType::Linear`], [`ForceType::Quadratic`] or [`ForceType::Cubic`].
     pub position: Vec3,
-    /// For a attracting/repulsing force, this is the maximum radius of the sphere of influence, outside of which
+    /// Maximum radius of the sphere of influence, outside of which
     /// the force field is null.
     pub max_radius: f32,
-    /// For a attracting/repulsing force, this is the minimum radius of the sphere of influence, inside of which
+    /// Minimum radius of the sphere of influence, inside of which
     /// the force field is null, avoiding the singularity at the source position.
     pub min_radius: f32,
     /// The intensity of the force is proportional to mass. Note that the particles_update.wgsl shader will
     /// ignore all subsequent force field components after it encounters a component with a mass of zero.
     /// To change the force from an attracting one to a repulsive one, simply set the mass to a negative value.
     pub mass: f32,
-    /// Defines whether the field is proportional to the distance from the source linearly, quadratically,
-    /// cubicly or not at all.
-    pub force_type: ForceType,
+    /// The force field is proportional to `1 / distance^force_exponent`.
+    pub force_exponent: f32,
     /// If set to true, the particles that enter within the `min_radius` will conform to a sphere around the
     /// source position, appearing like a recharging effect.
     pub conform_to_sphere: bool,
@@ -298,7 +297,7 @@ impl Default for ForceFieldParam {
             min_radius: 0.1,
             max_radius: 0.0,
             mass: 0.,
-            force_type: ForceType::None,
+            force_exponent: 0.0,
             conform_to_sphere: false,
         }
     }
@@ -317,15 +316,18 @@ impl ForceFieldModifier {
     ///
     /// # Panics
     ///
-    /// Panics if the number of attractors exceeds [`FFNUM`].
-    pub fn new(point_attractors: Vec<ForceFieldParam>) -> Self {
+    /// Panics if the number of sources exceeds [`FFNUM`].
+    pub fn new<T>(point_attractors: T) -> Self
+    where
+        T: IntoIterator<Item = ForceFieldParam>,
+    {
         let mut force_field = [ForceFieldParam::default(); FFNUM];
 
-        for (i, p_attractor) in point_attractors.iter().enumerate() {
+        for (i, p_attractor) in point_attractors.into_iter().enumerate() {
             if i > FFNUM {
                 panic!("Too many point attractors");
             }
-            force_field[i] = *p_attractor;
+            force_field[i] = p_attractor;
         }
 
         Self { force_field }

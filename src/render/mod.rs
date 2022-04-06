@@ -35,7 +35,7 @@ use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
 
 use crate::{
     asset::EffectAsset,
-    modifiers::{ForceFieldParam, ForceType, FFNUM},
+    modifiers::{ForceFieldParam, FFNUM},
     Gradient, ParticleEffect, ToWgslString,
 };
 
@@ -216,7 +216,7 @@ pub struct ForceFieldStd430 {
     pub max_radius: f32,
     pub min_radius: f32,
     pub mass: f32,
-    pub force_type: i32,
+    pub force_exponent: f32,
     pub conform_to_sphere: f32,
 }
 
@@ -227,7 +227,7 @@ impl Into<ForceFieldStd430> for ForceFieldParam {
             max_radius: self.max_radius,
             min_radius: self.min_radius,
             mass: self.mass,
-            force_type: self.force_type.to_int(),
+            force_exponent: self.force_exponent,
             conform_to_sphere: if self.conform_to_sphere { 1.0 } else { 0.0 },
         }
     }
@@ -795,12 +795,11 @@ pub(crate) fn extract_effects(
             // TODO - Move that to a pre-pass, not each frame!
             // let force_field_code = &asset.init_layout.force_field_code;
             // let force_field_code = if force_field_code.is_empty() {
-            let force_field_code =
-                if ForceType::None == asset.update_layout.force_field[0].force_type {
-                    DEFAULT_FORCE_FIELD_CODE.to_owned()
-                } else {
-                    FORCE_FIELD_CODE.to_owned()
-                };
+            let force_field_code = if 0.0 == asset.update_layout.force_field[0].force_exponent {
+                DEFAULT_FORCE_FIELD_CODE.to_owned()
+            } else {
+                FORCE_FIELD_CODE.to_owned()
+            };
 
             // Generate the shader code for the color over lifetime gradient.
             // TODO - Move that to a pre-pass, not each frame!

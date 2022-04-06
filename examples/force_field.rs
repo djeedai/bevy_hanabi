@@ -26,6 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             filter: "bevy_hanabi=error,spawn=trace".to_string(),
         })
         .add_plugins(DefaultPlugins)
+        .add_system(bevy::input::system::exit_on_esc_system)
         .add_plugin(LookTransformPlugin)
         .add_plugin(OrbitCameraPlugin::default())
         .add_plugin(HanabiPlugin)
@@ -121,18 +122,19 @@ fn setup(
                 position: attractor2_position,
                 max_radius: 1000000.0,
                 min_radius: BALL_RADIUS * 6.0,
-                mass: 0.5,
-                force_type: ForceType::Linear,
+                // a negative mass produces a repulsive force instead of an attractive one
+                mass: -1.5,
+                // linear force: proportional to 1 / distance
+                force_exponent: 1.0,
                 conform_to_sphere: true,
             },
             ForceFieldParam {
                 position: attractor1_position,
                 max_radius: 1000000.0,
                 min_radius: BALL_RADIUS * 6.0,
-                // change the mass to a negative value to produce
-                // a repulsive force instead of an attractive one
                 mass: 3.0,
-                force_type: ForceType::Quadratic,
+                // quadratic force: proportional to 1 / distance^2
+                force_exponent: 2.0,
                 conform_to_sphere: true,
             },
         ]))
