@@ -113,7 +113,7 @@ fn setup(
         }
         .init(PositionSphereModifier {
             radius: BALL_RADIUS,
-            speed: 0.2,
+            speed: Value::Uniform((0.1, 0.3)),
             dimension: ShapeDimension::Surface,
             ..Default::default()
         })

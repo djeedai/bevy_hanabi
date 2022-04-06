@@ -36,6 +36,7 @@ use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
 use crate::{
     asset::EffectAsset,
     modifiers::{ForceFieldParam, FFNUM},
+    spawn::{new_rng, Random},
     Gradient, ParticleEffect, ToWgslString,
 };
 
@@ -776,7 +777,8 @@ pub(crate) fn extract_effects(
 
             // Tick the effect's spawner to determine the spawn count for this frame
             let spawner = effect.spawner(&asset.spawner);
-            let spawn_count = spawner.tick(dt);
+            let rng = &mut new_rng();
+            let spawn_count = spawner.tick(dt, rng);
 
             // Extract the acceleration
             let accel = asset.update_layout.accel;

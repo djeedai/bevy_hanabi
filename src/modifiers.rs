@@ -3,8 +3,7 @@ use bevy::prelude::*;
 use crate::{
     asset::{InitLayout, RenderLayout, UpdateLayout},
     gradient::Gradient,
-    // render::FFNUM,
-    ToWgslString,
+    ToWgslString, Value,
 };
 
 /// Maximum number of components in the force field.
@@ -54,7 +53,7 @@ pub struct PositionCircleModifier {
     /// The circle radius.
     pub radius: f32,
     /// The radial speed of the particles on spawn.
-    pub speed: f32,
+    pub speed: Value<f32>,
     /// The shape dimension to spawn from.
     pub dimension: ShapeDimension,
 }
@@ -125,7 +124,7 @@ pub struct PositionSphereModifier {
     /// The sphere radius.
     pub radius: f32,
     /// The radial speed of the particles on spawn.
-    pub speed: f32,
+    pub speed: Value<f32>,
     /// The shape dimension to spawn from.
     pub dimension: ShapeDimension,
 }
@@ -230,41 +229,6 @@ impl UpdateModifier for AccelModifier {
         layout.accel = self.accel;
     }
 }
-
-// /// The [`ForceFieldParam`] allows for an either an attractive or a repulsive force originating
-// /// from a point source.
-// #[derive(Clone, Copy, PartialEq)]
-// pub enum ForceType {
-//     /// Linear attractive or repulsive force.
-//     Linear,
-
-//     /// Quadratic attractive or repulsive force.
-//     Quadratic,
-
-//     /// Cubic attractive or repulsive force.
-//     Cubic,
-
-//     /// None is the default. No force field is applied.
-//     None,
-// }
-
-// impl Default for ForceType {
-//     fn default() -> Self {
-//         ForceType::None
-//     }
-// }
-
-// impl ForceType {
-//     /// Converts the instance of ForceType into an integer, preparing to be sent to the GPU.
-//     pub fn to_int(self) -> i32 {
-//         match self {
-//             ForceType::Linear => 1,
-//             ForceType::Quadratic => 2,
-//             ForceType::Cubic => 3,
-//             ForceType::None => -1,
-//         }
-//     }
-// }
 
 /// Parameters for the components making the force field.
 #[derive(Clone, Copy)]

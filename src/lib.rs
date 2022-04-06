@@ -170,6 +170,19 @@ impl ToWgslString for Vec4 {
     }
 }
 
+impl ToWgslString for Value<f32> {
+    fn to_wgsl_string(&self) -> String {
+        match self {
+            Self::Single(x) => x.to_wgsl_string(),
+            Self::Uniform((a, b)) => format!(
+                "rand() * ({1} - {0}) + {0}",
+                a.to_wgsl_string(),
+                b.to_wgsl_string(),
+            ),
+        }
+    }
+}
+
 /// Visual effect made of particles.
 ///
 /// The particle effect component represent a single instance of a visual effect. The
