@@ -57,7 +57,7 @@
 //!         center: Vec3::ZERO,
 //!         radius: 2.,
 //!         dimension: ShapeDimension::Surface,
-//!         speed: 6.,
+//!         speed: 6.0.into(),
 //!     })
 //!     // Every frame, add a gravity-like acceleration downward
 //!     .update(AccelModifier {
@@ -275,5 +275,13 @@ mod tests {
         assert_eq!(s, "vec3<f32>(1., 2., -1.)");
         let s = Vec4::new(1., 2., -1., 2.).to_wgsl_string();
         assert_eq!(s, "vec4<f32>(1., 2., -1., 2.)");
+    }
+
+    #[test]
+    fn to_wgsl_value_f32() {
+        let s = Value::Single(1.0_f32).to_wgsl_string();
+        assert_eq!(s, "1.");
+        let s = Value::Uniform((1.0_f32, 2.0_f32)).to_wgsl_string();
+        assert_eq!(s, "rand() * (2. - 1.) + 1.");
     }
 }

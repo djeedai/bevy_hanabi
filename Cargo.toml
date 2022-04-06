@@ -35,6 +35,10 @@ name = "spawn"
 required-features = [ "bevy/bevy_winit" ]
 
 [[example]]
+name = "random"
+required-features = [ "bevy/bevy_winit" ]
+
+[[example]]
 name = "gradient"
 required-features = [ "bevy/bevy_winit", "bevy/png" ]
 

@@ -40,3 +40,31 @@ impl ParticleEffectBundle {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::{asset::HandleId, reflect::TypeUuid};
+
+    #[test]
+    fn bundle_default() {
+        let handle = Handle::<EffectAsset>::default();
+        let bundle = ParticleEffectBundle::default();
+        assert_eq!(bundle.effect.handle, handle);
+    }
+
+    #[test]
+    fn bundle_new() {
+        let handle = Handle::weak(HandleId::new(EffectAsset::TYPE_UUID, 42));
+        let bundle = ParticleEffectBundle::new(handle.clone());
+        assert_eq!(bundle.effect.handle, handle);
+    }
+
+    #[test]
+    fn bundle_with_spawner() {
+        let spawner = Spawner::once(5.0.into(), true);
+        let mut bundle = ParticleEffectBundle::default().with_spawner(spawner);
+        assert!(bundle.effect.maybe_spawner().is_some());
+        assert_eq!(*bundle.effect.maybe_spawner().unwrap(), spawner);
+    }
+}

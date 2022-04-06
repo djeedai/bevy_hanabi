@@ -60,7 +60,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
             center: Vec3::ZERO,
             radius: 2.,
             dimension: ShapeDimension::Surface,
-            speed: 6.,
+            speed: 6.0.into(),
         })
         // Every frame, add a gravity-like acceleration downward
         .update(AccelModifier {
@@ -126,6 +126,7 @@ cargo run --example spawn --features="bevy/bevy_winit"
   - [x] Repeated burst
   - [x] Spawner resetting
   - [x] Spawner activation/deactivation
+  - [x] Randomized spawning parameters
 - Initialize
   - [ ] Constant position
   - [x] Position over shape
@@ -137,7 +138,7 @@ cargo run --example spawn --features="bevy/bevy_winit"
     - [ ] generic mesh / point cloud (?)
   - [ ] Random position offset
   - [x] Constant velocity
-  - [ ] Random velocity
+  - [x] Random velocity
   - [ ] Constant color
   - [ ] Random color
 - Update

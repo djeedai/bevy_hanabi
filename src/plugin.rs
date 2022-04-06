@@ -16,6 +16,7 @@ use crate::{
         ParticlesUpdatePipeline, PipelineRegistry, SimParams, PARTICLES_RENDER_SHADER_HANDLE,
         PARTICLES_UPDATE_SHADER_HANDLE,
     },
+    spawn::{self, Random},
 };
 
 pub mod draw_3d_graph {
@@ -33,6 +34,7 @@ impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
         // Register asset
         app.add_asset::<EffectAsset>()
+            .insert_resource(Random(spawn::new_rng()))
             .init_resource::<PipelineRegistry>()
             .init_asset_loader::<EffectAssetLoader>();
 

@@ -1,5 +1,5 @@
-//! A circle bounces around in a box and spawns particles
-//! when it hits the wall.
+//! A circle bobs up and down in the water,
+//! spawning square bubbles when in the water.
 //!
 use bevy::{
     prelude::*,
@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             filter: "bevy_hanabi=error,spawn=trace".to_string(),
         })
         .add_plugins(DefaultPlugins)
+        .add_system(bevy::input::system::exit_on_esc_system)
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
@@ -47,19 +48,21 @@ fn setup(
     camera.transform.translation.z = camera.orthographic_projection.far / 2.0;
     commands.spawn_bundle(camera);
 
-    commands.spawn_bundle(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::Quad {
-            size: Vec2::splat(4.0),
+    commands
+        .spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Quad {
+                size: Vec2::splat(4.0),
+                ..Default::default()
+            })),
+            material: materials.add(StandardMaterial {
+                base_color: Color::BLUE,
+                unlit: true,
+                ..Default::default()
+            }),
+            transform: Transform::from_xyz(0.0, -2.0, 0.0),
             ..Default::default()
-        })),
-        material: materials.add(StandardMaterial {
-            base_color: Color::BLUE,
-            unlit: true,
-            ..Default::default()
-        }),
-        transform: Transform::from_xyz(0.0, -2.0, 0.0),
-        ..Default::default()
-    });
+        })
+        .insert(Name::new("water"));
 
     let mut ball = commands.spawn_bundle(PbrBundle {
         mesh: meshes.add(Mesh::from(shape::UVSphere {
@@ -74,7 +77,8 @@ fn setup(
         }),
         ..Default::default()
     });
-    ball.insert(Ball { velocity_y: 1.0 });
+    ball.insert(Ball { velocity_y: 1.0 })
+        .insert(Name::new("ball"));
 
     let mut gradient = Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
@@ -101,7 +105,8 @@ fn setup(
     );
 
     ball.with_children(|node| {
-        node.spawn_bundle(ParticleEffectBundle::new(effect).with_spawner(spawner));
+        node.spawn_bundle(ParticleEffectBundle::new(effect).with_spawner(spawner))
+            .insert(Name::new("effect"));
     });
 }
 

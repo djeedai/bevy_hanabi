@@ -715,6 +715,7 @@ pub(crate) fn extract_effects(
     _images: Res<Assets<Image>>,
     mut shaders: ResMut<Assets<Shader>>,
     mut pipeline_registry: ResMut<PipelineRegistry>,
+    mut rng: ResMut<Random>,
     mut query: QuerySet<(
         // All existing ParticleEffect components
         QueryState<(
@@ -777,8 +778,8 @@ pub(crate) fn extract_effects(
 
             // Tick the effect's spawner to determine the spawn count for this frame
             let spawner = effect.spawner(&asset.spawner);
-            let rng = &mut new_rng();
-            let spawn_count = spawner.tick(dt, rng);
+
+            let spawn_count = spawner.tick(dt, &mut rng.0);
 
             // Extract the acceleration
             let accel = asset.update_layout.accel;

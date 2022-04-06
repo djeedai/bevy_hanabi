@@ -15,10 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Spawners can be activated or deactivated with `Spawner::set_active`.
   - `ParticleEffectBundle`s can be initialized with a spawner with `ParticleEffectBundle::with_spawner`.
 - Implemented `ToWgslFloat` for `Vec2` / `Vec3` / `Vec4`.
+- Implemented `ToWgslFloat` for `Value<f32>`.
+- Derive-implemented `PartialEq` for `Value<T>` and `Spawner`.
+- Implemented randomization for randomized spawning parameters
 
 ### Changed
 
 - Renamed the `ToWgslFloat` trait into `ToWgslString`, and its `to_float_string()` method into `to_wgsl_string()`. Also made the trait public.
+- Position modifiers now use `Value<f32>` for velocity to allow for random velocity.
 
 ### Fixed
 
