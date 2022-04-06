@@ -85,12 +85,9 @@ mod asset;
 mod bundle;
 mod gradient;
 mod modifiers;
-mod orbit;
 mod plugin;
 mod render;
 mod spawn;
-
-pub use orbit::*;
 
 pub use asset::EffectAsset;
 pub use bundle::ParticleEffectBundle;
