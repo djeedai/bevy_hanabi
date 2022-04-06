@@ -35,7 +35,7 @@ use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
 
 use crate::{
     asset::EffectAsset,
-    modifiers::{PullingForceFieldParam, FFNUM},
+    modifiers::{ForceFieldParam, ForceType, FFNUM},
     Gradient, ParticleEffect, ToWgslString,
 };
 
@@ -63,6 +63,13 @@ const DEFAULT_POSITION_CODE: &'static str = r##"
     var speed = 2.;
     ret.vel = dir * speed;
 "##;
+
+const DEFAULT_FORCE_FIELD_CODE: &'static str = r##"
+    vVel = vVel + (spawner.accel * sim_params.dt);
+    vPos = vPos + vVel * sim_params.dt;
+"##;
+
+const FORCE_FIELD_CODE: &'static str = include_str!("force_field_code.wgsl");
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
@@ -210,10 +217,10 @@ pub struct ForceFieldStd430 {
     pub min_radius: f32,
     pub mass: f32,
     pub force_type: i32,
-    pub _pad36565: f32,
+    pub conform_to_sphere: f32,
 }
 
-impl Into<ForceFieldStd430> for PullingForceFieldParam {
+impl Into<ForceFieldStd430> for ForceFieldParam {
     fn into(self) -> ForceFieldStd430 {
         ForceFieldStd430 {
             position_or_direction: self.position_or_direction,
@@ -221,7 +228,7 @@ impl Into<ForceFieldStd430> for PullingForceFieldParam {
             min_radius: self.min_radius,
             mass: self.mass,
             force_type: self.force_type.to_int(),
-            _pad36565: 0.0,
+            conform_to_sphere: if self.conform_to_sphere { 1.0 } else { 0.0 },
         }
     }
 }
@@ -443,12 +450,14 @@ impl FromWorld for ParticlesRenderPipeline {
 pub struct ParticleUpdatePipelineKey {
     /// Code for the position initialization of newly emitted particles.
     position_code: String,
+    force_field_code: String,
 }
 
 impl Default for ParticleUpdatePipelineKey {
     fn default() -> Self {
         ParticleUpdatePipelineKey {
             position_code: Default::default(),
+            force_field_code: Default::default(),
         }
     }
 }
@@ -457,8 +466,11 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
     type Key = ParticleUpdatePipelineKey;
 
     fn specialize(&self, key: Self::Key, render_device: &RenderDevice) -> ComputePipeline {
-        let source =
+        let mut source =
             PARTICLES_UPDATE_SHADER_TEMPLATE.replace("{{INIT_POS_VEL}}", &key.position_code);
+
+        source = source.replace("{{FORCE_FIELD_CODE}}", &key.force_field_code);
+
         //trace!("Specialized compute pipeline:\n{}", source);
 
         let shader_module = render_device.create_shader_module(&ShaderModuleDescriptor {
@@ -617,7 +629,7 @@ pub struct ExtractedEffect {
     /// Constant acceleration applied to all particles.
     pub accel: Vec3,
 
-    force_field: [PullingForceFieldParam; FFNUM],
+    force_field: [ForceFieldParam; FFNUM],
     /// Particles tint to modulate with the texture image.
     pub color: Color,
     pub rect: Rect,
@@ -630,6 +642,8 @@ pub struct ExtractedEffect {
     pub shader: Handle<Shader>,
     /// Update position code.
     pub position_code: String,
+    /// Update force field code.
+    pub force_field_code: String,
 }
 
 /// Extracted data for newly-added [`ParticleEffect`] component requiring a new GPU allocation.
@@ -777,6 +791,17 @@ pub(crate) fn extract_effects(
                 position_code.clone()
             };
 
+            // Generate the shader code for the force field of newly emitted particles
+            // TODO - Move that to a pre-pass, not each frame!
+            // let force_field_code = &asset.init_layout.force_field_code;
+            // let force_field_code = if force_field_code.is_empty() {
+            let force_field_code =
+                if ForceType::None == asset.update_layout.force_field[0].force_type {
+                    DEFAULT_FORCE_FIELD_CODE.to_owned()
+                } else {
+                    FORCE_FIELD_CODE.to_owned()
+                };
+
             // Generate the shader code for the color over lifetime gradient.
             // TODO - Move that to a pre-pass, not each frame!
             let mut vertex_modifiers =
@@ -796,7 +821,7 @@ pub(crate) fn extract_effects(
             let shader = pipeline_registry.configure(&shader_source, &mut shaders);
 
             trace!(
-                "extracted: handle={:?} shader={:?} has_image={} position_code={}",
+                "extracted: handle={:?} shader={:?} has_image={} position_code={} force_field_code={}",
                 effect.handle,
                 shader,
                 if asset.render_layout.particle_texture.is_some() {
@@ -804,7 +829,8 @@ pub(crate) fn extract_effects(
                 } else {
                     "N"
                 },
-                position_code
+                position_code,
+                force_field_code,
             );
 
             extracted_effects.effects.insert(
@@ -830,6 +856,7 @@ pub(crate) fn extract_effects(
                         .map_or(HandleId::default::<Image>(), |handle| handle.id),
                     shader,
                     position_code,
+                    force_field_code,
                 },
             );
         }
@@ -962,6 +989,8 @@ pub struct EffectBatch {
     shader: Handle<Shader>,
     /// Update position code.
     position_code: String,
+    /// Update force field code.
+    force_field_code: String,
     /// Compute pipeline specialized for this batch.
     compute_pipeline: Option<ComputePipeline>,
 }
@@ -1068,6 +1097,7 @@ pub(crate) fn prepare_effects(
     let mut end = 0;
     let mut num_emitted = 0;
     let mut position_code = String::default();
+    let mut force_field_code = String::default();
 
     for (slice, extracted_effect) in effect_entity_list {
         let buffer_index = slice.group_index;
@@ -1113,6 +1143,7 @@ pub(crate) fn prepare_effects(
                         image_handle_id,
                         shader: shader.clone(),
                         position_code: position_code.clone(),
+                        force_field_code: force_field_code.clone(),
                         compute_pipeline: None,
                     },));
                     num_emitted += 1;
@@ -1140,6 +1171,9 @@ pub(crate) fn prepare_effects(
 
         position_code = extracted_effect.position_code.clone();
         trace!("position_code = {}", position_code);
+
+        force_field_code = extracted_effect.force_field_code.clone();
+        trace!("force_field_code = {}", force_field_code);
 
         // extract the force field and turn it into a struct that is compliant with Std430,
         // namely ForceFieldStd430
@@ -1187,6 +1221,7 @@ pub(crate) fn prepare_effects(
                     image_handle_id,
                     shader: shader.clone(),
                     position_code: position_code.clone(),
+                    force_field_code: force_field_code.clone(),
                     compute_pipeline: None,
                 },));
                 num_emitted += 1;
@@ -1219,6 +1254,7 @@ pub(crate) fn prepare_effects(
             image_handle_id,
             shader: shader.clone(),
             position_code: position_code.clone(),
+            force_field_code: force_field_code.clone(),
             compute_pipeline: None,
         },));
         num_emitted += 1;
@@ -1429,6 +1465,7 @@ pub(crate) fn queue_effects(
             &update_pipeline,
             ParticleUpdatePipelineKey {
                 position_code: batch.position_code.clone(),
+                force_field_code: batch.force_field_code.clone(),
             },
             &render_device,
         );

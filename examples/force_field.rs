@@ -39,9 +39,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = OrthographicCameraBundle::new_3d();
-    camera.orthographic_projection.scale = 1.2;
-    camera.transform.translation.z = camera.orthographic_projection.far / 2.0 * 1.0;
+    // let mut camera = OrthographicCameraBundle::new_3d();
+    let mut camera = PerspectiveCameraBundle::new_3d();
+    // camera.orthographic_projection.scale = 1.2;
+    camera.transform.translation.z = 6.0;
     commands.spawn_bundle(camera);
 
     let attractor1_position = Vec3::new(0.01, 0.0, 0.0);
@@ -96,19 +97,21 @@ fn setup(
             ..Default::default()
         })
         .update(bevy_hanabi::PullingForceFieldModifier::new(vec![
-            PullingForceFieldParam {
+            ForceFieldParam {
                 position_or_direction: attractor2_position,
                 max_radius: 1000000.0,
                 min_radius: BALL_RADIUS * 6.0,
-                mass: -1.0,
-                force_type: PullingForceType::Linear,
+                mass: 3.0,
+                force_type: ForceType::Linear,
+                conform_to_sphere: true,
             },
-            PullingForceFieldParam {
+            ForceFieldParam {
                 position_or_direction: attractor1_position,
                 max_radius: 1000000.0,
                 min_radius: BALL_RADIUS * 6.0,
                 mass: -0.5,
-                force_type: PullingForceType::Quadratic,
+                force_type: ForceType::Quadratic,
+                conform_to_sphere: false,
             },
         ]))
         .render(SizeOverLifetimeModifier {
@@ -142,13 +145,12 @@ pub struct MousePosition {
 
 fn record_mouse_events_system(
     mut cursor_moved_events: EventReader<CursorMoved>,
-    mut cursor_res: ResMut<MousePosition>,
+    mut mouse_position: ResMut<MousePosition>,
     mut windows: ResMut<Windows>,
-    cam_transform_query: Query<&Transform, With<OrthographicProjection>>,
-    cam_ortho_query: Query<&OrthographicProjection>,
+    cam_transform_query: Query<&Transform, With<PerspectiveProjection>>,
 ) {
     for event in cursor_moved_events.iter() {
-        let cursor_in_pixels = event.position; // lower left is origin
+        let cursor_in_pixels = event.position;
         let window_size = Vec2::new(
             windows.get_primary_mut().unwrap().width(),
             windows.get_primary_mut().unwrap().height(),
@@ -158,18 +160,11 @@ fn record_mouse_events_system(
 
         let cam_transform = cam_transform_query.iter().next().unwrap();
 
-        let mut scale = 1.0;
-
-        for ortho in cam_ortho_query.iter() {
-            scale = ortho.scale;
-        }
-
-        let cursor_vec4: Vec4 = cam_transform.compute_matrix()
-            * screen_position.extend(0.0).extend(1.0 / (scale))
-            * scale
-            / 350.0; // Why 350?
+        // TODO: use bevy_mod_picking instead
+        let cursor_vec4: Vec4 =
+            cam_transform.compute_matrix() * screen_position.extend(0.0).extend(1.0) / 145.0;
 
         let cursor_pos = Vec2::new(cursor_vec4.x, cursor_vec4.y);
-        cursor_res.position = cursor_pos;
+        mouse_position.position = cursor_pos;
     }
 }

@@ -233,8 +233,8 @@ impl UpdateModifier for AccelModifier {
 
 /// The [`PullingForceFieldParam`] allows for either a constant force accross all of space, or a
 /// pulling/repulsing force originating from a point source.
-#[derive(Clone, Copy)]
-pub enum PullingForceType {
+#[derive(Clone, Copy, PartialEq)]
+pub enum ForceType {
     /// Constant field in all space. The position_or_direction field is interpreted as a direction.
     /// For this particular case, the radii field of [`PullingForceFieldParam`] are ignored.
     Constant,
@@ -247,29 +247,33 @@ pub enum PullingForceType {
 
     /// Cubic pulling force. The position_or_direction field is interpreted as the source position.
     Cubic,
+
+    /// None is the default. No force field is applied.
+    None,
 }
 
-impl Default for PullingForceType {
+impl Default for ForceType {
     fn default() -> Self {
-        PullingForceType::Constant
+        ForceType::Constant
     }
 }
 
-impl PullingForceType {
+impl ForceType {
     /// Converts the instance of PullingForceType into an integer, preparing to be sent to the GPU.
     pub fn to_int(self) -> i32 {
         match self {
-            PullingForceType::Constant => 0,
-            PullingForceType::Linear => 1,
-            PullingForceType::Quadratic => 2,
-            PullingForceType::Cubic => 3,
+            ForceType::Constant => 0,
+            ForceType::Linear => 1,
+            ForceType::Quadratic => 2,
+            ForceType::Cubic => 3,
+            ForceType::None => -1,
         }
     }
 }
 
 /// Parameters for the components making the force field.
 #[derive(Clone, Copy)]
-pub struct PullingForceFieldParam {
+pub struct ForceFieldParam {
     /// The particle_update.wgsl shader interprets this field as a position when the force type is set
     /// to either [`PullingForceType::Linear`], [`PullingForceType::Quadratic`] or [`PullingForceType::Cubic`].
     /// In the case of a [`PullingForceType::Constant`], the field is interpreted is as the direction
@@ -282,23 +286,28 @@ pub struct PullingForceFieldParam {
     /// For a pulling/repulsing force, this is the minimum radius of the sphere of influence, inside of which
     /// the force field is null, avoiding the singularity at the source position.
     pub min_radius: f32,
-    /// Mass is proportional to the intensity of the force. Note that the particles_update.wgsl shader will
+    /// The intensity of the force is proportional to mass. Note that the particles_update.wgsl shader will
     /// ignore all subsequent force field components after it encounters a component with a mass of zero.
+    /// To change the force from an attracting one to a repulsive one, simply set the mass to a negative value.
     pub mass: f32,
     /// Defines whether the field is constant or a pulling/repulsing force with an exponent of either one,
     /// two or three.
-    pub force_type: PullingForceType,
+    pub force_type: ForceType,
+    /// If set to true, the particles that enter within the `min_radius` will conform to a sphere around the
+    /// source position, appearing like a recharging effect.
+    pub conform_to_sphere: bool,
 }
 
-impl Default for PullingForceFieldParam {
+impl Default for ForceFieldParam {
     fn default() -> Self {
         // defaults to no force field (a mass of 0)
-        PullingForceFieldParam {
+        ForceFieldParam {
             position_or_direction: Vec3::new(0., 0., 0.),
             min_radius: 0.1,
             max_radius: 0.0,
             mass: 0.,
-            force_type: PullingForceType::Constant,
+            force_type: ForceType::None,
+            conform_to_sphere: false,
         }
     }
 }
@@ -308,7 +317,7 @@ impl Default for PullingForceFieldParam {
 #[derive(Default, Clone, Copy)]
 pub struct PullingForceFieldModifier {
     /// Array of force field components.
-    pub force_field: [PullingForceFieldParam; FFNUM],
+    pub force_field: [ForceFieldParam; FFNUM],
 }
 
 impl PullingForceFieldModifier {
@@ -317,8 +326,8 @@ impl PullingForceFieldModifier {
     /// # Panics
     ///
     /// Panics if the number of attractors exceeds [`FFNUM`].
-    pub fn new(point_attractors: Vec<PullingForceFieldParam>) -> Self {
-        let mut force_field = [PullingForceFieldParam::default(); FFNUM];
+    pub fn new(point_attractors: Vec<ForceFieldParam>) -> Self {
+        let mut force_field = [ForceFieldParam::default(); FFNUM];
 
         for (i, p_attractor) in point_attractors.iter().enumerate() {
             if i > FFNUM {
@@ -332,7 +341,7 @@ impl PullingForceFieldModifier {
 
     /// Perhaps will be deleted in the future.
     // Delete me?
-    pub fn add_or_replace(&mut self, point_attractor: PullingForceFieldParam, index: usize) {
+    pub fn add_or_replace(&mut self, point_attractor: ForceFieldParam, index: usize) {
         self.force_field[index] = point_attractor;
     }
 }
