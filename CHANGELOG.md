@@ -18,11 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented `ToWgslFloat` for `Value<f32>`.
 - Derive-implemented `PartialEq` for `Value<T>` and `Spawner`.
 - Implemented randomization for randomized spawning parameters
+- New force field effect:
+  - Add `ForceFieldModifier` to allow attraction or repulsion from point sources.
+  - Add `ForceFieldParam` in both the modifiers and the particle update shader.
+  - Add `force_field` example showcasing a repulsor, an attractor and the conforming to sphere functionality.
 
 ### Changed
 
 - Renamed the `ToWgslFloat` trait into `ToWgslString`, and its `to_float_string()` method into `to_wgsl_string()`. Also made the trait public.
 - Position modifiers now use `Value<f32>` for velocity to allow for random velocity.
+
 
 ### Fixed
 

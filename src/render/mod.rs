@@ -629,7 +629,7 @@ pub struct ExtractedEffect {
     pub transform: Mat4,
     /// Constant acceleration applied to all particles.
     pub accel: Vec3,
-
+    /// Force field applied to all particles in the "update" phase.
     force_field: [ForceFieldParam; FFNUM],
     /// Particles tint to modulate with the texture image.
     pub color: Color,

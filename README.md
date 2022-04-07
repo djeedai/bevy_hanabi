@@ -195,7 +195,7 @@ cargo run --example random --features="bevy/bevy_winit"
   - [x] Motion integration
   - [x] Apply forces
     - [x] Constant (gravity)
-    - [ ] Force field
+    - [x] Force field
   - [ ] Collision
     - [ ] Shape
       - [ ] plane
