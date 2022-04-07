@@ -21,9 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New force field effect:
   - Add `ForceFieldModifier` to allow attraction or repulsion from point sources.
   - Add `ForceFieldParam` in both the modifiers and the particle update shader.
-  - Add `ForceFieldStd430`.
-  - Add "force field"-related fields in `InitLayout`, `UpdateLayout`, `ExtractedEffect`, 
-  `ParticleUpdatePipelineKey`, `EffectBatch` and `SpawnerParams`.
   - Add `force_field` example showcasing a repulsor, an attractor and the conforming to sphere functionality.
 
 ### Changed
