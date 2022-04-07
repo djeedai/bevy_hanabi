@@ -1,8 +1,17 @@
+# Rust
 target/
 Cargo.lock
 
+# IDEs
 .vs*
+
+# OS
 .DS_Store
+
+# Perf
+*.cap
 perf.data
 perf.data.old
+
+# Other
 ignore/
