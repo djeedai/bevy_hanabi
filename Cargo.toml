@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 description = "Hanabi GPU particle system for the Bevy game engine"
