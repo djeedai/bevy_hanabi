@@ -33,7 +33,12 @@ use rand::Rng;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
 
-use crate::{asset::EffectAsset, spawn::Random, Gradient, ParticleEffect, ToWgslString};
+use crate::{
+    asset::EffectAsset,
+    modifiers::{ForceFieldParam, FFNUM},
+    spawn::{new_rng, Random},
+    Gradient, ParticleEffect, ToWgslString,
+};
 
 mod compute_cache;
 mod effect_cache;
@@ -59,6 +64,13 @@ const DEFAULT_POSITION_CODE: &'static str = r##"
     var speed = 2.;
     ret.vel = dir * speed;
 "##;
+
+const DEFAULT_FORCE_FIELD_CODE: &'static str = r##"
+    vVel = vVel + (spawner.accel * sim_params.dt);
+    vPos = vPos + vVel * sim_params.dt;
+"##;
+
+const FORCE_FIELD_CODE: &'static str = include_str!("force_field_code.wgsl");
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
@@ -199,6 +211,30 @@ impl From<SimParams> for SimParamsUniform {
 }
 
 #[repr(C)]
+#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, AsStd430)]
+pub struct ForceFieldStd430 {
+    pub position_or_direction: Vec3,
+    pub max_radius: f32,
+    pub min_radius: f32,
+    pub mass: f32,
+    pub force_exponent: f32,
+    pub conform_to_sphere: f32,
+}
+
+impl Into<ForceFieldStd430> for ForceFieldParam {
+    fn into(self) -> ForceFieldStd430 {
+        ForceFieldStd430 {
+            position_or_direction: self.position,
+            max_radius: self.max_radius,
+            min_radius: self.min_radius,
+            mass: self.mass,
+            force_exponent: self.force_exponent,
+            conform_to_sphere: if self.conform_to_sphere { 1.0 } else { 0.0 },
+        }
+    }
+}
+
+#[repr(C)]
 #[derive(Debug, Default, Copy, Clone, Pod, Zeroable, AsStd430)]
 struct SpawnerParams {
     /// Origin of the effect. This is either added to emitted particles at spawn time, if the effect simulated
@@ -209,8 +245,12 @@ struct SpawnerParams {
     /// Global acceleration applied to all particles each frame.
     /// TODO - This is NOT a spawner/emitter thing, but is a per-effect one. Rename SpawnerParams?
     accel: Vec3,
+
     /// Current number of used particles.
     count: i32,
+
+    /// Force field components. One PullingForceFieldParam takes up 32 bytes.
+    force_field: [ForceFieldStd430; FFNUM],
     ///
     __pad0: Vec3,
     /// Spawn seed, for randomized modifiers.
@@ -411,12 +451,14 @@ impl FromWorld for ParticlesRenderPipeline {
 pub struct ParticleUpdatePipelineKey {
     /// Code for the position initialization of newly emitted particles.
     position_code: String,
+    force_field_code: String,
 }
 
 impl Default for ParticleUpdatePipelineKey {
     fn default() -> Self {
         ParticleUpdatePipelineKey {
             position_code: Default::default(),
+            force_field_code: Default::default(),
         }
     }
 }
@@ -425,8 +467,11 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
     type Key = ParticleUpdatePipelineKey;
 
     fn specialize(&self, key: Self::Key, render_device: &RenderDevice) -> ComputePipeline {
-        let source =
+        let mut source =
             PARTICLES_UPDATE_SHADER_TEMPLATE.replace("{{INIT_POS_VEL}}", &key.position_code);
+
+        source = source.replace("{{FORCE_FIELD_CODE}}", &key.force_field_code);
+
         //trace!("Specialized compute pipeline:\n{}", source);
 
         let shader_module = render_device.create_shader_module(&ShaderModuleDescriptor {
@@ -584,6 +629,8 @@ pub struct ExtractedEffect {
     pub transform: Mat4,
     /// Constant acceleration applied to all particles.
     pub accel: Vec3,
+
+    force_field: [ForceFieldParam; FFNUM],
     /// Particles tint to modulate with the texture image.
     pub color: Color,
     pub rect: Rect,
@@ -596,6 +643,8 @@ pub struct ExtractedEffect {
     pub shader: Handle<Shader>,
     /// Update position code.
     pub position_code: String,
+    /// Update force field code.
+    pub force_field_code: String,
 }
 
 /// Extracted data for newly-added [`ParticleEffect`] component requiring a new GPU allocation.
@@ -729,10 +778,12 @@ pub(crate) fn extract_effects(
 
             // Tick the effect's spawner to determine the spawn count for this frame
             let spawner = effect.spawner(&asset.spawner);
+
             let spawn_count = spawner.tick(dt, &mut rng.0);
 
             // Extract the acceleration
             let accel = asset.update_layout.accel;
+            let force_field = asset.update_layout.force_field;
 
             // Generate the shader code for the position initializing of newly emitted particles
             // TODO - Move that to a pre-pass, not each frame!
@@ -741,6 +792,16 @@ pub(crate) fn extract_effects(
                 DEFAULT_POSITION_CODE.to_owned()
             } else {
                 position_code.clone()
+            };
+
+            // Generate the shader code for the force field of newly emitted particles
+            // TODO - Move that to a pre-pass, not each frame!
+            // let force_field_code = &asset.init_layout.force_field_code;
+            // let force_field_code = if force_field_code.is_empty() {
+            let force_field_code = if 0.0 == asset.update_layout.force_field[0].force_exponent {
+                DEFAULT_FORCE_FIELD_CODE.to_owned()
+            } else {
+                FORCE_FIELD_CODE.to_owned()
             };
 
             // Generate the shader code for the color over lifetime gradient.
@@ -762,7 +823,7 @@ pub(crate) fn extract_effects(
             let shader = pipeline_registry.configure(&shader_source, &mut shaders);
 
             trace!(
-                "extracted: handle={:?} shader={:?} has_image={} position_code={}",
+                "extracted: handle={:?} shader={:?} has_image={} position_code={} force_field_code={}",
                 effect.handle,
                 shader,
                 if asset.render_layout.particle_texture.is_some() {
@@ -770,7 +831,8 @@ pub(crate) fn extract_effects(
                 } else {
                     "N"
                 },
-                position_code
+                position_code,
+                force_field_code,
             );
 
             extracted_effects.effects.insert(
@@ -781,6 +843,7 @@ pub(crate) fn extract_effects(
                     color: Color::RED, //effect.color,
                     transform: transform.compute_matrix(),
                     accel,
+                    force_field,
                     rect: Rect {
                         min: Vec2::ZERO,
                         max: Vec2::new(0.2, 0.2), // effect
@@ -795,6 +858,7 @@ pub(crate) fn extract_effects(
                         .map_or(HandleId::default::<Image>(), |handle| handle.id),
                     shader,
                     position_code,
+                    force_field_code,
                 },
             );
         }
@@ -927,6 +991,8 @@ pub struct EffectBatch {
     shader: Handle<Shader>,
     /// Update position code.
     position_code: String,
+    /// Update force field code.
+    force_field_code: String,
     /// Compute pipeline specialized for this batch.
     compute_pipeline: Option<ComputePipeline>,
 }
@@ -1033,6 +1099,8 @@ pub(crate) fn prepare_effects(
     let mut end = 0;
     let mut num_emitted = 0;
     let mut position_code = String::default();
+    let mut force_field_code = String::default();
+
     for (slice, extracted_effect) in effect_entity_list {
         let buffer_index = slice.group_index;
         let range = slice.slice;
@@ -1077,6 +1145,7 @@ pub(crate) fn prepare_effects(
                         image_handle_id,
                         shader: shader.clone(),
                         position_code: position_code.clone(),
+                        force_field_code: force_field_code.clone(),
                         compute_pipeline: None,
                     },));
                     num_emitted += 1;
@@ -1105,6 +1174,16 @@ pub(crate) fn prepare_effects(
         position_code = extracted_effect.position_code.clone();
         trace!("position_code = {}", position_code);
 
+        force_field_code = extracted_effect.force_field_code.clone();
+        trace!("force_field_code = {}", force_field_code);
+
+        // extract the force field and turn it into a struct that is compliant with Std430,
+        // namely ForceFieldStd430
+        let mut extracted_force_field = [ForceFieldStd430::default(); FFNUM];
+        for (i, ff) in extracted_effect.force_field.iter().enumerate() {
+            extracted_force_field[i] = (*ff).into();
+        }
+
         // Prepare the spawner block for the current slice
         // FIXME - This is once per EFFECT/SLICE, not once per BATCH, so indeed this is spawner_BASE, and need an array of them in the compute shader!!!!!!!!!!!!!!
         let spawner_params = SpawnerParams {
@@ -1112,6 +1191,7 @@ pub(crate) fn prepare_effects(
             count: 0,
             origin: extracted_effect.transform.col(3).truncate(),
             accel: extracted_effect.accel,
+            force_field: extracted_force_field, // extracted_effect.force_field,
             seed: random::<u32>(),
             ..Default::default()
         };
@@ -1143,6 +1223,7 @@ pub(crate) fn prepare_effects(
                     image_handle_id,
                     shader: shader.clone(),
                     position_code: position_code.clone(),
+                    force_field_code: force_field_code.clone(),
                     compute_pipeline: None,
                 },));
                 num_emitted += 1;
@@ -1175,6 +1256,7 @@ pub(crate) fn prepare_effects(
             image_handle_id,
             shader: shader.clone(),
             position_code: position_code.clone(),
+            force_field_code: force_field_code.clone(),
             compute_pipeline: None,
         },));
         num_emitted += 1;
@@ -1385,6 +1467,7 @@ pub(crate) fn queue_effects(
             &update_pipeline,
             ParticleUpdatePipelineKey {
                 position_code: batch.position_code.clone(),
+                force_field_code: batch.force_field_code.clone(),
             },
             &render_device,
         );

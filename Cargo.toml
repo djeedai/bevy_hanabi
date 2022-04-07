@@ -28,6 +28,7 @@ features = [ "render" ]
 
 [dev-dependencies]
 bevy-inspector-egui = "0.8"
+smooth-bevy-cameras = "0.2"
 
 [[example]]
 name = "spawn"
@@ -52,6 +53,12 @@ required-features = [ "bevy/bevy_winit" ]
 [[example]]
 name = "activate"
 required-features = [ "bevy/bevy_winit" ]
+
+[[example]]
+name = "force_field"
+required-features = [ "bevy/bevy_winit" ]
+
+# [[example]]
 
 [workspace]
 resolver = "2"

@@ -14,11 +14,21 @@ struct SimParams {
     time: f32;
 };
 
+struct ForceFieldParam {
+    position: vec3<f32>;
+    max_radius: f32;
+    min_radius: f32;
+    mass: f32;
+    force_exponent: f32;
+    conform_to_sphere: f32;
+};
+
 struct Spawner {
     origin: vec3<f32>;
     spawn: atomic<i32>;
     accel: vec3<f32>;
     count: atomic<i32>;
+    force_field: array<ForceFieldParam, 16>;
     __pad0: vec3<f32>;
     seed: u32;
     __pad1: vec4<f32>;
@@ -109,6 +119,11 @@ fn init_lifetime() -> f32 {
     return 5.0;
 }
 
+fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
+    return dot(v, u) / dot(u,u) * u;
+}
+
+
 [[stage(compute), workgroup_size(64)]]
 fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
     let max_particles : u32 = arrayLength(&particle_buffer.particles);
@@ -142,9 +157,7 @@ fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
         }
     }
 
-    // Euler integration
-    vVel = vVel + (spawner.accel * sim_params.dt);
-    vPos = vPos + (vVel * sim_params.dt);
+{{FORCE_FIELD_CODE}}
 
     // Increment alive particle count and write indirection index
     let indirect_index = atomicAdd(&spawner.count, 1);

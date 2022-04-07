@@ -7,11 +7,15 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{Gradient, InitModifier, RenderModifier, Spawner, UpdateModifier};
+use crate::{
+    modifiers::{ForceFieldParam, FFNUM},
+    Gradient, InitModifier, RenderModifier, Spawner, UpdateModifier,
+};
 
 #[derive(Default, Clone)]
 pub struct InitLayout {
     pub position_code: String,
+    pub force_field_code: String,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -19,6 +23,8 @@ pub struct UpdateLayout {
     /// Constant accelereation to apply to all particles.
     /// Generally used to simulate some kind of gravity.
     pub accel: Vec3,
+    /// Array of force field components with a maximum number of components determined by [`FFNUM`].
+    pub force_field: [ForceFieldParam; FFNUM],
 }
 
 #[derive(Default, Clone)]
@@ -29,6 +35,7 @@ pub struct RenderLayout {
     pub particle_texture: Option<Handle<Image>>,
 
     pub lifetime_color_gradient: Option<Gradient<Vec4>>,
+
     pub size_color_gradient: Option<Gradient<Vec2>>,
 }
 
