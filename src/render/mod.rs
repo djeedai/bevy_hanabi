@@ -1,9 +1,12 @@
 #![allow(unused_imports)] // TEMP
 
+#[cfg(feature="2d")]
+use bevy::core_pipeline::Transparent2d as Transparent;
+#[cfg(feature="3d")]
+use bevy::core_pipeline::Transparent3d as Transparent;
 use bevy::{
     asset::{AssetEvent, Assets, Handle, HandleId, HandleUntyped},
     core::{cast_slice, FloatOrd, Pod, Time, Zeroable},
-    core_pipeline::Transparent3d,
     ecs::{
         prelude::*,
         system::{lifetimeless::*, SystemState},
@@ -597,6 +600,9 @@ impl SpecializedPipeline for ParticlesRenderPipeline {
                 topology: PrimitiveTopology::TriangleList,
                 strip_index_format: None,
             },
+            #[cfg(feature="2d")]
+            depth_stencil: None,
+            #[cfg(feature="3d")]
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: false,
@@ -1292,7 +1298,7 @@ pub struct EffectBindGroups {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn queue_effects(
-    draw_functions: Res<DrawFunctions<Transparent3d>>,
+    draw_functions: Res<DrawFunctions<Transparent>>,
     render_device: Res<RenderDevice>,
     mut effects_meta: ResMut<EffectsMeta>,
     view_uniforms: Res<ViewUniforms>,
@@ -1305,7 +1311,7 @@ pub(crate) fn queue_effects(
     mut effect_bind_groups: ResMut<EffectBindGroups>,
     gpu_images: Res<RenderAssets<Image>>,
     mut effect_batches: Query<(Entity, &mut EffectBatch)>,
-    mut views: Query<&mut RenderPhase<Transparent3d>>,
+    mut views: Query<&mut RenderPhase<Transparent>>,
     events: Res<EffectAssetEvents>,
 ) {
     trace!("queue_effects");
@@ -1479,7 +1485,7 @@ pub(crate) fn queue_effects(
     // Loop over all cameras/views that need to render effects
     let draw_effects_function = draw_functions.read().get_id::<DrawEffects>().unwrap();
     for mut transparent_phase in views.iter_mut() {
-        trace!("Process new Transparent3d view");
+        trace!("Process new Transparent view");
         // For each view, loop over all the effect batches to determine if the effect needs to be rendered
         // for that view, and enqueue a view-dependent batch if so.
         for (entity, batch) in effect_batches.iter() {
@@ -1551,11 +1557,16 @@ pub(crate) fn queue_effects(
             trace!("Render pipeline specialized: id={:?}", render_pipeline_id);
 
             // Add a draw pass for the effect batch
-            trace!("Add Transparent3d for batch on entity {:?}: buffer_index={} spawner_base={} slice={:?} handle={:?}", entity, batch.buffer_index, batch.spawner_base, batch.slice, batch.handle);
-            transparent_phase.add(Transparent3d {
+            trace!("Add Transparent for batch on entity {:?}: buffer_index={} spawner_base={} slice={:?} handle={:?}", entity, batch.buffer_index, batch.spawner_base, batch.slice, batch.handle);
+            transparent_phase.add(Transparent {
                 draw_function: draw_effects_function,
                 pipeline: render_pipeline_id,
                 entity,
+                #[cfg(feature="2d")]
+                sort_key: FloatOrd(0.0),
+                #[cfg(feature="2d")]
+                batch_range: None,
+                #[cfg(feature="3d")]
                 distance: 0.0, // TODO ??????
             });
         }
@@ -1564,7 +1575,7 @@ pub(crate) fn queue_effects(
 
 /// Draw function for rendering all active effects for the current frame.
 ///
-/// Effects are rendered in the [`Transparent3d`] phase of the main 3D pass.
+/// Effects are rendered in the [`Transparent`] phase of the main 2D pass.
 pub struct DrawEffects {
     params: SystemState<(
         SRes<EffectsMeta>,
@@ -1593,15 +1604,15 @@ pub struct ExtractedEffectEntities {
     pub entities: Vec<Entity>,
 }
 
-impl Draw<Transparent3d> for DrawEffects {
+impl Draw<Transparent> for DrawEffects {
     fn draw<'w>(
         &mut self,
         world: &'w World,
         pass: &mut TrackedRenderPass<'w>,
         view: Entity,
-        item: &Transparent3d,
+        item: &Transparent,
     ) {
-        trace!("Draw<Transparent3d>: view={:?}", view);
+        trace!("Draw<Transparent>: view={:?}", view);
         let (
             effects_meta,
             image_bind_groups,
