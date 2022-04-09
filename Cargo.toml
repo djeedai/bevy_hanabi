@@ -58,6 +58,10 @@ required-features = [ "bevy/bevy_winit" ]
 name = "force_field"
 required-features = [ "bevy/bevy_winit" ]
 
+[[example]]
+name = "2d"
+required-features = [ "bevy/bevy_winit" ]
+
 # [[example]]
 
 [workspace]
