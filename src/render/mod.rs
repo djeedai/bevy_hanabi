@@ -1,8 +1,8 @@
 #![allow(unused_imports)] // TEMP
 
-#[cfg(feature="2d")]
+#[cfg(feature = "2d")]
 use bevy::core_pipeline::Transparent2d as Transparent;
-#[cfg(feature="3d")]
+#[cfg(feature = "3d")]
 use bevy::core_pipeline::Transparent3d as Transparent;
 use bevy::{
     asset::{AssetEvent, Assets, Handle, HandleId, HandleUntyped},
@@ -600,9 +600,9 @@ impl SpecializedPipeline for ParticlesRenderPipeline {
                 topology: PrimitiveTopology::TriangleList,
                 strip_index_format: None,
             },
-            #[cfg(feature="2d")]
+            #[cfg(feature = "2d")]
             depth_stencil: None,
-            #[cfg(feature="3d")]
+            #[cfg(feature = "3d")]
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
                 depth_write_enabled: false,
@@ -1562,11 +1562,11 @@ pub(crate) fn queue_effects(
                 draw_function: draw_effects_function,
                 pipeline: render_pipeline_id,
                 entity,
-                #[cfg(feature="2d")]
+                #[cfg(feature = "2d")]
                 sort_key: FloatOrd(0.0),
-                #[cfg(feature="2d")]
+                #[cfg(feature = "2d")]
                 batch_range: None,
-                #[cfg(feature="3d")]
+                #[cfg(feature = "3d")]
                 distance: 0.0, // TODO ??????
             });
         }

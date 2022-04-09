@@ -2,7 +2,8 @@
 
 use bevy::{
     prelude::*,
-    render::{options::WgpuOptions, render_resource::WgpuFeatures, camera::ScalingMode}, sprite::MaterialMesh2dBundle,
+    render::{camera::ScalingMode, options::WgpuOptions, render_resource::WgpuFeatures},
+    sprite::MaterialMesh2dBundle,
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
 
@@ -43,10 +44,12 @@ fn setup(
     commands.spawn_bundle(camera);
 
     let mut ball = commands.spawn_bundle(MaterialMesh2dBundle {
-        mesh: meshes.add(Mesh::from(shape::Quad {
-            size: Vec2::splat(0.1),
-            ..Default::default()
-        })).into(),
+        mesh: meshes
+            .add(Mesh::from(shape::Quad {
+                size: Vec2::splat(0.1),
+                ..Default::default()
+            }))
+            .into(),
         material: materials.add(ColorMaterial {
             color: Color::WHITE,
             ..Default::default()
