@@ -22,11 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Add `ForceFieldModifier` to allow attraction or repulsion from point sources.
   - Add `ForceFieldParam` in both the modifiers and the particle update shader.
   - Add `force_field` example showcasing a repulsor, an attractor and the conforming to sphere functionality.
+- Add rendering with a 2D camera.
 
 ### Changed
 
 - Renamed the `ToWgslFloat` trait into `ToWgslString`, and its `to_float_string()` method into `to_wgsl_string()`. Also made the trait public.
 - Position modifiers now use `Value<f32>` for velocity to allow for random velocity.
+- Either the "3d" feature or the "2d" feature must be enabled.
 
 ### Fixed
 
