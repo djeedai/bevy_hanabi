@@ -601,6 +601,8 @@ impl SpecializedPipeline for ParticlesRenderPipeline {
                 strip_index_format: None,
             },
             #[cfg(feature = "2d")]
+            // Removed because Bevy's Transparent2D render phase doesn't support
+            // a depth-stencil buffer.
             depth_stencil: None,
             #[cfg(feature = "3d")]
             depth_stencil: Some(DepthStencilState {
