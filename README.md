@@ -21,14 +21,14 @@ The 🎆 Bevy Hanabi plugin is only compatible with Bevy v0.6.
 
 ### Add the dependency
 
-Add the `bevy_hanabi` dependency to Cargo.toml:
+Add the `bevy_hanabi` dependency to `Cargo.toml`:
 
 ```
 [dependencies]
 bevy_hanabi = { version = "0.1", features = ["3d"] }
 ```
 
-If you're using a 2D camera, add the "2d" feature instead.
+If you're using a 2D camera, add the `2d` feature instead.
 
 ### System setup
 
@@ -226,7 +226,6 @@ cargo run --example random --features="bevy/bevy_winit"
     - [ ] Velocity (trail)
   - [x] 3D camera support
   - [x] 2D camera support
-  - [ ] Mixed 3D camera and 2D camera support
 - Debug
   - [x] GPU debug labels / groups
   - [ ] Debug visualization

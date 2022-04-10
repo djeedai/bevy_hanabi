@@ -102,9 +102,9 @@ pub use render::EffectCacheId;
 pub use spawn::{Spawner, Value};
 
 #[cfg(not(any(feature = "2d", feature = "3d")))]
-compile_error!("Enable either the 2d or 3d feature.");
+compile_error!("Enable either the '2d' or '3d' feature.");
 #[cfg(all(feature = "2d", feature = "3d"))]
-compile_error!("Disable either the 2d or 3d feature. Both at the same time is not supported.");
+compile_error!("Disable either the '2d' or '3d' feature. Both at the same time is not supported.");
 
 /// Extension trait to write a floating point scalar or vector constant in a format
 /// matching the WGSL grammar.
