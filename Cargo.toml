@@ -12,6 +12,10 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 exclude = ["examples/*.gif", ".github"]
 
+[features]
+3d = []
+2d = []
+
 [dependencies]
 bytemuck = "1.5"
 rand = "0.8"
@@ -32,31 +36,35 @@ smooth-bevy-cameras = "0.2"
 
 [[example]]
 name = "spawn"
-required-features = [ "bevy/bevy_winit" ]
+required-features = [ "bevy/bevy_winit", "3d" ]
 
 [[example]]
 name = "random"
-required-features = [ "bevy/bevy_winit" ]
+required-features = [ "bevy/bevy_winit", "3d" ]
 
 [[example]]
 name = "gradient"
-required-features = [ "bevy/bevy_winit", "bevy/png" ]
+required-features = [ "bevy/bevy_winit", "bevy/png", "3d" ]
 
 [[example]]
 name = "circle"
-required-features = [ "bevy/bevy_winit", "bevy/png" ]
+required-features = [ "bevy/bevy_winit", "bevy/png", "3d" ]
 
 [[example]]
 name = "spawn_on_command"
-required-features = [ "bevy/bevy_winit" ]
+required-features = [ "bevy/bevy_winit", "3d" ]
 
 [[example]]
 name = "activate"
-required-features = [ "bevy/bevy_winit" ]
+required-features = [ "bevy/bevy_winit", "3d" ]
 
 [[example]]
 name = "force_field"
-required-features = [ "bevy/bevy_winit" ]
+required-features = [ "bevy/bevy_winit", "3d" ]
+
+[[example]]
+name = "2d"
+required-features = [ "bevy/bevy_winit", "2d" ]
 
 # [[example]]
 

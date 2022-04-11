@@ -3,10 +3,13 @@ use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
 
 use crate::{asset::EffectAsset, render::Particle, ParticleEffect};
 
+#[cfg(feature = "2d")]
+use bevy::core_pipeline::Transparent2d as Transparent;
+#[cfg(feature = "3d")]
+use bevy::core_pipeline::Transparent3d as Transparent;
 use bevy::{
     asset::{AssetEvent, Assets, Handle, HandleUntyped},
     core::{cast_slice, FloatOrd, Pod, Time, Zeroable},
-    core_pipeline::Transparent3d,
     ecs::{
         prelude::*,
         system::{lifetimeless::*, SystemState},
