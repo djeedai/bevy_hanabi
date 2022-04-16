@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Tighter set of dependencies, removing the general `bevy/render` and instead depending on `bevy/bevy_core_pipeline` and `bevy/bevy_render` only.
 
+### Fixed
+
+- Fix missing `derive` feature in `bytemuck` dependency occasionally causing build errors.
+
 ## [0.1.2] 2022-04-07
 
 ### Added
