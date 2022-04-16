@@ -127,7 +127,7 @@ fn update(
         let mut pos = transform.translation.xy() + ball.velocity * time.delta_seconds();
         let mut collision = false;
 
-        for (coord, vel_coord) in pos.as_mut().into_iter().zip(ball.velocity.as_mut()) {
+        for (coord, vel_coord) in pos.as_mut().iter_mut().zip(ball.velocity.as_mut()) {
             while *coord < -HALF_SIZE || *coord > HALF_SIZE {
                 if *coord < -HALF_SIZE {
                     *coord = 2.0 * -HALF_SIZE - *coord;

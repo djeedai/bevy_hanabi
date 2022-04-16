@@ -332,7 +332,7 @@ impl EffectCache {
             .or_else(|| {
                 // Cannot find any suitable buffer; allocate a new one
                 let buffer_index = self.buffers.len();
-                let byte_size = capacity.checked_mul(item_size).expect(&format!(
+                let byte_size = capacity.checked_mul(item_size).unwrap_or_else(|| panic!(
                     "Effect size overflow: capacity={} item_size={}",
                     capacity, item_size
                 ));
@@ -368,7 +368,7 @@ impl EffectCache {
             slice.item_size
         );
         self.effects.insert(id, (buffer_index, slice));
-        return id;
+        id
     }
 
     pub fn get_slice(&self, id: EffectCacheId) -> EffectSlice {

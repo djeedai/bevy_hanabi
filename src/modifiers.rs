@@ -111,8 +111,7 @@ impl InitModifier for PositionCircleModifier {
             bitangent.to_wgsl_string(),
             radius_code,
             self.speed.to_wgsl_string()
-        )
-        .to_string();
+        );
     }
 }
 
@@ -171,8 +170,7 @@ impl InitModifier for PositionSphereModifier {
             self.center.to_wgsl_string(),
             radius_code,
             self.speed.to_wgsl_string()
-        )
-        .to_string();
+        );
     }
 }
 
@@ -233,8 +231,7 @@ impl UpdateModifier for AccelModifier {
 /// Parameters for the components making the force field.
 #[derive(Clone, Copy)]
 pub struct ForceFieldParam {
-    /// The particle_update.wgsl shader interprets this field as a position when the force type is set
-    /// to either [`ForceType::Linear`], [`ForceType::Quadratic`] or [`ForceType::Cubic`].
+    /// Position of the source of the force field.
     pub position: Vec3,
     /// Maximum radius of the sphere of influence, outside of which
     /// the force field is null.
