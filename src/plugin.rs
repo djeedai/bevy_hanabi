@@ -6,7 +6,8 @@ use bevy::{
     prelude::*,
     render::{
         render_graph::RenderGraph, render_phase::DrawFunctions,
-        render_resource::SpecializedPipelines, renderer::RenderDevice, RenderApp, RenderStage,
+        render_resource::SpecializedRenderPipelines, renderer::RenderDevice, RenderApp,
+        RenderStage,
     },
 };
 
@@ -67,7 +68,7 @@ impl Plugin for HanabiPlugin {
             .init_resource::<ParticlesUpdatePipeline>()
             .init_resource::<ComputeCache<ParticlesUpdatePipeline>>()
             .init_resource::<ParticlesRenderPipeline>()
-            .init_resource::<SpecializedPipelines<ParticlesRenderPipeline>>()
+            .init_resource::<SpecializedRenderPipelines<ParticlesRenderPipeline>>()
             .init_resource::<ExtractedEffects>()
             .init_resource::<EffectAssetEvents>()
             .init_resource::<SimParams>()

@@ -473,7 +473,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             source: ShaderSource::Wgsl(Cow::Owned(source)),
         });
 
-        render_device.create_compute_pipeline(&ComputePipelineDescriptor {
+        render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
             label: Some("particles_update_compute_pipeline"),
             layout: Some(&self.pipeline_layout),
             module: &shader_module,
@@ -501,7 +501,7 @@ impl Default for ParticleRenderPipelineKey {
     }
 }
 
-impl SpecializedPipeline for ParticlesRenderPipeline {
+impl SpecializedRenderPipeline for ParticlesRenderPipeline {
     type Key = ParticleRenderPipelineKey;
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
@@ -713,16 +713,16 @@ pub(crate) fn extract_effects(
     mut shaders: ResMut<Assets<Shader>>,
     mut pipeline_registry: ResMut<PipelineRegistry>,
     mut rng: ResMut<Random>,
-    mut query: QuerySet<(
+    mut query: ParamSet<(
         // All existing ParticleEffect components
-        QueryState<(
+        Query<(
             Entity,
             &ComputedVisibility,
             &mut ParticleEffect, //TODO - Split EffectAsset::Spawner (desc) and ParticleEffect::SpawnerData (runtime data), and init the latter on component add without a need for the former
             &GlobalTransform,
         )>,
         // Newly added ParticleEffect components
-        QueryState<
+        Query<
             (Entity, &mut ParticleEffect),
             (
                 Added<ParticleEffect>,
@@ -748,7 +748,7 @@ pub(crate) fn extract_effects(
 
     // Collect added effects for later GPU data allocation
     extracted_effects.added_effects = query
-        .q1()
+        .p1()
         .iter()
         .map(|(entity, effect)| {
             let handle = effect.handle.clone_weak();
@@ -763,7 +763,7 @@ pub(crate) fn extract_effects(
         .collect();
 
     // Loop over all existing effects to update them
-    for (entity, computed_visibility, mut effect, transform) in query.q0().iter_mut() {
+    for (entity, computed_visibility, mut effect, transform) in query.p0().iter_mut() {
         // Check if visible
         if !computed_visibility.is_visible {
             continue;
@@ -1298,8 +1298,8 @@ pub(crate) fn queue_effects(
     update_pipeline: Res<ParticlesUpdatePipeline>,
     mut compute_cache: ResMut<ComputeCache<ParticlesUpdatePipeline>>,
     render_pipeline: Res<ParticlesRenderPipeline>,
-    mut specialized_render_pipelines: ResMut<SpecializedPipelines<ParticlesRenderPipeline>>,
-    mut render_pipeline_cache: ResMut<RenderPipelineCache>,
+    mut specialized_render_pipelines: ResMut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
+    mut render_pipeline_cache: ResMut<PipelineCache>,
     mut image_bind_groups: ResMut<ImageBindGroups>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
     gpu_images: Res<RenderAssets<Image>>,
@@ -1574,7 +1574,7 @@ pub struct DrawEffects {
         SRes<EffectsMeta>,
         SRes<ImageBindGroups>,
         SRes<EffectBindGroups>,
-        SRes<RenderPipelineCache>,
+        SRes<PipelineCache>,
         SQuery<Read<ViewUniformOffset>>,
         SQuery<Read<EffectBatch>>,
     )>,
@@ -1619,7 +1619,10 @@ impl Draw<Transparent> for DrawEffects {
         let image_bind_groups = image_bind_groups.into_inner();
         let effect_bind_groups = effect_bind_groups.into_inner();
         let effect_batch = effects.get(item.entity).unwrap();
-        if let Some(pipeline) = specialized_render_pipelines.into_inner().get(item.pipeline) {
+        if let Some(pipeline) = specialized_render_pipelines
+            .into_inner()
+            .get_render_pipeline(item.pipeline)
+        {
             trace!("render pass");
             //let effect_group = &effects_meta.effect_cache.buffers()[0]; // TODO
 

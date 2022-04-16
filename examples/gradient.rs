@@ -1,14 +1,14 @@
 use bevy::{
     prelude::*,
-    render::{mesh::shape::Cube, options::WgpuOptions, render_resource::WgpuFeatures},
+    render::{mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings},
 };
-use bevy_inspector_egui::WorldInspectorPlugin;
+//use bevy_inspector_egui::WorldInspectorPlugin;
 use std::f32::consts::PI;
 
 use bevy_hanabi::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = WgpuOptions::default();
+    let mut options = WgpuSettings::default();
     options
         .features
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugins(DefaultPlugins)
         .add_system(bevy::input::system::exit_on_esc_system)
         .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::new())
+        //.add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .add_system(update)
         .run();
