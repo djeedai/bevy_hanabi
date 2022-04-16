@@ -5,7 +5,7 @@
 [![Crate](https://img.shields.io/crates/v/bevy_hanabi.svg)](https://crates.io/crates/bevy_hanabi)
 [![Build Status](https://github.com/djeedai/bevy_hanabi/actions/workflows/ci.yaml/badge.svg)](https://github.com/djeedai/bevy_hanabi/actions/workflows/ci.yaml)
 [![Coverage Status](https://coveralls.io/repos/github/djeedai/bevy_hanabi/badge.svg?branch=main)](https://coveralls.io/github/djeedai/bevy_hanabi?branch=main)
-[![Bevy tracking](https://img.shields.io/badge/Bevy%20tracking-v0.6-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
+[![Bevy tracking](https://img.shields.io/badge/Bevy%20tracking-v0.7-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
 
 Hanabi — a GPU particle system for the Bevy game engine.
 
@@ -17,15 +17,15 @@ The Hanabi particle system is a modern GPU-based particle system for the Bevy ga
 
 ## Usage
 
-The 🎆 Bevy Hanabi plugin is only compatible with Bevy v0.6.
+The 🎆 Bevy Hanabi plugin is compatible with Bevy >= v0.6; see the list of compatible versions below.
 
 ### Add the dependency
 
 Add the `bevy_hanabi` dependency to `Cargo.toml`:
 
-```
+```toml
 [dependencies]
-bevy_hanabi = { version = "0.1", features = ["3d"] }
+bevy_hanabi = { version = "0.2", features = ["3d"] }
 ```
 
 If you're using a 2D camera, add the `2d` feature instead.
@@ -249,4 +249,5 @@ Compatibility of `bevy_hanabi` versions:
 
 | `bevy_hanabi` | `bevy` |
 | :--           | :--    |
+| `0.2`         | `0.7`  |
 | `0.1`         | `0.6`  |

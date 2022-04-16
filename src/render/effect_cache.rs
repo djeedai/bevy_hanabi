@@ -9,7 +9,7 @@ use bevy::core_pipeline::Transparent2d as Transparent;
 use bevy::core_pipeline::Transparent3d as Transparent;
 use bevy::{
     asset::{AssetEvent, Assets, Handle, HandleUntyped},
-    core::{cast_slice, FloatOrd, Pod, Time, Zeroable},
+    core::{cast_slice, FloatOrd, Time},
     ecs::{
         prelude::*,
         system::{lifetimeless::*, SystemState},

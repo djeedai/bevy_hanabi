@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 description = "Hanabi GPU particle system for the Bevy game engine"
@@ -26,13 +26,17 @@ ron = "0.7"
 bitflags = "1.3"
 
 [dependencies.bevy]
-version = "0.6"
+version = "0.7"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render" ]
 
-[dev-dependencies]
-bevy-inspector-egui = "0.8"
-smooth-bevy-cameras = "0.2"
+[package.metadata.docs.rs]
+# Document only 3D by default. There's no public API difference anyway.
+features = [ "3d" ]
+
+#[dev-dependencies]
+#bevy-inspector-egui = "0.8"
+#smooth-bevy-cameras = "0.2"
 
 [[example]]
 name = "spawn"

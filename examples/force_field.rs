@@ -4,18 +4,18 @@
 //! Mouse scroll wheel zooms the camera.
 use bevy::{
     prelude::*,
-    render::{options::WgpuOptions, render_resource::WgpuFeatures},
+    render::{render_resource::WgpuFeatures, settings::WgpuSettings},
 };
-use bevy_inspector_egui::WorldInspectorPlugin;
+//use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_hanabi::*;
-use smooth_bevy_cameras::{
-    controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
-    LookTransformPlugin,
-};
+// use smooth_bevy_cameras::{
+//     controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
+//     LookTransformPlugin,
+// };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = WgpuOptions::default();
+    let mut options = WgpuSettings::default();
     options
         .features
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
@@ -27,10 +27,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .add_plugins(DefaultPlugins)
         .add_system(bevy::input::system::exit_on_esc_system)
-        .add_plugin(LookTransformPlugin)
-        .add_plugin(OrbitCameraPlugin::default())
+        //.add_plugin(LookTransformPlugin)
+        //.add_plugin(OrbitCameraPlugin::default())
         .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::new())
+        //.add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .add_system(update)
         .run();
@@ -46,16 +46,19 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let orbit_controller = OrbitCameraController {
-        mouse_translate_sensitivity: Vec2::ZERO,
-        ..Default::default()
-    };
-    commands.spawn_bundle(OrbitCameraBundle::new(
-        orbit_controller,
-        PerspectiveCameraBundle::default(),
-        Vec3::new(0.0, 0.0, 6.0), // eye of the camera
-        Vec3::new(0., 0., 0.),
-    ));
+    // let orbit_controller = OrbitCameraController {
+    //     mouse_translate_sensitivity: Vec2::ZERO,
+    //     ..Default::default()
+    // };
+    // commands.spawn_bundle(OrbitCameraBundle::new(
+    //     orbit_controller,
+    //     PerspectiveCameraBundle::default(),
+    //     Vec3::new(0.0, 0.0, 6.0), // eye of the camera
+    //     Vec3::new(0., 0., 0.),
+    // ));
+    let mut bundle = PerspectiveCameraBundle::new_3d();
+    bundle.transform.translation = Vec3::new(0.0, 0.0, 6.0);
+    commands.spawn_bundle(bundle);
 
     let attractor1_position = Vec3::new(0.01, 0.0, 0.0);
     let attractor2_position = Vec3::new(1.0, 0.5, 0.0);
@@ -152,7 +155,6 @@ fn setup(
 fn update(
     mut effect: Query<(&mut ParticleEffect, &mut Transform), Without<PerspectiveProjection>>,
     mouse_button_input: Res<Input<MouseButton>>,
-
     camera_query: Query<&Transform, With<PerspectiveProjection>>,
     windows: Res<Windows>,
 ) {
