@@ -108,7 +108,7 @@ See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
 Animate an emitter by moving its `Transform` component, and emit textured quad particles with a `ColorOverLifetimeModifier`.
 
 ```shell
-cargo run --example gradient --features="bevy/bevy_winit bevy/png"
+cargo run --example gradient --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
 ![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/471669f735f202d3877969e25c488e5d74fc3393/examples/gradient.gif)
@@ -118,17 +118,25 @@ cargo run --example gradient --features="bevy/bevy_winit bevy/png"
 This example demonstrates the force field modifier `ForceFieldModifier`, which allows creating some attraction and repulsion sources affecting the motion of the particles.
 
 ```shell
-cargo run --example force_field --features="bevy/bevy_winit"
+cargo run --example force_field --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
 ![force_field](https://raw.githubusercontent.com/djeedai/bevy_hanabi/471669f735f202d3877969e25c488e5d74fc3393/examples/force_field.gif)
+
+### 2D
+
+This example shows how to use 🎆 Hanabi with a 2D camera.
+
+```shell
+cargo run --example 2d --features="bevy/bevy_winit bevy/bevy_sprite 2d"
+```
 
 ### Activate
 
 This example demonstrates manual activation and deactivation of a spawner, from code (CPU). The circle bobs up and down in the water, spawning square bubbles when in the water only.
 
 ```shell
-cargo run --example activate --features="bevy/bevy_winit"
+cargo run --example activate --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
 ![activate](https://raw.githubusercontent.com/djeedai/bevy_hanabi/471669f735f202d3877969e25c488e5d74fc3393/examples/activate.gif)
@@ -144,7 +152,7 @@ This example demonstrates three spawn modes:
 It also shows the applying of constant force (downward gravity-like, or upward smoke-style).
 
 ```shell
-cargo run --example spawn --features="bevy/bevy_winit"
+cargo run --example spawn --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
 ![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/471669f735f202d3877969e25c488e5d74fc3393/examples/spawn.gif)
@@ -154,7 +162,7 @@ cargo run --example spawn --features="bevy/bevy_winit"
 This example demonstrates how to emit a burst of particles when an event occurs. This gives total control of the spawning to the user code.
 
 ```shell
-cargo run --example spawn_on_command --features="bevy/bevy_winit"
+cargo run --example spawn_on_command --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
 ![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/471669f735f202d3877969e25c488e5d74fc3393/examples/spawn_on_command.gif)
@@ -164,7 +172,7 @@ cargo run --example spawn_on_command --features="bevy/bevy_winit"
 This example demonstrates the `circle` spawner type, which emits particles along a circle perimeter or a disk surface. This allows for example simulating a dust ring around an object colliding with the ground.
 
 ```shell
-cargo run --example circle --features="bevy/bevy_winit bevy/png"
+cargo run --example circle --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
 ![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/471669f735f202d3877969e25c488e5d74fc3393/examples/circle.gif)
@@ -174,7 +182,7 @@ cargo run --example circle --features="bevy/bevy_winit bevy/png"
 This example spawns particles with randomized parameters.
 
 ```shell
-cargo run --example random --features="bevy/bevy_winit"
+cargo run --example random --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
 ![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/471669f735f202d3877969e25c488e5d74fc3393/examples/random.gif)

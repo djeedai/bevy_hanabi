@@ -15,7 +15,7 @@ use bevy::{
         system::{lifetimeless::*, SystemState},
     },
     log::{trace, warn},
-    math::{const_vec3, Mat4, Vec2, Vec3, Vec4Swizzles},
+    math::{const_vec3, Mat4, Rect, Vec2, Vec3, Vec4Swizzles},
     reflect::TypeUuid,
     render::{
         color::Color,
@@ -28,7 +28,6 @@ use bevy::{
         view::{ComputedVisibility, ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
         RenderWorld,
     },
-    sprite::Rect,
     transform::components::GlobalTransform,
     utils::{HashMap, HashSet},
 };

@@ -4,6 +4,7 @@
 use bevy::core_pipeline::Transparent2d as Transparent;
 #[cfg(feature = "3d")]
 use bevy::core_pipeline::Transparent3d as Transparent;
+
 use bevy::{
     asset::{AssetEvent, Assets, Handle, HandleId, HandleUntyped},
     core::{cast_slice, FloatOrd, Pod, Time, Zeroable},
@@ -12,7 +13,7 @@ use bevy::{
         system::{lifetimeless::*, SystemState},
     },
     log::trace,
-    math::{const_vec3, Mat4, Vec2, Vec3, Vec4, Vec4Swizzles},
+    math::{const_vec3, Mat4, Rect, Vec2, Vec3, Vec4, Vec4Swizzles},
     reflect::TypeUuid,
     render::{
         color::Color,
@@ -25,7 +26,6 @@ use bevy::{
         view::{ComputedVisibility, ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
         RenderWorld,
     },
-    sprite::Rect,
     transform::components::GlobalTransform,
     utils::{HashMap, HashSet},
 };
@@ -641,7 +641,7 @@ pub struct ExtractedEffect {
     force_field: [ForceFieldParam; FFNUM],
     /// Particles tint to modulate with the texture image.
     pub color: Color,
-    pub rect: Rect,
+    pub rect: Rect<f32>,
     // Texture to use for the sprites of the particles of this effect.
     //pub image: Handle<Image>,
     pub has_image: bool, // TODO -> use flags
@@ -853,10 +853,12 @@ pub(crate) fn extract_effects(
                     accel,
                     force_field,
                     rect: Rect {
-                        min: Vec2::ZERO,
-                        max: Vec2::new(0.2, 0.2), // effect
-                                                  //.custom_size
-                                                  //.unwrap_or_else(|| Vec2::new(size.width as f32, size.height as f32)),
+                        left: -0.1,
+                        top: -0.1,
+                        right: 0.1,
+                        bottom: 0.1, // effect
+                                     //.custom_size
+                                     //.unwrap_or_else(|| Vec2::new(size.width as f32, size.height as f32)),
                     },
                     has_image: asset.render_layout.particle_texture.is_some(),
                     image_handle_id: asset

@@ -28,7 +28,7 @@ bitflags = "1.3"
 [dependencies.bevy]
 version = "0.6"
 default-features = false
-features = [ "render" ]
+features = [ "bevy_core_pipeline", "bevy_render" ]
 
 [dev-dependencies]
 bevy-inspector-egui = "0.8"
@@ -36,37 +36,35 @@ smooth-bevy-cameras = "0.2"
 
 [[example]]
 name = "spawn"
-required-features = [ "bevy/bevy_winit", "3d" ]
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "random"
-required-features = [ "bevy/bevy_winit", "3d" ]
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "gradient"
-required-features = [ "bevy/bevy_winit", "bevy/png", "3d" ]
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d" ]
 
 [[example]]
 name = "circle"
-required-features = [ "bevy/bevy_winit", "bevy/png", "3d" ]
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d" ]
 
 [[example]]
 name = "spawn_on_command"
-required-features = [ "bevy/bevy_winit", "3d" ]
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "activate"
-required-features = [ "bevy/bevy_winit", "3d" ]
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "force_field"
-required-features = [ "bevy/bevy_winit", "3d" ]
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "2d"
-required-features = [ "bevy/bevy_winit", "2d" ]
-
-# [[example]]
+required-features = [ "bevy/bevy_winit", "bevy/bevy_sprite", "2d" ]
 
 [workspace]
 resolver = "2"
