@@ -6,16 +6,9 @@ use bevy::{
 };
 use std::hash::Hash;
 
+#[derive(Default)]
 pub struct PipelineRegistry {
     cache: HashMap<String, Handle<Shader>>,
-}
-
-impl Default for PipelineRegistry {
-    fn default() -> Self {
-        Self {
-            cache: Default::default(),
-        }
-    }
 }
 
 impl PipelineRegistry {

@@ -57,10 +57,10 @@ pub const PARTICLES_UPDATE_SHADER_HANDLE: HandleUntyped =
 pub const PARTICLES_RENDER_SHADER_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 2763343953151597145);
 
-const PARTICLES_UPDATE_SHADER_TEMPLATE: &'static str = include_str!("particles_update.wgsl");
-const PARTICLES_RENDER_SHADER_TEMPLATE: &'static str = include_str!("particles_render.wgsl");
+const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("particles_update.wgsl");
+const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("particles_render.wgsl");
 
-const DEFAULT_POSITION_CODE: &'static str = r##"
+const DEFAULT_POSITION_CODE: &str = r##"
     ret.pos = vec3<f32>(0., 0., 0.);
     var dir = rand3() * 2. - 1.;
     dir = normalize(dir);
@@ -68,12 +68,12 @@ const DEFAULT_POSITION_CODE: &'static str = r##"
     ret.vel = dir * speed;
 "##;
 
-const DEFAULT_FORCE_FIELD_CODE: &'static str = r##"
+const DEFAULT_FORCE_FIELD_CODE: &str = r##"
     vVel = vVel + (spawner.accel * sim_params.dt);
     vPos = vPos + vVel * sim_params.dt;
 "##;
 
-const FORCE_FIELD_CODE: &'static str = include_str!("force_field_code.wgsl");
+const FORCE_FIELD_CODE: &str = include_str!("force_field_code.wgsl");
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
@@ -96,7 +96,7 @@ trait ShaderCode {
 
 impl ShaderCode for Gradient<Vec2> {
     fn to_shader_code(&self) -> String {
-        if self.keys().len() == 0 {
+        if self.keys().is_empty() {
             return String::new();
         }
         let mut s: String = self
@@ -138,7 +138,7 @@ impl ShaderCode for Gradient<Vec2> {
 
 impl ShaderCode for Gradient<Vec4> {
     fn to_shader_code(&self) -> String {
-        if self.keys().len() == 0 {
+        if self.keys().is_empty() {
             return String::new();
         }
         let mut s: String = self
@@ -224,15 +224,15 @@ pub struct ForceFieldStd430 {
     pub conform_to_sphere: f32,
 }
 
-impl Into<ForceFieldStd430> for ForceFieldParam {
-    fn into(self) -> ForceFieldStd430 {
+impl From<ForceFieldParam> for ForceFieldStd430 {
+    fn from(param: ForceFieldParam) -> Self {
         ForceFieldStd430 {
-            position_or_direction: self.position,
-            max_radius: self.max_radius,
-            min_radius: self.min_radius,
-            mass: self.mass,
-            force_exponent: self.force_exponent,
-            conform_to_sphere: if self.conform_to_sphere { 1.0 } else { 0.0 },
+            position_or_direction: param.position,
+            max_radius: param.max_radius,
+            min_radius: param.min_radius,
+            mass: param.mass,
+            force_exponent: param.force_exponent,
+            conform_to_sphere: if param.conform_to_sphere { 1.0 } else { 0.0 },
         }
     }
 }
@@ -450,20 +450,11 @@ impl FromWorld for ParticlesRenderPipeline {
     }
 }
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Default, Clone, Hash, PartialEq, Eq)]
 pub struct ParticleUpdatePipelineKey {
     /// Code for the position initialization of newly emitted particles.
     position_code: String,
     force_field_code: String,
-}
-
-impl Default for ParticleUpdatePipelineKey {
-    fn default() -> Self {
-        ParticleUpdatePipelineKey {
-            position_code: Default::default(),
-            force_field_code: Default::default(),
-        }
-    }
 }
 
 impl SpecializedComputePipeline for ParticlesUpdatePipeline {
@@ -482,14 +473,12 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             source: ShaderSource::Wgsl(Cow::Owned(source)),
         });
 
-        let pipeline = render_device.create_compute_pipeline(&ComputePipelineDescriptor {
+        render_device.create_compute_pipeline(&ComputePipelineDescriptor {
             label: Some("particles_update_compute_pipeline"),
             layout: Some(&self.pipeline_layout),
             module: &shader_module,
             entry_point: "main",
-        });
-
-        pipeline
+        })
     }
 }
 
@@ -1087,7 +1076,7 @@ pub(crate) fn prepare_effects(
         .effects
         .iter()
         .map(|(entity, extracted_effect)| {
-            let slice = effects_meta.entity_map.get(&entity).unwrap().clone();
+            let slice = effects_meta.entity_map.get(entity).unwrap().clone();
             (slice, extracted_effect)
         })
         .collect::<Vec<_>>();
@@ -1264,9 +1253,9 @@ pub(crate) fn prepare_effects(
             handle: asset.clone_weak(),
             layout_flags,
             image_handle_id,
-            shader: shader.clone(),
-            position_code: position_code.clone(),
-            force_field_code: force_field_code.clone(),
+            shader,
+            position_code,
+            force_field_code,
             compute_pipeline: None,
         },));
         num_emitted += 1;
@@ -1813,7 +1802,7 @@ impl Node for ParticleUpdateNode {
 
                         // Setup compute pass
                         //compute_pass.set_pipeline(&effect_group.compute_pipeline);
-                        compute_pass.set_pipeline(&compute_pipeline);
+                        compute_pass.set_pipeline(compute_pipeline);
                         compute_pass.set_bind_group(
                             0,
                             effects_meta.sim_params_bind_group.as_ref().unwrap(),

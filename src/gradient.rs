@@ -216,8 +216,8 @@ impl<T: Lerp> Gradient<T> {
             if ikey >= len {
                 // post: sampling points located after the last key
                 let last_col = self.keys[len - 1].value;
-                for j in i..count {
-                    dst[j] = last_col;
+                for d in &mut dst[i..] {
+                    *d = last_col;
                 }
                 return;
             }
@@ -290,7 +290,7 @@ mod tests {
         assert_eq!(red, g.sample(0.5));
         let expected = red.lerp(blue, 1. / 3.);
         let actual = g.sample(0.6);
-        assert!(color_approx_eq(actual.into(), expected, 1e-5));
+        assert!(color_approx_eq(actual, expected, 1e-5));
         assert_eq!(blue, g.sample(0.8));
         assert_eq!(green, g.sample(0.801));
         assert_eq!(green, g.sample(1.0));
@@ -308,10 +308,10 @@ mod tests {
         let start = 0.;
         let inc = 1. / COUNT as f32;
         g.sample_by(start, inc, &mut data[..]);
-        for i in 0..COUNT {
+        for (i, &d) in data.iter().enumerate() {
             let ratio = start + inc * i as f32;
             let expected = g.sample(ratio);
-            assert!(color_approx_eq(expected, data[i], 1e-5));
+            assert!(color_approx_eq(expected, d, 1e-5));
         }
     }
 }

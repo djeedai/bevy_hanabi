@@ -46,8 +46,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut orbit_controller = OrbitCameraController::default();
-    orbit_controller.mouse_translate_sensitivity = Vec2::ZERO;
+    let orbit_controller = OrbitCameraController {
+        mouse_translate_sensitivity: Vec2::ZERO,
+        ..Default::default()
+    };
     commands.spawn_bundle(OrbitCameraBundle::new(
         orbit_controller,
         PerspectiveCameraBundle::default(),
