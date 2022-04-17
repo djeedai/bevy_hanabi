@@ -13,8 +13,9 @@ readme = "README.md"
 exclude = ["examples/*.gif", ".github"]
 
 [features]
-3d = []
+default = [ "2d", "3d" ]
 2d = []
+3d = []
 
 [dependencies]
 bytemuck = { version = "1.5", features = ["derive"] }
@@ -31,8 +32,7 @@ default-features = false
 features = [ "bevy_core_pipeline", "bevy_render" ]
 
 [package.metadata.docs.rs]
-# Document only 3D by default. There's no public API difference anyway.
-features = [ "3d" ]
+all-features = true
 
 #[dev-dependencies]
 #bevy-inspector-egui = "0.8"

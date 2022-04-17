@@ -1,12 +1,3 @@
-use rand::Rng;
-use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
-
-use crate::{asset::EffectAsset, render::Particle, ParticleEffect};
-
-#[cfg(feature = "2d")]
-use bevy::core_pipeline::Transparent2d as Transparent;
-#[cfg(feature = "3d")]
-use bevy::core_pipeline::Transparent3d as Transparent;
 use bevy::{
     asset::{AssetEvent, Assets, Handle, HandleUntyped},
     core::{cast_slice, FloatOrd, Time},
@@ -32,7 +23,16 @@ use bevy::{
     utils::{HashMap, HashSet},
 };
 use bytemuck::cast_slice_mut;
-use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+use rand::Rng;
+use std::{
+    borrow::Cow,
+    cmp::Ordering,
+    num::NonZeroU64,
+    ops::Range,
+    sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
+};
+
+use crate::{asset::EffectAsset, render::Particle, ParticleEffect};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSlice {

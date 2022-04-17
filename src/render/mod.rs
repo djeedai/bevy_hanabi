@@ -1,10 +1,5 @@
 #![allow(unused_imports)] // TEMP
 
-#[cfg(feature = "2d")]
-use bevy::core_pipeline::Transparent2d as Transparent;
-#[cfg(feature = "3d")]
-use bevy::core_pipeline::Transparent3d as Transparent;
-
 use bevy::{
     asset::{AssetEvent, Assets, Handle, HandleId, HandleUntyped},
     core::{cast_slice, FloatOrd, Pod, Time, Zeroable},
@@ -35,6 +30,11 @@ use rand::random;
 use rand::Rng;
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
+
+#[cfg(feature = "2d")]
+use bevy::core_pipeline::Transparent2d;
+#[cfg(feature = "3d")]
+use bevy::core_pipeline::Transparent3d;
 
 use crate::{
     asset::EffectAsset,
@@ -482,6 +482,13 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
     }
 }
 
+#[cfg(all(feature = "2d", feature = "3d"))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum PipelineMode {
+    Camera2d,
+    Camera3d,
+}
+
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct ParticleRenderPipelineKey {
     /// Render shader, with template applied, but not preprocessed yet.
@@ -490,6 +497,10 @@ pub struct ParticleRenderPipelineKey {
     /// Define a texture sampled to modulate the particle color.
     /// This key requires the presence of UV coordinates on the particle vertices.
     particle_texture: Option<Handle<Image>>,
+    /// For dual-mode configurations only, the actual mode of the current render
+    /// pipeline. Otherwise the mode is implicitly determined by the active feature.
+    #[cfg(all(feature = "2d", feature = "3d"))]
+    pipeline_mode: PipelineMode,
 }
 
 impl Default for ParticleRenderPipelineKey {
@@ -497,6 +508,8 @@ impl Default for ParticleRenderPipelineKey {
         ParticleRenderPipelineKey {
             shader: PARTICLES_RENDER_SHADER_HANDLE.typed::<Shader>(),
             particle_texture: None,
+            #[cfg(all(feature = "2d", feature = "3d"))]
+            pipeline_mode: PipelineMode::Camera3d,
         }
     }
 }
@@ -562,6 +575,33 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             // vertex_buffer_layout.array_stride += 8;
         }
 
+        #[cfg(all(feature = "2d", feature = "3d"))]
+        let depth_stencil = match key.pipeline_mode {
+            // Bevy's Transparent2d render phase doesn't support a depth-stencil buffer.
+            PipelineMode::Camera2d => None,
+            PipelineMode::Camera3d => Some(DepthStencilState {
+                format: TextureFormat::Depth32Float,
+                depth_write_enabled: false,
+                // Bevy uses reverse-Z, so Greater really means closer
+                depth_compare: CompareFunction::Greater,
+                stencil: StencilState::default(),
+                bias: DepthBiasState::default(),
+            }),
+        };
+
+        #[cfg(all(feature = "2d", not(feature = "3d")))]
+        let depth_stencil: Option<DepthStencilState> = None;
+
+        #[cfg(all(feature = "3d", not(feature = "2d")))]
+        let depth_stencil = Some(DepthStencilState {
+            format: TextureFormat::Depth32Float,
+            depth_write_enabled: false,
+            // Bevy uses reverse-Z, so Greater really means closer
+            depth_compare: CompareFunction::Greater,
+            stencil: StencilState::default(),
+            bias: DepthBiasState::default(),
+        });
+
         RenderPipelineDescriptor {
             vertex: VertexState {
                 shader: key.shader.clone(),
@@ -589,19 +629,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 topology: PrimitiveTopology::TriangleList,
                 strip_index_format: None,
             },
-            #[cfg(feature = "2d")]
-            // Removed because Bevy's Transparent2D render phase doesn't support
-            // a depth-stencil buffer.
-            depth_stencil: None,
-            #[cfg(feature = "3d")]
-            depth_stencil: Some(DepthStencilState {
-                format: TextureFormat::Depth32Float,
-                depth_write_enabled: false,
-                // Bevy uses reverse-Z, so Greater really means closer
-                depth_compare: CompareFunction::Greater,
-                stencil: StencilState::default(),
-                bias: DepthBiasState::default(),
-            }),
+            depth_stencil,
             multisample: MultisampleState {
                 count: 4, // TODO: Res<Msaa>.samples
                 mask: !0,
@@ -1273,11 +1301,6 @@ pub(crate) fn prepare_effects(
 }
 
 #[derive(Default)]
-pub struct ImageBindGroups {
-    values: HashMap<Handle<Image>, BindGroup>,
-}
-
-#[derive(Default)]
 pub struct EffectBindGroups {
     /// Bind groups for each group index for compute shader.
     update_particle_buffers: HashMap<u32, BindGroup>,
@@ -1287,11 +1310,14 @@ pub struct EffectBindGroups {
     update_indirect_buffers: HashMap<u32, BindGroup>,
     /// Bind groups for each indirect buffer associated with each particle buffer (render stage).
     render_indirect_buffers: HashMap<u32, BindGroup>,
+    ///
+    images: HashMap<Handle<Image>, BindGroup>,
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn queue_effects(
-    draw_functions: Res<DrawFunctions<Transparent>>,
+    #[cfg(feature = "2d")] draw_functions_2d: Res<DrawFunctions<Transparent2d>>,
+    #[cfg(feature = "3d")] draw_functions_3d: Res<DrawFunctions<Transparent3d>>,
     render_device: Res<RenderDevice>,
     mut effects_meta: ResMut<EffectsMeta>,
     view_uniforms: Res<ViewUniforms>,
@@ -1300,11 +1326,11 @@ pub(crate) fn queue_effects(
     render_pipeline: Res<ParticlesRenderPipeline>,
     mut specialized_render_pipelines: ResMut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
     mut render_pipeline_cache: ResMut<PipelineCache>,
-    mut image_bind_groups: ResMut<ImageBindGroups>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
     gpu_images: Res<RenderAssets<Image>>,
     mut effect_batches: Query<(Entity, &mut EffectBatch)>,
-    mut views: Query<&mut RenderPhase<Transparent>>,
+    #[cfg(feature = "2d")] mut views_2d: Query<&mut RenderPhase<Transparent2d>>,
+    #[cfg(feature = "3d")] mut views_3d: Query<&mut RenderPhase<Transparent3d>>,
     events: Res<EffectAssetEvents>,
 ) {
     trace!("queue_effects");
@@ -1313,8 +1339,8 @@ pub(crate) fn queue_effects(
     for event in &events.images {
         match event {
             AssetEvent::Created { .. } => None,
-            AssetEvent::Modified { handle } => image_bind_groups.values.remove(handle),
-            AssetEvent::Removed { handle } => image_bind_groups.values.remove(handle),
+            AssetEvent::Modified { handle } => effect_bind_groups.images.remove(handle),
+            AssetEvent::Removed { handle } => effect_bind_groups.images.remove(handle),
         };
     }
 
@@ -1475,104 +1501,212 @@ pub(crate) fn queue_effects(
         batch.compute_pipeline = Some(compute_pipeline.clone());
     }
 
-    // Loop over all cameras/views that need to render effects
-    let draw_effects_function = draw_functions.read().get_id::<DrawEffects>().unwrap();
-    for mut transparent_phase in views.iter_mut() {
-        trace!("Process new Transparent view");
-        // For each view, loop over all the effect batches to determine if the effect needs to be rendered
-        // for that view, and enqueue a view-dependent batch if so.
-        for (entity, batch) in effect_batches.iter() {
-            trace!(
-                "Process batch entity={:?} buffer_index={} spawner_base={} slice={:?}",
-                entity,
-                batch.buffer_index,
-                batch.spawner_base,
-                batch.slice
-            );
-            // Ensure the particle texture is available as a GPU resource and create a bind group for it
-            let particle_texture = if batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE) {
-                let image_handle = Handle::weak(batch.image_handle_id);
-                if image_bind_groups.values.get(&image_handle).is_none() {
-                    trace!(
-                        "Batch buffer #{} slice={:?} has missing GPU image bind group, creating...",
-                        batch.buffer_index,
-                        batch.slice
-                    );
-                    // If texture doesn't have a bind group yet from another instance of the same effect,
-                    // then try to create one now
-                    if let Some(gpu_image) = gpu_images.get(&image_handle) {
-                        let bind_group = render_device.create_bind_group(&BindGroupDescriptor {
-                            entries: &[
-                                BindGroupEntry {
-                                    binding: 0,
-                                    resource: BindingResource::TextureView(&gpu_image.texture_view),
-                                },
-                                BindGroupEntry {
-                                    binding: 1,
-                                    resource: BindingResource::Sampler(&gpu_image.sampler),
-                                },
-                            ],
-                            label: Some("particles_material_bind_group"),
-                            layout: &render_pipeline.material_layout,
-                        });
-                        image_bind_groups
-                            .values
-                            .insert(image_handle.clone(), bind_group);
-                        Some(image_handle)
+    // Loop over all 2D cameras/views that need to render effects
+    #[cfg(feature = "2d")]
+    {
+        let draw_effects_function_2d = draw_functions_2d.read().get_id::<DrawEffects>().unwrap();
+        for mut transparent_phase_2d in views_2d.iter_mut() {
+            trace!("Process new Transparent2d view");
+            // For each view, loop over all the effect batches to determine if the effect needs to be rendered
+            // for that view, and enqueue a view-dependent batch if so.
+            for (entity, batch) in effect_batches.iter() {
+                trace!(
+                    "Process batch entity={:?} buffer_index={} spawner_base={} slice={:?}",
+                    entity,
+                    batch.buffer_index,
+                    batch.spawner_base,
+                    batch.slice
+                );
+                // Ensure the particle texture is available as a GPU resource and create a bind group for it
+                let particle_texture = if batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE)
+                {
+                    let image_handle = Handle::weak(batch.image_handle_id);
+                    if effect_bind_groups.images.get(&image_handle).is_none() {
+                        trace!(
+                            "Batch buffer #{} slice={:?} has missing GPU image bind group, creating...",
+                            batch.buffer_index,
+                            batch.slice
+                        );
+                        // If texture doesn't have a bind group yet from another instance of the same effect,
+                        // then try to create one now
+                        if let Some(gpu_image) = gpu_images.get(&image_handle) {
+                            let bind_group =
+                                render_device.create_bind_group(&BindGroupDescriptor {
+                                    entries: &[
+                                        BindGroupEntry {
+                                            binding: 0,
+                                            resource: BindingResource::TextureView(
+                                                &gpu_image.texture_view,
+                                            ),
+                                        },
+                                        BindGroupEntry {
+                                            binding: 1,
+                                            resource: BindingResource::Sampler(&gpu_image.sampler),
+                                        },
+                                    ],
+                                    label: Some("particles_material_bind_group"),
+                                    layout: &render_pipeline.material_layout,
+                                });
+                            effect_bind_groups
+                                .images
+                                .insert(image_handle.clone(), bind_group);
+                            Some(image_handle)
+                        } else {
+                            // Texture is not ready; skip for now...
+                            trace!("GPU image not yet available; skipping batch for now.");
+                            None
+                        }
                     } else {
-                        // Texture is not ready; skip for now...
-                        trace!("GPU image not yet available; skipping batch for now.");
-                        None
+                        // Bind group already exists, meaning texture is ready
+                        Some(image_handle)
                     }
                 } else {
-                    // Bind group already exists, meaning texture is ready
-                    Some(image_handle)
-                }
-            } else {
-                // Batch doesn't use particle texture
-                None
-            };
+                    // Batch doesn't use particle texture
+                    None
+                };
 
-            // Specialize the render pipeline based on the effect batch
-            trace!(
-                "Specializing render pipeline: shader={:?} particle_texture={:?}",
-                batch.shader,
-                particle_texture
-            );
-            let render_pipeline_id = specialized_render_pipelines.specialize(
-                &mut render_pipeline_cache,
-                &render_pipeline,
-                ParticleRenderPipelineKey {
-                    particle_texture,
-                    shader: batch.shader.clone(),
-                },
-            );
-            trace!("Render pipeline specialized: id={:?}", render_pipeline_id);
+                // Specialize the render pipeline based on the effect batch
+                trace!(
+                    "Specializing render pipeline: shader={:?} particle_texture={:?}",
+                    batch.shader,
+                    particle_texture
+                );
+                let render_pipeline_id = specialized_render_pipelines.specialize(
+                    &mut render_pipeline_cache,
+                    &render_pipeline,
+                    ParticleRenderPipelineKey {
+                        particle_texture,
+                        shader: batch.shader.clone(),
+                        #[cfg(feature = "3d")]
+                        pipeline_mode: PipelineMode::Camera2d,
+                    },
+                );
+                trace!("Render pipeline specialized: id={:?}", render_pipeline_id);
 
-            // Add a draw pass for the effect batch
-            trace!("Add Transparent for batch on entity {:?}: buffer_index={} spawner_base={} slice={:?} handle={:?}", entity, batch.buffer_index, batch.spawner_base, batch.slice, batch.handle);
-            transparent_phase.add(Transparent {
-                draw_function: draw_effects_function,
-                pipeline: render_pipeline_id,
-                entity,
-                #[cfg(feature = "2d")]
-                sort_key: FloatOrd(0.0),
-                #[cfg(feature = "2d")]
-                batch_range: None,
-                #[cfg(feature = "3d")]
-                distance: 0.0, // TODO ??????
-            });
+                // Add a draw pass for the effect batch
+                trace!("Add Transparent for batch on entity {:?}: buffer_index={} spawner_base={} slice={:?} handle={:?}", entity, batch.buffer_index, batch.spawner_base, batch.slice, batch.handle);
+                transparent_phase_2d.add(Transparent2d {
+                    draw_function: draw_effects_function_2d,
+                    pipeline: render_pipeline_id,
+                    entity,
+                    sort_key: FloatOrd(0.0),
+                    batch_range: None,
+                });
+            }
+        }
+    }
+
+    // Loop over all 3D cameras/views that need to render effects
+    #[cfg(feature = "3d")]
+    {
+        let draw_effects_function_3d = draw_functions_3d.read().get_id::<DrawEffects>().unwrap();
+        for mut transparent_phase_3d in views_3d.iter_mut() {
+            trace!("Process new Transparent3d view");
+            // For each view, loop over all the effect batches to determine if the effect needs to be rendered
+            // for that view, and enqueue a view-dependent batch if so.
+            for (entity, batch) in effect_batches.iter() {
+                trace!(
+                    "Process batch entity={:?} buffer_index={} spawner_base={} slice={:?}",
+                    entity,
+                    batch.buffer_index,
+                    batch.spawner_base,
+                    batch.slice
+                );
+                // Ensure the particle texture is available as a GPU resource and create a bind group for it
+                let particle_texture = if batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE)
+                {
+                    let image_handle = Handle::weak(batch.image_handle_id);
+                    if effect_bind_groups.images.get(&image_handle).is_none() {
+                        trace!(
+                            "Batch buffer #{} slice={:?} has missing GPU image bind group, creating...",
+                            batch.buffer_index,
+                            batch.slice
+                        );
+                        // If texture doesn't have a bind group yet from another instance of the same effect,
+                        // then try to create one now
+                        if let Some(gpu_image) = gpu_images.get(&image_handle) {
+                            let bind_group =
+                                render_device.create_bind_group(&BindGroupDescriptor {
+                                    entries: &[
+                                        BindGroupEntry {
+                                            binding: 0,
+                                            resource: BindingResource::TextureView(
+                                                &gpu_image.texture_view,
+                                            ),
+                                        },
+                                        BindGroupEntry {
+                                            binding: 1,
+                                            resource: BindingResource::Sampler(&gpu_image.sampler),
+                                        },
+                                    ],
+                                    label: Some("particles_material_bind_group"),
+                                    layout: &render_pipeline.material_layout,
+                                });
+                            effect_bind_groups
+                                .images
+                                .insert(image_handle.clone(), bind_group);
+                            Some(image_handle)
+                        } else {
+                            // Texture is not ready; skip for now...
+                            trace!("GPU image not yet available; skipping batch for now.");
+                            None
+                        }
+                    } else {
+                        // Bind group already exists, meaning texture is ready
+                        Some(image_handle)
+                    }
+                } else {
+                    // Batch doesn't use particle texture
+                    None
+                };
+
+                // Specialize the render pipeline based on the effect batch
+                trace!(
+                    "Specializing render pipeline: shader={:?} particle_texture={:?}",
+                    batch.shader,
+                    particle_texture
+                );
+                let render_pipeline_id = specialized_render_pipelines.specialize(
+                    &mut render_pipeline_cache,
+                    &render_pipeline,
+                    ParticleRenderPipelineKey {
+                        particle_texture,
+                        shader: batch.shader.clone(),
+                        #[cfg(feature = "2d")]
+                        pipeline_mode: PipelineMode::Camera3d,
+                    },
+                );
+                trace!("Render pipeline specialized: id={:?}", render_pipeline_id);
+
+                // Add a draw pass for the effect batch
+                trace!("Add Transparent for batch on entity {:?}: buffer_index={} spawner_base={} slice={:?} handle={:?}", entity, batch.buffer_index, batch.spawner_base, batch.slice, batch.handle);
+                transparent_phase_3d.add(Transparent3d {
+                    draw_function: draw_effects_function_3d,
+                    pipeline: render_pipeline_id,
+                    entity,
+                    distance: 0.0, // TODO ??????
+                });
+            }
         }
     }
 }
 
+/// Component to hold all the entities with a [`ExtractedEffect`] component on them
+/// that need to be updated this frame with a compute pass. This is view-independent
+/// because the update phase itself is also view-independent (effects like camera
+/// facing are applied in the render phase, which runs once per view).
+#[derive(Component)]
+pub struct ExtractedEffectEntities {
+    pub entities: Vec<Entity>,
+}
+
 /// Draw function for rendering all active effects for the current frame.
 ///
-/// Effects are rendered in the [`Transparent`] phase of the main 2D pass.
+/// Effects are rendered in the [`Transparent2d`] phase of the main 2D pass,
+/// and the [`Transparent3d`] phase of the main 3D pass.
 pub struct DrawEffects {
     params: SystemState<(
         SRes<EffectsMeta>,
-        SRes<ImageBindGroups>,
         SRes<EffectBindGroups>,
         SRes<PipelineCache>,
         SQuery<Read<ViewUniformOffset>>,
@@ -1588,35 +1722,20 @@ impl DrawEffects {
     }
 }
 
-/// Component to hold all the entities with a [`ExtractedEffect`] component on them
-/// that need to be updated this frame with a compute pass. This is view-independent
-/// because the update phase itself is also view-independent (effects like camera
-/// facing are applied in the render phase, which runs once per view).
-#[derive(Component)]
-pub struct ExtractedEffectEntities {
-    pub entities: Vec<Entity>,
-}
-
-impl Draw<Transparent> for DrawEffects {
+#[cfg(feature = "2d")]
+impl Draw<Transparent2d> for DrawEffects {
     fn draw<'w>(
         &mut self,
         world: &'w World,
         pass: &mut TrackedRenderPass<'w>,
         view: Entity,
-        item: &Transparent,
+        item: &Transparent2d,
     ) {
-        trace!("Draw<Transparent>: view={:?}", view);
-        let (
-            effects_meta,
-            image_bind_groups,
-            effect_bind_groups,
-            specialized_render_pipelines,
-            views,
-            effects,
-        ) = self.params.get(world);
+        trace!("Draw<Transparent2d>: view={:?}", view);
+        let (effects_meta, effect_bind_groups, specialized_render_pipelines, views, effects) =
+            self.params.get(world);
         let view_uniform = views.get(view).unwrap();
         let effects_meta = effects_meta.into_inner();
-        let image_bind_groups = image_bind_groups.into_inner();
         let effect_bind_groups = effect_bind_groups.into_inner();
         let effect_batch = effects.get(item.entity).unwrap();
         if let Some(pipeline) = specialized_render_pipelines
@@ -1654,7 +1773,85 @@ impl Draw<Transparent> for DrawEffects {
                 .contains(LayoutFlags::PARTICLE_TEXTURE)
             {
                 let image_handle = Handle::weak(effect_batch.image_handle_id);
-                if let Some(bind_group) = image_bind_groups.values.get(&image_handle) {
+                if let Some(bind_group) = effect_bind_groups.images.get(&image_handle) {
+                    pass.set_bind_group(2, bind_group, &[]);
+                } else {
+                    // Texture not ready; skip this drawing for now
+                    trace!(
+                        "Particle texture bind group not available for batch buf={} slice={:?}. Skipping draw call.",
+                        effect_batch.buffer_index,
+                        effect_batch.slice
+                    );
+                    return; //continue;
+                }
+            }
+
+            let vertex_count = effects_meta.vertices.len() as u32;
+            let particle_count = effect_batch.slice.end - effect_batch.slice.start;
+
+            trace!(
+                "Draw {} particles with {} vertices per particle for batch from buffer #{}.",
+                particle_count,
+                vertex_count,
+                effect_batch.buffer_index
+            );
+            pass.draw(0..vertex_count, 0..particle_count);
+        }
+    }
+}
+
+#[cfg(feature = "3d")]
+impl Draw<Transparent3d> for DrawEffects {
+    fn draw<'w>(
+        &mut self,
+        world: &'w World,
+        pass: &mut TrackedRenderPass<'w>,
+        view: Entity,
+        item: &Transparent3d,
+    ) {
+        trace!("Draw<Transparent3d>: view={:?}", view);
+        let (effects_meta, effect_bind_groups, specialized_render_pipelines, views, effects) =
+            self.params.get(world);
+        let view_uniform = views.get(view).unwrap();
+        let effects_meta = effects_meta.into_inner();
+        let effect_bind_groups = effect_bind_groups.into_inner();
+        let effect_batch = effects.get(item.entity).unwrap();
+        if let Some(pipeline) = specialized_render_pipelines
+            .into_inner()
+            .get_render_pipeline(item.pipeline)
+        {
+            trace!("render pass");
+            //let effect_group = &effects_meta.effect_cache.buffers()[0]; // TODO
+
+            pass.set_render_pipeline(pipeline);
+
+            // Vertex buffer containing the particle model to draw. Generally a quad.
+            pass.set_vertex_buffer(0, effects_meta.vertices.buffer().unwrap().slice(..));
+
+            // View properties (camera matrix, etc.)
+            pass.set_bind_group(
+                0,
+                effects_meta.view_bind_group.as_ref().unwrap(),
+                &[view_uniform.offset],
+            );
+
+            // Particles buffer
+            pass.set_bind_group(
+                1,
+                effect_bind_groups
+                    .render_particle_buffers
+                    .get(&effect_batch.buffer_index)
+                    .unwrap(),
+                &[],
+            );
+
+            // Particle texture
+            if effect_batch
+                .layout_flags
+                .contains(LayoutFlags::PARTICLE_TEXTURE)
+            {
+                let image_handle = Handle::weak(effect_batch.image_handle_id);
+                if let Some(bind_group) = effect_bind_groups.images.get(&image_handle) {
                     pass.set_bind_group(2, bind_group, &[]);
                 } else {
                     // Texture not ready; skip this drawing for now

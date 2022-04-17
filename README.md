@@ -17,7 +17,7 @@ The Hanabi particle system is a modern GPU-based particle system for the Bevy ga
 
 ## Usage
 
-The 🎆 Bevy Hanabi plugin is compatible with Bevy >= v0.6; see the list of compatible versions below.
+The 🎆 Bevy Hanabi plugin is compatible with Bevy >= v0.6; see [Compatible Bevy versions](#compatible-bevy-versions).
 
 ### Add the dependency
 
@@ -25,10 +25,10 @@ Add the `bevy_hanabi` dependency to `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_hanabi = { version = "0.2", features = ["3d"] }
+bevy_hanabi = "0.2"
 ```
 
-If you're using a 2D camera, add the `2d` feature instead.
+See also [Features](#features) below for the list of supported features.
 
 ### System setup
 
@@ -227,19 +227,38 @@ cargo run --example random --features="bevy/bevy_winit bevy/bevy_pbr 3d"
   - [ ] Face camera
   - [ ] Face constant direction
 - Render
-  - [x] Quad (sprite)
+  - [x] Quad
     - [x] Textured
   - [ ] Generic 3D mesh
   - [ ] Deformation
     - [ ] Velocity (trail)
-  - [x] 3D camera support
-  - [x] 2D camera support
+  - [x] Camera support
+    - [x] 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.7.0/bevy/render/camera/struct.Camera2d.html)) only
+    - [x] 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.7.0/bevy/render/camera/struct.Camera3d.html)) only
+    - [x] Simultaneous dual 2D/3D cameras
 - Debug
   - [x] GPU debug labels / groups
   - [ ] Debug visualization
     - [ ] Position magnitude
     - [ ] Velocity magnitude
     - [ ] Age / lifetime
+
+## Features
+
+🎆 Bevy Hanabi supports the following features:
+
+| Feature | Default | Description |
+|---|:-:|---|
+| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.7.0/bevy/render/camera/struct.Camera2d.html)) |
+| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.7.0/bevy/render/camera/struct.Camera3d.html)) |
+
+For optimization purpose, users of a single type of camera can disable the other type by skipping default features in their `Cargo.toml`. For example to use only the 3D mode:
+
+```toml
+bevy_hanabi = { version = "0.2", default-features = false, features = [ "3d" ] }
+```
+
+There is currently no support for `CameraUi`. If you feel you need this feature, please [open a GitHub issue](https://github.com/djeedai/bevy_hanabi/issues/new) explaining your use case and why the `Camera2d` and `Camera3d` options cannot be used.
 
 ## Compatible Bevy versions
 

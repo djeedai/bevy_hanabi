@@ -13,7 +13,7 @@ jobs:
   build:
     strategy:
       matrix:
-        dimensions: [2d, 3d]
+        dimensions: [2d, 3d, all]
         toolchain: [stable, nightly]
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -46,15 +46,21 @@ jobs:
           sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
         if: runner.os == 'linux'
       - name: Build & run tests
-        run: cargo test --features ${{ matrix.dimensions }}
+        run: cargo test --no-default-features --features ${{ matrix.dimensions }}
         env:
           CARGO_INCREMENTAL: 0
+        if: matrix.dimensions != 'all'
+      - name: Build & run tests
+        run: cargo test --all-features
+        env:
+          CARGO_INCREMENTAL: 0
+        if: matrix.dimensions == 'all'
 
   coverage:
     name: Coverage
     strategy:
       matrix:
-        dimensions: [2d, 3d]
+        dimensions: [2d, 3d, all]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -91,8 +97,14 @@ jobs:
           RUST_BACKTRACE=1 cargo install --version 0.19.1 cargo-tarpaulin
       - name: Generate code coverage
         run: |
-          RUST_BACKTRACE=1 cargo tarpaulin --verbose --timeout 120 --out Lcov --workspace --features ${{ matrix.dimensions }}
+          RUST_BACKTRACE=1 cargo tarpaulin --verbose --timeout 120 --out Lcov --workspace --no-default-features --features ${{ matrix.dimensions }}
           ls -la
+        if: matrix.dimensions != 'all'
+      - name: Generate code coverage
+        run: |
+          RUST_BACKTRACE=1 cargo tarpaulin --verbose --timeout 120 --out Lcov --workspace --all--features
+          ls -la
+        if: matrix.dimensions == 'all'
       - name: Upload code coverage
         uses: coverallsapp/github-action@master
         with:
