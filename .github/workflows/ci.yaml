@@ -58,9 +58,6 @@ jobs:
 
   coverage:
     name: Coverage
-    strategy:
-      matrix:
-        dimensions: [2d, 3d, all]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -77,7 +74,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-build-${{ matrix.dimensions }}-stable-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-build-all-stable-${{ hashFiles('**/Cargo.toml') }}
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
@@ -97,14 +94,8 @@ jobs:
           RUST_BACKTRACE=1 cargo install --version 0.19.1 cargo-tarpaulin
       - name: Generate code coverage
         run: |
-          RUST_BACKTRACE=1 cargo tarpaulin --verbose --timeout 120 --out Lcov --workspace --no-default-features --features ${{ matrix.dimensions }}
+          RUST_BACKTRACE=1 cargo tarpaulin --verbose --timeout 120 --out Lcov --workspace --all-features
           ls -la
-        if: matrix.dimensions != 'all'
-      - name: Generate code coverage
-        run: |
-          RUST_BACKTRACE=1 cargo tarpaulin --verbose --timeout 120 --out Lcov --workspace --all--features
-          ls -la
-        if: matrix.dimensions == 'all'
       - name: Upload code coverage
         uses: coverallsapp/github-action@master
         with:
