@@ -1,7 +1,7 @@
 #[cfg(feature = "2d")]
-use bevy::core_pipeline::Transparent2d as Transparent;
+use bevy::core_pipeline::Transparent2d;
 #[cfg(feature = "3d")]
-use bevy::core_pipeline::Transparent3d as Transparent;
+use bevy::core_pipeline::Transparent3d;
 use bevy::{
     prelude::*,
     render::{
@@ -16,8 +16,8 @@ use crate::{
     render::{
         extract_effect_events, extract_effects, prepare_effects, queue_effects, ComputeCache,
         DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems, EffectsMeta,
-        ExtractedEffects, ImageBindGroups, ParticleUpdateNode, ParticlesRenderPipeline,
-        ParticlesUpdatePipeline, PipelineRegistry, SimParams, PARTICLES_RENDER_SHADER_HANDLE,
+        ExtractedEffects, ParticleUpdateNode, ParticlesRenderPipeline, ParticlesUpdatePipeline,
+        PipelineRegistry, SimParams, PARTICLES_RENDER_SHADER_HANDLE,
         PARTICLES_UPDATE_SHADER_HANDLE,
     },
     spawn::{self, Random},
@@ -63,7 +63,6 @@ impl Plugin for HanabiPlugin {
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .insert_resource(effects_meta)
-            .init_resource::<ImageBindGroups>()
             .init_resource::<EffectBindGroups>()
             .init_resource::<ParticlesUpdatePipeline>()
             .init_resource::<ComputeCache<ParticlesUpdatePipeline>>()
@@ -92,11 +91,22 @@ impl Plugin for HanabiPlugin {
         // Register the draw function for drawing the particles. This will be called during
         // the main 2D/3D pass, at the Transparent2d/3d phase, after the opaque objects have been
         // rendered (or, rather, commands for those have been recorded).
+        #[cfg(feature = "2d")]
         {
             let draw_particles = DrawEffects::new(&mut render_app.world);
             render_app
                 .world
-                .get_resource::<DrawFunctions<Transparent>>()
+                .get_resource::<DrawFunctions<Transparent2d>>()
+                .unwrap()
+                .write()
+                .add(draw_particles);
+        }
+        #[cfg(feature = "3d")]
+        {
+            let draw_particles = DrawEffects::new(&mut render_app.world);
+            render_app
+                .world
+                .get_resource::<DrawFunctions<Transparent3d>>()
                 .unwrap()
                 .write()
                 .add(draw_particles);
@@ -107,28 +117,57 @@ impl Plugin for HanabiPlugin {
         // executed before the 2D/3D main pass starts, which consumes the result of the updated
         // particles to render them.
         #[cfg(feature = "2d")]
-        use bevy::core_pipeline::draw_2d_graph as bevy_draw_graph;
+        use bevy::core_pipeline::draw_2d_graph;
         #[cfg(feature = "3d")]
-        use bevy::core_pipeline::draw_3d_graph as bevy_draw_graph;
+        use bevy::core_pipeline::draw_3d_graph;
 
-        let update_node = ParticleUpdateNode::new(&mut render_app.world);
+        #[cfg(feature = "2d")]
+        let update_node_2d = ParticleUpdateNode::new(&mut render_app.world);
+
+        #[cfg(feature = "3d")]
+        let update_node_3d = ParticleUpdateNode::new(&mut render_app.world);
+
         let mut graph = render_app.world.get_resource_mut::<RenderGraph>().unwrap();
-        let draw_graph = graph.get_sub_graph_mut(bevy_draw_graph::NAME).unwrap();
-        draw_graph.add_node(draw_graph::node::PARTICLE_UPDATE_PASS, update_node);
-        draw_graph
-            .add_node_edge(
-                draw_graph::node::PARTICLE_UPDATE_PASS,
-                bevy_draw_graph::node::MAIN_PASS,
-            )
-            .unwrap();
-        draw_graph
-            .add_slot_edge(
-                draw_graph.input_node().unwrap().id,
-                bevy_draw_graph::input::VIEW_ENTITY,
-                draw_graph::node::PARTICLE_UPDATE_PASS,
-                ParticleUpdateNode::IN_VIEW,
-            )
-            .unwrap();
+
+        #[cfg(feature = "2d")]
+        {
+            let draw_graph = graph.get_sub_graph_mut(draw_2d_graph::NAME).unwrap();
+            draw_graph.add_node(draw_graph::node::PARTICLE_UPDATE_PASS, update_node_2d);
+            draw_graph
+                .add_node_edge(
+                    draw_graph::node::PARTICLE_UPDATE_PASS,
+                    draw_2d_graph::node::MAIN_PASS,
+                )
+                .unwrap();
+            draw_graph
+                .add_slot_edge(
+                    draw_graph.input_node().unwrap().id,
+                    draw_2d_graph::input::VIEW_ENTITY,
+                    draw_graph::node::PARTICLE_UPDATE_PASS,
+                    ParticleUpdateNode::IN_VIEW,
+                )
+                .unwrap();
+        }
+
+        #[cfg(feature = "3d")]
+        {
+            let draw_graph = graph.get_sub_graph_mut(draw_3d_graph::NAME).unwrap();
+            draw_graph.add_node(draw_graph::node::PARTICLE_UPDATE_PASS, update_node_3d);
+            draw_graph
+                .add_node_edge(
+                    draw_graph::node::PARTICLE_UPDATE_PASS,
+                    draw_3d_graph::node::MAIN_PASS,
+                )
+                .unwrap();
+            draw_graph
+                .add_slot_edge(
+                    draw_graph.input_node().unwrap().id,
+                    draw_3d_graph::input::VIEW_ENTITY,
+                    draw_graph::node::PARTICLE_UPDATE_PASS,
+                    ParticleUpdateNode::IN_VIEW,
+                )
+                .unwrap();
+        }
     }
 }
 
