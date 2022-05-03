@@ -1,6 +1,10 @@
 use bevy::{
     prelude::*,
-    render::{mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings},
+    render::{
+        mesh::shape::Cube,
+        render_resource::WgpuFeatures,
+        settings::{WgpuLimits, WgpuSettings},
+    },
 };
 //use bevy_inspector_egui::WorldInspectorPlugin;
 
@@ -11,6 +15,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     options
         .features
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
+
+    // Optional; test that a stronger constraint is handled correctly.
+    // On macOS the alignment is commonly 256 bytes, whereas on Desktop GPUs
+    // it can be much smaller, like 16 bytes only. Force 256 bytes here for
+    // the sake of exercising a bit that codepath, and as an example of how
+    // to force a particular limit.
+    let limits = WgpuLimits {
+        min_storage_buffer_offset_alignment: 256,
+        ..Default::default()
+    };
+    options.constrained_limits = Some(limits);
+
     // options
     //     .features
     //     .set(WgpuFeatures::MAPPABLE_PRIMARY_BUFFERS, false);

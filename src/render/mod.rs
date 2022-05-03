@@ -43,9 +43,12 @@ use crate::{
     Gradient, ParticleEffect, ToWgslString,
 };
 
+mod aligned_buffer_vec;
 mod compute_cache;
 mod effect_cache;
 mod pipeline_template;
+
+use aligned_buffer_vec::AlignedBufferVec;
 
 pub use compute_cache::{ComputeCache, SpecializedComputePipeline};
 pub use effect_cache::{EffectBuffer, EffectCache, EffectCacheId, EffectSlice};
@@ -279,8 +282,9 @@ impl FromWorld for ParticlesUpdatePipeline {
 
         let limits = render_device.limits();
         bevy::log::info!(
-            "GPU limits:\n- max_compute_invocations_per_workgroup={}\n- max_compute_workgroup_size_x={}\n- max_compute_workgroup_size_y={}\n- max_compute_workgroup_size_z={}\n- max_compute_workgroups_per_dimension={}",
-            limits.max_compute_invocations_per_workgroup, limits.max_compute_workgroup_size_x, limits.max_compute_workgroup_size_y, limits.max_compute_workgroup_size_z, limits.max_compute_workgroups_per_dimension
+            "GPU limits:\n- max_compute_invocations_per_workgroup={}\n- max_compute_workgroup_size_x={}\n- max_compute_workgroup_size_y={}\n- max_compute_workgroup_size_z={}\n- max_compute_workgroups_per_dimension={}\n- min_storage_buffer_offset_alignment={}",
+            limits.max_compute_invocations_per_workgroup, limits.max_compute_workgroup_size_x, limits.max_compute_workgroup_size_y, limits.max_compute_workgroup_size_z,
+            limits.max_compute_workgroups_per_dimension, limits.min_storage_buffer_offset_alignment
         );
 
         trace!(
@@ -939,7 +943,7 @@ pub(crate) struct EffectsMeta {
     /// Bind group for the indirect buffer.
     indirect_buffer_bind_group: Option<BindGroup>,
     sim_params_uniforms: UniformVec<SimParamsUniform>,
-    spawner_buffer: BufferVec<SpawnerParams>,
+    spawner_buffer: AlignedBufferVec<SpawnerParams>,
     /// Unscaled vertices of the mesh of a single particle, generally a quad.
     /// The mesh is later scaled during rendering by the "particle size".
     // FIXME - This is a per-effect thing, unless we merge all meshes into a single buffer (makes
@@ -959,6 +963,8 @@ impl EffectsMeta {
             });
         }
 
+        let item_align = device.limits().min_storage_buffer_offset_alignment as usize;
+
         Self {
             entity_map: HashMap::default(),
             effect_cache: EffectCache::new(device),
@@ -968,7 +974,11 @@ impl EffectsMeta {
             spawner_bind_group: None,
             indirect_buffer_bind_group: None,
             sim_params_uniforms: UniformVec::default(),
-            spawner_buffer: BufferVec::new(BufferUsages::STORAGE),
+            spawner_buffer: AlignedBufferVec::new(
+                BufferUsages::STORAGE,
+                item_align,
+                Some("spawner_buffer".to_string()),
+            ),
             vertices,
         }
     }
@@ -1380,6 +1390,10 @@ pub(crate) fn queue_effects(
         }));
 
     // Create the bind group for the spawner parameters
+    trace!(
+        "SpawnerParams::std430_size_static() = {}",
+        SpawnerParams::std430_size_static()
+    );
     effects_meta.spawner_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
         entries: &[BindGroupEntry {
             binding: 0,
@@ -1990,6 +2004,9 @@ impl Node for ParticleUpdateNode {
                         let spawner_base = batch.spawner_base;
                         let buffer_offset = batch.slice.start;
 
+                        let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
+                        assert!(spawner_buffer_aligned >= SpawnerParams::std430_size_static());
+
                         trace!(
                             "record commands for pipeline of effect {:?} ({} items / {}B/item = {} workgroups) spawner_base={} buffer_offset={}...",
                             batch.handle,
@@ -2012,7 +2029,7 @@ impl Node for ParticleUpdateNode {
                         compute_pass.set_bind_group(
                             2,
                             effects_meta.spawner_bind_group.as_ref().unwrap(),
-                            &[spawner_base * SpawnerParams::std430_size_static() as u32],
+                            &[spawner_base * spawner_buffer_aligned as u32],
                         );
                         compute_pass.set_bind_group(3, indirect_bind_group, &[buffer_offset]);
                         compute_pass.dispatch(workgroup_count, 1, 1);
