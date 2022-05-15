@@ -96,7 +96,7 @@ pub use gradient::{Gradient, GradientKey};
 pub use modifiers::{
     AccelModifier, ColorOverLifetimeModifier, ForceFieldModifier, ForceFieldParam, InitModifier,
     ParticleTextureModifier, PositionCircleModifier, PositionSphereModifier, RenderModifier,
-    ShapeDimension, SizeOverLifetimeModifier, UpdateModifier, FFNUM,
+    ShapeDimension, SizeOverLifetimeModifier, SpeedVector, UpdateModifier, FFNUM,
 };
 pub use plugin::HanabiPlugin;
 pub use render::EffectCacheId;

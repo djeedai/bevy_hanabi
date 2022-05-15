@@ -42,6 +42,25 @@ impl Default for ShapeDimension {
     }
 }
 
+/// The direction and intensity of the speed vector for particles
+#[derive(Clone, Copy, PartialEq)]
+pub enum SpeedVector {
+    /// The particle will get ejected along the face normal
+    Normal(Value<f32>),
+    /// The particle will get ejected away from the shape's center
+    Radial(Value<f32>),
+    /// The particle will get ejected in the given (x, y, z) direction (local space)
+    Local(Value<f32>, Value<f32>, Value<f32>),
+    /// The particle will get ejected in the given (x, y, z) direction (world space)
+    World(Value<f32>, Value<f32>, Value<f32>),
+}
+
+impl Default for SpeedVector {
+    fn default() -> Self {
+        Self::Radial(Value::Single(1.0))
+    }
+}
+
 /// An initialization modifier spawning particles on a circle/disc.
 #[derive(Clone, Copy)]
 pub struct PositionCircleModifier {

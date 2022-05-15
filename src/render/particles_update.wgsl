@@ -104,6 +104,27 @@ fn rand4(input: u32) -> vec4<f32> {
     return vec4<f32>(x, y, z, w);
 }
 
+// From https://www.geeks3d.com/20141201/how-to-rotate-a-vertex-by-a-quaternion-in-glsl/
+fn quat_conj(q: vec4<f32>) -> vec4<f32> {
+    return vec4<f32>(-q.x, -q.y, -q.z, q.w);
+}
+
+fn quat_mult(q1: vec4<f32>, q2: vec4<f32>) -> vec4<f32> {
+    var qr: vec4<f32>;
+    qr.x = (q1.w * q2.x) + (q1.x * q2.w) + (q1.y * q2.z) - (q1.z * q2.y);
+    qr.y = (q1.w * q2.y) - (q1.x * q2.z) + (q1.y * q2.w) + (q1.z * q2.x);
+    qr.z = (q1.w * q2.z) + (q1.x * q2.y) - (q1.y * q2.x) + (q1.z * q2.w);
+    qr.w = (q1.w * q2.w) - (q1.x * q2.x) - (q1.y * q2.y) - (q1.z * q2.z);
+    return qr;
+}
+
+fn rotate_point(position: vec3<f32>, q: vec4<f32>) -> vec3<f32> {
+    var q_conj = quat_conj(q);
+    var q_pos = vec4<f32>(position.x, position.y, position.z, 0.);
+    q_pos = quat_mult(quat_mult(q, q_pos), q_conj);
+    return q_pos.xyz;
+}
+
 struct PosVel {
     pos: vec3<f32>;
     vel: vec3<f32>;
