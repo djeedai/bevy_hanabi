@@ -72,6 +72,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
             radius: 2.,
             dimension: ShapeDimension::Surface,
             speed: 6.0.into(),
+            ..default()
         })
         // Every frame, add a gravity-like acceleration downward
         .update(AccelModifier {
