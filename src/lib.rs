@@ -57,8 +57,9 @@
 //!     .init(PositionSphereModifier {
 //!         center: Vec3::ZERO,
 //!         radius: 2.,
+//!         rotation: Quat::IDENTITY,
 //!         dimension: ShapeDimension::Surface,
-//!         speed: 6.0.into(),
+//!         speed: SpeedVector::Radial(6.0.into()),
 //!     })
 //!     // Every frame, add a gravity-like acceleration downward
 //!     .update(AccelModifier {

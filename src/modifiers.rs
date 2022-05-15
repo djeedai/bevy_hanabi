@@ -156,8 +156,12 @@ pub struct PositionSphereModifier {
     pub center: Vec3,
     /// The sphere radius.
     pub radius: f32,
-    /// The radial speed of the particles on spawn.
-    pub speed: Value<f32>,
+    /// The sphere alignment relative to the world.
+    /// Used for SpeedVector::Local and SpeedVector::World.
+    pub rotation: Quat,
+    /// The speed of the particles on spawn.
+    /// In this case, SpeedVector::Radial has the same effect than SpeedVector::Normal.
+    pub speed: SpeedVector,
     /// The shape dimension to spawn from.
     pub dimension: ShapeDimension,
 }
@@ -179,15 +183,41 @@ impl InitModifier for PositionSphereModifier {
                 )
             }
         };
+
+        let speed_code = match self.speed {
+            SpeedVector::Normal(speed) | SpeedVector::Radial(speed) => {
+                format!("ret.vel = dir * ({});", speed.to_wgsl_string())
+            }
+            SpeedVector::Local(speed_x, speed_y, speed_z) => {
+                let rotation: Vec4 = self.rotation.into();
+                format!(
+                    "
+    let rot = {};
+    ret.vel = rotate_point(vec3<f32>({}, {}, {}), rot);
+                        ",
+                    rotation.to_wgsl_string(),
+                    speed_x.to_wgsl_string(),
+                    speed_y.to_wgsl_string(),
+                    speed_z.to_wgsl_string()
+                )
+            }
+            SpeedVector::World(speed_x, speed_y, speed_z) => {
+                format!(
+                    "ret.vel = vec3<f32>({}, {}, {});",
+                    speed_x.to_wgsl_string(),
+                    speed_y.to_wgsl_string(),
+                    speed_z.to_wgsl_string()
+                )
+            }
+        };
+
         init_layout.position_code = format!(
             r##"
     // >>> [PositionSphereModifier]
     // Sphere center
-    let c = {0};
+    let c = {};
     // Sphere radius
-    {1}
-    // Radial speed
-    let speed = {2};
+    {}
     // Spawn randomly along the sphere surface using Archimedes's theorem
     var theta = rand() * tau;
     var z = rand() * 2. - 1.;
@@ -197,13 +227,13 @@ impl InitModifier for PositionSphereModifier {
     var y = sinphi * sin(theta);
     var dir = vec3<f32>(x, y, z);
     ret.pos = c + r * dir;
-    // Radial velocity away from sphere center
-    ret.vel = dir * speed;
+    // Speed code
+    {}
     // <<< [PositionSphereModifier]
 "##,
             self.center.to_wgsl_string(),
             radius_code,
-            self.speed.to_wgsl_string()
+            speed_code,
         );
     }
 }
