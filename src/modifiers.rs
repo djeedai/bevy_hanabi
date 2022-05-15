@@ -62,36 +62,26 @@ impl Default for SpeedVector {
 }
 
 /// An initialization modifier spawning particles on a circle/disc.
-#[derive(Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 pub struct PositionCircleModifier {
     /// The circle center, relative to the emitter position.
     pub center: Vec3,
-    /// The circle axis, which is the normalized normal of the circle's plane.
-    /// Set this to `Vec3::Z` for a 2D game.
-    pub axis: Vec3,
+    /// The circle rotation.
+    /// Set this to `Quat::from_rotation_x(PI / 2.)` for a 2D game.
+    pub rotation: Quat,
     /// The circle radius.
     pub radius: f32,
-    /// The radial speed of the particles on spawn.
-    pub speed: Value<f32>,
+    /// The speed of the particles on spawn.
+    /// In this case, SpeedVector::Radial has the same effect than SpeedVector::Normal.
+    pub speed: SpeedVector,
     /// The shape dimension to spawn from.
     pub dimension: ShapeDimension,
 }
 
-impl Default for PositionCircleModifier {
-    fn default() -> Self {
-        Self {
-            center: Default::default(),
-            axis: Vec3::Z,
-            radius: Default::default(),
-            speed: Default::default(),
-            dimension: Default::default(),
-        }
-    }
-}
-
 impl InitModifier for PositionCircleModifier {
     fn apply(&self, init_layout: &mut InitLayout) {
-        let (tangent, bitangent) = self.axis.any_orthonormal_pair();
+        let tangent = self.rotation * Vec3::X;
+        let bitangent = self.rotation * Vec3::Z;
 
         let radius_code = match self.dimension {
             ShapeDimension::Surface => {
@@ -105,6 +95,33 @@ impl InitModifier for PositionCircleModifier {
             }
         };
 
+        let speed_code = match self.speed {
+            SpeedVector::Normal(speed) | SpeedVector::Radial(speed) => {
+                format!("ret.vel = dir * ({});", speed.to_wgsl_string())
+            }
+            SpeedVector::Local(speed_x, speed_y, speed_z) => {
+                let rotation: Vec4 = self.rotation.into();
+                format!(
+                    "
+    let rot = {};
+    ret.vel = rotate_point(vec3<f32>({}, {}, {}), rot);
+                        ",
+                    rotation.to_wgsl_string(),
+                    speed_x.to_wgsl_string(),
+                    speed_y.to_wgsl_string(),
+                    speed_z.to_wgsl_string()
+                )
+            }
+            SpeedVector::World(speed_x, speed_y, speed_z) => {
+                format!(
+                    "ret.vel = vec3<f32>({}, {}, {});",
+                    speed_x.to_wgsl_string(),
+                    speed_y.to_wgsl_string(),
+                    speed_z.to_wgsl_string()
+                )
+            }
+        };
+
         init_layout.position_code = format!(
             r##"
     // >>> [PositionCircleModifier]
@@ -115,21 +132,19 @@ impl InitModifier for PositionCircleModifier {
     let bitangent = {};
     // Circle radius
     {}
-    // Radial speed
-    let speed = {};
     // Spawn random point on/in circle
     let theta = rand() * tau;
     let dir = tangent * cos(theta) + bitangent * sin(theta);
     ret.pos = c + r * dir;
-    // Velocity away from center
-    ret.vel = dir * speed;
+    // Speed code
+    {}
     // <<< [PositionCircleModifier]
             "##,
             self.center.to_wgsl_string(),
             tangent.to_wgsl_string(),
             bitangent.to_wgsl_string(),
             radius_code,
-            self.speed.to_wgsl_string()
+            speed_code,
         );
     }
 }
