@@ -13,9 +13,13 @@ readme = "README.md"
 exclude = ["examples/*.gif", ".github"]
 
 [features]
-default = [ "2d", "3d" ]
+default = [ "2d", "3d", "gpu_tests" ]
 2d = []
 3d = []
+
+# Special feature to enable GPU-based tests, which otherwise fail
+# on a CI machine without a graphic adapter or without proper drivers.
+gpu_tests = []
 
 [dependencies]
 bytemuck = { version = "1.5", features = ["derive"] }

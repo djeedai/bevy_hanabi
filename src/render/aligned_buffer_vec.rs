@@ -199,6 +199,7 @@ mod tests {
         assert_eq!(abv.len(), 1);
     }
 
+    #[cfg(gpu_tests)]
     #[test]
     fn abv_write() {
         let renderer = MockRenderer::new();
