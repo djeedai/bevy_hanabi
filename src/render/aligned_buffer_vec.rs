@@ -139,6 +139,7 @@ impl<T: Pod> AlignedBufferVec<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::MockRenderer;
 
     const INTS: &[usize] = &[1, 2, 4, 8, 9, 15, 16, 17, 23, 24, 31, 32, 33];
 
@@ -196,5 +197,63 @@ mod tests {
         abv.push([9; SIZE]);
         assert!(!abv.is_empty());
         assert_eq!(abv.len(), 1);
+    }
+}
+
+#[cfg(all(test, feature = "gpu_tests"))]
+mod gpu_tests {
+    use super::*;
+    use crate::test_utils::MockRenderer;
+
+    #[test]
+    fn abv_write() {
+        let renderer = MockRenderer::new();
+        let device = renderer.device();
+        let queue = renderer.queue();
+
+        // Create a dummy CommandBuffer to force the write_buffer() call to have any effect
+        let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("test"),
+        });
+        let command_buffer = encoder.finish();
+
+        // Write buffer (CPU -> GPU)
+        const SIZE: usize = 27;
+        const ALIGN: usize = 32;
+        const CAPACITY: usize = 16;
+        let mut abv = AlignedBufferVec::<[u8; SIZE]>::new(
+            BufferUsages::STORAGE | BufferUsages::MAP_READ,
+            ALIGN,
+            None,
+        );
+        abv.push([9; SIZE]);
+        abv.push([6; SIZE]);
+        abv.push([3; SIZE]);
+        abv.reserve(CAPACITY, &device);
+        abv.write_buffer(&device, &queue);
+        // need a submit() for write_buffer() to be processed
+        queue.submit([command_buffer]);
+        device.poll(wgpu::Maintain::Wait);
+        pollster::block_on(queue.on_submitted_work_done());
+        println!("Buffer written");
+
+        // Read back (GPU -> CPU)
+        let buffer = abv.buffer();
+        let buffer = buffer.as_ref().expect("Buffer was not allocated");
+        let buffer = buffer.slice(..);
+        let fut = buffer.map_async(wgpu::MapMode::Read);
+        device.poll(wgpu::Maintain::Wait);
+        pollster::block_on(fut).expect("Failed to map");
+        let view = buffer.get_mapped_range();
+
+        // Validate content
+        assert_eq!(view.len(), ALIGN * CAPACITY);
+        for i in 0..3 {
+            let offset = i * ALIGN;
+            let value: u8 = (9 - i * 3) as u8;
+            let value: [u8; SIZE] = [value; SIZE];
+            let vec: &[u8] = cast_slice(&view[offset..offset + SIZE]);
+            assert_eq!(vec, value);
+        }
     }
 }

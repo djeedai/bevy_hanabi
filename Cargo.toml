@@ -13,9 +13,13 @@ readme = "README.md"
 exclude = ["examples/*.gif", ".github"]
 
 [features]
-default = [ "2d", "3d" ]
+default = [ "2d", "3d", "gpu_tests" ]
 2d = []
 3d = []
+
+# Special feature to enable GPU-based tests, which otherwise fail
+# on a CI machine without a graphic adapter or without proper drivers.
+gpu_tests = []
 
 [dependencies]
 bytemuck = { version = "1.5", features = ["derive"] }
@@ -35,7 +39,12 @@ features = [ "bevy_core_pipeline", "bevy_render" ]
 [package.metadata.docs.rs]
 all-features = true
 
-#[dev-dependencies]
+[dev-dependencies]
+# Same version as Bevy 0.7
+wgpu = "0.12"
+# Same version as wgpu 0.12
+pollster = "0.2"
+
 #bevy-inspector-egui = "0.8"
 #smooth-bevy-cameras = "0.2"
 

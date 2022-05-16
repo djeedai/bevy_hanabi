@@ -50,8 +50,13 @@ jobs:
         env:
           CARGO_INCREMENTAL: 0
         if: matrix.dimensions != 'all'
+      - name: Build & run GPU tests
+        run: cargo test --no-default-features --features ${{ matrix.dimensions }} --features gpu_tests
+        env:
+          CARGO_INCREMENTAL: 0
+        if: runner.os == 'linux' && matrix.dimensions != 'all'
       - name: Build & run tests
-        run: cargo test --all-features
+        run: cargo test --no-default-features --features="2d 3d"
         env:
           CARGO_INCREMENTAL: 0
         if: matrix.dimensions == 'all'
