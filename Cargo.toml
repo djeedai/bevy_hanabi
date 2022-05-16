@@ -35,7 +35,12 @@ features = [ "bevy_core_pipeline", "bevy_render" ]
 [package.metadata.docs.rs]
 all-features = true
 
-#[dev-dependencies]
+[dev-dependencies]
+# Same version as Bevy 0.7
+wgpu = "0.12"
+# Same version as wgpu 0.12
+pollster = "0.2"
+
 #bevy-inspector-egui = "0.8"
 #smooth-bevy-cameras = "0.2"
 

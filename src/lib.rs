@@ -90,6 +90,9 @@ mod plugin;
 mod render;
 mod spawn;
 
+#[cfg(test)]
+mod test_utils;
+
 pub use asset::EffectAsset;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
