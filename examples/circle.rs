@@ -63,9 +63,9 @@ fn setup(
         }
         .init(PositionCircleModifier {
             center: Vec3::Y * 0.1,
-            axis: Vec3::Y,
+            rotation: Quat::IDENTITY,
             radius: 0.4,
-            speed: Value::Uniform((1.0, 1.5)),
+            speed: SpeedVector::Radial(Value::Uniform((1.0, 1.5))),
             dimension: ShapeDimension::Surface,
         })
         .render(ParticleTextureModifier {

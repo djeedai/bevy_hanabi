@@ -94,7 +94,8 @@ fn setup(
             center: Vec3::ZERO,
             radius: 2.,
             dimension: ShapeDimension::Surface,
-            speed: 6.0.into(),
+            speed: SpeedVector::Radial(6.0.into()),
+            ..default()
         })
         .update(AccelModifier {
             accel: Vec3::new(0., -3., 0.),
@@ -176,7 +177,8 @@ fn setup(
             center: Vec3::ZERO,
             radius: 5.,
             dimension: ShapeDimension::Volume,
-            speed: 2.0.into(),
+            speed: SpeedVector::Radial(2.0.into()),
+            ..default()
         })
         .update(AccelModifier {
             accel: Vec3::new(0., 5., 0.),

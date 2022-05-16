@@ -57,8 +57,9 @@
 //!     .init(PositionSphereModifier {
 //!         center: Vec3::ZERO,
 //!         radius: 2.,
+//!         rotation: Quat::IDENTITY,
 //!         dimension: ShapeDimension::Surface,
-//!         speed: 6.0.into(),
+//!         speed: SpeedVector::Radial(6.0.into()),
 //!     })
 //!     // Every frame, add a gravity-like acceleration downward
 //!     .update(AccelModifier {
@@ -99,7 +100,7 @@ pub use gradient::{Gradient, GradientKey};
 pub use modifiers::{
     AccelModifier, ColorOverLifetimeModifier, ForceFieldModifier, ForceFieldParam, InitModifier,
     ParticleTextureModifier, PositionCircleModifier, PositionSphereModifier, RenderModifier,
-    ShapeDimension, SizeOverLifetimeModifier, UpdateModifier, FFNUM,
+    ShapeDimension, SizeOverLifetimeModifier, SpeedVector, UpdateModifier, FFNUM,
 };
 pub use plugin::HanabiPlugin;
 pub use render::EffectCacheId;
