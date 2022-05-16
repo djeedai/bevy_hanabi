@@ -198,13 +198,24 @@ mod tests {
         assert!(!abv.is_empty());
         assert_eq!(abv.len(), 1);
     }
+}
 
-    #[cfg(gpu_tests)]
+#[cfg(all(test, feature = "gpu_tests"))]
+mod gpu_tests {
+    use super::*;
+    use crate::test_utils::MockRenderer;
+
     #[test]
     fn abv_write() {
         let renderer = MockRenderer::new();
         let device = renderer.device();
         let queue = renderer.queue();
+
+        // Create a dummy CommandBuffer to force the write_buffer() call to have any effect
+        let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("test"),
+        });
+        let command_buffer = encoder.finish();
 
         // Write buffer (CPU -> GPU)
         const SIZE: usize = 27;
@@ -216,10 +227,13 @@ mod tests {
             None,
         );
         abv.push([9; SIZE]);
-        abv.push([9; SIZE]);
-        abv.push([9; SIZE]);
+        abv.push([6; SIZE]);
+        abv.push([3; SIZE]);
         abv.reserve(CAPACITY, &device);
         abv.write_buffer(&device, &queue);
+        // need a submit() for write_buffer() to be processed
+        queue.submit([command_buffer]);
+        device.poll(wgpu::Maintain::Wait);
         pollster::block_on(queue.on_submitted_work_done());
         println!("Buffer written");
 
@@ -234,5 +248,12 @@ mod tests {
 
         // Validate content
         assert_eq!(view.len(), ALIGN * CAPACITY);
+        for i in 0..3 {
+            let offset = i * ALIGN;
+            let value: u8 = (9 - i * 3) as u8;
+            let value: [u8; SIZE] = [value; SIZE];
+            let vec: &[u8] = cast_slice(&view[offset..offset + SIZE]);
+            assert_eq!(vec, value);
+        }
     }
 }
