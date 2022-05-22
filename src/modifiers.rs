@@ -174,6 +174,26 @@ impl InitModifier for PositionSphereModifier {
     }
 }
 
+/// A modifier modulating particle's lifetime.
+#[derive(Default, Clone, Copy)]
+pub struct ParticleLifetimeModifier {
+    /// Particles lifetime
+    pub lifetime: f32,
+}
+
+impl InitModifier for ParticleLifetimeModifier {
+    fn apply(&self, init_layout: &mut InitLayout) {
+        init_layout.lifetime_code = format!(
+            r##"
+    // >>> [ParticleLifetimeModifier]
+    ret = {0};
+    // <<< [ParticleLifetimeModifier]
+"##,
+            self.lifetime.to_wgsl_string(),
+        );
+    }
+}
+
 /// A modifier modulating each particle's color by sampling a texture.
 #[derive(Default, Clone)]
 pub struct ParticleTextureModifier {
