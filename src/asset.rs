@@ -16,6 +16,7 @@ use crate::{
 pub struct InitLayout {
     pub position_code: String,
     pub force_field_code: String,
+    pub lifetime_code: String,
 }
 
 #[derive(Default, Clone, Copy)]

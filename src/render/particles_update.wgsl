@@ -116,7 +116,9 @@ fn init_pos_vel(index: u32) -> PosVel {
 }
 
 fn init_lifetime() -> f32 {
-    return 5.0;
+    var ret : f32;
+{{INIT_LIFETIME}}
+    return ret;
 }
 
 fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
