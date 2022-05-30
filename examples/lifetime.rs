@@ -1,10 +1,6 @@
 use bevy::{
     prelude::*,
-    render::{
-        mesh::shape::Cube,
-        render_resource::WgpuFeatures,
-        settings::WgpuSettings,
-    },
+    render::{mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings},
 };
 use bevy_hanabi::*;
 
@@ -70,9 +66,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .init(ParticleLifetimeModifier {
-            lifetime: 12.0,
-        })
+        .init(ParticleLifetimeModifier { lifetime: 12.0 })
         .render(ColorOverLifetimeModifier {
             gradient: gradient.clone(),
         }),
@@ -110,9 +104,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .init(ParticleLifetimeModifier {
-            lifetime: 3.0,
-        })
+        .init(ParticleLifetimeModifier { lifetime: 3.0 })
         .render(ColorOverLifetimeModifier {
             gradient: gradient.clone(),
         }),
@@ -137,7 +129,6 @@ fn setup(
                 .insert(Name::new("source"));
         });
 
-
     let effect3 = effects.add(
         EffectAsset {
             name: "emit:burst".to_string(),
@@ -151,9 +142,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .init(ParticleLifetimeModifier {
-            lifetime: 0.75,
-        })
+        .init(ParticleLifetimeModifier { lifetime: 0.75 })
         .render(ColorOverLifetimeModifier {
             gradient: gradient.clone(),
         }),
