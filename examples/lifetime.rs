@@ -60,7 +60,7 @@ fn setup(
     let effect1 = effects.add(
         EffectAsset {
             name: "emit:burst".to_string(),
-            capacity: 32768,
+            capacity: 512,
             spawner: Spawner::burst(50.0.into(), 3.0.into()),
             ..Default::default()
         }
@@ -70,8 +70,8 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .update(AccelModifier {
-            accel: Vec3::new(0., 5., 0.),
+        .init(ParticleLifetimeModifier {
+            lifetime: 12.0,
         })
         .render(ColorOverLifetimeModifier {
             gradient: gradient.clone(),
@@ -83,7 +83,7 @@ fn setup(
         .insert(Name::new("emit:burst"))
         .insert_bundle(ParticleEffectBundle {
             effect: ParticleEffect::new(effect1),
-            transform: Transform::from_translation(Vec3::new(-45., 0., 0.)),
+            transform: Transform::from_translation(Vec3::new(-50., 0., 0.)),
             ..Default::default()
         })
         .with_children(|p| {
@@ -100,7 +100,7 @@ fn setup(
     let effect2 = effects.add(
         EffectAsset {
             name: "emit:burst".to_string(),
-            capacity: 32768,
+            capacity: 512,
             spawner: Spawner::burst(50.0.into(), 3.0.into()),
             ..Default::default()
         }
@@ -110,8 +110,8 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .update(AccelModifier {
-            accel: Vec3::new(0., 5., 0.),
+        .init(ParticleLifetimeModifier {
+            lifetime: 3.0,
         })
         .render(ColorOverLifetimeModifier {
             gradient: gradient.clone(),
@@ -123,7 +123,7 @@ fn setup(
         .insert(Name::new("emit:burst"))
         .insert_bundle(ParticleEffectBundle {
             effect: ParticleEffect::new(effect2),
-            transform: Transform::from_translation(Vec3::new(-15., 0., 0.)),
+            transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
             ..Default::default()
         })
         .with_children(|p| {
@@ -141,7 +141,7 @@ fn setup(
     let effect3 = effects.add(
         EffectAsset {
             name: "emit:burst".to_string(),
-            capacity: 32768,
+            capacity: 512,
             spawner: Spawner::burst(50.0.into(), 3.0.into()),
             ..Default::default()
         }
@@ -151,8 +151,8 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .update(AccelModifier {
-            accel: Vec3::new(0., 5., 0.),
+        .init(ParticleLifetimeModifier {
+            lifetime: 0.75,
         })
         .render(ColorOverLifetimeModifier {
             gradient: gradient.clone(),
@@ -164,48 +164,7 @@ fn setup(
         .insert(Name::new("emit:burst"))
         .insert_bundle(ParticleEffectBundle {
             effect: ParticleEffect::new(effect3),
-            transform: Transform::from_translation(Vec3::new(15., 0., 0.)),
-            ..Default::default()
-        })
-        .with_children(|p| {
-            // Reference cube to visualize the emit origin
-            p.spawn()
-                .insert_bundle(PbrBundle {
-                    mesh: cube.clone(),
-                    material: mat.clone(),
-                    ..Default::default()
-                })
-                .insert(Name::new("source"));
-        });
-
-
-    let effect4 = effects.add(
-        EffectAsset {
-            name: "emit:burst".to_string(),
-            capacity: 32768,
-            spawner: Spawner::burst(50.0.into(), 3.0.into()),
-            ..Default::default()
-        }
-        .init(PositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 5.,
-            dimension: ShapeDimension::Volume,
-            speed: 2.0.into(),
-        })
-        .update(AccelModifier {
-            accel: Vec3::new(0., 5., 0.),
-        })
-        .render(ColorOverLifetimeModifier {
-            gradient: gradient.clone(),
-        }),
-    );
-
-    commands
-        .spawn()
-        .insert(Name::new("emit:burst"))
-        .insert_bundle(ParticleEffectBundle {
-            effect: ParticleEffect::new(effect4),
-            transform: Transform::from_translation(Vec3::new(45., 0., 0.)),
+            transform: Transform::from_translation(Vec3::new(50., 0., 0.)),
             ..Default::default()
         })
         .with_children(|p| {
