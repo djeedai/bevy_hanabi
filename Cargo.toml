@@ -33,8 +33,8 @@ bitflags = "1.3"
 
 [dependencies.bevy]
 version = "0.7"
-default-features = false
-features = [ "bevy_core_pipeline", "bevy_render" ]
+# default-features = false
+# features = [ "bevy_core_pipeline", "bevy_render" ]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -79,6 +79,10 @@ required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 [[example]]
 name = "2d"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_sprite", "2d" ]
+
+[[example]]
+name = "lifetime"
+required-features = [ "3d" ]
 
 [workspace]
 resolver = "2"
