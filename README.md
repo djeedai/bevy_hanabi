@@ -189,7 +189,7 @@ cargo run --example random --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 
 ### Lifetime
 
-This example demonstrate particle effects with different lifetimes.
+This example demonstrates particle effects with different lifetimes.
 
 ```shell
 cargo run --example lifetime --features="bevy/bevy_winit bevy/bevy_pbr 3d"
