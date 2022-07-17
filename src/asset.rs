@@ -16,8 +16,11 @@ use crate::{
 /// to define the initial conditions of particles on the GPU.
 #[derive(Default, Clone)]
 pub struct InitLayout {
+    /// Code to define the initial position of particles.
     pub position_code: String,
+    /// WSGL code to initialize interactions with force fields. (Unused?)
     pub force_field_code: String,
+    /// WSGL code to set the initial lifetime of the particle.
     pub lifetime_code: String,
 }
 
