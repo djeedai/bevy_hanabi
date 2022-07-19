@@ -187,6 +187,16 @@ cargo run --example random --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 
 ![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/471669f735f202d3877969e25c488e5d74fc3393/examples/random.gif)
 
+### Lifetime
+
+This example demonstrates particle effects with different lifetimes.
+
+```shell
+cargo run --example lifetime --features="bevy/bevy_winit bevy/bevy_pbr 3d"
+```
+<!-- Need to fix path to gif -->
+![lifetime](/examples/lifetime.gif)
+
 ## Feature List
 
 - Spawn

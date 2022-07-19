@@ -474,7 +474,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             PARTICLES_UPDATE_SHADER_TEMPLATE.replace("{{INIT_POS_VEL}}", &key.position_code);
 
         source = source.replace("{{FORCE_FIELD_CODE}}", &key.force_field_code);
-    
+
         source = source.replace("{{INIT_LIFETIME}}", &key.lifetime_code);
 
         //trace!("Specialized compute pipeline:\n{}", source);
