@@ -12,13 +12,20 @@ use crate::{
     Gradient, InitModifier, RenderModifier, Spawner, UpdateModifier,
 };
 
+/// Struct containing snippets of WSGL code that can be used
+/// to define the initial conditions of particles on the GPU.
 #[derive(Default, Clone)]
 pub struct InitLayout {
+    /// Code to define the initial position of particles.
     pub position_code: String,
+    /// WSGL code to initialize interactions with force fields. (Unused?)
     pub force_field_code: String,
+    /// WSGL code to set the initial lifetime of the particle.
     pub lifetime_code: String,
 }
 
+/// Struct containing snippets of WSGL code that can be used
+/// to update the particles every frame on the GPU.
 #[derive(Default, Clone, Copy)]
 pub struct UpdateLayout {
     /// Constant accelereation to apply to all particles.
