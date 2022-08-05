@@ -2,27 +2,28 @@
 
 use bevy::{
     asset::{AssetEvent, Assets, Handle, HandleId, HandleUntyped},
-    core::{cast_slice, FloatOrd, Pod, Time, Zeroable},
+    core::{cast_slice, Pod, Zeroable},
     ecs::{
         prelude::*,
         system::{lifetimeless::*, SystemState},
     },
     log::trace,
-    math::{const_vec3, Mat4, Rect, Vec2, Vec3, Vec4, Vec4Swizzles},
+    math::{Mat4, Vec2, Vec3, Vec4, Vec4Swizzles},
     reflect::TypeUuid,
     render::{
         color::Color,
         render_asset::RenderAssets,
         render_graph::{Node, NodeRunError, RenderGraphContext, SlotInfo, SlotType},
         render_phase::{Draw, DrawFunctions, RenderPhase, TrackedRenderPass},
-        render_resource::{std140::AsStd140, std430::AsStd430, *},
+        render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
         view::{ComputedVisibility, ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
-        RenderWorld,
+        Extract,
     },
+    time::Time,
     transform::components::GlobalTransform,
-    utils::{HashMap, HashSet},
+    utils::{FloatOrd, HashMap, HashSet},
 };
 use bitflags::bitflags;
 use bytemuck::cast_slice_mut;
@@ -32,9 +33,9 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
 
 #[cfg(feature = "2d")]
-use bevy::core_pipeline::Transparent2d;
+use bevy::core_pipeline::core_2d::Transparent2d;
 #[cfg(feature = "3d")]
-use bevy::core_pipeline::Transparent3d;
+use bevy::core_pipeline::core_3d::Transparent3d;
 
 use crate::{
     asset::EffectAsset,
@@ -61,30 +62,13 @@ pub const PARTICLES_RENDER_SHADER_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 2763343953151597145);
 
 const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("particles_update.wgsl");
-const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("particles_render.wgsl");
-
-const DEFAULT_POSITION_CODE: &str = r##"
-    ret.pos = vec3<f32>(0., 0., 0.);
-    var dir = rand3() * 2. - 1.;
-    dir = normalize(dir);
-    var speed = 2.;
-    ret.vel = dir * speed;
-"##;
-
-const DEFAULT_LIFETIME_CODE: &str = r##"
-ret = 5.0;
-"##;
-
-const DEFAULT_FORCE_FIELD_CODE: &str = r##"
-    vVel = vVel + (spawner.accel * sim_params.dt);
-    vPos = vPos + vVel * sim_params.dt;
-"##;
-
-const FORCE_FIELD_CODE: &str = include_str!("force_field_code.wgsl");
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
 pub enum EffectSystems {
+    /// Tick all effect instances to generate spawner counts, and configure
+    /// shaders based on modifiers.
+    UpdateShaders,
     /// Extract the effects to render this frame.
     ExtractEffects,
     /// Extract the effect events to process this frame.
@@ -95,94 +79,12 @@ pub enum EffectSystems {
     QueueEffects,
 }
 
-/// Trait to convert any data structure to its equivalent shader code.
-trait ShaderCode {
-    /// Generate the shader code for the current state of the object.
-    fn to_shader_code(&self) -> String;
-}
-
-impl ShaderCode for Gradient<Vec2> {
-    fn to_shader_code(&self) -> String {
-        if self.keys().is_empty() {
-            return String::new();
-        }
-        let mut s: String = self
-            .keys()
-            .iter()
-            .enumerate()
-            .map(|(index, key)| {
-                format!(
-                    "let t{0} = {1};\nlet v{0} = {2};",
-                    index,
-                    key.ratio().to_wgsl_string(),
-                    key.value.to_wgsl_string()
-                )
-            })
-            .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
-        if self.keys().len() == 1 {
-            s + "size = v0;\n"
-        } else {
-            // FIXME - particle.age and particle.lifetime are unrelated to Gradient<Vec4>
-            s += "let life = particle.age / particle.lifetime;\nif (life <= t0) { size = v0; }\n";
-            let mut s = self
-                .keys()
-                .iter()
-                .skip(1)
-                .enumerate()
-                .map(|(index, _key)| {
-                    format!(
-                        "else if (life <= t{1}) {{ size = mix(v{0}, v{1}, (life - t{0}) / (t{1} - t{0})); }}\n",
-                        index,
-                        index + 1
-                    )
-                })
-                .fold(s, |s, key| s + &key);
-            s += &format!("else {{ size = v{}; }}\n", self.keys().len() - 1);
-            s
-        }
-    }
-}
-
-impl ShaderCode for Gradient<Vec4> {
-    fn to_shader_code(&self) -> String {
-        if self.keys().is_empty() {
-            return String::new();
-        }
-        let mut s: String = self
-            .keys()
-            .iter()
-            .enumerate()
-            .map(|(index, key)| {
-                format!(
-                    "let t{0} = {1};\nlet c{0} = {2};",
-                    index,
-                    key.ratio().to_wgsl_string(),
-                    key.value.to_wgsl_string()
-                )
-            })
-            .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
-        if self.keys().len() == 1 {
-            s + "out.color = c0;\n"
-        } else {
-            // FIXME - particle.age and particle.lifetime are unrelated to Gradient<Vec4>
-            s += "let life = particle.age / particle.lifetime;\nif (life <= t0) { out.color = c0; }\n";
-            let mut s = self
-                .keys()
-                .iter()
-                .skip(1)
-                .enumerate()
-                .map(|(index, _key)| {
-                    format!(
-                        "else if (life <= t{1}) {{ out.color = mix(c{0}, c{1}, (life - t{0}) / (t{1} - t{0})); }}\n",
-                        index,
-                        index + 1
-                    )
-                })
-                .fold(s, |s, key| s + &key);
-            s += &format!("else {{ out.color = c{}; }}\n", self.keys().len() - 1);
-            s
-        }
-    }
+/// Reimplementing of bevy::sprite::Rect to avoid the dependency.
+/// See https://github.com/bevyengine/bevy/issues/5575
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct MinMaxRect {
+    pub min: Vec2,
+    pub max: Vec2,
 }
 
 /// Simulation parameters.
@@ -196,7 +98,7 @@ pub(crate) struct SimParams {
 
 /// GPU representation of [`SimParams`].
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable, AsStd140)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable, ShaderType)]
 struct SimParamsUniform {
     dt: f32,
     time: f32,
@@ -221,7 +123,7 @@ impl From<SimParams> for SimParamsUniform {
 }
 
 #[repr(C)]
-#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, AsStd430)]
+#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct ForceFieldStd430 {
     pub position_or_direction: Vec3,
     pub max_radius: f32,
@@ -245,7 +147,7 @@ impl From<ForceFieldParam> for ForceFieldStd430 {
 }
 
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, Pod, Zeroable, AsStd430)]
+#[derive(Debug, Default, Copy, Clone, Pod, Zeroable, ShaderType)]
 struct SpawnerParams {
     /// Origin of the effect. This is either added to emitted particles at spawn time, if the effect simulated
     /// in world space, or to all simulated particles if the effect is simulated in local space.
@@ -292,8 +194,8 @@ impl FromWorld for ParticlesUpdatePipeline {
         );
 
         trace!(
-            "SimParamsUniform: std140_size_static = {}",
-            SimParamsUniform::std140_size_static()
+            "SimParamsUniform: min_size={}",
+            SimParamsUniform::min_size()
         );
         let sim_params_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -303,19 +205,14 @@ impl FromWorld for ParticlesUpdatePipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: BufferSize::new(
-                            SimParamsUniform::std140_size_static() as u64
-                        ),
+                        min_binding_size: Some(SimParamsUniform::min_size()),
                     },
                     count: None,
                 }],
                 label: Some("particles_update_sim_params_layout"),
             });
 
-        trace!(
-            "Particle: std430_size_static = {}",
-            Particle::std430_size_static()
-        );
+        trace!("Particle: min_size={}", Particle::min_size());
         let particles_buffer_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &[BindGroupLayoutEntry {
@@ -324,17 +221,14 @@ impl FromWorld for ParticlesUpdatePipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: true,
-                        min_binding_size: BufferSize::new(Particle::std430_size_static() as u64),
+                        min_binding_size: Some(Particle::min_size()),
                     },
                     count: None,
                 }],
                 label: Some("particles_update_particles_buffer_layout"),
             });
 
-        trace!(
-            "SpawnerParams: std430_size_static = {}",
-            SpawnerParams::std430_size_static()
-        );
+        trace!("SpawnerParams: min_size={}", SpawnerParams::min_size());
         let spawner_buffer_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &[BindGroupLayoutEntry {
@@ -343,9 +237,7 @@ impl FromWorld for ParticlesUpdatePipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: true,
-                        min_binding_size: BufferSize::new(
-                            SpawnerParams::std430_size_static() as u64
-                        ),
+                        min_binding_size: Some(SpawnerParams::min_size()),
                     },
                     count: None,
                 }],
@@ -406,7 +298,7 @@ impl FromWorld for ParticlesRenderPipeline {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: true,
-                    min_binding_size: BufferSize::new(ViewUniform::std140_size_static() as u64),
+                    min_binding_size: Some(ViewUniform::min_size()),
                 },
                 count: None,
             }],
@@ -421,7 +313,7 @@ impl FromWorld for ParticlesRenderPipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
-                        min_binding_size: BufferSize::new(Particle::std430_size_static() as u64),
+                        min_binding_size: Some(Particle::min_size()),
                     },
                     count: None,
                 }],
@@ -479,7 +371,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
 
         //trace!("Specialized compute pipeline:\n{}", source);
 
-        let shader_module = render_device.create_shader_module(&ShaderModuleDescriptor {
+        let shader_module = render_device.create_shader_module(ShaderModuleDescriptor {
             label: Some("particles_update.wgsl"),
             source: ShaderSource::Wgsl(Cow::Owned(source)),
         });
@@ -534,31 +426,31 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             array_stride: 20,
             step_mode: VertexStepMode::Vertex,
             attributes: vec![
-                // [[location(0)]] vertex_position: vec3<f32>
+                //  @location(0) vertex_position: vec3<f32>
                 VertexAttribute {
                     format: VertexFormat::Float32x3,
                     offset: 0,
                     shader_location: 0,
                 },
-                // [[location(1)]] vertex_uv: vec2<f32>
+                //  @location(1) vertex_uv: vec2<f32>
                 VertexAttribute {
                     format: VertexFormat::Float32x2,
                     offset: 12,
                     shader_location: 1,
                 },
-                // [[location(1)]] vertex_color: u32
+                //  @location(1) vertex_color: u32
                 // VertexAttribute {
                 //     format: VertexFormat::Uint32,
                 //     offset: 12,
                 //     shader_location: 1,
                 // },
-                // [[location(2)]] vertex_velocity: vec3<f32>
+                //  @location(2) vertex_velocity: vec3<f32>
                 // VertexAttribute {
                 //     format: VertexFormat::Float32x3,
                 //     offset: 12,
                 //     shader_location: 1,
                 // },
-                // [[location(3)]] vertex_uv: vec2<f32>
+                //  @location(3) vertex_uv: vec2<f32>
                 // VertexAttribute {
                 //     format: VertexFormat::Float32x2,
                 //     offset: 28,
@@ -577,7 +469,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         if key.particle_texture.is_some() {
             layout.push(self.material_layout.clone());
             shader_defs.push("PARTICLE_TEXTURE".to_string());
-            // // [[location(1)]] vertex_uv: vec2<f32>
+            // //  @location(1) vertex_uv: vec2<f32>
             // vertex_buffer_layout.attributes.push(VertexAttribute {
             //     format: VertexFormat::Float32x2,
             //     offset: 12,
@@ -624,11 +516,11 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 shader: key.shader,
                 shader_defs,
                 entry_point: "fragment".into(),
-                targets: vec![ColorTargetState {
+                targets: vec![Some(ColorTargetState {
                     format: TextureFormat::bevy_default(),
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
-                }],
+                })],
             }),
             layout: Some(layout),
             primitive: PrimitiveState {
@@ -669,7 +561,7 @@ pub struct ExtractedEffect {
     force_field: [ForceFieldParam; FFNUM],
     /// Particles tint to modulate with the texture image.
     pub color: Color,
-    pub rect: Rect<f32>,
+    pub rect: MinMaxRect,
     // Texture to use for the sprites of the particles of this effect.
     //pub image: Handle<Image>,
     pub has_image: bool, // TODO -> use flags
@@ -715,13 +607,11 @@ pub struct EffectAssetEvents {
 }
 
 pub fn extract_effect_events(
-    mut render_world: ResMut<RenderWorld>,
-    mut image_events: EventReader<AssetEvent<Image>>,
+    mut events: ResMut<EffectAssetEvents>,
+    mut image_events: Extract<EventReader<AssetEvent<Image>>>,
 ) {
     trace!("extract_effect_events");
-    let mut events = render_world
-        .get_resource_mut::<EffectAssetEvents>()
-        .unwrap();
+
     let EffectAssetEvents { ref mut images } = *events;
     images.clear();
 
@@ -747,42 +637,39 @@ pub fn extract_effect_events(
 /// visible ([`ComputedVisibility::is_visible`] is `true`), and wrap the data into a new
 /// [`ExtractedEffect`] instance added to the [`ExtractedEffects`] resource.
 pub(crate) fn extract_effects(
-    mut render_world: ResMut<RenderWorld>,
-    time: Res<Time>,
-    effects: Res<Assets<EffectAsset>>,
-    _images: Res<Assets<Image>>,
-    mut shaders: ResMut<Assets<Shader>>,
-    mut pipeline_registry: ResMut<PipelineRegistry>,
-    mut rng: ResMut<Random>,
-    mut query: ParamSet<(
-        // All existing ParticleEffect components
-        Query<(
-            Entity,
-            &ComputedVisibility,
-            &mut ParticleEffect, //TODO - Split EffectAsset::Spawner (desc) and ParticleEffect::SpawnerData (runtime data), and init the latter on component add without a need for the former
-            &GlobalTransform,
+    time: Extract<Res<Time>>,
+    effects: Extract<Res<Assets<EffectAsset>>>,
+    _images: Extract<Res<Assets<Image>>>,
+    mut query: Extract<
+        ParamSet<(
+            // All existing ParticleEffect components
+            Query<(
+                Entity,
+                &ComputedVisibility,
+                &ParticleEffect, //TODO - Split EffectAsset::Spawner (desc) and ParticleEffect::SpawnerData (runtime data), and init the latter on component add without a need for the former
+                &GlobalTransform,
+            )>,
+            // Newly added ParticleEffect components
+            Query<
+                (Entity, &ParticleEffect),
+                (
+                    Added<ParticleEffect>,
+                    With<ComputedVisibility>,
+                    With<GlobalTransform>,
+                ),
+            >,
         )>,
-        // Newly added ParticleEffect components
-        Query<
-            (Entity, &mut ParticleEffect),
-            (
-                Added<ParticleEffect>,
-                With<ComputedVisibility>,
-                With<GlobalTransform>,
-            ),
-        >,
-    )>,
-    removed_effects: RemovedComponents<ParticleEffect>,
+    >,
+    removed_effects: Extract<RemovedComponents<ParticleEffect>>,
+    mut sim_params: ResMut<SimParams>,
+    mut extracted_effects: ResMut<ExtractedEffects>,
 ) {
     trace!("extract_effects");
 
     // Save simulation params into render world
-    let mut sim_params = render_world.get_resource_mut::<SimParams>().unwrap();
     let dt = time.delta_seconds();
     sim_params.time = time.seconds_since_startup();
     sim_params.dt = dt;
-
-    let mut extracted_effects = render_world.get_resource_mut::<ExtractedEffects>().unwrap();
 
     // Collect removed effects for later GPU data purge
     extracted_effects.removed_effect_entities = removed_effects.iter().collect();
@@ -797,92 +684,36 @@ pub(crate) fn extract_effects(
             AddedEffect {
                 entity,
                 capacity: asset.capacity,
-                item_size: Particle::std430_size_static() as u32, // effect.item_size(),
+                item_size: Particle::min_size().get() as u32, // effect.item_size(),
                 handle,
             }
         })
         .collect();
 
     // Loop over all existing effects to update them
-    for (entity, computed_visibility, mut effect, transform) in query.p0().iter_mut() {
+    for (entity, computed_visibility, effect, transform) in query.p0().iter_mut() {
         // Check if visible
-        if !computed_visibility.is_visible {
+        if !computed_visibility.is_visible() {
             continue;
         }
 
+        // Check if shader is configured
+        let shader = if let Some(shader) = &effect.configured_shader {
+            shader
+        } else {
+            continue;
+        };
+
+        // TEMP - see update_shaders()
+        let spawn_count = effect.spawn_count;
+        let accel = effect.accel;
+        let force_field = effect.force_field;
+        let position_code = effect.position_code.clone();
+        let force_field_code = effect.force_field_code.clone();
+        let lifetime_code = effect.lifetime_code.clone();
+
         // Check if asset is available, otherwise silently ignore
         if let Some(asset) = effects.get(&effect.handle) {
-            //let size = image.texture_descriptor.size;
-
-            // Tick the effect's spawner to determine the spawn count for this frame
-            let spawner = effect.spawner(&asset.spawner);
-
-            let spawn_count = spawner.tick(dt, &mut rng.0);
-
-            // Extract the acceleration
-            let accel = asset.update_layout.accel;
-            let force_field = asset.update_layout.force_field;
-
-            // Generate the shader code for the position initializing of newly emitted particles
-            // TODO - Move that to a pre-pass, not each frame!
-            let position_code = &asset.init_layout.position_code;
-            let position_code = if position_code.is_empty() {
-                DEFAULT_POSITION_CODE.to_owned()
-            } else {
-                position_code.clone()
-            };
-
-            // Generate the shader code for the lifetime initializing of newly emitted particles
-            // TODO - Move that to a pre-pass, not each frame!
-            let lifetime_code = &asset.init_layout.lifetime_code;
-            let lifetime_code = if lifetime_code.is_empty() {
-                DEFAULT_LIFETIME_CODE.to_owned()
-            } else {
-                lifetime_code.clone()
-            };
-
-            // Generate the shader code for the force field of newly emitted particles
-            // TODO - Move that to a pre-pass, not each frame!
-            // let force_field_code = &asset.init_layout.force_field_code;
-            // let force_field_code = if force_field_code.is_empty() {
-            let force_field_code = if 0.0 == asset.update_layout.force_field[0].force_exponent {
-                DEFAULT_FORCE_FIELD_CODE.to_owned()
-            } else {
-                FORCE_FIELD_CODE.to_owned()
-            };
-
-            // Generate the shader code for the color over lifetime gradient.
-            // TODO - Move that to a pre-pass, not each frame!
-            let mut vertex_modifiers =
-                if let Some(grad) = &asset.render_layout.lifetime_color_gradient {
-                    grad.to_shader_code()
-                } else {
-                    String::new()
-                };
-            if let Some(grad) = &asset.render_layout.size_color_gradient {
-                vertex_modifiers += &grad.to_shader_code();
-            }
-            trace!("vertex_modifiers={}", vertex_modifiers);
-
-            // Configure the shader template, and make sure a corresponding shader asset exists
-            let shader_source =
-                PARTICLES_RENDER_SHADER_TEMPLATE.replace("{{VERTEX_MODIFIERS}}", &vertex_modifiers);
-            let shader = pipeline_registry.configure(&shader_source, &mut shaders);
-
-            trace!(
-                "extracted: handle={:?} shader={:?} has_image={} position_code={} force_field_code={} lifetime_code={}",
-                effect.handle,
-                shader,
-                if asset.render_layout.particle_texture.is_some() {
-                    "Y"
-                } else {
-                    "N"
-                },
-                position_code,
-                force_field_code,
-                lifetime_code,
-            );
-
             extracted_effects.effects.insert(
                 entity,
                 ExtractedEffect {
@@ -892,13 +723,11 @@ pub(crate) fn extract_effects(
                     transform: transform.compute_matrix(),
                     accel,
                     force_field,
-                    rect: Rect {
-                        left: -0.1,
-                        top: -0.1,
-                        right: 0.1,
-                        bottom: 0.1, // effect
-                                     //.custom_size
-                                     //.unwrap_or_else(|| Vec2::new(size.width as f32, size.height as f32)),
+                    rect: MinMaxRect {
+                        min: Vec2::splat(-0.1),
+                        max: Vec2::splat(0.1), // effect
+                                               //.custom_size
+                                               //.unwrap_or_else(|| Vec2::new(size.width as f32, size.height as f32)),
                     },
                     has_image: asset.render_layout.particle_texture.is_some(),
                     image_handle_id: asset
@@ -906,7 +735,7 @@ pub(crate) fn extract_effects(
                         .particle_texture
                         .clone()
                         .map_or(HandleId::default::<Image>(), |handle| handle.id),
-                    shader,
+                    shader: shader.clone(),
                     position_code,
                     force_field_code,
                     lifetime_code,
@@ -918,7 +747,7 @@ pub(crate) fn extract_effects(
 
 /// A single particle as stored in a GPU buffer.
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable, AsStd430)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable, ShaderType)]
 struct Particle {
     /// Particle position in effect space (local or world).
     pub position: [f32; 3],
@@ -962,7 +791,7 @@ pub(crate) struct EffectsMeta {
     spawner_bind_group: Option<BindGroup>,
     /// Bind group for the indirect buffer.
     indirect_buffer_bind_group: Option<BindGroup>,
-    sim_params_uniforms: UniformVec<SimParamsUniform>,
+    sim_params_uniforms: UniformBuffer<SimParamsUniform>,
     spawner_buffer: AlignedBufferVec<SpawnerParams>,
     /// Unscaled vertices of the mesh of a single particle, generally a quad.
     /// The mesh is later scaled during rendering by the "particle size".
@@ -993,7 +822,7 @@ impl EffectsMeta {
             particles_bind_group: None,
             spawner_bind_group: None,
             indirect_buffer_bind_group: None,
-            sim_params_uniforms: UniformVec::default(),
+            sim_params_uniforms: UniformBuffer::default(),
             spawner_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
                 item_align,
@@ -1005,12 +834,12 @@ impl EffectsMeta {
 }
 
 const QUAD_VERTEX_POSITIONS: &[Vec3] = &[
-    const_vec3!([-0.5, -0.5, 0.0]),
-    const_vec3!([0.5, 0.5, 0.0]),
-    const_vec3!([-0.5, 0.5, 0.0]),
-    const_vec3!([-0.5, -0.5, 0.0]),
-    const_vec3!([0.5, -0.5, 0.0]),
-    const_vec3!([0.5, 0.5, 0.0]),
+    Vec3::from_array([-0.5, -0.5, 0.0]),
+    Vec3::from_array([0.5, 0.5, 0.0]),
+    Vec3::from_array([-0.5, 0.5, 0.0]),
+    Vec3::from_array([-0.5, -0.5, 0.0]),
+    Vec3::from_array([0.5, -0.5, 0.0]),
+    Vec3::from_array([0.5, 0.5, 0.0]),
 ];
 
 bitflags! {
@@ -1068,15 +897,15 @@ pub(crate) fn prepare_effects(
     trace!("prepare_effects");
 
     // Allocate simulation uniform if needed
-    if effects_meta.sim_params_uniforms.is_empty() {
-        effects_meta
-            .sim_params_uniforms
-            .push(SimParamsUniform::default());
-    }
+    //if effects_meta.sim_params_uniforms.is_empty() {
+    effects_meta
+        .sim_params_uniforms
+        .set(SimParamsUniform::default());
+    //}
 
     // Update simulation parameters
     {
-        let sim_params_uni = effects_meta.sim_params_uniforms.get_mut(0);
+        let sim_params_uni = effects_meta.sim_params_uniforms.get_mut();
         let sim_params = *sim_params;
         *sim_params_uni = sim_params.into();
     }
@@ -1419,17 +1248,14 @@ pub(crate) fn queue_effects(
         }));
 
     // Create the bind group for the spawner parameters
-    trace!(
-        "SpawnerParams::std430_size_static() = {}",
-        SpawnerParams::std430_size_static()
-    );
+    trace!("SpawnerParams::min_size() = {}", SpawnerParams::min_size());
     effects_meta.spawner_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
         entries: &[BindGroupEntry {
             binding: 0,
             resource: BindingResource::Buffer(BufferBinding {
                 buffer: effects_meta.spawner_buffer.buffer().unwrap(),
                 offset: 0,
-                size: Some(NonZeroU64::new(SpawnerParams::std430_size_static() as u64).unwrap()),
+                size: Some(SpawnerParams::min_size()),
             }),
         }],
         label: Some("particles_spawner_bind_group"),
@@ -2035,7 +1861,7 @@ impl Node for ParticleUpdateNode {
                         let buffer_offset = batch.slice.start;
 
                         let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
-                        assert!(spawner_buffer_aligned >= SpawnerParams::std430_size_static());
+                        assert!(spawner_buffer_aligned >= SpawnerParams::min_size().get() as usize);
 
                         trace!(
                             "record commands for pipeline of effect {:?} ({} items / {}B/item = {} workgroups) spawner_base={} buffer_offset={}...",
@@ -2062,7 +1888,7 @@ impl Node for ParticleUpdateNode {
                             &[spawner_base * spawner_buffer_aligned as u32],
                         );
                         compute_pass.set_bind_group(3, indirect_bind_group, &[buffer_offset]);
-                        compute_pass.dispatch(workgroup_count, 1, 1);
+                        compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
                         trace!("compute dispatched");
                     }
                 }
@@ -2086,32 +1912,5 @@ mod tests {
     fn layout_flags() {
         let flags = LayoutFlags::default();
         assert_eq!(flags, LayoutFlags::NONE);
-    }
-
-    #[test]
-    fn to_shader_code() {
-        let mut grad = Gradient::new();
-        assert_eq!("", grad.to_shader_code());
-
-        grad.add_key(0.0, Vec4::splat(0.0));
-        assert_eq!(
-            "// Gradient\nlet t0 = 0.;\nlet c0 = vec4<f32>(0., 0., 0., 0.);\nout.color = c0;\n",
-            grad.to_shader_code()
-        );
-
-        grad.add_key(1.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
-        assert_eq!(
-            r#"// Gradient
-let t0 = 0.;
-let c0 = vec4<f32>(0., 0., 0., 0.);
-let t1 = 1.;
-let c1 = vec4<f32>(1., 0., 0., 1.);
-let life = particle.age / particle.lifetime;
-if (life <= t0) { out.color = c0; }
-else if (life <= t1) { out.color = mix(c0, c1, (life - t0) / (t1 - t0)); }
-else { out.color = c1; }
-"#,
-            grad.to_shader_code()
-        );
     }
 }

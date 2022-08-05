@@ -1,35 +1,35 @@
 struct View {
-    view_proj: mat4x4<f32>;
+    view_proj: mat4x4<f32>,
 };
 
 struct Particle {
-    pos: vec3<f32>;
-    age: f32;
-    vel: vec3<f32>;
-    lifetime: f32;
+    pos: vec3<f32>,
+    age: f32,
+    vel: vec3<f32>,
+    lifetime: f32,
 };
 
 struct ParticlesBuffer {
-    particles: [[stride(32)]] array<Particle>;
+    particles: array<Particle>,
 };
 
 struct VertexOutput {
-    [[builtin(position)]] position: vec4<f32>;
-    [[location(0)]] color: vec4<f32>;
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
 #ifdef PARTICLE_TEXTURE
-    [[location(1)]] uv: vec2<f32>;
+    @location(1) uv: vec2<f32>,
 #endif
 };
 
-[[group(0), binding(0)]] var<uniform> view: View;
-[[group(1), binding(0)]] var<storage, read> particle_buffer : ParticlesBuffer;
+@group(0) @binding(0) var<uniform> view: View;
+@group(1) @binding(0) var<storage, read> particle_buffer : ParticlesBuffer;
 #ifdef PARTICLE_TEXTURE
-[[group(2), binding(0)]] var particle_texture: texture_2d<f32>;
-[[group(2), binding(1)]] var particle_sampler: sampler;
+@group(2) @binding(0) var particle_texture: texture_2d<f32>;
+@group(2) @binding(1) var particle_sampler: sampler;
 #endif
 // #ifdef PARTICLE_GRADIENTS
-// [[group(3), binding(0)]] var gradient_texture: texture_2d<f32>;
-// [[group(3), binding(1)]] var gradient_sampler: sampler;
+// @group(3) @binding(0) var gradient_texture: texture_2d<f32>;
+// @group(3) @binding(1) var gradient_sampler: sampler;
 // #endif
 
 // fn color_over_lifetime(life: f32) -> vec4<f32> {
@@ -48,15 +48,15 @@ struct VertexOutput {
 //     }
 // }
 
-[[stage(vertex)]]
+@vertex
 fn vertex(
-    [[builtin(instance_index)]] instance_index: u32,
-    [[location(0)]] vertex_position: vec3<f32>,
+    @builtin(instance_index) instance_index: u32,
+    @location(0) vertex_position: vec3<f32>,
 #ifdef PARTICLE_TEXTURE
-    [[location(1)]] vertex_uv: vec2<f32>,
+    @location(1) vertex_uv: vec2<f32>,
 #endif
-    //[[location(1)]] vertex_color: u32,
-    //[[location(1)]] vertex_velocity: vec3<f32>,
+    // @location(1) vertex_color: u32,
+    // @location(1) vertex_velocity: vec3<f32>,
 ) -> VertexOutput {
     var particle = particle_buffer.particles[instance_index];
     var out: VertexOutput;
@@ -82,8 +82,8 @@ fn vertex(
     return out;
 }
 
-[[stage(fragment)]]
-fn fragment(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef PARTICLE_TEXTURE
     var color = textureSample(particle_texture, particle_sampler, in.uv);
     color = vec4<f32>(1.0, 1.0, 1.0, color.r); // FIXME - grayscale modulate

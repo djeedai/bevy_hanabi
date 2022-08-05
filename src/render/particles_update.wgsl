@@ -1,47 +1,47 @@
 struct Particle {
-    pos: vec3<f32>;
-    age: f32;
-    vel: vec3<f32>;
-    lifetime: f32;
+    pos: vec3<f32>,
+    age: f32,
+    vel: vec3<f32>,
+    lifetime: f32,
 };
 
 struct ParticleBuffer {
-    particles: [[stride(32)]] array<Particle>;
+    particles: array<Particle>,
 };
 
 struct SimParams {
-    dt: f32;
-    time: f32;
+    dt: f32,
+    time: f32,
 };
 
 struct ForceFieldParam {
-    position: vec3<f32>;
-    max_radius: f32;
-    min_radius: f32;
-    mass: f32;
-    force_exponent: f32;
-    conform_to_sphere: f32;
+    position: vec3<f32>,
+    max_radius: f32,
+    min_radius: f32,
+    mass: f32,
+    force_exponent: f32,
+    conform_to_sphere: f32,
 };
 
 struct Spawner {
-    origin: vec3<f32>;
-    spawn: atomic<i32>;
-    accel: vec3<f32>;
-    count: atomic<i32>;
-    force_field: array<ForceFieldParam, 16>;
-    __pad0: vec3<f32>;
-    seed: u32;
-    __pad1: vec4<f32>;
+    origin: vec3<f32>,
+    spawn: atomic<i32>,
+    accel: vec3<f32>,
+    count: atomic<i32>,
+    force_field: array<ForceFieldParam, 16>,
+    __pad0: vec3<f32>,
+    seed: u32,
+    __pad1: vec4<f32>,
 };
 
 struct IndirectBuffer {
-    indices: [[stride(4)]] array<u32>;
+    indices: array<u32>,
 };
 
-[[group(0), binding(0)]] var<uniform> sim_params : SimParams;
-[[group(1), binding(0)]] var<storage, read_write> particle_buffer : ParticleBuffer;
-[[group(2), binding(0)]] var<storage, read_write> spawner : Spawner;
-[[group(3), binding(0)]] var<storage, read_write> indirect_buffer : IndirectBuffer;
+@group(0) @binding(0) var<uniform> sim_params : SimParams;
+@group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
+@group(2) @binding(0) var<storage, read_write> spawner : Spawner;
+@group(3) @binding(0) var<storage, read_write> indirect_buffer : IndirectBuffer;
 
 var<private> seed : u32 = 0u;
 
@@ -105,8 +105,8 @@ fn rand4(input: u32) -> vec4<f32> {
 }
 
 struct PosVel {
-    pos: vec3<f32>;
-    vel: vec3<f32>;
+    pos: vec3<f32>,
+    vel: vec3<f32>,
 };
 
 fn init_pos_vel(index: u32) -> PosVel {
@@ -126,8 +126,8 @@ fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
 }
 
 
-[[stage(compute), workgroup_size(64)]]
-fn main([[builtin(global_invocation_id)]] global_invocation_id: vec3<u32>) {
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let max_particles : u32 = arrayLength(&particle_buffer.particles);
     let index = global_invocation_id.x;
     if (index >= max_particles) {

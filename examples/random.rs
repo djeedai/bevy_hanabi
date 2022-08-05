@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             filter: "bevy_hanabi=error,spawn=trace".to_string(),
         })
         .add_plugins(DefaultPlugins)
-        .add_system(bevy::input::system::exit_on_esc_system)
+        .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
         //.add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)

@@ -1,13 +1,13 @@
 #[cfg(feature = "2d")]
-use bevy::core_pipeline::Transparent2d;
+use bevy::core_pipeline::core_2d::Transparent2d;
 #[cfg(feature = "3d")]
-use bevy::core_pipeline::Transparent3d;
+use bevy::core_pipeline::core_3d::Transparent3d;
 use bevy::{
     prelude::*,
     render::{
         render_graph::RenderGraph, render_phase::DrawFunctions,
-        render_resource::SpecializedRenderPipelines, renderer::RenderDevice, RenderApp,
-        RenderStage,
+        render_resource::SpecializedRenderPipelines, renderer::RenderDevice,
+        view::visibility::VisibilitySystems, RenderApp, RenderStage,
     },
 };
 
@@ -21,6 +21,7 @@ use crate::{
         PARTICLES_UPDATE_SHADER_HANDLE,
     },
     spawn::{self, Random},
+    update_shaders,
 };
 
 pub mod draw_graph {
@@ -40,7 +41,15 @@ impl Plugin for HanabiPlugin {
         app.add_asset::<EffectAsset>()
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<PipelineRegistry>()
-            .init_asset_loader::<EffectAssetLoader>();
+            .init_asset_loader::<EffectAssetLoader>()
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                update_shaders
+                    .label(EffectSystems::UpdateShaders)
+                    // This checks the visibility to skip shader work, so needs to run
+                    // after ComputedVisibility was updated.
+                    .after(VisibilitySystems::CheckVisibility),
+            );
 
         // Register the spawn and update systems
         // app.add_system(hanabi_spawn.system())
@@ -117,9 +126,9 @@ impl Plugin for HanabiPlugin {
         // executed before the 2D/3D main pass starts, which consumes the result of the updated
         // particles to render them.
         #[cfg(feature = "2d")]
-        use bevy::core_pipeline::draw_2d_graph;
+        use bevy::core_pipeline::core_2d::graph as draw_2d_graph;
         #[cfg(feature = "3d")]
-        use bevy::core_pipeline::draw_3d_graph;
+        use bevy::core_pipeline::core_3d::graph as draw_3d_graph;
 
         #[cfg(feature = "2d")]
         let update_node_2d = ParticleUpdateNode::new(&mut render_app.world);
