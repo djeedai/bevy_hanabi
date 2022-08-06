@@ -42,9 +42,8 @@ all-features = true
 [dev-dependencies]
 # Same version as Bevy 0.8
 wgpu = "0.13.1"
-# Same version as wgpu 0.13.1
-pollster = "0.2"
 
+futures = "0.3"
 bevy-inspector-egui = "0.12"
 #smooth-bevy-cameras = "0.2"
 
