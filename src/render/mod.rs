@@ -580,6 +580,9 @@ pub struct ExtractedEffect {
     pub force_field_code: String,
     /// Update lifetime code.
     pub lifetime_code: String,
+    /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
+    /// rendering.
+    pub z_sort_key_2d: FloatOrd,
 }
 
 /// Extracted data for newly-added [`ParticleEffect`] component requiring a new
@@ -726,6 +729,12 @@ pub(crate) fn extract_effects(
 
         // Check if asset is available, otherwise silently ignore
         if let Some(asset) = effects.get(&effect.handle) {
+            let z_sort_key_2d = if let Some(z_layer_2d) = effect.z_layer_2d {
+                FloatOrd(z_layer_2d)
+            } else {
+                FloatOrd(asset.z_layer_2d)
+            };
+
             extracted_effects.effects.insert(
                 entity,
                 ExtractedEffect {
@@ -751,6 +760,7 @@ pub(crate) fn extract_effects(
                     position_code,
                     force_field_code,
                     lifetime_code,
+                    z_sort_key_2d,
                 },
             );
         }
@@ -899,6 +909,9 @@ pub struct EffectBatch {
     lifetime_code: String,
     /// Compute pipeline specialized for this batch.
     compute_pipeline: Option<ComputePipeline>,
+    /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
+    /// rendering.
+    z_sort_key_2d: FloatOrd,
 }
 
 pub(crate) fn prepare_effects(
@@ -1007,6 +1020,7 @@ pub(crate) fn prepare_effects(
     let mut position_code = String::default();
     let mut force_field_code = String::default();
     let mut lifetime_code = String::default();
+    let mut z_sort_key_2d = FloatOrd(f32::NAN);
 
     for (slice, extracted_effect) in effect_entity_list {
         let buffer_index = slice.group_index;
@@ -1017,16 +1031,31 @@ pub(crate) fn prepare_effects(
             LayoutFlags::NONE
         };
         image_handle_id = extracted_effect.image_handle_id;
-        trace!("Effect: buffer #{} | range {:?}", buffer_index, range);
+        trace!(
+            "Effect: buffer #{} | range {:?} | z_sort_key_2d {:?}",
+            buffer_index,
+            range,
+            extracted_effect.z_sort_key_2d
+        );
 
         // Check the buffer the effect is in
         assert!(buffer_index >= current_buffer_index || current_buffer_index == u32::MAX);
-        if current_buffer_index != buffer_index {
-            trace!(
-                "+ New buffer! ({} -> {})",
-                current_buffer_index,
-                buffer_index
-            );
+        // FIXME - This breaks batches in 3D even though the Z sort key is only for 2D.
+        // Do we need separate batches for 2D and 3D? :'(
+        if current_buffer_index != buffer_index || z_sort_key_2d != extracted_effect.z_sort_key_2d {
+            if current_buffer_index != buffer_index {
+                trace!(
+                    "+ New buffer! ({} -> {})",
+                    current_buffer_index,
+                    buffer_index
+                );
+            } else {
+                trace!(
+                    "+ New Z sort key! ({:?} -> {:?})",
+                    z_sort_key_2d,
+                    extracted_effect.z_sort_key_2d
+                );
+            }
             // Commit previous buffer if any
             if current_buffer_index != u32::MAX {
                 // Record open batch if any
@@ -1035,12 +1064,13 @@ pub(crate) fn prepare_effects(
                     assert_ne!(asset, Handle::<EffectAsset>::default());
                     assert!(item_size > 0);
                     trace!(
-                        "Emit batch: buffer #{} | spawner_base {} | slice {:?} | item_size {} | shader {:?}",
+                        "Emit batch: buffer #{} | spawner_base {} | slice {:?} | item_size {} | shader {:?} | z_sort_key_2d {:?}",
                         current_buffer_index,
                         spawner_base,
                         start..end,
                         item_size,
-                        shader
+                        shader,
+                        z_sort_key_2d,
                     );
                     commands.spawn_bundle((EffectBatch {
                         buffer_index: current_buffer_index,
@@ -1055,6 +1085,7 @@ pub(crate) fn prepare_effects(
                         force_field_code: force_field_code.clone(),
                         lifetime_code: lifetime_code.clone(),
                         compute_pipeline: None,
+                        z_sort_key_2d,
                     },));
                     num_emitted += 1;
                 }
@@ -1070,6 +1101,7 @@ pub(crate) fn prepare_effects(
             // FIXME - Currently this means same effect asset, so things are easier...
             asset = extracted_effect.handle.clone_weak();
             item_size = slice.item_size;
+            z_sort_key_2d = extracted_effect.z_sort_key_2d;
         }
 
         assert_ne!(asset, Handle::<EffectAsset>::default());
@@ -1087,6 +1119,8 @@ pub(crate) fn prepare_effects(
 
         lifetime_code = extracted_effect.lifetime_code.clone();
         trace!("lifetime_code = {}", lifetime_code);
+
+        trace!("z_sort_key_2d = {:?}", z_sort_key_2d);
 
         // extract the force field and turn it into a struct that is compliant with
         // Std430, namely ForceFieldStd430
@@ -1138,6 +1172,7 @@ pub(crate) fn prepare_effects(
                     force_field_code: force_field_code.clone(),
                     lifetime_code: lifetime_code.clone(),
                     compute_pipeline: None,
+                    z_sort_key_2d,
                 },));
                 num_emitted += 1;
             }
@@ -1172,6 +1207,7 @@ pub(crate) fn prepare_effects(
             force_field_code,
             lifetime_code,
             compute_pipeline: None,
+            z_sort_key_2d,
         },));
         num_emitted += 1;
     }
@@ -1482,7 +1518,7 @@ pub(crate) fn queue_effects(
                     draw_function: draw_effects_function_2d,
                     pipeline: render_pipeline_id,
                     entity,
-                    sort_key: FloatOrd(0.0),
+                    sort_key: batch.z_sort_key_2d,
                     batch_range: None,
                 });
             }

@@ -1,7 +1,8 @@
 use bevy::{
     asset::{AssetLoader, Handle, LoadContext, LoadedAsset},
+    ecs::reflect::ReflectResource,
     math::{Vec2, Vec3, Vec4},
-    reflect::TypeUuid,
+    reflect::{Reflect, TypeUuid},
     render::texture::Image,
     utils::BoxedFuture,
 };
@@ -58,7 +59,8 @@ pub struct RenderLayout {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Default, Serialize, Deserialize, TypeUuid)]
+#[derive(Default, Clone, Serialize, Deserialize, Reflect, TypeUuid)]
+#[reflect(Resource)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.
@@ -69,17 +71,28 @@ pub struct EffectAsset {
     pub spawner: Spawner,
     /// Layout describing the particle initialize code.
     #[serde(skip)] // TODO
+    #[reflect(ignore)] // TODO?
     pub init_layout: InitLayout,
     /// Layout describing the particle update code.
     #[serde(skip)] // TODO
+    #[reflect(ignore)] // TODO?
     pub update_layout: UpdateLayout,
     /// Layout describing the particle rendering code.
     #[serde(skip)] // TODO
+    #[reflect(ignore)] // TODO?
     pub render_layout: RenderLayout,
+    /// For 2D rendering, the Z coordinate used as the sort key.
+    ///
+    /// This value is passed to the render pipeline and used when sorting
+    /// transparent items to render, to order them. As a result, effects
+    /// with different Z values cannot be batched together, which may
+    /// negatively affect performance.
+    ///
+    /// Ignored for 3D rendering.
+    pub z_layer_2d: f32,
+    //#[serde(skip)] // TODO
+    //modifiers: Vec<Box<dyn Modifier + Send + Sync + 'static>>,
 }
-///
-//#[serde(skip)] // TODO
-//modifiers: Vec<Box<dyn Modifier + Send + Sync + 'static>>,
 
 impl EffectAsset {
     /// Add an initialization modifier to the effect.

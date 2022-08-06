@@ -1,3 +1,4 @@
+use bevy::reflect::Reflect;
 use rand::{
     distributions::{uniform::SampleUniform, Distribution, Uniform},
     SeedableRng,
@@ -65,17 +66,20 @@ impl<T: Copy> From<T> for Value<T> {
 }
 
 /// Spawner defining how new particles are created.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Reflect)]
 pub struct Spawner {
     /// Number of particles to spawn over `spawn_time`
+    #[reflect(ignore)] // TODO
     num_particles: Value<f32>,
 
     /// Time over which to spawn `num_particles`, in seconds
+    #[reflect(ignore)] // TODO
     spawn_time: Value<f32>,
 
     /// Time between bursts of the particle system, in seconds.
     /// If this is infinity, there's only one burst.
     /// If this is `spawn_time`, the system spawns a steady stream of particles.
+    #[reflect(ignore)] // TODO
     period: Value<f32>,
 
     /// Time since last spawn.

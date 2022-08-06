@@ -21,7 +21,7 @@ use crate::{
         PARTICLES_UPDATE_SHADER_HANDLE,
     },
     spawn::{self, Random},
-    tick_spawners,
+    tick_spawners, ParticleEffect,
 };
 
 pub mod draw_graph {
@@ -63,7 +63,8 @@ impl Plugin for HanabiPlugin {
         shaders.set_untracked(PARTICLES_RENDER_SHADER_HANDLE, render_shader);
 
         // Register the component reflection
-        //app.register_type::<ParticleEffect>();
+        app.register_type::<EffectAsset>();
+        app.register_type::<ParticleEffect>();
 
         let render_device = app.world.get_resource::<RenderDevice>().unwrap();
         let effects_meta = EffectsMeta::new(render_device.clone());
@@ -180,20 +181,3 @@ impl Plugin for HanabiPlugin {
         }
     }
 }
-
-// pub fn hanabi_spawn(
-//     time: Res<Time>,
-//     mut query: Query<(&mut ParticleEffect, &mut SpawnState, &mut
-// UpdateState)>, ) {
-//     for (ref mut effect, ref mut spawn_state, ref mut state) in
-// query.iter_mut() {         effect
-//             .spawner
-//             .spawn(spawn_state, state, time.delta_seconds());
-//     }
-// }
-
-// pub fn hanabi_update(time: Res<Time>, mut query: Query<(&mut ParticleEffect,
-// &mut UpdateState)>) {     for (ref mut effect, ref mut motion) in
-// query.iter_mut() {         effect.updater.update(motion,
-// time.delta_seconds());     }
-// }

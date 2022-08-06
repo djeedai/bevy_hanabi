@@ -80,7 +80,7 @@
 //! }
 //! ```
 
-use bevy::{prelude::*, reflect::TypeUuid};
+use bevy::prelude::*;
 use std::fmt::Write as _; // import without risk of name clashing
 
 mod asset;
@@ -197,22 +197,36 @@ impl ToWgslString for Value<f32> {
 /// effect. The visual effect itself is described by a handle to an
 /// [`EffectAsset`]. This instance is associated to an [`Entity`], inheriting
 /// its [`Transform`] as the origin frame for its particle spawning.
-#[derive(Debug, Clone, Component, TypeUuid)]
-#[uuid = "c48df8b5-7eca-4d25-831e-513c2575cf6c"]
+#[derive(Debug, Default, Clone, Component, Reflect)]
+#[reflect(Component)]
 pub struct ParticleEffect {
     /// Handle of the effect to instantiate.
     handle: Handle<EffectAsset>,
+    /// For 2D rendering, override the value of the Z coordinate of the layer at
+    /// which the particles are rendered present in the effect asset.
+    ///
+    /// This value is passed to the render pipeline and used when sorting
+    /// transparent items to render, to order them. As a result, effects
+    /// with different Z values cannot be batched together, which may
+    /// negatively affect performance.
+    ///
+    /// Ignored for 3D rendering.
+    z_layer_2d: Option<f32>,
     /// Internal effect cache ID of the effect once allocated.
+    #[reflect(ignore)]
     effect: EffectCacheId,
     /// Particle spawning descriptor.
+    #[reflect(ignore)]
     spawner: Option<Spawner>,
     /// Handle to the configured shader for his effect instance, if configured.
+    #[reflect(ignore)]
     configured_shader: Option<Handle<Shader>>,
 
     // bunch of stuff that should move, which we store here temporarily between tick_spawners()
     // ticking the spawner and the extract/prepare/queue render stages consuming them.
     spawn_count: u32,
     accel: Vec3,
+    #[reflect(ignore)]
     force_field: [ForceFieldParam; FFNUM],
     position_code: String,
     force_field_code: String,
@@ -224,6 +238,7 @@ impl ParticleEffect {
     pub fn new(handle: Handle<EffectAsset>) -> Self {
         ParticleEffect {
             handle,
+            z_layer_2d: None,
             effect: EffectCacheId::INVALID,
             spawner: None,
             configured_shader: None,
@@ -235,6 +250,12 @@ impl ParticleEffect {
             force_field_code: String::default(),
             lifetime_code: String::default(),
         }
+    }
+
+    ///
+    pub fn with_z_layer_2d(mut self, z_layer_2d: Option<f32>) -> Self {
+        self.z_layer_2d = z_layer_2d;
+        self
     }
 
     /// Sets the spawner of this particle effect.

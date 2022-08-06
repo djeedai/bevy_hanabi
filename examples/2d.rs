@@ -1,4 +1,8 @@
 //! A particle system with a 2D camera.
+//!
+//! The particle effect instance override its `z_layer_2d` field, which can be
+//! tweaked at runtime via the egui inspector to move the 2D rendering layer of
+//! particle above or below the reference square.
 
 use bevy::{
     prelude::*,
@@ -37,36 +41,42 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
+    // Spawn a 2D camera
     let mut camera = Camera2dBundle::default();
     camera.projection.scale = 1.0;
     camera.projection.scaling_mode = ScalingMode::FixedVertical(1.);
-    //camera.transform.translation.z = camera.projection.far / 2.0;
     commands.spawn_bundle(camera);
 
-    let mut ball = commands.spawn_bundle(MaterialMesh2dBundle {
-        mesh: meshes
-            .add(Mesh::from(shape::Quad {
-                size: Vec2::splat(0.1),
+    // Spawn a reference white square in the center of the screen at Z=0
+    commands
+        .spawn_bundle(MaterialMesh2dBundle {
+            mesh: meshes
+                .add(Mesh::from(shape::Quad {
+                    size: Vec2::splat(0.2),
+                    ..Default::default()
+                }))
+                .into(),
+            material: materials.add(ColorMaterial {
+                color: Color::WHITE,
                 ..Default::default()
-            }))
-            .into(),
-        material: materials.add(ColorMaterial {
-            color: Color::WHITE,
+            }),
             ..Default::default()
-        }),
-        ..Default::default()
-    });
-    ball.insert(Name::new("ball"));
+        })
+        .insert(Name::new("square"));
 
+    // Create a color gradient for the particles
     let mut gradient = Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.5, 0.5, 1.0, 0.0));
 
+    // Create a new effect asset spawning 30 particles per scond from a circle
+    // and slowly fading from blue-ish to transparent over their lifetime.
+    // By default the asset spawns the particles at Z=0.
     let spawner = Spawner::rate(30.0.into());
     let effect = effects.add(
         EffectAsset {
             name: "Effect".into(),
-            capacity: 32768,
+            capacity: 4096,
             spawner,
             ..Default::default()
         }
@@ -82,8 +92,13 @@ fn setup(
         .render(ColorOverLifetimeModifier { gradient }),
     );
 
-    ball.with_children(|node| {
-        node.spawn_bundle(ParticleEffectBundle::new(effect).with_spawner(spawner))
-            .insert(Name::new("effect:2d"));
-    });
+    // Spawn an instance of the particle effect, and override its Z layer to
+    // be above the reference white square previously spawned.
+    commands
+        .spawn_bundle(ParticleEffectBundle {
+            // Assign the Z layer so it appears in the egui inspector and can be modified at runtime
+            effect: ParticleEffect::new(effect).with_z_layer_2d(Some(0.1)),
+            ..default()
+        })
+        .insert(Name::new("effect:2d"));
 }
