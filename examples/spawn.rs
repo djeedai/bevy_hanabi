@@ -6,7 +6,7 @@ use bevy::{
         settings::{WgpuLimits, WgpuSettings},
     },
 };
-//use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_hanabi::*;
 
@@ -35,12 +35,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .insert_resource(options)
         .insert_resource(bevy::log::LogSettings {
             level: bevy::log::Level::WARN,
-            filter: "bevy_hanabi=error,spawn=trace".to_string(),
+            filter: "bevy_hanabi=warn,spawn=trace".to_string(),
         })
         .add_plugins(DefaultPlugins)
-        .add_system(bevy::input::system::exit_on_esc_system)
+        .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
-        //.add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .run();
 
@@ -53,7 +53,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = PerspectiveCameraBundle::new_3d();
+    let mut camera = Camera3dBundle::default();
     camera.transform.translation = Vec3::new(0.0, 0.0, 100.0);
     commands.spawn_bundle(camera);
 

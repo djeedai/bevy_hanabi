@@ -249,7 +249,7 @@ impl UpdateModifier for AccelModifier {
 }
 
 /// Parameters for the components making the force field.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct ForceFieldParam {
     /// Position of the source of the force field.
     pub position: Vec3,

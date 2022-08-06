@@ -5,7 +5,7 @@ use bevy::{
     render::{camera::ScalingMode, render_resource::WgpuFeatures, settings::WgpuSettings},
     sprite::MaterialMesh2dBundle,
 };
-//use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_hanabi::*;
 
@@ -19,12 +19,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .insert_resource(options)
         .insert_resource(bevy::log::LogSettings {
             level: bevy::log::Level::WARN,
-            filter: "bevy_hanabi=error,spawn=trace".to_string(),
+            filter: "bevy_hanabi=warn,spawn=trace".to_string(),
         })
         .add_plugins(DefaultPlugins)
-        .add_system(bevy::input::system::exit_on_esc_system)
+        .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
-        //.add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .run();
 
@@ -37,10 +37,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let mut camera = OrthographicCameraBundle::new_2d();
-    camera.orthographic_projection.scale = 1.0;
-    camera.orthographic_projection.scaling_mode = ScalingMode::FixedVertical;
-    //camera.transform.translation.z = camera.orthographic_projection.far / 2.0;
+    let mut camera = Camera2dBundle::default();
+    camera.projection.scale = 1.0;
+    camera.projection.scaling_mode = ScalingMode::FixedVertical(1.);
+    //camera.transform.translation.z = camera.projection.far / 2.0;
     commands.spawn_bundle(camera);
 
     let mut ball = commands.spawn_bundle(MaterialMesh2dBundle {

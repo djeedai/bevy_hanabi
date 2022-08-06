@@ -10,6 +10,7 @@ use bytemuck::cast_slice_mut;
 use copyless::VecHelper;
 
 // TODO - filler for usize.next_multiple_of()
+// https://github.com/rust-lang/rust/issues/88581
 fn next_multiple_of(value: usize, align: usize) -> usize {
     let count = (value + align - 1) / align;
     count * align
@@ -234,16 +235,23 @@ mod gpu_tests {
         // need a submit() for write_buffer() to be processed
         queue.submit([command_buffer]);
         device.poll(wgpu::Maintain::Wait);
-        pollster::block_on(queue.on_submitted_work_done());
+        let (tx, rx) = futures::channel::oneshot::channel();
+        queue.on_submitted_work_done(move || {
+            tx.send(()).unwrap();
+        });
+        let _ = futures::executor::block_on(async { rx.await });
         println!("Buffer written");
 
         // Read back (GPU -> CPU)
         let buffer = abv.buffer();
         let buffer = buffer.as_ref().expect("Buffer was not allocated");
         let buffer = buffer.slice(..);
-        let fut = buffer.map_async(wgpu::MapMode::Read);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        buffer.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
         device.poll(wgpu::Maintain::Wait);
-        pollster::block_on(fut).expect("Failed to map");
+        let _result = futures::executor::block_on(async { rx.await });
         let view = buffer.get_mapped_range();
 
         // Validate content

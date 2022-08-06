@@ -6,12 +6,14 @@ use bevy::{
 };
 use std::hash::Hash;
 
+///
 #[derive(Default)]
 pub struct PipelineRegistry {
     cache: HashMap<String, Handle<Shader>>,
 }
 
 impl PipelineRegistry {
+    ///
     pub fn configure(&mut self, source: &str, shaders: &mut Assets<Shader>) -> Handle<Shader> {
         if let Some(handle) = self.cache.get(source) {
             handle.clone()

@@ -1,6 +1,6 @@
 use bevy::{
-    core::FloatOrd,
     math::{Quat, Vec2, Vec3, Vec3A, Vec4},
+    utils::FloatOrd,
 };
 use std::vec::Vec;
 

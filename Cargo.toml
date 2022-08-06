@@ -32,20 +32,19 @@ ron = "0.7"
 bitflags = "1.3"
 
 [dependencies.bevy]
-version = "0.7"
+version = "0.8"
 default-features = false
-features = [ "bevy_core_pipeline", "bevy_render" ]
+features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset" ]
 
 [package.metadata.docs.rs]
 all-features = true
 
 [dev-dependencies]
-# Same version as Bevy 0.7
-wgpu = "0.12"
-# Same version as wgpu 0.12
-pollster = "0.2"
+# Same version as Bevy 0.8
+wgpu = "0.13.1"
 
-#bevy-inspector-egui = "0.8"
+futures = "0.3"
+bevy-inspector-egui = "0.12"
 #smooth-bevy-cameras = "0.2"
 
 [[example]]
