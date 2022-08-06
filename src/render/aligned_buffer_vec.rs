@@ -118,8 +118,7 @@ impl<T: Pod> AlignedBufferVec<T> {
         if let Some(buffer) = &self.buffer {
             let aligned_size = self.aligned_size * self.values.len();
             trace!("aligned_buffer: size={}", aligned_size);
-            let mut aligned_buffer: Vec<u8> = Vec::with_capacity(aligned_size);
-            aligned_buffer.resize(aligned_size, 0);
+            let mut aligned_buffer: Vec<u8> = vec![0; aligned_size];
             for i in 0..self.values.len() {
                 let src: &[u8] = cast_slice(std::slice::from_ref(&self.values[i]));
                 let dst_offset = i * self.aligned_size;

@@ -81,6 +81,7 @@
 //! ```
 
 use bevy::{prelude::*, reflect::TypeUuid};
+use std::fmt::Write as _; // import without risk of name clashing
 
 mod asset;
 mod bundle;
@@ -93,7 +94,7 @@ mod spawn;
 #[cfg(test)]
 mod test_utils;
 
-pub use asset::{EffectAsset, InitLayout, UpdateLayout};
+pub use asset::{EffectAsset, InitLayout, RenderLayout, UpdateLayout};
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifiers::{
@@ -324,7 +325,7 @@ impl ShaderCode for Gradient<Vec2> {
                     )
                 })
                 .fold(s, |s, key| s + &key);
-            s += &format!("else {{ size = v{}; }}\n", self.keys().len() - 1);
+            let _ = writeln!(s, "else {{ size = v{}; }}", self.keys().len() - 1);
             s
         }
     }
@@ -366,7 +367,7 @@ impl ShaderCode for Gradient<Vec4> {
                     )
                 })
                 .fold(s, |s, key| s + &key);
-            s += &format!("else {{ out.color = c{}; }}\n", self.keys().len() - 1);
+            let _ = writeln!(s, "else {{ out.color = c{}; }}", self.keys().len() - 1);
             s
         }
     }

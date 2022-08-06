@@ -36,15 +36,18 @@ pub struct UpdateLayout {
     pub force_field: [ForceFieldParam; FFNUM],
 }
 
+/// Struct containing data and snippets of WSGL code that can be used
+/// to render the particles every frame on the GPU.
 #[derive(Default, Clone)]
 pub struct RenderLayout {
     /// If set, defines the PARTICLE_TEXTURE shader key and extend the vertex
     /// format to contain UV coordinates. Also make available the image as a
     /// 2D texture and sampler in the render shaders.
     pub particle_texture: Option<Handle<Image>>,
-
+    /// Optional color gradient used to vary the particle color over its
+    /// lifetime.
     pub lifetime_color_gradient: Option<Gradient<Vec4>>,
-
+    /// Optional size gradient used to vary the particle size over its lifetime.
     pub size_color_gradient: Option<Gradient<Vec2>>,
 }
 
@@ -64,13 +67,13 @@ pub struct EffectAsset {
     pub capacity: u32,
     /// Spawner.
     pub spawner: Spawner,
-    ///
+    /// Layout describing the particle initialize code.
     #[serde(skip)] // TODO
     pub init_layout: InitLayout,
-    ///
+    /// Layout describing the particle update code.
     #[serde(skip)] // TODO
     pub update_layout: UpdateLayout,
-    ///
+    /// Layout describing the particle rendering code.
     #[serde(skip)] // TODO
     pub render_layout: RenderLayout,
 }
