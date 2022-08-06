@@ -371,7 +371,7 @@ impl ShaderCode for Gradient<Vec4> {
 }
 
 /// Tick all the spawners of the visible [`ParticleEffect`] components.
-/// 
+///
 /// This system runs in the [`CoreStage::PostUpdate`] stage, after the visibility system has updated
 /// the [`ComputedVisibility`] of each effect instance (see [`VisibilitySystems::CheckVisibility`]).
 /// Hidden instances are not updated.

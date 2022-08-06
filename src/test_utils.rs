@@ -11,12 +11,13 @@ impl MockRenderer {
     pub fn new() -> Self {
         // Create the WGPU adapter
         let instance = wgpu::Instance::new(wgpu::Backends::all());
-        let adapter = futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::default(),
-            force_fallback_adapter: false,
-            compatible_surface: None,
-        }))
-        .expect("Failed to find an appropriate adapter");
+        let adapter =
+            futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            }))
+            .expect("Failed to find an appropriate adapter");
 
         // Create the logical device and command queue
         let (device, queue) = futures::executor::block_on(adapter.request_device(
