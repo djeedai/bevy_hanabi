@@ -10,6 +10,7 @@ use bytemuck::cast_slice_mut;
 use copyless::VecHelper;
 
 // TODO - filler for usize.next_multiple_of()
+// https://github.com/rust-lang/rust/issues/88581
 fn next_multiple_of(value: usize, align: usize) -> usize {
     let count = (value + align - 1) / align;
     count * align

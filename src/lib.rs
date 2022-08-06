@@ -206,7 +206,7 @@ pub struct ParticleEffect {
     /// Handle to the configured shader for his effect instance, if configured.
     configured_shader: Option<Handle<Shader>>,
 
-    // bunch of stuff that should move, which we store here temporarily between update_shaders()
+    // bunch of stuff that should move, which we store here temporarily between tick_spawners()
     // ticking the spawner and the extract/prepare/queue render stages consuming them.
     spawn_count: u32,
     accel: Vec3,
@@ -370,7 +370,12 @@ impl ShaderCode for Gradient<Vec4> {
     }
 }
 
-fn update_shaders(
+/// Tick all the spawners of the visible [`ParticleEffect`] components.
+/// 
+/// This system runs in the [`CoreStage::PostUpdate`] stage, after the visibility system has updated
+/// the [`ComputedVisibility`] of each effect instance (see [`VisibilitySystems::CheckVisibility`]).
+/// Hidden instances are not updated.
+fn tick_spawners(
     time: Res<Time>,
     effects: Res<Assets<EffectAsset>>,
     mut shaders: ResMut<Assets<Shader>>,
@@ -386,10 +391,9 @@ fn update_shaders(
         Query<&mut ParticleEffect, Changed<ParticleEffect>>,
     )>,
 ) {
-    trace!("update_shaders");
+    trace!("tick_spawners");
 
-    // Clear configured shaders if the effect changed
-    // TODO - also clear if the template shader itself (the asset) changed!
+    // Clear configured shaders if the effect changed (usually due to changes in modifiers)
     for mut effect in query.p1().iter_mut() {
         effect.configured_shader = None;
     }
@@ -398,79 +402,87 @@ fn update_shaders(
 
     // Loop over all existing effects to update them
     for (computed_visibility, mut effect) in query.p0().iter_mut() {
-        // Check if visible
+        // Check if visible. Hidden effects are entirely skipped for performance reasons.
         if !computed_visibility.is_visible() {
             continue;
         }
 
-        // Check if already configured
-        // if effect.configured_shader.is_some() {
-        //     continue;
-        // }
-
-        // Check if asset is available, otherwise silently ignore
-        let asset = if let Some(asset) = effects.get(&effect.handle) {
-            asset
+        // Assign asset if not already done
+        let spawner = if let Some(spawner) = effect.maybe_spawner() {
+            spawner
         } else {
-            continue;
+            // Check if asset is available, otherwise silently ignore
+            let asset = if let Some(asset) = effects.get(&effect.handle) {
+                asset
+            } else {
+                continue;
+            };
+
+            effect.spawner(&asset.spawner)
         };
 
         // Tick the effect's spawner to determine the spawn count for this frame
-        let spawner = effect.spawner(&asset.spawner);
         let spawn_count = spawner.tick(dt, &mut rng.0);
 
-        // Extract the acceleration
-        let accel = asset.update_layout.accel;
-        let force_field = asset.update_layout.force_field;
+        // TEMP
+        effect.spawn_count = spawn_count;
 
-        // Generate the shader code for the position initializing of newly emitted particles
-        // TODO - Move that to a pre-pass, not each frame!
-        let position_code = &asset.init_layout.position_code;
-        let position_code = if position_code.is_empty() {
-            DEFAULT_POSITION_CODE.to_owned()
-        } else {
-            position_code.clone()
-        };
+        // Lazily configure shader on first use (or after some changes occurred)
+        if effect.configured_shader.is_none() {
+            let asset = effects.get(&effect.handle).unwrap(); // must succeed since it did above
 
-        // Generate the shader code for the lifetime initializing of newly emitted particles
-        // TODO - Move that to a pre-pass, not each frame!
-        let lifetime_code = &asset.init_layout.lifetime_code;
-        let lifetime_code = if lifetime_code.is_empty() {
-            DEFAULT_LIFETIME_CODE.to_owned()
-        } else {
-            lifetime_code.clone()
-        };
+            // Extract the acceleration
+            let accel = asset.update_layout.accel;
+            let force_field = asset.update_layout.force_field;
 
-        // Generate the shader code for the force field of newly emitted particles
-        // TODO - Move that to a pre-pass, not each frame!
-        // let force_field_code = &asset.init_layout.force_field_code;
-        // let force_field_code = if force_field_code.is_empty() {
-        let force_field_code = if 0.0 == asset.update_layout.force_field[0].force_exponent {
-            DEFAULT_FORCE_FIELD_CODE.to_owned()
-        } else {
-            FORCE_FIELD_CODE.to_owned()
-        };
+            // Generate the shader code for the position initializing of newly emitted particles
+            // TODO - Move that to a pre-pass, not each frame!
+            let position_code = &asset.init_layout.position_code;
+            let position_code = if position_code.is_empty() {
+                DEFAULT_POSITION_CODE.to_owned()
+            } else {
+                position_code.clone()
+            };
 
-        // Generate the shader code for the color over lifetime gradient.
-        // TODO - Move that to a pre-pass, not each frame!
-        let mut vertex_modifiers = if let Some(grad) = &asset.render_layout.lifetime_color_gradient
-        {
-            grad.to_shader_code()
-        } else {
-            String::new()
-        };
-        if let Some(grad) = &asset.render_layout.size_color_gradient {
-            vertex_modifiers += &grad.to_shader_code();
-        }
-        trace!("vertex_modifiers={}", vertex_modifiers);
+            // Generate the shader code for the lifetime initializing of newly emitted particles
+            // TODO - Move that to a pre-pass, not each frame!
+            let lifetime_code = &asset.init_layout.lifetime_code;
+            let lifetime_code = if lifetime_code.is_empty() {
+                DEFAULT_LIFETIME_CODE.to_owned()
+            } else {
+                lifetime_code.clone()
+            };
 
-        // Configure the shader template, and make sure a corresponding shader asset exists
-        let shader_source =
-            PARTICLES_RENDER_SHADER_TEMPLATE.replace("{{VERTEX_MODIFIERS}}", &vertex_modifiers);
-        let shader = pipeline_registry.configure(&shader_source, &mut shaders);
+            // Generate the shader code for the force field of newly emitted particles
+            // TODO - Move that to a pre-pass, not each frame!
+            // let force_field_code = &asset.init_layout.force_field_code;
+            // let force_field_code = if force_field_code.is_empty() {
+            let force_field_code = if 0.0 == asset.update_layout.force_field[0].force_exponent {
+                DEFAULT_FORCE_FIELD_CODE.to_owned()
+            } else {
+                FORCE_FIELD_CODE.to_owned()
+            };
 
-        trace!(
-                "update_shaders: handle={:?} shader={:?} has_image={} position_code={} force_field_code={} lifetime_code={}",
+            // Generate the shader code for the color over lifetime gradient.
+            // TODO - Move that to a pre-pass, not each frame!
+            let mut vertex_modifiers =
+                if let Some(grad) = &asset.render_layout.lifetime_color_gradient {
+                    grad.to_shader_code()
+                } else {
+                    String::new()
+                };
+            if let Some(grad) = &asset.render_layout.size_color_gradient {
+                vertex_modifiers += &grad.to_shader_code();
+            }
+            trace!("vertex_modifiers={}", vertex_modifiers);
+
+            // Configure the shader template, and make sure a corresponding shader asset exists
+            let shader_source =
+                PARTICLES_RENDER_SHADER_TEMPLATE.replace("{{VERTEX_MODIFIERS}}", &vertex_modifiers);
+            let shader = pipeline_registry.configure(&shader_source, &mut shaders);
+
+            trace!(
+                "tick_spawners: handle={:?} shader={:?} has_image={} position_code={} force_field_code={} lifetime_code={}",
                 effect.handle,
                 shader,
                 if asset.render_layout.particle_texture.is_some() {
@@ -483,15 +495,15 @@ fn update_shaders(
                 lifetime_code,
             );
 
-        effect.configured_shader = Some(shader);
+            effect.configured_shader = Some(shader);
 
-        // TEMP
-        effect.spawn_count = spawn_count;
-        effect.accel = accel;
-        effect.force_field = force_field;
-        effect.position_code = position_code;
-        effect.force_field_code = force_field_code;
-        effect.lifetime_code = lifetime_code;
+            // TEMP
+            effect.accel = accel;
+            effect.force_field = force_field;
+            effect.position_code = position_code;
+            effect.force_field_code = force_field_code;
+            effect.lifetime_code = lifetime_code;
+        }
     }
 }
 

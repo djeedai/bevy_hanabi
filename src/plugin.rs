@@ -21,7 +21,7 @@ use crate::{
         PARTICLES_UPDATE_SHADER_HANDLE,
     },
     spawn::{self, Random},
-    update_shaders,
+    tick_spawners,
 };
 
 pub mod draw_graph {
@@ -44,8 +44,8 @@ impl Plugin for HanabiPlugin {
             .init_asset_loader::<EffectAssetLoader>()
             .add_system_to_stage(
                 CoreStage::PostUpdate,
-                update_shaders
-                    .label(EffectSystems::UpdateShaders)
+                tick_spawners
+                    .label(EffectSystems::TickSpawners)
                     // This checks the visibility to skip shader work, so needs to run
                     // after ComputedVisibility was updated.
                     .after(VisibilitySystems::CheckVisibility),

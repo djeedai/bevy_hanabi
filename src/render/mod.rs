@@ -68,7 +68,7 @@ const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("particles_update.wg
 pub enum EffectSystems {
     /// Tick all effect instances to generate spawner counts, and configure
     /// shaders based on modifiers.
-    UpdateShaders,
+    TickSpawners,
     /// Extract the effects to render this frame.
     ExtractEffects,
     /// Extract the effect events to process this frame.
@@ -704,7 +704,7 @@ pub(crate) fn extract_effects(
             continue;
         };
 
-        // TEMP - see update_shaders()
+        // TEMP - see tick_spawners()
         let spawn_count = effect.spawn_count;
         let accel = effect.accel;
         let force_field = effect.force_field;
