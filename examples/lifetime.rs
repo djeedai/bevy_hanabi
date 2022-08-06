@@ -2,6 +2,8 @@ use bevy::{
     prelude::*,
     render::{mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings},
 };
+use bevy_inspector_egui::WorldInspectorPlugin;
+
 use bevy_hanabi::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,6 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugins(DefaultPlugins)
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
+        .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .run();
 
@@ -31,7 +34,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = PerspectiveCameraBundle::new_3d();
+    let mut camera = Camera3dBundle::default();
     camera.transform.translation = Vec3::new(0.0, 0.0, 180.0);
     commands.spawn_bundle(camera);
 
@@ -74,7 +77,7 @@ fn setup(
 
     commands
         .spawn()
-        .insert(Name::new("emit:burst"))
+        .insert(Name::new("burst 12s"))
         .insert_bundle(ParticleEffectBundle {
             effect: ParticleEffect::new(effect1),
             transform: Transform::from_translation(Vec3::new(-50., 0., 0.)),
@@ -112,7 +115,7 @@ fn setup(
 
     commands
         .spawn()
-        .insert(Name::new("emit:burst"))
+        .insert(Name::new("burst 3s"))
         .insert_bundle(ParticleEffectBundle {
             effect: ParticleEffect::new(effect2),
             transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
@@ -150,7 +153,7 @@ fn setup(
 
     commands
         .spawn()
-        .insert(Name::new("emit:burst"))
+        .insert(Name::new("burst 0.75s"))
         .insert_bundle(ParticleEffectBundle {
             effect: ParticleEffect::new(effect3),
             transform: Transform::from_translation(Vec3::new(50., 0., 0.)),

@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
     render::{mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings},
 };
-//use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_hanabi::*;
 
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugins(DefaultPlugins)
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
-        //.add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .run();
 
@@ -40,7 +40,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = PerspectiveCameraBundle::new_3d();
+    let mut camera = Camera3dBundle::default();
     camera.transform.translation = Vec3::new(0.0, 0.0, 100.0);
     commands.spawn_bundle(camera);
 

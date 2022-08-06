@@ -4,9 +4,9 @@
 //! Mouse scroll wheel zooms the camera.
 use bevy::{
     prelude::*,
-    render::{render_resource::WgpuFeatures, settings::WgpuSettings},
+    render::{camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings},
 };
-//use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_hanabi::*;
 // use smooth_bevy_cameras::{
@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //.add_plugin(LookTransformPlugin)
         //.add_plugin(OrbitCameraPlugin::default())
         .add_plugin(HanabiPlugin)
-        //.add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .add_system(update)
         .run();
@@ -52,11 +52,11 @@ fn setup(
     // };
     // commands.spawn_bundle(OrbitCameraBundle::new(
     //     orbit_controller,
-    //     PerspectiveCameraBundle::default(),
+    //     Camera3dBundle::default(),
     //     Vec3::new(0.0, 0.0, 6.0), // eye of the camera
     //     Vec3::new(0., 0., 0.),
     // ));
-    let mut bundle = PerspectiveCameraBundle::new_3d();
+    let mut bundle = Camera3dBundle::default();
     bundle.transform.translation = Vec3::new(0.0, 0.0, 6.0);
     commands.spawn_bundle(bundle);
 
@@ -153,9 +153,9 @@ fn setup(
 }
 
 fn update(
-    mut effect: Query<(&mut ParticleEffect, &mut Transform), Without<PerspectiveProjection>>,
+    mut effect: Query<(&mut ParticleEffect, &mut Transform), Without<Projection>>,
     mouse_button_input: Res<Input<MouseButton>>,
-    camera_query: Query<&Transform, With<PerspectiveProjection>>,
+    camera_query: Query<&Transform, With<Projection>>,
     windows: Res<Windows>,
 ) {
     let (mut effect, mut effect_transform) = effect.single_mut();
@@ -164,21 +164,22 @@ fn update(
     let up = camera_transform.up();
     let right = camera_transform.right();
 
-    let window = windows.get_primary().unwrap();
+    if let Some(window) = windows.get_primary() {
+        if let Some(mouse_pos) = window.cursor_position() {
+            if mouse_button_input.just_pressed(MouseButton::Left) {
+                let screen_mouse_pos = (mouse_pos
+                    - Vec2::new(window.width(), window.height()) / 2.0)
+                    * camera_transform.translation.length()
+                    / 870.0; // investigate: why 870?
 
-    if let Some(mouse_pos) = window.cursor_position() {
-        if mouse_button_input.just_pressed(MouseButton::Left) {
-            let screen_mouse_pos = (mouse_pos - Vec2::new(window.width(), window.height()) / 2.0)
-                * camera_transform.translation.length()
-                / 870.0; // investigate: why 870?
+                // converts the mouse position to a position on the view plane centered at the origin.
+                let spawning_pos = screen_mouse_pos.x * right + screen_mouse_pos.y * up;
 
-            // converts the mouse position to a position on the view plane centered at the origin.
-            let spawning_pos = screen_mouse_pos.x * right + screen_mouse_pos.y * up;
+                effect_transform.translation = spawning_pos;
 
-            effect_transform.translation = spawning_pos;
-
-            // Spawn the particles
-            effect.maybe_spawner().unwrap().reset();
+                // Spawn the particles
+                effect.maybe_spawner().unwrap().reset();
+            }
         }
     }
 }

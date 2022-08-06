@@ -4,9 +4,13 @@
 use bevy::{
     math::Vec3Swizzles,
     prelude::*,
-    render::{render_resource::WgpuFeatures, settings::WgpuSettings},
+    render::{
+        camera::{Projection, ScalingMode},
+        render_resource::WgpuFeatures,
+        settings::WgpuSettings,
+    },
 };
-//use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_hanabi::*;
 
@@ -24,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugins(DefaultPlugins)
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
-        //.add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .add_system(update)
         .run();
@@ -46,9 +50,12 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = OrthographicCameraBundle::new_3d();
-    camera.orthographic_projection.scale = 1.2;
-    camera.transform.translation.z = camera.orthographic_projection.far / 2.0;
+    let mut camera = Camera3dBundle::default();
+    let mut projection = OrthographicProjection::default();
+    projection.scaling_mode = ScalingMode::FixedVertical(2.);
+    projection.scale = 1.2;
+    camera.transform.translation.z = projection.far / 2.0;
+    camera.projection = Projection::Orthographic(projection);
     commands.spawn_bundle(camera);
 
     commands
