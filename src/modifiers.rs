@@ -207,7 +207,8 @@ impl RenderModifier for ParticleTextureModifier {
     }
 }
 
-/// A modifier modulating each particle's color over its lifetime with a gradient curve.
+/// A modifier modulating each particle's color over its lifetime with a
+/// gradient curve.
 #[derive(Default, Clone)]
 pub struct ColorOverLifetimeModifier {
     /// The color gradient defining the particle color based on its lifetime.
@@ -220,7 +221,8 @@ impl RenderModifier for ColorOverLifetimeModifier {
     }
 }
 
-/// A modifier modulating each particle's size over its lifetime with a gradient curve.
+/// A modifier modulating each particle's size over its lifetime with a gradient
+/// curve.
 #[derive(Default, Clone)]
 pub struct SizeOverLifetimeModifier {
     /// The size gradient defining the particle size based on its lifetime.
@@ -238,7 +240,8 @@ impl RenderModifier for SizeOverLifetimeModifier {
 /// This is typically used to apply some kind of gravity.
 #[derive(Default, Clone, Copy)]
 pub struct AccelModifier {
-    /// The constant acceleration to apply to all particles in the effect each frame.
+    /// The constant acceleration to apply to all particles in the effect each
+    /// frame.
     pub accel: Vec3,
 }
 
@@ -257,16 +260,20 @@ pub struct ForceFieldParam {
     /// the force field is null.
     pub max_radius: f32,
     /// Minimum radius of the sphere of influence, inside of which
-    /// the force field is null, avoiding the singularity at the source position.
+    /// the force field is null, avoiding the singularity at the source
+    /// position.
     pub min_radius: f32,
-    /// The intensity of the force is proportional to mass. Note that the particles_update.wgsl shader will
-    /// ignore all subsequent force field components after it encounters a component with a mass of zero.
-    /// To change the force from an attracting one to a repulsive one, simply set the mass to a negative value.
+    /// The intensity of the force is proportional to mass. Note that the
+    /// particles_update.wgsl shader will ignore all subsequent force field
+    /// components after it encounters a component with a mass of zero.
+    /// To change the force from an attracting one to a repulsive one, simply
+    /// set the mass to a negative value.
     pub mass: f32,
     /// The force field is proportional to `1 / distance^force_exponent`.
     pub force_exponent: f32,
-    /// If set to true, the particles that enter within the `min_radius` will conform to a sphere around the
-    /// source position, appearing like a recharging effect.
+    /// If set to true, the particles that enter within the `min_radius` will
+    /// conform to a sphere around the source position, appearing like a
+    /// recharging effect.
     pub conform_to_sphere: bool,
 }
 
@@ -284,8 +291,9 @@ impl Default for ForceFieldParam {
     }
 }
 
-/// A modifier to apply a force field to all particles each frame. The force field is made up of
-/// point sources, also called 'components'. The maximum number of components is set with [`FFNUM`].
+/// A modifier to apply a force field to all particles each frame. The force
+/// field is made up of point sources, also called 'components'. The maximum
+/// number of components is set with [`FFNUM`].
 #[derive(Default, Clone, Copy)]
 pub struct ForceFieldModifier {
     /// Array of force field components.

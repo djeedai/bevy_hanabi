@@ -1,6 +1,5 @@
 //! A circle bobs up and down in the water,
 //! spawning square bubbles when in the water.
-//!
 use bevy::{
     prelude::*,
     render::{

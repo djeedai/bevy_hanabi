@@ -6,8 +6,8 @@ use std::vec::Vec;
 
 /// Describes a type that can be linearly interpolated between two keys.
 ///
-/// This trait is used for values in a gradient, which are primitive types and are
-/// therefore copyable.
+/// This trait is used for values in a gradient, which are primitive types and
+/// are therefore copyable.
 pub trait Lerp: Copy {
     fn lerp(self, other: Self, ratio: f32) -> Self;
 }
@@ -45,9 +45,10 @@ impl_lerp_vecn!(Vec4);
 
 impl Lerp for Quat {
     fn lerp(self, other: Self, ratio: f32) -> Self {
-        // We use slerp() instead of lerp() as conceptually we want a smooth interpolation
-        // and we expect Quat to be used to represent a rotation. lerp() would produce an
-        // interpolation with varying speed, which feels non-natural.
+        // We use slerp() instead of lerp() as conceptually we want a smooth
+        // interpolation and we expect Quat to be used to represent a rotation.
+        // lerp() would produce an interpolation with varying speed, which feels
+        // non-natural.
         self.slerp(other, ratio)
     }
 }
@@ -100,8 +101,8 @@ impl<T: Default + Lerp> Gradient<T> {
 impl<T: Lerp> Gradient<T> {
     /// Add a key point to the gradient.
     ///
-    /// If one or more duplicate ratios already exist, append the new key after all
-    /// the existing keys with same ratio.
+    /// If one or more duplicate ratios already exist, append the new key after
+    /// all the existing keys with same ratio.
     ///
     /// The ratio must be a finite floating point value.
     ///
@@ -116,8 +117,9 @@ impl<T: Lerp> Gradient<T> {
             .binary_search_by(|key| FloatOrd(key.ratio).cmp(&FloatOrd(ratio)))
         {
             Ok(mut index) => {
-                // When there are duplicate keys, binary_search_by() returns the index of an unspecified
-                // one. Make sure we insert always as the last duplicate one, for determinism.
+                // When there are duplicate keys, binary_search_by() returns the index of an
+                // unspecified one. Make sure we insert always as the last
+                // duplicate one, for determinism.
                 let len = self.keys.len();
                 while index + 1 < len && self.keys[index].ratio == self.keys[index + 1].ratio {
                     index += 1;
@@ -141,10 +143,11 @@ impl<T: Lerp> Gradient<T> {
 
     /// Sample the gradient at the given ratio.
     ///
-    /// If the ratio is exactly equal to those of one or more keys, sample the first key
-    /// in the collection. If the ratio falls between two keys, return a linear interpolation
-    /// of their values. If the ratio is before the first key or after the last one, return
-    /// the first and last value, respectively.
+    /// If the ratio is exactly equal to those of one or more keys, sample the
+    /// first key in the collection. If the ratio falls between two keys,
+    /// return a linear interpolation of their values. If the ratio is
+    /// before the first key or after the last one, return the first and
+    /// last value, respectively.
     ///
     /// # Panics
     ///
@@ -184,12 +187,13 @@ impl<T: Lerp> Gradient<T> {
 
     /// Sample the gradient at regular intervals.
     ///
-    /// Create a list of sample points starting at ratio `start` and spaced with `inc`
-    /// delta ratio. The number of samples is equal to the length of the `dst` slice.
-    /// Sample the gradient at all those points, and fill the `dst` slice with the
-    /// resulting values.
+    /// Create a list of sample points starting at ratio `start` and spaced with
+    /// `inc` delta ratio. The number of samples is equal to the length of
+    /// the `dst` slice. Sample the gradient at all those points, and fill
+    /// the `dst` slice with the resulting values.
     ///
-    /// This is equivalent to calling [`sample()`] in a loop, but is more efficient.
+    /// This is equivalent to calling [`sample()`] in a loop, but is more
+    /// efficient.
     ///
     /// [`sample()`]: Gradient::sample
     pub fn sample_by(&self, start: f32, inc: f32, dst: &mut [T]) {

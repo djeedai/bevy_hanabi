@@ -9,8 +9,8 @@ use std::hash::Hash;
 
 /// A compute pipeline specialized by a key.
 ///
-/// The compute pipeline is based on a source template, which is partially modified based
-/// on the key to produce a new specialization (variant).
+/// The compute pipeline is based on a source template, which is partially
+/// modified based on the key to produce a new specialization (variant).
 pub trait SpecializedComputePipeline {
     type Key: Clone + Hash + PartialEq + Eq;
 

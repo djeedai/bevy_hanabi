@@ -6,13 +6,15 @@ use bevy::prelude::*;
 pub struct ParticleEffectBundle {
     /// The particle effect itself.
     pub effect: ParticleEffect,
-    /// Transform of the entity, representing the frame of reference for the particle emission.
+    /// Transform of the entity, representing the frame of reference for the
+    /// particle emission.
     pub transform: Transform,
     /// Computed global transform.
     pub global_transform: GlobalTransform,
     /// User indication of whether an entity is visible.
     pub visibility: Visibility,
-    /// Algorithmically-computed indication of whether an entity is visible and should be extracted for rendering.
+    /// Algorithmically-computed indication of whether an entity is visible and
+    /// should be extracted for rendering.
     pub computed_visibility: ComputedVisibility,
 }
 

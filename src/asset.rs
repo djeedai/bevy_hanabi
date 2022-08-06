@@ -31,15 +31,16 @@ pub struct UpdateLayout {
     /// Constant accelereation to apply to all particles.
     /// Generally used to simulate some kind of gravity.
     pub accel: Vec3,
-    /// Array of force field components with a maximum number of components determined by [`FFNUM`].
+    /// Array of force field components with a maximum number of components
+    /// determined by [`FFNUM`].
     pub force_field: [ForceFieldParam; FFNUM],
 }
 
 #[derive(Default, Clone)]
 pub struct RenderLayout {
-    /// If set, defines the PARTICLE_TEXTURE shader key and extend the vertex format to contain
-    /// UV coordinates. Also make available the image as a 2D texture and sampler in the render
-    /// shaders.
+    /// If set, defines the PARTICLE_TEXTURE shader key and extend the vertex
+    /// format to contain UV coordinates. Also make available the image as a
+    /// 2D texture and sampler in the render shaders.
     pub particle_texture: Option<Handle<Image>>,
 
     pub lifetime_color_gradient: Option<Gradient<Vec4>>,
@@ -49,7 +50,8 @@ pub struct RenderLayout {
 
 /// Asset describing a visual effect.
 ///
-/// The effect can be instanciated with a [`ParticleEffect`] component, or a [`ParticleEffectBundle`].
+/// The effect can be instanciated with a [`ParticleEffect`] component, or a
+/// [`ParticleEffectBundle`].
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle

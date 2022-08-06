@@ -109,12 +109,13 @@ pub use spawn::{Random, Spawner, Value};
 #[cfg(not(any(feature = "2d", feature = "3d")))]
 compile_error!("Enable either the '2d' or '3d' feature.");
 
-/// Extension trait to write a floating point scalar or vector constant in a format
-/// matching the WGSL grammar.
+/// Extension trait to write a floating point scalar or vector constant in a
+/// format matching the WGSL grammar.
 ///
-/// This is required because WGSL doesn't support a floating point constant without
-/// a decimal separator (e.g. `0.` instead of `0`), which would be what a regular float
-/// to string formatting produces, but is interpreted as an integral type by WGSL.
+/// This is required because WGSL doesn't support a floating point constant
+/// without a decimal separator (e.g. `0.` instead of `0`), which would be what
+/// a regular float to string formatting produces, but is interpreted as an
+/// integral type by WGSL.
 ///
 /// # Example
 ///
@@ -124,7 +125,8 @@ compile_error!("Enable either the '2d' or '3d' feature.");
 /// assert_eq!("let x = 2.;", format!("let x = {};", x.to_wgsl_string()));
 /// ```
 pub trait ToWgslString {
-    /// Convert a floating point scalar or vector to a string representing a WGSL constant.
+    /// Convert a floating point scalar or vector to a string representing a
+    /// WGSL constant.
     fn to_wgsl_string(&self) -> String;
 }
 
@@ -190,10 +192,10 @@ impl ToWgslString for Value<f32> {
 
 /// Visual effect made of particles.
 ///
-/// The particle effect component represent a single instance of a visual effect. The
-/// visual effect itself is described by a handle to an [`EffectAsset`]. This instance
-/// is associated to an [`Entity`], inheriting its [`Transform`] as the origin frame
-/// for its particle spawning.
+/// The particle effect component represent a single instance of a visual
+/// effect. The visual effect itself is described by a handle to an
+/// [`EffectAsset`]. This instance is associated to an [`Entity`], inheriting
+/// its [`Transform`] as the origin frame for its particle spawning.
 #[derive(Debug, Clone, Component, TypeUuid)]
 #[uuid = "c48df8b5-7eca-4d25-831e-513c2575cf6c"]
 pub struct ParticleEffect {
@@ -372,9 +374,10 @@ impl ShaderCode for Gradient<Vec4> {
 
 /// Tick all the spawners of the visible [`ParticleEffect`] components.
 ///
-/// This system runs in the [`CoreStage::PostUpdate`] stage, after the visibility system has updated
-/// the [`ComputedVisibility`] of each effect instance (see [`VisibilitySystems::CheckVisibility`]).
-/// Hidden instances are not updated.
+/// This system runs in the [`CoreStage::PostUpdate`] stage, after the
+/// visibility system has updated the [`ComputedVisibility`] of each effect
+/// instance (see [`VisibilitySystems::CheckVisibility`]). Hidden instances are
+/// not updated.
 fn tick_spawners(
     time: Res<Time>,
     effects: Res<Assets<EffectAsset>>,
@@ -385,7 +388,9 @@ fn tick_spawners(
         // All existing ParticleEffect components
         Query<(
             &ComputedVisibility,
-            &mut ParticleEffect, //TODO - Split EffectAsset::Spawner (desc) and ParticleEffect::SpawnerData (runtime data), and init the latter on component add without a need for the former
+            &mut ParticleEffect, /* TODO - Split EffectAsset::Spawner (desc) and
+                                  * ParticleEffect::SpawnerData (runtime data), and init the
+                                  * latter on component add without a need for the former */
         )>,
         // Changed ParticleEffect components
         Query<&mut ParticleEffect, Changed<ParticleEffect>>,
@@ -393,7 +398,8 @@ fn tick_spawners(
 ) {
     trace!("tick_spawners");
 
-    // Clear configured shaders if the effect changed (usually due to changes in modifiers)
+    // Clear configured shaders if the effect changed (usually due to changes in
+    // modifiers)
     for mut effect in query.p1().iter_mut() {
         effect.configured_shader = None;
     }
@@ -402,7 +408,8 @@ fn tick_spawners(
 
     // Loop over all existing effects to update them
     for (computed_visibility, mut effect) in query.p0().iter_mut() {
-        // Check if visible. Hidden effects are entirely skipped for performance reasons.
+        // Check if visible. Hidden effects are entirely skipped for performance
+        // reasons.
         if !computed_visibility.is_visible() {
             continue;
         }
@@ -435,8 +442,8 @@ fn tick_spawners(
             let accel = asset.update_layout.accel;
             let force_field = asset.update_layout.force_field;
 
-            // Generate the shader code for the position initializing of newly emitted particles
-            // TODO - Move that to a pre-pass, not each frame!
+            // Generate the shader code for the position initializing of newly emitted
+            // particles TODO - Move that to a pre-pass, not each frame!
             let position_code = &asset.init_layout.position_code;
             let position_code = if position_code.is_empty() {
                 DEFAULT_POSITION_CODE.to_owned()
@@ -444,8 +451,8 @@ fn tick_spawners(
                 position_code.clone()
             };
 
-            // Generate the shader code for the lifetime initializing of newly emitted particles
-            // TODO - Move that to a pre-pass, not each frame!
+            // Generate the shader code for the lifetime initializing of newly emitted
+            // particles TODO - Move that to a pre-pass, not each frame!
             let lifetime_code = &asset.init_layout.lifetime_code;
             let lifetime_code = if lifetime_code.is_empty() {
                 DEFAULT_LIFETIME_CODE.to_owned()
@@ -476,7 +483,8 @@ fn tick_spawners(
             }
             trace!("vertex_modifiers={}", vertex_modifiers);
 
-            // Configure the shader template, and make sure a corresponding shader asset exists
+            // Configure the shader template, and make sure a corresponding shader asset
+            // exists
             let shader_source =
                 PARTICLES_RENDER_SHADER_TEMPLATE.replace("{{VERTEX_MODIFIERS}}", &vertex_modifiers);
             let shader = pipeline_registry.configure(&shader_source, &mut shaders);

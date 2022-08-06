@@ -149,13 +149,15 @@ impl From<ForceFieldParam> for ForceFieldStd430 {
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, Pod, Zeroable, ShaderType)]
 struct SpawnerParams {
-    /// Origin of the effect. This is either added to emitted particles at spawn time, if the effect simulated
-    /// in world space, or to all simulated particles if the effect is simulated in local space.
+    /// Origin of the effect. This is either added to emitted particles at spawn
+    /// time, if the effect simulated in world space, or to all simulated
+    /// particles if the effect is simulated in local space.
     origin: Vec3,
     /// Number of particles to spawn this frame.
     spawn: i32,
     /// Global acceleration applied to all particles each frame.
-    /// TODO - This is NOT a spawner/emitter thing, but is a per-effect one. Rename SpawnerParams?
+    /// TODO - This is NOT a spawner/emitter thing, but is a per-effect one.
+    /// Rename SpawnerParams?
     accel: Vec3,
 
     /// Current number of used particles.
@@ -398,10 +400,12 @@ pub struct ParticleRenderPipelineKey {
     shader: Handle<Shader>,
     /// Key: PARTICLE_TEXTURE
     /// Define a texture sampled to modulate the particle color.
-    /// This key requires the presence of UV coordinates on the particle vertices.
+    /// This key requires the presence of UV coordinates on the particle
+    /// vertices.
     particle_texture: Option<Handle<Image>>,
     /// For dual-mode configurations only, the actual mode of the current render
-    /// pipeline. Otherwise the mode is implicitly determined by the active feature.
+    /// pipeline. Otherwise the mode is implicitly determined by the active
+    /// feature.
     #[cfg(all(feature = "2d", feature = "3d"))]
     pipeline_mode: PipelineMode,
 }
@@ -543,12 +547,13 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
     }
 }
 
-/// A single effect instance extracted from a [`ParticleEffect`] as a [`RenderWorld`] item.
+/// A single effect instance extracted from a [`ParticleEffect`] as a
+/// [`RenderWorld`] item.
 #[derive(Component)]
 pub struct ExtractedEffect {
     /// Handle to the effect asset this instance is based on.
-    /// The handle is weak to prevent refcount cycles and gracefully handle assets unloaded
-    /// or destroyed after a draw call has been submitted.
+    /// The handle is weak to prevent refcount cycles and gracefully handle
+    /// assets unloaded or destroyed after a draw call has been submitted.
     pub handle: Handle<EffectAsset>,
     /// Number of particles to spawn this frame for the effect.
     /// Obtained from calling [`Spawner::tick()`] on the source effect instance.
@@ -577,11 +582,13 @@ pub struct ExtractedEffect {
     pub lifetime_code: String,
 }
 
-/// Extracted data for newly-added [`ParticleEffect`] component requiring a new GPU allocation.
+/// Extracted data for newly-added [`ParticleEffect`] component requiring a new
+/// GPU allocation.
 pub struct AddedEffect {
     /// Entity with a newly-added [`ParticleEffect`] component.
     pub entity: Entity,
-    /// Capacity of the effect (and therefore, the particle buffer), in number of particles.
+    /// Capacity of the effect (and therefore, the particle buffer), in number
+    /// of particles.
     pub capacity: u32,
     /// Size in bytes of each particle.
     pub item_size: u32,
@@ -593,7 +600,8 @@ pub struct AddedEffect {
 /// [`RenderWorld`] as a render resource.
 #[derive(Default)]
 pub struct ExtractedEffects {
-    /// Map of extracted effects from the entity the source [`ParticleEffect`] is on.
+    /// Map of extracted effects from the entity the source [`ParticleEffect`]
+    /// is on.
     pub effects: HashMap<Entity, ExtractedEffect>,
     /// Entites which had their [`ParticleEffect`] component removed.
     pub removed_effect_entities: Vec<Entity>,
@@ -631,11 +639,13 @@ pub fn extract_effect_events(
     }
 }
 
-/// System extracting data for rendering of all active [`ParticleEffect`] components.
+/// System extracting data for rendering of all active [`ParticleEffect`]
+/// components.
 ///
-/// Extract rendering data for all [`ParticleEffect`] components in the world which are
-/// visible ([`ComputedVisibility::is_visible`] is `true`), and wrap the data into a new
-/// [`ExtractedEffect`] instance added to the [`ExtractedEffects`] resource.
+/// Extract rendering data for all [`ParticleEffect`] components in the world
+/// which are visible ([`ComputedVisibility::is_visible`] is `true`), and wrap
+/// the data into a new [`ExtractedEffect`] instance added to the
+/// [`ExtractedEffects`] resource.
 pub(crate) fn extract_effects(
     time: Extract<Res<Time>>,
     effects: Extract<Res<Assets<EffectAsset>>>,
@@ -646,7 +656,9 @@ pub(crate) fn extract_effects(
             Query<(
                 Entity,
                 &ComputedVisibility,
-                &ParticleEffect, //TODO - Split EffectAsset::Spawner (desc) and ParticleEffect::SpawnerData (runtime data), and init the latter on component add without a need for the former
+                &ParticleEffect, /* TODO - Split EffectAsset::Spawner (desc) and
+                                  * ParticleEffect::SpawnerData (runtime data), and init the
+                                  * latter on component add without a need for the former */
                 &GlobalTransform,
             )>,
             // Newly added ParticleEffect components
@@ -769,25 +781,29 @@ struct ParticleVertex {
     pub uv: [f32; 2],
 }
 
-/// Global resource containing the GPU data to draw all the particle effects in all views.
+/// Global resource containing the GPU data to draw all the particle effects in
+/// all views.
 ///
-/// The resource is populated by [`prepare_effects()`] with all the effects to render
-/// for the current frame, for all views in the frame, and consumed by [`queue_effects()`]
-/// to actually enqueue the drawning commands to draw those effects.
+/// The resource is populated by [`prepare_effects()`] with all the effects to
+/// render for the current frame, for all views in the frame, and consumed by
+/// [`queue_effects()`] to actually enqueue the drawning commands to draw those
+/// effects.
 pub(crate) struct EffectsMeta {
-    /// Map from an entity with a [`ParticleEffect`] component attached to it, to the associated
-    /// effect slice allocated in an [`EffectCache`].
+    /// Map from an entity with a [`ParticleEffect`] component attached to it,
+    /// to the associated effect slice allocated in an [`EffectCache`].
     entity_map: HashMap<Entity, EffectSlice>,
     /// Global effect cache for all effects in use.
     effect_cache: EffectCache,
-    /// Bind group for the camera view, containing the camera projection and other uniform
-    /// values related to the camera.
+    /// Bind group for the camera view, containing the camera projection and
+    /// other uniform values related to the camera.
     view_bind_group: Option<BindGroup>,
-    /// Bind group for the simulation parameters, like the current time and frame delta time.
+    /// Bind group for the simulation parameters, like the current time and
+    /// frame delta time.
     sim_params_bind_group: Option<BindGroup>,
     /// Bind group for the particles buffer itself.
     particles_bind_group: Option<BindGroup>,
-    /// Bind group for the spawning parameters (number of particles to spawn this frame, ...).
+    /// Bind group for the spawning parameters (number of particles to spawn
+    /// this frame, ...).
     spawner_bind_group: Option<BindGroup>,
     /// Bind group for the indirect buffer.
     indirect_buffer_bind_group: Option<BindGroup>,
@@ -855,8 +871,8 @@ impl Default for LayoutFlags {
     }
 }
 
-/// A batch of multiple instances of the same effect, rendered all together to reduce GPU shader
-/// permutations and draw call overhead.
+/// A batch of multiple instances of the same effect, rendered all together to
+/// reduce GPU shader permutations and draw call overhead.
 #[derive(Component)]
 pub struct EffectBatch {
     /// Index of the GPU effect buffer effects in this batch are contained in.
@@ -890,7 +906,8 @@ pub(crate) fn prepare_effects(
     sim_params: Res<SimParams>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
-    //update_pipeline: Res<ParticlesUpdatePipeline>, // TODO move update_pipeline.pipeline to EffectsMeta
+    //update_pipeline: Res<ParticlesUpdatePipeline>, // TODO move update_pipeline.pipeline to
+    // EffectsMeta
     mut effects_meta: ResMut<EffectsMeta>,
     mut extracted_effects: ResMut<ExtractedEffects>,
 ) {
@@ -928,9 +945,10 @@ pub(crate) fn prepare_effects(
         .vertices
         .write_buffer(&render_device, &render_queue);
 
-    // Allocate GPU data for newly created effect instances. Do this first to ensure a group is not left
-    // unused and dropped due to the last effect being removed but a new compatible one added not being
-    // inserted yet. By inserting first, we ensure the group is not dropped in this case.
+    // Allocate GPU data for newly created effect instances. Do this first to ensure
+    // a group is not left unused and dropped due to the last effect being
+    // removed but a new compatible one added not being inserted yet. By
+    // inserting first, we ensure the group is not dropped in this case.
     for added_effect in extracted_effects.added_effects.drain(..) {
         let entity = added_effect.entity;
         let id = effects_meta.effect_cache.insert(
@@ -944,18 +962,18 @@ pub(crate) fn prepare_effects(
         effects_meta.entity_map.insert(entity, slice);
     }
 
-    // Deallocate GPU data for destroyed effect instances. This will automatically drop any group where
-    // there is no more effect slice.
+    // Deallocate GPU data for destroyed effect instances. This will automatically
+    // drop any group where there is no more effect slice.
     for _entity in extracted_effects.removed_effect_entities.iter() {
         unimplemented!("Remove particle effect.");
         //effects_meta.remove(&*entity);
     }
 
-    // // sort first by z and then by handle. this ensures that, when possible, batches span multiple z layers
-    // // batches won't span z-layers if there is another batch between them
-    // extracted_effects.effects.sort_by(|a, b| {
-    //     match FloatOrd(a.transform.w_axis[2]).cmp(&FloatOrd(b.transform.w_axis[2])) {
-    //         Ordering::Equal => a.handle.cmp(&b.handle),
+    // // sort first by z and then by handle. this ensures that, when possible,
+    // batches span multiple z layers // batches won't span z-layers if there is
+    // another batch between them extracted_effects.effects.sort_by(|a, b| {
+    //     match FloatOrd(a.transform.w_axis[2]).cmp(&FloatOrd(b.transform.
+    // w_axis[2])) {         Ordering::Equal => a.handle.cmp(&b.handle),
     //         other => other,
     //     }
     // });
@@ -1070,15 +1088,16 @@ pub(crate) fn prepare_effects(
         lifetime_code = extracted_effect.lifetime_code.clone();
         trace!("lifetime_code = {}", lifetime_code);
 
-        // extract the force field and turn it into a struct that is compliant with Std430,
-        // namely ForceFieldStd430
+        // extract the force field and turn it into a struct that is compliant with
+        // Std430, namely ForceFieldStd430
         let mut extracted_force_field = [ForceFieldStd430::default(); FFNUM];
         for (i, ff) in extracted_effect.force_field.iter().enumerate() {
             extracted_force_field[i] = (*ff).into();
         }
 
         // Prepare the spawner block for the current slice
-        // FIXME - This is once per EFFECT/SLICE, not once per BATCH, so indeed this is spawner_BASE, and need an array of them in the compute shader!!!!!!!!!!!!!!
+        // FIXME - This is once per EFFECT/SLICE, not once per BATCH, so indeed this is
+        // spawner_BASE, and need an array of them in the compute shader!!!!!!!!!!!!!!
         let spawner_params = SpawnerParams {
             spawn: extracted_effect.spawn_count as i32,
             count: 0,
@@ -1174,9 +1193,11 @@ pub struct EffectBindGroups {
     update_particle_buffers: HashMap<u32, BindGroup>,
     /// Same for render shader.
     render_particle_buffers: HashMap<u32, BindGroup>,
-    /// Bind groups for each indirect buffer associated with each particle buffer (update stage).
+    /// Bind groups for each indirect buffer associated with each particle
+    /// buffer (update stage).
     update_indirect_buffers: HashMap<u32, BindGroup>,
-    /// Bind groups for each indirect buffer associated with each particle buffer (render stage).
+    /// Bind groups for each indirect buffer associated with each particle
+    /// buffer (render stage).
     render_indirect_buffers: HashMap<u32, BindGroup>,
     ///
     images: HashMap<Handle<Image>, BindGroup>,
@@ -1212,8 +1233,8 @@ pub(crate) fn queue_effects(
         };
     }
 
-    // Get the binding for the ViewUniform, the uniform data structure containing the Camera data
-    // for the current view.
+    // Get the binding for the ViewUniform, the uniform data structure containing
+    // the Camera data for the current view.
     let view_binding = match view_uniforms.uniforms.binding() {
         Some(view_binding) => view_binding,
         None => {
@@ -1265,9 +1286,9 @@ pub(crate) fn queue_effects(
     // Queue the update compute
     trace!("queue effects from cache...");
     for (buffer_index, buffer) in effects_meta.effect_cache.buffers().iter().enumerate() {
-        // Ensure all effect groups have a bind group for the entire buffer of the group,
-        // since the update phase runs on an entire group/buffer at once, with all the
-        // effect instances in it batched together.
+        // Ensure all effect groups have a bind group for the entire buffer of the
+        // group, since the update phase runs on an entire group/buffer at once,
+        // with all the effect instances in it batched together.
         trace!("effect buffer_index=#{}", buffer_index);
         effect_bind_groups
             .update_particle_buffers
@@ -1377,8 +1398,9 @@ pub(crate) fn queue_effects(
         let draw_effects_function_2d = draw_functions_2d.read().get_id::<DrawEffects>().unwrap();
         for mut transparent_phase_2d in views_2d.iter_mut() {
             trace!("Process new Transparent2d view");
-            // For each view, loop over all the effect batches to determine if the effect needs to be rendered
-            // for that view, and enqueue a view-dependent batch if so.
+            // For each view, loop over all the effect batches to determine if the effect
+            // needs to be rendered for that view, and enqueue a view-dependent
+            // batch if so.
             for (entity, batch) in effect_batches.iter() {
                 trace!(
                     "Process batch entity={:?} buffer_index={} spawner_base={} slice={:?}",
@@ -1387,7 +1409,8 @@ pub(crate) fn queue_effects(
                     batch.spawner_base,
                     batch.slice
                 );
-                // Ensure the particle texture is available as a GPU resource and create a bind group for it
+                // Ensure the particle texture is available as a GPU resource and create a bind
+                // group for it
                 let particle_texture = if batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE)
                 {
                     let image_handle = Handle::weak(batch.image_handle_id);
@@ -1397,8 +1420,8 @@ pub(crate) fn queue_effects(
                             batch.buffer_index,
                             batch.slice
                         );
-                        // If texture doesn't have a bind group yet from another instance of the same effect,
-                        // then try to create one now
+                        // If texture doesn't have a bind group yet from another instance of the
+                        // same effect, then try to create one now
                         if let Some(gpu_image) = gpu_images.get(&image_handle) {
                             let bind_group =
                                 render_device.create_bind_group(&BindGroupDescriptor {
@@ -1472,8 +1495,9 @@ pub(crate) fn queue_effects(
         let draw_effects_function_3d = draw_functions_3d.read().get_id::<DrawEffects>().unwrap();
         for mut transparent_phase_3d in views_3d.iter_mut() {
             trace!("Process new Transparent3d view");
-            // For each view, loop over all the effect batches to determine if the effect needs to be rendered
-            // for that view, and enqueue a view-dependent batch if so.
+            // For each view, loop over all the effect batches to determine if the effect
+            // needs to be rendered for that view, and enqueue a view-dependent
+            // batch if so.
             for (entity, batch) in effect_batches.iter() {
                 trace!(
                     "Process batch entity={:?} buffer_index={} spawner_base={} slice={:?}",
@@ -1482,7 +1506,8 @@ pub(crate) fn queue_effects(
                     batch.spawner_base,
                     batch.slice
                 );
-                // Ensure the particle texture is available as a GPU resource and create a bind group for it
+                // Ensure the particle texture is available as a GPU resource and create a bind
+                // group for it
                 let particle_texture = if batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE)
                 {
                     let image_handle = Handle::weak(batch.image_handle_id);
@@ -1492,8 +1517,8 @@ pub(crate) fn queue_effects(
                             batch.buffer_index,
                             batch.slice
                         );
-                        // If texture doesn't have a bind group yet from another instance of the same effect,
-                        // then try to create one now
+                        // If texture doesn't have a bind group yet from another instance of the
+                        // same effect, then try to create one now
                         if let Some(gpu_image) = gpu_images.get(&image_handle) {
                             let bind_group =
                                 render_device.create_bind_group(&BindGroupDescriptor {
@@ -1561,10 +1586,11 @@ pub(crate) fn queue_effects(
     }
 }
 
-/// Component to hold all the entities with a [`ExtractedEffect`] component on them
-/// that need to be updated this frame with a compute pass. This is view-independent
-/// because the update phase itself is also view-independent (effects like camera
-/// facing are applied in the render phase, which runs once per view).
+/// Component to hold all the entities with a [`ExtractedEffect`] component on
+/// them that need to be updated this frame with a compute pass. This is
+/// view-independent because the update phase itself is also view-independent
+/// (effects like camera facing are applied in the render phase, which runs once
+/// per view).
 #[derive(Component)]
 pub struct ExtractedEffectEntities {
     pub entities: Vec<Entity>,
@@ -1750,7 +1776,8 @@ impl Draw<Transparent3d> for DrawEffects {
 
 /// A render node to update the particles of all particle efects.
 pub struct ParticleUpdateNode {
-    /// Query to retrieve the list of entities holding an extracted particle effect to update.
+    /// Query to retrieve the list of entities holding an extracted particle
+    /// effect to update.
     entity_query: QueryState<&'static ExtractedEffectEntities>,
     /// Query to retrieve the
     effect_query: QueryState<&'static EffectBatch>,
@@ -1759,7 +1786,8 @@ pub struct ParticleUpdateNode {
 impl ParticleUpdateNode {
     /// Input entity marking the view.
     pub const IN_VIEW: &'static str = "view";
-    /// Output particle buffer for that view. TODO - how to handle multiple buffers?! Should use Entity instead??
+    /// Output particle buffer for that view. TODO - how to handle multiple
+    /// buffers?! Should use Entity instead??
     //pub const OUT_PARTICLE_BUFFER: &'static str = "particle_buffer";
 
     pub fn new(world: &mut World) -> Self {
@@ -1825,8 +1853,9 @@ impl Node for ParticleUpdateNode {
             let effect_bind_groups = world.get_resource::<EffectBindGroups>().unwrap();
 
             // Retrieve the ExtractedEffectEntities component itself
-            //if let Ok(extracted_effect_entities) = self.entity_query.get_manual(world, view_entity)
-            //if let Ok(effect_batches) = self.effect_query.get_manual(world, )
+            //if let Ok(extracted_effect_entities) = self.entity_query.get_manual(world,
+            // view_entity) if let Ok(effect_batches) =
+            // self.effect_query.get_manual(world, )
             {
                 // Loop on all entities recorded inside the ExtractedEffectEntities input
                 trace!("loop over effect batches...");
@@ -1836,8 +1865,9 @@ impl Node for ParticleUpdateNode {
                     if let Some(compute_pipeline) = &batch.compute_pipeline {
                         //for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
                         // Retrieve the ExtractedEffect from the entity
-                        //trace!("effect_entity={:?} effect_slice={:?}", effect_entity, effect_slice);
-                        //let effect = self.effect_query.get_manual(world, *effect_entity).unwrap();
+                        //trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
+                        // effect_slice); let effect =
+                        // self.effect_query.get_manual(world, *effect_entity).unwrap();
 
                         // Get the slice to update
                         //let effect_slice = effects_meta.get(&effect_entity);

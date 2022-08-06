@@ -97,9 +97,10 @@ impl Plugin for HanabiPlugin {
                 queue_effects.label(EffectSystems::QueueEffects),
             );
 
-        // Register the draw function for drawing the particles. This will be called during
-        // the main 2D/3D pass, at the Transparent2d/3d phase, after the opaque objects have been
-        // rendered (or, rather, commands for those have been recorded).
+        // Register the draw function for drawing the particles. This will be called
+        // during the main 2D/3D pass, at the Transparent2d/3d phase, after the
+        // opaque objects have been rendered (or, rather, commands for those
+        // have been recorded).
         #[cfg(feature = "2d")]
         {
             let draw_particles = DrawEffects::new(&mut render_app.world);
@@ -121,10 +122,10 @@ impl Plugin for HanabiPlugin {
                 .add(draw_particles);
         }
 
-        // Register the update node before the 2D/3D main pass, where the particles are drawn.
-        // This ensures the update compute pipelines for all the active particle effects are
-        // executed before the 2D/3D main pass starts, which consumes the result of the updated
-        // particles to render them.
+        // Register the update node before the 2D/3D main pass, where the particles are
+        // drawn. This ensures the update compute pipelines for all the active
+        // particle effects are executed before the 2D/3D main pass starts,
+        // which consumes the result of the updated particles to render them.
         #[cfg(feature = "2d")]
         use bevy::core_pipeline::core_2d::graph as draw_2d_graph;
         #[cfg(feature = "3d")]
@@ -182,17 +183,17 @@ impl Plugin for HanabiPlugin {
 
 // pub fn hanabi_spawn(
 //     time: Res<Time>,
-//     mut query: Query<(&mut ParticleEffect, &mut SpawnState, &mut UpdateState)>,
-// ) {
-//     for (ref mut effect, ref mut spawn_state, ref mut state) in query.iter_mut() {
-//         effect
+//     mut query: Query<(&mut ParticleEffect, &mut SpawnState, &mut
+// UpdateState)>, ) {
+//     for (ref mut effect, ref mut spawn_state, ref mut state) in
+// query.iter_mut() {         effect
 //             .spawner
 //             .spawn(spawn_state, state, time.delta_seconds());
 //     }
 // }
 
-// pub fn hanabi_update(time: Res<Time>, mut query: Query<(&mut ParticleEffect, &mut UpdateState)>) {
-//     for (ref mut effect, ref mut motion) in query.iter_mut() {
-//         effect.updater.update(motion, time.delta_seconds());
-//     }
+// pub fn hanabi_update(time: Res<Time>, mut query: Query<(&mut ParticleEffect,
+// &mut UpdateState)>) {     for (ref mut effect, ref mut motion) in
+// query.iter_mut() {         effect.updater.update(motion,
+// time.delta_seconds());     }
 // }

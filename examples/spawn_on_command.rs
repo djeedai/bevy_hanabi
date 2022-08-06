@@ -1,6 +1,5 @@
 //! A circle bounces around in a box and spawns particles
 //! when it hits the wall.
-//!
 use bevy::{
     math::Vec3Swizzles,
     prelude::*,

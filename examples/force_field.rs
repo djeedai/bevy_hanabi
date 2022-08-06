@@ -1,6 +1,6 @@
-//! Left clicking spawns particles that are repulsed by one point and attracted by another.
-//! The attractor also conforms the particles that are close to a sphere around it.
-//! Left Control + Mouse movement orbits the camera.
+//! Left clicking spawns particles that are repulsed by one point and attracted
+//! by another. The attractor also conforms the particles that are close to a
+//! sphere around it. Left Control + Mouse movement orbits the camera.
 //! Mouse scroll wheel zooms the camera.
 use bevy::{
     prelude::*,
@@ -10,8 +10,8 @@ use bevy_inspector_egui::WorldInspectorPlugin;
 
 use bevy_hanabi::*;
 // use smooth_bevy_cameras::{
-//     controllers::orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
-//     LookTransformPlugin,
+//     controllers::orbit::{OrbitCameraBundle, OrbitCameraController,
+// OrbitCameraPlugin},     LookTransformPlugin,
 // };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -172,7 +172,8 @@ fn update(
                     * camera_transform.translation.length()
                     / 870.0; // investigate: why 870?
 
-                // converts the mouse position to a position on the view plane centered at the origin.
+                // converts the mouse position to a position on the view plane centered at the
+                // origin.
                 let spawning_pos = screen_mouse_pos.x * right + screen_mouse_pos.y * up;
 
                 effect_transform.translation = spawning_pos;

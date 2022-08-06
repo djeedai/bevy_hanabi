@@ -76,23 +76,28 @@ impl SliceRef {
 pub struct EffectBuffer {
     /// GPU buffer holding all particles for the entire group of effects.
     particle_buffer: Buffer,
-    /// GPU buffer holding the indirection indices for the entire group of effects.
+    /// GPU buffer holding the indirection indices for the entire group of
+    /// effects.
     indirect_buffer: Buffer,
     /// Size of each particle, in bytes.
     item_size: u32,
     /// Total buffer capacity in bytes.
     capacity: u32,
-    /// Used buffer size, either from allocated slices or from slices in the free list.
+    /// Used buffer size, either from allocated slices or from slices in the
+    /// free list.
     used_size: u32,
-    /// Collection of slices into the buffer, each slice being one effect instance.
+    /// Collection of slices into the buffer, each slice being one effect
+    /// instance.
     slices: Vec<EffectSlice>,
     /// Array of free ranges for new allocations.
     free_slices: Vec<Range<u32>>,
     /// Map of entities and slices.
     slice_from_entity: HashMap<Entity, usize>,
     /// Compute pipeline for the effect update pass.
-    //pub compute_pipeline: ComputePipeline, // FIXME - ComputePipelineId, to avoid duplicating per instance!
-    /// Handle of all effects common in this buffer. TODO - replace with compatible layout
+    //pub compute_pipeline: ComputePipeline, // FIXME - ComputePipelineId, to avoid duplicating per
+    // instance!
+    /// Handle of all effects common in this buffer. TODO - replace with
+    /// compatible layout.
     asset: Handle<EffectAsset>,
 }
 
@@ -177,7 +182,8 @@ impl EffectBuffer {
         })
     }
 
-    /// Return a binding of the buffer for a starting range of a given size (in bytes).
+    /// Return a binding of the buffer for a starting range of a given size (in
+    /// bytes).
     pub fn binding(&self, size: u32) -> BindingResource {
         BindingResource::Buffer(BufferBinding {
             buffer: &self.particle_buffer,
@@ -186,7 +192,8 @@ impl EffectBuffer {
         })
     }
 
-    /// Return a binding for the entire indirect buffer associated with the current effect buffer.
+    /// Return a binding for the entire indirect buffer associated with the
+    /// current effect buffer.
     pub fn indirect_max_binding(&self) -> BindingResource {
         let capacity_bytes = self.capacity as u64 * std::mem::size_of::<u32>() as u64;
         BindingResource::Buffer(BufferBinding {
@@ -223,7 +230,8 @@ impl EffectBuffer {
         Some(result.range)
     }
 
-    /// Allocate a new slice in the buffer to store the particles of a single effect.
+    /// Allocate a new slice in the buffer to store the particles of a single
+    /// effect.
     pub fn allocate_slice(&mut self, capacity: u32, item_size: u32) -> Option<SliceRef> {
         trace!(
             "EffectBuffer::allocate_slice: capacity={} item_size={}",
@@ -254,14 +262,15 @@ impl EffectBuffer {
         Some(SliceRef { range, item_size })
     }
 
-    // pub fn write_slice(&mut self, slice: &SliceRef, data: &[u8], queue: &RenderQueue) {
-    //     assert!(data.len() <= slice.byte_size());
+    // pub fn write_slice(&mut self, slice: &SliceRef, data: &[u8], queue:
+    // &RenderQueue) {     assert!(data.len() <= slice.byte_size());
     //     let bytes: &[u8] = cast_slice(data);
     //     queue.write_buffer(buffer, slice.range.begin, &bytes[slice.range]);
     // }
 
     pub fn is_compatible(&self, handle: &Handle<EffectAsset>) -> bool {
-        // TODO - replace with check particle layout is compatible to allow update in the same single dispatch call
+        // TODO - replace with check particle layout is compatible to allow update in
+        // the same single dispatch call
         *handle == self.asset
     }
 }
@@ -287,7 +296,8 @@ pub struct EffectCache {
     device: RenderDevice,
     /// Collection of effect buffers managed by this cache.
     buffers: Vec<EffectBuffer>,
-    /// Map from an effect cache ID to the index of the buffer and the slice into that buffer.
+    /// Map from an effect cache ID to the index of the buffer and the slice
+    /// into that buffer.
     effects: HashMap<EffectCacheId, (usize, SliceRef)>,
 }
 

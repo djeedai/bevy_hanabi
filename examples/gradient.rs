@@ -78,20 +78,23 @@ fn setup(
         });
 }
 
-/// Calculate a position over a Lemniscate of Bernoulli curve ("infinite symbol").
+/// Calculate a position over a Lemniscate of Bernoulli curve ("infinite
+/// symbol").
 ///
-/// The fractional part of `time` determines the parametric position over the curve.
-/// The `radius` of the Lemniscate curve is the distance from the center to the edge
-/// of any of the left or right loops. The curve loops extend from -X to +X.
+/// The fractional part of `time` determines the parametric position over the
+/// curve. The `radius` of the Lemniscate curve is the distance from the center
+/// to the edge of any of the left or right loops. The curve loops extend from
+/// -X to +X.
 fn lemniscate(time: f32, radius: f32) -> Vec2 {
-    // The Lemniscate is defined in polar coordinates by the equation r² = a² ⨯ cos(2θ),
-    // where a is the radius of the Lemniscate (distance from origin to loop edge).
-    // This equation is defined only for values of θ in the [-π/4:π/4] range. Each value
-    // yields two possible values for r, one positive and one negative, corresponding to
-    // the two loops of the Lemniscates (left and right).
-    // So we solve for θ ∈ [-π/4:π/4], and make θ vary back and forth in the [-π/4:π/4]
-    // range. Then depending on the direction we flip the sign of r. This produces a
-    // continuous parametrization of the curve.
+    // The Lemniscate is defined in polar coordinates by the equation r² = a² ⨯
+    // cos(2θ), where a is the radius of the Lemniscate (distance from origin to
+    // loop edge). This equation is defined only for values of θ in the
+    // [-π/4:π/4] range. Each value yields two possible values for r, one
+    // positive and one negative, corresponding to the two loops of the
+    // Lemniscates (left and right). So we solve for θ ∈ [-π/4:π/4], and make θ
+    // vary back and forth in the [-π/4:π/4] range. Then depending on the
+    // direction we flip the sign of r. This produces a continuous
+    // parametrization of the curve.
 
     const TWO_PI: f32 = PI * 2.0;
     const PI_OVER_4: f32 = PI / 4.0;
@@ -99,18 +102,19 @@ fn lemniscate(time: f32, radius: f32) -> Vec2 {
     // Scale the parametric position over the curve to the [0:2*π] range
     let theta = time.fract() * TWO_PI;
 
-    // This variant produces a linear parametrization of theta (triangular signal). Because
-    // the parameter r changes much faster around 0 when solving the polar equation, this makes
-    // the position "go faster" around the center, which is generally not wanted.
-    // let (theta, sign) = if theta <= PI_OVER_2 {
-    //     (theta - PI_OVER_4, 1.0)
+    // This variant produces a linear parametrization of theta (triangular signal).
+    // Because the parameter r changes much faster around 0 when solving the
+    // polar equation, this makes the position "go faster" around the center,
+    // which is generally not wanted. let (theta, sign) = if theta <= PI_OVER_2
+    // {     (theta - PI_OVER_4, 1.0)
     // } else {
     //     (3.0 * PI_OVER_4 - theta, -1.0)
     // };
 
-    // That alternative variant "slows down" the parametric position around zero by converting
-    // the linear θ variations with a sine function, making it move slower around the edges ±π/4
-    // where r tends to zero. This does not produce an exact constant speed, but is visually close.
+    // That alternative variant "slows down" the parametric position around zero by
+    // converting the linear θ variations with a sine function, making it move
+    // slower around the edges ±π/4 where r tends to zero. This does not produce
+    // an exact constant speed, but is visually close.
     let sign = theta.cos().signum();
     let theta = theta.sin() * PI_OVER_4;
 

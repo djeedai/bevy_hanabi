@@ -18,8 +18,9 @@ fn next_multiple_of(value: usize, align: usize) -> usize {
 
 /// Like Bevy's [`BufferVec`], but with an explicit item alignment.
 ///
-/// This is a helper to ensure the data is properly aligned when copied to GPU, depending
-/// on the device constraints. Generally the alignment is one of the [`wgpu::Limits`].
+/// This is a helper to ensure the data is properly aligned when copied to GPU,
+/// depending on the device constraints. Generally the alignment is one of the
+/// [`wgpu::Limits`].
 pub struct AlignedBufferVec<T: Pod> {
     values: Vec<T>,
     buffer: Option<Buffer>,
@@ -212,7 +213,8 @@ mod gpu_tests {
         let device = renderer.device();
         let queue = renderer.queue();
 
-        // Create a dummy CommandBuffer to force the write_buffer() call to have any effect
+        // Create a dummy CommandBuffer to force the write_buffer() call to have any
+        // effect.
         let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("test"),
         });

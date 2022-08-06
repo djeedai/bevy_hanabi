@@ -104,11 +104,11 @@ impl Spawner {
     /// Create a spawner with a given count, time, and period.
     ///
     /// - `count` is the number of particles to spawn over `time` in a burst
-    /// - `time` is how long to spawn particles for. If this is
-    ///   <= 0, then the particles spawn all at once.
-    /// - `period` is the amount of time between bursts of particles.
-    ///   If this is >= `time`, then the spawner spawns a steady stream of particles.
-    ///   If this is infinity, then there is only 1 burst.
+    /// - `time` is how long to spawn particles for. If this is <= 0, then the
+    ///   particles spawn all at once.
+    /// - `period` is the amount of time between bursts of particles. If this is
+    ///   >= `time`, then the spawner spawns a steady stream of particles. If
+    ///   this is infinity, then there is only 1 burst.
     ///
     /// # Panics:
     /// Panics if `period` can be a negative number, or can only be 0.
@@ -147,8 +147,8 @@ impl Spawner {
         spawner
     }
 
-    /// Create a spawner that spawns particles at `rate`, accumulated each frame.
-    /// `rate` is in particles per second.
+    /// Create a spawner that spawns particles at `rate`, accumulated each
+    /// frame. `rate` is in particles per second.
     pub fn rate(rate: Value<f32>) -> Self {
         Self::new(rate, 1.0.into(), 1.0.into())
     }
