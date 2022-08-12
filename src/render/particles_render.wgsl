@@ -76,27 +76,7 @@ fn vertex(
 
 {{VERTEX_MODIFIERS}}
 
-    // Set the particle size
-    var vpos = vertex_position;
-    vpos = vpos * vec3<f32>(size.x, size.y, 1.0);
-
-    //out.position = view.view_proj * vec4<f32>(particle.pos + vpos, 1.0);
-
-//  https://stackoverflow.com/questions/57204343/can-a-shader-rotate-shapes-to-face-camera
-
-    let camera_up = view.view * vec4<f32>(0.0, 1.0, 0.0, 1.0);
-    let camera_right = view.view * vec4<f32>(1.0, 0.0, 0.0, 1.0);
-
-    let world_position = vec4<f32>(particle.pos, 1.0)
-        + camera_right * vpos.x
-        + camera_up * vpos.y;
-
     out.position = view.view_proj * world_position;
-
-
-//    out.position = view.projection * (view.inverse_view * vec4<f32>(0.0, 0.0, 0.0, 1.0) + vec4<f32>(vertex_position.x + particle.pos.x, vertex_position.y + particle.pos.y, 0.0, 0.0) * vec4<f32>(size.x, size.y, 1.0, 1.0));
-    //out.position = view.view_proj * vec4<f32>(0.0, 0.0, 0.0, 1.0) + vec4<f32>(vpos.x + particle.pos.x, vpos.y + particle.pos.y, 0.0, 0.0) * vec4<f32>(size.x, size.y, 1.0, 1.0);
-
 
     //out.color = vec4<f32>((vec4<u32>(vertex_color) >> vec4<u32>(0u, 8u, 16u, 24u)) & vec4<u32>(255u)) / 255.0;
     //out.color = color_over_lifetime(particle.age / particle.lifetime);

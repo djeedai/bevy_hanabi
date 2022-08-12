@@ -1,5 +1,5 @@
-//! Example of using the circle spawner with random velocity.
-//! A sphere spawns dust in a circle.
+//! An example using the [`BillboardModifier`] to force
+//! particles to always render facing the camera.
 
 use bevy::{
     prelude::*,
@@ -42,7 +42,7 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let camera = Camera3dBundle {
-        transform: Transform::from_xyz(2.0, 2.0, 2.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
+        transform: Transform::from_xyz(3.0, 3.0, 3.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
         projection: Projection::Perspective(PerspectiveProjection {
             fov: 120.0,
             ..Default::default()
@@ -77,6 +77,7 @@ fn setup(
         .render(ParticleTextureModifier {
             texture: texture_handle.clone(),
         })
+        .render(BillboardModifier {})
         .render(ColorOverLifetimeModifier { gradient })
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::constant([0.2; 2].into()),
@@ -88,6 +89,7 @@ fn setup(
         .spawn_bundle(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Plane { size: 4.0 })),
             material: materials.add(Color::BLUE.into()),
+            transform: Transform::from_xyz(0.0, -0.5, 0.0),
             ..Default::default()
         })
         .insert(Name::new("ground"));

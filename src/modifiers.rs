@@ -235,6 +235,16 @@ impl RenderModifier for SizeOverLifetimeModifier {
     }
 }
 
+/// Reorients the vertices to always face the camera when rendering.
+#[derive(Default, Clone, Copy)]
+pub struct BillboardModifier;
+
+impl RenderModifier for BillboardModifier {
+    fn apply(&self, render_layout: &mut RenderLayout) {
+        render_layout.billboard = true;
+    }
+}
+
 /// A modifier to apply a constant acceleration to all particles each frame.
 ///
 /// This is typically used to apply some kind of gravity.
