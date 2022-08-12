@@ -45,13 +45,11 @@ use crate::{
 };
 
 mod aligned_buffer_vec;
-mod compute_cache;
 mod effect_cache;
 mod pipeline_template;
 
 use aligned_buffer_vec::AlignedBufferVec;
 
-pub use compute_cache::{ComputeCache, SpecializedComputePipeline};
 pub use effect_cache::{EffectBuffer, EffectCache, EffectCacheId, EffectSlice};
 pub use pipeline_template::PipelineRegistry;
 
@@ -60,8 +58,6 @@ pub const PARTICLES_UPDATE_SHADER_HANDLE: HandleUntyped =
 
 pub const PARTICLES_RENDER_SHADER_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 2763343953151597145);
-
-const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("particles_update.wgsl");
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
@@ -282,6 +278,31 @@ impl FromWorld for ParticlesUpdatePipeline {
     }
 }
 
+#[derive(Default, Clone, Hash, PartialEq, Eq)]
+pub struct ParticleUpdatePipelineKey {
+    /// Compute shader, with snippets applied, but not preprocessed yet.
+    shader: Handle<Shader>,
+}
+
+impl SpecializedComputePipeline for ParticlesUpdatePipeline {
+    type Key = ParticleUpdatePipelineKey;
+
+    fn specialize(&self, key: Self::Key) -> ComputePipelineDescriptor {
+        ComputePipelineDescriptor {
+            label: Some("particles_update_compute_pipeline".into()),
+            layout: Some(vec![
+                self.sim_params_layout.clone(),
+                self.particles_buffer_layout.clone(),
+                self.spawner_buffer_layout.clone(),
+                self.indirect_buffer_layout.clone(),
+            ]),
+            shader: key.shader.clone(),
+            shader_defs: vec![],
+            entry_point: "main".into(),
+        }
+    }
+}
+
 pub struct ParticlesRenderPipeline {
     view_layout: BindGroupLayout,
     particles_buffer_layout: BindGroupLayout,
@@ -352,41 +373,6 @@ impl FromWorld for ParticlesRenderPipeline {
     }
 }
 
-#[derive(Default, Clone, Hash, PartialEq, Eq)]
-pub struct ParticleUpdatePipelineKey {
-    /// Code for the position initialization of newly emitted particles.
-    position_code: String,
-    force_field_code: String,
-    lifetime_code: String,
-}
-
-impl SpecializedComputePipeline for ParticlesUpdatePipeline {
-    type Key = ParticleUpdatePipelineKey;
-
-    fn specialize(&self, key: Self::Key, render_device: &RenderDevice) -> ComputePipeline {
-        let mut source =
-            PARTICLES_UPDATE_SHADER_TEMPLATE.replace("{{INIT_POS_VEL}}", &key.position_code);
-
-        source = source.replace("{{FORCE_FIELD_CODE}}", &key.force_field_code);
-
-        source = source.replace("{{INIT_LIFETIME}}", &key.lifetime_code);
-
-        //trace!("Specialized compute pipeline:\n{}", source);
-
-        let shader_module = render_device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("particles_update.wgsl"),
-            source: ShaderSource::Wgsl(Cow::Owned(source)),
-        });
-
-        render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
-            label: Some("particles_update_compute_pipeline"),
-            layout: Some(&self.pipeline_layout),
-            module: &shader_module,
-            entry_point: "main",
-        })
-    }
-}
-
 #[cfg(all(feature = "2d", feature = "3d"))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum PipelineMode {
@@ -396,7 +382,7 @@ pub enum PipelineMode {
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct ParticleRenderPipelineKey {
-    /// Render shader, with template applied, but not preprocessed yet.
+    /// Render shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
     /// Key: PARTICLE_TEXTURE
     /// Define a texture sampled to modulate the particle color.
@@ -572,8 +558,10 @@ pub struct ExtractedEffect {
     pub has_image: bool, // TODO -> use flags
     /// Texture to modulate the particle color.
     pub image_handle_id: HandleId,
+    /// Compute shader.
+    pub compute_shader: Handle<Shader>,
     /// Render shader.
-    pub shader: Handle<Shader>,
+    pub render_shader: Handle<Shader>,
     /// Update position code.
     pub position_code: String,
     /// Update force field code.
@@ -712,9 +700,14 @@ pub(crate) fn extract_effects(
             continue;
         }
 
-        // Check if shader is configured
-        let shader = if let Some(shader) = &effect.configured_shader {
-            shader
+        // Check if shaders are configured
+        let compute_shader = if let Some(compute_shader) = &effect.configured_compute_shader {
+            compute_shader
+        } else {
+            continue;
+        };
+        let render_shader = if let Some(render_shader) = &effect.configured_render_shader {
+            render_shader
         } else {
             continue;
         };
@@ -756,7 +749,8 @@ pub(crate) fn extract_effects(
                         .particle_texture
                         .clone()
                         .map_or(HandleId::default::<Image>(), |handle| handle.id),
-                    shader: shader.clone(),
+                    compute_shader: compute_shader.clone(),
+                    render_shader: render_shader.clone(),
                     position_code,
                     force_field_code,
                     lifetime_code,
@@ -899,8 +893,10 @@ pub struct EffectBatch {
     layout_flags: LayoutFlags,
     /// Texture to modulate the particle color.
     image_handle_id: HandleId,
-    /// Render shader.
-    shader: Handle<Shader>,
+    /// Configured shader used for the particle updating of this batch.
+    compute_shader: Handle<Shader>,
+    /// Configured shader used for the particle rendering of this batch.
+    render_shader: Handle<Shader>,
     /// Update position code.
     position_code: String,
     /// Update force field code.
@@ -908,7 +904,7 @@ pub struct EffectBatch {
     /// Update lifetime code.
     lifetime_code: String,
     /// Compute pipeline specialized for this batch.
-    compute_pipeline: Option<ComputePipeline>,
+    compute_pipeline_id: CachedComputePipelineId,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
     z_sort_key_2d: FloatOrd,
@@ -919,6 +915,9 @@ pub(crate) fn prepare_effects(
     sim_params: Res<SimParams>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
+    mut pipeline_cache: ResMut<PipelineCache>,
+    update_pipeline: Res<ParticlesUpdatePipeline>,
+    mut specialized_compute_pipelines: ResMut<SpecializedComputePipelines<ParticlesUpdatePipeline>>,
     //update_pipeline: Res<ParticlesUpdatePipeline>, // TODO move update_pipeline.pipeline to
     // EffectsMeta
     mut effects_meta: ResMut<EffectsMeta>,
@@ -1013,13 +1012,15 @@ pub(crate) fn prepare_effects(
     let mut asset: Handle<EffectAsset> = Default::default();
     let mut layout_flags = LayoutFlags::NONE;
     let mut image_handle_id: HandleId = HandleId::default::<Image>();
-    let mut shader: Handle<Shader> = Default::default();
+    let mut compute_shader: Handle<Shader> = Default::default();
+    let mut render_shader: Handle<Shader> = Default::default();
     let mut start = 0;
     let mut end = 0;
     let mut num_emitted = 0;
     let mut position_code = String::default();
     let mut force_field_code = String::default();
     let mut lifetime_code = String::default();
+    let mut compute_pipeline_id = CachedComputePipelineId::INVALID;
     let mut z_sort_key_2d = FloatOrd(f32::NAN);
 
     for (slice, extracted_effect) in effect_entity_list {
@@ -1064,12 +1065,13 @@ pub(crate) fn prepare_effects(
                     assert_ne!(asset, Handle::<EffectAsset>::default());
                     assert!(item_size > 0);
                     trace!(
-                        "Emit batch: buffer #{} | spawner_base {} | slice {:?} | item_size {} | shader {:?} | z_sort_key_2d {:?}",
+                        "Emit batch: buffer #{} | spawner_base {} | slice {:?} | item_size {} | compute_shader {:?} | render_shader {:?} | z_sort_key_2d {:?}",
                         current_buffer_index,
                         spawner_base,
                         start..end,
                         item_size,
-                        shader,
+                        compute_shader,
+                        render_shader,
                         z_sort_key_2d,
                     );
                     commands.spawn_bundle((EffectBatch {
@@ -1080,11 +1082,12 @@ pub(crate) fn prepare_effects(
                         handle: asset.clone_weak(),
                         layout_flags,
                         image_handle_id,
-                        shader: shader.clone(),
+                        compute_shader: compute_shader.clone(),
+                        render_shader: render_shader.clone(),
                         position_code: position_code.clone(),
                         force_field_code: force_field_code.clone(),
                         lifetime_code: lifetime_code.clone(),
-                        compute_pipeline: None,
+                        compute_pipeline_id,
                         z_sort_key_2d,
                     },));
                     num_emitted += 1;
@@ -1106,8 +1109,25 @@ pub(crate) fn prepare_effects(
 
         assert_ne!(asset, Handle::<EffectAsset>::default());
 
-        shader = extracted_effect.shader.clone();
-        trace!("shader = {:?}", shader);
+        // Specialize the compute pipeline based on the effect
+        trace!(
+            "Specializing compute pipeline: compute_shader={:?}",
+            extracted_effect.compute_shader
+        );
+        compute_pipeline_id = specialized_compute_pipelines.specialize(
+            &mut pipeline_cache,
+            &update_pipeline,
+            ParticleUpdatePipelineKey {
+                shader: extracted_effect.compute_shader.clone(),
+            },
+        );
+        trace!("Compute pipeline specialized: id={:?}", compute_pipeline_id);
+
+        compute_shader = extracted_effect.compute_shader.clone();
+        trace!("compute_shader = {:?}", compute_shader);
+
+        render_shader = extracted_effect.render_shader.clone();
+        trace!("render_shader = {:?}", render_shader);
 
         trace!("item_size = {}B", slice.item_size);
 
@@ -1152,12 +1172,13 @@ pub(crate) fn prepare_effects(
                 assert_ne!(asset, Handle::<EffectAsset>::default());
                 assert!(item_size > 0);
                 trace!(
-                    "Emit batch: buffer #{} | spawner_base {} | slice {:?} | item_size {} | shader {:?}",
+                    "Emit batch: buffer #{} | spawner_base {} | slice {:?} | item_size {} | compute_shader {:?} | render_shader {:?}",
                     buffer_index,
                     spawner_base,
                     start..end,
                     item_size,
-                    shader
+                    compute_shader,
+                    render_shader
                 );
                 commands.spawn_bundle((EffectBatch {
                     buffer_index,
@@ -1167,11 +1188,12 @@ pub(crate) fn prepare_effects(
                     handle: asset.clone_weak(),
                     layout_flags,
                     image_handle_id,
-                    shader: shader.clone(),
+                    compute_shader: compute_shader.clone(),
+                    render_shader: render_shader.clone(),
                     position_code: position_code.clone(),
                     force_field_code: force_field_code.clone(),
                     lifetime_code: lifetime_code.clone(),
-                    compute_pipeline: None,
+                    compute_pipeline_id,
                     z_sort_key_2d,
                 },));
                 num_emitted += 1;
@@ -1187,12 +1209,13 @@ pub(crate) fn prepare_effects(
         assert_ne!(asset, Handle::<EffectAsset>::default());
         assert!(item_size > 0);
         trace!(
-            "Emit LAST batch: buffer #{} | spawner_base {} | slice {:?} | item_size {} | shader {:?}",
+            "Emit LAST batch: buffer #{} | spawner_base {} | slice {:?} | item_size {} | compute_shader {:?} | render_shader {:?}",
             current_buffer_index,
             spawner_base,
             start..end,
             item_size,
-            shader
+            compute_shader,
+            render_shader
         );
         commands.spawn_bundle((EffectBatch {
             buffer_index: current_buffer_index,
@@ -1202,11 +1225,12 @@ pub(crate) fn prepare_effects(
             handle: asset.clone_weak(),
             layout_flags,
             image_handle_id,
-            shader,
+            compute_shader,
+            render_shader,
             position_code,
             force_field_code,
             lifetime_code,
-            compute_pipeline: None,
+            compute_pipeline_id,
             z_sort_key_2d,
         },));
         num_emitted += 1;
@@ -1247,13 +1271,12 @@ pub(crate) fn queue_effects(
     mut effects_meta: ResMut<EffectsMeta>,
     view_uniforms: Res<ViewUniforms>,
     update_pipeline: Res<ParticlesUpdatePipeline>,
-    mut compute_cache: ResMut<ComputeCache<ParticlesUpdatePipeline>>,
     render_pipeline: Res<ParticlesRenderPipeline>,
     mut specialized_render_pipelines: ResMut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
-    mut render_pipeline_cache: ResMut<PipelineCache>,
+    mut pipeline_cache: ResMut<PipelineCache>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
     gpu_images: Res<RenderAssets<Image>>,
-    mut effect_batches: Query<(Entity, &mut EffectBatch)>,
+    effect_batches: Query<(Entity, &mut EffectBatch)>,
     #[cfg(feature = "2d")] mut views_2d: Query<&mut RenderPhase<Transparent2d>>,
     #[cfg(feature = "3d")] mut views_3d: Query<&mut RenderPhase<Transparent3d>>,
     events: Res<EffectAssetEvents>,
@@ -1406,28 +1429,6 @@ pub(crate) fn queue_effects(
             });
     }
 
-    // Queue the update
-    // TODO - Move to prepare(), there's no view-dependent thing here!
-    for (_entity, mut batch) in effect_batches.iter_mut() {
-        // Specialize the update pipeline based on the effect batch
-        trace!(
-            "Specializing update pipeline: position_code={:?}",
-            batch.position_code,
-        );
-        let compute_pipeline = compute_cache.specialize(
-            &update_pipeline,
-            ParticleUpdatePipelineKey {
-                position_code: batch.position_code.clone(),
-                force_field_code: batch.force_field_code.clone(),
-                lifetime_code: batch.lifetime_code.clone(),
-            },
-            &render_device,
-        );
-        trace!("Update pipeline specialized: {:?}", compute_pipeline);
-
-        batch.compute_pipeline = Some(compute_pipeline.clone());
-    }
-
     // Loop over all 2D cameras/views that need to render effects
     #[cfg(feature = "2d")]
     {
@@ -1496,16 +1497,16 @@ pub(crate) fn queue_effects(
 
                 // Specialize the render pipeline based on the effect batch
                 trace!(
-                    "Specializing render pipeline: shader={:?} particle_texture={:?}",
-                    batch.shader,
+                    "Specializing render pipeline: render_shader={:?} particle_texture={:?}",
+                    batch.render_shader,
                     particle_texture
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
-                    &mut render_pipeline_cache,
+                    &mut pipeline_cache,
                     &render_pipeline,
                     ParticleRenderPipelineKey {
                         particle_texture,
-                        shader: batch.shader.clone(),
+                        shader: batch.render_shader.clone(),
                         #[cfg(feature = "3d")]
                         pipeline_mode: PipelineMode::Camera2d,
                     },
@@ -1593,16 +1594,16 @@ pub(crate) fn queue_effects(
 
                 // Specialize the render pipeline based on the effect batch
                 trace!(
-                    "Specializing render pipeline: shader={:?} particle_texture={:?}",
-                    batch.shader,
+                    "Specializing render pipeline: render_shader={:?} particle_texture={:?}",
+                    batch.render_shader,
                     particle_texture
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
-                    &mut render_pipeline_cache,
+                    &mut pipeline_cache,
                     &render_pipeline,
                     ParticleRenderPipelineKey {
                         particle_texture,
-                        shader: batch.shader.clone(),
+                        shader: batch.render_shader.clone(),
                         #[cfg(feature = "2d")]
                         pipeline_mode: PipelineMode::Camera3d,
                     },
@@ -1664,13 +1665,13 @@ impl Draw<Transparent2d> for DrawEffects {
         item: &Transparent2d,
     ) {
         trace!("Draw<Transparent2d>: view={:?}", view);
-        let (effects_meta, effect_bind_groups, specialized_render_pipelines, views, effects) =
+        let (effects_meta, effect_bind_groups, pipeline_cache, views, effects) =
             self.params.get(world);
         let view_uniform = views.get(view).unwrap();
         let effects_meta = effects_meta.into_inner();
         let effect_bind_groups = effect_bind_groups.into_inner();
         let effect_batch = effects.get(item.entity).unwrap();
-        if let Some(pipeline) = specialized_render_pipelines
+        if let Some(pipeline) = pipeline_cache
             .into_inner()
             .get_render_pipeline(item.pipeline)
         {
@@ -1742,13 +1743,13 @@ impl Draw<Transparent3d> for DrawEffects {
         item: &Transparent3d,
     ) {
         trace!("Draw<Transparent3d>: view={:?}", view);
-        let (effects_meta, effect_bind_groups, specialized_render_pipelines, views, effects) =
+        let (effects_meta, effect_bind_groups, pipeline_cache, views, effects) =
             self.params.get(world);
         let view_uniform = views.get(view).unwrap();
         let effects_meta = effects_meta.into_inner();
         let effect_bind_groups = effect_bind_groups.into_inner();
         let effect_batch = effects.get(item.entity).unwrap();
-        if let Some(pipeline) = specialized_render_pipelines
+        if let Some(pipeline) = pipeline_cache
             .into_inner()
             .get_render_pipeline(item.pipeline)
         {
@@ -1822,6 +1823,7 @@ pub struct ParticleUpdateNode {
 impl ParticleUpdateNode {
     /// Input entity marking the view.
     pub const IN_VIEW: &'static str = "view";
+
     /// Output particle buffer for that view. TODO - how to handle multiple
     /// buffers?! Should use Entity instead??
     //pub const OUT_PARTICLE_BUFFER: &'static str = "particle_buffer";
@@ -1863,6 +1865,7 @@ impl Node for ParticleUpdateNode {
         // Get the Entity containing the ViewEffectsEntity component used as container
         // for the input data for this node.
         //let view_entity = graph.get_input_entity(Self::IN_VIEW)?;
+        let pipeline_cache = world.resource::<PipelineCache>();
 
         // Begin encoder
         // trace!(
@@ -1885,8 +1888,8 @@ impl Node for ParticleUpdateNode {
                         label: Some("update_compute_pass"),
                     });
 
-            let effects_meta = world.get_resource::<EffectsMeta>().unwrap();
-            let effect_bind_groups = world.get_resource::<EffectBindGroups>().unwrap();
+            let effects_meta = world.resource::<EffectsMeta>();
+            let effect_bind_groups = world.resource::<EffectBindGroups>();
 
             // Retrieve the ExtractedEffectEntities component itself
             //if let Ok(extracted_effect_entities) = self.entity_query.get_manual(world,
@@ -1898,7 +1901,9 @@ impl Node for ParticleUpdateNode {
                 //for effect_entity in extracted_effect_entities.entities.iter().copied() {
 
                 for batch in self.effect_query.iter_manual(world) {
-                    if let Some(compute_pipeline) = &batch.compute_pipeline {
+                    if let Some(compute_pipeline) =
+                        pipeline_cache.get_compute_pipeline(batch.compute_pipeline_id)
+                    {
                         //for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
                         // Retrieve the ExtractedEffect from the entity
                         //trace!("effect_entity={:?} effect_slice={:?}", effect_entity,

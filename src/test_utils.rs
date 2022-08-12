@@ -1,13 +1,20 @@
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 
+/// Mock renderer backed by any available WGPU backend, and simulating the real
+/// Bevy backend to enable testing rendering-related features.
 pub(crate) struct MockRenderer {
+    /// WGPU instance backed by any available backend.
     instance: wgpu::Instance,
+    /// Default WGPU adapter for the configured instance.
     adapter: wgpu::Adapter,
+    /// Bevy render device abstracting the WGPU backend.
     device: RenderDevice,
+    /// Bevy render queue sending commands to the render device.
     queue: RenderQueue,
 }
 
 impl MockRenderer {
+    /// Create a new mock renderer with a default backend and adapter.
     pub fn new() -> Self {
         // Create the WGPU adapter
         let instance = wgpu::Instance::new(wgpu::Backends::all());
@@ -42,10 +49,12 @@ impl MockRenderer {
         }
     }
 
+    /// Get the Bevy render device of the mock renderer.
     pub fn device(&self) -> RenderDevice {
         self.device.clone()
     }
 
+    /// Get the Bevy render queue of the mock renderer.
     pub fn queue(&self) -> RenderQueue {
         self.queue.clone()
     }
