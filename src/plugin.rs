@@ -5,20 +5,22 @@ use bevy::core_pipeline::core_3d::Transparent3d;
 use bevy::{
     prelude::*,
     render::{
-        render_graph::RenderGraph, render_phase::DrawFunctions,
-        render_resource::SpecializedRenderPipelines, renderer::RenderDevice,
-        view::visibility::VisibilitySystems, RenderApp, RenderStage,
+        render_graph::RenderGraph,
+        render_phase::DrawFunctions,
+        render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
+        renderer::RenderDevice,
+        view::visibility::VisibilitySystems,
+        RenderApp, RenderStage,
     },
 };
 
 use crate::{
     asset::{EffectAsset, EffectAssetLoader},
     render::{
-        extract_effect_events, extract_effects, prepare_effects, queue_effects, ComputeCache,
-        DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems, EffectsMeta,
-        ExtractedEffects, ParticleUpdateNode, ParticlesRenderPipeline, ParticlesUpdatePipeline,
-        PipelineRegistry, SimParams, PARTICLES_RENDER_SHADER_HANDLE,
-        PARTICLES_UPDATE_SHADER_HANDLE,
+        extract_effect_events, extract_effects, prepare_effects, queue_effects, DrawEffects,
+        EffectAssetEvents, EffectBindGroups, EffectSystems, EffectsMeta, ExtractedEffects,
+        ParticleUpdateNode, ParticlesRenderPipeline, ParticlesUpdatePipeline, PipelineRegistry,
+        SimParams, PARTICLES_RENDER_SHADER_HANDLE, PARTICLES_UPDATE_SHADER_HANDLE,
     },
     spawn::{self, Random},
     tick_spawners, ParticleEffect,
@@ -75,7 +77,7 @@ impl Plugin for HanabiPlugin {
             .insert_resource(effects_meta)
             .init_resource::<EffectBindGroups>()
             .init_resource::<ParticlesUpdatePipeline>()
-            .init_resource::<ComputeCache<ParticlesUpdatePipeline>>()
+            .init_resource::<SpecializedComputePipelines<ParticlesUpdatePipeline>>()
             .init_resource::<ParticlesRenderPipeline>()
             .init_resource::<SpecializedRenderPipelines<ParticlesRenderPipeline>>()
             .init_resource::<ExtractedEffects>()

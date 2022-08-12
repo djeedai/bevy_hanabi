@@ -218,9 +218,14 @@ pub struct ParticleEffect {
     /// Particle spawning descriptor.
     #[reflect(ignore)]
     spawner: Option<Spawner>,
-    /// Handle to the configured shader for his effect instance, if configured.
+    /// Handle to the configured compute shader for his effect instance, if
+    /// configured.
     #[reflect(ignore)]
-    configured_shader: Option<Handle<Shader>>,
+    configured_compute_shader: Option<Handle<Shader>>,
+    /// Handle to the configured render shader for his effect instance, if
+    /// configured.
+    #[reflect(ignore)]
+    configured_render_shader: Option<Handle<Shader>>,
 
     // bunch of stuff that should move, which we store here temporarily between tick_spawners()
     // ticking the spawner and the extract/prepare/queue render stages consuming them.
@@ -241,7 +246,8 @@ impl ParticleEffect {
             z_layer_2d: None,
             effect: EffectCacheId::INVALID,
             spawner: None,
-            configured_shader: None,
+            configured_compute_shader: None,
+            configured_render_shader: None,
             //
             spawn_count: 0,
             accel: Vec3::ZERO,
@@ -283,6 +289,7 @@ impl ParticleEffect {
     }
 }
 
+const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("render/particles_update.wgsl");
 const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("render/particles_render.wgsl");
 
 const DEFAULT_POSITION_CODE: &str = r##"
@@ -423,7 +430,8 @@ fn tick_spawners(
     // Clear configured shaders if the effect changed (usually due to changes in
     // modifiers)
     for mut effect in query.p1().iter_mut() {
-        effect.configured_shader = None;
+        effect.configured_compute_shader = None;
+        effect.configured_render_shader = None;
     }
 
     let dt = time.delta_seconds();
@@ -456,8 +464,9 @@ fn tick_spawners(
         // TEMP
         effect.spawn_count = spawn_count;
 
-        // Lazily configure shader on first use (or after some changes occurred)
-        if effect.configured_shader.is_none() {
+        // Lazily configure shaders on first use (or after some changes occurred)
+        // TODO - Reconfigure only the shader that changed, not both
+        if effect.configured_compute_shader.is_none() || effect.configured_render_shader.is_none() {
             let asset = effects.get(&effect.handle).unwrap(); // must succeed since it did above
 
             // Extract the acceleration
@@ -505,16 +514,27 @@ fn tick_spawners(
             }
             trace!("vertex_modifiers={}", vertex_modifiers);
 
-            // Configure the shader template, and make sure a corresponding shader asset
-            // exists
-            let shader_source =
+            // Configure the compute shader template, and make sure a corresponding shader
+            // asset exists
+            let mut compute_shader_source =
+                PARTICLES_UPDATE_SHADER_TEMPLATE.replace("{{INIT_POS_VEL}}", &position_code);
+            compute_shader_source =
+                compute_shader_source.replace("{{FORCE_FIELD_CODE}}", &force_field_code);
+            compute_shader_source =
+                compute_shader_source.replace("{{INIT_LIFETIME}}", &lifetime_code);
+            let compute_shader = pipeline_registry.configure(&compute_shader_source, &mut shaders);
+
+            // Configure the render shader template, and make sure a corresponding shader
+            // asset exists
+            let render_shader_source =
                 PARTICLES_RENDER_SHADER_TEMPLATE.replace("{{VERTEX_MODIFIERS}}", &vertex_modifiers);
-            let shader = pipeline_registry.configure(&shader_source, &mut shaders);
+            let render_shader = pipeline_registry.configure(&render_shader_source, &mut shaders);
 
             trace!(
-                "tick_spawners: handle={:?} shader={:?} has_image={} position_code={} force_field_code={} lifetime_code={}",
+                "tick_spawners: handle={:?} compute_shader={:?} render_shader={:?} has_image={} position_code={} force_field_code={} lifetime_code={}",
                 effect.handle,
-                shader,
+                compute_shader,
+                render_shader,
                 if asset.render_layout.particle_texture.is_some() {
                     "Y"
                 } else {
@@ -525,7 +545,8 @@ fn tick_spawners(
                 lifetime_code,
             );
 
-            effect.configured_shader = Some(shader);
+            effect.configured_compute_shader = Some(compute_shader);
+            effect.configured_render_shader = Some(render_shader);
 
             // TEMP
             effect.accel = accel;
