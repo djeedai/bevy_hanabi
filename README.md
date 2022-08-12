@@ -195,6 +195,16 @@ cargo run --example lifetime --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 <!-- Need to fix path to gif -->
 ![lifetime](/examples/lifetime.gif)
 
+### Billboard
+
+This example demonstrates particles with the billboard render modifier, making them always face the camera.
+
+```shell
+cargo run --example billboard --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
+```
+The image on the left has the `BillboardModifier` enabled.
+![billboard](/examples/billboard.png)
+
 ## Feature List
 
 - Spawn
@@ -232,8 +242,6 @@ cargo run --example lifetime --features="bevy/bevy_winit bevy/bevy_pbr 3d"
   - [x] Lifetime
   - [x] Size change over lifetime
   - [x] Color change over lifetime
-  - [ ] Face camera
-  - [ ] Face constant direction
 - Render
   - [x] Quad
     - [x] Textured
@@ -244,6 +252,8 @@ cargo run --example lifetime --features="bevy/bevy_winit bevy/bevy_pbr 3d"
     - [x] 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.8.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) only
     - [x] 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.8.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) only
     - [x] Simultaneous dual 2D/3D cameras
+  - [x] Face camera (Billboard)
+  - [ ] Face constant direction
 - Debug
   - [x] GPU debug labels / groups
   - [ ] Debug visualization
