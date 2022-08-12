@@ -1,5 +1,13 @@
 struct View {
     view_proj: mat4x4<f32>,
+    inverse_view_proj: mat4x4<f32>,
+    view: mat4x4<f32>,
+    inverse_view: mat4x4<f32>,
+    projection: mat4x4<f32>,
+    inverse_projection: mat4x4<f32>,
+    world_position: vec3<f32>,
+    width: f32,
+    height: f32,
 };
 
 struct Particle {
@@ -68,11 +76,8 @@ fn vertex(
 
 {{VERTEX_MODIFIERS}}
 
-    // Set the particle size
-    var vpos = vertex_position;
-    vpos = vpos * vec3<f32>(size.x, size.y, 1.0);
+    out.position = view.view_proj * world_position;
 
-    out.position = view.view_proj * vec4<f32>(particle.pos + vpos, 1.0);
     //out.color = vec4<f32>((vec4<u32>(vertex_color) >> vec4<u32>(0u, 8u, 16u, 24u)) & vec4<u32>(255u)) / 255.0;
     //out.color = color_over_lifetime(particle.age / particle.lifetime);
     // out.color[3] = 1.0;

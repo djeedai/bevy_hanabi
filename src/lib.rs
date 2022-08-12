@@ -98,10 +98,10 @@ pub use asset::{EffectAsset, InitLayout, RenderLayout, UpdateLayout};
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifiers::{
-    AccelModifier, ColorOverLifetimeModifier, ForceFieldModifier, ForceFieldParam, InitModifier,
-    ParticleLifetimeModifier, ParticleTextureModifier, PositionCircleModifier,
-    PositionSphereModifier, RenderModifier, ShapeDimension, SizeOverLifetimeModifier,
-    UpdateModifier, FFNUM,
+    AccelModifier, BillboardModifier, ColorOverLifetimeModifier, ForceFieldModifier,
+    ForceFieldParam, InitModifier, ParticleLifetimeModifier, ParticleTextureModifier,
+    PositionCircleModifier, PositionSphereModifier, RenderModifier, ShapeDimension,
+    SizeOverLifetimeModifier, UpdateModifier, FFNUM,
 };
 pub use plugin::HanabiPlugin;
 pub use render::{EffectCacheId, PipelineRegistry};
@@ -311,6 +311,20 @@ const DEFAULT_FORCE_FIELD_CODE: &str = r##"
 
 const FORCE_FIELD_CODE: &str = include_str!("render/force_field_code.wgsl");
 
+const ENABLED_BILLBOARD_CODE: &str = r##"
+    let camera_up = view.view * vec4<f32>(0.0, 1.0, 0.0, 1.0);
+    let camera_right = view.view * vec4<f32>(1.0, 0.0, 0.0, 1.0);
+
+    let world_position = vec4<f32>(particle.pos, 1.0)
+        + camera_right * vertex_position.x * size.x
+        + camera_up * vertex_position.y * size.y;
+"##;
+
+const DISABLED_BILLBOARD_CODE: &str = r##"
+    let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
+    let world_position = vec4<f32>(particle.pos + vpos, 1.0);
+"##;
+
 /// Trait to convert any data structure to its equivalent shader code.
 trait ShaderCode {
     /// Generate the shader code for the current state of the object.
@@ -512,6 +526,13 @@ fn tick_spawners(
             if let Some(grad) = &asset.render_layout.size_color_gradient {
                 vertex_modifiers += &grad.to_shader_code();
             }
+
+            if asset.render_layout.billboard {
+                vertex_modifiers += ENABLED_BILLBOARD_CODE
+            } else {
+                vertex_modifiers += DISABLED_BILLBOARD_CODE
+            }
+
             trace!("vertex_modifiers={}", vertex_modifiers);
 
             // Configure the compute shader template, and make sure a corresponding shader
