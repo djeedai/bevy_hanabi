@@ -3,7 +3,7 @@
 
 use bevy::{
     prelude::*,
-    render::{render_resource::WgpuFeatures, settings::WgpuSettings, camera::Projection},
+    render::{camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings},
 };
 
 use bevy_hanabi::*;
@@ -49,7 +49,7 @@ fn setup(
         }),
         ..Default::default()
     };
-    
+
     commands.spawn_bundle(camera);
 
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");
