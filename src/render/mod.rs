@@ -296,7 +296,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
                 self.spawner_buffer_layout.clone(),
                 self.indirect_buffer_layout.clone(),
             ]),
-            shader: key.shader.clone(),
+            shader: key.shader,
             shader_defs: vec![],
             entry_point: "main".into(),
         }

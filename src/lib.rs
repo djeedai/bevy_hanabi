@@ -12,7 +12,7 @@
 #![allow(dead_code)] // TEMP
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
-//! Hanabi -- a GPU particle system plugin for the Bevy game engine.
+//! 🎆 Hanabi -- a GPU particle system plugin for the Bevy game engine.
 //!
 //! This library provides a GPU-based particle system for the Bevy game engine.
 //!

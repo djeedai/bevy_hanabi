@@ -7,7 +7,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/djeedai/bevy_hanabi/badge.svg?branch=main)](https://coveralls.io/github/djeedai/bevy_hanabi?branch=main)
 [![Bevy tracking](https://img.shields.io/badge/Bevy%20tracking-v0.8-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
 
-Hanabi — a GPU particle system for the Bevy game engine.
+🎆 Hanabi — a GPU particle system for the Bevy game engine.
 
 ## Overview
 

@@ -3,13 +3,14 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.1] 2022-08-19
 
 ### Added
 
 - Added `EffectAsset::z_layer_2d` and `ParticleEffect::z_layer_2d` to control the Z layer at which particles are rendered in 2D mode. Note that effects with different Z values cannot be batched together, which may negatively affect performance.
+- Added `BillboardModifier` to force the particles to face the camera.
 
-## [0.3.0] 2022-06-08
+## [0.3.0] 2022-08-06
 
 ### Changed
 
