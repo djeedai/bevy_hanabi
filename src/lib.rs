@@ -100,15 +100,15 @@ pub use gradient::{Gradient, GradientKey};
 pub use modifiers::{
     AccelModifier, BillboardModifier, ColorOverLifetimeModifier, ForceFieldModifier,
     ForceFieldParam, InitModifier, ParticleLifetimeModifier, ParticleTextureModifier,
-    PositionCircleModifier, PositionSphereModifier, RenderModifier, ShapeDimension,
-    SizeOverLifetimeModifier, UpdateModifier, FFNUM,
+    PositionCircleModifier, PositionCone3dModifier, PositionSphereModifier, RenderModifier,
+    ShapeDimension, SizeOverLifetimeModifier, UpdateModifier, FFNUM,
 };
 pub use plugin::HanabiPlugin;
 pub use render::{EffectCacheId, PipelineRegistry};
 pub use spawn::{Random, Spawner, Value};
 
 #[cfg(not(any(feature = "2d", feature = "3d")))]
-compile_error!("Enable either the '2d' or '3d' feature.");
+compile_error!("You need to enable at least one of the '2d' or '3d' features for anything to happen.");
 
 /// Extension trait to write a floating point scalar or vector constant in a
 /// format matching the WGSL grammar.

@@ -220,7 +220,7 @@ The image on the left has the `BillboardModifier` enabled.
     - [ ] cube
     - [x] circle
     - [x] sphere
-    - [ ] cone
+    - [x] cone / truncated cone (3D)
     - [ ] plane
     - [ ] generic mesh / point cloud (?)
   - [ ] Random position offset
