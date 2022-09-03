@@ -8,7 +8,7 @@ use bevy::{
         system::{lifetimeless::*, SystemState},
     },
     log::trace,
-    math::{Mat4, Vec2, Vec3, Vec4, Vec4Swizzles},
+    math::{Mat4, Quat, Vec2, Vec3, Vec4Swizzles},
     reflect::TypeUuid,
     render::{
         color::Color,
@@ -145,30 +145,24 @@ impl From<ForceFieldParam> for ForceFieldStd430 {
 #[repr(C)]
 #[derive(Debug, Default, Copy, Clone, Pod, Zeroable, ShaderType)]
 struct SpawnerParams {
-    /// Origin of the effect. This is either added to emitted particles at spawn
-    /// time, if the effect simulated in world space, or to all simulated
-    /// particles if the effect is simulated in local space.
-    origin: Vec3,
-    /// Number of particles to spawn this frame.
-    spawn: i32,
+    /// Transform of the effect, as a Mat4 without the last row (which is always
+    /// (0,0,0,1) for an affine transform), stored transposed as a mat3x4 to avoid
+    /// padding in WGSL. This is either added to emitted particles at spawn time,
+    /// if the effect simulated in world space, or to all simulated particles if the
+    /// effect is simulated in local space.
+    transform: [f32; 12],
     /// Global acceleration applied to all particles each frame.
     /// TODO - This is NOT a spawner/emitter thing, but is a per-effect one.
     /// Rename SpawnerParams?
     accel: Vec3,
-
-    /// Current number of used particles.
-    count: i32,
-
+    /// Number of particles to spawn this frame.
+    spawn: i32,
     /// Force field components. One PullingForceFieldParam takes up 32 bytes.
     force_field: [ForceFieldStd430; FFNUM],
-    ///
-    __pad0: Vec3,
     /// Spawn seed, for randomized modifiers.
     seed: u32,
-    ///
-    __pad1: Vec3,
-    ///
-    __pad2: f32,
+    /// Current number of used particles.
+    count: i32,
 }
 
 pub struct ParticlesUpdatePipeline {
@@ -544,7 +538,7 @@ pub struct ExtractedEffect {
     /// Number of particles to spawn this frame for the effect.
     /// Obtained from calling [`Spawner::tick()`] on the source effect instance.
     pub spawn_count: u32,
-    /// Global transform of the effect origin.
+    /// Global transform of the effect origin, extracted from the [`GlobalTransform`].
     pub transform: Mat4,
     /// Constant acceleration applied to all particles.
     pub accel: Vec3,
@@ -1152,10 +1146,14 @@ pub(crate) fn prepare_effects(
         // Prepare the spawner block for the current slice
         // FIXME - This is once per EFFECT/SLICE, not once per BATCH, so indeed this is
         // spawner_BASE, and need an array of them in the compute shader!!!!!!!!!!!!!!
+        let tr = extracted_effect.transform.transpose().to_cols_array();
         let spawner_params = SpawnerParams {
             spawn: extracted_effect.spawn_count as i32,
             count: 0,
-            origin: extracted_effect.transform.col(3).truncate(),
+            transform: [
+                tr[0], tr[1], tr[2], tr[3], tr[4], tr[5], tr[6], tr[7], tr[8], tr[9], tr[10],
+                tr[11],
+            ],
             accel: extracted_effect.accel,
             force_field: extracted_force_field, // extracted_effect.force_field,
             seed: random::<u32>(),
