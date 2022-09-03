@@ -156,7 +156,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
             // Initialize new particle
             var posVel = init_pos_vel(index, transform);
-            vPos = posVel.pos + transform[3].xyz; // global space simulation
+            vPos = posVel.pos;
             vVel = posVel.vel;
             vAge = 0.0;
             vLifetime = init_lifetime();

@@ -5,6 +5,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `PositionCone3dModifier` to spawn particles inside a truncated 3D cone.
+
 ### Fixed
 
 - The orientation of the `Entity` of the `ParticleEffect` is now taken into account for spawning. (#42)
