@@ -24,14 +24,12 @@ struct ForceFieldParam {
 };
 
 struct Spawner {
-    origin: vec3<f32>,
-    spawn: atomic<i32>,
+    transform: mat3x4<f32>, // transposed (row-major)
     accel: vec3<f32>,
-    count: atomic<i32>,
+    spawn: atomic<i32>,
     force_field: array<ForceFieldParam, 16>,
-    __pad0: vec3<f32>,
     seed: u32,
-    __pad1: vec4<f32>,
+    count: atomic<i32>,
 };
 
 struct IndirectBuffer {
@@ -109,7 +107,7 @@ struct PosVel {
     vel: vec3<f32>,
 };
 
-fn init_pos_vel(index: u32) -> PosVel {
+fn init_pos_vel(index: u32, transform: mat4x4<f32>) -> PosVel {
     var ret : PosVel;
 {{INIT_POS_VEL}}
     return ret;
@@ -147,9 +145,18 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
             // Update PRNG seed
             seed = pcg_hash(index ^ spawner.seed);
 
+            let transform = transpose(
+                mat4x4(
+                    spawner.transform[0],
+                    spawner.transform[1],
+                    spawner.transform[2],
+                    vec4<f32>(0.0, 0.0, 0.0, 1.0)
+                )
+            );
+
             // Initialize new particle
-            var posVel = init_pos_vel(index);
-            vPos = posVel.pos + spawner.origin;
+            var posVel = init_pos_vel(index, transform);
+            vPos = posVel.pos + transform[3].xyz; // global space simulation
             vVel = posVel.vel;
             vAge = 0.0;
             vLifetime = init_lifetime();
