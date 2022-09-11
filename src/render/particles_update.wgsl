@@ -14,7 +14,7 @@ struct SimParams {
     time: f32,
 };
 
-struct ForceFieldParam {
+struct ForceFieldSource {
     position: vec3<f32>,
     max_radius: f32,
     min_radius: f32,
@@ -27,7 +27,7 @@ struct Spawner {
     transform: mat3x4<f32>, // transposed (row-major)
     accel: vec3<f32>,
     spawn: atomic<i32>,
-    force_field: array<ForceFieldParam, 16>,
+    force_field: array<ForceFieldSource, 16>,
     seed: u32,
     count: atomic<i32>,
 };

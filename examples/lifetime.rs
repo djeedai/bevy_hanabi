@@ -4,7 +4,7 @@ use bevy::{
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
 
-use bevy_hanabi::*;
+use bevy_hanabi::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut options = WgpuSettings::default();

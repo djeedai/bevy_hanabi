@@ -39,7 +39,7 @@ use bevy::core_pipeline::core_3d::Transparent3d;
 
 use crate::{
     asset::EffectAsset,
-    modifiers::{ForceFieldParam, FFNUM},
+    modifier::update::ForceFieldSource,
     spawn::{new_rng, Random},
     Gradient, ParticleEffect, RemovedEffectsEvent, ToWgslString,
 };
@@ -138,8 +138,8 @@ pub struct ForceFieldStd430 {
     pub conform_to_sphere: f32,
 }
 
-impl From<ForceFieldParam> for ForceFieldStd430 {
-    fn from(param: ForceFieldParam) -> Self {
+impl From<ForceFieldSource> for ForceFieldStd430 {
+    fn from(param: ForceFieldSource) -> Self {
         ForceFieldStd430 {
             position_or_direction: param.position,
             max_radius: param.max_radius,
@@ -167,7 +167,7 @@ struct SpawnerParams {
     /// Number of particles to spawn this frame.
     spawn: i32,
     /// Force field components. One PullingForceFieldParam takes up 32 bytes.
-    force_field: [ForceFieldStd430; FFNUM],
+    force_field: [ForceFieldStd430; ForceFieldSource::MAX_SOURCES],
     /// Spawn seed, for randomized modifiers.
     seed: u32,
     /// Current number of used particles.
@@ -553,7 +553,7 @@ pub struct ExtractedEffect {
     /// Constant acceleration applied to all particles.
     pub accel: Vec3,
     /// Force field applied to all particles in the "update" phase.
-    force_field: [ForceFieldParam; FFNUM],
+    force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Particles tint to modulate with the texture image.
     pub color: Color,
     pub rect: MinMaxRect,
@@ -1192,7 +1192,8 @@ pub(crate) fn prepare_effects(
 
         // extract the force field and turn it into a struct that is compliant with
         // Std430, namely ForceFieldStd430
-        let mut extracted_force_field = [ForceFieldStd430::default(); FFNUM];
+        let mut extracted_force_field =
+            [ForceFieldStd430::default(); ForceFieldSource::MAX_SOURCES];
         for (i, ff) in extracted_effect.force_field.iter().enumerate() {
             extracted_force_field[i] = (*ff).into();
         }

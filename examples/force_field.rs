@@ -8,7 +8,8 @@ use bevy::{
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
 
-use bevy_hanabi::*;
+use bevy_hanabi::prelude::*;
+
 // use smooth_bevy_cameras::{
 //     controllers::orbit::{OrbitCameraBundle, OrbitCameraController,
 // OrbitCameraPlugin},     LookTransformPlugin,
@@ -122,8 +123,8 @@ fn setup(
             dimension: ShapeDimension::Surface,
             ..Default::default()
         })
-        .update(bevy_hanabi::ForceFieldModifier::new(vec![
-            ForceFieldParam {
+        .update(ForceFieldModifier::new(vec![
+            ForceFieldSource {
                 position: attractor2_position,
                 max_radius: 1000000.0,
                 min_radius: BALL_RADIUS * 6.0,
@@ -133,7 +134,7 @@ fn setup(
                 force_exponent: 1.0,
                 conform_to_sphere: true,
             },
-            ForceFieldParam {
+            ForceFieldSource {
                 position: attractor1_position,
                 max_radius: 1000000.0,
                 min_radius: BALL_RADIUS * 6.0,

@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `PositionCone3dModifier` to spawn particles inside a truncated 3D cone.
 - All GPU profiling markers are now prefixed with `hanabi:` to make it easier to find Hanabi-related GPU resources.
 
+### Changed
+
+- Moved all modifiers into a top-level `modifier` module, and further into some `init`, `update`, and `render` sub-modules.
+- Added a `bevy_hanabi::prelude` containing most public types, to be used preferably over `use bevy_hanabi::*`.
+- Renamed `ForceFieldParam` to `ForceFieldSource`.
+- Renamed the `FFNUM` constant to `ForceFieldSource::MAX_SOURCES`.
+- Renamed `ForceFieldModifier::force_field` to `ForceFieldModifier::sources`.
+
 ### Fixed
 
 - The orientation of the `Entity` of the `ParticleEffect` is now taken into account for spawning. (#42)
