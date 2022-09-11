@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The orientation of the `Entity` of the `ParticleEffect` is now taken into account for spawning. (#42)
+- Ensure all GPU resources are deallocated when a `ParticleEffect` component is despawned. (#45)
 
 ## [0.3.1] 2022-08-19
 
