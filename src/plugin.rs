@@ -53,10 +53,6 @@ impl Plugin for HanabiPlugin {
                     .after(VisibilitySystems::CheckVisibility),
             );
 
-        // Register the spawn and update systems
-        // app.add_system(hanabi_spawn.system())
-        //     .add_system(hanabi_update.system());
-
         // Register the particles shaders
         let mut shaders = app.world.get_resource_mut::<Assets<Shader>>().unwrap();
         let update_shader = Shader::from_wgsl(include_str!("render/particles_update.wgsl"));

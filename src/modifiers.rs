@@ -174,18 +174,18 @@ impl InitModifier for PositionSphereModifier {
     }
 }
 
-
 /// An initialization modifier spawning particles inside a truncated 3D cone.
 ///
-/// The 3D cone is oriented along the Y axis, with its origin at the center of the top
-/// circle truncating the cone. The center of the base circle of the cone is located at
-/// a positive Y.
+/// The 3D cone is oriented along the Y axis, with its origin at the center of
+/// the top circle truncating the cone. The center of the base circle of the
+/// cone is located at a positive Y.
 ///
-/// Particles are spawned somewhere inside the volume or on the surface of a truncated
-/// 3D cone defined by its base radius, its top radius, and the height of the cone section.
+/// Particles are spawned somewhere inside the volume or on the surface of a
+/// truncated 3D cone defined by its base radius, its top radius, and the height
+/// of the cone section.
 ///
-/// The particle velocity is initialized to a random speed along the direction going from
-/// the cone apex to the particle position.
+/// The particle velocity is initialized to a random speed along the direction
+/// going from the cone apex to the particle position.
 #[derive(Default, Clone, Copy)]
 pub struct PositionCone3dModifier {
     /// The cone height along its axis, between the base and top radii.
