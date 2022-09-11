@@ -58,21 +58,33 @@ impl PartialOrd for EffectSlice {
     }
 }
 
+/// A reference to a slice allocated inside an [`EffectBuffer`].
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SliceRef {
+    /// Range into an [`EffectBuffer`], in item count.
     range: Range<u32>,
+    /// Size of a single item in the slice. Currently equal to the unique size
+    /// of all items in an [`EffectBuffer`] (no mixed size supported in same
+    /// buffer), so cached only for convenience.
     item_size: u32,
 }
 
 impl SliceRef {
+    /// The length of the slice, in number of items.
     pub fn len(&self) -> u32 {
         self.range.end - self.range.start
     }
 
+    /// The size in bytes of the slice.
     pub fn byte_size(&self) -> usize {
         (self.len() as usize) * (self.item_size as usize)
     }
 }
 
+/// Storage for a single kind of effects, sharing the same buffer(s).
+///
+/// Currently only accepts a single unique item size (particle size), fixed at
+/// creation. Also currently only accepts instances of a unique of effect asset.
 pub struct EffectBuffer {
     /// GPU buffer holding all particles for the entire group of effects.
     particle_buffer: Buffer,
@@ -81,17 +93,16 @@ pub struct EffectBuffer {
     indirect_buffer: Buffer,
     /// Size of each particle, in bytes.
     item_size: u32,
-    /// Total buffer capacity in bytes.
+    /// Total buffer capacity, in number of particles.
     capacity: u32,
-    /// Used buffer size, either from allocated slices or from slices in the
-    /// free list.
+    /// Used buffer size, in number of particles, either from allocated slices
+    /// or from slices in the free list.
     used_size: u32,
-    /// Collection of slices into the buffer, each slice being one effect
-    /// instance.
-    slices: Vec<EffectSlice>,
-    /// Array of free ranges for new allocations.
+    /// Array of free slices for new allocations, sorted in increasing order in
+    /// the buffer.
     free_slices: Vec<Range<u32>>,
-    /// Map of entities and slices.
+    /// Map of entities and associated allocated slices. The index references
+    /// [`EffectBuffer::slices`].
     slice_from_entity: HashMap<Entity, usize>,
     /// Compute pipeline for the effect update pass.
     //pub compute_pipeline: ComputePipeline, // FIXME - ComputePipelineId, to avoid duplicating per
@@ -136,7 +147,7 @@ impl EffectBuffer {
         let indirect_label = if let Some(label) = label {
             format!("{}_indirect", label)
         } else {
-            "vfx_indirect_buffer".to_owned()
+            "hanabi:effect_buffer_indirect".to_owned()
         };
         let indirect_capacity_bytes: BufferAddress =
             capacity as u64 * std::mem::size_of::<u32>() as u64;
@@ -152,7 +163,6 @@ impl EffectBuffer {
             item_size,
             capacity,
             used_size: 0,
-            slices: vec![],
             free_slices: vec![],
             slice_from_entity: HashMap::default(),
             //compute_pipeline,
@@ -269,8 +279,8 @@ impl EffectBuffer {
     // }
 
     pub fn is_compatible(&self, handle: &Handle<EffectAsset>) -> bool {
-        // TODO - replace with check particle layout is compatible to allow update in
-        // the same single dispatch call
+        // TODO - replace with check particle layout is compatible to allow tighter
+        // packing in less buffers, and update in the less dispatch calls
         *handle == self.asset
     }
 }
@@ -359,7 +369,7 @@ impl EffectCache {
                     item_size,
                     //pipeline,
                     &self.device,
-                    Some(&format!("effect_buffer{}", self.buffers.len())),
+                    Some(&format!("hanabi:effect_buffer{}", buffer_index)),
                 ));
                 let buffer = self.buffers.last_mut().unwrap();
                 Some((

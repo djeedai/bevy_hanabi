@@ -108,7 +108,9 @@ pub use render::{EffectCacheId, PipelineRegistry};
 pub use spawn::{Random, Spawner, Value};
 
 #[cfg(not(any(feature = "2d", feature = "3d")))]
-compile_error!("You need to enable at least one of the '2d' or '3d' features for anything to happen.");
+compile_error!(
+    "You need to enable at least one of the '2d' or '3d' features for anything to happen."
+);
 
 /// Extension trait to write a floating point scalar or vector constant in a
 /// format matching the WGSL grammar.

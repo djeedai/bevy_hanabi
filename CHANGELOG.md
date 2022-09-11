@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added `PositionCone3dModifier` to spawn particles inside a truncated 3D cone.
+- All GPU profiling markers are now prefixed with `hanabi:` to make it easier to find Hanabi-related GPU resources.
 
 ### Fixed
 

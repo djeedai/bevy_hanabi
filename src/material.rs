@@ -160,7 +160,7 @@ impl RenderAsset for EffectMaterial {
         let value_std140 = value.as_std140();
 
         let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("effect_material_uniform_buffer"),
+            label: Some("hanabi:effect_material_uniform_buffer"),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             contents: value_std140.as_bytes(),
         });
@@ -179,7 +179,7 @@ impl RenderAsset for EffectMaterial {
                     resource: BindingResource::Sampler(base_color_sampler),
                 },
             ],
-            label: Some("effect_material_bind_group"),
+            label: Some("hanabi:effect_material_bind_group"),
             layout: &pbr_pipeline.material_layout,
         });
 

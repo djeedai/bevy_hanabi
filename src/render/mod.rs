@@ -63,7 +63,10 @@ pub const PARTICLES_RENDER_SHADER_HANDLE: HandleUntyped =
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
 pub enum EffectSystems {
     /// Tick all effect instances to generate spawner counts, and configure
-    /// shaders based on modifiers.
+    /// shaders based on modifiers. This system runs during the
+    /// [`CoreStage::PostUpdate`] stage.
+    ///
+    /// [`CoreStage::PostUpdate`]: bevy::app::CoreStage::PostUpdate
     TickSpawners,
     /// Extract the effects to render this frame.
     ExtractEffects,
@@ -146,10 +149,10 @@ impl From<ForceFieldParam> for ForceFieldStd430 {
 #[derive(Debug, Default, Copy, Clone, Pod, Zeroable, ShaderType)]
 struct SpawnerParams {
     /// Transform of the effect, as a Mat4 without the last row (which is always
-    /// (0,0,0,1) for an affine transform), stored transposed as a mat3x4 to avoid
-    /// padding in WGSL. This is either added to emitted particles at spawn time,
-    /// if the effect simulated in world space, or to all simulated particles if the
-    /// effect is simulated in local space.
+    /// (0,0,0,1) for an affine transform), stored transposed as a mat3x4 to
+    /// avoid padding in WGSL. This is either added to emitted particles at
+    /// spawn time, if the effect simulated in world space, or to all
+    /// simulated particles if the effect is simulated in local space.
     transform: [f32; 12],
     /// Global acceleration applied to all particles each frame.
     /// TODO - This is NOT a spawner/emitter thing, but is a per-effect one.
@@ -201,7 +204,7 @@ impl FromWorld for ParticlesUpdatePipeline {
                     },
                     count: None,
                 }],
-                label: Some("particles_update_sim_params_layout"),
+                label: Some("hanabi:update_sim_params_layout"),
             });
 
         trace!("Particle: min_size={}", Particle::min_size());
@@ -217,7 +220,7 @@ impl FromWorld for ParticlesUpdatePipeline {
                     },
                     count: None,
                 }],
-                label: Some("particles_update_particles_buffer_layout"),
+                label: Some("hanabi:update_particles_buffer_layout"),
             });
 
         trace!("SpawnerParams: min_size={}", SpawnerParams::min_size());
@@ -233,7 +236,7 @@ impl FromWorld for ParticlesUpdatePipeline {
                     },
                     count: None,
                 }],
-                label: Some("particles_update_spawner_buffer_layout"),
+                label: Some("hanabi:update_spawner_buffer_layout"),
             });
 
         let indirect_buffer_layout =
@@ -248,11 +251,11 @@ impl FromWorld for ParticlesUpdatePipeline {
                     },
                     count: None,
                 }],
-                label: Some("particles_update_indirect_buffer_layout"),
+                label: Some("hanabi:update_indirect_buffer_layout"),
             });
 
         let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("particles_update_pipeline_layout"),
+            label: Some("hanabi:update_pipeline_layout"),
             bind_group_layouts: &[
                 &sim_params_layout,
                 &particles_buffer_layout,
@@ -283,7 +286,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
 
     fn specialize(&self, key: Self::Key) -> ComputePipelineDescriptor {
         ComputePipelineDescriptor {
-            label: Some("particles_update_compute_pipeline".into()),
+            label: Some("hanabi:update_compute_pipeline".into()),
             layout: Some(vec![
                 self.sim_params_layout.clone(),
                 self.particles_buffer_layout.clone(),
@@ -319,7 +322,7 @@ impl FromWorld for ParticlesRenderPipeline {
                 },
                 count: None,
             }],
-            label: Some("particles_view_layout_render"),
+            label: Some("hanabi:view_layout_render"),
         });
 
         let particles_buffer_layout =
@@ -334,7 +337,7 @@ impl FromWorld for ParticlesRenderPipeline {
                     },
                     count: None,
                 }],
-                label: Some("particles_buffer_layout_render"),
+                label: Some("hanabi:buffer_layout_render"),
             });
 
         let material_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -356,7 +359,7 @@ impl FromWorld for ParticlesRenderPipeline {
                     count: None,
                 },
             ],
-            label: Some("particles_material_layout_render"),
+            label: Some("hanabi:material_layout_render"),
         });
 
         ParticlesRenderPipeline {
@@ -522,7 +525,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            label: Some("particle_render_pipeline".into()),
+            label: Some("hanabi:render_pipeline".into()),
         }
     }
 }
@@ -538,7 +541,8 @@ pub struct ExtractedEffect {
     /// Number of particles to spawn this frame for the effect.
     /// Obtained from calling [`Spawner::tick()`] on the source effect instance.
     pub spawn_count: u32,
-    /// Global transform of the effect origin, extracted from the [`GlobalTransform`].
+    /// Global transform of the effect origin, extracted from the
+    /// [`GlobalTransform`].
     pub transform: Mat4,
     /// Constant acceleration applied to all particles.
     pub accel: Vec3,
@@ -840,7 +844,7 @@ impl EffectsMeta {
             spawner_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
                 item_align,
-                Some("spawner_buffer".to_string()),
+                Some("hanabi:spawner_buffer".to_string()),
             ),
             vertices,
         }
@@ -1310,7 +1314,7 @@ pub(crate) fn queue_effects(
             binding: 0,
             resource: view_binding,
         }],
-        label: Some("particles_view_bind_group"),
+        label: Some("hanabi:view_bind_group"),
         layout: &render_pipeline.view_layout,
     }));
 
@@ -1321,7 +1325,7 @@ pub(crate) fn queue_effects(
                 binding: 0,
                 resource: effects_meta.sim_params_uniforms.binding().unwrap(),
             }],
-            label: Some("particles_sim_params_bind_group"),
+            label: Some("hanabi:sim_params_bind_group"),
             layout: &update_pipeline.sim_params_layout,
         }));
 
@@ -1336,7 +1340,7 @@ pub(crate) fn queue_effects(
                 size: Some(SpawnerParams::min_size()),
             }),
         }],
-        label: Some("particles_spawner_bind_group"),
+        label: Some("hanabi:spawner_bind_group"),
         layout: &update_pipeline.spawner_buffer_layout,
     }));
 
@@ -1360,7 +1364,10 @@ pub(crate) fn queue_effects(
                         binding: 0,
                         resource: buffer.max_binding(),
                     }],
-                    label: Some(&format!("vfx_particles_bind_group_update{}", buffer_index)),
+                    label: Some(&format!(
+                        "hanabi:vfx_particles_bind_group_update{}",
+                        buffer_index
+                    )),
                     layout: &update_pipeline.particles_buffer_layout,
                 })
             });
@@ -1379,7 +1386,7 @@ pub(crate) fn queue_effects(
                         resource: buffer.indirect_max_binding(),
                     }],
                     label: Some(&format!(
-                        "vfx_indirect_buffer_bind_group_update{}",
+                        "hanabi:vfx_indirect_buffer_bind_group_update{}",
                         buffer_index
                     )),
                     layout: &update_pipeline.indirect_buffer_layout,
@@ -1400,7 +1407,10 @@ pub(crate) fn queue_effects(
                         binding: 0,
                         resource: buffer.max_binding(),
                     }],
-                    label: Some(&format!("vfx_particles_bind_group_render{}", buffer_index)),
+                    label: Some(&format!(
+                        "hanabi:vfx_particles_bind_group_render{}",
+                        buffer_index
+                    )),
                     layout: &render_pipeline.particles_buffer_layout,
                 })
             });
@@ -1419,7 +1429,7 @@ pub(crate) fn queue_effects(
                         resource: buffer.indirect_max_binding(),
                     }],
                     label: Some(&format!(
-                        "vfx_indirect_buffer_bind_group_render{}",
+                        "hanabi:vfx_indirect_buffer_bind_group_render{}",
                         buffer_index
                     )),
                     layout: &update_pipeline.indirect_buffer_layout,
@@ -1472,7 +1482,7 @@ pub(crate) fn queue_effects(
                                             resource: BindingResource::Sampler(&gpu_image.sampler),
                                         },
                                     ],
-                                    label: Some("particles_material_bind_group"),
+                                    label: Some("hanabi:material_bind_group"),
                                     layout: &render_pipeline.material_layout,
                                 });
                             effect_bind_groups
@@ -1569,7 +1579,7 @@ pub(crate) fn queue_effects(
                                             resource: BindingResource::Sampler(&gpu_image.sampler),
                                         },
                                     ],
-                                    label: Some("particles_material_bind_group"),
+                                    label: Some("hanabi:material_bind_group"),
                                     layout: &render_pipeline.material_layout,
                                 });
                             effect_bind_groups
@@ -1883,7 +1893,7 @@ impl Node for ParticleUpdateNode {
                 render_context
                     .command_encoder
                     .begin_compute_pass(&ComputePassDescriptor {
-                        label: Some("update_compute_pass"),
+                        label: Some("hanabi:update_compute_pass"),
                     });
 
             let effects_meta = world.resource::<EffectsMeta>();
