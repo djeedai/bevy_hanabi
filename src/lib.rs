@@ -218,7 +218,6 @@ pub struct ParticleEffect {
     #[reflect(ignore)]
     effect: EffectCacheId,
     /// Particle spawning descriptor.
-    #[reflect(ignore)]
     spawner: Option<Spawner>,
     /// Handle to the configured compute shader for his effect instance, if
     /// configured.
@@ -578,6 +577,20 @@ fn tick_spawners(
             effect.force_field_code = force_field_code;
             effect.lifetime_code = lifetime_code;
         }
+    }
+}
+
+struct RemovedEffectsEvent {
+    entities: Vec<Entity>,
+}
+
+fn gather_removed_effects(
+    removed_effects: RemovedComponents<ParticleEffect>,
+    mut removed_effects_event_writer: EventWriter<RemovedEffectsEvent>,
+) {
+    let entities: Vec<Entity> = removed_effects.iter().collect();
+    if !entities.is_empty() {
+        removed_effects_event_writer.send(RemovedEffectsEvent { entities });
     }
 }
 

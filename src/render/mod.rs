@@ -41,7 +41,7 @@ use crate::{
     asset::EffectAsset,
     modifiers::{ForceFieldParam, FFNUM},
     spawn::{new_rng, Random},
-    Gradient, ParticleEffect, ToWgslString,
+    Gradient, ParticleEffect, RemovedEffectsEvent, ToWgslString,
 };
 
 mod aligned_buffer_vec;
@@ -68,6 +68,12 @@ pub enum EffectSystems {
     ///
     /// [`CoreStage::PostUpdate`]: bevy::app::CoreStage::PostUpdate
     TickSpawners,
+    /// Gather all removed [`ParticleEffect`] components during the
+    /// [`CoreStage::PostUpdate`] stage, to be able to clean-up GPU
+    /// resources.
+    ///
+    /// [`CoreStage::PostUpdate`]: bevy::app::CoreStage::PostUpdate
+    GatherRemovedEffects,
     /// Extract the effects to render this frame.
     ExtractEffects,
     /// Extract the effect events to process this frame.
@@ -661,7 +667,7 @@ pub(crate) fn extract_effects(
             >,
         )>,
     >,
-    removed_effects: Extract<RemovedComponents<ParticleEffect>>,
+    mut removed_effects_event_reader: Extract<EventReader<RemovedEffectsEvent>>,
     mut sim_params: ResMut<SimParams>,
     mut extracted_effects: ResMut<ExtractedEffects>,
 ) {
@@ -673,7 +679,19 @@ pub(crate) fn extract_effects(
     sim_params.dt = dt;
 
     // Collect removed effects for later GPU data purge
-    extracted_effects.removed_effect_entities = removed_effects.iter().collect();
+    extracted_effects.removed_effect_entities =
+        removed_effects_event_reader
+            .iter()
+            .fold(vec![], |mut acc, ev| {
+                // FIXME - Need to clone because we can't consume the event, we only have
+                // read-only access to the main world
+                acc.append(&mut ev.entities.clone());
+                acc
+            });
+    trace!(
+        "Found {} removed entities.",
+        extracted_effects.removed_effect_entities.len()
+    );
 
     // Collect added effects for later GPU data allocation
     extracted_effects.added_effects = query
@@ -793,7 +811,7 @@ struct ParticleVertex {
 pub(crate) struct EffectsMeta {
     /// Map from an entity with a [`ParticleEffect`] component attached to it,
     /// to the associated effect slice allocated in an [`EffectCache`].
-    entity_map: HashMap<Entity, EffectSlice>,
+    entity_map: HashMap<Entity, EffectCacheId>,
     /// Global effect cache for all effects in use.
     effect_cache: EffectCache,
     /// Bind group for the camera view, containing the camera projection and
@@ -920,6 +938,7 @@ pub(crate) fn prepare_effects(
     // EffectsMeta
     mut effects_meta: ResMut<EffectsMeta>,
     mut extracted_effects: ResMut<ExtractedEffects>,
+    mut effect_bind_groups: ResMut<EffectBindGroups>,
 ) {
     trace!("prepare_effects");
 
@@ -959,6 +978,10 @@ pub(crate) fn prepare_effects(
     // a group is not left unused and dropped due to the last effect being
     // removed but a new compatible one added not being inserted yet. By
     // inserting first, we ensure the group is not dropped in this case.
+    trace!(
+        "Adding {} newly spawned effects",
+        extracted_effects.added_effects.len()
+    );
     for added_effect in extracted_effects.added_effects.drain(..) {
         let entity = added_effect.entity;
         let id = effects_meta.effect_cache.insert(
@@ -968,15 +991,41 @@ pub(crate) fn prepare_effects(
             //update_pipeline.pipeline.clone(),
             &render_queue,
         );
-        let slice = effects_meta.effect_cache.get_slice(id);
-        effects_meta.entity_map.insert(entity, slice);
+        effects_meta.entity_map.insert(entity, id);
+        // Note: those effects are already in extracted_effects.effects because
+        // they were gathered by the same query as previously existing
+        // ones, during extraction.
     }
 
     // Deallocate GPU data for destroyed effect instances. This will automatically
     // drop any group where there is no more effect slice.
-    for _entity in extracted_effects.removed_effect_entities.iter() {
-        unimplemented!("Remove particle effect.");
-        //effects_meta.remove(&*entity);
+    let removed_entities = std::mem::take(&mut extracted_effects.removed_effect_entities);
+    trace!("Removing {} despawned effects", removed_entities.len());
+    for entity in &removed_entities {
+        trace!("Removing ParticleEffect on entity {:?}", entity);
+        if let Some(id) = effects_meta.entity_map.remove(entity) {
+            trace!(
+                "=> ParticleEffect on entity {:?} had cache ID {:?}, removing...",
+                entity,
+                id
+            );
+            if let Some(buffer_index) = effects_meta.effect_cache.remove(id) {
+                // Clear bind groups associated with the removed buffer
+                effect_bind_groups
+                    .update_particle_buffers
+                    .remove(&buffer_index);
+                effect_bind_groups
+                    .update_indirect_buffers
+                    .remove(&buffer_index);
+                effect_bind_groups
+                    .render_particle_buffers
+                    .remove(&buffer_index);
+                effect_bind_groups
+                    .render_indirect_buffers
+                    .remove(&buffer_index);
+            }
+        }
+        extracted_effects.effects.remove(entity);
     }
 
     // // sort first by z and then by handle. this ensures that, when possible,
@@ -993,7 +1042,8 @@ pub(crate) fn prepare_effects(
         .effects
         .iter()
         .map(|(entity, extracted_effect)| {
-            let slice = effects_meta.entity_map.get(entity).unwrap().clone();
+            let id = effects_meta.entity_map.get(entity).unwrap().clone();
+            let slice = effects_meta.effect_cache.get_slice(id);
             (slice, extracted_effect)
         })
         .collect::<Vec<_>>();
@@ -1346,7 +1396,18 @@ pub(crate) fn queue_effects(
 
     // Queue the update compute
     trace!("queue effects from cache...");
-    for (buffer_index, buffer) in effects_meta.effect_cache.buffers().iter().enumerate() {
+    for (buffer_index, buffer) in effects_meta
+        .effect_cache
+        .buffers_mut()
+        .iter_mut()
+        .enumerate()
+    {
+        let buffer = if let Some(buffer) = buffer {
+            buffer
+        } else {
+            continue;
+        };
+
         // Ensure all effect groups have a bind group for the entire buffer of the
         // group, since the update phase runs on an entire group/buffer at once,
         // with all the effect instances in it batched together.

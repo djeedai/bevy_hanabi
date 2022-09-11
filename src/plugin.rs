@@ -16,6 +16,7 @@ use bevy::{
 
 use crate::{
     asset::{EffectAsset, EffectAssetLoader},
+    gather_removed_effects,
     render::{
         extract_effect_events, extract_effects, prepare_effects, queue_effects, DrawEffects,
         EffectAssetEvents, EffectBindGroups, EffectSystems, EffectsMeta, ExtractedEffects,
@@ -23,7 +24,7 @@ use crate::{
         SimParams, PARTICLES_RENDER_SHADER_HANDLE, PARTICLES_UPDATE_SHADER_HANDLE,
     },
     spawn::{self, Random},
-    tick_spawners, ParticleEffect,
+    tick_spawners, ParticleEffect, RemovedEffectsEvent, Spawner,
 };
 
 pub mod draw_graph {
@@ -41,6 +42,7 @@ impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
         // Register asset
         app.add_asset::<EffectAsset>()
+            .add_event::<RemovedEffectsEvent>()
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<PipelineRegistry>()
             .init_asset_loader::<EffectAssetLoader>()
@@ -51,6 +53,10 @@ impl Plugin for HanabiPlugin {
                     // This checks the visibility to skip shader work, so needs to run
                     // after ComputedVisibility was updated.
                     .after(VisibilitySystems::CheckVisibility),
+            )
+            .add_system_to_stage(
+                CoreStage::PostUpdate,
+                gather_removed_effects.label(EffectSystems::GatherRemovedEffects),
             );
 
         // Register the particles shaders
@@ -63,6 +69,7 @@ impl Plugin for HanabiPlugin {
         // Register the component reflection
         app.register_type::<EffectAsset>();
         app.register_type::<ParticleEffect>();
+        app.register_type::<Spawner>();
 
         let render_device = app.world.get_resource::<RenderDevice>().unwrap();
         let effects_meta = EffectsMeta::new(render_device.clone());
