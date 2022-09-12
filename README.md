@@ -35,7 +35,7 @@ See also [Features](#features) below for the list of supported features.
 Add the `HanabiPlugin` to your app:
 
 ```rust
-use bevy_hanabi::*;
+use bevy_hanabi::prelude::*;
 
 App::default()
     .add_plugins(DefaultPlugins)

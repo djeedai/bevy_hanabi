@@ -9,8 +9,12 @@ use bevy::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    modifiers::{ForceFieldParam, FFNUM},
-    Gradient, InitModifier, RenderModifier, Spawner, UpdateModifier,
+    modifier::{
+        init::InitModifier,
+        render::RenderModifier,
+        update::{ForceFieldSource, UpdateModifier},
+    },
+    Gradient, Spawner,
 };
 
 /// Struct containing snippets of WSGL code that can be used
@@ -29,12 +33,12 @@ pub struct InitLayout {
 /// to update the particles every frame on the GPU.
 #[derive(Default, Clone, Copy)]
 pub struct UpdateLayout {
-    /// Constant accelereation to apply to all particles.
+    /// Constant acceleration to apply to all particles.
     /// Generally used to simulate some kind of gravity.
     pub accel: Vec3,
     /// Array of force field components with a maximum number of components
-    /// determined by [`FFNUM`].
-    pub force_field: [ForceFieldParam; FFNUM],
+    /// determined by [`ForceFieldSource::MAX_SOURCES`].
+    pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
 }
 
 /// Struct containing data and snippets of WSGL code that can be used

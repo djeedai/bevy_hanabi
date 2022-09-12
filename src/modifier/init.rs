@@ -1,45 +1,13 @@
+//! Modifiers to initialize particles when they spawn.
+
 use bevy::prelude::*;
 
-use crate::{
-    asset::{InitLayout, RenderLayout, UpdateLayout},
-    gradient::Gradient,
-    ToWgslString, Value,
-};
-
-/// Maximum number of components in the force field.
-pub const FFNUM: usize = 16;
+use crate::{asset::InitLayout, modifier::ShapeDimension, ToWgslString, Value};
 
 /// Trait to customize the initializing of newly spawned particles.
 pub trait InitModifier {
     /// Apply the modifier to the init layout of the effect instance.
     fn apply(&self, init_layout: &mut InitLayout);
-}
-
-/// Trait to customize the updating of existing particles each frame.
-pub trait UpdateModifier {
-    /// Apply the modifier to the update layout of the effect instance.
-    fn apply(&self, update_layout: &mut UpdateLayout);
-}
-
-/// Trait to customize the rendering of alive particles each frame.
-pub trait RenderModifier {
-    /// Apply the modifier to the render layout of the effect instance.
-    fn apply(&self, render_layout: &mut RenderLayout);
-}
-
-/// The dimension of a shape to consider.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum ShapeDimension {
-    /// Consider the surface of the shape only.
-    Surface,
-    /// Consider the entire shape volume.
-    Volume,
-}
-
-impl Default for ShapeDimension {
-    fn default() -> Self {
-        ShapeDimension::Surface
-    }
 }
 
 /// An initialization modifier spawning particles on a circle/disc.
@@ -269,10 +237,13 @@ impl InitModifier for PositionCone3dModifier {
     }
 }
 
-/// A modifier modulating particle's lifetime.
+/// A modifier to set the lifetime of all particles.
+///
+/// Particles with a lifetime are aged each frame by the frame's delta time, and
+/// are despawned once their age is greater than or equal to their lifetime.
 #[derive(Default, Clone, Copy)]
 pub struct ParticleLifetimeModifier {
-    /// Particles lifetime
+    /// The lifetime of all particles when they spawn, in seconds.
     pub lifetime: f32,
 }
 
@@ -286,156 +257,5 @@ impl InitModifier for ParticleLifetimeModifier {
 "##,
             self.lifetime.to_wgsl_string(),
         );
-    }
-}
-
-/// A modifier modulating each particle's color by sampling a texture.
-#[derive(Default, Clone)]
-pub struct ParticleTextureModifier {
-    /// The texture image to modulate the particle color with.
-    pub texture: Handle<Image>,
-}
-
-impl RenderModifier for ParticleTextureModifier {
-    fn apply(&self, render_layout: &mut RenderLayout) {
-        render_layout.particle_texture = Some(self.texture.clone());
-    }
-}
-
-/// A modifier modulating each particle's color over its lifetime with a
-/// gradient curve.
-#[derive(Default, Clone)]
-pub struct ColorOverLifetimeModifier {
-    /// The color gradient defining the particle color based on its lifetime.
-    pub gradient: Gradient<Vec4>,
-}
-
-impl RenderModifier for ColorOverLifetimeModifier {
-    fn apply(&self, render_layout: &mut RenderLayout) {
-        render_layout.lifetime_color_gradient = Some(self.gradient.clone());
-    }
-}
-
-/// A modifier modulating each particle's size over its lifetime with a gradient
-/// curve.
-#[derive(Default, Clone)]
-pub struct SizeOverLifetimeModifier {
-    /// The size gradient defining the particle size based on its lifetime.
-    pub gradient: Gradient<Vec2>,
-}
-
-impl RenderModifier for SizeOverLifetimeModifier {
-    fn apply(&self, render_layout: &mut RenderLayout) {
-        render_layout.size_color_gradient = Some(self.gradient.clone());
-    }
-}
-
-/// Reorients the vertices to always face the camera when rendering.
-#[derive(Default, Clone, Copy)]
-pub struct BillboardModifier;
-
-impl RenderModifier for BillboardModifier {
-    fn apply(&self, render_layout: &mut RenderLayout) {
-        render_layout.billboard = true;
-    }
-}
-
-/// A modifier to apply a constant acceleration to all particles each frame.
-///
-/// This is typically used to apply some kind of gravity.
-#[derive(Default, Clone, Copy)]
-pub struct AccelModifier {
-    /// The constant acceleration to apply to all particles in the effect each
-    /// frame.
-    pub accel: Vec3,
-}
-
-impl UpdateModifier for AccelModifier {
-    fn apply(&self, layout: &mut UpdateLayout) {
-        layout.accel = self.accel;
-    }
-}
-
-/// Parameters for the components making the force field.
-#[derive(Debug, Clone, Copy)]
-pub struct ForceFieldParam {
-    /// Position of the source of the force field.
-    pub position: Vec3,
-    /// Maximum radius of the sphere of influence, outside of which
-    /// the force field is null.
-    pub max_radius: f32,
-    /// Minimum radius of the sphere of influence, inside of which
-    /// the force field is null, avoiding the singularity at the source
-    /// position.
-    pub min_radius: f32,
-    /// The intensity of the force is proportional to mass. Note that the
-    /// particles_update.wgsl shader will ignore all subsequent force field
-    /// components after it encounters a component with a mass of zero.
-    /// To change the force from an attracting one to a repulsive one, simply
-    /// set the mass to a negative value.
-    pub mass: f32,
-    /// The force field is proportional to `1 / distance^force_exponent`.
-    pub force_exponent: f32,
-    /// If set to true, the particles that enter within the `min_radius` will
-    /// conform to a sphere around the source position, appearing like a
-    /// recharging effect.
-    pub conform_to_sphere: bool,
-}
-
-impl Default for ForceFieldParam {
-    fn default() -> Self {
-        // defaults to no force field (a mass of 0)
-        ForceFieldParam {
-            position: Vec3::new(0., 0., 0.),
-            min_radius: 0.1,
-            max_radius: 0.0,
-            mass: 0.,
-            force_exponent: 0.0,
-            conform_to_sphere: false,
-        }
-    }
-}
-
-/// A modifier to apply a force field to all particles each frame. The force
-/// field is made up of point sources, also called 'components'. The maximum
-/// number of components is set with [`FFNUM`].
-#[derive(Default, Clone, Copy)]
-pub struct ForceFieldModifier {
-    /// Array of force field components.
-    pub force_field: [ForceFieldParam; FFNUM],
-}
-
-impl ForceFieldModifier {
-    /// Instantiate a ForceFieldModifier.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the number of sources exceeds [`FFNUM`].
-    pub fn new<T>(point_attractors: T) -> Self
-    where
-        T: IntoIterator<Item = ForceFieldParam>,
-    {
-        let mut force_field = [ForceFieldParam::default(); FFNUM];
-
-        for (i, p_attractor) in point_attractors.into_iter().enumerate() {
-            if i > FFNUM {
-                panic!("Too many point attractors");
-            }
-            force_field[i] = p_attractor;
-        }
-
-        Self { force_field }
-    }
-
-    /// Perhaps will be deleted in the future.
-    // Delete me?
-    pub fn add_or_replace(&mut self, point_attractor: ForceFieldParam, index: usize) {
-        self.force_field[index] = point_attractor;
-    }
-}
-
-impl UpdateModifier for ForceFieldModifier {
-    fn apply(&self, layout: &mut UpdateLayout) {
-        layout.force_field = self.force_field;
     }
 }

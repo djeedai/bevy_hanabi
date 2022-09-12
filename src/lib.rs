@@ -14,28 +14,48 @@
 
 //! 🎆 Hanabi -- a GPU particle system plugin for the Bevy game engine.
 //!
-//! This library provides a GPU-based particle system for the Bevy game engine.
+//! The 🎆 Hanabi particle system is a GPU-based particle system integrated with
+//! the built-in Bevy renderer. It allows creating complex visual effects with
+//! millions of particles simulated in real time, by leveraging the power of
+//! compute shaders and offloading most of the work of particle simulating to
+//! the GPU.
+//!
+//! _Note: Because it uses compute shaders, this library is incompatible with
+//! wasm. This is a limitation of webgpu/wasm._
+//!
+//! # 2D vs. 3D
+//!
+//! 🎆 Hanabi integrates both with the 2D and the 3D core pipelines of Bevy. The
+//! 2D pipeline integration is controlled by the `2d` cargo feature, while the
+//! 3D pipeline integration is controlled by the `3d` cargo feature. Both
+//! features are enabled by default for convenience. As an optimization, users
+//! can disable default features and re-enable only one of the two modes.
+//!
+//! ```toml
+//! ## Example: enable only 3D integration
+//! bevy_hanabi = { version = "0.3", default-features = false, features = ["3d"] }
+//! ```
 //!
 //! # Example
 //!
-//! Add the Hanabi plugin to your app:
+//! Add the 🎆 Hanabi plugin to your app:
 //!
 //! ```no_run
 //! # use bevy::prelude::*;
-//! # use bevy_hanabi::*;
+//! use bevy_hanabi::prelude::*;
+//!
 //! App::default()
 //!     .add_plugins(DefaultPlugins)
 //!     .add_plugin(HanabiPlugin)
 //!     .run();
 //! ```
 //!
-//! Create an [`EffectAsset`] describing a visual effect, then add an
-//! instance of that effect to an entity:
+//! Create an [`EffectAsset`] describing a visual effect:
 //!
 //! ```
 //! # use bevy::prelude::*;
-//! # use bevy_hanabi::*;
-//! fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
+//! # use bevy_hanabi::prelude::*;
+//! fn create_asset(mut effects: ResMut<Assets<EffectAsset>>) {
 //!     // Define a color gradient from red to transparent black
 //!     let mut gradient = Gradient::new();
 //!     gradient.add_key(0.0, Vec4::new(1., 0., 0., 1.));
@@ -50,9 +70,9 @@
 //!         spawner: Spawner::rate(5.0.into()),
 //!         ..Default::default()
 //!     }
-//!     // On spawn, randomly initialize the position and velocity
-//!     // of the particle over a sphere of radius 2 units, with a
-//!     // radial initial velocity of 6 units/sec away from the
+//!     // On spawn, randomly initialize the position of the particle
+//!     // to be over the surface of a sphere of radius 2 units, with
+//!     // a radial initial velocity of 6 units/sec away from the
 //!     // sphere center.
 //!     .init(PositionSphereModifier {
 //!         center: Vec3::ZERO,
@@ -69,15 +89,27 @@
 //!     .render(ColorOverLifetimeModifier { gradient })
 //!     );
 //!
-//!     commands
-//!         .spawn()
-//!         .insert(Name::new("MyEffectInstance"))
-//!         .insert_bundle(ParticleEffectBundle {
-//!             effect: ParticleEffect::new(effect),
-//!             transform: Transform::from_translation(Vec3::new(0., 1., 0.)),
-//!             ..Default::default()
-//!         });
+//!     // [...]
 //! }
+//! ```
+//!
+//! Then add an instance of that effect to an entity by spawning a
+//! [`ParticleEffect`] component referencing the asset:
+//!
+//! ```
+//! # use bevy::{prelude::*, asset::HandleId};
+//! # use bevy_hanabi::prelude::*;
+//! # fn spawn_effect(mut commands: Commands) {
+//! #   let effect = Handle::weak(HandleId::random::<EffectAsset>());
+//! commands
+//!     .spawn()
+//!     .insert(Name::new("MyEffectInstance"))
+//!     .insert_bundle(ParticleEffectBundle {
+//!         effect: ParticleEffect::new(effect),
+//!         transform: Transform::from_translation(Vec3::new(0., 1., 0.)),
+//!         ..Default::default()
+//!     });
+//! # }
 //! ```
 
 use bevy::prelude::*;
@@ -86,7 +118,7 @@ use std::fmt::Write as _; // import without risk of name clashing
 mod asset;
 mod bundle;
 mod gradient;
-mod modifiers;
+pub mod modifier;
 mod plugin;
 mod render;
 mod spawn;
@@ -97,15 +129,16 @@ mod test_utils;
 pub use asset::{EffectAsset, InitLayout, RenderLayout, UpdateLayout};
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
-pub use modifiers::{
-    AccelModifier, BillboardModifier, ColorOverLifetimeModifier, ForceFieldModifier,
-    ForceFieldParam, InitModifier, ParticleLifetimeModifier, ParticleTextureModifier,
-    PositionCircleModifier, PositionCone3dModifier, PositionSphereModifier, RenderModifier,
-    ShapeDimension, SizeOverLifetimeModifier, UpdateModifier, FFNUM,
-};
+pub use modifier::*;
 pub use plugin::HanabiPlugin;
 pub use render::{EffectCacheId, PipelineRegistry};
 pub use spawn::{Random, Spawner, Value};
+
+#[allow(missing_docs)]
+pub mod prelude {
+    #[doc(hidden)]
+    pub use crate::*;
+}
 
 #[cfg(not(any(feature = "2d", feature = "3d")))]
 compile_error!(
@@ -233,7 +266,7 @@ pub struct ParticleEffect {
     spawn_count: u32,
     accel: Vec3,
     #[reflect(ignore)]
-    force_field: [ForceFieldParam; FFNUM],
+    force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     position_code: String,
     force_field_code: String,
     lifetime_code: String,
@@ -252,7 +285,7 @@ impl ParticleEffect {
             //
             spawn_count: 0,
             accel: Vec3::ZERO,
-            force_field: [ForceFieldParam::default(); FFNUM],
+            force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
             position_code: String::default(),
             force_field_code: String::default(),
             lifetime_code: String::default(),
