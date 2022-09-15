@@ -38,8 +38,8 @@ struct IndirectBuffer {
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
+@group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner;
-@group(3) @binding(0) var<storage, read_write> indirect_buffer : IndirectBuffer;
 
 var<private> seed : u32 = 0u;
 
