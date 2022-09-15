@@ -49,14 +49,15 @@ mod effect_cache;
 mod pipeline_template;
 
 use aligned_buffer_vec::AlignedBufferVec;
+pub(crate) use effect_cache::{EffectCache, EffectCacheId};
 
-pub use effect_cache::{EffectBuffer, EffectCache, EffectCacheId, EffectSlice};
+pub use effect_cache::{EffectBuffer, EffectSlice};
 pub use pipeline_template::PipelineRegistry;
 
-pub const PARTICLES_UPDATE_SHADER_HANDLE: HandleUntyped =
+pub(crate) const PARTICLES_UPDATE_SHADER_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 2763343953151597126);
 
-pub const PARTICLES_RENDER_SHADER_HANDLE: HandleUntyped =
+pub(crate) const PARTICLES_RENDER_SHADER_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 2763343953151597145);
 
 /// Labels for the Hanabi systems.
@@ -87,7 +88,7 @@ pub enum EffectSystems {
 /// Reimplementing of bevy::sprite::Rect to avoid the dependency.
 /// See https://github.com/bevyengine/bevy/issues/5575
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct MinMaxRect {
+pub(crate) struct MinMaxRect {
     pub min: Vec2,
     pub max: Vec2,
 }
@@ -127,9 +128,10 @@ impl From<SimParams> for SimParamsUniform {
     }
 }
 
+/// GPU representation of a [`ForceFieldSource`].
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
-pub struct ForceFieldStd430 {
+struct GpuForceFieldSource {
     pub position_or_direction: Vec3,
     pub max_radius: f32,
     pub min_radius: f32,
@@ -138,22 +140,27 @@ pub struct ForceFieldStd430 {
     pub conform_to_sphere: f32,
 }
 
-impl From<ForceFieldSource> for ForceFieldStd430 {
-    fn from(param: ForceFieldSource) -> Self {
-        ForceFieldStd430 {
-            position_or_direction: param.position,
-            max_radius: param.max_radius,
-            min_radius: param.min_radius,
-            mass: param.mass,
-            force_exponent: param.force_exponent,
-            conform_to_sphere: if param.conform_to_sphere { 1.0 } else { 0.0 },
+impl From<ForceFieldSource> for GpuForceFieldSource {
+    fn from(source: ForceFieldSource) -> Self {
+        GpuForceFieldSource {
+            position_or_direction: source.position,
+            max_radius: source.max_radius,
+            min_radius: source.min_radius,
+            mass: source.mass,
+            force_exponent: source.force_exponent,
+            conform_to_sphere: if source.conform_to_sphere { 1.0 } else { 0.0 },
         }
     }
 }
 
+/// GPU representation of spawner parameters.
+///
+/// This structure contains the fixed-size part of the parameters. Inside the
+/// GPU buffer, it is followed by an array of [`GpuForceFieldSource`], which
+/// together form the spawner parameter buffer.
 #[repr(C)]
-#[derive(Debug, Default, Copy, Clone, Pod, Zeroable, ShaderType)]
-struct SpawnerParams {
+#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
+struct GpuSpawnerParams {
     /// Transform of the effect, as a Mat4 without the last row (which is always
     /// (0,0,0,1) for an affine transform), stored transposed as a mat3x4 to
     /// avoid padding in WGSL. This is either added to emitted particles at
@@ -162,19 +169,19 @@ struct SpawnerParams {
     transform: [f32; 12],
     /// Global acceleration applied to all particles each frame.
     /// TODO - This is NOT a spawner/emitter thing, but is a per-effect one.
-    /// Rename SpawnerParams?
+    /// Rename GpuSpawnerParams?
     accel: Vec3,
     /// Number of particles to spawn this frame.
     spawn: i32,
     /// Force field components. One PullingForceFieldParam takes up 32 bytes.
-    force_field: [ForceFieldStd430; ForceFieldSource::MAX_SOURCES],
+    force_field: [GpuForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Spawn seed, for randomized modifiers.
     seed: u32,
     /// Current number of used particles.
     count: i32,
 }
 
-pub struct ParticlesUpdatePipeline {
+pub(crate) struct ParticlesUpdatePipeline {
     sim_params_layout: BindGroupLayout,
     particles_buffer_layout: BindGroupLayout,
     spawner_buffer_layout: BindGroupLayout,
@@ -229,7 +236,10 @@ impl FromWorld for ParticlesUpdatePipeline {
                 label: Some("hanabi:update_particles_buffer_layout"),
             });
 
-        trace!("SpawnerParams: min_size={}", SpawnerParams::min_size());
+        trace!(
+            "GpuSpawnerParams: min_size={}",
+            GpuSpawnerParams::min_size()
+        );
         let spawner_buffer_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &[BindGroupLayoutEntry {
@@ -238,7 +248,7 @@ impl FromWorld for ParticlesUpdatePipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: true,
-                        min_binding_size: Some(SpawnerParams::min_size()),
+                        min_binding_size: Some(GpuSpawnerParams::min_size()),
                     },
                     count: None,
                 }],
@@ -282,7 +292,7 @@ impl FromWorld for ParticlesUpdatePipeline {
 }
 
 #[derive(Default, Clone, Hash, PartialEq, Eq)]
-pub struct ParticleUpdatePipelineKey {
+pub(crate) struct ParticleUpdatePipelineKey {
     /// Compute shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
 }
@@ -306,7 +316,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
     }
 }
 
-pub struct ParticlesRenderPipeline {
+pub(crate) struct ParticlesRenderPipeline {
     view_layout: BindGroupLayout,
     particles_buffer_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
@@ -378,13 +388,13 @@ impl FromWorld for ParticlesRenderPipeline {
 
 #[cfg(all(feature = "2d", feature = "3d"))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum PipelineMode {
+enum PipelineMode {
     Camera2d,
     Camera3d,
 }
 
 #[derive(Clone, Hash, PartialEq, Eq)]
-pub struct ParticleRenderPipelineKey {
+pub(crate) struct ParticleRenderPipelineKey {
     /// Render shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
     /// Key: PARTICLE_TEXTURE
@@ -539,7 +549,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
 /// A single effect instance extracted from a [`ParticleEffect`] as a
 /// [`RenderWorld`] item.
 #[derive(Component)]
-pub struct ExtractedEffect {
+pub(crate) struct ExtractedEffect {
     /// Handle to the effect asset this instance is based on.
     /// The handle is weak to prevent refcount cycles and gracefully handle
     /// assets unloaded or destroyed after a draw call has been submitted.
@@ -579,7 +589,7 @@ pub struct ExtractedEffect {
 
 /// Extracted data for newly-added [`ParticleEffect`] component requiring a new
 /// GPU allocation.
-pub struct AddedEffect {
+pub(crate) struct AddedEffect {
     /// Entity with a newly-added [`ParticleEffect`] component.
     pub entity: Entity,
     /// Capacity of the effect (and therefore, the particle buffer), in number
@@ -594,7 +604,7 @@ pub struct AddedEffect {
 /// Collection of all extracted effects for this frame, inserted into the
 /// [`RenderWorld`] as a render resource.
 #[derive(Default)]
-pub struct ExtractedEffects {
+pub(crate) struct ExtractedEffects {
     /// Map of extracted effects from the entity the source [`ParticleEffect`]
     /// is on.
     pub effects: HashMap<Entity, ExtractedEffect>,
@@ -605,11 +615,11 @@ pub struct ExtractedEffects {
 }
 
 #[derive(Default)]
-pub struct EffectAssetEvents {
+pub(crate) struct EffectAssetEvents {
     pub images: Vec<AssetEvent<Image>>,
 }
 
-pub fn extract_effect_events(
+pub(crate) fn extract_effect_events(
     mut events: ResMut<EffectAssetEvents>,
     mut image_events: Extract<EventReader<AssetEvent<Image>>>,
 ) {
@@ -828,7 +838,7 @@ pub(crate) struct EffectsMeta {
     /// Bind group for the indirect buffer.
     indirect_buffer_bind_group: Option<BindGroup>,
     sim_params_uniforms: UniformBuffer<SimParamsUniform>,
-    spawner_buffer: AlignedBufferVec<SpawnerParams>,
+    spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
     /// Unscaled vertices of the mesh of a single particle, generally a quad.
     /// The mesh is later scaled during rendering by the "particle size".
     // FIXME - This is a per-effect thing, unless we merge all meshes into a single buffer (makes
@@ -894,7 +904,7 @@ impl Default for LayoutFlags {
 /// A batch of multiple instances of the same effect, rendered all together to
 /// reduce GPU shader permutations and draw call overhead.
 #[derive(Component)]
-pub struct EffectBatch {
+pub(crate) struct EffectBatch {
     /// Index of the GPU effect buffer effects in this batch are contained in.
     buffer_index: u32,
     /// Index of the first Spawner of the effects in the batch.
@@ -966,7 +976,7 @@ pub(crate) fn prepare_effects(
 
     // Allocate spawner buffer if needed
     //if effects_meta.spawner_buffer.is_empty() {
-    //    effects_meta.spawner_buffer.push(SpawnerParams::default());
+    //    effects_meta.spawner_buffer.push(GpuSpawnerParams::default());
     //}
 
     // Write vertices (TODO - lazily once only)
@@ -1191,9 +1201,9 @@ pub(crate) fn prepare_effects(
         trace!("z_sort_key_2d = {:?}", z_sort_key_2d);
 
         // extract the force field and turn it into a struct that is compliant with
-        // Std430, namely ForceFieldStd430
+        // GPU use, namely GpuForceFieldSource
         let mut extracted_force_field =
-            [ForceFieldStd430::default(); ForceFieldSource::MAX_SOURCES];
+            [GpuForceFieldSource::default(); ForceFieldSource::MAX_SOURCES];
         for (i, ff) in extracted_effect.force_field.iter().enumerate() {
             extracted_force_field[i] = (*ff).into();
         }
@@ -1202,7 +1212,7 @@ pub(crate) fn prepare_effects(
         // FIXME - This is once per EFFECT/SLICE, not once per BATCH, so indeed this is
         // spawner_BASE, and need an array of them in the compute shader!!!!!!!!!!!!!!
         let tr = extracted_effect.transform.transpose().to_cols_array();
-        let spawner_params = SpawnerParams {
+        let spawner_params = GpuSpawnerParams {
             spawn: extracted_effect.spawn_count as i32,
             count: 0,
             transform: [
@@ -1301,7 +1311,7 @@ pub(crate) fn prepare_effects(
 }
 
 #[derive(Default)]
-pub struct EffectBindGroups {
+pub(crate) struct EffectBindGroups {
     /// Bind groups for each group index for compute shader.
     update_particle_buffers: HashMap<u32, BindGroup>,
     /// Same for render shader.
@@ -1381,14 +1391,17 @@ pub(crate) fn queue_effects(
         }));
 
     // Create the bind group for the spawner parameters
-    trace!("SpawnerParams::min_size() = {}", SpawnerParams::min_size());
+    trace!(
+        "GpuSpawnerParams::min_size() = {}",
+        GpuSpawnerParams::min_size()
+    );
     effects_meta.spawner_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
         entries: &[BindGroupEntry {
             binding: 0,
             resource: BindingResource::Buffer(BufferBinding {
                 buffer: effects_meta.spawner_buffer.buffer().unwrap(),
                 offset: 0,
-                size: Some(SpawnerParams::min_size()),
+                size: Some(GpuSpawnerParams::min_size()),
             }),
         }],
         label: Some("hanabi:spawner_bind_group"),
@@ -1699,7 +1712,7 @@ pub(crate) fn queue_effects(
 /// (effects like camera facing are applied in the render phase, which runs once
 /// per view).
 #[derive(Component)]
-pub struct ExtractedEffectEntities {
+struct ExtractedEffectEntities {
     pub entities: Vec<Entity>,
 }
 
@@ -1707,7 +1720,7 @@ pub struct ExtractedEffectEntities {
 ///
 /// Effects are rendered in the [`Transparent2d`] phase of the main 2D pass,
 /// and the [`Transparent3d`] phase of the main 3D pass.
-pub struct DrawEffects {
+pub(crate) struct DrawEffects {
     params: SystemState<(
         SRes<EffectsMeta>,
         SRes<EffectBindGroups>,
@@ -1882,7 +1895,7 @@ impl Draw<Transparent3d> for DrawEffects {
 }
 
 /// A render node to update the particles of all particle efects.
-pub struct ParticleUpdateNode {
+pub(crate) struct ParticleUpdateNode {
     /// Query to retrieve the list of entities holding an extracted particle
     /// effect to update.
     entity_query: QueryState<&'static ExtractedEffectEntities>,
@@ -2002,7 +2015,9 @@ impl Node for ParticleUpdateNode {
                         let buffer_offset = batch.slice.start;
 
                         let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
-                        assert!(spawner_buffer_aligned >= SpawnerParams::min_size().get() as usize);
+                        assert!(
+                            spawner_buffer_aligned >= GpuSpawnerParams::min_size().get() as usize
+                        );
 
                         trace!(
                             "record commands for pipeline of effect {:?} ({} items / {}B/item = {} workgroups) spawner_base={} buffer_offset={}...",

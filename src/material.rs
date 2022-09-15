@@ -16,23 +16,36 @@ use bevy_render::{
 };
 use wgpu::{BindGroupDescriptor, BindGroupEntry, BindingResource};
 
-/// A material for a [`ParticleEffect`]
+/// A material for a [`ParticleEffect`].
 ///
 /// May be created directly from a [`Color`] or an [`Image`].
 #[derive(Debug, Clone, TypeUuid)]
 #[uuid = "1ebefa44-80b6-46bc-939d-5bf39ff15f53"]
 pub struct EffectMaterial {
+    /// The bsae color of the particles.
+    ///
+    /// This is multiplied by the sampling of the [`base_color_texture`], if any.
+    ///
+    /// [`base_color_texture`]: EffectMaterial::base_color_texture
     pub base_color: Color,
+    /// The bsae color texture of the particles.
+    ///
+    /// This is multiplied by the scalar [`base_color`].
+    ///
+    /// [`base_color`]: EffectMaterial::base_color
     pub base_color_texture: Option<Handle<Image>>,
+    /// Enable double-sided rendering.
     pub double_sided: bool,
+    /// Disable lighting in rendering, use a full-bright model.
     pub unlit: bool,
+    /// Alpha blending mode for rendering the particles.
     pub alpha_mode: AlphaMode,
 }
 
 impl Default for EffectMaterial {
     fn default() -> Self {
         EffectMaterial {
-            base_color: Color::rgb(1.0, 1.0, 1.0),
+            base_color: Color::WHITE,
             base_color_texture: None,
             double_sided: false,
             unlit: false,
@@ -92,7 +105,7 @@ impl Plugin for EffectMaterialPlugin {
     }
 }
 
-/// The GPU representation of a [`EffectMaterial`].
+/// The GPU representation of an [`EffectMaterial`].
 #[derive(Debug, Clone)]
 pub struct GpuEffectMaterial {
     /// A buffer containing the [`EffectMaterialUniformData`] of the material.

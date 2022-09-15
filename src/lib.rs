@@ -126,12 +126,14 @@ mod spawn;
 #[cfg(test)]
 mod test_utils;
 
+use render::EffectCacheId;
+
 pub use asset::{EffectAsset, InitLayout, RenderLayout, UpdateLayout};
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
-pub use render::{EffectCacheId, PipelineRegistry};
+pub use render::PipelineRegistry;
 pub use spawn::{Random, Spawner, Value};
 
 #[allow(missing_docs)]

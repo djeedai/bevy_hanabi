@@ -339,7 +339,7 @@ impl EffectBuffer {
 
 /// Identifier referencing an effect cached in an internal effect cache.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct EffectCacheId(u64);
+pub(crate) struct EffectCacheId(u64);
 
 impl EffectCacheId {
     /// An invalid handle, corresponding to nothing.
@@ -353,7 +353,7 @@ impl EffectCacheId {
 }
 
 /// Cache for effect instances sharing common GPU data structures.
-pub struct EffectCache {
+pub(crate) struct EffectCache {
     /// Render device the GPU resources (buffers) are allocated from.
     device: RenderDevice,
     /// Collection of effect buffers managed by this cache. Some buffers might
