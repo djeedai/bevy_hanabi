@@ -329,7 +329,7 @@ const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("render/particles_up
 const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("render/particles_render.wgsl");
 
 const DEFAULT_POSITION_CODE: &str = r##"
-    ret.pos = vec3<f32>(0., 0., 0.);
+    ret.pos = transform[3].xyz;
     var dir = rand3() * 2. - 1.;
     dir = normalize(dir);
     var speed = 2.;
