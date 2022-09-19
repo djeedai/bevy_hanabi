@@ -185,7 +185,6 @@ pub(crate) struct ParticlesUpdatePipeline {
     sim_params_layout: BindGroupLayout,
     particles_buffer_layout: BindGroupLayout,
     spawner_buffer_layout: BindGroupLayout,
-    indirect_buffer_layout: BindGroupLayout,
     pipeline_layout: PipelineLayout,
 }
 
@@ -223,16 +222,28 @@ impl FromWorld for ParticlesUpdatePipeline {
         trace!("Particle: min_size={}", Particle::min_size());
         let particles_buffer_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(Particle::min_size()),
+                entries: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: true,
+                            min_binding_size: Some(Particle::min_size()),
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: true,
+                            min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
+                        },
+                        count: None,
+                    },
+                ],
                 label: Some("hanabi:update_particles_buffer_layout"),
             });
 
@@ -255,28 +266,12 @@ impl FromWorld for ParticlesUpdatePipeline {
                 label: Some("hanabi:update_spawner_buffer_layout"),
             });
 
-        let indirect_buffer_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: true,
-                        min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
-                    },
-                    count: None,
-                }],
-                label: Some("hanabi:update_indirect_buffer_layout"),
-            });
-
         let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("hanabi:update_pipeline_layout"),
             bind_group_layouts: &[
                 &sim_params_layout,
                 &particles_buffer_layout,
                 &spawner_buffer_layout,
-                &indirect_buffer_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -285,7 +280,6 @@ impl FromWorld for ParticlesUpdatePipeline {
             sim_params_layout,
             particles_buffer_layout,
             spawner_buffer_layout,
-            indirect_buffer_layout,
             pipeline_layout,
         }
     }
@@ -307,7 +301,6 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
                 self.sim_params_layout.clone(),
                 self.particles_buffer_layout.clone(),
                 self.spawner_buffer_layout.clone(),
-                self.indirect_buffer_layout.clone(),
             ]),
             shader: key.shader,
             shader_defs: vec![],
@@ -343,16 +336,28 @@ impl FromWorld for ParticlesRenderPipeline {
 
         let particles_buffer_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::VERTEX,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(Particle::min_size()),
+                entries: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::VERTEX,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: Some(Particle::min_size()),
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStages::VERTEX,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
+                        },
+                        count: None,
+                    },
+                ],
                 label: Some("hanabi:buffer_layout_render"),
             });
 
@@ -835,8 +840,6 @@ pub(crate) struct EffectsMeta {
     /// Bind group for the spawning parameters (number of particles to spawn
     /// this frame, ...).
     spawner_bind_group: Option<BindGroup>,
-    /// Bind group for the indirect buffer.
-    indirect_buffer_bind_group: Option<BindGroup>,
     sim_params_uniforms: UniformBuffer<SimParamsUniform>,
     spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
     /// Unscaled vertices of the mesh of a single particle, generally a quad.
@@ -867,7 +870,6 @@ impl EffectsMeta {
             sim_params_bind_group: None,
             particles_bind_group: None,
             spawner_bind_group: None,
-            indirect_buffer_bind_group: None,
             sim_params_uniforms: UniformBuffer::default(),
             spawner_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
@@ -1025,13 +1027,7 @@ pub(crate) fn prepare_effects(
                     .update_particle_buffers
                     .remove(&buffer_index);
                 effect_bind_groups
-                    .update_indirect_buffers
-                    .remove(&buffer_index);
-                effect_bind_groups
                     .render_particle_buffers
-                    .remove(&buffer_index);
-                effect_bind_groups
-                    .render_indirect_buffers
                     .remove(&buffer_index);
             }
         }
@@ -1316,12 +1312,6 @@ pub(crate) struct EffectBindGroups {
     update_particle_buffers: HashMap<u32, BindGroup>,
     /// Same for render shader.
     render_particle_buffers: HashMap<u32, BindGroup>,
-    /// Bind groups for each indirect buffer associated with each particle
-    /// buffer (update stage).
-    update_indirect_buffers: HashMap<u32, BindGroup>,
-    /// Bind groups for each indirect buffer associated with each particle
-    /// buffer (render stage).
-    render_indirect_buffers: HashMap<u32, BindGroup>,
     ///
     images: HashMap<Handle<Image>, BindGroup>,
 }
@@ -1435,36 +1425,21 @@ pub(crate) fn queue_effects(
                     buffer_index
                 );
                 render_device.create_bind_group(&BindGroupDescriptor {
-                    entries: &[BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.max_binding(),
-                    }],
+                    entries: &[
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: buffer.max_binding(),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: buffer.indirect_max_binding(),
+                        },
+                    ],
                     label: Some(&format!(
                         "hanabi:vfx_particles_bind_group_update{}",
                         buffer_index
                     )),
                     layout: &update_pipeline.particles_buffer_layout,
-                })
-            });
-
-        effect_bind_groups
-            .update_indirect_buffers
-            .entry(buffer_index as u32)
-            .or_insert_with(|| {
-                trace!(
-                    "Create new indirect update buffer bind group for buffer_index={}",
-                    buffer_index
-                );
-                render_device.create_bind_group(&BindGroupDescriptor {
-                    entries: &[BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.indirect_max_binding(),
-                    }],
-                    label: Some(&format!(
-                        "hanabi:vfx_indirect_buffer_bind_group_update{}",
-                        buffer_index
-                    )),
-                    layout: &update_pipeline.indirect_buffer_layout,
                 })
             });
 
@@ -1478,36 +1453,21 @@ pub(crate) fn queue_effects(
                     buffer_index
                 );
                 render_device.create_bind_group(&BindGroupDescriptor {
-                    entries: &[BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.max_binding(),
-                    }],
+                    entries: &[
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: buffer.max_binding(),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: buffer.indirect_max_binding(),
+                        },
+                    ],
                     label: Some(&format!(
                         "hanabi:vfx_particles_bind_group_render{}",
                         buffer_index
                     )),
                     layout: &render_pipeline.particles_buffer_layout,
-                })
-            });
-
-        effect_bind_groups
-            .render_indirect_buffers
-            .entry(buffer_index as u32)
-            .or_insert_with(|| {
-                trace!(
-                    "Create new indirect render buffer bind group for buffer_index={}",
-                    buffer_index
-                );
-                render_device.create_bind_group(&BindGroupDescriptor {
-                    entries: &[BindGroupEntry {
-                        binding: 0,
-                        resource: buffer.indirect_max_binding(),
-                    }],
-                    label: Some(&format!(
-                        "hanabi:vfx_indirect_buffer_bind_group_render{}",
-                        buffer_index
-                    )),
-                    layout: &update_pipeline.indirect_buffer_layout,
                 })
             });
     }
@@ -2002,11 +1962,6 @@ impl Node for ParticleUpdateNode {
                             .get(&batch.buffer_index)
                             .unwrap();
 
-                        let indirect_bind_group = effect_bind_groups
-                            .update_indirect_buffers
-                            .get(&batch.buffer_index)
-                            .unwrap();
-
                         let item_size = batch.item_size;
                         let item_count = batch.slice.end - batch.slice.start;
                         let workgroup_count = (item_count + 63) / 64;
@@ -2037,13 +1992,16 @@ impl Node for ParticleUpdateNode {
                             effects_meta.sim_params_bind_group.as_ref().unwrap(),
                             &[],
                         );
-                        compute_pass.set_bind_group(1, particles_bind_group, &[buffer_offset]);
+                        compute_pass.set_bind_group(
+                            1,
+                            particles_bind_group,
+                            &[buffer_offset, buffer_offset],
+                        );
                         compute_pass.set_bind_group(
                             2,
                             effects_meta.spawner_bind_group.as_ref().unwrap(),
                             &[spawner_base * spawner_buffer_aligned as u32],
                         );
-                        compute_pass.set_bind_group(3, indirect_bind_group, &[buffer_offset]);
                         compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
                         trace!("compute dispatched");
                     }
