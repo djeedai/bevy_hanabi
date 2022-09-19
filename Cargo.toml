@@ -47,6 +47,9 @@ futures = "0.3"
 bevy-inspector-egui = "0.12"
 #smooth-bevy-cameras = "0.2"
 
+# For shader snippet validation
+naga = "0.9"
+
 [[example]]
 name = "spawn"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]

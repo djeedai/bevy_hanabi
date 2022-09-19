@@ -259,3 +259,55 @@ impl InitModifier for ParticleLifetimeModifier {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use naga::front::wgsl::Parser;
+
+    #[test]
+    fn validate() {
+        let modifiers: &[&dyn InitModifier] = &[
+            &PositionCircleModifier::default(),
+            &PositionSphereModifier::default(),
+            &PositionCone3dModifier {
+                dimension: ShapeDimension::Volume,
+                ..Default::default()
+            },
+        ];
+        for modifier in modifiers.iter() {
+            let mut layout = InitLayout::default();
+            modifier.apply(&mut layout);
+
+            let code = format!(
+                r##"fn rand() -> f32 {{
+    return 0.0;
+}}
+
+let tau: f32 = 6.283185307179586476925286766559;
+
+struct PosVel {{
+    pos: vec3<f32>,
+    vel: vec3<f32>,
+}};
+
+@compute @workgroup_size(64)
+fn init_pos_vel(index: u32, transform: mat4x4<f32>) -> PosVel {{
+    var ret : PosVel;
+{0}
+    return ret;
+}}"##,
+                layout.position_code
+            );
+            //println!("code: {:?}", code);
+
+            let mut parser = Parser::new();
+            let res = parser.parse(&code);
+            assert!(res.is_ok());
+            // if let Err(err) = res {
+            //     println!("Err: {:?}", err);
+            // }
+        }
+    }
+}
