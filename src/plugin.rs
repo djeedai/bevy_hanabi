@@ -20,8 +20,8 @@ use crate::{
     render::{
         extract_effect_events, extract_effects, prepare_effects, queue_effects, DrawEffects,
         EffectAssetEvents, EffectBindGroups, EffectSystems, EffectsMeta, ExtractedEffects,
-        ParticleUpdateNode, ParticlesRenderPipeline, ParticlesUpdatePipeline, PipelineRegistry,
-        SimParams, PARTICLES_RENDER_SHADER_HANDLE, PARTICLES_UPDATE_SHADER_HANDLE,
+        ParticleUpdateNode, ParticlesRenderPipeline,ParticlesInitPipeline, ParticlesUpdatePipeline, PipelineRegistry,
+        SimParams
     },
     spawn::{self, Random},
     tick_spawners, ParticleEffect, RemovedEffectsEvent, Spawner,
@@ -59,13 +59,6 @@ impl Plugin for HanabiPlugin {
                 gather_removed_effects.label(EffectSystems::GatherRemovedEffects),
             );
 
-        // Register the particles shaders
-        let mut shaders = app.world.get_resource_mut::<Assets<Shader>>().unwrap();
-        let update_shader = Shader::from_wgsl(include_str!("render/particles_update.wgsl"));
-        shaders.set_untracked(PARTICLES_UPDATE_SHADER_HANDLE, update_shader);
-        let render_shader = Shader::from_wgsl(include_str!("render/particles_render.wgsl"));
-        shaders.set_untracked(PARTICLES_RENDER_SHADER_HANDLE, render_shader);
-
         // Register the component reflection
         app.register_type::<EffectAsset>();
         app.register_type::<ParticleEffect>();
@@ -79,6 +72,8 @@ impl Plugin for HanabiPlugin {
         render_app
             .insert_resource(effects_meta)
             .init_resource::<EffectBindGroups>()
+            .init_resource::<ParticlesInitPipeline>()
+            .init_resource::<SpecializedComputePipelines<ParticlesInitPipeline>>()
             .init_resource::<ParticlesUpdatePipeline>()
             .init_resource::<SpecializedComputePipelines<ParticlesUpdatePipeline>>()
             .init_resource::<ParticlesRenderPipeline>()

@@ -31,7 +31,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
 };
 
-use crate::{asset::EffectAsset, render::Particle, ParticleEffect};
+use crate::{asset::EffectAsset, render::GpuDispatchIndirect, ParticleEffect};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSlice {
@@ -91,6 +91,10 @@ pub struct EffectBuffer {
     /// GPU buffer holding the indirection indices for the entire group of
     /// effects.
     indirect_buffer: Buffer,
+    /// GPU buffer holding all dead particle indices for the entire group of effects.
+    dead_list_buffer: Buffer,
+    /// GPU buffer holding the indirect dispatch and dead count values.
+    dispatch_indirect_buffer: Buffer,
     /// Size of each particle, in bytes.
     item_size: u32,
     /// Total buffer capacity, in number of particles.
@@ -126,7 +130,7 @@ pub enum BufferState {
 
 impl EffectBuffer {
     /// Minimum buffer capacity to allocate, in number of particles.
-    pub const MIN_CAPACITY: u32 = 65536; // at least 64k particles
+    pub const MIN_CAPACITY: u32 = 256; //65536; // at least 64k particles
 
     /// Create a new group and a GPU buffer to back it up.
     pub fn new(
@@ -150,22 +154,84 @@ impl EffectBuffer {
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
+
+        let index_capacity_bytes: BufferAddress =
+            capacity as u64 * std::mem::size_of::<u32>() as u64;
+
         let indirect_label = if let Some(label) = label {
             format!("{}_indirect", label)
         } else {
             "hanabi:effect_buffer_indirect".to_owned()
         };
-        let indirect_capacity_bytes: BufferAddress =
-            capacity as u64 * std::mem::size_of::<u32>() as u64;
         let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
-            size: indirect_capacity_bytes,
+            size: index_capacity_bytes,
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
+
+        let dead_list_label = if let Some(label) = label {
+            format!("{}_dead_list", label)
+        } else {
+            "hanabi:effect_buffer_dead_list".to_owned()
+        };
+        let dead_list_buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some(&dead_list_label),
+            size: index_capacity_bytes,
+            usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+            mapped_at_creation: true,
+        });
+        // Set content
+        {
+            {
+                let slice = &mut dead_list_buffer.slice(..).get_mapped_range_mut()
+                    [..index_capacity_bytes as usize];
+                let slice: &mut [u32] = cast_slice_mut(slice);
+                let mut index = capacity;
+                for dst in slice {
+                    index -= 1;
+                    *dst = index;
+                }
+            }
+            dead_list_buffer.unmap();
+        }
+
+        let dispatch_indirect_capacity_bytes = GpuDispatchIndirect::min_size().get();
+        let dispatch_indirect_label = if let Some(label) = label {
+            format!("{}_dispatch_indirect", label)
+        } else {
+            "hanabi:effect_buffer_dispatch_indirect".to_owned()
+        };
+        let dispatch_indirect_buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some(&dispatch_indirect_label),
+            size: dispatch_indirect_capacity_bytes,
+            usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+            mapped_at_creation: true,
+        });
+        // Set content
+        {
+            {
+                let slice = &mut dispatch_indirect_buffer.slice(..).get_mapped_range_mut()
+                    [..dispatch_indirect_capacity_bytes as usize];
+                let slice: &mut [GpuDispatchIndirect] = cast_slice_mut(slice);
+                slice[0].x = 1;
+                slice[0].y = 2;
+                slice[0].z = 3;
+                slice[0].dead_count = capacity;
+                slice[0].vertex_count = 6; // TODO
+                slice[0].instance_count = 0;
+                slice[0].base_index = 0;
+                slice[0].vertex_offset = 0;
+                slice[0].base_instance = 0;
+            }
+            dispatch_indirect_buffer.unmap();
+        }
+
         EffectBuffer {
             particle_buffer,
             indirect_buffer,
+            dead_list_buffer,
+            dispatch_indirect_buffer,
             item_size,
             capacity,
             used_size: 0,
@@ -184,18 +250,16 @@ impl EffectBuffer {
         &self.indirect_buffer
     }
 
-    pub fn capacity(&self) -> u32 {
-        self.capacity
+    pub fn dead_list_buffer(&self) -> &Buffer {
+        &self.dead_list_buffer
     }
 
-    /// Return a binding for the entire buffer.
-    pub fn max_binding(&self) -> BindingResource {
-        let capacity_bytes = self.to_byte_size(self.capacity);
-        BindingResource::Buffer(BufferBinding {
-            buffer: &self.particle_buffer,
-            offset: 0,
-            size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
-        })
+    pub fn dispatch_indirect_buffer(&self) -> &Buffer {
+        &self.dispatch_indirect_buffer
+    }
+
+    pub fn capacity(&self) -> u32 {
+        self.capacity
     }
 
     /// Return a binding of the buffer for a starting range of a given size (in
@@ -208,12 +272,40 @@ impl EffectBuffer {
         })
     }
 
+    /// Return a binding for the entire buffer.
+    pub fn max_binding(&self) -> BindingResource {
+        let capacity_bytes = self.to_byte_size(self.capacity);
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.particle_buffer,
+            offset: 0,
+            size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
+        })
+    }
+
     /// Return a binding for the entire indirect buffer associated with the
     /// current effect buffer.
     pub fn indirect_max_binding(&self) -> BindingResource {
-        let capacity_bytes = self.to_byte_size(std::mem::size_of::<u32>() as u32);
+        let capacity_bytes = std::mem::size_of::<u32>() as u64 * self.capacity as u64;
         BindingResource::Buffer(BufferBinding {
             buffer: &self.indirect_buffer,
+            offset: 0,
+            size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
+        })
+    }
+
+    pub fn dead_list_max_binding(&self) -> BindingResource {
+        let capacity_bytes = std::mem::size_of::<u32>() as u64 * self.capacity as u64;
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.dead_list_buffer,
+            offset: 0,
+            size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
+        })
+    }
+
+    pub fn dispatch_indirect_max_binding(&self) -> BindingResource {
+        let capacity_bytes = GpuDispatchIndirect::min_size().get();
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.dispatch_indirect_buffer,
             offset: 0,
             size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
         })

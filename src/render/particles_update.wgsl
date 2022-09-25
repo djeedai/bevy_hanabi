@@ -36,10 +36,28 @@ struct IndirectBuffer {
     indices: array<u32>,
 };
 
+struct DeadListBuffer {
+    indices: array<u32>,
+};
+
+struct DispatchIndirectBuffer {
+    x: u32,
+    y: u32,
+    z: u32,
+    dead_count: atomic<u32>,
+    vertex_count: u32,
+    instance_count: atomic<u32>,
+    base_index: u32,
+    vertex_offset: i32,
+    base_instance: u32,
+};
+
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner;
+@group(3) @binding(0) var<storage, read_write> dead_list : DeadListBuffer;
+@group(3) @binding(1) var<storage, read_write> dispatch_indirect : DispatchIndirectBuffer;
 
 var<private> seed : u32 = 0u;
 
@@ -102,33 +120,20 @@ fn rand4(input: u32) -> vec4<f32> {
     return vec4<f32>(x, y, z, w);
 }
 
-struct PosVel {
-    pos: vec3<f32>,
-    vel: vec3<f32>,
-};
-
-fn init_pos_vel(index: u32, transform: mat4x4<f32>) -> PosVel {
-    var ret : PosVel;
-{{INIT_POS_VEL}}
-    return ret;
-}
-
-fn init_lifetime() -> f32 {
-    var ret : f32;
-{{INIT_LIFETIME}}
-    return ret;
-}
-
 fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
     return dot(v, u) / dot(u,u) * u;
 }
-
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let max_particles : u32 = arrayLength(&particle_buffer.particles);
     let index = global_invocation_id.x;
     if (index >= max_particles) {
+        return;
+    }
+
+    let alive_count = u32(atomicLoad(&spawner.count));
+    if (index >= alive_count) {
         return;
     }
 
@@ -140,36 +145,19 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Age the particle
     vAge = vAge + sim_params.dt;
     if (vAge >= vLifetime) {
-        // Particle dead; try to recycle into newly-spawned one
-        if (atomicSub(&spawner.spawn, 1) > 0) {
-            // Update PRNG seed
-            seed = pcg_hash(index ^ spawner.seed);
-
-            let transform = transpose(
-                mat4x4(
-                    spawner.transform[0],
-                    spawner.transform[1],
-                    spawner.transform[2],
-                    vec4<f32>(0.0, 0.0, 0.0, 1.0)
-                )
-            );
-
-            // Initialize new particle
-            var posVel = init_pos_vel(index, transform);
-            vPos = posVel.pos;
-            vVel = posVel.vel;
-            vAge = 0.0;
-            vLifetime = init_lifetime();
-        } else {
-            // Nothing to spawn; simply return without writing any update
-            return;
-        }
+        // Write back constant "dead" age
+        vAge = vLifetime + 1.0;
+        particle_buffer.particles[index].age = vAge;
+        // Save dead index
+        let dead_index = atomicAdd(&dispatch_indirect.dead_count, 1u);
+        dead_list.indices[dead_index] = index;
+        return;
     }
 
 {{FORCE_FIELD_CODE}}
 
-    // Increment alive particle count and write indirection index
-    let indirect_index = atomicAdd(&spawner.count, 1);
+    // Increment alive particle count and write indirection index for later rendering
+    let indirect_index = atomicAdd(&dispatch_indirect.instance_count, 1u);
     indirect_buffer.indices[indirect_index] = index;
 
     // Write back particle itself
