@@ -69,7 +69,7 @@ fn setup(
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.5, 0.5, 1.0, 0.0));
 
-    // Create a new effect asset spawning 30 particles per scond from a circle
+    // Create a new effect asset spawning 30 particles per second from a circle
     // and slowly fading from blue-ish to transparent over their lifetime.
     // By default the asset spawns the particles at Z=0.
     let spawner = Spawner::rate(30.0.into());
