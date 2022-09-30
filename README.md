@@ -99,7 +99,7 @@ commands
 
 ## Examples
 
-See the [`examples/`](https://github.com/djeedai/bevy_hanabi/examples) folder.
+See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/main/examples) folder.
 
 ### Gradient
 
@@ -192,8 +192,7 @@ This example demonstrates particle effects with different lifetimes.
 ```shell
 cargo run --example lifetime --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
-<!-- Need to fix path to gif -->
-![lifetime](/examples/lifetime.gif)
+![lifetime](https://raw.githubusercontent.com/djeedai/bevy_hanabi/9290f63d7d0416358a20bb9f17e6aff62318a8b8/examples/lifetime.gif)
 
 ### Billboard
 
