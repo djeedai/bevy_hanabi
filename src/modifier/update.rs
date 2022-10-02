@@ -112,7 +112,7 @@ impl ForceFieldModifier {
         let mut source_array = [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES];
 
         for (index, p_attractor) in sources.into_iter().enumerate() {
-            if index > ForceFieldSource::MAX_SOURCES {
+            if index >= ForceFieldSource::MAX_SOURCES {
                 panic!(
                     "Force field source count exceeded maximum of {}",
                     ForceFieldSource::MAX_SOURCES
@@ -141,5 +141,86 @@ impl ForceFieldModifier {
 impl UpdateModifier for ForceFieldModifier {
     fn apply(&self, layout: &mut UpdateLayout) {
         layout.force_field = self.sources;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::*;
+
+    #[test]
+    fn mod_accel() {
+        let accel = Vec3 {
+            x: 1.,
+            y: 2.,
+            z: 3.,
+        };
+        let modifier = AccelModifier { accel };
+
+        let mut layout = UpdateLayout::default();
+        modifier.apply(&mut layout);
+
+        assert_eq!(layout.accel, accel);
+    }
+
+    #[test]
+    fn mod_force_field() {
+        let position = Vec3 {
+            x: 1.,
+            y: 2.,
+            z: 3.,
+        };
+        let mut sources = [ForceFieldSource::default(); 16];
+        sources[0].position = position;
+        sources[0].mass = 1.;
+        let modifier = ForceFieldModifier { sources };
+
+        let mut layout = UpdateLayout::default();
+        modifier.apply(&mut layout);
+
+        assert!(layout.force_field[0]
+            .position
+            .abs_diff_eq(sources[0].position, 1e-5));
+    }
+
+    #[test]
+    fn mod_force_field_new() {
+        let modifier = ForceFieldModifier::new((0..10).map(|i| {
+            let position = Vec3 {
+                x: i as f32,
+                y: 0.,
+                z: 0.,
+            };
+            ForceFieldSource {
+                position,
+                mass: 1.,
+                ..default()
+            }
+        }));
+
+        let mut layout = UpdateLayout::default();
+        modifier.apply(&mut layout);
+
+        for i in 0..16 {
+            assert!(layout.force_field[i].position.abs_diff_eq(
+                Vec3 {
+                    x: if i < 10 { i as f32 } else { 0. },
+                    y: 0.,
+                    z: 0.,
+                },
+                1e-5
+            ));
+
+            let mass = if i < 10 { 1. } else { 0. };
+            assert_approx_eq!(layout.force_field[i].mass, mass);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn mod_force_field_new_too_many() {
+        let count = ForceFieldSource::MAX_SOURCES + 1;
+        ForceFieldModifier::new((0..count).map(|_| ForceFieldSource::default()));
     }
 }
