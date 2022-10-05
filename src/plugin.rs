@@ -20,8 +20,8 @@ use crate::{
     render::{
         extract_effect_events, extract_effects, prepare_effects, queue_effects, DrawEffects,
         EffectAssetEvents, EffectBindGroups, EffectSystems, EffectsMeta, ExtractedEffects,
-        ParticleUpdateNode, ParticlesRenderPipeline,ParticlesInitPipeline, ParticlesUpdatePipeline, PipelineRegistry,
-        SimParams
+        ParticleUpdateNode, ParticlesInitPipeline, ParticlesRenderPipeline,
+        ParticlesUpdatePipeline, PipelineRegistry, SimParams, VFX_INDIRECT_SHADER_HANDLE, DispatchIndirectPipeline,
     },
     spawn::{self, Random},
     tick_spawners, ParticleEffect, RemovedEffectsEvent, Spawner,
@@ -59,6 +59,11 @@ impl Plugin for HanabiPlugin {
                 gather_removed_effects.label(EffectSystems::GatherRemovedEffects),
             );
 
+        // Register the built-in shaders
+        let mut shaders = app.world.get_resource_mut::<Assets<Shader>>().unwrap();
+        let indirect_shader = Shader::from_wgsl(include_str!("render/vfx_indirect.wgsl"));
+        shaders.set_untracked(VFX_INDIRECT_SHADER_HANDLE, indirect_shader);
+
         // Register the component reflection
         app.register_type::<EffectAsset>();
         app.register_type::<ParticleEffect>();
@@ -72,6 +77,7 @@ impl Plugin for HanabiPlugin {
         render_app
             .insert_resource(effects_meta)
             .init_resource::<EffectBindGroups>()
+            .init_resource::<DispatchIndirectPipeline>()
             .init_resource::<ParticlesInitPipeline>()
             .init_resource::<SpecializedComputePipelines<ParticlesInitPipeline>>()
             .init_resource::<ParticlesUpdatePipeline>()

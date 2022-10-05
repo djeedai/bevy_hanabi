@@ -523,7 +523,10 @@ fn tick_spawners(
 
         // Lazily configure shaders on first use (or after some changes occurred)
         // TODO - Reconfigure only the shader that changed, not both
-        if effect.configured_init_shader.is_none() || effect.configured_update_shader.is_none() || effect.configured_render_shader.is_none() {
+        if effect.configured_init_shader.is_none()
+            || effect.configured_update_shader.is_none()
+            || effect.configured_render_shader.is_none()
+        {
             let asset = effects.get(&effect.handle).unwrap(); // must succeed since it did above
 
             // Extract the acceleration
@@ -582,8 +585,7 @@ fn tick_spawners(
             // asset exists
             let mut init_shader_source =
                 PARTICLES_INIT_SHADER_TEMPLATE.replace("{{INIT_POS_VEL}}", &position_code);
-            init_shader_source =
-                init_shader_source.replace("{{INIT_LIFETIME}}", &lifetime_code);
+            init_shader_source = init_shader_source.replace("{{INIT_LIFETIME}}", &lifetime_code);
             let init_shader = pipeline_registry.configure(&init_shader_source, &mut shaders);
 
             // Configure the update shader template, and make sure a corresponding shader

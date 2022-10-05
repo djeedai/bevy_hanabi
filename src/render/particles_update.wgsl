@@ -40,16 +40,14 @@ struct DeadListBuffer {
     indices: array<u32>,
 };
 
-struct DispatchIndirectBuffer {
-    x: u32,
-    y: u32,
-    z: u32,
-    dead_count: atomic<u32>,
+struct RenderIndirectBuffer {
     vertex_count: u32,
     instance_count: atomic<u32>,
     base_index: u32,
     vertex_offset: i32,
     base_instance: u32,
+    alive_count: atomic<u32>,
+    dead_count: atomic<u32>,
 };
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
@@ -57,7 +55,7 @@ struct DispatchIndirectBuffer {
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner;
 @group(3) @binding(0) var<storage, read_write> dead_list : DeadListBuffer;
-@group(3) @binding(1) var<storage, read_write> dispatch_indirect : DispatchIndirectBuffer;
+@group(3) @binding(1) var<storage, read_write> render_indirect : RenderIndirectBuffer;
 
 var<private> seed : u32 = 0u;
 
@@ -132,7 +130,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
-    let alive_count = u32(atomicLoad(&spawner.count));
+    let alive_count = u32(atomicLoad(&render_indirect.alive_count));
     if (index >= alive_count) {
         return;
     }
@@ -149,7 +147,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         vAge = vLifetime + 1.0;
         particle_buffer.particles[index].age = vAge;
         // Save dead index
-        let dead_index = atomicAdd(&dispatch_indirect.dead_count, 1u);
+        let dead_index = atomicAdd(&render_indirect.dead_count, 1u);
         dead_list.indices[dead_index] = index;
         return;
     }
@@ -157,7 +155,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 {{FORCE_FIELD_CODE}}
 
     // Increment alive particle count and write indirection index for later rendering
-    let indirect_index = atomicAdd(&dispatch_indirect.instance_count, 1u);
+    let indirect_index = atomicAdd(&render_indirect.instance_count, 1u);
     indirect_buffer.indices[indirect_index] = index;
 
     // Write back particle itself

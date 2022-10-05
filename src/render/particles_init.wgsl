@@ -37,23 +37,22 @@ struct DeadListBuffer {
     indices: array<u32>,
 };
 
-struct DispatchIndirectBuffer {
-    x: u32,
-    y: u32,
-    z: u32,
-    dead_count: atomic<u32>,
+struct RenderIndirectBuffer {
     vertex_count: u32,
     instance_count: atomic<u32>,
     base_index: u32,
     vertex_offset: i32,
     base_instance: u32,
+    alive_count: atomic<u32>,
+    dead_count: atomic<u32>,
+    __pad: u32,
 };
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner;
 @group(3) @binding(0) var<storage, read_write> dead_list : DeadListBuffer;
-@group(3) @binding(1) var<storage, read_write> dispatch_indirect : DispatchIndirectBuffer;
+@group(3) @binding(1) var<storage, read_write> render_indirect : RenderIndirectBuffer;
 
 var<private> seed : u32 = 0u;
 
@@ -151,7 +150,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     }
 
     // Recycle a dead particle
-    let dead_index = atomicSub(&dispatch_indirect.dead_count, 1u) - 1u;
+    let dead_index = atomicSub(&render_indirect.dead_count, 1u) - 1u;
     let index = dead_list.indices[dead_index];
 
     var vPos : vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
@@ -179,7 +178,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     vLifetime = init_lifetime();
 
     // Count as alive
-    var old_count : i32 = atomicAdd(&spawner.count, 1);
+    atomicAdd(&render_indirect.alive_count, 1u);
 
     // Write back spawned particle
     particle_buffer.particles[index].pos = vPos;
