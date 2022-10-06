@@ -2430,25 +2430,13 @@ impl Node for ParticleUpdateNode {
         let effects_meta = world.resource::<EffectsMeta>();
         let effect_bind_groups = world.resource::<EffectBindGroups>();
 
-        // Begin encoder
-        // trace!(
-        //     "begin compute init pass... (world={:?} ents={:?} comps={:?})",
-        //     world,
-        //     world.entities(),
-        //     world.components()
-        // );
-        trace!("begin compute init pass...");
-        render_context
-            .command_encoder
-            .push_debug_group("hanabi_init");
-
         // Compute init pass
         {
             let mut compute_pass =
                 render_context
                     .command_encoder
                     .begin_compute_pass(&ComputePassDescriptor {
-                        label: Some("hanabi:init_compute_pass"),
+                        label: Some("hanabi:init"),
                     });
 
             // Retrieve the ExtractedEffectEntities component itself
@@ -2538,29 +2526,13 @@ impl Node for ParticleUpdateNode {
             }
         }
 
-        // End encoder
-        render_context.command_encoder.pop_debug_group();
-        trace!("compute init pass done");
-
-        // Begin encoder
-        // trace!(
-        //     "begin compute indirect dispatch pass... (world={:?} ents={:?} comps={:?})",
-        //     world,
-        //     world.entities(),
-        //     world.components()
-        // );
-        trace!("begin compute indirect dispatch pass...");
-        render_context
-            .command_encoder
-            .push_debug_group("hanabi_indirect_dispatch");
-
         // Compute indirect dispatch pass
         {
             let mut compute_pass =
                 render_context
                     .command_encoder
                     .begin_compute_pass(&ComputePassDescriptor {
-                        label: Some("hanabi:indirect_dispatch_compute_pass"),
+                        label: Some("hanabi:indirect_dispatch"),
                     });
 
             // Dispatch indirect dispatch compute job
@@ -2579,29 +2551,13 @@ impl Node for ParticleUpdateNode {
             }
         }
 
-        // End encoder
-        render_context.command_encoder.pop_debug_group();
-        trace!("compute indirect dispatch pass done");
-
-        // Begin encoder
-        // trace!(
-        //     "begin compute update pass... (world={:?} ents={:?} comps={:?})",
-        //     world,
-        //     world.entities(),
-        //     world.components()
-        // );
-        trace!("begin compute update pass...");
-        render_context
-            .command_encoder
-            .push_debug_group("hanabi_update");
-
         // Compute update pass
         {
             let mut compute_pass =
                 render_context
                     .command_encoder
                     .begin_compute_pass(&ComputePassDescriptor {
-                        label: Some("hanabi:update_compute_pass"),
+                        label: Some("hanabi:update"),
                     });
 
             // Dispatch update compute jobs
@@ -2678,10 +2634,6 @@ impl Node for ParticleUpdateNode {
                 }
             }
         }
-
-        // End encoder
-        render_context.command_encoder.pop_debug_group();
-        trace!("compute update pass done");
 
         Ok(())
     }
