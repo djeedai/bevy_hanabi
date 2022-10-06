@@ -1161,7 +1161,7 @@ impl EffectsMeta {
             });
         }
 
-        let item_align = device.limits().min_storage_buffer_offset_alignment as usize;
+        let item_align = device.limits().min_storage_buffer_offset_alignment as u64;
 
         Self {
             entity_map: HashMap::default(),
@@ -1174,7 +1174,7 @@ impl EffectsMeta {
             sim_params_uniforms: UniformBuffer::default(),
             spawner_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
-                item_align,
+                NonZeroU64::new(item_align),
                 Some("hanabi:spawner_buffer".to_string()),
             ),
             vertices,

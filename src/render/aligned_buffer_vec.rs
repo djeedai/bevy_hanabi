@@ -1,8 +1,12 @@
+use std::num::NonZeroU64;
+
 use bevy::{
-    core::{cast_slice, Pod},
+    core::{cast_slice, Pod, Zeroable},
     log::trace,
     render::{
-        render_resource::{Buffer, BufferAddress, BufferDescriptor, BufferUsages},
+        render_resource::{
+            Buffer, BufferAddress, BufferDescriptor, BufferUsages, ShaderSize, ShaderType,
+        },
         renderer::{RenderDevice, RenderQueue},
     },
 };
@@ -16,12 +20,22 @@ fn next_multiple_of(value: usize, align: usize) -> usize {
     count * align
 }
 
-/// Like Bevy's [`BufferVec`], but with an explicit item alignment.
+/// Like Bevy's [`BufferVec`], but with correct item alignment.
 ///
 /// This is a helper to ensure the data is properly aligned when copied to GPU,
-/// depending on the device constraints. Generally the alignment is one of the
-/// [`wgpu::Limits`].
-pub struct AlignedBufferVec<T: Pod> {
+/// depending on the device constraints and the WGSL rules. Generally the
+/// alignment is one of the [`wgpu::Limits`], and is also ensured to be
+/// compatible with WGSL.
+///
+/// The element type `T` needs to implement the following traits:
+/// - [`Pod`] to allow copy.
+/// - [`ShaderType`] because it needs to be mapped for a shader.
+/// - [`ShaderSize`] to ensure a fixed footprint, to allow packing multiple
+///   instances inside a single buffer. This therefore excludes any
+///   runtime-sized array.
+///
+/// [`BufferVec`]: bevy::render::render_resource::BufferVec
+pub struct AlignedBufferVec<T: Pod + ShaderType + ShaderSize> {
     values: Vec<T>,
     buffer: Option<Buffer>,
     capacity: usize,
@@ -31,27 +45,64 @@ pub struct AlignedBufferVec<T: Pod> {
     label: Option<String>,
 }
 
-impl<T: Pod> Default for AlignedBufferVec<T> {
+impl<T: Pod + ShaderType + ShaderSize> Default for AlignedBufferVec<T> {
     fn default() -> Self {
+        let item_size = std::mem::size_of::<T>();
+        let aligned_size = <T as ShaderSize>::SHADER_SIZE.get() as usize;
+        assert!(aligned_size >= item_size);
         Self {
             values: Vec::new(),
             buffer: None,
             capacity: 0,
             buffer_usage: BufferUsages::all(),
-            item_size: std::mem::size_of::<T>(),
-            aligned_size: std::mem::size_of::<T>(),
+            item_size,
+            aligned_size,
             label: None,
         }
     }
 }
 
-impl<T: Pod> AlignedBufferVec<T> {
-    pub fn new(buffer_usage: BufferUsages, item_align: usize, label: Option<String>) -> Self {
-        let item_size = std::mem::size_of::<T>();
-        //let aligned_size = item_size.next_multiple_of(item_align);
-        let aligned_size = next_multiple_of(item_size, item_align);
-        assert!(aligned_size >= item_size);
-        assert!(aligned_size % item_align == 0);
+impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
+    /// Create a new collection.
+    ///
+    /// `item_align` is an optional additional alignment for items in the
+    /// collection. If greater than the natural alignment dictated by WGSL
+    /// rules, this extra alignment is enforced. Otherwise it's ignored (so you
+    /// can pass `0` to ignore).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `buffer_usage` contains [`BufferUsages::UNIFORM`] and the
+    /// layout of the element type `T` does not meet the requirements of the
+    /// uniform address space, as tested by
+    /// [`ShaderType::assert_uniform_compat()`].
+    ///
+    /// [`BufferUsages::UNIFORM`]: bevy::render::render_resource::BufferUsages::UNIFORM
+    pub fn new(
+        buffer_usage: BufferUsages,
+        item_align: Option<NonZeroU64>,
+        label: Option<String>,
+    ) -> Self {
+        // GPU-aligned item size, compatible with WGSL rules
+        let item_size = <T as ShaderSize>::SHADER_SIZE.get() as usize;
+        // Extra manual alignment for device constraints
+        let aligned_size = if let Some(item_align) = item_align {
+            let item_align = item_align.get() as usize;
+            let aligned_size = next_multiple_of(item_size, item_align);
+            assert!(aligned_size >= item_size);
+            assert!(aligned_size % item_align == 0);
+            aligned_size
+        } else {
+            item_size
+        };
+        trace!(
+            "AlignedBufferVec: item_size={} aligned_size={}",
+            item_size,
+            aligned_size
+        );
+        if buffer_usage.contains(BufferUsages::UNIFORM) {
+            <T as ShaderType>::assert_uniform_compat();
+        }
         Self {
             buffer_usage,
             aligned_size,
@@ -139,8 +190,9 @@ impl<T: Pod> AlignedBufferVec<T> {
 
 #[cfg(test)]
 mod tests {
+    use bevy::math::Vec3;
+
     use super::*;
-    use crate::test_utils::MockRenderer;
 
     const INTS: &[usize] = &[1, 2, 4, 8, 9, 15, 16, 17, 23, 24, 31, 32, 33];
 
@@ -170,34 +222,112 @@ mod tests {
         }
     }
 
-    #[test]
-    fn abv_align() {
-        for &align in INTS {
-            let abv = AlignedBufferVec::<u8>::new(BufferUsages::STORAGE, align, None);
-            assert_eq!(abv.aligned_size(), align);
-        }
+    #[repr(C)]
+    #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
+    pub(crate) struct GpuDummy {
+        pub v: Vec3,
+    }
 
-        for &align in INTS {
-            let abv = AlignedBufferVec::<u32>::new(BufferUsages::STORAGE, align, None);
-            assert_eq!(abv.aligned_size(), next_multiple_of(4, align));
-        }
+    #[repr(C)]
+    #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
+    pub(crate) struct GpuDummyComposed {
+        pub simple: GpuDummy,
+        pub tag: u32,
+        // GPU padding to 16 bytes due to GpuDummy forcing align to 16 bytes
+    }
 
-        for &align in INTS {
-            let abv = AlignedBufferVec::<[u8; 27]>::new(BufferUsages::STORAGE, align, None);
-            assert_eq!(abv.aligned_size(), next_multiple_of(27, align));
-        }
+    #[repr(C)]
+    #[derive(Debug, Clone, Copy, Pod, Zeroable, ShaderType)]
+    pub(crate) struct GpuDummyLarge {
+        pub simple: GpuDummy,
+        pub tag: u32,
+        pub large: [f32; 128],
     }
 
     #[test]
-    fn abv_push() {
-        const SIZE: usize = 27;
-        const ALIGN: usize = 32;
-        let mut abv = AlignedBufferVec::<[u8; SIZE]>::new(BufferUsages::STORAGE, ALIGN, None);
-        assert_eq!(abv.aligned_size(), next_multiple_of(SIZE, ALIGN));
-        assert!(abv.is_empty());
-        abv.push([9; SIZE]);
-        assert!(!abv.is_empty());
-        assert_eq!(abv.len(), 1);
+    fn abv_sizes() {
+        // Rust
+        assert_eq!(std::mem::size_of::<GpuDummy>(), 12);
+        assert_eq!(std::mem::align_of::<GpuDummy>(), 4);
+        assert_eq!(std::mem::size_of::<GpuDummyComposed>(), 16); // tight packing
+        assert_eq!(std::mem::align_of::<GpuDummyComposed>(), 4);
+        assert_eq!(std::mem::size_of::<GpuDummyLarge>(), 132 * 4); // tight packing
+        assert_eq!(std::mem::align_of::<GpuDummyLarge>(), 4);
+
+        // GPU
+        assert_eq!(<GpuDummy as ShaderType>::min_size().get(), 16); // Vec3 gets padded to 16 bytes
+        assert_eq!(<GpuDummy as ShaderSize>::SHADER_SIZE.get(), 16);
+        assert_eq!(<GpuDummyComposed as ShaderType>::min_size().get(), 32); // align is 16 bytes, forces padding
+        assert_eq!(<GpuDummyComposed as ShaderSize>::SHADER_SIZE.get(), 32);
+        assert_eq!(<GpuDummyLarge as ShaderType>::min_size().get(), 544); // align is 16 bytes, forces padding
+        assert_eq!(<GpuDummyLarge as ShaderSize>::SHADER_SIZE.get(), 544);
+
+        for (item_align, expected_aligned_size) in [
+            (0, 16),
+            (4, 16),
+            (8, 16),
+            (16, 16),
+            (32, 32),
+            (256, 256),
+            (512, 512),
+        ] {
+            let mut abv = AlignedBufferVec::<GpuDummy>::new(
+                BufferUsages::STORAGE,
+                NonZeroU64::new(item_align),
+                None,
+            );
+            assert_eq!(abv.aligned_size(), expected_aligned_size);
+            assert!(abv.is_empty());
+            abv.push(GpuDummy::default());
+            assert!(!abv.is_empty());
+            assert_eq!(abv.len(), 1);
+        }
+
+        for (item_align, expected_aligned_size) in [
+            (0, 32),
+            (4, 32),
+            (8, 32),
+            (16, 32),
+            (32, 32),
+            (256, 256),
+            (512, 512),
+        ] {
+            let mut abv = AlignedBufferVec::<GpuDummyComposed>::new(
+                BufferUsages::STORAGE,
+                NonZeroU64::new(item_align),
+                None,
+            );
+            assert_eq!(abv.aligned_size(), expected_aligned_size);
+            assert!(abv.is_empty());
+            abv.push(GpuDummyComposed::default());
+            assert!(!abv.is_empty());
+            assert_eq!(abv.len(), 1);
+        }
+
+        for (item_align, expected_aligned_size) in [
+            (0, 544),
+            (4, 544),
+            (8, 544),
+            (16, 544),
+            (32, 544),
+            (256, 768),
+            (512, 1024),
+        ] {
+            let mut abv = AlignedBufferVec::<GpuDummyLarge>::new(
+                BufferUsages::STORAGE,
+                NonZeroU64::new(item_align),
+                None,
+            );
+            assert_eq!(abv.aligned_size(), expected_aligned_size);
+            assert!(abv.is_empty());
+            abv.push(GpuDummyLarge {
+                simple: Default::default(),
+                tag: 0,
+                large: [0.; 128],
+            });
+            assert!(!abv.is_empty());
+            assert_eq!(abv.len(), 1);
+        }
     }
 }
 
@@ -205,6 +335,7 @@ mod tests {
 mod gpu_tests {
     use super::*;
     use crate::test_utils::MockRenderer;
+    use tests::*;
 
     #[test]
     fn abv_write() {
@@ -219,18 +350,30 @@ mod gpu_tests {
         });
         let command_buffer = encoder.finish();
 
-        // Write buffer (CPU -> GPU)
-        const SIZE: usize = 27;
-        const ALIGN: usize = 32;
-        const CAPACITY: usize = 16;
-        let mut abv = AlignedBufferVec::<[u8; SIZE]>::new(
+        let item_align = device.limits().min_storage_buffer_offset_alignment as u64;
+        let mut abv = AlignedBufferVec::<GpuDummyComposed>::new(
             BufferUsages::STORAGE | BufferUsages::MAP_READ,
-            ALIGN,
+            NonZeroU64::new(item_align),
             None,
         );
-        abv.push([9; SIZE]);
-        abv.push([6; SIZE]);
-        abv.push([3; SIZE]);
+        let final_align = item_align.max(<GpuDummyComposed as ShaderSize>::SHADER_SIZE.get());
+        assert_eq!(abv.aligned_size(), final_align as usize);
+
+        const CAPACITY: usize = 42;
+
+        // Write buffer (CPU -> GPU)
+        abv.push(GpuDummyComposed {
+            tag: 1,
+            ..Default::default()
+        });
+        abv.push(GpuDummyComposed {
+            tag: 2,
+            ..Default::default()
+        });
+        abv.push(GpuDummyComposed {
+            tag: 3,
+            ..Default::default()
+        });
         abv.reserve(CAPACITY, &device);
         abv.write_buffer(&device, &queue);
         // need a submit() for write_buffer() to be processed
@@ -256,13 +399,12 @@ mod gpu_tests {
         let view = buffer.get_mapped_range();
 
         // Validate content
-        assert_eq!(view.len(), ALIGN * CAPACITY);
+        assert_eq!(view.len(), final_align as usize * CAPACITY);
         for i in 0..3 {
-            let offset = i * ALIGN;
-            let value: u8 = (9 - i * 3) as u8;
-            let value: [u8; SIZE] = [value; SIZE];
-            let vec: &[u8] = cast_slice(&view[offset..offset + SIZE]);
-            assert_eq!(vec, value);
+            let offset = i * final_align as usize;
+            let dummy_composed: &[GpuDummyComposed] =
+                cast_slice(&view[offset..offset + std::mem::size_of::<GpuDummyComposed>()]);
+            assert_eq!(dummy_composed[0].tag, (i + 1) as u32);
         }
     }
 }
