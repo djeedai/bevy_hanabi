@@ -93,11 +93,10 @@ pub struct EffectBuffer {
     /// GPU buffer holding all particles for the entire group of effects.
     particle_buffer: Buffer,
     /// GPU buffer holding the indirection indices for the entire group of
-    /// effects.
+    /// effects. This is a triple buffer containing:
+    /// - the ping-pong alive particles and render indirect indices at offsets 0 and 1
+    /// - the dead particle indices at offset 2
     indirect_buffer: Buffer,
-    /// GPU buffer holding all dead particle indices for the entire group of
-    /// effects.
-    dead_list_buffer: Buffer,
     /// GPU buffer holding the indirect dispatch and dead count values.
     // FIXME - Should be shared by all effects, this only contains a very small struct!!
     dispatch_indirect_buffer: Buffer,
@@ -172,35 +171,21 @@ impl EffectBuffer {
         };
         let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
-            size: index_capacity_bytes * 2, // ping-pong
-            usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
-            mapped_at_creation: false,
-        });
-
-        let dead_list_label = if let Some(label) = label {
-            format!("{}_dead_list", label)
-        } else {
-            "hanabi:effect_buffer_dead_list".to_owned()
-        };
-        let dead_list_buffer = render_device.create_buffer(&BufferDescriptor {
-            label: Some(&dead_list_label),
-            size: index_capacity_bytes,
+            size: index_capacity_bytes * 3, // ping-pong + deadlist
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
             mapped_at_creation: true,
         });
         // Set content
         {
             {
-                let slice = &mut dead_list_buffer.slice(..).get_mapped_range_mut()
-                    [..index_capacity_bytes as usize];
+                let slice = &mut indirect_buffer.slice(..).get_mapped_range_mut()
+                    [..index_capacity_bytes as usize * 3];
                 let slice: &mut [u32] = cast_slice_mut(slice);
-                let mut index = capacity;
-                for dst in slice {
-                    index -= 1;
-                    *dst = index;
+                for index in 0..capacity {
+                    slice[3 * index as usize + 2] = capacity - 1 - index;
                 }
             }
-            dead_list_buffer.unmap();
+            indirect_buffer.unmap();
         }
 
         let dispatch_indirect_capacity_bytes = GpuDispatchIndirect::min_size().get();
@@ -277,7 +262,6 @@ impl EffectBuffer {
         EffectBuffer {
             particle_buffer,
             indirect_buffer,
-            dead_list_buffer,
             dispatch_indirect_buffer,
             render_indirect_buffer,
             item_size,
@@ -296,10 +280,6 @@ impl EffectBuffer {
 
     pub fn indirect_buffer(&self) -> &Buffer {
         &self.indirect_buffer
-    }
-
-    pub fn dead_list_buffer(&self) -> &Buffer {
-        &self.dead_list_buffer
     }
 
     pub fn dispatch_indirect_buffer(&self) -> &Buffer {
@@ -341,16 +321,7 @@ impl EffectBuffer {
         BindingResource::Buffer(BufferBinding {
             buffer: &self.indirect_buffer,
             offset: 0,
-            size: Some(NonZeroU64::new(capacity_bytes * 2).unwrap()),
-        })
-    }
-
-    pub fn dead_list_max_binding(&self) -> BindingResource {
-        let capacity_bytes = std::mem::size_of::<u32>() as u64 * self.capacity as u64;
-        BindingResource::Buffer(BufferBinding {
-            buffer: &self.dead_list_buffer,
-            offset: 0,
-            size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
+            size: Some(NonZeroU64::new(capacity_bytes * 3).unwrap()),
         })
     }
 

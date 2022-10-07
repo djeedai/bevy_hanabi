@@ -36,10 +36,6 @@ struct IndirectBuffer {
     indices: array<u32>,
 };
 
-struct DeadListBuffer {
-    indices: array<u32>,
-};
-
 struct RenderIndirectBuffer {
     vertex_count: u32,
     instance_count: atomic<u32>,
@@ -59,8 +55,7 @@ struct RenderIndirectBuffer {
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner;
-@group(3) @binding(0) var<storage, read_write> dead_list : DeadListBuffer;
-@group(3) @binding(1) var<storage, read_write> render_indirect : RenderIndirectBuffer;
+@group(3) @binding(0) var<storage, read_write> render_indirect : RenderIndirectBuffer;
 
 var<private> seed : u32 = 0u;
 
@@ -148,7 +143,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let ping = render_indirect.ping;
     let pong = 1u - ping;
 
-    let index = indirect_buffer.indices[2u * thread_index + pong];
+    let index = indirect_buffer.indices[3u * thread_index + pong];
 
     var vPos : vec3<f32> = particle_buffer.particles[index].pos;
     var vVel : vec3<f32> = particle_buffer.particles[index].vel;
@@ -163,7 +158,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         particle_buffer.particles[index].age = vAge;
         // Save dead index
         let dead_index = atomicAdd(&render_indirect.dead_count, 1u);
-        dead_list.indices[dead_index] = index;
+        indirect_buffer.indices[3u * dead_index + 2u] = index;
         // Also increment copy of dead count, which was updated in dispatch indirect
         // pass just before, and need to remain right after this pass
         atomicAdd(&render_indirect.max_spawn, 1u);
@@ -175,7 +170,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Increment alive particle count and write indirection index for later rendering
     let indirect_index = atomicAdd(&render_indirect.instance_count, 1u);
-    indirect_buffer.indices[2u * indirect_index + ping] = index;
+    indirect_buffer.indices[3u * indirect_index + ping] = index;
 
     // Write back particle itself
     particle_buffer.particles[index].pos = vPos;

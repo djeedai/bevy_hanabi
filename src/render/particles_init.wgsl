@@ -37,10 +37,6 @@ struct IndirectBuffer {
     indices: array<u32>,
 };
 
-struct DeadListBuffer {
-    indices: array<u32>,
-};
-
 struct RenderIndirectBuffer {
     vertex_count: u32,
     instance_count: atomic<u32>,
@@ -60,8 +56,7 @@ struct RenderIndirectBuffer {
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner;
-@group(3) @binding(0) var<storage, read_write> dead_list : DeadListBuffer;
-@group(3) @binding(1) var<storage, read_write> render_indirect : RenderIndirectBuffer;
+@group(3) @binding(0) var<storage, read_write> render_indirect : RenderIndirectBuffer;
 
 var<private> seed : u32 = 0u;
 
@@ -164,7 +159,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Recycle a dead particle
     let dead_index = atomicSub(&render_indirect.dead_count, 1u) - 1u;
-    let index = dead_list.indices[dead_index];
+    let index = indirect_buffer.indices[3u * dead_index + 2u];
 
     var vPos : vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
     var vVel : vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
@@ -198,7 +193,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Add to alive list
     let indirect_index = atomicAdd(&render_indirect.instance_count, 1u);
-    indirect_buffer.indices[2u * indirect_index + ping] = index;
+    indirect_buffer.indices[3u * indirect_index + ping] = index;
 
     // Write back spawned particle
     particle_buffer.particles[index].pos = vPos;

@@ -286,7 +286,7 @@ pub(crate) struct ParticlesInitPipeline {
     sim_params_layout: BindGroupLayout,
     particles_buffer_layout: BindGroupLayout,
     spawner_buffer_layout: BindGroupLayout,
-    dead_list_layout: BindGroupLayout,
+    render_indirect_layout: BindGroupLayout,
     pipeline_layout: PipelineLayout,
 }
 
@@ -341,7 +341,7 @@ impl FromWorld for ParticlesInitPipeline {
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Storage { read_only: false },
                             has_dynamic_offset: true,
-                            min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
+                            min_binding_size: BufferSize::new(12),
                         },
                         count: None,
                     },
@@ -369,24 +369,13 @@ impl FromWorld for ParticlesInitPipeline {
             });
 
         trace!(
-            "GpuDeadList: min_size={} | GpuRenderIndirect: min_size={}",
-            GpuDeadList::min_size(),
+            "GpuRenderIndirect: min_size={}",
             GpuRenderIndirect::min_size()
         );
-        let dead_list_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            entries: &[
-                BindGroupLayoutEntry {
+        let render_indirect_layout =
+            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                entries: &[BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(GpuDeadList::min_size()),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
@@ -394,10 +383,9 @@ impl FromWorld for ParticlesInitPipeline {
                         min_binding_size: Some(GpuRenderIndirect::min_size()),
                     },
                     count: None,
-                },
-            ],
-            label: Some("hanabi:init_dead_list_layout"),
-        });
+                }],
+                label: Some("hanabi:init_render_indirect_layout"),
+            });
 
         let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("hanabi:init_pipeline_layout"),
@@ -405,7 +393,7 @@ impl FromWorld for ParticlesInitPipeline {
                 &sim_params_layout,
                 &particles_buffer_layout,
                 &spawner_buffer_layout,
-                &dead_list_layout,
+                &render_indirect_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -414,7 +402,7 @@ impl FromWorld for ParticlesInitPipeline {
             sim_params_layout,
             particles_buffer_layout,
             spawner_buffer_layout,
-            dead_list_layout,
+            render_indirect_layout,
             pipeline_layout,
         }
     }
@@ -436,7 +424,7 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
                 self.sim_params_layout.clone(),
                 self.particles_buffer_layout.clone(),
                 self.spawner_buffer_layout.clone(),
-                self.dead_list_layout.clone(),
+                self.render_indirect_layout.clone(),
             ]),
             shader: key.shader,
             shader_defs: vec![],
@@ -449,7 +437,7 @@ pub(crate) struct ParticlesUpdatePipeline {
     sim_params_layout: BindGroupLayout,
     particles_buffer_layout: BindGroupLayout,
     spawner_buffer_layout: BindGroupLayout,
-    dead_list_layout: BindGroupLayout,
+    render_indirect_layout: BindGroupLayout,
     pipeline_layout: PipelineLayout,
 }
 
@@ -504,7 +492,7 @@ impl FromWorld for ParticlesUpdatePipeline {
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Storage { read_only: false },
                             has_dynamic_offset: true,
-                            min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
+                            min_binding_size: BufferSize::new(12),
                         },
                         count: None,
                     },
@@ -531,21 +519,14 @@ impl FromWorld for ParticlesUpdatePipeline {
                 label: Some("hanabi:update_spawner_buffer_layout"),
             });
 
-        trace!("GpuDeadList: min_size={}", GpuDeadList::min_size());
-        let dead_list_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            entries: &[
-                BindGroupLayoutEntry {
+        trace!(
+            "GpuRenderIndirect: min_size={}",
+            GpuRenderIndirect::min_size()
+        );
+        let render_indirect_layout =
+            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                entries: &[BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(GpuDeadList::min_size()),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
@@ -553,10 +534,9 @@ impl FromWorld for ParticlesUpdatePipeline {
                         min_binding_size: Some(GpuRenderIndirect::min_size()),
                     },
                     count: None,
-                },
-            ],
-            label: Some("hanabi:update_dead_list_layout"),
-        });
+                }],
+                label: Some("hanabi:update_render_indirect_layout"),
+            });
 
         let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("hanabi:update_pipeline_layout"),
@@ -564,7 +544,7 @@ impl FromWorld for ParticlesUpdatePipeline {
                 &sim_params_layout,
                 &particles_buffer_layout,
                 &spawner_buffer_layout,
-                &dead_list_layout,
+                &render_indirect_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -573,7 +553,7 @@ impl FromWorld for ParticlesUpdatePipeline {
             sim_params_layout,
             particles_buffer_layout,
             spawner_buffer_layout,
-            dead_list_layout,
+            render_indirect_layout,
             pipeline_layout,
         }
     }
@@ -595,7 +575,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
                 self.sim_params_layout.clone(),
                 self.particles_buffer_layout.clone(),
                 self.spawner_buffer_layout.clone(),
-                self.dead_list_layout.clone(),
+                self.render_indirect_layout.clone(),
             ]),
             shader: key.shader,
             shader_defs: vec![],
@@ -1120,15 +1100,6 @@ struct GpuParticleVertex {
     pub uv: [f32; 2],
 }
 
-/// GPU representation of the dead particle index list stored in a GPU buffer.
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable, ShaderType)]
-struct GpuDeadList {
-    /// Runtime-sized array of indices. Only store the first element here,
-    /// to get the minimum binding size for the buffer.
-    pub indices: [u32; 1],
-}
-
 /// Global resource containing the GPU data to draw all the particle effects in
 /// all views.
 ///
@@ -1153,7 +1124,7 @@ pub(crate) struct EffectsMeta {
     /// Bind group for the spawning parameters (number of particles to spawn
     /// this frame, ...).
     spawner_bind_group: Option<BindGroup>,
-    dead_list_bind_group: Option<BindGroup>,
+    render_indirect_bind_group: Option<BindGroup>,
     sim_params_uniforms: UniformBuffer<SimParamsUniform>,
     spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
     /// Unscaled vertices of the mesh of a single particle, generally a quad.
@@ -1187,7 +1158,7 @@ impl EffectsMeta {
             sim_params_bind_group: None,
             particles_bind_group: None,
             spawner_bind_group: None,
-            dead_list_bind_group: None,
+            render_indirect_bind_group: None,
             sim_params_uniforms: UniformBuffer::default(),
             spawner_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
@@ -1683,15 +1654,13 @@ pub(crate) struct EffectBindGroups {
     /// Bind groups for each group index for init shader.
     init_particle_buffers: HashMap<u32, BindGroup>,
     /// Bind groups for each group index for init shader.
-    init_dead_lists: HashMap<u32, BindGroup>,
+    init_render_indirect: HashMap<u32, BindGroup>,
     /// Bind groups for each group index for update shader.
     update_particle_buffers: HashMap<u32, BindGroup>,
     /// Bind groups for each group index for update shader.
-    update_dead_lists: HashMap<u32, BindGroup>,
+    update_render_indirect: HashMap<u32, BindGroup>,
     /// Same for render shader.
     render_particle_buffers: HashMap<u32, BindGroup>,
-    /// Same for render shader.
-    render_dead_lists: HashMap<u32, BindGroup>,
     ///
     images: HashMap<Handle<Image>, BindGroup>,
 }
@@ -1893,7 +1862,7 @@ pub(crate) fn queue_effects(
 
         trace!("effect init dead list buffer_index=#{}", buffer_index);
         effect_bind_groups
-            .init_dead_lists
+            .init_render_indirect
             .entry(buffer_index as u32)
             .or_insert_with(|| {
                 trace!(
@@ -1901,21 +1870,15 @@ pub(crate) fn queue_effects(
                     buffer_index
                 );
                 render_device.create_bind_group(&BindGroupDescriptor {
-                    entries: &[
-                        BindGroupEntry {
-                            binding: 0,
-                            resource: buffer.dead_list_max_binding(),
-                        },
-                        BindGroupEntry {
-                            binding: 1,
-                            resource: buffer.render_indirect_max_binding(),
-                        },
-                    ],
+                    entries: &[BindGroupEntry {
+                        binding: 0,
+                        resource: buffer.render_indirect_max_binding(),
+                    }],
                     label: Some(&format!(
-                        "hanabi:vfx_dead_list_bind_group_init{}",
+                        "hanabi:vfx_render_indirect_bind_group_init{}",
                         buffer_index
                     )),
-                    layout: &read_params.init_pipeline.dead_list_layout,
+                    layout: &read_params.init_pipeline.render_indirect_layout,
                 })
             });
 
@@ -1949,7 +1912,7 @@ pub(crate) fn queue_effects(
 
         trace!("effect update dead list buffer_index=#{}", buffer_index);
         effect_bind_groups
-            .update_dead_lists
+            .update_render_indirect
             .entry(buffer_index as u32)
             .or_insert_with(|| {
                 trace!(
@@ -1957,21 +1920,15 @@ pub(crate) fn queue_effects(
                     buffer_index
                 );
                 render_device.create_bind_group(&BindGroupDescriptor {
-                    entries: &[
-                        BindGroupEntry {
-                            binding: 0,
-                            resource: buffer.dead_list_max_binding(),
-                        },
-                        BindGroupEntry {
-                            binding: 1,
-                            resource: buffer.render_indirect_max_binding(),
-                        },
-                    ],
+                    entries: &[BindGroupEntry {
+                        binding: 0,
+                        resource: buffer.render_indirect_max_binding(),
+                    }],
                     label: Some(&format!(
-                        "hanabi:vfx_dead_list_bind_group_update{}",
+                        "hanabi:vfx_render_indirect_bind_group_update{}",
                         buffer_index
                     )),
-                    layout: &read_params.update_pipeline.dead_list_layout,
+                    layout: &read_params.update_pipeline.render_indirect_layout,
                 })
             });
 
@@ -2500,8 +2457,8 @@ impl Node for ParticleUpdateNode {
                             .get(&batch.buffer_index)
                             .unwrap();
 
-                        let dead_list_bind_group = effect_bind_groups
-                            .init_dead_lists
+                        let render_indirect_bind_group = effect_bind_groups
+                            .init_render_indirect
                             .get(&batch.buffer_index)
                             .unwrap();
 
@@ -2545,7 +2502,7 @@ impl Node for ParticleUpdateNode {
                             effects_meta.spawner_bind_group.as_ref().unwrap(),
                             &[spawner_base * spawner_buffer_aligned as u32],
                         );
-                        compute_pass.set_bind_group(3, dead_list_bind_group, &[0, 0]);
+                        compute_pass.set_bind_group(3, render_indirect_bind_group, &[0]);
                         compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
                         trace!("init compute dispatched");
                     }
@@ -2607,8 +2564,8 @@ impl Node for ParticleUpdateNode {
                         .get(&batch.buffer_index)
                         .unwrap();
 
-                    let dead_list_bind_group = effect_bind_groups
-                        .update_dead_lists
+                    let render_indirect_bind_group = effect_bind_groups
+                        .update_render_indirect
                         .get(&batch.buffer_index)
                         .unwrap();
 
@@ -2648,7 +2605,7 @@ impl Node for ParticleUpdateNode {
                         effects_meta.spawner_bind_group.as_ref().unwrap(),
                         &[spawner_base * spawner_buffer_aligned as u32],
                     );
-                    compute_pass.set_bind_group(3, dead_list_bind_group, &[0, 0]);
+                    compute_pass.set_bind_group(3, render_indirect_bind_group, &[0]);
                     // TODO -clean-up this
                     if let Some(buffer) =
                         &effect_bind_groups.indirect_dispatch_indirect_dispatch_buffer
