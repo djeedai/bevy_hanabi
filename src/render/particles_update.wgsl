@@ -48,6 +48,7 @@ struct RenderIndirectBuffer {
     base_instance: u32,
     alive_count: atomic<u32>,
     dead_count: atomic<u32>,
+    max_spawn: atomic<u32>,
 };
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
@@ -149,6 +150,10 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         // Save dead index
         let dead_index = atomicAdd(&render_indirect.dead_count, 1u);
         dead_list.indices[dead_index] = index;
+        // Also increment copy of dead count, which was updated in dispatch indirect
+        // pass just before, and need to remain right after this pass
+        atomicAdd(&render_indirect.max_spawn, 1u);
+        atomicSub(&render_indirect.alive_count, 1u);
         return;
     }
 

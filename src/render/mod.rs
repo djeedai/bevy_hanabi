@@ -204,8 +204,8 @@ pub struct GpuRenderIndirect {
     //
     pub alive_count: u32,
     pub dead_count: u32,
-    //
-    pub __pad: u32, // FIXME - min_storage_buffer_offset_alignment
+    pub max_spawn: u32,
+    // FIXME - min_storage_buffer_offset_alignment
 }
 
 /// Compute pipeline to run the vfx_indirect dispatch workgroup calculation shader.
@@ -231,7 +231,7 @@ impl FromWorld for DispatchIndirectPipeline {
                         binding: 0,
                         visibility: ShaderStages::COMPUTE,
                         ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
+                            ty: BufferBindingType::Storage { read_only: false },
                             has_dynamic_offset: true,
                             min_binding_size: Some(GpuRenderIndirect::min_size()),
                         },

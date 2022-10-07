@@ -260,8 +260,7 @@ impl EffectBuffer {
                 //
                 slice[0].alive_count = 0;
                 slice[0].dead_count = capacity;
-                //
-                slice[0].__pad = 0xdeadbeef;
+                slice[0].max_spawn = capacity;
             }
             trace!(
                 "render_indirect_buffer ready = {:?}",

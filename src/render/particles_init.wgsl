@@ -45,7 +45,7 @@ struct RenderIndirectBuffer {
     base_instance: u32,
     alive_count: atomic<u32>,
     dead_count: atomic<u32>,
-    __pad: u32,
+    max_spawn: u32,
 };
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
@@ -138,12 +138,16 @@ fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    let max_particles : u32 = arrayLength(&particle_buffer.particles);
     let index = global_invocation_id.x;
-    if (index >= max_particles) {
+
+    // Cap to max number of dead particles, copied from dead_count at the end of the
+    // previous iteration, and constant during this pass (unlike dead_count).
+    if (index >= render_indirect.max_spawn) {
         return;
     }
 
+    // Cap to the actual number of spawning requested by CPU, since compute shaders run
+    // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
     let spawn_count : u32 = u32(atomicLoad(&spawner.spawn)); // FIXME - Doesn't need atomic here; this is fixed for init pass
     if (index >= spawn_count) {
         return;
