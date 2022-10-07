@@ -33,6 +33,10 @@ struct Spawner {
     dead_count: atomic<i32>,
 };
 
+struct IndirectBuffer {
+    indices: array<u32>,
+};
+
 struct DeadListBuffer {
     indices: array<u32>,
 };
@@ -46,10 +50,15 @@ struct RenderIndirectBuffer {
     alive_count: atomic<u32>,
     dead_count: atomic<u32>,
     max_spawn: u32,
+    ping: u32,
+    __pad0: u32,
+    __pad1: u32,
+    __pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
+@group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner;
 @group(3) @binding(0) var<storage, read_write> dead_list : DeadListBuffer;
 @group(3) @binding(1) var<storage, read_write> render_indirect : RenderIndirectBuffer;
@@ -183,6 +192,13 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Count as alive
     atomicAdd(&render_indirect.alive_count, 1u);
+
+    // Always write into ping, read from pong
+    let ping = render_indirect.ping;
+
+    // Add to alive list
+    let indirect_index = atomicAdd(&render_indirect.instance_count, 1u);
+    indirect_buffer.indices[2u * indirect_index + ping] = index;
 
     // Write back spawned particle
     particle_buffer.particles[index].pos = vPos;

@@ -172,7 +172,7 @@ impl EffectBuffer {
         };
         let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
-            size: index_capacity_bytes,
+            size: index_capacity_bytes * 2, // ping-pong
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
@@ -261,6 +261,11 @@ impl EffectBuffer {
                 slice[0].alive_count = 0;
                 slice[0].dead_count = capacity;
                 slice[0].max_spawn = capacity;
+                //
+                slice[0].ping = 0;
+                slice[0].__pad0 = 0xaaaaaaaa;
+                slice[0].__pad0 = 0xbbbbbbbb;
+                slice[0].__pad2 = 0xcccccccc;
             }
             trace!(
                 "render_indirect_buffer ready = {:?}",
@@ -336,7 +341,7 @@ impl EffectBuffer {
         BindingResource::Buffer(BufferBinding {
             buffer: &self.indirect_buffer,
             offset: 0,
-            size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
+            size: Some(NonZeroU64::new(capacity_bytes * 2).unwrap()),
         })
     }
 

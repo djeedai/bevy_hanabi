@@ -29,7 +29,7 @@ struct Spawner {
     spawn: atomic<i32>,
     force_field: array<ForceFieldSource, 16>,
     seed: u32,
-    count: atomic<i32>,
+    count_unused: u32,
 };
 
 struct IndirectBuffer {
@@ -49,6 +49,10 @@ struct RenderIndirectBuffer {
     alive_count: atomic<u32>,
     dead_count: atomic<u32>,
     max_spawn: atomic<u32>,
+    ping: u32,
+    __pad0: u32,
+    __pad1: u32,
+    __pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
@@ -125,16 +129,26 @@ fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
+    let thread_index = global_invocation_id.x;
+
+    // Cap at maximum number of particles.
+    // FIXME - This is probably useless given below cap
     let max_particles : u32 = arrayLength(&particle_buffer.particles);
-    let index = global_invocation_id.x;
-    if (index >= max_particles) {
+    if (thread_index >= max_particles) {
         return;
     }
 
+    // Cap at maximum number of alive particles.
     let alive_count = u32(atomicLoad(&render_indirect.alive_count));
-    if (index >= alive_count) {
+    if (thread_index >= alive_count) {
         return;
     }
+
+    // Always write into ping, read from pong
+    let ping = render_indirect.ping;
+    let pong = 1u - ping;
+
+    let index = indirect_buffer.indices[2u * thread_index + pong];
 
     var vPos : vec3<f32> = particle_buffer.particles[index].pos;
     var vVel : vec3<f32> = particle_buffer.particles[index].vel;
@@ -161,7 +175,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Increment alive particle count and write indirection index for later rendering
     let indirect_index = atomicAdd(&render_indirect.instance_count, 1u);
-    indirect_buffer.indices[indirect_index] = index;
+    indirect_buffer.indices[2u * indirect_index + ping] = index;
 
     // Write back particle itself
     particle_buffer.particles[index].pos = vPos;

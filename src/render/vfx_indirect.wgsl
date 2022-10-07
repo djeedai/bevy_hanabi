@@ -8,6 +8,10 @@ struct RenderIndirectBuffer {
     alive_count: atomic<u32>,
     dead_count: atomic<u32>,
     max_spawn: u32,
+    ping: u32,
+    __pad0: u32,
+    __pad1: u32,
+    __pad2: u32,
 };
 
 struct DispatchIndirectBuffer {
@@ -39,4 +43,10 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // spawned to the number of dead particles to recycle.
     let dead_count = atomicLoad(&render_indirect.dead_count);
     render_indirect.max_spawn = dead_count;
+
+    // Clear the rendering instance count, which will be upgraded by the update pass
+    // with the particles actually alive at the end of their update (after aged).
+    render_indirect.instance_count = 0u;
+
+    render_indirect.ping = 1u - render_indirect.ping;
 }
