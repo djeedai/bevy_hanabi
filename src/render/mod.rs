@@ -1149,6 +1149,8 @@ impl EffectsMeta {
             });
         }
 
+        // Ensure individual GpuSpawnerParams elements are properly aligned so they can
+        // be addressed individually by the computer shaders.
         let item_align = device.limits().min_storage_buffer_offset_alignment as u64;
 
         Self {
@@ -2495,7 +2497,7 @@ impl Node for ParticleUpdateNode {
                         compute_pass.set_bind_group(
                             1,
                             particles_bind_group,
-                            &[buffer_offset, buffer_offset],
+                            &[buffer_offset, buffer_offset], // FIXME: probably in bytes, so probably wrong!
                         );
                         compute_pass.set_bind_group(
                             2,
@@ -2598,7 +2600,7 @@ impl Node for ParticleUpdateNode {
                     compute_pass.set_bind_group(
                         1,
                         particles_bind_group,
-                        &[buffer_offset, buffer_offset],
+                        &[buffer_offset, buffer_offset], // FIXME: probably in bytes, so probably wrong!
                     );
                     compute_pass.set_bind_group(
                         2,
