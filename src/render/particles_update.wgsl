@@ -30,6 +30,7 @@ struct Spawner {
     force_field: array<ForceFieldSource, 16>,
     seed: u32,
     count_unused: u32,
+    effect_index: u32,
 };
 
 struct IndirectBuffer {
@@ -46,15 +47,12 @@ struct RenderIndirectBuffer {
     dead_count: atomic<u32>,
     max_spawn: atomic<u32>,
     ping: u32,
-    __pad0: u32,
-    __pad1: u32,
-    __pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
-@group(2) @binding(0) var<storage, read_write> spawner : Spawner;
+@group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as init
 @group(3) @binding(0) var<storage, read_write> render_indirect : RenderIndirectBuffer;
 
 var<private> seed : u32 = 0u;
@@ -162,7 +160,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         // Also increment copy of dead count, which was updated in dispatch indirect
         // pass just before, and need to remain right after this pass
         atomicAdd(&render_indirect.max_spawn, 1u);
-        atomicSub(&render_indirect.alive_count, 1u);
+        //atomicSub(&render_indirect.alive_count, 1u); // WRONG! We use alive_count above as a pass-constant maximum
         return;
     }
 

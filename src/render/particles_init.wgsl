@@ -31,6 +31,7 @@ struct Spawner {
     seed: u32,
     count: atomic<i32>,
     dead_count: atomic<i32>,
+    effect_index: u32,
 };
 
 struct IndirectBuffer {
@@ -47,15 +48,12 @@ struct RenderIndirectBuffer {
     dead_count: atomic<u32>,
     max_spawn: u32,
     ping: u32,
-    __pad0: u32,
-    __pad1: u32,
-    __pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
-@group(2) @binding(0) var<storage, read_write> spawner : Spawner;
+@group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as update
 @group(3) @binding(0) var<storage, read_write> render_indirect : RenderIndirectBuffer;
 
 var<private> seed : u32 = 0u;

@@ -38,8 +38,12 @@ fn next_multiple_of(value: usize, align: usize) -> usize {
 pub struct AlignedBufferVec<T: Pod + ShaderType + ShaderSize> {
     values: Vec<T>,
     buffer: Option<Buffer>,
+    /// Capacity of the buffer, in number of elements.
     capacity: usize,
+    /// Size of a single buffer element, in bytes, in CPU memory (Rust layout).
     item_size: usize,
+    /// Size of a single buffer element, in bytes, aligned to GPU memory
+    /// constraints.
     aligned_size: usize,
     buffer_usage: BufferUsages,
     label: Option<String>,
@@ -144,14 +148,21 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
 
     pub fn reserve(&mut self, capacity: usize, device: &RenderDevice) {
         if capacity > self.capacity {
-            self.capacity = capacity;
             let size = self.aligned_size * capacity;
+            trace!(
+                "reserve: increase capacity from {} to {} elements, new size {} bytes",
+                self.capacity,
+                capacity,
+                size
+            );
+            self.capacity = capacity;
             self.buffer = Some(device.create_buffer(&BufferDescriptor {
                 label: self.label.as_ref().map(|s| &s[..]),
                 size: size as BufferAddress,
                 usage: BufferUsages::COPY_DST | self.buffer_usage,
                 mapped_at_creation: false,
             }));
+            // FIXME - this discards the old content if any!!!
         }
     }
 
@@ -183,8 +194,43 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
         }
     }
 
+    // FIXME - This is very inefficient...
+    pub fn write_element(&mut self, index: usize, device: &RenderDevice, queue: &RenderQueue) {
+        trace!(
+            "write_element: index={} item_size={} aligned_size={}",
+            index,
+            self.item_size,
+            self.aligned_size
+        );
+        self.reserve(self.values.len(), device);
+        if let Some(buffer) = &self.buffer {
+            trace!("aligned_buffer: size={}", self.aligned_size);
+            let mut aligned_buffer: Vec<u8> = vec![0; self.aligned_size];
+            let src: &[u8] = cast_slice(std::slice::from_ref(&self.values[index]));
+            let offset_bytes = index * self.item_size;
+            trace!("-> copy: offset={} src={:?}", offset_bytes, src.as_ptr());
+            let dst = &mut aligned_buffer[..];
+            dst.copy_from_slice(src);
+            queue.write_buffer(buffer, offset_bytes as u64, dst);
+        }
+    }
+
     pub fn clear(&mut self) {
         self.values.clear();
+    }
+}
+
+impl<T: Pod + ShaderType + ShaderSize> std::ops::Index<usize> for AlignedBufferVec<T> {
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.values[index]
+    }
+}
+
+impl<T: Pod + ShaderType + ShaderSize> std::ops::IndexMut<usize> for AlignedBufferVec<T> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.values[index]
     }
 }
 
