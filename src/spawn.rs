@@ -18,7 +18,7 @@ pub(crate) fn new_rng() -> Pcg32 {
 pub struct Random(pub Pcg32);
 
 /// A constant or random value.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Value<T: Copy> {
     /// Single constant value.
     Single(T),

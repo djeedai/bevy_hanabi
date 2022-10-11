@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 description = "Hanabi GPU particle system for the Bevy game engine"
@@ -45,7 +45,6 @@ wgpu = "0.13.1"
 
 futures = "0.3"
 bevy-inspector-egui = "0.12"
-#smooth-bevy-cameras = "0.2"
 
 # For shader snippet validation
 naga = "0.9"

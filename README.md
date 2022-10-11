@@ -109,7 +109,7 @@ Animate an emitter by moving its `Transform` component, and emit textured quad p
 cargo run --example gradient --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/9290f63d7d0416358a20bb9f17e6aff62318a8b8/examples/gradient.gif)
+![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/eb614db2370c82c40bfa63d31f78fa72e14b8120/examples/gradient.gif)
 
 ### Force Field
 
@@ -119,7 +119,7 @@ This example demonstrates the force field modifier `ForceFieldModifier`, which a
 cargo run --example force_field --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![force_field](https://raw.githubusercontent.com/djeedai/bevy_hanabi/9290f63d7d0416358a20bb9f17e6aff62318a8b8/examples/force_field.gif)
+![force_field](https://raw.githubusercontent.com/djeedai/bevy_hanabi/eb614db2370c82c40bfa63d31f78fa72e14b8120/examples/force_field.gif)
 
 ### 2D
 
@@ -137,7 +137,7 @@ This example demonstrates manual activation and deactivation of a spawner, from 
 cargo run --example activate --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![activate](https://raw.githubusercontent.com/djeedai/bevy_hanabi/9290f63d7d0416358a20bb9f17e6aff62318a8b8/examples/activate.gif)
+![activate](https://raw.githubusercontent.com/djeedai/bevy_hanabi/eb614db2370c82c40bfa63d31f78fa72e14b8120/examples/activate.gif)
 
 ### Spawn
 
@@ -153,7 +153,7 @@ It also shows the applying of constant force (downward gravity-like, or upward s
 cargo run --example spawn --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/9290f63d7d0416358a20bb9f17e6aff62318a8b8/examples/spawn.gif)
+![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/eb614db2370c82c40bfa63d31f78fa72e14b8120/examples/spawn.gif)
 
 ### Spawn on Command
 
@@ -163,7 +163,7 @@ This example demonstrates how to emit a burst of particles when an event occurs.
 cargo run --example spawn_on_command --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/9290f63d7d0416358a20bb9f17e6aff62318a8b8/examples/spawn_on_command.gif)
+![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/eb614db2370c82c40bfa63d31f78fa72e14b8120/examples/spawn_on_command.gif)
 
 ### Circle
 
@@ -173,7 +173,7 @@ This example demonstrates the `circle` spawner type, which emits particles along
 cargo run --example circle --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/9290f63d7d0416358a20bb9f17e6aff62318a8b8/examples/circle.gif)
+![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/eb614db2370c82c40bfa63d31f78fa72e14b8120/examples/circle.gif)
 
 ### Random
 
@@ -183,7 +183,7 @@ This example spawns particles with randomized parameters.
 cargo run --example random --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/9290f63d7d0416358a20bb9f17e6aff62318a8b8/examples/random.gif)
+![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/eb614db2370c82c40bfa63d31f78fa72e14b8120/examples/random.gif)
 
 ### Lifetime
 
@@ -192,7 +192,7 @@ This example demonstrates particle effects with different lifetimes.
 ```shell
 cargo run --example lifetime --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
-![lifetime](https://raw.githubusercontent.com/djeedai/bevy_hanabi/9290f63d7d0416358a20bb9f17e6aff62318a8b8/examples/lifetime.gif)
+![lifetime](https://raw.githubusercontent.com/djeedai/bevy_hanabi/eb614db2370c82c40bfa63d31f78fa72e14b8120/examples/lifetime.gif)
 
 ### Billboard
 
