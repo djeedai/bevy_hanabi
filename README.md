@@ -25,7 +25,7 @@ Add the `bevy_hanabi` dependency to `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_hanabi = "0.3"
+bevy_hanabi = "0.4"
 ```
 
 See also [Features](#features) below for the list of supported features.
@@ -272,7 +272,7 @@ The image on the left has the `BillboardModifier` enabled.
 For optimization purpose, users of a single type of camera can disable the other type by skipping default features in their `Cargo.toml`. For example to use only the 3D mode:
 
 ```toml
-bevy_hanabi = { version = "0.3", default-features = false, features = [ "3d" ] }
+bevy_hanabi = { version = "0.4", default-features = false, features = [ "3d" ] }
 ```
 
 ## Compatible Bevy versions
@@ -283,6 +283,6 @@ Compatibility of `bevy_hanabi` versions:
 
 | `bevy_hanabi` | `bevy` |
 | :--           | :--    |
-| `0.3`         | `0.8`  |
+| `0.3`-`0.4`   | `0.8`  |
 | `0.2`         | `0.7`  |
 | `0.1`         | `0.6`  |
