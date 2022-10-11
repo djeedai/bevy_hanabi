@@ -1048,7 +1048,7 @@ pub(crate) fn prepare_effects(
         .effects
         .iter()
         .map(|(entity, extracted_effect)| {
-            let id = effects_meta.entity_map.get(entity).unwrap().clone();
+            let id = *effects_meta.entity_map.get(entity).unwrap();
             let slice = effects_meta.effect_cache.get_slice(id);
             (slice, extracted_effect)
         })
@@ -1218,7 +1218,6 @@ pub(crate) fn prepare_effects(
             accel: extracted_effect.accel,
             force_field: extracted_force_field, // extracted_effect.force_field,
             seed: random::<u32>(),
-            ..Default::default()
         };
         trace!("spawner_params = {:?}", spawner_params);
         effects_meta.spawner_buffer.push(spawner_params);
