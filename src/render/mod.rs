@@ -18,7 +18,9 @@ use bevy::{
         render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
-        view::{ComputedVisibility, ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{
+            ComputedVisibility, ExtractedView, Msaa, ViewUniform, ViewUniformOffset, ViewUniforms,
+        },
         Extract,
     },
     time::Time,
@@ -412,6 +414,8 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// feature.
     #[cfg(all(feature = "2d", feature = "3d"))]
     pipeline_mode: PipelineMode,
+    /// MSAA sample count.
+    msaa_samples: u32,
 }
 
 impl Default for ParticleRenderPipelineKey {
@@ -421,6 +425,7 @@ impl Default for ParticleRenderPipelineKey {
             particle_texture: None,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
+            msaa_samples: Msaa::default().samples,
         }
     }
 }
@@ -542,7 +547,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             },
             depth_stencil,
             multisample: MultisampleState {
-                count: 4, // TODO: Res<Msaa>.samples
+                count: key.msaa_samples,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
@@ -1332,6 +1337,7 @@ pub(crate) fn queue_effects(
     #[cfg(feature = "2d")] mut views_2d: Query<&mut RenderPhase<Transparent2d>>,
     #[cfg(feature = "3d")] mut views_3d: Query<&mut RenderPhase<Transparent3d>>,
     events: Res<EffectAssetEvents>,
+    msaa: Res<Msaa>,
 ) {
     trace!("queue_effects");
 
@@ -1551,6 +1557,7 @@ pub(crate) fn queue_effects(
                         shader: batch.render_shader.clone(),
                         #[cfg(feature = "3d")]
                         pipeline_mode: PipelineMode::Camera2d,
+                        msaa_samples: msaa.samples,
                     },
                 );
                 trace!("Render pipeline specialized: id={:?}", render_pipeline_id);
@@ -1648,6 +1655,7 @@ pub(crate) fn queue_effects(
                         shader: batch.render_shader.clone(),
                         #[cfg(feature = "2d")]
                         pipeline_mode: PipelineMode::Camera3d,
+                        msaa_samples: msaa.samples,
                     },
                 );
                 trace!("Render pipeline specialized: id={:?}", render_pipeline_id);
