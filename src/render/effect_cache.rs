@@ -350,6 +350,11 @@ impl EffectCacheId {
         static NEXT_EFFECT_CACHE_ID: AtomicU64 = AtomicU64::new(0);
         EffectCacheId(NEXT_EFFECT_CACHE_ID.fetch_add(1, AtomicOrdering::Relaxed))
     }
+
+    /// Check if the ID is valid.
+    pub fn is_valid(&self) -> bool {
+        *self != Self::INVALID
+    }
 }
 
 /// Cache for effect instances sharing common GPU data structures.
@@ -434,7 +439,12 @@ impl EffectCache {
                     Some(&format!("hanabi:effect_buffer{}", buffer_index)),
                 );
                 let slice_ref = buffer.allocate_slice(capacity, item_size).unwrap();
-                self.buffers.insert(buffer_index, Some(buffer));
+                if buffer_index >= self.buffers.len() {
+                    self.buffers.push(Some(buffer));
+                } else {
+                    assert!(self.buffers[buffer_index].is_none());
+                    self.buffers[buffer_index] = Some(buffer);
+                }
                 // Newly-allocated buffers are not cleared to zero, and currently we eagerly render the entire buffer
                 // since we don't have an indirection buffer to tell us how many particles are alive. So clear the buffer
                 // to zero to mark all particles as invalid and prevent rendering them.
@@ -551,5 +561,56 @@ mod gpu_tests {
         assert_eq!(BufferState::Free, buffer.free_slice(slices[1].clone()));
         assert_eq!(0, buffer.free_slices.len());
         assert_eq!(0, buffer.used_size); // collapsed and empty
+    }
+
+    #[test]
+    fn effect_cache() {
+        let renderer = MockRenderer::new();
+        let render_device = renderer.device();
+        let render_queue = renderer.queue();
+
+        let mut effect_cache = EffectCache::new(render_device);
+        assert_eq!(effect_cache.buffers().len(), 0);
+
+        let asset = Handle::weak(HandleId::random::<EffectAsset>());
+        let capacity = EffectBuffer::MIN_CAPACITY;
+        let item_size = 32;
+
+        let id1 = effect_cache.insert(asset.clone(), capacity, item_size, &render_queue);
+        assert!(id1.is_valid());
+        let slice1 = effect_cache.get_slice(id1);
+        assert_eq!(slice1.item_size, item_size);
+        assert_eq!(slice1.slice, 0..capacity);
+        assert_eq!(effect_cache.buffers().len(), 1);
+
+        let id2 = effect_cache.insert(asset.clone(), capacity, item_size, &render_queue);
+        assert!(id2.is_valid());
+        let slice2 = effect_cache.get_slice(id2);
+        assert_eq!(slice2.item_size, item_size);
+        assert_eq!(slice2.slice, 0..capacity);
+        assert_eq!(effect_cache.buffers().len(), 2);
+
+        let buffer_index = effect_cache.remove(id1);
+        assert!(buffer_index.is_some());
+        assert_eq!(buffer_index.unwrap(), 0);
+        assert_eq!(effect_cache.buffers().len(), 2);
+        {
+            let buffers = effect_cache.buffers();
+            assert!(buffers[0].is_none());
+            assert!(buffers[1].is_some()); // id2
+        }
+
+        // Regression #60
+        let id3 = effect_cache.insert(asset.clone(), capacity, item_size, &render_queue);
+        assert!(id3.is_valid());
+        let slice3 = effect_cache.get_slice(id3);
+        assert_eq!(slice3.item_size, item_size);
+        assert_eq!(slice3.slice, 0..capacity);
+        assert_eq!(effect_cache.buffers().len(), 2);
+        {
+            let buffers = effect_cache.buffers();
+            assert!(buffers[0].is_some()); // id3
+            assert!(buffers[1].is_some()); // id2
+        }
     }
 }
