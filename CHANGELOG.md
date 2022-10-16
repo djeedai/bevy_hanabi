@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Respect user-defined MSAA setting by reading the value of `Msaa::samples` when building the render pipeline. (#59)
+- Fixed a bug in the effect cache causing a panic sometimes when effects are removed. (#60)
 
 ## [0.4.0] 2022-10-11
 
