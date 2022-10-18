@@ -1,4 +1,4 @@
-use bevy::reflect::Reflect;
+use bevy::{reflect::{Reflect, FromReflect}, prelude::Resource};
 use rand::{
     distributions::{uniform::SampleUniform, Distribution, Uniform},
     SeedableRng,
@@ -15,6 +15,7 @@ pub(crate) fn new_rng() -> Pcg32 {
 }
 
 /// An RNG resource
+#[derive(Resource)]
 pub struct Random(pub Pcg32);
 
 /// A constant or random value.
@@ -66,7 +67,7 @@ impl<T: Copy> From<T> for Value<T> {
 }
 
 /// Spawner defining how new particles are created.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Reflect)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Reflect, FromReflect)]
 pub struct Spawner {
     /// Number of particles to spawn over `spawn_time`
     #[reflect(ignore)] // TODO

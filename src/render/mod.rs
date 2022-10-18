@@ -89,14 +89,14 @@ pub enum EffectSystems {
 
 /// Reimplementing of bevy::sprite::Rect to avoid the dependency.
 /// See https://github.com/bevyengine/bevy/issues/5575
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Resource)]
 pub(crate) struct MinMaxRect {
     pub min: Vec2,
     pub max: Vec2,
 }
 
 /// Simulation parameters.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Resource)]
 pub(crate) struct SimParams {
     /// Current simulation time.
     time: f64,
@@ -132,7 +132,7 @@ impl From<SimParams> for SimParamsUniform {
 
 /// GPU representation of a [`ForceFieldSource`].
 #[repr(C)]
-#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
+#[derive(Debug, Default, Clone, Copy, Pod, Resource, Zeroable, ShaderType)]
 struct GpuForceFieldSource {
     pub position_or_direction: Vec3,
     pub max_radius: f32,
@@ -161,7 +161,7 @@ impl From<ForceFieldSource> for GpuForceFieldSource {
 /// GPU buffer, it is followed by an array of [`GpuForceFieldSource`], which
 /// together form the spawner parameter buffer.
 #[repr(C)]
-#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
+#[derive(Debug, Default, Clone, Copy, Pod, Resource, Zeroable, ShaderType)]
 struct GpuSpawnerParams {
     /// Transform of the effect, as a Mat4 without the last row (which is always
     /// (0,0,0,1) for an affine transform), stored transposed as a mat3x4 to
@@ -183,6 +183,7 @@ struct GpuSpawnerParams {
     count: i32,
 }
 
+#[derive(Resource)]
 pub(crate) struct ParticlesUpdatePipeline {
     sim_params_layout: BindGroupLayout,
     particles_buffer_layout: BindGroupLayout,
@@ -287,7 +288,7 @@ impl FromWorld for ParticlesUpdatePipeline {
     }
 }
 
-#[derive(Default, Clone, Hash, PartialEq, Eq)]
+#[derive(Default, Clone, Hash, PartialEq, Eq, Resource)]
 pub(crate) struct ParticleUpdatePipelineKey {
     /// Compute shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
@@ -310,7 +311,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
         }
     }
 }
-
+#[derive(Resource)]
 pub(crate) struct ParticlesRenderPipeline {
     view_layout: BindGroupLayout,
     particles_buffer_layout: BindGroupLayout,
@@ -613,7 +614,7 @@ pub(crate) struct AddedEffect {
 
 /// Collection of all extracted effects for this frame, inserted into the
 /// [`RenderWorld`] as a render resource.
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub(crate) struct ExtractedEffects {
     /// Map of extracted effects from the entity the source [`ParticleEffect`]
     /// is on.
@@ -624,7 +625,7 @@ pub(crate) struct ExtractedEffects {
     pub added_effects: Vec<AddedEffect>,
 }
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub(crate) struct EffectAssetEvents {
     pub images: Vec<AssetEvent<Image>>,
 }
@@ -784,7 +785,7 @@ pub(crate) fn extract_effects(
                         .render_layout
                         .particle_texture
                         .clone()
-                        .map_or(HandleId::default::<Image>(), |handle| handle.id),
+                        .map_or(HandleId::default::<Image>(), |handle| handle.id()),
                     compute_shader: compute_shader.clone(),
                     render_shader: render_shader.clone(),
                     position_code,
@@ -828,6 +829,7 @@ struct ParticleVertex {
 /// render for the current frame, for all views in the frame, and consumed by
 /// [`queue_effects()`] to actually enqueue the drawning commands to draw those
 /// effects.
+#[derive(Resource)]
 pub(crate) struct EffectsMeta {
     /// Map from an entity with a [`ParticleEffect`] component attached to it,
     /// to the associated effect slice allocated in an [`EffectCache`].
@@ -1133,7 +1135,7 @@ pub(crate) fn prepare_effects(
                         render_shader,
                         z_sort_key_2d,
                     );
-                    commands.spawn_bundle((EffectBatch {
+                    commands.spawn((EffectBatch {
                         buffer_index: current_buffer_index,
                         spawner_base: spawner_base as u32,
                         slice: start..end,
@@ -1243,7 +1245,7 @@ pub(crate) fn prepare_effects(
                     compute_shader,
                     render_shader
                 );
-                commands.spawn_bundle((EffectBatch {
+                commands.spawn((EffectBatch {
                     buffer_index,
                     spawner_base: spawner_base as u32,
                     slice: start..end,
@@ -1280,7 +1282,7 @@ pub(crate) fn prepare_effects(
             compute_shader,
             render_shader
         );
-        commands.spawn_bundle((EffectBatch {
+        commands.spawn((EffectBatch {
             buffer_index: current_buffer_index,
             spawner_base: spawner_base as u32,
             slice: start..end,
@@ -1310,7 +1312,7 @@ pub(crate) fn prepare_effects(
         .write_buffer(&render_device, &render_queue);
 }
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub(crate) struct EffectBindGroups {
     /// Bind groups for each group index for compute shader.
     update_particle_buffers: HashMap<u32, BindGroup>,

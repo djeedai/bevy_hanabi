@@ -32,7 +32,9 @@ ron = "0.7"
 bitflags = "1.3"
 
 [dependencies.bevy]
-version = "0.8"
+#bevy = "0.8.0"
+git = "https://github.com/bevyengine/bevy.git"
+branch = "main"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset" ]
 

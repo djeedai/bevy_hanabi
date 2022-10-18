@@ -2,6 +2,7 @@ use bevy::{
     asset::{AssetLoader, Handle, LoadContext, LoadedAsset},
     ecs::reflect::ReflectResource,
     math::{Vec2, Vec3, Vec4},
+    prelude::Resource,
     reflect::{Reflect, TypeUuid},
     render::texture::Image,
     utils::BoxedFuture,
@@ -66,7 +67,7 @@ pub struct RenderLayout {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Default, Clone, Serialize, Deserialize, Reflect, TypeUuid)]
+#[derive(Default, Clone, Serialize, Deserialize, Resource, Reflect, TypeUuid)]
 #[reflect(Resource)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {

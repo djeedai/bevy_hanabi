@@ -2,12 +2,12 @@ use bevy::{
     asset::{Assets, Handle},
     log::debug,
     render::render_resource::Shader,
-    utils::HashMap,
+    utils::HashMap, prelude::Resource,
 };
 use std::hash::Hash;
 
 ///
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct PipelineRegistry {
     cache: HashMap<String, Handle<Shader>>,
 }
