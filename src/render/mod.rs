@@ -785,7 +785,7 @@ pub(crate) fn extract_effects(
                         .render_layout
                         .particle_texture
                         .clone()
-                        .map_or(HandleId::default::<Image>(), |handle| handle.id()),
+                        .map_or(HandleId::default::<Image>(), |handle| handle.id), // FIXME: might be handle.id() in bevy 0.9
                     compute_shader: compute_shader.clone(),
                     render_shader: render_shader.clone(),
                     position_code,
