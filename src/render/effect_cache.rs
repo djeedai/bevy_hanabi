@@ -673,7 +673,7 @@ mod gpu_tests {
         }
 
         // Regression #60
-        let id3 = effect_cache.insert(asset.clone(), capacity, item_size, &render_queue);
+        let id3 = effect_cache.insert(asset, capacity, item_size, &render_queue);
         assert!(id3.is_valid());
         let slice3 = effect_cache.get_slice(id3);
         assert_eq!(slice3.item_size, item_size);
