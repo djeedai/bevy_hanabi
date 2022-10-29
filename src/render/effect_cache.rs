@@ -530,7 +530,7 @@ mod gpu_tests {
             Some("my_buffer"),
         );
 
-        assert_eq!(EffectBuffer::MIN_CAPACITY, buffer.capacity);
+        assert_eq!(buffer.capacity, capacity.max(EffectBuffer::MIN_CAPACITY));
         assert_eq!(64, buffer.item_size);
         assert_eq!(0, buffer.used_size);
         assert!(buffer.free_slices.is_empty());
@@ -584,7 +584,7 @@ mod gpu_tests {
         //let render_queue = renderer.queue();
 
         let asset = Handle::weak(HandleId::random::<EffectAsset>());
-        let capacity = EffectBuffer::MIN_CAPACITY;
+        let capacity = 2048; //EffectBuffer::MIN_CAPACITY;
         assert!(capacity >= 2048); // otherwise the logic below breaks
         let item_size = 64;
         let mut buffer = EffectBuffer::new(
