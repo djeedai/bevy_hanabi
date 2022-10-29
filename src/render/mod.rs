@@ -1819,10 +1819,6 @@ pub(crate) struct QueueEffectsReadOnlyParams<'w, 's> {
     marker: PhantomData<&'s usize>,
 }
 
-// #[derive(SystemParam)]
-// struct QueueEffectsReadWriteParams<'w, 's> {
-// }
-
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn queue_effects(
     #[cfg(feature = "2d")] mut views_2d: Query<&mut RenderPhase<Transparent2d>>,

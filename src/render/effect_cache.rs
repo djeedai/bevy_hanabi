@@ -124,7 +124,7 @@ pub enum BufferState {
 
 impl EffectBuffer {
     /// Minimum buffer capacity to allocate, in number of particles.
-    pub const MIN_CAPACITY: u32 = 256; //65536; // at least 64k particles
+    pub const MIN_CAPACITY: u32 = 65536; // at least 64k particles
 
     /// Create a new group and a GPU buffer to back it up.
     ///
@@ -170,6 +170,7 @@ impl EffectBuffer {
         });
         // Set content
         {
+            // Scope get_mapped_range_mut() to force a drop before unmap()
             {
                 let slice = &mut indirect_buffer.slice(..).get_mapped_range_mut()
                     [..index_capacity_bytes as usize * 3];
