@@ -9,6 +9,7 @@ struct RenderIndirect {
     dead_count: u32,
     max_spawn: u32,
     ping: u32,
+    max_update: u32,
 };
 
 struct DispatchIndirect {
@@ -36,6 +37,11 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // the number of alive particles rounded up to 64 (workgroup_size).
     let alive_count = (*render_indirect).alive_count;
     dispatch_indirect[effect_index].x = (alive_count + 63u) / 64u;
+
+    // Update max_update from current value of alive_count, so that the update pass
+    // coming next can cap its threads to this value, while also atomically modifying
+    // alive_count itself for next frame.
+    (*render_indirect).max_update = alive_count;
 
     // Copy the number of dead particles to a constant location, so that the init pass
     // on next frame can atomically modify dead_count in parallel yet still read its

@@ -47,6 +47,7 @@ struct RenderIndirectBuffer {
     dead_count: atomic<u32>,
     max_spawn: atomic<u32>,
     ping: u32,
+    max_update: u32,
 };
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
@@ -132,8 +133,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     }
 
     // Cap at maximum number of alive particles.
-    let alive_count = u32(atomicLoad(&render_indirect.alive_count));
-    if (thread_index >= alive_count) {
+    if (thread_index >= render_indirect.max_update) {
         return;
     }
 
@@ -160,7 +160,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         // Also increment copy of dead count, which was updated in dispatch indirect
         // pass just before, and need to remain right after this pass
         atomicAdd(&render_indirect.max_spawn, 1u);
-        //atomicSub(&render_indirect.alive_count, 1u); // WRONG! We use alive_count above as a pass-constant maximum
+        atomicSub(&render_indirect.alive_count, 1u);
         return;
     }
 

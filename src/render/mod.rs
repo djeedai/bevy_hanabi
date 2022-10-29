@@ -208,7 +208,7 @@ pub struct GpuRenderIndirect {
     pub max_spawn: u32,
     //
     pub ping: u32,
-    pub __pad0: u32,
+    pub max_update: u32,
     pub __pad1: u32,
     pub __pad2: u32,
     // FIXME - min_storage_buffer_offset_alignment
@@ -1384,6 +1384,7 @@ pub(crate) fn prepare_effects(
         ri.dead_count = added_effect.capacity;
         ri.max_spawn = added_effect.capacity;
         ri.ping = 0;
+        ri.max_update = 0;
 
         // FIXME - Think about batching those writes...
         // effects_meta
