@@ -1396,6 +1396,7 @@ pub(crate) fn queue_effects(
             resource: BindingResource::Buffer(BufferBinding {
                 buffer: effects_meta.spawner_buffer.buffer().unwrap(),
                 offset: 0,
+                // TODO - should bind N consecutive structs for batching
                 size: Some(GpuSpawnerParams::min_size()),
             }),
         }],
@@ -1980,14 +1981,16 @@ impl Node for ParticleUpdateNode {
                         assert!(
                             spawner_buffer_aligned >= GpuSpawnerParams::min_size().get() as usize
                         );
+                        let spawner_offset = spawner_base * spawner_buffer_aligned as u32;
 
                         trace!(
-                            "record commands for pipeline of effect {:?} ({} items / {}B/item = {} workgroups) spawner_base={} buffer_offset={}...",
+                            "record commands for pipeline of effect {:?} ({} items / {}B/item = {} workgroups) spawner_base={} spawner_offset={} buffer_offset={}...",
                             batch.handle,
                             item_count,
                             item_size,
                             workgroup_count,
                             spawner_base,
+                            spawner_offset,
                             buffer_offset,
                         );
 
@@ -2007,7 +2010,7 @@ impl Node for ParticleUpdateNode {
                         compute_pass.set_bind_group(
                             2,
                             effects_meta.spawner_bind_group.as_ref().unwrap(),
-                            &[spawner_base * spawner_buffer_aligned as u32],
+                            &[spawner_offset],
                         );
                         compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
                         trace!("compute dispatched");
