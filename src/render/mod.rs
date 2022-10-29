@@ -43,6 +43,7 @@ use bevy::core_pipeline::core_3d::Transparent3d;
 use crate::{
     asset::EffectAsset,
     modifier::update::ForceFieldSource,
+    render::aligned_buffer_vec::next_multiple_of,
     spawn::{new_rng, Random},
     Gradient, ParticleEffect, RemovedEffectsEvent, ToWgslString,
 };
@@ -101,6 +102,12 @@ pub(crate) struct SimParams {
     time: f64,
     /// Frame timestep.
     dt: f32,
+    /// Number of effects to dispatch, for vfx_dispatch.wgsl.
+    num_effects: u32,
+    /// Stride of RenderIndirect, for vfx_dispatch.wgsl.
+    render_stride: u32,
+    /// Stride of DispatchIndirect, for vfx_dispatch.wgsl.
+    dispatch_stride: u32,
 }
 
 /// GPU representation of [`SimParams`].
@@ -109,6 +116,9 @@ pub(crate) struct SimParams {
 struct SimParamsUniform {
     dt: f32,
     time: f32,
+    num_effects: u32,
+    render_stride: u32,
+    dispatch_stride: u32,
 }
 
 impl Default for SimParamsUniform {
@@ -116,6 +126,9 @@ impl Default for SimParamsUniform {
         SimParamsUniform {
             dt: 0.04,
             time: 0.0,
+            num_effects: 0,
+            render_stride: 0,   // invalid
+            dispatch_stride: 0, // invalid
         }
     }
 }
@@ -125,6 +138,9 @@ impl From<SimParams> for SimParamsUniform {
         SimParamsUniform {
             dt: src.dt,
             time: src.time as f32,
+            num_effects: src.num_effects,
+            render_stride: src.render_stride,
+            dispatch_stride: src.dispatch_stride,
         }
     }
 }
@@ -259,9 +275,28 @@ impl FromWorld for DispatchIndirectPipeline {
                 label: Some("hanabi:dispatch_indirect_dispatch_indirect_layout"),
             });
 
+        trace!(
+            "SimParamsUniform: min_size={}",
+            SimParamsUniform::min_size()
+        );
+        let sim_params_layout =
+            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(SimParamsUniform::min_size()),
+                    },
+                    count: None,
+                }],
+                label: Some("hanabi:dispatch_indirect_sim_params_layout"),
+            });
+
         let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("hanabi:dispatch_indirect_pipeline_layout"),
-            bind_group_layouts: &[&dispatch_indirect_layout],
+            bind_group_layouts: &[&dispatch_indirect_layout, &sim_params_layout],
             push_constant_ranges: &[],
         });
 
@@ -1296,12 +1331,28 @@ pub(crate) fn prepare_effects(
         let sim_params_uni = effects_meta.sim_params_uniforms.get_mut();
         let sim_params = *sim_params;
         *sim_params_uni = sim_params.into();
+
+        sim_params_uni.num_effects = 3; // TODO
+
+        let storage_align = render_device.limits().min_storage_buffer_offset_alignment; // TODO - cache this
+        sim_params_uni.render_stride = next_multiple_of(
+            GpuRenderIndirect::min_size().get() as usize,
+            storage_align as usize,
+        ) as u32;
+        sim_params_uni.dispatch_stride = next_multiple_of(
+            GpuDispatchIndirect::min_size().get() as usize,
+            storage_align as usize,
+        ) as u32;
+
+        trace!(
+            "Simulation parameters: time={} dt={} num_effects={} render_stride={} dispatch_stride={}",
+            sim_params_uni.time,
+            sim_params_uni.dt,
+            sim_params_uni.num_effects,
+            sim_params_uni.render_stride,
+            sim_params_uni.dispatch_stride
+        );
     }
-    trace!(
-        "Simulation parameters: time={} dt={}",
-        sim_params.time,
-        sim_params.dt
-    );
     effects_meta
         .sim_params_uniforms
         .write_buffer(&render_device, &render_queue);
@@ -1832,7 +1883,7 @@ pub(crate) fn queue_effects(
                 resource: effects_meta.sim_params_uniforms.binding().unwrap(),
             }],
             label: Some("hanabi:bind_group_sim_params"),
-            layout: &read_params.update_pipeline.sim_params_layout,
+            layout: &read_params.update_pipeline.sim_params_layout, // FIXME - Shared with vfx_update, is that OK?
         }));
 
     // Create the bind group for the spawner parameters
@@ -1848,7 +1899,7 @@ pub(crate) fn queue_effects(
             }),
         }],
         label: Some("hanabi:bind_group_spawner_buffer"),
-        layout: &read_params.update_pipeline.spawner_buffer_layout, // FIXME - Shared with init
+        layout: &read_params.update_pipeline.spawner_buffer_layout, // FIXME - Shared with init, is that OK?
     }));
 
     // Create the bind group for the indirect dispatch of all effects
@@ -2589,6 +2640,11 @@ impl Node for ParticleUpdateNode {
                 compute_pass.set_bind_group(
                     0,
                     effects_meta.dr_indirect_bind_group.as_ref().unwrap(),
+                    &[],
+                );
+                compute_pass.set_bind_group(
+                    1,
+                    effects_meta.sim_params_bind_group.as_ref().unwrap(),
                     &[],
                 );
                 compute_pass.dispatch_workgroups(1, 1, 1); // TODO

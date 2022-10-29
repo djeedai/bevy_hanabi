@@ -77,6 +77,7 @@ impl Plugin for HanabiPlugin {
             );
 
         // Register the built-in shaders
+        // FIXME - Unused, we create the pipeline directly with include_str!() in render/mod.rs
         let mut shaders = app.world.get_resource_mut::<Assets<Shader>>().unwrap();
         let indirect_shader = Shader::from_wgsl(include_str!("render/vfx_indirect.wgsl"));
         shaders.set_untracked(VFX_INDIRECT_SHADER_HANDLE, indirect_shader);
