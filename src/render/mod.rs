@@ -1884,7 +1884,8 @@ pub(crate) fn queue_effects(
                 resource: effects_meta.sim_params_uniforms.binding().unwrap(),
             }],
             label: Some("hanabi:bind_group_sim_params"),
-            layout: &read_params.update_pipeline.sim_params_layout, // FIXME - Shared with vfx_update, is that OK?
+            layout: &read_params.update_pipeline.sim_params_layout, /* FIXME - Shared with
+                                                                     * vfx_update, is that OK? */
         }));
 
     // Create the bind group for the spawner parameters
@@ -1900,7 +1901,8 @@ pub(crate) fn queue_effects(
             }),
         }],
         label: Some("hanabi:bind_group_spawner_buffer"),
-        layout: &read_params.update_pipeline.spawner_buffer_layout, // FIXME - Shared with init, is that OK?
+        layout: &read_params.update_pipeline.spawner_buffer_layout, /* FIXME - Shared with init,
+                                                                     * is that OK? */
     }));
 
     // Create the bind group for the indirect dispatch of all effects
