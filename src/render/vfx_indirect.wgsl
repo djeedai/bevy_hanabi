@@ -16,6 +16,7 @@
 //     x: u32,
 //     y: u32,
 //     z: u32,
+//     pong: u32,
 // };
 
 struct SimParams {
@@ -37,6 +38,9 @@ struct SimParams {
 // const OFFSET_MAX_UPDATE: u32 = 9u;
 
 // const OFFSET_X: u32 = 0u;
+// const OFFSET_Y: u32 = 1u;
+// const OFFSET_Z: u32 = 2u;
+// const OFFSET_PONG: u32 = 3u;
 
 @group(0) @binding(0) var<storage, read_write> render_indirect_buffer : array<u32>;
 @group(0) @binding(1) var<storage, read_write> dispatch_indirect : array<u32>;
@@ -76,5 +80,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // with the particles actually alive at the end of their update (after aged).
     render_indirect_buffer[ri_base + 1u] = 0u;
 
-    render_indirect_buffer[ri_base + 8u] = 1u - render_indirect_buffer[ri_base + 8u];
+    // Swap ping/pong buffers
+    let ping = render_indirect_buffer[ri_base + 8u];
+    let pong = 1u - ping;
+    render_indirect_buffer[ri_base + 8u] = pong;
+
+    // Copy the new pong into the dispatch buffer, which will be used during rendering
+    // to determine where to read particle indices.
+    dispatch_indirect[di_base + 3u] = pong;
 }

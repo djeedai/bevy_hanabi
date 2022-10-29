@@ -60,10 +60,6 @@ pub(crate) use effect_cache::{EffectCache, EffectCacheId};
 pub use effect_cache::{EffectBuffer, EffectSlice};
 pub use pipeline_template::PipelineRegistry;
 
-/// Handle of the shader in charge of computing the indirect workgroup dispatch.
-pub(crate) const VFX_INDIRECT_SHADER_HANDLE: HandleUntyped =
-    HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 2763343953151597126);
-
 /// Labels for the Hanabi systems.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
 pub enum EffectSystems {
@@ -202,14 +198,14 @@ struct GpuSpawnerParams {
     effect_index: u32,
 }
 
+// FIXME - min_storage_buffer_offset_alignment
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct GpuDispatchIndirect {
     pub x: u32,
     pub y: u32,
     pub z: u32,
-    //
-    pub __pad: u32, // FIXME - min_storage_buffer_offset_alignment
+    pub pong: u32,
 }
 
 #[repr(C)]
@@ -259,7 +255,7 @@ impl FromWorld for DispatchIndirectPipeline {
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Storage { read_only: false },
                             has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(256), // FIXME - Some(GpuRenderIndirect::min_size()),
+                            min_binding_size: NonZeroU64::new(256), // FIXME - Some(GpuRenderIndirect::min_size()), with proper alignment for storage offset
                         },
                         count: None,
                     },
@@ -269,7 +265,7 @@ impl FromWorld for DispatchIndirectPipeline {
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Storage { read_only: false },
                             has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(256), // FIXME - Some(GpuDispatchIndirect::min_size()),
+                            min_binding_size: NonZeroU64::new(256), // FIXME - Some(GpuDispatchIndirect::min_size()), with proper alignment for storage offset
                         },
                         count: None,
                     },
@@ -669,6 +665,16 @@ impl FromWorld for ParticlesRenderPipeline {
                             ty: BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
                             min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: ShaderStages::VERTEX,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: true,
+                            min_binding_size: Some(GpuDispatchIndirect::min_size()),
                         },
                         count: None,
                     },
@@ -1963,6 +1969,9 @@ pub(crate) fn queue_effects(
             layout: &read_params.update_pipeline.render_indirect_layout,
         }));
 
+    // Make a copy of the buffer ID before borrowing effects_meta mutably in the loop below
+    let indirect_buffer = effects_meta.dispatch_indirect_buffer.buffer().unwrap().clone();
+
     // Create the per-effect bind groups
     trace!("Create per-effect bind groups...");
     for (buffer_index, buffer) in effects_meta
@@ -2058,6 +2067,14 @@ pub(crate) fn queue_effects(
                         BindGroupEntry {
                             binding: 1,
                             resource: buffer.indirect_max_binding(),
+                        },
+                        BindGroupEntry {
+                            binding: 2,
+                            resource: BindingResource::Buffer(BufferBinding {
+                                buffer: &indirect_buffer,
+                                offset: 0,
+                                size: None, //NonZeroU64::new(256), // Some(GpuDispatchIndirect::min_size()),
+                            }),
                         },
                     ],
                     label: Some(&format!(
@@ -2347,7 +2364,7 @@ impl Draw<Transparent2d> for DrawEffects {
                     .render_particle_buffers
                     .get(&effect_batch.buffer_index)
                     .unwrap(),
-                &[],
+                &[effect_batch.buffer_index * 256],// FIXME - Some(GpuDispatchIndirect::min_size()), with proper alignment for storage offset
             );
 
             // Particle texture
@@ -2425,7 +2442,7 @@ impl Draw<Transparent3d> for DrawEffects {
                     .render_particle_buffers
                     .get(&effect_batch.buffer_index)
                     .unwrap(),
-                &[],
+                &[effect_batch.buffer_index * 256],// FIXME - Some(GpuDispatchIndirect::min_size()), with proper alignment for storage offset
             );
 
             // Particle texture

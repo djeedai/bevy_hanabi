@@ -154,8 +154,7 @@ impl EffectBuffer {
             mapped_at_creation: false,
         });
 
-        let index_capacity_bytes: BufferAddress =
-            capacity as u64 * std::mem::size_of::<u32>() as u64;
+        let capacity_bytes: BufferAddress = capacity as u64 * 4;
 
         let indirect_label = if let Some(label) = label {
             format!("{}_indirect", label)
@@ -164,7 +163,7 @@ impl EffectBuffer {
         };
         let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
-            size: index_capacity_bytes * 3, // ping-pong + deadlist
+            size: capacity_bytes * 3, // ping-pong + deadlist
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
             mapped_at_creation: true,
         });
@@ -173,7 +172,7 @@ impl EffectBuffer {
             // Scope get_mapped_range_mut() to force a drop before unmap()
             {
                 let slice = &mut indirect_buffer.slice(..).get_mapped_range_mut()
-                    [..index_capacity_bytes as usize * 3];
+                    [..capacity_bytes as usize * 3];
                 let slice: &mut [u32] = cast_slice_mut(slice);
                 for index in 0..capacity {
                     slice[3 * index as usize + 2] = capacity - 1 - index;

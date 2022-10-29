@@ -24,7 +24,6 @@ use crate::{
         DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems,
         EffectsMeta, ExtractedEffects, ParticleUpdateNode, ParticlesInitPipeline,
         ParticlesRenderPipeline, ParticlesUpdatePipeline, PipelineRegistry, SimParams,
-        VFX_INDIRECT_SHADER_HANDLE,
     },
     spawn::{self, Random},
     tick_spawners, ParticleEffect, RemovedEffectsEvent, Spawner,
@@ -75,13 +74,6 @@ impl Plugin for HanabiPlugin {
                 CoreStage::PostUpdate,
                 gather_removed_effects.label(EffectSystems::GatherRemovedEffects),
             );
-
-        // Register the built-in shaders
-        // FIXME - Unused, we create the pipeline directly with include_str!() in
-        // render/mod.rs
-        let mut shaders = app.world.get_resource_mut::<Assets<Shader>>().unwrap();
-        let indirect_shader = Shader::from_wgsl(include_str!("render/vfx_indirect.wgsl"));
-        shaders.set_untracked(VFX_INDIRECT_SHADER_HANDLE, indirect_shader);
 
         // Register the component reflection
         app.register_type::<EffectAsset>();
