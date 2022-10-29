@@ -124,7 +124,11 @@ pub enum BufferState {
 
 impl EffectBuffer {
     /// Minimum buffer capacity to allocate, in number of particles.
-    pub const MIN_CAPACITY: u32 = 65536; // at least 64k particles
+    // FIXME - Batching is broken due to binding a single GpuSpawnerParam instead of N,
+    // and inability for a particle index to tell which Spawner it should use. Setting
+    // this to 1 effectively ensures that all new buffers just fit the effect, so batching
+    // never occurs.
+    pub const MIN_CAPACITY: u32 = 1; //65536; // at least 64k particles
 
     /// Create a new group and a GPU buffer to back it up.
     ///
@@ -549,7 +553,7 @@ mod gpu_tests {
             Some("my_buffer"),
         );
 
-        assert_eq!(EffectBuffer::MIN_CAPACITY, buffer.capacity);
+        assert_eq!(buffer.capacity, capacity.max(EffectBuffer::MIN_CAPACITY));
         assert_eq!(64, buffer.item_size);
         assert_eq!(0, buffer.used_size);
         assert!(buffer.free_slices.is_empty());
@@ -603,7 +607,7 @@ mod gpu_tests {
         //let render_queue = renderer.queue();
 
         let asset = Handle::weak(HandleId::random::<EffectAsset>());
-        let capacity = EffectBuffer::MIN_CAPACITY;
+        let capacity = 2048; //EffectBuffer::MIN_CAPACITY;
         assert!(capacity >= 2048); // otherwise the logic below breaks
         let item_size = 64;
         let mut buffer = EffectBuffer::new(

@@ -85,6 +85,10 @@ required-features = [ "bevy/bevy_winit", "bevy/bevy_sprite", "2d" ]
 name = "lifetime"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
+[[example]]
+name = "instancing"
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+
 [workspace]
 resolver = "2"
 members = ["."]

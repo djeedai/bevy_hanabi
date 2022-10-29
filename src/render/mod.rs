@@ -1903,6 +1903,7 @@ pub(crate) fn queue_effects(
             resource: BindingResource::Buffer(BufferBinding {
                 buffer: effects_meta.spawner_buffer.buffer().unwrap(),
                 offset: 0,
+                // TODO - should bind N consecutive structs for batching
                 size: Some(GpuSpawnerParams::min_size()),
             }),
         }],
@@ -1970,7 +1971,11 @@ pub(crate) fn queue_effects(
         }));
 
     // Make a copy of the buffer ID before borrowing effects_meta mutably in the loop below
-    let indirect_buffer = effects_meta.dispatch_indirect_buffer.buffer().unwrap().clone();
+    let indirect_buffer = effects_meta
+        .dispatch_indirect_buffer
+        .buffer()
+        .unwrap()
+        .clone();
 
     // Create the per-effect bind groups
     trace!("Create per-effect bind groups...");
@@ -2364,7 +2369,7 @@ impl Draw<Transparent2d> for DrawEffects {
                     .render_particle_buffers
                     .get(&effect_batch.buffer_index)
                     .unwrap(),
-                &[effect_batch.buffer_index * 256],// FIXME - Some(GpuDispatchIndirect::min_size()), with proper alignment for storage offset
+                &[effect_batch.buffer_index * 256], // FIXME - Some(GpuDispatchIndirect::min_size()), with proper alignment for storage offset
             );
 
             // Particle texture
@@ -2442,7 +2447,7 @@ impl Draw<Transparent3d> for DrawEffects {
                     .render_particle_buffers
                     .get(&effect_batch.buffer_index)
                     .unwrap(),
-                &[effect_batch.buffer_index * 256],// FIXME - Some(GpuDispatchIndirect::min_size()), with proper alignment for storage offset
+                &[effect_batch.buffer_index * 256], // FIXME - Some(GpuDispatchIndirect::min_size()), with proper alignment for storage offset
             );
 
             // Particle texture
@@ -2594,18 +2599,20 @@ impl Node for ParticleUpdateNode {
                         assert!(
                             spawner_buffer_aligned >= GpuSpawnerParams::min_size().get() as usize
                         );
+                        let spawner_offset = spawner_base * spawner_buffer_aligned as u32;
 
                         let render_indirect_offset = batch.buffer_index
                             * effects_meta.render_dispatch_buffer.aligned_size() as u32;
 
                         trace!(
-                            "record commands for init pipeline of effect {:?} ({} items / {}B/item) (spawn {} = {} workgroups) spawner_base={} buffer_offset={} render_indirect_offset={}...",
+                            "record commands for init pipeline of effect {:?} ({} items / {}B/item) (spawn {} = {} workgroups) spawner_base={} spawner_offset={} buffer_offset={} render_indirect_offset={}...",
                             batch.handle,
                             item_count,
                             item_size,
                             spawn_count,
                             workgroup_count,
                             spawner_base,
+                            spawner_offset,
                             buffer_offset,
                             render_indirect_offset,
                         );
@@ -2627,7 +2634,7 @@ impl Node for ParticleUpdateNode {
                         compute_pass.set_bind_group(
                             2,
                             effects_meta.spawner_bind_group.as_ref().unwrap(),
-                            &[spawner_base * spawner_buffer_aligned as u32],
+                            &[spawner_offset],
                         );
                         compute_pass.set_bind_group(
                             3,
