@@ -9,3 +9,4 @@ cargo r --example activate --no-default-features --features="bevy/bevy_winit bev
 cargo r --example force_field --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 cargo r --example 2d --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite 2d"
 cargo r --example lifetime --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
+cargo r --example instancing --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
