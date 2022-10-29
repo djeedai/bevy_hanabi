@@ -18,7 +18,7 @@ pub(crate) fn new_rng() -> Pcg32 {
 pub struct Random(pub Pcg32);
 
 /// A constant or random value.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Value<T: Copy> {
     /// Single constant value.
     Single(T),
@@ -68,7 +68,9 @@ impl<T: Copy> From<T> for Value<T> {
 /// Spawner defining how new particles are created.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Reflect)]
 pub struct Spawner {
-    /// Number of particles to spawn over `spawn_time`
+    /// Number of particles to spawn over [`spawn_time`].
+    ///
+    /// [`spawn_time`]: Spawner::spawn_time
     #[reflect(ignore)] // TODO
     num_particles: Value<f32>,
 
@@ -94,7 +96,7 @@ pub struct Spawner {
     /// Fractional remainder of particle count to spawn.
     spawn: f32,
 
-    /// Whether the system is active
+    /// Whether the system is active.
     active: bool,
 }
 
@@ -107,19 +109,38 @@ impl Default for Spawner {
 impl Spawner {
     /// Create a spawner with a given count, time, and period.
     ///
-    /// - `count` is the number of particles to spawn over `time` in a burst
+    /// - `count` is the number of particles to spawn over `time` in a burst. It
+    ///   can generate negative or zero random values, in which case no particle
+    ///   is spawned during the current frame.
     /// - `time` is how long to spawn particles for. If this is <= 0, then the
-    ///   particles spawn all at once.
+    ///   particles spawn all at once exactly at the same instant.
     /// - `period` is the amount of time between bursts of particles. If this is
-    ///   >= `time`, then the spawner spawns a steady stream of particles. If
-    ///   this is infinity, then there is only 1 burst.
+    ///   <= `time`, then the spawner spawns a steady stream of particles. If
+    ///   this is infinity, then there is a single burst.
     ///
-    /// # Panics:
-    /// Panics if `period` can be a negative number, or can only be 0.
+    /// # Panics
+    ///
+    /// Panics if `period` can be a negative number (the sample range lower
+    /// bound is negative), or can only be 0 (the sample range upper bound is
+    /// not strictly positive).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::Spawner;
+    /// // Spawn 32 particles over 3 seconds, then pause for 7 seconds.
+    /// let spawner = Spawner::new(32.0.into(), 3.0.into(), 10.0.into());
+    /// ```
     pub fn new(count: Value<f32>, time: Value<f32>, period: Value<f32>) -> Self {
         assert!(
-            period.range()[0] >= 0. && period.range()[1] > 0.,
-            "`period` must be able to generate a positive number and no negative numbers"
+            period.range()[0] >= 0.,
+            "`period` must not generate negative numbers (period.min was {}, expected >= 0).",
+            period.range()[0]
+        );
+        assert!(
+            period.range()[1] > 0.,
+            "`period` must be able to generate a positive number (period.max was {}, expected > 0).",
+            period.range()[1]
         );
 
         Spawner {
@@ -134,15 +155,28 @@ impl Spawner {
         }
     }
 
-    /// Sets whether the spawner starts active.
-    pub fn with_active(mut self, active: bool) -> Self {
-        self.active = active;
-        self
-    }
-
     /// Create a spawner that spawns `count` particles, then waits until reset.
-    /// If `spawn_immediately` is false, this waits until reset before
+    ///
+    /// If `spawn_immediately` is `false`, this waits until [`reset()`] before
     /// spawning its first burst of particles.
+    ///
+    /// When `spawn_immediately == true`, this is a convenience for:
+    ///
+    /// ```
+    /// # use bevy_hanabi::{Spawner, Value};
+    /// # let count = Value::Single(1.);
+    /// Spawner::new(count, 0.0.into(), f32::INFINITY.into());
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::Spawner;
+    /// // Spawn 32 particles in a burst once immediately on creation.
+    /// let spawner = Spawner::once(32.0.into(), true);
+    /// ```
+    ///
+    /// [`reset()`]: crate::Spawner::reset
     pub fn once(count: Value<f32>, spawn_immediately: bool) -> Self {
         let mut spawner = Self::new(count, 0.0.into(), f32::INFINITY.into());
         if !spawn_immediately {
@@ -153,31 +187,79 @@ impl Spawner {
 
     /// Create a spawner that spawns particles at `rate`, accumulated each
     /// frame. `rate` is in particles per second.
+    ///
+    /// This is a convenience for:
+    ///
+    /// ```
+    /// # use bevy_hanabi::{Spawner, Value};
+    /// # let rate = Value::Single(1.);
+    /// Spawner::new(rate, 1.0.into(), 1.0.into());
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::Spawner;
+    /// // Spawn 10 particles per second, indefinitely.
+    /// let spawner = Spawner::rate(10.0.into());
+    /// ```
     pub fn rate(rate: Value<f32>) -> Self {
         Self::new(rate, 1.0.into(), 1.0.into())
     }
 
     /// Create a spawner that spawns `count` particles, waits `period` seconds,
     /// and repeats forever.
+    ///
+    /// This is a convenience for:
+    ///
+    /// ```
+    /// # use bevy_hanabi::{Spawner, Value};
+    /// # let count = Value::Single(1.);
+    /// # let period = Value::Single(1.);
+    /// Spawner::new(count, 0.0.into(), period);
+    /// ```
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::Spawner;
+    /// // Spawn a burst of 5 particles every 3 seconds, indefinitely.
+    /// let spawner = Spawner::burst(5.0.into(), 3.0.into());
+    /// ```
     pub fn burst(count: Value<f32>, period: Value<f32>) -> Self {
         Self::new(count, 0.0.into(), period)
     }
 
-    /// Resets the spawner.
+    /// Reset the spawner.
+    ///
     /// Use this, for example, to immediately spawn some particles
-    /// in a spawner constructed with `Spawner::once`.
+    /// in a spawner constructed with [`Spawner::once`].
+    ///
+    /// [`Spawner::once`]: crate::Spawner::once
     pub fn reset(&mut self) {
         self.time = 0.;
         self.limit = 0.;
         self.spawn = 0.;
     }
 
-    /// Sets whether the spawner is active.
+    /// Sets whether the spawner starts active.
+    ///
+    /// Inactive spawners do not spawn any particle.
+    pub fn with_active(mut self, active: bool) -> Self {
+        self.active = active;
+        self
+    }
+
+    /// Set whether the spawner is active.
+    ///
+    /// Inactive spawners do not spawn any particle.
     pub fn set_active(&mut self, active: bool) {
         self.active = active;
     }
 
-    /// Gets whether the spawner is active.
+    /// Get whether the spawner is active.
+    ///
+    /// Inactive spawners do not spawn any particle.
     pub fn is_active(&self) -> bool {
         self.active
     }
@@ -249,6 +331,31 @@ mod test {
     fn test_range_uniform_reverse() {
         let value = Value::Uniform((3.0, 1.0));
         assert_eq!(value.range(), [1.0, 3.0]);
+    }
+
+    #[test]
+    fn test_new() {
+        let rng = &mut new_rng();
+        // 3 particles over 3 seconds, pause 7 seconds (total 10 seconds period).
+        let mut spawner = Spawner::new(3.0.into(), 3.0.into(), 10.0.into());
+        let count = spawner.tick(2.0, rng); // t = 2s
+        assert_eq!(count, 2);
+        let count = spawner.tick(5.0, rng); // t = 7s
+        assert_eq!(count, 1);
+        let count = spawner.tick(8.0, rng); // t = 15s
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_new_panic_negative_period() {
+        let _ = Spawner::new(3.0.into(), 1.0.into(), Value::Uniform((-1., 1.)));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_new_panic_zero_period() {
+        let _ = Spawner::new(3.0.into(), 1.0.into(), Value::Uniform((0., 0.)));
     }
 
     #[test]
@@ -327,5 +434,21 @@ mod test {
         assert_eq!(count, 10);
         let count = spawner.tick(0.1, rng);
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_with_active() {
+        let rng = &mut new_rng();
+        let mut spawner = Spawner::rate(5.0.into()).with_active(false);
+        assert!(!spawner.is_active());
+        let count = spawner.tick(1., rng);
+        assert_eq!(count, 0);
+        spawner.set_active(false); // no-op
+        let count = spawner.tick(1., rng);
+        assert_eq!(count, 0);
+        spawner.set_active(true);
+        assert!(spawner.is_active());
+        let count = spawner.tick(1., rng);
+        assert_eq!(count, 5);
     }
 }

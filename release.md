@@ -11,7 +11,7 @@
 - `cargo clippy --workspace --all-targets --no-default-features --features="2d" -- -D warnings`
 - `cargo clippy --workspace --all-targets --no-default-features --features="3d" -- -D warnings`
 - `cargo test`
-- `cargo test --no-default-features --features="2d"`
-- `cargo test --no-default-features --features="3d"`
+- `cargo test --no-default-features --features="2d gpu_tests"`
+- `cargo test --no-default-features --features="3d gpu_tests"`
 - `cargo +nightly doc --no-deps --all-features` (for `docs.rs`)
 - `cargo +nightly build --all-features` (for `docs.rs`)

@@ -3,7 +3,16 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.1] 2022-10-28
+
+### Fixed
+
+- Respect user-defined MSAA setting by reading the value of `Msaa::samples` when building the render pipeline. (#59)
+- Fixed a bug in the effect cache causing a panic sometimes when effects are removed. (#60)
+- Fixed a bug where an effect instance would be allocated overwriting another existing instance.
+- Fixed a bug in the calculation of some GPU buffer binding causing a panic under some combination of effect capacity and spawn count. (#68)
+
+## [0.4.0] 2022-10-11
 
 ### Added
 

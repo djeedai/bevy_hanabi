@@ -108,21 +108,12 @@ pub struct EffectBuffer {
     /// Array of free slices for new allocations, sorted in increasing order in
     /// the buffer.
     free_slices: Vec<Range<u32>>,
-    /// Map of entities and associated allocated slices. The index references
-    /// [`EffectBuffer::slices`].
-    slice_from_entity: HashMap<Entity, usize>,
     /// Compute pipeline for the effect update pass.
     //pub compute_pipeline: ComputePipeline, // FIXME - ComputePipelineId, to avoid duplicating per
     // instance!
     /// Handle of all effects common in this buffer. TODO - replace with
     /// compatible layout.
     asset: Handle<EffectAsset>,
-}
-
-struct BestRange {
-    range: Range<u32>,
-    capacity: u32,
-    index: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,6 +127,11 @@ impl EffectBuffer {
     pub const MIN_CAPACITY: u32 = 256; //65536; // at least 64k particles
 
     /// Create a new group and a GPU buffer to back it up.
+    ///
+    /// The buffer cannot contain less than [`MIN_CAPACITY`] particles. If
+    /// `capacity` is smaller, it's rounded up to [`MIN_CAPACITY`].
+    ///
+    /// [`MIN_CAPACITY`]: EffectBuffer::MIN_CAPACITY
     pub fn new(
         asset: Handle<EffectAsset>,
         capacity: u32,
@@ -192,7 +188,6 @@ impl EffectBuffer {
             capacity,
             used_size: 0,
             free_slices: vec![],
-            slice_from_entity: HashMap::default(),
             //compute_pipeline,
             asset,
         }
@@ -210,6 +205,16 @@ impl EffectBuffer {
         self.capacity
     }
 
+    /// Return a binding for the entire particle buffer.
+    pub fn max_binding(&self) -> BindingResource {
+        let capacity_bytes = self.capacity as u64 * self.item_size as u64;
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.particle_buffer,
+            offset: 0,
+            size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
+        })
+    }
+
     /// Return a binding of the buffer for a starting range of a given size (in
     /// bytes).
     pub fn binding(&self, size: u32) -> BindingResource {
@@ -220,20 +225,10 @@ impl EffectBuffer {
         })
     }
 
-    /// Return a binding for the entire buffer.
-    pub fn max_binding(&self) -> BindingResource {
-        let capacity_bytes = self.to_byte_size(self.capacity);
-        BindingResource::Buffer(BufferBinding {
-            buffer: &self.particle_buffer,
-            offset: 0,
-            size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
-        })
-    }
-
     /// Return a binding for the entire indirect buffer associated with the
     /// current effect buffer.
     pub fn indirect_max_binding(&self) -> BindingResource {
-        let capacity_bytes = std::mem::size_of::<u32>() as u64 * self.capacity as u64;
+        let capacity_bytes = self.capacity as u64 * 4;
         BindingResource::Buffer(BufferBinding {
             buffer: &self.indirect_buffer,
             offset: 0,
@@ -241,22 +236,24 @@ impl EffectBuffer {
         })
     }
 
-    #[inline]
-    fn to_byte_size(&self, count: u32) -> u64 {
-        count as u64 * self.item_size as u64
-    }
-
+    /// Try to recycle a free slice to store `size` items.
     fn pop_free_slice(&mut self, size: u32) -> Option<Range<u32>> {
         if self.free_slices.is_empty() {
             return None;
         }
-        let slice0 = &self.free_slices[0];
+
+        struct BestRange {
+            range: Range<u32>,
+            capacity: u32,
+            index: usize,
+        }
+
         let mut result = BestRange {
-            range: slice0.clone(),
-            capacity: (slice0.end - slice0.start),
-            index: 0,
+            range: 0..0, // marker for "invalid"
+            capacity: u32::MAX,
+            index: usize::MAX,
         };
-        for (index, slice) in self.free_slices.iter().skip(1).enumerate() {
+        for (index, slice) in self.free_slices.iter().enumerate() {
             let capacity = slice.end - slice.start;
             if size > capacity {
                 continue;
@@ -269,8 +266,23 @@ impl EffectBuffer {
                 };
             }
         }
-        self.free_slices.remove(result.index);
-        Some(result.range)
+        if !result.range.is_empty() {
+            if result.capacity > size {
+                // split
+                let start = result.range.start;
+                let used_end = start + size;
+                let free_end = result.range.end;
+                let range = start..used_end;
+                self.free_slices[result.index] = used_end..free_end;
+                Some(range)
+            } else {
+                // recycle entirely
+                self.free_slices.remove(result.index);
+                Some(result.range)
+            }
+        } else {
+            None
+        }
     }
 
     /// Allocate a new slice in the buffer to store the particles of a single
@@ -372,6 +384,11 @@ impl EffectCacheId {
         static NEXT_EFFECT_CACHE_ID: AtomicU64 = AtomicU64::new(0);
         EffectCacheId(NEXT_EFFECT_CACHE_ID.fetch_add(1, AtomicOrdering::Relaxed))
     }
+
+    /// Check if the ID is valid.
+    pub fn is_valid(&self) -> bool {
+        *self != Self::INVALID
+    }
 }
 
 /// Cache for effect instances sharing common GPU data structures.
@@ -456,7 +473,12 @@ impl EffectCache {
                     Some(&format!("hanabi:effect_buffer{}", buffer_index)),
                 );
                 let slice_ref = buffer.allocate_slice(capacity, item_size).unwrap();
-                self.buffers.insert(buffer_index, Some(buffer));
+                if buffer_index >= self.buffers.len() {
+                    self.buffers.push(Some(buffer));
+                } else {
+                    assert!(self.buffers[buffer_index].is_none());
+                    self.buffers[buffer_index] = Some(buffer);
+                }
                 // Newly-allocated buffers are not cleared to zero, and currently we eagerly render the entire buffer
                 // since we don't have an indirection buffer to tell us how many particles are alive. So clear the buffer
                 // to zero to mark all particles as invalid and prevent rendering them.
@@ -531,7 +553,6 @@ mod gpu_tests {
         assert_eq!(64, buffer.item_size);
         assert_eq!(0, buffer.used_size);
         assert!(buffer.free_slices.is_empty());
-        assert!(buffer.slice_from_entity.is_empty());
 
         assert_eq!(None, buffer.allocate_slice(buffer.capacity + 1, 64));
 
@@ -573,5 +594,118 @@ mod gpu_tests {
         assert_eq!(BufferState::Free, buffer.free_slice(slices[1].clone()));
         assert_eq!(0, buffer.free_slices.len());
         assert_eq!(0, buffer.used_size); // collapsed and empty
+    }
+
+    #[test]
+    fn pop_free_slice() {
+        let renderer = MockRenderer::new();
+        let render_device = renderer.device();
+        //let render_queue = renderer.queue();
+
+        let asset = Handle::weak(HandleId::random::<EffectAsset>());
+        let capacity = EffectBuffer::MIN_CAPACITY;
+        assert!(capacity >= 2048); // otherwise the logic below breaks
+        let item_size = 64;
+        let mut buffer = EffectBuffer::new(
+            asset,
+            capacity,
+            item_size,
+            &render_device,
+            Some("my_buffer"),
+        );
+
+        let slice0 = buffer.allocate_slice(32, item_size);
+        assert!(slice0.is_some());
+        let slice0 = slice0.unwrap();
+        assert_eq!(slice0.range, 0..32);
+        assert!(buffer.free_slices.is_empty());
+
+        let slice1 = buffer.allocate_slice(1024, item_size);
+        assert!(slice1.is_some());
+        let slice1 = slice1.unwrap();
+        assert_eq!(slice1.range, 32..1056);
+        assert!(buffer.free_slices.is_empty());
+
+        let state = buffer.free_slice(slice0);
+        assert_eq!(state, BufferState::Used);
+        assert_eq!(buffer.free_slices.len(), 1);
+        assert_eq!(buffer.free_slices[0], 0..32);
+
+        // Try to allocate a slice larger than slice0, such that slice0 cannot be
+        // recycled, and instead the new slice has to be appended after all
+        // existing ones.
+        let slice2 = buffer.allocate_slice(64, item_size);
+        assert!(slice2.is_some());
+        let slice2 = slice2.unwrap();
+        assert_eq!(slice2.range.start, slice1.range.end); // after slice1
+        assert_eq!(slice2.range, 1056..1120);
+        assert_eq!(buffer.free_slices.len(), 1);
+
+        // Now allocate a small slice that fits, to recycle (part of) slice0.
+        let slice3 = buffer.allocate_slice(16, item_size);
+        assert!(slice3.is_some());
+        let slice3 = slice3.unwrap();
+        assert_eq!(slice3.range, 0..16);
+        assert_eq!(buffer.free_slices.len(), 1); // split
+        assert_eq!(buffer.free_slices[0], 16..32);
+
+        // Allocate a second small slice that fits exactly the left space, completely
+        // recycling
+        let slice4 = buffer.allocate_slice(16, item_size);
+        assert!(slice4.is_some());
+        let slice4 = slice4.unwrap();
+        assert_eq!(slice4.range, 16..32);
+        assert!(buffer.free_slices.is_empty()); // recycled
+    }
+
+    #[test]
+    fn effect_cache() {
+        let renderer = MockRenderer::new();
+        let render_device = renderer.device();
+        let render_queue = renderer.queue();
+
+        let mut effect_cache = EffectCache::new(render_device);
+        assert_eq!(effect_cache.buffers().len(), 0);
+
+        let asset = Handle::weak(HandleId::random::<EffectAsset>());
+        let capacity = EffectBuffer::MIN_CAPACITY;
+        let item_size = 32;
+
+        let id1 = effect_cache.insert(asset.clone(), capacity, item_size, &render_queue);
+        assert!(id1.is_valid());
+        let slice1 = effect_cache.get_slice(id1);
+        assert_eq!(slice1.item_size, item_size);
+        assert_eq!(slice1.slice, 0..capacity);
+        assert_eq!(effect_cache.buffers().len(), 1);
+
+        let id2 = effect_cache.insert(asset.clone(), capacity, item_size, &render_queue);
+        assert!(id2.is_valid());
+        let slice2 = effect_cache.get_slice(id2);
+        assert_eq!(slice2.item_size, item_size);
+        assert_eq!(slice2.slice, 0..capacity);
+        assert_eq!(effect_cache.buffers().len(), 2);
+
+        let buffer_index = effect_cache.remove(id1);
+        assert!(buffer_index.is_some());
+        assert_eq!(buffer_index.unwrap(), 0);
+        assert_eq!(effect_cache.buffers().len(), 2);
+        {
+            let buffers = effect_cache.buffers();
+            assert!(buffers[0].is_none());
+            assert!(buffers[1].is_some()); // id2
+        }
+
+        // Regression #60
+        let id3 = effect_cache.insert(asset, capacity, item_size, &render_queue);
+        assert!(id3.is_valid());
+        let slice3 = effect_cache.get_slice(id3);
+        assert_eq!(slice3.item_size, item_size);
+        assert_eq!(slice3.slice, 0..capacity);
+        assert_eq!(effect_cache.buffers().len(), 2);
+        {
+            let buffers = effect_cache.buffers();
+            assert!(buffers[0].is_some()); // id3
+            assert!(buffers[1].is_some()); // id2
+        }
     }
 }
