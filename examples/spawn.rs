@@ -2,7 +2,6 @@ use bevy::{
     prelude::*,
     render::{
         mesh::shape::Cube,
-        render_resource::WgpuFeatures,
         settings::{WgpuLimits, WgpuSettings},
     },
 };
@@ -11,26 +10,15 @@ use bevy_inspector_egui::WorldInspectorPlugin;
 use bevy_hanabi::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = WgpuSettings::default();
-    options
-        .features
-        .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
-
     // Optional; test that a stronger constraint is handled correctly.
-    // On macOS the alignment is commonly 256 bytes, whereas on Desktop GPUs
-    // it can be much smaller, like 16 bytes only. Force 256 bytes here for
-    // the sake of exercising a bit that codepath, and as an example of how
-    // to force a particular limit.
-    let limits = WgpuLimits {
-        min_storage_buffer_offset_alignment: 256,
-        ..Default::default()
-    };
+    // For example, on macOS the alignment for storage buffer offsets is commonly
+    // 256 bytes, whereas on Desktop GPUs it can be much smaller, like 16 bytes
+    // only. Force the downlevel limits here, and as an example of how
+    // to force a particular limit, and to show Hanabi works with those settings.
+    let mut options = WgpuSettings::default();
+    let limits = WgpuLimits::downlevel_defaults();
     options.constrained_limits = Some(limits);
 
-    // options
-    //     .features
-    //     .set(WgpuFeatures::MAPPABLE_PRIMARY_BUFFERS, false);
-    // println!("wgpu options: {:?}", options.features);
     App::default()
         .insert_resource(options)
         .insert_resource(bevy::log::LogSettings {
@@ -161,6 +149,8 @@ fn setup(
                 .insert(Name::new("source"));
         });
 
+    // Note: same as gradient2, will yield shared render shader between effects #2
+    // and #3
     let mut gradient3 = Gradient::new();
     gradient3.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
     gradient3.add_key(1.0, Vec4::splat(0.0));

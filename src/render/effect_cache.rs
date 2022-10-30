@@ -31,7 +31,11 @@ use std::{
     sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
 };
 
-use crate::{asset::EffectAsset, render::Particle, ParticleEffect};
+use crate::{
+    asset::EffectAsset,
+    render::{GpuDispatchIndirect, GpuRenderIndirect},
+    ParticleEffect,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSlice {
@@ -89,7 +93,10 @@ pub struct EffectBuffer {
     /// GPU buffer holding all particles for the entire group of effects.
     particle_buffer: Buffer,
     /// GPU buffer holding the indirection indices for the entire group of
-    /// effects.
+    /// effects. This is a triple buffer containing:
+    /// - the ping-pong alive particles and render indirect indices at offsets 0
+    ///   and 1
+    /// - the dead particle indices at offset 2
     indirect_buffer: Buffer,
     /// Size of each particle, in bytes.
     item_size: u32,
@@ -117,10 +124,10 @@ pub enum BufferState {
 
 impl EffectBuffer {
     /// Minimum buffer capacity to allocate, in number of particles.
-    // FIXME - Batching is broken due to binding a single GpuSpawnerParam instead of N,
-    // and inability for a particle index to tell which Spawner it should use. Setting
-    // this to 1 effectively ensures that all new buffers just fit the effect, so batching
-    // never occurs.
+    // FIXME - Batching is broken due to binding a single GpuSpawnerParam instead of
+    // N, and inability for a particle index to tell which Spawner it should
+    // use. Setting this to 1 effectively ensures that all new buffers just fit
+    // the effect, so batching never occurs.
     pub const MIN_CAPACITY: u32 = 1; //65536; // at least 64k particles
 
     /// Create a new group and a GPU buffer to back it up.
@@ -150,18 +157,34 @@ impl EffectBuffer {
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
+
+        let capacity_bytes: BufferAddress = capacity as u64 * 4;
+
         let indirect_label = if let Some(label) = label {
             format!("{}_indirect", label)
         } else {
             "hanabi:effect_buffer_indirect".to_owned()
         };
-        let indirect_capacity_bytes: BufferAddress = capacity as u64 * 4;
         let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
-            size: indirect_capacity_bytes,
+            size: capacity_bytes * 3, // ping-pong + deadlist
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
-            mapped_at_creation: false,
+            mapped_at_creation: true,
         });
+        // Set content
+        {
+            // Scope get_mapped_range_mut() to force a drop before unmap()
+            {
+                let slice = &mut indirect_buffer.slice(..).get_mapped_range_mut()
+                    [..capacity_bytes as usize * 3];
+                let slice: &mut [u32] = cast_slice_mut(slice);
+                for index in 0..capacity {
+                    slice[3 * index as usize + 2] = capacity - 1 - index;
+                }
+            }
+            indirect_buffer.unmap();
+        }
+
         EffectBuffer {
             particle_buffer,
             indirect_buffer,
@@ -213,7 +236,7 @@ impl EffectBuffer {
         BindingResource::Buffer(BufferBinding {
             buffer: &self.indirect_buffer,
             offset: 0,
-            size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
+            size: Some(NonZeroU64::new(capacity_bytes * 3).unwrap()),
         })
     }
 
@@ -354,7 +377,7 @@ impl EffectBuffer {
 
 /// Identifier referencing an effect cached in an internal effect cache.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct EffectCacheId(u64);
+pub(crate) struct EffectCacheId(/* TEMP */ pub(crate) u64);
 
 impl EffectCacheId {
     /// An invalid handle, corresponding to nothing.

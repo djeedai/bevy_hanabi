@@ -7,7 +7,9 @@ use bevy::{
     render::{
         render_graph::RenderGraph,
         render_phase::DrawFunctions,
-        render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
+        render_resource::{
+            SpecializedComputePipelines, SpecializedRenderPipelines, WgpuAdapterInfo,
+        },
         renderer::RenderDevice,
         view::visibility::VisibilitySystems,
         RenderApp, RenderStage,
@@ -18,10 +20,10 @@ use crate::{
     asset::{EffectAsset, EffectAssetLoader},
     gather_removed_effects,
     render::{
-        extract_effect_events, extract_effects, prepare_effects, queue_effects, DrawEffects,
-        EffectAssetEvents, EffectBindGroups, EffectSystems, EffectsMeta, ExtractedEffects,
-        ParticleUpdateNode, ParticlesRenderPipeline, ParticlesUpdatePipeline, PipelineRegistry,
-        SimParams, PARTICLES_RENDER_SHADER_HANDLE, PARTICLES_UPDATE_SHADER_HANDLE,
+        extract_effect_events, extract_effects, prepare_effects, queue_effects,
+        DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems,
+        EffectsMeta, ExtractedEffects, ParticleUpdateNode, ParticlesInitPipeline,
+        ParticlesRenderPipeline, ParticlesUpdatePipeline, PipelineRegistry, SimParams,
     },
     spawn::{self, Random},
     tick_spawners, ParticleEffect, RemovedEffectsEvent, Spawner,
@@ -40,6 +42,20 @@ pub struct HanabiPlugin;
 
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
+        let render_device = app.world.get_resource::<RenderDevice>().unwrap().clone();
+
+        // Check device limits
+        let limits = render_device.limits();
+        if limits.max_bind_groups < 4 {
+            let adapter_name = app
+                .world
+                .get_resource::<WgpuAdapterInfo>()
+                .map(|ai| &ai.name[..])
+                .unwrap_or("<unknown>");
+            error!("Hanabi requires a GPU device supporting at least 4 bind groups (Limits::max_bind_groups).\n  Current adapter: {}\n  Supported bind groups: {}", adapter_name, limits.max_bind_groups);
+            return;
+        }
+
         // Register asset
         app.add_asset::<EffectAsset>()
             .add_event::<RemovedEffectsEvent>()
@@ -59,19 +75,11 @@ impl Plugin for HanabiPlugin {
                 gather_removed_effects.label(EffectSystems::GatherRemovedEffects),
             );
 
-        // Register the particles shaders
-        let mut shaders = app.world.get_resource_mut::<Assets<Shader>>().unwrap();
-        let update_shader = Shader::from_wgsl(include_str!("render/particles_update.wgsl"));
-        shaders.set_untracked(PARTICLES_UPDATE_SHADER_HANDLE, update_shader);
-        let render_shader = Shader::from_wgsl(include_str!("render/particles_render.wgsl"));
-        shaders.set_untracked(PARTICLES_RENDER_SHADER_HANDLE, render_shader);
-
         // Register the component reflection
         app.register_type::<EffectAsset>();
         app.register_type::<ParticleEffect>();
         app.register_type::<Spawner>();
 
-        let render_device = app.world.get_resource::<RenderDevice>().unwrap();
         let effects_meta = EffectsMeta::new(render_device.clone());
 
         // Register the custom render pipeline
@@ -79,6 +87,9 @@ impl Plugin for HanabiPlugin {
         render_app
             .insert_resource(effects_meta)
             .init_resource::<EffectBindGroups>()
+            .init_resource::<DispatchIndirectPipeline>()
+            .init_resource::<ParticlesInitPipeline>()
+            .init_resource::<SpecializedComputePipelines<ParticlesInitPipeline>>()
             .init_resource::<ParticlesUpdatePipeline>()
             .init_resource::<SpecializedComputePipelines<ParticlesUpdatePipeline>>()
             .init_resource::<ParticlesRenderPipeline>()

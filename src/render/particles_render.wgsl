@@ -21,6 +21,17 @@ struct ParticlesBuffer {
     particles: array<Particle>,
 };
 
+struct IndirectBuffer {
+    indices: array<u32>,
+};
+
+struct DispatchIndirect {
+    x: u32,
+    y: u32,
+    z: u32,
+    pong: u32,
+};
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
@@ -31,6 +42,8 @@ struct VertexOutput {
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(1) @binding(0) var<storage, read> particle_buffer : ParticlesBuffer;
+@group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
+@group(1) @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
 #ifdef PARTICLE_TEXTURE
 @group(2) @binding(0) var particle_texture: texture_2d<f32>;
 @group(2) @binding(1) var particle_sampler: sampler;
@@ -66,7 +79,9 @@ fn vertex(
     // @location(1) vertex_color: u32,
     // @location(1) vertex_velocity: vec3<f32>,
 ) -> VertexOutput {
-    var particle = particle_buffer.particles[instance_index];
+    let pong = dispatch_indirect.pong;
+    let index = indirect_buffer.indices[3u * instance_index + pong];
+    var particle = particle_buffer.particles[index];
     var out: VertexOutput;
 #ifdef PARTICLE_TEXTURE
     out.uv = vertex_uv;
