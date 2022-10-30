@@ -31,7 +31,12 @@ use bitflags::bitflags;
 use bytemuck::cast_slice_mut;
 use rand::random;
 use rand::Rng;
-use std::{borrow::Cow, cmp::Ordering, num::NonZeroU64, ops::Range};
+use std::{
+    borrow::Cow,
+    cmp::Ordering,
+    num::{NonZeroU32, NonZeroU64},
+    ops::Range,
+};
 use std::{
     marker::PhantomData,
     sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
@@ -1194,6 +1199,8 @@ pub(crate) struct EffectsMeta {
     vertices: BufferVec<GpuParticleVertex>,
     ///
     indirect_dispatch_pipeline: Option<ComputePipeline>,
+    /// Size of [`GpuDispatchIndirect`] aligned to the contraint of [`WgpuLimits::min_storage_buffer_offset_alignment`].
+    gpu_dispatch_indirect_aligned_size: Option<NonZeroU32>,
 }
 
 impl EffectsMeta {
@@ -1244,6 +1251,7 @@ impl EffectsMeta {
             ),
             vertices,
             indirect_dispatch_pipeline: None,
+            gpu_dispatch_indirect_aligned_size: None,
         }
     }
 }
@@ -1330,43 +1338,10 @@ pub(crate) fn prepare_effects(
 ) {
     trace!("prepare_effects");
 
-    // Allocate simulation uniform if needed
-    //if effects_meta.sim_params_uniforms.is_empty() {
-    effects_meta
-        .sim_params_uniforms
-        .set(SimParamsUniform::default());
-    //}
-
-    // Update simulation parameters
-    {
-        let sim_params_uni = effects_meta.sim_params_uniforms.get_mut();
-        let sim_params = *sim_params;
-        *sim_params_uni = sim_params.into();
-
-        sim_params_uni.num_effects = 3; // TODO
-
-        let storage_align = render_device.limits().min_storage_buffer_offset_alignment; // TODO - cache this
-        sim_params_uni.render_stride = next_multiple_of(
-            GpuRenderIndirect::min_size().get() as usize,
-            storage_align as usize,
-        ) as u32;
-        sim_params_uni.dispatch_stride = next_multiple_of(
-            GpuDispatchIndirect::min_size().get() as usize,
-            storage_align as usize,
-        ) as u32;
-
-        trace!(
-            "Simulation parameters: time={} dt={} num_effects={} render_stride={} dispatch_stride={}",
-            sim_params_uni.time,
-            sim_params_uni.dt,
-            sim_params_uni.num_effects,
-            sim_params_uni.render_stride,
-            sim_params_uni.dispatch_stride
-        );
+    if effects_meta.gpu_dispatch_indirect_aligned_size.is_none() {
+        effects_meta.gpu_dispatch_indirect_aligned_size =
+            NonZeroU32::new(render_device.limits().min_storage_buffer_offset_alignment);
     }
-    effects_meta
-        .sim_params_uniforms
-        .write_buffer(&render_device, &render_queue);
 
     // Allocate spawner buffer if needed
     //if effects_meta.spawner_buffer.is_empty() {
@@ -1527,7 +1502,6 @@ pub(crate) fn prepare_effects(
     let mut init_pipeline_id = CachedComputePipelineId::INVALID;
     let mut update_pipeline_id = CachedComputePipelineId::INVALID;
     let mut z_sort_key_2d = FloatOrd(f32::NAN);
-
     for (slice, extracted_effect, effect_index) in effect_entity_list {
         let buffer_index = slice.group_index;
         let range = slice.slice;
@@ -1789,6 +1763,44 @@ pub(crate) fn prepare_effects(
     // Write the entire spawner buffer for this frame, for all effects combined
     effects_meta
         .spawner_buffer
+        .write_buffer(&render_device, &render_queue);
+
+    // Allocate simulation uniform if needed
+    //if effects_meta.sim_params_uniforms.is_empty() {
+    effects_meta
+        .sim_params_uniforms
+        .set(SimParamsUniform::default());
+    //}
+
+    // Update simulation parameters
+    {
+        let sim_params_uni = effects_meta.sim_params_uniforms.get_mut();
+        let sim_params = *sim_params;
+        *sim_params_uni = sim_params.into();
+
+        sim_params_uni.num_effects = num_emitted;
+
+        let storage_align = render_device.limits().min_storage_buffer_offset_alignment; // TODO - cache this
+        sim_params_uni.render_stride = next_multiple_of(
+            GpuRenderIndirect::min_size().get() as usize,
+            storage_align as usize,
+        ) as u32;
+        sim_params_uni.dispatch_stride = next_multiple_of(
+            GpuDispatchIndirect::min_size().get() as usize,
+            storage_align as usize,
+        ) as u32;
+
+        trace!(
+                "Simulation parameters: time={} dt={} num_effects={} render_stride={} dispatch_stride={}",
+                sim_params_uni.time,
+                sim_params_uni.dt,
+                sim_params_uni.num_effects,
+                sim_params_uni.render_stride,
+                sim_params_uni.dispatch_stride
+            );
+    }
+    effects_meta
+        .sim_params_uniforms
         .write_buffer(&render_device, &render_queue);
 }
 
@@ -2078,7 +2090,7 @@ pub(crate) fn queue_effects(
                             resource: BindingResource::Buffer(BufferBinding {
                                 buffer: &indirect_buffer,
                                 offset: 0,
-                                size: None, //NonZeroU64::new(256), // Some(GpuDispatchIndirect::min_size()),
+                                size: Some(GpuDispatchIndirect::min_size()),
                             }),
                         },
                     ],
@@ -2363,13 +2375,22 @@ impl Draw<Transparent2d> for DrawEffects {
             );
 
             // Particles buffer
+            let dispatch_indirect_offset = effects_meta
+                .gpu_dispatch_indirect_aligned_size
+                .unwrap()
+                .get()
+                * effect_batch.buffer_index;
+            trace!(
+                "set_bind_group(1): dispatch_indirect_offset={}",
+                dispatch_indirect_offset
+            );
             pass.set_bind_group(
                 1,
                 effect_bind_groups
                     .render_particle_buffers
                     .get(&effect_batch.buffer_index)
                     .unwrap(),
-                &[effect_batch.buffer_index * 256], // FIXME - Some(GpuDispatchIndirect::min_size()), with proper alignment for storage offset
+                &[dispatch_indirect_offset],
             );
 
             // Particle texture
@@ -2441,13 +2462,22 @@ impl Draw<Transparent3d> for DrawEffects {
             );
 
             // Particles buffer
+            let dispatch_indirect_offset = effects_meta
+                .gpu_dispatch_indirect_aligned_size
+                .unwrap()
+                .get()
+                * effect_batch.buffer_index;
+            trace!(
+                "set_bind_group(1): dispatch_indirect_offset={}",
+                dispatch_indirect_offset
+            );
             pass.set_bind_group(
                 1,
                 effect_bind_groups
                     .render_particle_buffers
                     .get(&effect_batch.buffer_index)
                     .unwrap(),
-                &[effect_batch.buffer_index * 256], // FIXME - Some(GpuDispatchIndirect::min_size()), with proper alignment for storage offset
+                &[dispatch_indirect_offset],
             );
 
             // Particle texture
@@ -2664,6 +2694,11 @@ impl Node for ParticleUpdateNode {
             if let Some(indirect_dispatch_pipeline) = &effects_meta.indirect_dispatch_pipeline {
                 trace!("record commands for indirect dispatch pipeline...");
 
+                let num_batches = self.effect_query.iter_manual(world).count() as u32;
+
+                const WORKGROUP_SIZE: u32 = 64;
+                let workgroup_count = (num_batches + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+
                 // Setup compute pass
                 compute_pass.set_pipeline(indirect_dispatch_pipeline);
                 compute_pass.set_bind_group(
@@ -2676,8 +2711,12 @@ impl Node for ParticleUpdateNode {
                     effects_meta.sim_params_bind_group.as_ref().unwrap(),
                     &[],
                 );
-                compute_pass.dispatch_workgroups(1, 1, 1); // TODO
-                trace!("indirect dispatch compute dispatched");
+                compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
+                trace!(
+                    "indirect dispatch compute dispatched: num_batches={} workgroup_count{}",
+                    num_batches,
+                    workgroup_count
+                );
             }
         }
 
