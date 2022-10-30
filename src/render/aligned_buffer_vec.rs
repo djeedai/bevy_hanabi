@@ -25,7 +25,7 @@ pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
 ///
 /// This is a helper to ensure the data is properly aligned when copied to GPU,
 /// depending on the device constraints and the WGSL rules. Generally the
-/// alignment is one of the [`wgpu::Limits`], and is also ensured to be
+/// alignment is one of the [`WgpuLimits`], and is also ensured to be
 /// compatible with WGSL.
 ///
 /// The element type `T` needs to implement the following traits:
@@ -36,6 +36,7 @@ pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
 ///   runtime-sized array.
 ///
 /// [`BufferVec`]: bevy::render::render_resource::BufferVec
+/// [`WgpuLimits`]: bevy::render::settings::WgpuLimits
 pub struct AlignedBufferVec<T: Pod + ShaderType + ShaderSize> {
     values: Vec<T>,
     buffer: Option<Buffer>,

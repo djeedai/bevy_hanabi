@@ -463,6 +463,8 @@ impl ShaderCode for Gradient<Vec4> {
 /// visibility system has updated the [`ComputedVisibility`] of each effect
 /// instance (see [`VisibilitySystems::CheckVisibility`]). Hidden instances are
 /// not updated.
+///
+/// [`VisibilitySystems::CheckVisibility`]: bevy::render::view::VisibilitySystems::CheckVisibility
 fn tick_spawners(
     time: Res<Time>,
     effects: Res<Assets<EffectAsset>>,

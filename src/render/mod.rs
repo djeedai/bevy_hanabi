@@ -91,7 +91,7 @@ pub enum EffectSystems {
 }
 
 /// Reimplementing of bevy::sprite::Rect to avoid the dependency.
-/// See https://github.com/bevyengine/bevy/issues/5575
+/// See <https://github.com/bevyengine/bevy/issues/5575>
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub(crate) struct MinMaxRect {
     pub min: Vec2,
@@ -881,7 +881,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
 }
 
 /// A single effect instance extracted from a [`ParticleEffect`] as a
-/// [`RenderWorld`] item.
+/// render world item.
 #[derive(Component)]
 pub(crate) struct ExtractedEffect {
     /// Handle to the effect asset this instance is based on.
@@ -890,6 +890,8 @@ pub(crate) struct ExtractedEffect {
     pub handle: Handle<EffectAsset>,
     /// Number of particles to spawn this frame for the effect.
     /// Obtained from calling [`Spawner::tick()`] on the source effect instance.
+    ///
+    /// [`Spawner::tick()`]: crate::Spawner::tick
     pub spawn_count: u32,
     /// Global transform of the effect origin, extracted from the
     /// [`GlobalTransform`].
@@ -938,7 +940,7 @@ pub(crate) struct AddedEffect {
 }
 
 /// Collection of all extracted effects for this frame, inserted into the
-/// [`RenderWorld`] as a render resource.
+/// render world as a render resource.
 #[derive(Default)]
 pub(crate) struct ExtractedEffects {
     /// Map of extracted effects from the entity the source [`ParticleEffect`]
@@ -1199,9 +1201,15 @@ pub(crate) struct EffectsMeta {
     vertices: BufferVec<GpuParticleVertex>,
     ///
     indirect_dispatch_pipeline: Option<ComputePipeline>,
-    /// Size of [`GpuDispatchIndirect`] aligned to the contraint of [`WgpuLimits::min_storage_buffer_offset_alignment`].
+    /// Size of [`GpuDispatchIndirect`] aligned to the contraint of
+    /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
+    ///
+    /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
     gpu_dispatch_indirect_aligned_size: Option<NonZeroU32>,
-    /// Size of [`GpuRenderIndirect`] aligned to the contraint of [`WgpuLimits::min_storage_buffer_offset_alignment`].
+    /// Size of [`GpuRenderIndirect`] aligned to the contraint of
+    /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
+    ///
+    /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
     gpu_render_indirect_aligned_size: Option<NonZeroU32>,
 }
 
@@ -2012,7 +2020,8 @@ pub(crate) fn queue_effects(
             layout: &read_params.update_pipeline.render_indirect_layout,
         }));
 
-    // Make a copy of the buffer ID before borrowing effects_meta mutably in the loop below
+    // Make a copy of the buffer ID before borrowing effects_meta mutably in the
+    // loop below
     let indirect_buffer = effects_meta
         .dispatch_indirect_buffer
         .buffer()
