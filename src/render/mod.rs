@@ -1201,6 +1201,8 @@ pub(crate) struct EffectsMeta {
     indirect_dispatch_pipeline: Option<ComputePipeline>,
     /// Size of [`GpuDispatchIndirect`] aligned to the contraint of [`WgpuLimits::min_storage_buffer_offset_alignment`].
     gpu_dispatch_indirect_aligned_size: Option<NonZeroU32>,
+    /// Size of [`GpuRenderIndirect`] aligned to the contraint of [`WgpuLimits::min_storage_buffer_offset_alignment`].
+    gpu_render_indirect_aligned_size: Option<NonZeroU32>,
 }
 
 impl EffectsMeta {
@@ -1252,6 +1254,7 @@ impl EffectsMeta {
             vertices,
             indirect_dispatch_pipeline: None,
             gpu_dispatch_indirect_aligned_size: None,
+            gpu_render_indirect_aligned_size: None,
         }
     }
 }
@@ -1338,10 +1341,37 @@ pub(crate) fn prepare_effects(
 ) {
     trace!("prepare_effects");
 
+    let mut storage_buffer_align = None;
+
     if effects_meta.gpu_dispatch_indirect_aligned_size.is_none() {
-        effects_meta.gpu_dispatch_indirect_aligned_size =
+        storage_buffer_align =
             NonZeroU32::new(render_device.limits().min_storage_buffer_offset_alignment);
+        effects_meta.gpu_dispatch_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
+            GpuDispatchIndirect::min_size().get() as usize,
+            storage_buffer_align.unwrap().get() as usize,
+        ) as u32);
     }
+
+    if effects_meta.gpu_render_indirect_aligned_size.is_none() {
+        let align = storage_buffer_align
+            .unwrap_or_else(|| {
+                NonZeroU32::new(render_device.limits().min_storage_buffer_offset_alignment).unwrap()
+            })
+            .get() as usize;
+        effects_meta.gpu_render_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
+            GpuRenderIndirect::min_size().get() as usize,
+            align,
+        ) as u32);
+    }
+
+    trace!(
+        "Aligns: gpu_dispatch_indirect_aligned_size={} gpu_render_indirect_aligned_size={}",
+        effects_meta
+            .gpu_dispatch_indirect_aligned_size
+            .unwrap()
+            .get(),
+        effects_meta.gpu_render_indirect_aligned_size.unwrap().get()
+    );
 
     // Allocate spawner buffer if needed
     //if effects_meta.spawner_buffer.is_empty() {
@@ -2502,13 +2532,19 @@ impl Draw<Transparent3d> for DrawEffects {
             let vertex_count = effects_meta.vertices.len() as u32;
             let particle_count = effect_batch.slice.end - effect_batch.slice.start;
 
+            let render_indirect_buffer = effects_meta.render_dispatch_buffer.buffer().unwrap();
+
+            let render_indirect_offset =
+                effects_meta.gpu_render_indirect_aligned_size.unwrap().get() as u64
+                    * effect_batch.buffer_index as u64;
             trace!(
-                "Draw {} particles with {} vertices per particle for batch from buffer #{}.",
+                "Draw {} particles with {} vertices per particle for batch from buffer #{} (render_indirect_offset={}).",
                 particle_count,
                 vertex_count,
-                effect_batch.buffer_index
+                effect_batch.buffer_index,
+                render_indirect_offset
             );
-            pass.draw(0..vertex_count, 0..particle_count);
+            pass.draw_indirect(render_indirect_buffer, render_indirect_offset);
         }
     }
 }
