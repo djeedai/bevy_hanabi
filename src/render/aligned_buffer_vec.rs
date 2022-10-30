@@ -243,6 +243,7 @@ mod tests {
     use super::*;
 
     const INTS: &[usize] = &[1, 2, 4, 8, 9, 15, 16, 17, 23, 24, 31, 32, 33];
+    const INTS_POW2: &[usize] = &[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
 
     /// Same as `INTS`, rounded up to 16
     const INTS16: &[usize] = &[16, 16, 16, 16, 16, 16, 16, 32, 32, 32, 32, 32, 48];
@@ -255,7 +256,7 @@ mod tests {
         }
 
         // zero-sized is always aligned
-        for &align in INTS {
+        for &align in INTS_POW2 {
             assert_eq!(0, next_multiple_of(0, align));
         }
 
