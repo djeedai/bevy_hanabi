@@ -2,19 +2,35 @@ use crate::{EffectAsset, ParticleEffect, Spawner};
 use bevy::prelude::*;
 
 /// A component bundle for a particle effect.
+///
+/// This bundle contains all necessary components for a [`ParticleEffect`] to
+/// function correctly, and is the preferred method for spawning a new
+/// [`ParticleEffect`].
 #[derive(Bundle, Clone)]
 pub struct ParticleEffectBundle {
-    /// The particle effect itself.
+    /// The particle effect instance itself.
     pub effect: ParticleEffect,
     /// Transform of the entity, representing the frame of reference for the
     /// particle emission.
+    ///
+    /// New particles are emitted relative to this transform, ignoring the
+    /// scale.
     pub transform: Transform,
     /// Computed global transform.
+    ///
+    /// Users should not interact with this component manually, but it is
+    /// required by Bevy's built-in transform system.
     pub global_transform: GlobalTransform,
     /// User indication of whether an entity is visible.
+    ///
+    /// Invisible entities do not process any particles, making it efficient to
+    /// temporarily disable an effect instance.
     pub visibility: Visibility,
     /// Algorithmically-computed indication of whether an entity is visible and
     /// should be extracted for rendering.
+    ///
+    /// Users should not interact with this component manually, but it is
+    /// required by Bevy's built-in visibility system.
     pub computed_visibility: ComputedVisibility,
 }
 
