@@ -50,7 +50,7 @@ use bevy::core_pipeline::core_3d::Transparent3d;
 use crate::{
     asset::EffectAsset,
     modifier::update::ForceFieldSource,
-    render::aligned_buffer_vec::next_multiple_of,
+    next_multiple_of,
     spawn::{new_rng, Random},
     Gradient, ParticleEffect, RemovedEffectsEvent, ToWgslString,
 };

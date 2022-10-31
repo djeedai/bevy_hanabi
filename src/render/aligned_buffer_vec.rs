@@ -1,5 +1,3 @@
-use std::num::NonZeroU64;
-
 use bevy::{
     core::{cast_slice, Pod, Zeroable},
     log::trace,
@@ -12,14 +10,9 @@ use bevy::{
 };
 use bytemuck::cast_slice_mut;
 use copyless::VecHelper;
+use std::num::NonZeroU64;
 
-// TODO - filler for usize.next_multiple_of()
-// https://github.com/rust-lang/rust/issues/88581
-pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
-    assert!(align & (align - 1) == 0); // power of 2
-    let count = (value + align - 1) / align;
-    count * align
-}
+use crate::next_multiple_of;
 
 /// Like Bevy's [`BufferVec`], but with correct item alignment.
 ///
@@ -241,35 +234,6 @@ mod tests {
     use bevy::math::Vec3;
 
     use super::*;
-
-    const INTS: &[usize] = &[1, 2, 4, 8, 9, 15, 16, 17, 23, 24, 31, 32, 33];
-    const INTS_POW2: &[usize] = &[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
-
-    /// Same as `INTS`, rounded up to 16
-    const INTS16: &[usize] = &[16, 16, 16, 16, 16, 16, 16, 32, 32, 32, 32, 32, 48];
-
-    #[test]
-    fn next_multiple() {
-        // align-1 is no-op
-        for &size in INTS {
-            assert_eq!(size, next_multiple_of(size, 1));
-        }
-
-        // zero-sized is always aligned
-        for &align in INTS_POW2 {
-            assert_eq!(0, next_multiple_of(0, align));
-        }
-
-        // size < align : rounds up to align
-        for &size in INTS {
-            assert_eq!(256, next_multiple_of(size, 256));
-        }
-
-        // size > align : actually aligns
-        for (&size, &aligned_size) in INTS.iter().zip(INTS16) {
-            assert_eq!(aligned_size, next_multiple_of(size, 16));
-        }
-    }
 
     #[repr(C)]
     #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
