@@ -339,9 +339,9 @@ impl ParticleEffect {
     }
 }
 
-const PARTICLES_INIT_SHADER_TEMPLATE: &str = include_str!("render/particles_init.wgsl");
-const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("render/particles_update.wgsl");
-const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("render/particles_render.wgsl");
+const PARTICLES_INIT_SHADER_TEMPLATE: &str = include_str!("render/vfx_init.wgsl");
+const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("render/vfx_update.wgsl");
+const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("render/vfx_render.wgsl");
 
 const DEFAULT_POSITION_CODE: &str = r##"
     ret.pos = transform[3].xyz;
