@@ -147,7 +147,12 @@ compile_error!(
     "You need to enable at least one of the '2d' or '3d' features for anything to happen."
 );
 
-/// Get the smallest multiple of align greater than or equal to value, where `align` must be a power of two.
+/// Get the smallest multiple of align greater than or equal to value, where
+/// `align` must be a power of two.
+///
+/// # Panics
+///
+/// Panics if `align` is not a power of two.
 // TODO - filler for usize.next_multiple_of()
 // https://github.com/rust-lang/rust/issues/88581
 pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
@@ -160,9 +165,9 @@ pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
 /// format matching the WGSL grammar.
 ///
 /// This is required because WGSL doesn't support a floating point constant
-/// without a decimal separator (e.g. `0.` instead of `0`), which would be what
-/// a regular float to string formatting produces, but is interpreted as an
-/// integral type by WGSL.
+/// without a decimal separator (_e.g._ `0.` instead of `0`), which would be
+/// what a regular string formatting function like [`format!()`] would produce,
+/// but which is interpreted as an integral type by WGSL instead.
 ///
 /// # Example
 ///
@@ -171,6 +176,8 @@ pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
 /// let x = 2.0_f32;
 /// assert_eq!("let x = 2.;", format!("let x = {};", x.to_wgsl_string()));
 /// ```
+///
+/// [`format!()`]: std::format
 pub trait ToWgslString {
     /// Convert a floating point scalar or vector to a string representing a
     /// WGSL constant.
@@ -243,6 +250,10 @@ impl ToWgslString for Value<f32> {
 /// effect. The visual effect itself is described by a handle to an
 /// [`EffectAsset`]. This instance is associated to an [`Entity`], inheriting
 /// its [`Transform`] as the origin frame for its particle spawning.
+///
+/// When spawning a new [`ParticleEffect`], consider using the
+/// [`ParticleEffectBundle`] to ensure all the necessary components are present
+/// on the entity for the effect to render correctly.
 #[derive(Debug, Default, Clone, Component, Reflect)]
 #[reflect(Component)]
 pub struct ParticleEffect {
@@ -314,15 +325,22 @@ impl ParticleEffect {
         self
     }
 
-    /// Sets the spawner of this particle effect.
+    /// Set the spawner of this particle effect instance.
+    ///
+    /// By default particle effect instances inherit the spawner of the
+    /// [`EffectAsset`] they're derived from. This allows overriding the spawner
+    /// configuration per instance.
     pub fn set_spawner(&mut self, spawner: Spawner) {
         self.spawner = Some(spawner);
     }
 
     /// Configure the spawner of a new particle effect.
     ///
-    /// The call returns a reference to the added spawner, allowing to chain
-    /// adding modifiers to the effect.
+    /// In general this is called internally while the spawner is ticked, to
+    /// assign the source asset's spawner to this instance.
+    ///
+    /// Returns a reference to the added spawner owned by the current instance,
+    /// allowing to chain adding modifiers to the effect.
     pub fn spawner(&mut self, spawner: &Spawner) -> &mut Spawner {
         if self.spawner.is_none() {
             self.spawner = Some(*spawner);
@@ -332,8 +350,10 @@ impl ParticleEffect {
 
     /// Get the spawner of this particle effect.
     ///
-    /// Returns None if `with_spawner` was not called
-    /// and the effect has not rendered yet.
+    /// Returns `None` if [`configure_spawner()`] was not called and the effect
+    /// has not been internally allocated yet.
+    ///
+    /// [`configure_spawner()`]: crate::ParticleEffect::configure_spawner
     pub fn maybe_spawner(&mut self) -> Option<&mut Spawner> {
         self.spawner.as_mut()
     }
@@ -506,8 +526,7 @@ fn tick_spawners(
 
     // Loop over all existing effects to update them
     for (computed_visibility, mut effect) in query.p0().iter_mut() {
-        // Check if visible. Hidden effects are entirely skipped for performance
-        // reasons.
+        // Hidden effects are entirely skipped for performance reasons
         if !computed_visibility.is_visible() {
             continue;
         }

@@ -71,20 +71,40 @@ pub struct RenderLayout {
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.
+    ///
+    /// This has no internal use, and is mostly for the user to identify an
+    /// effect or for display is some tool UI.
     pub name: String,
     /// Maximum number of concurrent particles.
+    ///
+    /// The capacity is the maximum number of particles that can be alive at the
+    /// same time. It determines the size of various GPU resources, most notably
+    /// the particle buffer itself. To prevent wasting GPU resources, users
+    /// should keep this quantity as close as possible to the maximum number of
+    /// particles they expect to render.
     pub capacity: u32,
     /// Spawner.
     pub spawner: Spawner,
     /// Layout describing the particle initialize code.
+    ///
+    /// The initialize layout determines how new particles are initialized when
+    /// spawned. Compatible layouts increase the chance of batching together
+    /// effects.
     #[serde(skip)] // TODO
     #[reflect(ignore)] // TODO?
     pub init_layout: InitLayout,
     /// Layout describing the particle update code.
+    ///
+    /// The update layout determines how all alive particles are updated each
+    /// frame. Compatible layouts increase the chance of batching together
+    /// effects.
     #[serde(skip)] // TODO
     #[reflect(ignore)] // TODO?
     pub update_layout: UpdateLayout,
     /// Layout describing the particle rendering code.
+    ///
+    /// The render layout determines how alive particles are rendered.
+    /// Compatible layouts increase the chance of batching together effects.
     #[serde(skip)] // TODO
     #[reflect(ignore)] // TODO?
     pub render_layout: RenderLayout,
@@ -97,8 +117,6 @@ pub struct EffectAsset {
     ///
     /// Ignored for 3D rendering.
     pub z_layer_2d: f32,
-    //#[serde(skip)] // TODO
-    //modifiers: Vec<Box<dyn Modifier + Send + Sync + 'static>>,
 }
 
 impl EffectAsset {

@@ -22,7 +22,12 @@ pub struct Random(pub Pcg32);
 pub enum Value<T: Copy> {
     /// Single constant value.
     Single(T),
-    /// Random value distributed uniformly between two bounds.
+    /// Random value distributed uniformly between two inclusive bounds.
+    ///
+    /// The minimum bound must be less than or equal to the maximum one,
+    /// otherwise some methods like [`sample()`] will panic.
+    ///
+    /// [`sample()`]: crate::Value::sample
     Uniform((T, T)),
 }
 
@@ -34,6 +39,9 @@ impl<T: Copy + Default> Default for Value<T> {
 
 impl<T: Copy + SampleUniform> Value<T> {
     /// Sample the value.
+    /// - For [`Value::Single`], always return the same single value.
+    /// - For [`Value::Uniform`], use the given pseudo-random number generator
+    ///   to generate a random sample.
     pub fn sample(&self, rng: &mut Pcg32) -> T {
         match self {
             Value::Single(x) => *x,
@@ -43,8 +51,8 @@ impl<T: Copy + SampleUniform> Value<T> {
 }
 
 impl<T: Copy + PartialOrd> Value<T> {
-    /// Returns the range of values this can be
-    /// in the form `[minimum, maximum]`
+    /// Returns the range of allowable values in the form `[minimum, maximum]`.
+    /// For [`Value::Single`], both values are the same.
     pub fn range(&self) -> [T; 2] {
         match self {
             Value::Single(x) => [*x; 2],
@@ -65,7 +73,12 @@ impl<T: Copy> From<T> for Value<T> {
     }
 }
 
-/// Spawner defining how new particles are created.
+/// Spawner defining how new particles are emitted.
+///
+/// The spawner defines how new particles are emitted and when. Each time the
+/// spawner ticks, once per frame, it calculates a number of particles to emit
+/// for this tick. This spawn count is passed to the GPU for the init compute
+/// pass to actually allocate the new particles and initialize them.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Reflect)]
 pub struct Spawner {
     /// Number of particles to spawn over [`spawn_time`].
