@@ -334,6 +334,16 @@ impl ParticleEffect {
         self.spawner = Some(spawner);
     }
 
+    /// Get the spawner of this particle effect.
+    ///
+    /// Returns `None` if the effect has not yet been copied from the
+    /// [`EffectAsset`] nor overridden by [`set_spawner()`].
+    ///
+    /// [`set_spawner()`]: ParticleEffect::set_spawner
+    pub fn maybe_spawner(&mut self) -> Option<&mut Spawner> {
+        self.spawner.as_mut()
+    }
+
     /// Configure the spawner of a new particle effect.
     ///
     /// In general this is called internally while the spawner is ticked, to
@@ -341,21 +351,11 @@ impl ParticleEffect {
     ///
     /// Returns a reference to the added spawner owned by the current instance,
     /// allowing to chain adding modifiers to the effect.
-    pub fn spawner(&mut self, spawner: &Spawner) -> &mut Spawner {
+    pub(crate) fn configure_spawner(&mut self, spawner: &Spawner) -> &mut Spawner {
         if self.spawner.is_none() {
             self.spawner = Some(*spawner);
         }
         self.spawner.as_mut().unwrap()
-    }
-
-    /// Get the spawner of this particle effect.
-    ///
-    /// Returns `None` if [`configure_spawner()`] was not called and the effect
-    /// has not been internally allocated yet.
-    ///
-    /// [`configure_spawner()`]: crate::ParticleEffect::configure_spawner
-    pub fn maybe_spawner(&mut self) -> Option<&mut Spawner> {
-        self.spawner.as_mut()
     }
 }
 
@@ -542,7 +542,7 @@ fn tick_spawners(
                 continue;
             };
 
-            effect.spawner(&asset.spawner)
+            effect.configure_spawner(&asset.spawner)
         };
 
         // Tick the effect's spawner to determine the spawn count for this frame
