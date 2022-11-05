@@ -23,7 +23,7 @@ use crate::{
         extract_effect_events, extract_effects, prepare_effects, queue_effects,
         DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems,
         EffectsMeta, ExtractedEffects, ParticleUpdateNode, ParticlesInitPipeline,
-        ParticlesRenderPipeline, ParticlesUpdatePipeline, PipelineRegistry, SimParams,
+        ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache, SimParams,
     },
     spawn::{self, Random},
     tick_spawners, ParticleEffect, RemovedEffectsEvent, Spawner,
@@ -60,7 +60,7 @@ impl Plugin for HanabiPlugin {
         app.add_asset::<EffectAsset>()
             .add_event::<RemovedEffectsEvent>()
             .insert_resource(Random(spawn::new_rng()))
-            .init_resource::<PipelineRegistry>()
+            .init_resource::<ShaderCache>()
             .init_asset_loader::<EffectAssetLoader>()
             .add_system_to_stage(
                 CoreStage::PostUpdate,

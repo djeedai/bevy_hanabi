@@ -43,13 +43,13 @@ use crate::{
 
 mod aligned_buffer_vec;
 mod effect_cache;
-mod pipeline_template;
+mod shader_cache;
 
 use aligned_buffer_vec::AlignedBufferVec;
 pub(crate) use effect_cache::{EffectCache, EffectCacheId};
 
 pub use effect_cache::{EffectBuffer, EffectSlice};
-pub use pipeline_template::PipelineRegistry;
+pub use shader_cache::ShaderCache;
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
