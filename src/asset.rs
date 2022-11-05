@@ -53,7 +53,7 @@ pub struct RenderLayout {
     /// lifetime.
     pub lifetime_color_gradient: Option<Gradient<Vec4>>,
     /// Optional size gradient used to vary the particle size over its lifetime.
-    pub size_color_gradient: Option<Gradient<Vec2>>,
+    pub lifetime_size_gradient: Option<Gradient<Vec2>>,
     /// If true, renders sprites as "billboards", that is, they will always face
     /// the camera when rendered.
     pub billboard: bool,

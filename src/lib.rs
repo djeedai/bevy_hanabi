@@ -599,7 +599,7 @@ fn tick_spawners(
                 } else {
                     String::new()
                 };
-            if let Some(grad) = &asset.render_layout.size_color_gradient {
+            if let Some(grad) = &asset.render_layout.lifetime_size_gradient {
                 vertex_modifiers += &grad.to_shader_code();
             }
 

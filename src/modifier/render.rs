@@ -47,7 +47,7 @@ pub struct SizeOverLifetimeModifier {
 
 impl RenderModifier for SizeOverLifetimeModifier {
     fn apply(&self, render_layout: &mut RenderLayout) {
-        render_layout.size_color_gradient = Some(self.gradient.clone());
+        render_layout.lifetime_size_gradient = Some(self.gradient.clone());
     }
 }
 
@@ -58,5 +58,70 @@ pub struct BillboardModifier;
 impl RenderModifier for BillboardModifier {
     fn apply(&self, render_layout: &mut RenderLayout) {
         render_layout.billboard = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::asset::HandleId;
+
+    use super::*;
+
+    #[test]
+    fn mod_particle_texture() {
+        let texture = Handle::weak(HandleId::default::<Image>());
+        let modifier = ParticleTextureModifier {
+            texture: texture.clone(),
+        };
+
+        let mut layout = RenderLayout::default();
+        modifier.apply(&mut layout);
+
+        assert!(layout.particle_texture.is_some());
+        assert_eq!(layout.particle_texture.unwrap(), texture);
+    }
+
+    #[test]
+    fn mod_color_over_lifetime() {
+        let red: Vec4 = Vec4::new(1., 0., 0., 1.);
+        let blue: Vec4 = Vec4::new(0., 0., 1., 1.);
+        let mut gradient = Gradient::new();
+        gradient.add_key(0.5, red);
+        gradient.add_key(0.8, blue);
+        let modifier = ColorOverLifetimeModifier {
+            gradient: gradient.clone(),
+        };
+
+        let mut layout = RenderLayout::default();
+        modifier.apply(&mut layout);
+
+        assert!(layout.lifetime_color_gradient.is_some());
+        assert_eq!(layout.lifetime_color_gradient.unwrap(), gradient);
+    }
+
+    #[test]
+    fn mod_size_over_lifetime() {
+        let x = Vec2::new(1., 0.);
+        let y = Vec2::new(0., 1.);
+        let mut gradient = Gradient::new();
+        gradient.add_key(0.5, x);
+        gradient.add_key(0.8, y);
+        let modifier = SizeOverLifetimeModifier {
+            gradient: gradient.clone(),
+        };
+
+        let mut layout = RenderLayout::default();
+        modifier.apply(&mut layout);
+
+        assert!(layout.lifetime_size_gradient.is_some());
+        assert_eq!(layout.lifetime_size_gradient.unwrap(), gradient);
+    }
+
+    #[test]
+    fn mod_billboard() {
+        let modifier = BillboardModifier;
+        let mut layout = RenderLayout::default();
+        modifier.apply(&mut layout);
+        assert!(layout.billboard);
     }
 }
