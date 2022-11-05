@@ -1,15 +1,12 @@
-#![allow(unused_imports)] // TEMP
-
 use bevy::{
-    asset::{AssetEvent, Assets, Handle, HandleId, HandleUntyped},
-    core::{cast_slice, Pod, Zeroable},
+    asset::{AssetEvent, Assets, Handle, HandleId},
+    core::{Pod, Zeroable},
     ecs::{
         prelude::*,
         system::{lifetimeless::*, SystemParam, SystemState},
     },
     log::trace,
-    math::{Mat4, Quat, Vec2, Vec3, Vec4Swizzles},
-    reflect::TypeUuid,
+    math::{Mat4, Vec2, Vec3},
     render::{
         color::Color,
         render_asset::RenderAssets,
@@ -18,28 +15,20 @@ use bevy::{
         render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
-        view::{
-            ComputedVisibility, ExtractedView, Msaa, ViewUniform, ViewUniformOffset, ViewUniforms,
-        },
+        view::{ComputedVisibility, Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
         Extract,
     },
     time::Time,
     transform::components::GlobalTransform,
-    utils::{FloatOrd, HashMap, HashSet, Uuid},
+    utils::{FloatOrd, HashMap, Uuid},
 };
 use bitflags::bitflags;
-use bytemuck::cast_slice_mut;
 use rand::random;
-use rand::Rng;
+use std::marker::PhantomData;
 use std::{
     borrow::Cow,
-    cmp::Ordering,
     num::{NonZeroU32, NonZeroU64},
     ops::Range,
-};
-use std::{
-    marker::PhantomData,
-    sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
 };
 
 #[cfg(feature = "2d")]
@@ -48,11 +37,8 @@ use bevy::core_pipeline::core_2d::Transparent2d;
 use bevy::core_pipeline::core_3d::Transparent3d;
 
 use crate::{
-    asset::EffectAsset,
-    modifier::update::ForceFieldSource,
-    next_multiple_of,
-    spawn::{new_rng, Random},
-    Gradient, ParticleEffect, RemovedEffectsEvent, ToWgslString,
+    asset::EffectAsset, modifier::update::ForceFieldSource, next_multiple_of, ParticleEffect,
+    RemovedEffectsEvent,
 };
 
 mod aligned_buffer_vec;
@@ -2869,7 +2855,6 @@ impl Node for ParticleUpdateNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::math::Vec4;
 
     #[test]
     fn layout_flags() {
