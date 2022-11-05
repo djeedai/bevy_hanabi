@@ -1,41 +1,21 @@
 use bevy::{
-    asset::{AssetEvent, Assets, Handle, HandleUntyped},
-    core::cast_slice,
-    ecs::{
-        prelude::*,
-        system::{lifetimeless::*, SystemState},
-    },
+    asset::Handle,
     log::{trace, warn},
-    math::{Mat4, Vec2, Vec3, Vec4Swizzles},
-    reflect::TypeUuid,
     render::{
-        color::Color,
-        render_asset::RenderAssets,
-        render_graph::{Node, NodeRunError, RenderGraphContext, SlotInfo, SlotType},
-        render_phase::{Draw, DrawFunctions, RenderPhase, TrackedRenderPass},
         render_resource::*,
-        renderer::{RenderContext, RenderDevice, RenderQueue},
-        texture::{BevyDefault, Image},
-        view::{ComputedVisibility, ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
+        renderer::{RenderDevice, RenderQueue},
     },
-    transform::components::GlobalTransform,
-    utils::{FloatOrd, HashMap, HashSet},
+    utils::HashMap,
 };
 use bytemuck::cast_slice_mut;
-use rand::Rng;
 use std::{
-    borrow::Cow,
     cmp::Ordering,
     num::NonZeroU64,
     ops::Range,
     sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
 };
 
-use crate::{
-    asset::EffectAsset,
-    render::{GpuDispatchIndirect, GpuRenderIndirect},
-    ParticleEffect,
-};
+use crate::asset::EffectAsset;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSlice {
@@ -530,9 +510,9 @@ impl EffectCache {
 
 #[cfg(all(test, feature = "gpu_tests"))]
 mod gpu_tests {
-    use super::*;
-    use crate::test_utils::MockRenderer;
     use bevy::asset::HandleId;
+
+    use crate::test_utils::MockRenderer;
 
     use super::*;
 

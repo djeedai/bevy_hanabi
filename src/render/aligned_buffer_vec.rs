@@ -1,5 +1,5 @@
 use bevy::{
-    core::{cast_slice, Pod, Zeroable},
+    core::{cast_slice, Pod},
     log::trace,
     render::{
         render_resource::{
@@ -8,7 +8,6 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
     },
 };
-use bytemuck::cast_slice_mut;
 use copyless::VecHelper;
 use std::num::NonZeroU64;
 
@@ -232,6 +231,7 @@ impl<T: Pod + ShaderType + ShaderSize> std::ops::IndexMut<usize> for AlignedBuff
 #[cfg(test)]
 mod tests {
     use bevy::math::Vec3;
+    use bytemuck::{Pod, Zeroable};
 
     use super::*;
 

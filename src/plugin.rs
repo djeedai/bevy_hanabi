@@ -80,7 +80,7 @@ impl Plugin for HanabiPlugin {
         app.register_type::<ParticleEffect>();
         app.register_type::<Spawner>();
 
-        let effects_meta = EffectsMeta::new(render_device.clone());
+        let effects_meta = EffectsMeta::new(render_device);
 
         // Register the custom render pipeline
         let render_app = app.sub_app_mut(RenderApp);

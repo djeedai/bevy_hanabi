@@ -4,7 +4,6 @@ use bevy::{
     render::render_resource::Shader,
     utils::HashMap,
 };
-use std::hash::Hash;
 
 ///
 #[derive(Default)]
