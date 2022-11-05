@@ -26,7 +26,7 @@ struct ForceFieldSource {
 struct Spawner {
     transform: mat3x4<f32>, // transposed (row-major)
     accel: vec3<f32>,
-    spawn: atomic<i32>,
+    spawn: i32,
     force_field: array<ForceFieldSource, 16>,
     seed: u32,
     count: atomic<i32>,
@@ -150,7 +150,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap to the actual number of spawning requested by CPU, since compute shaders run
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
-    let spawn_count : u32 = u32(atomicLoad(&spawner.spawn)); // FIXME - Doesn't need atomic here; this is fixed for init pass
+    let spawn_count : u32 = u32(spawner.spawn);
     if (index >= spawn_count) {
         return;
     }
