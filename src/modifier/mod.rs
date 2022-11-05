@@ -43,6 +43,6 @@ pub enum ShapeDimension {
 
 impl Default for ShapeDimension {
     fn default() -> Self {
-        ShapeDimension::Surface
+        Self::Surface
     }
 }

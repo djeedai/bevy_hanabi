@@ -111,8 +111,8 @@ struct SimParamsUniform {
 }
 
 impl Default for SimParamsUniform {
-    fn default() -> SimParamsUniform {
-        SimParamsUniform {
+    fn default() -> Self {
+        Self {
             dt: 0.04,
             time: 0.0,
             num_effects: 0,
@@ -124,7 +124,7 @@ impl Default for SimParamsUniform {
 
 impl From<SimParams> for SimParamsUniform {
     fn from(src: SimParams) -> Self {
-        SimParamsUniform {
+        Self {
             dt: src.dt,
             time: src.time as f32,
             num_effects: src.num_effects,
@@ -148,7 +148,7 @@ struct GpuForceFieldSource {
 
 impl From<ForceFieldSource> for GpuForceFieldSource {
     fn from(source: ForceFieldSource) -> Self {
-        GpuForceFieldSource {
+        Self {
             position_or_direction: source.position,
             max_radius: source.max_radius,
             min_radius: source.min_radius,
@@ -301,7 +301,7 @@ impl FromWorld for DispatchIndirectPipeline {
             entry_point: "main",
         });
 
-        DispatchIndirectPipeline {
+        Self {
             dispatch_indirect_layout,
             pipeline_layout,
             pipeline,
@@ -425,7 +425,7 @@ impl FromWorld for ParticlesInitPipeline {
             push_constant_ranges: &[],
         });
 
-        ParticlesInitPipeline {
+        Self {
             sim_params_layout,
             particles_buffer_layout,
             spawner_buffer_layout,
@@ -576,7 +576,7 @@ impl FromWorld for ParticlesUpdatePipeline {
             push_constant_ranges: &[],
         });
 
-        ParticlesUpdatePipeline {
+        Self {
             sim_params_layout,
             particles_buffer_layout,
             spawner_buffer_layout,
@@ -695,7 +695,7 @@ impl FromWorld for ParticlesRenderPipeline {
             label: Some("hanabi:material_layout_render"),
         });
 
-        ParticlesRenderPipeline {
+        Self {
             view_layout,
             particles_buffer_layout,
             material_layout,
@@ -730,7 +730,7 @@ pub(crate) struct ParticleRenderPipelineKey {
 
 impl Default for ParticleRenderPipelineKey {
     fn default() -> Self {
-        ParticleRenderPipelineKey {
+        Self {
             shader: Handle::weak(HandleId::new(Uuid::nil(), u64::MAX)),
             particle_texture: None,
             #[cfg(all(feature = "2d", feature = "3d"))]
@@ -1077,11 +1077,11 @@ pub(crate) fn extract_effects(
 
         // Check if asset is available, otherwise silently ignore
         if let Some(asset) = effects.get(&effect.handle) {
-            let z_sort_key_2d = if let Some(z_layer_2d) = effect.z_layer_2d {
-                FloatOrd(z_layer_2d)
-            } else {
-                FloatOrd(asset.z_layer_2d)
-            };
+            let z_sort_key_2d = effect
+                .z_layer_2d
+                .map_or(FloatOrd(asset.z_layer_2d), |z_layer_2d| {
+                    FloatOrd(z_layer_2d)
+                });
 
             extracted_effects.effects.insert(
                 entity,
@@ -1271,7 +1271,7 @@ bitflags! {
 
 impl Default for LayoutFlags {
     fn default() -> Self {
-        LayoutFlags::NONE
+        Self::NONE
     }
 }
 
@@ -2571,7 +2571,7 @@ impl ParticleUpdateNode {
 
 impl Node for ParticleUpdateNode {
     fn input(&self) -> Vec<SlotInfo> {
-        vec![SlotInfo::new(ParticleUpdateNode::IN_VIEW, SlotType::Entity)]
+        vec![SlotInfo::new(Self::IN_VIEW, SlotType::Entity)]
     }
 
     // fn output(&self) -> Vec<SlotInfo> {

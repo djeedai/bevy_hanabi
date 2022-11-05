@@ -7,7 +7,12 @@
     unstable_features,
     unused_import_braces,
     unused_qualifications,
-    missing_docs
+    missing_docs,
+    clippy::suboptimal_flops,
+    clippy::imprecise_flops,
+    clippy::branches_sharing_code,
+    clippy::suspicious_operation_groupings,
+    clippy::useless_let_if_seq
 )]
 #![allow(dead_code)] // TEMP
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -301,7 +306,7 @@ pub struct ParticleEffect {
 impl ParticleEffect {
     /// Create a new particle effect without a spawner or any modifier.
     pub fn new(handle: Handle<EffectAsset>) -> Self {
-        ParticleEffect {
+        Self {
             handle,
             z_layer_2d: None,
             effect: EffectCacheId::INVALID,
@@ -593,12 +598,11 @@ fn tick_spawners(
 
             // Generate the shader code for the color over lifetime gradient.
             // TODO - Move that to a pre-pass, not each frame!
-            let mut vertex_modifiers =
-                if let Some(grad) = &asset.render_layout.lifetime_color_gradient {
-                    grad.to_shader_code()
-                } else {
-                    String::new()
-                };
+            let mut vertex_modifiers = asset
+                .render_layout
+                .lifetime_color_gradient
+                .as_ref()
+                .map_or_else(String::new, |grad| grad.to_shader_code());
             if let Some(grad) = &asset.render_layout.lifetime_size_gradient {
                 vertex_modifiers += &grad.to_shader_code();
             }

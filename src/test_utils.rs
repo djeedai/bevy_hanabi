@@ -93,7 +93,7 @@ impl MockRenderer {
         let device = RenderDevice::from(std::sync::Arc::new(device));
         let queue = std::sync::Arc::new(queue);
 
-        MockRenderer {
+        Self {
             instance,
             adapter,
             device,

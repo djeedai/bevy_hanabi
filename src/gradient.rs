@@ -15,14 +15,14 @@ pub trait Lerp: Copy {
 impl Lerp for f32 {
     #[inline]
     fn lerp(self, other: Self, ratio: f32) -> Self {
-        self * (1. - ratio) + other * ratio
+        self.mul_add(1. - ratio, other * ratio)
     }
 }
 
 impl Lerp for f64 {
     #[inline]
     fn lerp(self, other: Self, ratio: f32) -> Self {
-        self * (1. - ratio) as f64 + other * ratio as f64
+        self.mul_add((1. - ratio) as f64, other * ratio as f64)
     }
 }
 
@@ -313,7 +313,7 @@ mod tests {
         let inc = 1. / COUNT as f32;
         g.sample_by(start, inc, &mut data[..]);
         for (i, &d) in data.iter().enumerate() {
-            let ratio = start + inc * i as f32;
+            let ratio = inc.mul_add(i as f32, start);
             let expected = g.sample(ratio);
             assert!(color_approx_eq(expected, d, 1e-5));
         }

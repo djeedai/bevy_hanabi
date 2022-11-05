@@ -44,8 +44,8 @@ impl<T: Copy + SampleUniform> Value<T> {
     ///   to generate a random sample.
     pub fn sample(&self, rng: &mut Pcg32) -> T {
         match self {
-            Value::Single(x) => *x,
-            Value::Uniform((a, b)) => Uniform::new_inclusive(*a, *b).sample(rng),
+            Self::Single(x) => *x,
+            Self::Uniform((a, b)) => Uniform::new_inclusive(*a, *b).sample(rng),
         }
     }
 }
@@ -55,8 +55,8 @@ impl<T: Copy + PartialOrd> Value<T> {
     /// For [`Value::Single`], both values are the same.
     pub fn range(&self) -> [T; 2] {
         match self {
-            Value::Single(x) => [*x; 2],
-            Value::Uniform((a, b)) => {
+            Self::Single(x) => [*x; 2],
+            Self::Uniform((a, b)) => {
                 if a <= b {
                     [*a, *b]
                 } else {
@@ -115,7 +115,7 @@ pub struct Spawner {
 
 impl Default for Spawner {
     fn default() -> Self {
-        Spawner::once(1.0f32.into(), true)
+        Self::once(1.0f32.into(), true)
     }
 }
 
@@ -156,7 +156,7 @@ impl Spawner {
             period.range()[1]
         );
 
-        Spawner {
+        Self {
             num_particles: count,
             spawn_time: time,
             period,

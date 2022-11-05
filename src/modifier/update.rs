@@ -65,7 +65,7 @@ pub struct ForceFieldSource {
 impl Default for ForceFieldSource {
     fn default() -> Self {
         // defaults to no force field (a mass of 0)
-        ForceFieldSource {
+        Self {
             position: Vec3::new(0., 0., 0.),
             min_radius: 0.1,
             max_radius: 0.0,
