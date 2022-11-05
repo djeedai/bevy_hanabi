@@ -133,7 +133,7 @@ pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
-pub use render::PipelineRegistry;
+pub use render::ShaderCache;
 pub use spawn::{Random, Spawner, Value};
 
 #[allow(missing_docs)]
@@ -498,7 +498,7 @@ fn tick_spawners(
     time: Res<Time>,
     effects: Res<Assets<EffectAsset>>,
     mut shaders: ResMut<Assets<Shader>>,
-    mut pipeline_registry: ResMut<PipelineRegistry>,
+    mut shader_cache: ResMut<ShaderCache>,
     mut rng: ResMut<Random>,
     mut query: ParamSet<(
         // All existing ParticleEffect components
@@ -616,19 +616,19 @@ fn tick_spawners(
             let mut init_shader_source =
                 PARTICLES_INIT_SHADER_TEMPLATE.replace("{{INIT_POS_VEL}}", &position_code);
             init_shader_source = init_shader_source.replace("{{INIT_LIFETIME}}", &lifetime_code);
-            let init_shader = pipeline_registry.configure(&init_shader_source, &mut shaders);
+            let init_shader = shader_cache.get_or_insert(&init_shader_source, &mut shaders);
 
             // Configure the update shader template, and make sure a corresponding shader
             // asset exists
             let update_shader_source =
                 PARTICLES_UPDATE_SHADER_TEMPLATE.replace("{{FORCE_FIELD_CODE}}", &force_field_code);
-            let update_shader = pipeline_registry.configure(&update_shader_source, &mut shaders);
+            let update_shader = shader_cache.get_or_insert(&update_shader_source, &mut shaders);
 
             // Configure the render shader template, and make sure a corresponding shader
             // asset exists
             let render_shader_source =
                 PARTICLES_RENDER_SHADER_TEMPLATE.replace("{{VERTEX_MODIFIERS}}", &vertex_modifiers);
-            let render_shader = pipeline_registry.configure(&render_shader_source, &mut shaders);
+            let render_shader = shader_cache.get_or_insert(&render_shader_source, &mut shaders);
 
             trace!(
                 "tick_spawners: handle={:?} init_shader={:?} update_shader={:?} render_shader={:?} has_image={} position_code={} force_field_code={} lifetime_code={}",
