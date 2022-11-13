@@ -43,7 +43,7 @@ impl Default for ParticleEffectBundle {
 impl ParticleEffectBundle {
     /// Create a new particle effect bundle from an effect description.
     pub fn new(handle: Handle<EffectAsset>) -> Self {
-        ParticleEffectBundle {
+        Self {
             effect: ParticleEffect::new(handle),
             transform: Default::default(),
             global_transform: Default::default(),

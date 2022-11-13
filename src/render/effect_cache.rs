@@ -165,7 +165,7 @@ impl EffectBuffer {
             indirect_buffer.unmap();
         }
 
-        EffectBuffer {
+        Self {
             particle_buffer,
             indirect_buffer,
             item_size,
@@ -361,12 +361,12 @@ pub(crate) struct EffectCacheId(/* TEMP */ pub(crate) u64);
 
 impl EffectCacheId {
     /// An invalid handle, corresponding to nothing.
-    pub const INVALID: Self = EffectCacheId(u64::MAX);
+    pub const INVALID: Self = Self(u64::MAX);
 
     /// Generate a new valid effect cache identifier.
-    pub fn new() -> EffectCacheId {
+    pub fn new() -> Self {
         static NEXT_EFFECT_CACHE_ID: AtomicU64 = AtomicU64::new(0);
-        EffectCacheId(NEXT_EFFECT_CACHE_ID.fetch_add(1, AtomicOrdering::Relaxed))
+        Self(NEXT_EFFECT_CACHE_ID.fetch_add(1, AtomicOrdering::Relaxed))
     }
 
     /// Check if the ID is valid.
@@ -390,7 +390,7 @@ pub(crate) struct EffectCache {
 
 impl EffectCache {
     pub fn new(device: RenderDevice) -> Self {
-        EffectCache {
+        Self {
             device,
             buffers: vec![],
             effects: HashMap::default(),
