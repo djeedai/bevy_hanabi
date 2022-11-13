@@ -91,7 +91,7 @@ impl MockRenderer {
 
         // Turn into Bevy objects
         let device = RenderDevice::from(std::sync::Arc::new(device));
-        let queue = std::sync::Arc::new(queue);
+        let queue = RenderQueue(std::sync::Arc::new(queue));
 
         Self {
             instance,

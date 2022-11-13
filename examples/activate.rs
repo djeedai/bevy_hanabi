@@ -1,6 +1,7 @@
 //! A circle bobs up and down in the water,
 //! spawning square bubbles when in the water.
 use bevy::{
+    log::LogPlugin,
     prelude::*,
     render::{
         camera::{Projection, ScalingMode},
@@ -20,11 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     App::default()
         .insert_resource(ClearColor(Color::DARK_GRAY))
         .insert_resource(options)
-        .insert_resource(bevy::log::LogSettings {
+        .add_plugins(DefaultPlugins.set(LogPlugin {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,spawn=trace".to_string(),
-        })
-        .add_plugins(DefaultPlugins)
+        }))
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin::new())
@@ -52,10 +52,10 @@ fn setup(
     projection.scale = 1.0;
     camera.transform.translation.z = projection.far / 2.0;
     camera.projection = Projection::Orthographic(projection);
-    commands.spawn_bundle(camera);
+    commands.spawn(camera);
 
     commands
-        .spawn_bundle(PbrBundle {
+        .spawn(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Quad {
                 size: Vec2::splat(4.0),
                 ..Default::default()
@@ -70,7 +70,7 @@ fn setup(
         })
         .insert(Name::new("water"));
 
-    let mut ball = commands.spawn_bundle(PbrBundle {
+    let mut ball = commands.spawn(PbrBundle {
         mesh: meshes.add(Mesh::from(shape::UVSphere {
             sectors: 32,
             stacks: 2,
@@ -111,7 +111,7 @@ fn setup(
     );
 
     ball.with_children(|node| {
-        node.spawn_bundle(ParticleEffectBundle::new(effect).with_spawner(spawner))
+        node.spawn(ParticleEffectBundle::new(effect).with_spawner(spawner))
             .insert(Name::new("effect"));
     });
 }

@@ -2,6 +2,7 @@
 //! A sphere spawns dust in a circle.
 
 use bevy::{
+    log::LogPlugin,
     prelude::*,
     render::{render_resource::WgpuFeatures, settings::WgpuSettings},
 };
@@ -20,11 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // println!("wgpu options: {:?}", options.features);
     App::default()
         .insert_resource(options)
-        .insert_resource(bevy::log::LogSettings {
+        .add_plugins(DefaultPlugins.set(LogPlugin {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,circle=trace".to_string(),
-        })
-        .add_plugins(DefaultPlugins)
+        }))
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin::new())
@@ -44,7 +44,7 @@ fn setup(
     let mut camera = Camera3dBundle::default();
     camera.transform =
         Transform::from_xyz(3.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
-    commands.spawn_bundle(camera);
+    commands.spawn(camera);
 
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");
 
@@ -79,7 +79,7 @@ fn setup(
 
     // The ground
     commands
-        .spawn_bundle(PbrBundle {
+        .spawn(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Plane { size: 4.0 })),
             material: materials.add(Color::BLUE.into()),
             ..Default::default()
@@ -88,7 +88,7 @@ fn setup(
 
     // The sphere
     commands
-        .spawn_bundle(PbrBundle {
+        .spawn(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::UVSphere {
                 radius: 1.0,
                 sectors: 32,
@@ -101,6 +101,6 @@ fn setup(
         .insert(Name::new("sphere"));
 
     commands
-        .spawn_bundle(ParticleEffectBundle::new(effect))
+        .spawn(ParticleEffectBundle::new(effect))
         .insert(Name::new("effect"));
 }

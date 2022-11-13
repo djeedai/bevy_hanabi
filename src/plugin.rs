@@ -7,10 +7,8 @@ use bevy::{
     render::{
         render_graph::RenderGraph,
         render_phase::DrawFunctions,
-        render_resource::{
-            SpecializedComputePipelines, SpecializedRenderPipelines, WgpuAdapterInfo,
-        },
-        renderer::RenderDevice,
+        render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
+        renderer::{RenderAdapterInfo, RenderDevice},
         view::visibility::VisibilitySystems,
         RenderApp, RenderStage,
     },
@@ -49,7 +47,7 @@ impl Plugin for HanabiPlugin {
         if limits.max_bind_groups < 4 {
             let adapter_name = app
                 .world
-                .get_resource::<WgpuAdapterInfo>()
+                .get_resource::<RenderAdapterInfo>()
                 .map(|ai| &ai.name[..])
                 .unwrap_or("<unknown>");
             error!("Hanabi requires a GPU device supporting at least 4 bind groups (Limits::max_bind_groups).\n  Current adapter: {}\n  Supported bind groups: {}", adapter_name, limits.max_bind_groups);

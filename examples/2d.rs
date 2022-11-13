@@ -5,6 +5,7 @@
 //! particle above or below the reference square.
 
 use bevy::{
+    log::LogPlugin,
     prelude::*,
     render::{camera::ScalingMode, render_resource::WgpuFeatures, settings::WgpuSettings},
     sprite::MaterialMesh2dBundle,
@@ -21,11 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     App::default()
         .insert_resource(ClearColor(Color::DARK_GRAY))
         .insert_resource(options)
-        .insert_resource(bevy::log::LogSettings {
+        .add_plugins(DefaultPlugins.set(LogPlugin {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,spawn=trace".to_string(),
-        })
-        .add_plugins(DefaultPlugins)
+        }))
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin::new())
@@ -45,11 +45,11 @@ fn setup(
     let mut camera = Camera2dBundle::default();
     camera.projection.scale = 1.0;
     camera.projection.scaling_mode = ScalingMode::FixedVertical(1.);
-    commands.spawn_bundle(camera);
+    commands.spawn(camera);
 
     // Spawn a reference white square in the center of the screen at Z=0
     commands
-        .spawn_bundle(MaterialMesh2dBundle {
+        .spawn(MaterialMesh2dBundle {
             mesh: meshes
                 .add(Mesh::from(shape::Quad {
                     size: Vec2::splat(0.2),
@@ -95,7 +95,7 @@ fn setup(
     // Spawn an instance of the particle effect, and override its Z layer to
     // be above the reference white square previously spawned.
     commands
-        .spawn_bundle(ParticleEffectBundle {
+        .spawn(ParticleEffectBundle {
             // Assign the Z layer so it appears in the egui inspector and can be modified at runtime
             effect: ParticleEffect::new(effect).with_z_layer_2d(Some(0.1)),
             ..default()

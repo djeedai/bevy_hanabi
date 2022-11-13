@@ -1,6 +1,7 @@
 //! A circle bounces around in a box and spawns particles
 //! when it hits the wall.
 use bevy::{
+    log::LogPlugin,
     math::Vec3Swizzles,
     prelude::*,
     render::{
@@ -20,11 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
     App::default()
         .insert_resource(options)
-        .insert_resource(bevy::log::LogSettings {
+        .add_plugins(DefaultPlugins.set(LogPlugin {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,spawn=trace".to_string(),
-        })
-        .add_plugins(DefaultPlugins)
+        }))
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin::new())
@@ -55,10 +55,10 @@ fn setup(
     projection.scale = 1.2;
     camera.transform.translation.z = projection.far / 2.0;
     camera.projection = Projection::Orthographic(projection);
-    commands.spawn_bundle(camera);
+    commands.spawn(camera);
 
     commands
-        .spawn_bundle(PbrBundle {
+        .spawn(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Quad {
                 size: Vec2::splat(BOX_SIZE),
                 ..Default::default()
@@ -73,7 +73,7 @@ fn setup(
         .insert(Name::new("box"));
 
     commands
-        .spawn_bundle(PbrBundle {
+        .spawn(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::UVSphere {
                 sectors: 32,
                 stacks: 2,
@@ -116,7 +116,7 @@ fn setup(
     );
 
     commands
-        .spawn_bundle(ParticleEffectBundle::new(effect).with_spawner(spawner))
+        .spawn(ParticleEffectBundle::new(effect).with_spawner(spawner))
         .insert(Name::new("effect"));
 }
 

@@ -2,6 +2,7 @@
 //! particles to always render facing the camera.
 
 use bevy::{
+    log::LogPlugin,
     prelude::*,
     render::{camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings},
 };
@@ -20,11 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // println!("wgpu options: {:?}", options.features);
     App::default()
         .insert_resource(options)
-        .insert_resource(bevy::log::LogSettings {
+        .add_plugins(DefaultPlugins.set(LogPlugin {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,circle=trace".to_string(),
-        })
-        .add_plugins(DefaultPlugins)
+        }))
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin::new())
@@ -50,7 +50,7 @@ fn setup(
         ..Default::default()
     };
 
-    commands.spawn_bundle(camera);
+    commands.spawn(camera);
 
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");
 
@@ -86,7 +86,7 @@ fn setup(
 
     // The ground
     commands
-        .spawn_bundle(PbrBundle {
+        .spawn(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Plane { size: 4.0 })),
             material: materials.add(Color::BLUE.into()),
             transform: Transform::from_xyz(0.0, -0.5, 0.0),
@@ -95,6 +95,6 @@ fn setup(
         .insert(Name::new("ground"));
 
     commands
-        .spawn_bundle(ParticleEffectBundle::new(effect))
+        .spawn(ParticleEffectBundle::new(effect))
         .insert(Name::new("effect"));
 }

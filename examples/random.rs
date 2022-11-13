@@ -2,6 +2,7 @@
 //! Spawns a random number of particles at random times.
 
 use bevy::{
+    log::LogPlugin,
     prelude::*,
     render::{mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings},
 };
@@ -20,11 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // println!("wgpu options: {:?}", options.features);
     App::default()
         .insert_resource(options)
-        .insert_resource(bevy::log::LogSettings {
+        .add_plugins(DefaultPlugins.set(LogPlugin {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,spawn=trace".to_string(),
-        })
-        .add_plugins(DefaultPlugins)
+        }))
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin::new())
@@ -42,9 +42,9 @@ fn setup(
 ) {
     let mut camera = Camera3dBundle::default();
     camera.transform.translation = Vec3::new(0.0, 0.0, 100.0);
-    commands.spawn_bundle(camera);
+    commands.spawn(camera);
 
-    commands.spawn_bundle(DirectionalLightBundle {
+    commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
             color: Color::WHITE,
             // Crank the illuminance way (too) high to make the reference cube clearly visible
@@ -82,16 +82,17 @@ fn setup(
     );
 
     commands
-        .spawn()
-        .insert(Name::new("emit:random"))
-        .insert_bundle(ParticleEffectBundle {
-            effect: ParticleEffect::new(effect),
-            transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
-            ..Default::default()
-        })
+        .spawn((
+            Name::new("emit:random"),
+            ParticleEffectBundle {
+                effect: ParticleEffect::new(effect),
+                transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
+                ..Default::default()
+            },
+        ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin
-            p.spawn().insert_bundle(PbrBundle {
+            p.spawn(PbrBundle {
                 mesh: cube.clone(),
                 material: mat.clone(),
                 ..Default::default()

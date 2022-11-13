@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Switch to Bevy v0.9.
 - Disabled broken effect batching until #73 is fixed, to prevent triggering batching which breaks rendering.
 - Switched to a new internal architecture, splitting the initializing of newly spawned particles from the updating of all alive particles, to achieve more consistent workload on the update compute. Added GPU-driven compute dispatch and rendering, which slighly improves performance and reduces CPU dependency/synchronization. This is mostly an internal change, but with the potential to unblock or facilitate several other issues. (#19)
 - Removed `ParticleEffect::spawner()` from the public API, which was intended for internal use and is a bit confusing.
