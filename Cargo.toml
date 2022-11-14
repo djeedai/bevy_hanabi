@@ -10,7 +10,7 @@ documentation = "https://docs.rs/bevy_hanabi"
 keywords = ["bevy", "particle-system", "particles", "vfx"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-exclude = ["examples/*.gif", "examples/*.png", ".github", "release.md"]
+exclude = ["examples/*.gif", "examples/*.png", ".github", "release.md", "run_examples.bat"]
 
 [features]
 default = [ "2d", "3d", "gpu_tests" ]
