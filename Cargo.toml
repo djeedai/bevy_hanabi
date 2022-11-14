@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.4.2"
+version = "0.5.0"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 description = "Hanabi GPU particle system for the Bevy game engine"
@@ -32,7 +32,7 @@ ron = "0.7"
 bitflags = "1.3"
 
 [dependencies.bevy]
-version = "0.8"
+version = "0.9"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset" ]
 
@@ -40,14 +40,13 @@ features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset" ]
 all-features = true
 
 [dev-dependencies]
-# Same version as Bevy 0.8
-wgpu = "0.13.1"
+# Same version as Bevy 0.9 (bevy_render)
+wgpu = "0.14.0"
+# For shader snippet validation
+naga = "0.10"
 
 futures = "0.3"
-bevy-inspector-egui = "0.12"
-
-# For shader snippet validation
-naga = "0.9"
+bevy-inspector-egui = "0.14"
 
 [[example]]
 name = "spawn"

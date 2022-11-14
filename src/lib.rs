@@ -107,13 +107,14 @@
 //! # fn spawn_effect(mut commands: Commands) {
 //! #   let effect = Handle::weak(HandleId::random::<EffectAsset>());
 //! commands
-//!     .spawn()
-//!     .insert(Name::new("MyEffectInstance"))
-//!     .insert_bundle(ParticleEffectBundle {
-//!         effect: ParticleEffect::new(effect),
-//!         transform: Transform::from_translation(Vec3::new(0., 1., 0.)),
-//!         ..Default::default()
-//!     });
+//!     .spawn((
+//!         Name::new("MyEffectInstance"),
+//!         ParticleEffectBundle {
+//!             effect: ParticleEffect::new(effect),
+//!             transform: Transform::from_translation(Vec3::new(0., 1., 0.)),
+//!             ..Default::default()
+//!         },
+//!     ));
 //! # }
 //! ```
 

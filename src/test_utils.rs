@@ -82,7 +82,9 @@ impl MockRenderer {
         let (device, queue) = futures::executor::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 label: None,
-                features: wgpu::Features::empty(),
+                // Request MAPPABLE_PRIMARY_BUFFERS to allow MAP_WRITE|COPY_DST.
+                // FIXME - Should use a separate buffer from primary to support more platforms.
+                features: wgpu::Features::MAPPABLE_PRIMARY_BUFFERS,
                 limits: wgpu::Limits::downlevel_defaults(),
             },
             None,
@@ -91,7 +93,7 @@ impl MockRenderer {
 
         // Turn into Bevy objects
         let device = RenderDevice::from(std::sync::Arc::new(device));
-        let queue = std::sync::Arc::new(queue);
+        let queue = RenderQueue(std::sync::Arc::new(queue));
 
         Self {
             instance,

@@ -3,6 +3,7 @@
 //! sphere around it. Left Control + Mouse movement orbits the camera.
 //! Mouse scroll wheel zooms the camera.
 use bevy::{
+    log::LogPlugin,
     prelude::*,
     render::{camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings},
 };
@@ -22,11 +23,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
     App::default()
         .insert_resource(options)
-        .insert_resource(bevy::log::LogSettings {
+        .add_plugins(DefaultPlugins.set(LogPlugin {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,spawn=trace".to_string(),
-        })
-        .add_plugins(DefaultPlugins)
+        }))
         .add_system(bevy::window::close_on_esc)
         //.add_plugin(LookTransformPlugin)
         //.add_plugin(OrbitCameraPlugin::default())
@@ -51,7 +51,7 @@ fn setup(
     //     mouse_translate_sensitivity: Vec2::ZERO,
     //     ..Default::default()
     // };
-    // commands.spawn_bundle(OrbitCameraBundle::new(
+    // commands.spawn(OrbitCameraBundle::new(
     //     orbit_controller,
     //     Camera3dBundle::default(),
     //     Vec3::new(0.0, 0.0, 6.0), // eye of the camera
@@ -59,21 +59,21 @@ fn setup(
     // ));
     let mut bundle = Camera3dBundle::default();
     bundle.transform.translation = Vec3::new(0.0, 0.0, 6.0);
-    commands.spawn_bundle(bundle);
+    commands.spawn(bundle);
 
     let attractor1_position = Vec3::new(0.01, 0.0, 0.0);
     let attractor2_position = Vec3::new(1.0, 0.5, 0.0);
 
-    commands.spawn_bundle(PointLightBundle {
+    commands.spawn(PointLightBundle {
         transform: Transform::from_xyz(4.0, 5.0, 4.0),
         ..Default::default()
     });
-    commands.spawn_bundle(PointLightBundle {
+    commands.spawn(PointLightBundle {
         transform: Transform::from_xyz(4.0, -5.0, -4.0),
         ..Default::default()
     });
 
-    commands.spawn_bundle(PbrBundle {
+    commands.spawn(PbrBundle {
         mesh: meshes.add(Mesh::from(shape::UVSphere {
             sectors: 128,
             stacks: 4,
@@ -88,7 +88,7 @@ fn setup(
         ..Default::default()
     });
 
-    commands.spawn_bundle(PbrBundle {
+    commands.spawn(PbrBundle {
         mesh: meshes.add(Mesh::from(shape::UVSphere {
             sectors: 128,
             stacks: 4,
@@ -150,7 +150,7 @@ fn setup(
         .render(ColorOverLifetimeModifier { gradient }),
     );
 
-    commands.spawn_bundle(ParticleEffectBundle::new(effect).with_spawner(spawner));
+    commands.spawn(ParticleEffectBundle::new(effect).with_spawner(spawner));
 }
 
 fn update(

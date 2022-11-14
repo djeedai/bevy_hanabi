@@ -85,7 +85,7 @@ pub(crate) struct MinMaxRect {
 }
 
 /// Simulation parameters.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Resource)]
 pub(crate) struct SimParams {
     /// Current simulation time.
     time: f64,
@@ -221,6 +221,7 @@ pub struct GpuRenderIndirect {
 
 /// Compute pipeline to run the vfx_indirect dispatch workgroup calculation
 /// shader.
+#[derive(Resource)]
 pub(crate) struct DispatchIndirectPipeline {
     dispatch_indirect_layout: BindGroupLayout,
     pipeline_layout: PipelineLayout,
@@ -309,6 +310,7 @@ impl FromWorld for DispatchIndirectPipeline {
     }
 }
 
+#[derive(Resource)]
 pub(crate) struct ParticlesInitPipeline {
     sim_params_layout: BindGroupLayout,
     particles_buffer_layout: BindGroupLayout,
@@ -460,6 +462,7 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
     }
 }
 
+#[derive(Resource)]
 pub(crate) struct ParticlesUpdatePipeline {
     sim_params_layout: BindGroupLayout,
     particles_buffer_layout: BindGroupLayout,
@@ -611,6 +614,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
     }
 }
 
+#[derive(Resource)]
 pub(crate) struct ParticlesRenderPipeline {
     view_layout: BindGroupLayout,
     particles_buffer_layout: BindGroupLayout,
@@ -927,7 +931,7 @@ pub(crate) struct AddedEffect {
 
 /// Collection of all extracted effects for this frame, inserted into the
 /// render world as a render resource.
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub(crate) struct ExtractedEffects {
     /// Map of extracted effects from the entity the source [`ParticleEffect`]
     /// is on.
@@ -938,7 +942,7 @@ pub(crate) struct ExtractedEffects {
     pub added_effects: Vec<AddedEffect>,
 }
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub(crate) struct EffectAssetEvents {
     pub images: Vec<AssetEvent<Image>>,
 }
@@ -1009,7 +1013,7 @@ pub(crate) fn extract_effects(
 
     // Save simulation params into render world
     let dt = time.delta_seconds();
-    sim_params.time = time.seconds_since_startup();
+    sim_params.time = time.elapsed_seconds_f64();
     sim_params.dt = dt;
 
     // Collect removed effects for later GPU data purge
@@ -1103,7 +1107,7 @@ pub(crate) fn extract_effects(
                         .render_layout
                         .particle_texture
                         .clone()
-                        .map_or(HandleId::default::<Image>(), |handle| handle.id),
+                        .map_or(HandleId::default::<Image>(), |handle| handle.id()),
                     init_shader: init_shader.clone(),
                     update_shader: update_shader.clone(),
                     render_shader: render_shader.clone(),
@@ -1149,6 +1153,7 @@ struct GpuParticleVertex {
 /// render for the current frame, for all views in the frame, and consumed by
 /// [`queue_effects()`] to actually enqueue the drawning commands to draw those
 /// effects.
+#[derive(Resource)]
 pub(crate) struct EffectsMeta {
     /// Map from an entity with a [`ParticleEffect`] component attached to it,
     /// to the associated effect slice allocated in an [`EffectCache`].
@@ -1579,7 +1584,7 @@ pub(crate) fn prepare_effects(
                         render_shader,
                         z_sort_key_2d,
                     );
-                    commands.spawn_bundle((EffectBatch {
+                    commands.spawn(EffectBatch {
                         buffer_index: current_buffer_index,
                         spawner_base: spawner_base as u32,
                         spawn_count,
@@ -1597,7 +1602,7 @@ pub(crate) fn prepare_effects(
                         init_pipeline_id,
                         update_pipeline_id,
                         z_sort_key_2d,
-                    },));
+                    });
                     num_emitted += 1;
                 }
             }
@@ -1716,7 +1721,7 @@ pub(crate) fn prepare_effects(
                     update_shader,
                     render_shader
                 );
-                commands.spawn_bundle((EffectBatch {
+                commands.spawn(EffectBatch {
                     buffer_index,
                     spawner_base: spawner_base as u32,
                     spawn_count,
@@ -1734,7 +1739,7 @@ pub(crate) fn prepare_effects(
                     init_pipeline_id,
                     update_pipeline_id,
                     z_sort_key_2d,
-                },));
+                });
                 num_emitted += 1;
             }
             start = range.start;
@@ -1757,7 +1762,7 @@ pub(crate) fn prepare_effects(
             update_shader,
             render_shader
         );
-        commands.spawn_bundle((EffectBatch {
+        commands.spawn(EffectBatch {
             buffer_index: current_buffer_index,
             spawner_base: spawner_base as u32,
             spawn_count,
@@ -1775,7 +1780,7 @@ pub(crate) fn prepare_effects(
             init_pipeline_id,
             update_pipeline_id,
             z_sort_key_2d,
-        },));
+        });
         num_emitted += 1;
     }
     trace!(
@@ -1828,7 +1833,7 @@ pub(crate) fn prepare_effects(
         .write_buffer(&render_device, &render_queue);
 }
 
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub(crate) struct EffectBindGroups {
     /// Bind groups #0 for indirect dispatch shader.
     indirect_dispatch_indirect_dispatch: Option<BindGroup>,

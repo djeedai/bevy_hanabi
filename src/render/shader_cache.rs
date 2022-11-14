@@ -1,6 +1,6 @@
 use bevy::{
     asset::{Assets, Handle},
-    ecs::change_detection::ResMut,
+    ecs::{change_detection::ResMut, system::Resource},
     log::debug,
     render::render_resource::Shader,
     utils::HashMap,
@@ -14,7 +14,7 @@ use bevy::{
 /// Shaders present in the cache are allocated [`Shader`] resources. Note that a
 /// [`Shader`] resource _may_ further be preprocessed to replace `#define`
 /// directives; to this extent, some entries may not be compilable WGSL as is.
-#[derive(Default)]
+#[derive(Default, Resource)]
 pub struct ShaderCache {
     /// Map of allocated shader resources from their baked shader code.
     cache: HashMap<String, Handle<Shader>>,

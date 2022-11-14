@@ -1,4 +1,7 @@
-use bevy::reflect::Reflect;
+use bevy::{
+    ecs::system::Resource,
+    reflect::{FromReflect, Reflect},
+};
 use rand::{
     distributions::{uniform::SampleUniform, Distribution, Uniform},
     SeedableRng,
@@ -15,6 +18,7 @@ pub(crate) fn new_rng() -> Pcg32 {
 }
 
 /// An RNG resource
+#[derive(Resource)]
 pub struct Random(pub Pcg32);
 
 /// A constant or random value.
@@ -79,7 +83,7 @@ impl<T: Copy> From<T> for Value<T> {
 /// spawner ticks, once per frame, it calculates a number of particles to emit
 /// for this tick. This spawn count is passed to the GPU for the init compute
 /// pass to actually allocate the new particles and initialize them.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Reflect)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Reflect, FromReflect)]
 pub struct Spawner {
     /// Number of particles to spawn over [`spawn_time`].
     ///
