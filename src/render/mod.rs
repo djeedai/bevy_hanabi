@@ -2718,7 +2718,8 @@ impl Node for ParticleUpdateNode {
         }
 
         // Compute indirect dispatch pass
-        {
+        if effects_meta.spawner_buffer.buffer().is_some() {
+            // Only if there's an effect
             let mut compute_pass =
                 render_context
                     .command_encoder
