@@ -5,6 +5,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add support for HDR cameras (`Camera::hdr == true`).
+
 ### Fixed
 
 - Fix a panic when running the plugin without any effect.

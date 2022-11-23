@@ -40,7 +40,14 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle::default();
+    // Spawn a camera. For this example, we also demonstrate that we can use an HDR camera.
+    let mut camera = Camera3dBundle {
+        camera: Camera {
+            hdr: true,
+            ..default()
+        },
+        ..default()
+    };
     camera.transform.translation = Vec3::new(0.0, 0.0, 100.0);
     commands.spawn(camera);
 
