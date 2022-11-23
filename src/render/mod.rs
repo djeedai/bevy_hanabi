@@ -15,7 +15,10 @@ use bevy::{
         render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
-        view::{ComputedVisibility, Msaa, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{
+            ComputedVisibility, ExtractedView, Msaa, ViewTarget, ViewUniform, ViewUniformOffset,
+            ViewUniforms,
+        },
         Extract,
     },
     time::Time,
@@ -730,6 +733,8 @@ pub(crate) struct ParticleRenderPipelineKey {
     pipeline_mode: PipelineMode,
     /// MSAA sample count.
     msaa_samples: u32,
+    /// Is the camera using an HDR render target?
+    hdr: bool,
 }
 
 impl Default for ParticleRenderPipelineKey {
@@ -740,6 +745,7 @@ impl Default for ParticleRenderPipelineKey {
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
             msaa_samples: Msaa::default().samples,
+            hdr: false,
         }
     }
 }
@@ -832,6 +838,12 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             bias: DepthBiasState::default(),
         });
 
+        let format = if key.hdr {
+            ViewTarget::TEXTURE_FORMAT_HDR
+        } else {
+            TextureFormat::bevy_default()
+        };
+
         RenderPipelineDescriptor {
             vertex: VertexState {
                 shader: key.shader.clone(),
@@ -844,7 +856,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 shader_defs,
                 entry_point: "fragment".into(),
                 targets: vec![Some(ColorTargetState {
-                    format: TextureFormat::bevy_default(),
+                    format,
                     blend: Some(BlendState::ALPHA_BLENDING),
                     write_mask: ColorWrites::ALL,
                 })],
@@ -1868,8 +1880,8 @@ pub(crate) struct QueueEffectsReadOnlyParams<'w, 's> {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn queue_effects(
-    #[cfg(feature = "2d")] mut views_2d: Query<&mut RenderPhase<Transparent2d>>,
-    #[cfg(feature = "3d")] mut views_3d: Query<&mut RenderPhase<Transparent3d>>,
+    #[cfg(feature = "2d")] mut views_2d: Query<(&mut RenderPhase<Transparent2d>, &ExtractedView)>,
+    #[cfg(feature = "3d")] mut views_3d: Query<(&mut RenderPhase<Transparent3d>, &ExtractedView)>,
     mut effects_meta: ResMut<EffectsMeta>,
     render_device: Res<RenderDevice>,
     view_uniforms: Res<ViewUniforms>,
@@ -2141,7 +2153,7 @@ pub(crate) fn queue_effects(
             .read()
             .get_id::<DrawEffects>()
             .unwrap();
-        for mut transparent_phase_2d in views_2d.iter_mut() {
+        for (mut transparent_phase_2d, view) in views_2d.iter_mut() {
             trace!("Process new Transparent2d view");
             // For each view, loop over all the effect batches to determine if the effect
             // needs to be rendered for that view, and enqueue a view-dependent
@@ -2205,9 +2217,10 @@ pub(crate) fn queue_effects(
 
                 // Specialize the render pipeline based on the effect batch
                 trace!(
-                    "Specializing render pipeline: render_shader={:?} particle_texture={:?}",
+                    "Specializing render pipeline: render_shader={:?} particle_texture={:?} hdr={}",
                     batch.render_shader,
-                    particle_texture
+                    particle_texture,
+                    view.hdr
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
                     &mut pipeline_cache,
@@ -2218,6 +2231,7 @@ pub(crate) fn queue_effects(
                         #[cfg(feature = "3d")]
                         pipeline_mode: PipelineMode::Camera2d,
                         msaa_samples: msaa.samples,
+                        hdr: view.hdr,
                     },
                 );
                 trace!("Render pipeline specialized: id={:?}", render_pipeline_id);
@@ -2243,7 +2257,7 @@ pub(crate) fn queue_effects(
             .read()
             .get_id::<DrawEffects>()
             .unwrap();
-        for mut transparent_phase_3d in views_3d.iter_mut() {
+        for (mut transparent_phase_3d, view) in views_3d.iter_mut() {
             trace!("Process new Transparent3d view");
             // For each view, loop over all the effect batches to determine if the effect
             // needs to be rendered for that view, and enqueue a view-dependent
@@ -2307,9 +2321,10 @@ pub(crate) fn queue_effects(
 
                 // Specialize the render pipeline based on the effect batch
                 trace!(
-                    "Specializing render pipeline: render_shader={:?} particle_texture={:?}",
+                    "Specializing render pipeline: render_shader={:?} particle_texture={:?} hdr={}",
                     batch.render_shader,
-                    particle_texture
+                    particle_texture,
+                    view.hdr
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
                     &mut pipeline_cache,
@@ -2320,6 +2335,7 @@ pub(crate) fn queue_effects(
                         #[cfg(feature = "2d")]
                         pipeline_mode: PipelineMode::Camera3d,
                         msaa_samples: msaa.samples,
+                        hdr: view.hdr,
                     },
                 );
                 trace!("Render pipeline specialized: id={:?}", render_pipeline_id);
