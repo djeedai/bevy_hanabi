@@ -17,7 +17,7 @@ use bevy::{
         texture::{BevyDefault, Image},
         view::{
             ComputedVisibility, ExtractedView, Msaa, ViewTarget, ViewUniform, ViewUniformOffset,
-            ViewUniforms,
+            ViewUniforms, VisibleEntities,
         },
         Extract,
     },
@@ -1331,6 +1331,9 @@ pub(crate) struct EffectBatch {
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
     z_sort_key_2d: FloatOrd,
+    /// Entities holding the source [`ParticleEffect`] instances which were
+    /// batched into this single batch. Used to determine visibility per view.
+    entities: Vec<u32>,
 }
 
 pub(crate) fn prepare_effects(
@@ -1514,13 +1517,13 @@ pub(crate) fn prepare_effects(
         .map(|(entity, extracted_effect)| {
             let id = *effects_meta.entity_map.get(entity).unwrap();
             let slice = effects_meta.effect_cache.get_slice(id);
-            (slice, extracted_effect, id.0 as u32)
+            (entity.index(), slice, extracted_effect, id.0 as u32)
         })
         .collect::<Vec<_>>();
     trace!("Collected {} extracted effects", effect_entity_list.len());
 
     // Sort first by effect buffer, then by slice range (see EffectSlice)
-    effect_entity_list.sort_by(|a, b| a.0.cmp(&b.0));
+    effect_entity_list.sort_by(|a, b| a.1.cmp(&b.1));
 
     // Loop on all extracted effects in order
     effects_meta.spawner_buffer.clear();
@@ -1543,7 +1546,8 @@ pub(crate) fn prepare_effects(
     let mut init_pipeline_id = CachedComputePipelineId::INVALID;
     let mut update_pipeline_id = CachedComputePipelineId::INVALID;
     let mut z_sort_key_2d = FloatOrd(f32::NAN);
-    for (slice, extracted_effect, effect_index) in effect_entity_list {
+    let mut entities = Vec::<u32>::with_capacity(4);
+    for (entity_index, slice, extracted_effect, effect_index) in effect_entity_list {
         let buffer_index = slice.group_index;
         let range = slice.slice;
         layout_flags = if extracted_effect.has_image {
@@ -1585,7 +1589,7 @@ pub(crate) fn prepare_effects(
                     assert_ne!(asset, Handle::<EffectAsset>::default());
                     assert!(item_size > 0);
                     trace!(
-                        "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | item_size {} | init_shader {:?} | update_shader {:?} | render_shader {:?} | z_sort_key_2d {:?}",
+                        "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | item_size {} | init_shader {:?} | update_shader {:?} | render_shader {:?} | z_sort_key_2d {:?} | entities {}",
                         current_buffer_index,
                         spawner_base,
                         spawn_count,
@@ -1595,6 +1599,7 @@ pub(crate) fn prepare_effects(
                         update_shader,
                         render_shader,
                         z_sort_key_2d,
+                        entities.len(),
                     );
                     commands.spawn(EffectBatch {
                         buffer_index: current_buffer_index,
@@ -1614,6 +1619,7 @@ pub(crate) fn prepare_effects(
                         init_pipeline_id,
                         update_pipeline_id,
                         z_sort_key_2d,
+                        entities: std::mem::take(&mut entities),
                     });
                     num_emitted += 1;
                 }
@@ -1689,6 +1695,8 @@ pub(crate) fn prepare_effects(
         spawn_count = extracted_effect.spawn_count;
         trace!("spawn_count = {}", spawn_count);
 
+        entities.push(entity_index);
+
         // extract the force field and turn it into a struct that is compliant with
         // GPU use, namely GpuForceFieldSource
         let mut extracted_force_field =
@@ -1724,14 +1732,15 @@ pub(crate) fn prepare_effects(
                 assert_ne!(asset, Handle::<EffectAsset>::default());
                 assert!(item_size > 0);
                 trace!(
-                    "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | item_size {} | update_shader {:?} | render_shader {:?}",
+                    "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | item_size {} | update_shader {:?} | render_shader {:?} | entities {}",
                     buffer_index,
                     spawner_base,
                     spawn_count,
                     start..end,
                     item_size,
                     update_shader,
-                    render_shader
+                    render_shader,
+                    entities.len(),
                 );
                 commands.spawn(EffectBatch {
                     buffer_index,
@@ -1751,6 +1760,7 @@ pub(crate) fn prepare_effects(
                     init_pipeline_id,
                     update_pipeline_id,
                     z_sort_key_2d,
+                    entities: std::mem::take(&mut entities),
                 });
                 num_emitted += 1;
             }
@@ -1765,14 +1775,15 @@ pub(crate) fn prepare_effects(
         assert_ne!(asset, Handle::<EffectAsset>::default());
         assert!(item_size > 0);
         trace!(
-            "Emit LAST batch: buffer #{} | spawner_base {} | spawn_count{} | slice {:?} | item_size {} | update_shader {:?} | render_shader {:?}",
+            "Emit LAST batch: buffer #{} | spawner_base {} | spawn_count{} | slice {:?} | item_size {} | update_shader {:?} | render_shader {:?} | entities {}",
             current_buffer_index,
             spawner_base,
             spawn_count,
             start..end,
             item_size,
             update_shader,
-            render_shader
+            render_shader,
+            entities.len(),
         );
         commands.spawn(EffectBatch {
             buffer_index: current_buffer_index,
@@ -1792,6 +1803,7 @@ pub(crate) fn prepare_effects(
             init_pipeline_id,
             update_pipeline_id,
             z_sort_key_2d,
+            entities,
         });
         num_emitted += 1;
     }
@@ -1880,8 +1892,16 @@ pub(crate) struct QueueEffectsReadOnlyParams<'w, 's> {
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn queue_effects(
-    #[cfg(feature = "2d")] mut views_2d: Query<(&mut RenderPhase<Transparent2d>, &ExtractedView)>,
-    #[cfg(feature = "3d")] mut views_3d: Query<(&mut RenderPhase<Transparent3d>, &ExtractedView)>,
+    #[cfg(feature = "2d")] mut views_2d: Query<(
+        &mut RenderPhase<Transparent2d>,
+        &VisibleEntities,
+        &ExtractedView,
+    )>,
+    #[cfg(feature = "3d")] mut views_3d: Query<(
+        &mut RenderPhase<Transparent3d>,
+        &VisibleEntities,
+        &ExtractedView,
+    )>,
     mut effects_meta: ResMut<EffectsMeta>,
     render_device: Res<RenderDevice>,
     view_uniforms: Res<ViewUniforms>,
@@ -2153,8 +2173,15 @@ pub(crate) fn queue_effects(
             .read()
             .get_id::<DrawEffects>()
             .unwrap();
-        for (mut transparent_phase_2d, view) in views_2d.iter_mut() {
+        for (mut transparent_phase_2d, visible_entities, view) in views_2d.iter_mut() {
             trace!("Process new Transparent2d view");
+
+            let view_entities: Vec<u32> = visible_entities
+                .entities
+                .iter()
+                .map(|e| e.index())
+                .collect();
+
             // For each view, loop over all the effect batches to determine if the effect
             // needs to be rendered for that view, and enqueue a view-dependent
             // batch if so.
@@ -2166,6 +2193,28 @@ pub(crate) fn queue_effects(
                     batch.spawner_base,
                     batch.slice
                 );
+
+                // Check if batch contains any entity visible in the current view. Otherwise we
+                // can skip the entire batch. Note: This is O(n^2) but (unlike
+                // the Sprite renderer this is inspired from) we don't expect more than
+                // a handful of particle effect instances, so would rather not pay the memory
+                // cost of a FixedBitSet for the sake of an arguable speed-up.
+                // TODO - Profile to confirm.
+                let mut has_visible_entity = false;
+                for index in &view_entities {
+                    // Larger loop outside, smaller one inside.
+                    if batch.entities.contains(index) {
+                        has_visible_entity = true;
+                        break;
+                    }
+                }
+                if !has_visible_entity {
+                    continue;
+                }
+
+                // FIXME - We draw the entire batch, but part of it may not be visible in this
+                // view! We should re-batch for the current view specifically!
+
                 // Ensure the particle texture is available as a GPU resource and create a bind
                 // group for it
                 let particle_texture = if batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE)
@@ -2257,8 +2306,15 @@ pub(crate) fn queue_effects(
             .read()
             .get_id::<DrawEffects>()
             .unwrap();
-        for (mut transparent_phase_3d, view) in views_3d.iter_mut() {
+        for (mut transparent_phase_3d, visible_entities, view) in views_3d.iter_mut() {
             trace!("Process new Transparent3d view");
+
+            let view_entities: Vec<u32> = visible_entities
+                .entities
+                .iter()
+                .map(|e| e.index())
+                .collect();
+
             // For each view, loop over all the effect batches to determine if the effect
             // needs to be rendered for that view, and enqueue a view-dependent
             // batch if so.
@@ -2270,6 +2326,28 @@ pub(crate) fn queue_effects(
                     batch.spawner_base,
                     batch.slice
                 );
+
+                // Check if batch contains any entity visible in the current view. Otherwise we
+                // can skip the entire batch. Note: This is O(n^2) but (unlike
+                // the Sprite renderer this is inspired from) we don't expect more than
+                // a handful of particle effect instances, so would rather not pay the memory
+                // cost of a FixedBitSet for the sake of an arguable speed-up.
+                // TODO - Profile to confirm.
+                let mut has_visible_entity = false;
+                for index in &view_entities {
+                    // Larger loop outside, smaller one inside.
+                    if batch.entities.contains(index) {
+                        has_visible_entity = true;
+                        break;
+                    }
+                }
+                if !has_visible_entity {
+                    continue;
+                }
+
+                // FIXME - We draw the entire batch, but part of it may not be visible in this
+                // view! We should re-batch for the current view specifically!
+
                 // Ensure the particle texture is available as a GPU resource and create a bind
                 // group for it
                 let particle_texture = if batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE)

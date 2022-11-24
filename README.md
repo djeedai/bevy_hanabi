@@ -131,6 +131,16 @@ This example shows how to use 🎆 Hanabi with a 2D camera.
 cargo run --example 2d --features="bevy/bevy_winit bevy/bevy_sprite 2d"
 ```
 
+### Multi-camera
+
+The example demonstrates the use of multiple cameras and render layers to selectively render effects. Each camera uses a different combination of layers, and each effect is assigned a different layer.
+
+```shell
+cargo run --example multicam --features="bevy/bevy_winit bevy/bevy_pbr 3d"
+```
+
+![multicam](examples/multicam.gif)
+
 ### Activate
 
 This example demonstrates manual activation and deactivation of a spawner, from code (CPU). The circle bobs up and down in the water, spawning square bubbles when in the water only.
@@ -256,9 +266,11 @@ The image on the left has the `BillboardModifier` enabled.
   - [ ] Deformation
     - [ ] Velocity (trail)
   - [x] Camera support
+    - [x] Render layers
     - [x] 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.9.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) only
     - [x] 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.9.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) only
     - [x] Simultaneous dual 2D/3D cameras
+    - [x] Multiple viewports (split screen)
   - [x] Face camera (Billboard)
   - [ ] Face constant direction
 - Debug

@@ -8,10 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Add support for HDR cameras (`Camera::hdr == true`).
+- Add support for render layers (`RenderLayers`), allowing to select which camera(s) renders the `ParticleEffect`s.
 
 ### Fixed
 
 - Fix a panic when running the plugin without any effect.
+- Fix a bug in the way `BillboardModifier` was projecting the particle vertices onto the camera plane, producing some partial or total clipping of particles.
 
 ## [0.5.0] 2022-11-14
 

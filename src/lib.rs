@@ -389,8 +389,8 @@ const DEFAULT_FORCE_FIELD_CODE: &str = r##"
 const FORCE_FIELD_CODE: &str = include_str!("render/force_field_code.wgsl");
 
 const ENABLED_BILLBOARD_CODE: &str = r##"
-    let camera_up = view.view * vec4<f32>(0.0, 1.0, 0.0, 1.0);
-    let camera_right = view.view * vec4<f32>(1.0, 0.0, 0.0, 1.0);
+    let camera_right = view.view[0];
+    let camera_up = view.view[1];
 
     let world_position = vec4<f32>(particle.pos, 1.0)
         + camera_right * vertex_position.x * size.x

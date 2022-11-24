@@ -1,7 +1,10 @@
 use bevy::{
     log::LogPlugin,
     prelude::*,
-    render::{mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings},
+    render::{
+        mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings,
+        view::RenderLayers,
+    },
 };
 use bevy_inspector_egui::WorldInspectorPlugin;
 use std::f32::consts::PI;
@@ -40,7 +43,8 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Spawn a camera. For this example, we also demonstrate that we can use an HDR camera.
+    // Spawn a camera. For this example, we also demonstrate that we can use an HDR
+    // camera.
     let mut camera = Camera3dBundle {
         camera: Camera {
             hdr: true,
@@ -49,7 +53,10 @@ fn setup(
         ..default()
     };
     camera.transform.translation = Vec3::new(0.0, 0.0, 100.0);
-    commands.spawn(camera);
+
+    // For this example, we assign to the camera a specific render layer (3)
+    // different from the default (0) to demonstrate it works.
+    commands.spawn((camera, RenderLayers::layer(3)));
 
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");
 
@@ -73,7 +80,13 @@ fn setup(
     );
 
     commands
-        .spawn((Name::new("effect"), ParticleEffectBundle::new(effect)))
+        .spawn((
+            Name::new("effect"),
+            ParticleEffectBundle::new(effect),
+            // We need to spawn the effect with the same render layer as the camera, otherwise it
+            // won't be rendered.
+            RenderLayers::layer(3),
+        ))
         .with_children(|p| {
             p.spawn(PbrBundle {
                 mesh: meshes.add(Mesh::from(Cube { size: 1.0 })),
