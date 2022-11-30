@@ -195,15 +195,15 @@ impl InitModifier for PositionCone3dModifier {
     // Truncated cone height
     let h0 = {0};
     // Random height ratio
-    let alpha_h = pow(rand(), 1.0 / 3.0);
-    // Random delta height from top
+    let alpha_h = 1.0 - pow(rand(), 1.0 / 3.0);
+    // Random delta height from bottom
     let h = h0 * alpha_h;
     // Top radius
     let rt = {1};
     // Bottom radius
     let rb = {2};
     // Radius at height h
-    let r0 = rt + (rb - rt) * alpha_h;
+    let r0 = rb + (rt - rb) * alpha_h;
     // Random delta radius
     let alpha_r = sqrt(rand());
     // Random radius at height h
