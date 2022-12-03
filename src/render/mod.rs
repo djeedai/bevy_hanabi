@@ -7,6 +7,7 @@ use bevy::{
     },
     log::trace,
     math::{Mat4, Vec2, Vec3},
+    prelude::*,
     render::{
         color::Color,
         render_asset::RenderAssets,
@@ -77,14 +78,6 @@ pub enum EffectSystems {
     PrepareEffects,
     /// Queue the GPU commands for the extracted effects.
     QueueEffects,
-}
-
-/// Reimplementing of bevy::sprite::Rect to avoid the dependency.
-/// See <https://github.com/bevyengine/bevy/issues/5575>
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub(crate) struct MinMaxRect {
-    pub min: Vec2,
-    pub max: Vec2,
 }
 
 /// Simulation parameters.
@@ -904,7 +897,7 @@ pub(crate) struct ExtractedEffect {
     force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Particles tint to modulate with the texture image.
     pub color: Color,
-    pub rect: MinMaxRect,
+    pub rect: Rect,
     // Texture to use for the sprites of the particles of this effect.
     //pub image: Handle<Image>,
     pub has_image: bool, // TODO -> use flags
@@ -1108,7 +1101,7 @@ pub(crate) fn extract_effects(
                     transform: transform.compute_matrix(),
                     accel,
                     force_field,
-                    rect: MinMaxRect {
+                    rect: Rect {
                         min: Vec2::splat(-0.1),
                         max: Vec2::splat(0.1), // effect
                                                //.custom_size
