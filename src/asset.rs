@@ -19,19 +19,17 @@ use crate::{
 
 /// Struct containing snippets of WSGL code that can be used
 /// to define the initial conditions of particles on the GPU.
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct InitLayout {
     /// Code to define the initial position of particles.
     pub position_code: String,
-    /// WSGL code to initialize interactions with force fields. (Unused?)
-    pub force_field_code: String,
     /// WSGL code to set the initial lifetime of the particle.
     pub lifetime_code: String,
 }
 
 /// Struct containing snippets of WSGL code that can be used
 /// to update the particles every frame on the GPU.
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct UpdateLayout {
     /// Constant acceleration to apply to all particles.
     /// Generally used to simulate some kind of gravity.
@@ -50,7 +48,7 @@ pub struct UpdateLayout {
 
 /// Struct containing data and snippets of WSGL code that can be used
 /// to render the particles every frame on the GPU.
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct RenderLayout {
     /// If set, defines the PARTICLE_TEXTURE shader key and extend the vertex
     /// format to contain UV coordinates. Also make available the image as a
@@ -73,7 +71,7 @@ pub struct RenderLayout {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Default, Clone, Serialize, Deserialize, Resource, Reflect, TypeUuid)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, Resource, Reflect, TypeUuid)]
 #[reflect(Resource)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
@@ -167,5 +165,65 @@ impl AssetLoader for EffectAssetLoader {
 
     fn extensions(&self) -> &[&str] {
         &["effect"]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::*;
+
+    use super::*;
+
+    #[test]
+    fn test_apply_modifiers() {
+        let effect = EffectAsset {
+            name: "Effect".into(),
+            capacity: 4096,
+            spawner: Spawner::rate(30.0.into()),
+            ..Default::default()
+        }
+        .init(PositionSphereModifier::default())
+        .init(ParticleLifetimeModifier::default())
+        .update(AccelModifier::default())
+        .update(LinearDragModifier::default())
+        .update(ForceFieldModifier::default())
+        .render(ParticleTextureModifier::default())
+        .render(ColorOverLifetimeModifier::default())
+        .render(SizeOverLifetimeModifier::default())
+        .render(BillboardModifier::default());
+
+        assert_eq!(effect.capacity, 4096);
+
+        let mut init_layout = InitLayout::default();
+        PositionSphereModifier::default().apply(&mut init_layout);
+        ParticleLifetimeModifier::default().apply(&mut init_layout);
+        assert_eq!(effect.init_layout, init_layout);
+
+        let mut update_layout = UpdateLayout::default();
+        AccelModifier::default().apply(&mut update_layout);
+        LinearDragModifier::default().apply(&mut update_layout);
+        ForceFieldModifier::default().apply(&mut update_layout);
+        assert_eq!(effect.update_layout, update_layout);
+
+        let mut render_layout = RenderLayout::default();
+        ParticleTextureModifier::default().apply(&mut render_layout);
+        ColorOverLifetimeModifier::default().apply(&mut render_layout);
+        SizeOverLifetimeModifier::default().apply(&mut render_layout);
+        BillboardModifier::default().apply(&mut render_layout);
+        assert_eq!(effect.render_layout, render_layout);
+    }
+
+    #[test]
+    fn test_serde_ron() {
+        let effect = EffectAsset {
+            name: "Effect".into(),
+            capacity: 4096,
+            spawner: Spawner::rate(30.0.into()),
+            ..Default::default()
+        };
+
+        let s = ron::to_string(&effect).unwrap();
+        let effect_serde: EffectAsset = ron::from_str(&s).unwrap();
+        assert_eq!(effect, effect_serde);
     }
 }

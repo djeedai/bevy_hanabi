@@ -34,7 +34,7 @@ impl UpdateModifier for AccelModifier {
 /// position, with a decreasing intensity the further away from the source the
 /// particle is. This force is added to the one(s) of all the other active
 /// sources of a [`ForceFieldModifier`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ForceFieldSource {
     /// Position of the source.
     pub position: Vec3,
