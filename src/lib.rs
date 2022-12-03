@@ -365,6 +365,28 @@ impl ParticleEffect {
         }
         self.spawner.as_mut().unwrap()
     }
+
+    /// Get the init, update, and render shaders if they're all configured, or `None` otherwise.
+    pub(crate) fn get_configured_shaders(
+        &self,
+    ) -> Option<(Handle<Shader>, Handle<Shader>, Handle<Shader>)> {
+        let init_shader = if let Some(init_shader) = &self.configured_init_shader {
+            init_shader.clone()
+        } else {
+            return None;
+        };
+        let update_shader = if let Some(update_shader) = &self.configured_update_shader {
+            update_shader.clone()
+        } else {
+            return None;
+        };
+        let render_shader = if let Some(render_shader) = &self.configured_render_shader {
+            render_shader.clone()
+        } else {
+            return None;
+        };
+        Some((init_shader, update_shader, render_shader))
+    }
 }
 
 const PARTICLES_INIT_SHADER_TEMPLATE: &str = include_str!("render/vfx_init.wgsl");
