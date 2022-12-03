@@ -144,6 +144,28 @@ impl UpdateModifier for ForceFieldModifier {
     }
 }
 
+/// A modifier to apply a linear drag force to all particles each frame. The
+/// force slows down the particles without changing their direction.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct LinearDragModifier {
+    /// Drag coefficient. Higher values increase the drag force, and
+    /// consequently decrease the particle's speed faster.
+    pub drag: f32,
+}
+
+impl LinearDragModifier {
+    /// Instantiate a [`LinearDragModifier`].
+    pub fn new(drag: f32) -> Self {
+        Self { drag }
+    }
+}
+
+impl UpdateModifier for LinearDragModifier {
+    fn apply(&self, layout: &mut UpdateLayout) {
+        layout.drag_coefficient = self.drag;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +244,15 @@ mod tests {
     fn mod_force_field_new_too_many() {
         let count = ForceFieldSource::MAX_SOURCES + 1;
         ForceFieldModifier::new((0..count).map(|_| ForceFieldSource::default()));
+    }
+
+    #[test]
+    fn mod_drag() {
+        let modifier = LinearDragModifier { drag: 3.5 };
+
+        let mut layout = UpdateLayout::default();
+        modifier.apply(&mut layout);
+
+        assert_eq!(layout.drag_coefficient, 3.5);
     }
 }

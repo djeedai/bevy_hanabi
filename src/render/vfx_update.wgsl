@@ -164,6 +164,10 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
+    // Drag
+{{DRAG_CODE}}
+
+    // Force field
 {{FORCE_FIELD_CODE}}
 
     // Increment alive particle count and write indirection index for later rendering

@@ -36,6 +36,13 @@ pub struct UpdateLayout {
     /// Constant acceleration to apply to all particles.
     /// Generally used to simulate some kind of gravity.
     pub accel: Vec3,
+    /// Linear drag coefficient.
+    ///
+    /// Amount of (linear) drag force applied to the particles each frame, as a
+    /// fraction of the particle's acceleration. Higher values slow down the
+    /// particle in a shorter amount of time. Defaults to zero (disabled; no
+    /// drag force).
+    pub drag_coefficient: f32,
     /// Array of force field components with a maximum number of components
     /// determined by [`ForceFieldSource::MAX_SOURCES`].
     pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
