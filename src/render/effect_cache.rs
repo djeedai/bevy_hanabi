@@ -517,6 +517,49 @@ mod gpu_tests {
     use super::*;
 
     #[test]
+    fn effect_slice_ord() {
+        let slice1 = EffectSlice {
+            slice: 0..32,
+            group_index: 1,
+            item_size: 48,
+        };
+        let slice2 = EffectSlice {
+            slice: 32..64,
+            group_index: 1,
+            item_size: 48,
+        };
+        assert!(slice1 < slice2);
+        assert!(slice1 <= slice2);
+        assert!(slice2 > slice1);
+        assert!(slice2 >= slice1);
+
+        let slice3 = EffectSlice {
+            slice: 0..32,
+            group_index: 0,
+            item_size: 48,
+        };
+        assert!(slice3 < slice1);
+        assert!(slice3 < slice2);
+        assert!(slice1 > slice3);
+        assert!(slice2 > slice3);
+    }
+
+    #[test]
+    fn slice_ref() {
+        for (range, item_size, len, byte_size) in [
+            (0..0, 0, 0, 0),
+            (0..0, 16, 0, 0),
+            (0..16, 0, 16, 0),
+            (0..16, 32, 16, 16 * 32),
+            (240..256, 48, 16, 16 * 48),
+        ] {
+            let sr = SliceRef { range, item_size };
+            assert_eq!(sr.len(), len);
+            assert_eq!(sr.byte_size(), byte_size);
+        }
+    }
+
+    #[test]
     fn effect_buffer() {
         let renderer = MockRenderer::new();
         let render_device = renderer.device();
