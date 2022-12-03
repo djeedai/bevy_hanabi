@@ -103,6 +103,16 @@ commands
 
 See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/fd2baca5f26183a50551518a9c0bc9063bc1b6f4/examples) folder.
 
+### Firework
+
+Combine the `PositionSphereModifier` for spawning and `LinearDragModifier` to slow down particles, to create a firework effect. This example makes use of an HDR camera with Bloom. See the example file for more details about how the effect is designed.
+
+```shell
+cargo run --example firework --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
+```
+
+![firework](./examples/firework.gif)
+
 ### Gradient
 
 Animate an emitter by moving its `Transform` component, and emit textured quad particles with a `ColorOverLifetimeModifier`.
@@ -242,7 +252,7 @@ The image on the left has the `BillboardModifier` enabled.
     - [ ] generic mesh / point cloud (?)
   - [ ] Random position offset
   - [x] Constant velocity
-  - [x] Random velocity
+  - [x] Random velocity (partial; linked to emitter type)
   - [ ] Constant color
   - [ ] Random color
 - Update
@@ -250,6 +260,7 @@ The image on the left has the `BillboardModifier` enabled.
   - [x] Apply forces
     - [x] Constant (gravity)
     - [x] Force field
+    - [x] Linear drag
   - [ ] Collision
     - [ ] Shape
       - [ ] plane
@@ -271,6 +282,7 @@ The image on the left has the `BillboardModifier` enabled.
     - [x] 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.9.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) only
     - [x] Simultaneous dual 2D/3D cameras
     - [x] Multiple viewports (split screen)
+    - [x] HDR camera and bloom
   - [x] Face camera (Billboard)
   - [ ] Face constant direction
 - Debug

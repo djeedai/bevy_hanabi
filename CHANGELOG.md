@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for HDR cameras (`Camera::hdr == true`).
 - Add support for render layers (`RenderLayers`), allowing to select which camera(s) renders the `ParticleEffect`s.
+- Add support for linear drag force via the `LinearDragModifier`. This enables slowing down the particles over time.
 
 ### Fixed
 

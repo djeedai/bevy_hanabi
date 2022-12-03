@@ -297,6 +297,7 @@ pub struct ParticleEffect {
     // ticking the spawner and the extract/prepare/queue render stages consuming them.
     spawn_count: u32,
     accel: Vec3,
+    drag: f32,
     #[reflect(ignore)]
     force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     position_code: String,
@@ -318,6 +319,7 @@ impl ParticleEffect {
             //
             spawn_count: 0,
             accel: Vec3::ZERO,
+            drag: 0.,
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
             position_code: String::default(),
             force_field_code: String::default(),
@@ -400,6 +402,9 @@ const ENABLED_BILLBOARD_CODE: &str = r##"
 const DISABLED_BILLBOARD_CODE: &str = r##"
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
     let world_position = vec4<f32>(particle.pos + vpos, 1.0);
+"##;
+
+const DRAG_CODE: &str = r##"vVel = vVel * max(0., (1. - {{DRAG}} * sim_params.dt));
 "##;
 
 /// Trait to convert any data structure to its equivalent shader code.
@@ -567,6 +572,7 @@ fn tick_spawners(
 
             // Extract the acceleration
             let accel = asset.update_layout.accel;
+            let drag_coefficient = asset.update_layout.drag_coefficient;
             let force_field = asset.update_layout.force_field;
 
             // Generate the shader code for the position initializing of newly emitted
@@ -597,6 +603,12 @@ fn tick_spawners(
                 FORCE_FIELD_CODE.to_owned()
             };
 
+            let drag_code = if drag_coefficient > 0. {
+                DRAG_CODE.replace("{{DRAG}}", &drag_coefficient.to_wgsl_string())
+            } else {
+                "".to_string()
+            };
+
             // Generate the shader code for the color over lifetime gradient.
             // TODO - Move that to a pre-pass, not each frame!
             let mut vertex_modifiers = asset
@@ -625,8 +637,9 @@ fn tick_spawners(
 
             // Configure the update shader template, and make sure a corresponding shader
             // asset exists
-            let update_shader_source =
+            let mut update_shader_source =
                 PARTICLES_UPDATE_SHADER_TEMPLATE.replace("{{FORCE_FIELD_CODE}}", &force_field_code);
+            update_shader_source = update_shader_source.replace("{{DRAG_CODE}}", &drag_code);
             let update_shader = shader_cache.get_or_insert(&update_shader_source, &mut shaders);
 
             // Configure the render shader template, and make sure a corresponding shader
