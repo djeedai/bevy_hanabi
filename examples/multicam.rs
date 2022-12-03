@@ -85,7 +85,7 @@ fn setup(
     ];
 
     // Spawn 4 cameras in grid, "4-player couch co-op"-style
-    for i in 0..=3_usize {
+    for (i, layer) in layers.iter().enumerate() {
         let x = (i % 2) as f32 * 100. - 50.;
         let z = (i / 2) as f32 * 100. - 50.;
         commands.spawn((
@@ -112,7 +112,7 @@ fn setup(
             SplitCamera {
                 pos: UVec2::new(i as u32 % 2, i as u32 / 2),
             },
-            layers[i],
+            *layer,
         ));
     }
 
