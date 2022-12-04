@@ -1060,19 +1060,7 @@ pub(crate) fn extract_effects(
         }
 
         // Check if shaders are configured
-        let init_shader = if let Some(init_shader) = &effect.configured_init_shader {
-            init_shader
-        } else {
-            continue;
-        };
-        let update_shader = if let Some(update_shader) = &effect.configured_update_shader {
-            update_shader
-        } else {
-            continue;
-        };
-        let render_shader = if let Some(render_shader) = &effect.configured_render_shader {
-            render_shader
-        } else {
+        let Some((init_shader, update_shader, render_shader)) = effect.get_configured_shaders() else {
             continue;
         };
 
@@ -1113,9 +1101,9 @@ pub(crate) fn extract_effects(
                         .particle_texture
                         .clone()
                         .map_or(HandleId::default::<Image>(), |handle| handle.id()),
-                    init_shader: init_shader.clone(),
-                    update_shader: update_shader.clone(),
-                    render_shader: render_shader.clone(),
+                    init_shader,
+                    update_shader,
+                    render_shader,
                     position_code,
                     force_field_code,
                     lifetime_code,
@@ -1261,6 +1249,139 @@ impl EffectsMeta {
             gpu_render_indirect_aligned_size: None,
         }
     }
+
+    pub fn update_gpu_limits(&mut self, render_device: &RenderDevice) {
+        let mut storage_buffer_align = None;
+
+        if self.gpu_dispatch_indirect_aligned_size.is_none() {
+            storage_buffer_align =
+                NonZeroU32::new(render_device.limits().min_storage_buffer_offset_alignment);
+            self.gpu_dispatch_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
+                GpuDispatchIndirect::min_size().get() as usize,
+                storage_buffer_align.unwrap().get() as usize,
+            ) as u32);
+        }
+
+        if self.gpu_render_indirect_aligned_size.is_none() {
+            let align = storage_buffer_align
+                .unwrap_or_else(|| {
+                    NonZeroU32::new(render_device.limits().min_storage_buffer_offset_alignment)
+                        .unwrap()
+                })
+                .get() as usize;
+            self.gpu_render_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
+                GpuRenderIndirect::min_size().get() as usize,
+                align,
+            ) as u32);
+        }
+
+        trace!(
+            "Aligns: gpu_dispatch_indirect_aligned_size={} gpu_render_indirect_aligned_size={}",
+            self.gpu_dispatch_indirect_aligned_size.unwrap().get(),
+            self.gpu_render_indirect_aligned_size.unwrap().get()
+        );
+    }
+
+    pub fn add_remove_effects(
+        &mut self,
+        mut added_effects: Vec<AddedEffect>,
+        removed_effect_entities: Vec<Entity>,
+        render_device: &RenderDevice,
+        render_queue: &RenderQueue,
+        effect_bind_groups: &mut ResMut<EffectBindGroups>,
+    ) {
+        trace!("Adding {} newly spawned effects", added_effects.len());
+        for added_effect in added_effects.drain(..) {
+            let cache_id = self.effect_cache.insert(
+                added_effect.handle,
+                added_effect.capacity,
+                added_effect.item_size,
+                //update_pipeline.pipeline.clone(),
+                &render_queue,
+            );
+
+            let entity = added_effect.entity;
+            self.entity_map.insert(entity, cache_id);
+
+            // Note: those effects are already in extracted_effects.effects because
+            // they were gathered by the same query as previously existing
+            // ones, during extraction.
+
+            // FIXME - Kind of brittle since the EffectCache doesn't know about those
+            let index = cache_id.0 as usize;
+
+            self //FIXME - Should be inside AlignedBufferVec<T>
+                .dispatch_indirect_buffer
+                .reserve(128, &render_device);
+            while index >= self.dispatch_indirect_buffer.len() {
+                self.dispatch_indirect_buffer
+                    .push(GpuDispatchIndirect::default());
+            }
+            let di = &mut self.dispatch_indirect_buffer[index];
+            di.x = 0;
+            di.y = 1;
+            di.z = 1;
+
+            // FIXME - Think about batching those writes...
+            // effects_meta
+            //     .dispatch_indirect_buffer
+            //     .write_element(index, &render_device, &render_queue);
+            self.dispatch_indirect_buffer
+                .write_buffer(&render_device, &render_queue);
+
+            self //FIXME - Should be inside AlignedBufferVec<T>
+                .render_dispatch_buffer
+                .reserve(128, &render_device);
+            while index >= self.render_dispatch_buffer.len() {
+                self.render_dispatch_buffer
+                    .push(GpuRenderIndirect::default());
+            }
+            let ri = &mut self.render_dispatch_buffer[index];
+            ri.vertex_count = 6; // TODO
+            ri.instance_count = 0;
+            ri.base_index = 0;
+            ri.vertex_offset = 0;
+            ri.base_instance = 0;
+            ri.alive_count = 0;
+            ri.dead_count = added_effect.capacity;
+            ri.max_spawn = added_effect.capacity;
+            ri.ping = 0;
+            ri.max_update = 0;
+
+            // FIXME - Think about batching those writes...
+            // effects_meta
+            //     .render_dispatch_buffer
+            //     .write_element(index, &render_device, &render_queue);
+            self.render_dispatch_buffer
+                .write_buffer(&render_device, &render_queue);
+        }
+
+        // Deallocate GPU data for destroyed effect instances. This will automatically
+        // drop any group where there is no more effect slice.
+        trace!(
+            "Removing {} despawned effects",
+            removed_effect_entities.len()
+        );
+        for entity in &removed_effect_entities {
+            trace!("Removing ParticleEffect on entity {:?}", entity);
+            if let Some(id) = self.entity_map.remove(entity) {
+                trace!(
+                    "=> ParticleEffect on entity {:?} had cache ID {:?}, removing...",
+                    entity,
+                    id
+                );
+                if let Some(buffer_index) = self.effect_cache.remove(id) {
+                    // Clear bind groups associated with the removed buffer
+                    effect_bind_groups
+                        .update_particle_buffers
+                        .remove(&buffer_index);
+                    effect_bind_groups
+                        .render_particle_buffers
+                        .remove(&buffer_index);
+                }
+            }
+        }
+    }
 }
 
 const QUAD_VERTEX_POSITIONS: &[Vec3] = &[
@@ -1348,37 +1469,7 @@ pub(crate) fn prepare_effects(
 ) {
     trace!("prepare_effects");
 
-    let mut storage_buffer_align = None;
-
-    if effects_meta.gpu_dispatch_indirect_aligned_size.is_none() {
-        storage_buffer_align =
-            NonZeroU32::new(render_device.limits().min_storage_buffer_offset_alignment);
-        effects_meta.gpu_dispatch_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
-            GpuDispatchIndirect::min_size().get() as usize,
-            storage_buffer_align.unwrap().get() as usize,
-        ) as u32);
-    }
-
-    if effects_meta.gpu_render_indirect_aligned_size.is_none() {
-        let align = storage_buffer_align
-            .unwrap_or_else(|| {
-                NonZeroU32::new(render_device.limits().min_storage_buffer_offset_alignment).unwrap()
-            })
-            .get() as usize;
-        effects_meta.gpu_render_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
-            GpuRenderIndirect::min_size().get() as usize,
-            align,
-        ) as u32);
-    }
-
-    trace!(
-        "Aligns: gpu_dispatch_indirect_aligned_size={} gpu_render_indirect_aligned_size={}",
-        effects_meta
-            .gpu_dispatch_indirect_aligned_size
-            .unwrap()
-            .get(),
-        effects_meta.gpu_render_indirect_aligned_size.unwrap().get()
-    );
+    effects_meta.update_gpu_limits(&render_device);
 
     // Allocate spawner buffer if needed
     //if effects_meta.spawner_buffer.is_empty() {
@@ -1392,107 +1483,18 @@ pub(crate) fn prepare_effects(
 
     effects_meta.indirect_dispatch_pipeline = Some(dispatch_indirect_pipeline.pipeline.clone());
 
-    // Allocate GPU data for newly created effect instances. Do this first to ensure
-    // a group is not left unused and dropped due to the last effect being
-    // removed but a new compatible one added not being inserted yet. By
-    // inserting first, we ensure the group is not dropped in this case.
-    trace!(
-        "Adding {} newly spawned effects",
-        extracted_effects.added_effects.len()
-    );
-    for added_effect in extracted_effects.added_effects.drain(..) {
-        let cache_id = effects_meta.effect_cache.insert(
-            added_effect.handle,
-            added_effect.capacity,
-            added_effect.item_size,
-            //update_pipeline.pipeline.clone(),
-            &render_queue,
-        );
-
-        let entity = added_effect.entity;
-        effects_meta.entity_map.insert(entity, cache_id);
-
-        // Note: those effects are already in extracted_effects.effects because
-        // they were gathered by the same query as previously existing
-        // ones, during extraction.
-
-        // FIXME - Kind of brittle since the EffectCache doesn't know about those
-        let index = cache_id.0 as usize;
-
-        effects_meta //FIXME - Should be inside AlignedBufferVec<T>
-            .dispatch_indirect_buffer
-            .reserve(128, &render_device);
-        while index >= effects_meta.dispatch_indirect_buffer.len() {
-            effects_meta
-                .dispatch_indirect_buffer
-                .push(GpuDispatchIndirect::default());
-        }
-        let di = &mut effects_meta.dispatch_indirect_buffer[index];
-        di.x = 0;
-        di.y = 1;
-        di.z = 1;
-
-        // FIXME - Think about batching those writes...
-        // effects_meta
-        //     .dispatch_indirect_buffer
-        //     .write_element(index, &render_device, &render_queue);
-        effects_meta
-            .dispatch_indirect_buffer
-            .write_buffer(&render_device, &render_queue);
-
-        effects_meta //FIXME - Should be inside AlignedBufferVec<T>
-            .render_dispatch_buffer
-            .reserve(128, &render_device);
-        while index >= effects_meta.render_dispatch_buffer.len() {
-            effects_meta
-                .render_dispatch_buffer
-                .push(GpuRenderIndirect::default());
-        }
-        let ri = &mut effects_meta.render_dispatch_buffer[index];
-        ri.vertex_count = 6; // TODO
-        ri.instance_count = 0;
-        ri.base_index = 0;
-        ri.vertex_offset = 0;
-        ri.base_instance = 0;
-        ri.alive_count = 0;
-        ri.dead_count = added_effect.capacity;
-        ri.max_spawn = added_effect.capacity;
-        ri.ping = 0;
-        ri.max_update = 0;
-
-        // FIXME - Think about batching those writes...
-        // effects_meta
-        //     .render_dispatch_buffer
-        //     .write_element(index, &render_device, &render_queue);
-        effects_meta
-            .render_dispatch_buffer
-            .write_buffer(&render_device, &render_queue);
-    }
-
-    // Deallocate GPU data for destroyed effect instances. This will automatically
-    // drop any group where there is no more effect slice.
-    let removed_entities = std::mem::take(&mut extracted_effects.removed_effect_entities);
-    trace!("Removing {} despawned effects", removed_entities.len());
-    for entity in &removed_entities {
-        trace!("Removing ParticleEffect on entity {:?}", entity);
-        if let Some(id) = effects_meta.entity_map.remove(entity) {
-            trace!(
-                "=> ParticleEffect on entity {:?} had cache ID {:?}, removing...",
-                entity,
-                id
-            );
-            if let Some(buffer_index) = effects_meta.effect_cache.remove(id) {
-                // Clear bind groups associated with the removed buffer
-                effect_bind_groups
-                    .update_particle_buffers
-                    .remove(&buffer_index);
-                effect_bind_groups
-                    .render_particle_buffers
-                    .remove(&buffer_index);
-            }
-        }
+    // Allocate new effects, deallocate removed ones
+    let removed_effect_entities = std::mem::take(&mut extracted_effects.removed_effect_entities);
+    for entity in &removed_effect_entities {
         extracted_effects.effects.remove(entity);
     }
+    effects_meta.add_remove_effects(
+        std::mem::take(&mut extracted_effects.added_effects),
+        removed_effect_entities,
+        &render_device,
+        &render_queue,
+        &mut effect_bind_groups,
+    );
 
     // // sort first by z and then by handle. this ensures that, when possible,
     // batches span multiple z layers // batches won't span z-layers if there is
