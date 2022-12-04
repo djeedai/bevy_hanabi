@@ -20,17 +20,35 @@ use crate::{
     render::{
         extract_effect_events, extract_effects, prepare_effects, queue_effects,
         DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems,
-        EffectsMeta, ExtractedEffects, ParticleUpdateNode, ParticlesInitPipeline,
-        ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache, SimParams,
+        EffectsMeta, ExtractedEffects, ParticlesInitPipeline, ParticlesRenderPipeline,
+        ParticlesUpdatePipeline, ShaderCache, SimParams, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners, ParticleEffect, RemovedEffectsEvent, Spawner,
 };
 
+pub mod main_graph {
+    pub mod node {
+        /// Label for the simulation driver node running the simulation graph.
+        pub const HANABI: &str = "hanabi_driver_node";
+    }
+}
+
+pub mod simulate_graph {
+    /// Name of the simulation sub-graph.
+    pub const NAME: &str = "hanabi_simulate_graph";
+
+    pub mod node {
+        /// Label for the simulation node (init and update compute passes;
+        /// view-independent).
+        pub const SIMULATE: &str = "hanabi_simulate_node";
+    }
+}
+
 pub mod draw_graph {
     pub mod node {
-        /// Label for the particle update compute node.
-        pub const PARTICLE_UPDATE_PASS: &str = "particle_update_pass";
+        /// Label for a render node to render particles on a 2D or 3D view.
+        pub const RENDER: &str = "hanabi_render";
     }
 }
 
@@ -137,61 +155,23 @@ impl Plugin for HanabiPlugin {
                 .add(draw_particles);
         }
 
-        // Register the update node before the 2D/3D main pass, where the particles are
-        // drawn. This ensures the update compute pipelines for all the active
-        // particle effects are executed before the 2D/3D main pass starts,
-        // which consumes the result of the updated particles to render them.
-        #[cfg(feature = "2d")]
-        use bevy::core_pipeline::core_2d::graph as draw_2d_graph;
-        #[cfg(feature = "3d")]
-        use bevy::core_pipeline::core_3d::graph as draw_3d_graph;
-
-        #[cfg(feature = "2d")]
-        let update_node_2d = ParticleUpdateNode::new(&mut render_app.world);
-
-        #[cfg(feature = "3d")]
-        let update_node_3d = ParticleUpdateNode::new(&mut render_app.world);
-
+        // Add the simulation sub-graph. This render graph runs once per frame no matter
+        // how many cameras/views are active (view-independent).
+        let mut simulate_graph = RenderGraph::default();
+        let simulate_node = VfxSimulateNode::new(&mut render_app.world);
+        simulate_graph.add_node(simulate_graph::node::SIMULATE, simulate_node);
         let mut graph = render_app.world.get_resource_mut::<RenderGraph>().unwrap();
+        graph.add_sub_graph(simulate_graph::NAME, simulate_graph);
 
-        #[cfg(feature = "2d")]
-        {
-            let draw_graph = graph.get_sub_graph_mut(draw_2d_graph::NAME).unwrap();
-            draw_graph.add_node(draw_graph::node::PARTICLE_UPDATE_PASS, update_node_2d);
-            draw_graph
-                .add_node_edge(
-                    draw_graph::node::PARTICLE_UPDATE_PASS,
-                    draw_2d_graph::node::MAIN_PASS,
-                )
-                .unwrap();
-            draw_graph
-                .add_slot_edge(
-                    draw_graph.input_node().unwrap().id,
-                    draw_2d_graph::input::VIEW_ENTITY,
-                    draw_graph::node::PARTICLE_UPDATE_PASS,
-                    ParticleUpdateNode::IN_VIEW,
-                )
-                .unwrap();
-        }
-
-        #[cfg(feature = "3d")]
-        {
-            let draw_graph = graph.get_sub_graph_mut(draw_3d_graph::NAME).unwrap();
-            draw_graph.add_node(draw_graph::node::PARTICLE_UPDATE_PASS, update_node_3d);
-            draw_graph
-                .add_node_edge(
-                    draw_graph::node::PARTICLE_UPDATE_PASS,
-                    draw_3d_graph::node::MAIN_PASS,
-                )
-                .unwrap();
-            draw_graph
-                .add_slot_edge(
-                    draw_graph.input_node().unwrap().id,
-                    draw_3d_graph::input::VIEW_ENTITY,
-                    draw_graph::node::PARTICLE_UPDATE_PASS,
-                    ParticleUpdateNode::IN_VIEW,
-                )
-                .unwrap();
-        }
+        // Add the simulation driver node which executes the simulation sub-graph. It
+        // runs before the camera driver, since rendering needs to access simulated
+        // particles.
+        graph.add_node(main_graph::node::HANABI, VfxSimulateDriverNode {});
+        graph
+            .add_node_edge(
+                main_graph::node::HANABI,
+                bevy::render::main_graph::node::CAMERA_DRIVER,
+            )
+            .unwrap();
     }
 }
