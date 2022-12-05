@@ -11,7 +11,7 @@ use bevy::{
     render::{
         color::Color,
         render_asset::RenderAssets,
-        render_graph::{Node, NodeRunError, RenderGraphContext, SlotInfo, SlotType},
+        render_graph::{Node, NodeRunError, RenderGraphContext, SlotInfo},
         render_phase::{Draw, DrawFunctions, RenderPhase, TrackedRenderPass},
         render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue},
@@ -2638,46 +2638,60 @@ impl Draw<Transparent3d> for DrawEffects {
     }
 }
 
-/// A render node to update the particles of all particle efects.
-pub(crate) struct ParticleUpdateNode {
-    /// Query to retrieve the list of entities holding an extracted particle
-    /// effect to update.
-    entity_query: QueryState<&'static ExtractedEffectEntities>,
-    /// Query to retrieve the
+/// Render node to run the simulation sub-graph once per frame.
+///
+/// This node doesn't simulate anything by itself, but instead schedules the
+/// simulation sub-graph, where other nodes like [`VfxSimulateNode`] do the
+/// actual simulation.
+///
+/// The simulation sub-graph is scheduled to run before the [`CameraDriverNode`]
+/// renders all the views, such that rendered views have access to the
+/// just-simulated particles to render them.
+///
+/// [`CameraDriverNode`]: bevy::render::camera::CameraDriverNode
+pub(crate) struct VfxSimulateDriverNode;
+
+impl Node for VfxSimulateDriverNode {
+    fn run(
+        &self,
+        graph: &mut RenderGraphContext,
+        _render_context: &mut RenderContext,
+        _world: &World,
+    ) -> Result<(), NodeRunError> {
+        graph.run_sub_graph(crate::plugin::simulate_graph::NAME, vec![])?;
+        Ok(())
+    }
+}
+
+/// Render node to run the simulation of all effects once per frame.
+///
+/// Runs inside the simulation sub-graph, looping over all extracted effect
+/// batches to simulate them.
+pub(crate) struct VfxSimulateNode {
+    /// Query to retrieve the batches of effects to simulate and render.
     effect_query: QueryState<&'static EffectBatch>,
 }
 
-impl ParticleUpdateNode {
-    /// Input entity marking the view.
-    pub const IN_VIEW: &'static str = "view";
-
+impl VfxSimulateNode {
     /// Output particle buffer for that view. TODO - how to handle multiple
     /// buffers?! Should use Entity instead??
     //pub const OUT_PARTICLE_BUFFER: &'static str = "particle_buffer";
 
+    /// Create a new node for simulating the effects of the given world.
     pub fn new(world: &mut World) -> Self {
         Self {
-            entity_query: QueryState::new(world),
             effect_query: QueryState::new(world),
         }
     }
 }
 
-impl Node for ParticleUpdateNode {
+impl Node for VfxSimulateNode {
     fn input(&self) -> Vec<SlotInfo> {
-        vec![SlotInfo::new(Self::IN_VIEW, SlotType::Entity)]
+        vec![]
     }
 
-    // fn output(&self) -> Vec<SlotInfo> {
-    //     vec![SlotInfo::new(
-    //         ParticleUpdateNode::OUT_PARTICLE_BUFFER,
-    //         SlotType::Buffer,
-    //     )]
-    // }
-
     fn update(&mut self, world: &mut World) {
-        trace!("ParticleUpdateNode::update()");
-        self.entity_query.update_archetypes(world);
+        trace!("VfxSimulateNode::update()");
         self.effect_query.update_archetypes(world);
     }
 
@@ -2687,7 +2701,7 @@ impl Node for ParticleUpdateNode {
         render_context: &mut RenderContext,
         world: &World,
     ) -> Result<(), NodeRunError> {
-        trace!("ParticleUpdateNode::run()");
+        trace!("VfxSimulateNode::run()");
 
         // Get the Entity containing the ViewEffectsEntity component used as container
         // for the input data for this node.
@@ -2706,10 +2720,6 @@ impl Node for ParticleUpdateNode {
                         label: Some("hanabi:init"),
                     });
 
-            // Retrieve the ExtractedEffectEntities component itself
-            //if let Ok(extracted_effect_entities) = self.entity_query.get_manual(world,
-            // view_entity) if let Ok(effect_batches) =
-            // self.effect_query.get_manual(world, )
             {
                 // Loop on all entities recorded inside the ExtractedEffectEntities input
                 trace!("loop over effect batches...");

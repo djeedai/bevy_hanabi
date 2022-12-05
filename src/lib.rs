@@ -366,7 +366,8 @@ impl ParticleEffect {
         self.spawner.as_mut().unwrap()
     }
 
-    /// Get the init, update, and render shaders if they're all configured, or `None` otherwise.
+    /// Get the init, update, and render shaders if they're all configured, or
+    /// `None` otherwise.
     pub(crate) fn get_configured_shaders(
         &self,
     ) -> Option<(Handle<Shader>, Handle<Shader>, Handle<Shader>)> {
