@@ -9,6 +9,7 @@ use bevy::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    attributes::ParticleLayout,
     modifier::{
         init::InitModifier,
         render::RenderModifier,
@@ -90,6 +91,10 @@ pub struct EffectAsset {
     pub capacity: u32,
     /// Spawner.
     pub spawner: Spawner,
+    /// Layout describing the attributes used by particles.
+    #[serde(skip)] // TODO
+    #[reflect(ignore)] // TODO?
+    particle_layout: ParticleLayout,
     /// Layout describing the particle initialize code.
     ///
     /// The initialize layout determines how new particles are initialized when
@@ -127,6 +132,7 @@ pub struct EffectAsset {
 impl EffectAsset {
     /// Add an initialization modifier to the effect.
     pub fn init<M: InitModifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
+        self.particle_layout = self.particle_layout.merged_with(modifier.attributes());
         modifier.apply(&mut self.init_layout);
         //self.modifiers.push(Box::new(modifier));
         self
@@ -134,6 +140,7 @@ impl EffectAsset {
 
     /// Add an update modifier to the effect.
     pub fn update<M: UpdateModifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
+        self.particle_layout = self.particle_layout.merged_with(modifier.attributes());
         modifier.apply(&mut self.update_layout);
         //self.modifiers.push(Box::new(modifier));
         self
@@ -141,9 +148,15 @@ impl EffectAsset {
 
     /// Add a render modifier to the effect.
     pub fn render<M: RenderModifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
+        self.particle_layout = self.particle_layout.merged_with(modifier.attributes());
         modifier.apply(&mut self.render_layout);
         //self.modifiers.push(Box::new(modifier));
         self
+    }
+
+    /// Get the particle layout of this effect.
+    pub fn particle_layout(&self) -> &ParticleLayout {
+        &self.particle_layout
     }
 }
 
@@ -170,7 +183,7 @@ impl AssetLoader for EffectAssetLoader {
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
+    use crate::{attributes::Attribute, *};
 
     use super::*;
 
@@ -180,6 +193,11 @@ mod tests {
             name: "Effect".into(),
             capacity: 4096,
             spawner: Spawner::rate(30.0.into()),
+            particle_layout: ParticleLayout::new()
+                .add(Attribute::POSITION)
+                .add(Attribute::AGE)
+                .add(Attribute::LIFETIME)
+                .build(),
             ..Default::default()
         }
         .init(PositionSphereModifier::default())

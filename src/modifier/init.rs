@@ -2,10 +2,14 @@
 
 use bevy::prelude::*;
 
-use crate::{asset::InitLayout, modifier::ShapeDimension, ToWgslString, Value};
+use crate::{asset::InitLayout, modifier::ShapeDimension, Attribute, ToWgslString, Value};
 
 /// Trait to customize the initializing of newly spawned particles.
 pub trait InitModifier {
+    /// Get the list of dependent attributes required for this modifier to be
+    /// used.
+    fn attributes(&self) -> &[&'static Attribute];
+
     /// Apply the modifier to the init layout of the effect instance.
     fn apply(&self, init_layout: &mut InitLayout);
 }
@@ -39,6 +43,10 @@ impl Default for PositionCircleModifier {
 }
 
 impl InitModifier for PositionCircleModifier {
+    fn attributes(&self) -> &[&'static Attribute] {
+        &[Attribute::POSITION, Attribute::VELOCITY]
+    }
+
     fn apply(&self, init_layout: &mut InitLayout) {
         let (tangent, bitangent) = self.axis.any_orthonormal_pair();
 
@@ -69,9 +77,9 @@ impl InitModifier for PositionCircleModifier {
     // Spawn random point on/in circle
     let theta = rand() * tau;
     let dir = tangent * cos(theta) + bitangent * sin(theta);
-    ret.pos = c + r * dir + transform[3].xyz;
+    ret.position = c + r * dir + transform[3].xyz;
     // Velocity away from center
-    ret.vel = dir * speed;
+    ret.velocity = dir * speed;
     // <<< [PositionCircleModifier]
             "##,
             self.center.to_wgsl_string(),
@@ -97,6 +105,10 @@ pub struct PositionSphereModifier {
 }
 
 impl InitModifier for PositionSphereModifier {
+    fn attributes(&self) -> &[&'static Attribute] {
+        &[Attribute::POSITION, Attribute::VELOCITY]
+    }
+
     fn apply(&self, init_layout: &mut InitLayout) {
         let radius_code = match self.dimension {
             ShapeDimension::Surface => {
@@ -130,9 +142,9 @@ impl InitModifier for PositionSphereModifier {
     var x = sinphi * cos(theta);
     var y = sinphi * sin(theta);
     var dir = vec3<f32>(x, y, z);
-    ret.pos = c + r * dir + transform[3].xyz;
+    ret.position = c + r * dir + transform[3].xyz;
     // Radial velocity away from sphere center
-    ret.vel = dir * speed;
+    ret.velocity = dir * speed;
     // <<< [PositionSphereModifier]
 "##,
             self.center.to_wgsl_string(),
@@ -170,6 +182,10 @@ pub struct PositionCone3dModifier {
 }
 
 impl InitModifier for PositionCone3dModifier {
+    fn attributes(&self) -> &[&'static Attribute] {
+        &[Attribute::POSITION, Attribute::VELOCITY]
+    }
+
     fn apply(&self, init_layout: &mut InitLayout) {
         if matches!(self.dimension, ShapeDimension::Surface) {
             unimplemented!("TODO");
@@ -218,7 +234,7 @@ impl InitModifier for PositionCone3dModifier {
     let z = r * sint;
     let p = vec3<f32>(x, y, z);
     let p2 = transform * vec4<f32>(p, 1.0);
-    ret.pos = p2.xyz;
+    ret.position = p2.xyz;
     // Emit direction
     let rb2 = rb * alpha_r;
     let pb = vec3<f32>(rb2 * cost, h0, rb2 * sint);
@@ -226,7 +242,7 @@ impl InitModifier for PositionCone3dModifier {
     // Emit speed
     let speed = {3};
     // Velocity away from cone top/apex
-    ret.vel = dir.xyz * speed;
+    ret.velocity = dir.xyz * speed;
     // <<< [PositionCone3dModifier]
 "##,
             self.height.to_wgsl_string(),
@@ -248,6 +264,10 @@ pub struct ParticleLifetimeModifier {
 }
 
 impl InitModifier for ParticleLifetimeModifier {
+    fn attributes(&self) -> &[&'static Attribute] {
+        &[Attribute::AGE, Attribute::LIFETIME]
+    }
+
     fn apply(&self, init_layout: &mut InitLayout) {
         init_layout.lifetime_code = format!(
             r##"
@@ -288,8 +308,8 @@ mod tests {
 let tau: f32 = 6.283185307179586476925286766559;
 
 struct PosVel {{
-    pos: vec3<f32>,
-    vel: vec3<f32>,
+    position: vec3<f32>,
+    velocity: vec3<f32>,
 }};
 
 @compute @workgroup_size(64)

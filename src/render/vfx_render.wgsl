@@ -11,10 +11,7 @@ struct View {
 };
 
 struct Particle {
-    pos: vec3<f32>,
-    age: f32,
-    vel: vec3<f32>,
-    lifetime: f32,
+{{ATTRIBUTES}}
 };
 
 struct ParticlesBuffer {

@@ -1,8 +1,5 @@
 struct Particle {
-    pos: vec3<f32>,
-    age: f32,
-    vel: vec3<f32>,
-    lifetime: f32,
+{{ATTRIBUTES}}
 };
 
 struct ParticleBuffer {
@@ -143,8 +140,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     let index = indirect_buffer.indices[3u * thread_index + pong];
 
-    var vPos : vec3<f32> = particle_buffer.particles[index].pos;
-    var vVel : vec3<f32> = particle_buffer.particles[index].vel;
+    var vPos : vec3<f32> = particle_buffer.particles[index].position;
+    var vVel : vec3<f32> = particle_buffer.particles[index].velocity;
     var vAge : f32 = particle_buffer.particles[index].age;
     var vLifetime : f32 = particle_buffer.particles[index].lifetime;
 
@@ -175,8 +172,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     indirect_buffer.indices[3u * indirect_index + ping] = index;
 
     // Write back particle itself
-    particle_buffer.particles[index].pos = vPos;
-    particle_buffer.particles[index].vel = vVel;
+    particle_buffer.particles[index].position = vPos;
+    particle_buffer.particles[index].velocity = vVel;
     particle_buffer.particles[index].age = vAge;
     particle_buffer.particles[index].lifetime = vLifetime;
 }

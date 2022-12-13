@@ -122,6 +122,7 @@ use bevy::prelude::*;
 use std::fmt::Write as _; // import without risk of name clashing
 
 mod asset;
+mod attributes;
 mod bundle;
 mod gradient;
 pub mod modifier;
@@ -135,6 +136,7 @@ mod test_utils;
 use render::EffectCacheId;
 
 pub use asset::{EffectAsset, InitLayout, RenderLayout, UpdateLayout};
+pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifier::*;
@@ -248,6 +250,19 @@ impl ToWgslString for Value<f32> {
             ),
         }
     }
+}
+
+/// Simulation space for the particles of an effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SimulationSpace {
+    /// Particles are simulated in global space.
+    ///
+    /// The global space is the Bevy world space. Particles simulated in global
+    /// space are "detached" from the emitter when they spawn, and not
+    /// influenced anymore by the emitter's [`Transform`] after spawning.
+    Global,
+    //Local, // TODO
 }
 
 /// Visual effect made of particles.
@@ -395,11 +410,11 @@ const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("render/vfx_update.w
 const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("render/vfx_render.wgsl");
 
 const DEFAULT_POSITION_CODE: &str = r##"
-    ret.pos = transform[3].xyz;
+    ret.position = transform[3].xyz;
     var dir = rand3() * 2. - 1.;
     dir = normalize(dir);
     var speed = 2.;
-    ret.vel = dir * speed;
+    ret.velocity = dir * speed;
 "##;
 
 const DEFAULT_LIFETIME_CODE: &str = r##"
@@ -417,14 +432,14 @@ const ENABLED_BILLBOARD_CODE: &str = r##"
     let camera_right = view.view[0];
     let camera_up = view.view[1];
 
-    let world_position = vec4<f32>(particle.pos, 1.0)
+    let world_position = vec4<f32>(particle.position, 1.0)
         + camera_right * vertex_position.x * size.x
         + camera_up * vertex_position.y * size.y;
 "##;
 
 const DISABLED_BILLBOARD_CODE: &str = r##"
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
-    let world_position = vec4<f32>(particle.pos + vpos, 1.0);
+    let world_position = vec4<f32>(particle.position + vpos, 1.0);
 "##;
 
 const DRAG_CODE: &str = r##"vVel = vVel * max(0., (1. - {{DRAG}} * sim_params.dt));
@@ -598,6 +613,9 @@ fn tick_spawners(
             let drag_coefficient = asset.update_layout.drag_coefficient;
             let force_field = asset.update_layout.force_field;
 
+            // Generate the shader code for the particle attributes
+            let attributes_code = asset.particle_layout().generate_code();
+
             // Generate the shader code for the position initializing of newly emitted
             // particles TODO - Move that to a pre-pass, not each frame!
             let position_code = &asset.init_layout.position_code;
@@ -656,6 +674,7 @@ fn tick_spawners(
             let mut init_shader_source =
                 PARTICLES_INIT_SHADER_TEMPLATE.replace("{{INIT_POS_VEL}}", &position_code);
             init_shader_source = init_shader_source.replace("{{INIT_LIFETIME}}", &lifetime_code);
+            init_shader_source = init_shader_source.replace("{{ATTRIBUTES}}", &attributes_code);
             let init_shader = shader_cache.get_or_insert(&init_shader_source, &mut shaders);
 
             // Configure the update shader template, and make sure a corresponding shader
@@ -663,12 +682,14 @@ fn tick_spawners(
             let mut update_shader_source =
                 PARTICLES_UPDATE_SHADER_TEMPLATE.replace("{{FORCE_FIELD_CODE}}", &force_field_code);
             update_shader_source = update_shader_source.replace("{{DRAG_CODE}}", &drag_code);
+            update_shader_source = update_shader_source.replace("{{ATTRIBUTES}}", &attributes_code);
             let update_shader = shader_cache.get_or_insert(&update_shader_source, &mut shaders);
 
             // Configure the render shader template, and make sure a corresponding shader
             // asset exists
-            let render_shader_source =
+            let mut render_shader_source =
                 PARTICLES_RENDER_SHADER_TEMPLATE.replace("{{VERTEX_MODIFIERS}}", &vertex_modifiers);
+            render_shader_source = render_shader_source.replace("{{ATTRIBUTES}}", &attributes_code);
             let render_shader = shader_cache.get_or_insert(&render_shader_source, &mut shaders);
 
             trace!(

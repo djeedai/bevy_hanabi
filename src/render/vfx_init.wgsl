@@ -1,8 +1,5 @@
 struct Particle {
-    pos: vec3<f32>,
-    age: f32,
-    vel: vec3<f32>,
-    lifetime: f32,
+{{ATTRIBUTES}}
 };
 
 struct ParticleBuffer {
@@ -118,8 +115,8 @@ fn rand4(input: u32) -> vec4<f32> {
 }
 
 struct PosVel {
-    pos: vec3<f32>,
-    vel: vec3<f32>,
+    position: vec3<f32>,
+    velocity: vec3<f32>,
 };
 
 fn init_pos_vel(index: u32, transform: mat4x4<f32>) -> PosVel {
@@ -178,8 +175,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Initialize new particle
     var posVel = init_pos_vel(index, transform);
-    vPos = posVel.pos;
-    vVel = posVel.vel;
+    vPos = posVel.position;
+    vVel = posVel.velocity;
     vAge = 0.0;
     vLifetime = init_lifetime();
 
@@ -194,8 +191,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     indirect_buffer.indices[3u * indirect_index + ping] = index;
 
     // Write back spawned particle
-    particle_buffer.particles[index].pos = vPos;
-    particle_buffer.particles[index].vel = vVel;
+    particle_buffer.particles[index].position = vPos;
+    particle_buffer.particles[index].velocity = vVel;
     particle_buffer.particles[index].age = vAge;
     particle_buffer.particles[index].lifetime = vLifetime;
 }
