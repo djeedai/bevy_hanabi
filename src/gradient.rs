@@ -240,6 +240,8 @@ impl<T: Lerp> Gradient<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::*;
+
     use super::*;
 
     fn color_approx_eq(c0: Vec4, c1: Vec4, tol: f32) -> bool {
@@ -247,6 +249,32 @@ mod tests {
             && ((c0.y - c1.y).abs() < tol)
             && ((c0.z - c1.z).abs() < tol)
             && ((c0.w - c1.w).abs() < tol)
+    }
+
+    #[test]
+    fn lerp_test() {
+        assert_approx_eq!(Lerp::lerp(3_f32, 5_f32, 0.1), 3.2_f32);
+        assert_approx_eq!(Lerp::lerp(3_f32, 5_f32, 0.5), 4.0_f32);
+        assert_approx_eq!(Lerp::lerp(3_f32, 5_f32, 0.9), 4.8_f32);
+        assert_approx_eq!(Lerp::lerp(5_f32, 3_f32, 0.1), 4.8_f32);
+        assert_approx_eq!(Lerp::lerp(5_f32, 3_f32, 0.5), 4.0_f32);
+        assert_approx_eq!(Lerp::lerp(5_f32, 3_f32, 0.9), 3.2_f32);
+
+        assert_approx_eq!(Lerp::lerp(3_f64, 5_f64, 0.1), 3.2_f64);
+        assert_approx_eq!(Lerp::lerp(3_f64, 5_f64, 0.5), 4.0_f64);
+        assert_approx_eq!(Lerp::lerp(3_f64, 5_f64, 0.9), 4.8_f64);
+        assert_approx_eq!(Lerp::lerp(5_f64, 3_f64, 0.1), 4.8_f64);
+        assert_approx_eq!(Lerp::lerp(5_f64, 3_f64, 0.5), 4.0_f64);
+        assert_approx_eq!(Lerp::lerp(5_f64, 3_f64, 0.9), 3.2_f64);
+
+        let s = Quat::IDENTITY;
+        let e = Quat::from_rotation_x(90_f32.to_radians());
+        assert_approx_eq!(Lerp::lerp(s, e, 0.1), s.slerp(e, 0.1));
+        assert_approx_eq!(Lerp::lerp(s, e, 0.5), s.slerp(e, 0.5));
+        assert_approx_eq!(Lerp::lerp(s, e, 0.9), s.slerp(e, 0.9));
+        assert_approx_eq!(Lerp::lerp(e, s, 0.1), s.slerp(e, 0.9));
+        assert_approx_eq!(Lerp::lerp(e, s, 0.5), s.slerp(e, 0.5));
+        assert_approx_eq!(Lerp::lerp(e, s, 0.9), s.slerp(e, 0.1));
     }
 
     #[test]
