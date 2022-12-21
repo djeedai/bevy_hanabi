@@ -2,14 +2,10 @@
 
 use bevy::prelude::*;
 
-use crate::{Attribute, Gradient, RenderLayout};
+use crate::{Attribute, Gradient, Modifier, RenderLayout};
 
 /// Trait to customize the rendering of alive particles each frame.
-pub trait RenderModifier {
-    /// Get the list of dependent attributes required for this modifier to be
-    /// used.
-    fn attributes(&self) -> &[&'static Attribute];
-
+pub trait RenderModifier: Modifier {
     /// Apply the modifier to the render layout of the effect instance.
     fn apply(&self, render_layout: &mut RenderLayout);
 }
@@ -21,11 +17,13 @@ pub struct ParticleTextureModifier {
     pub texture: Handle<Image>,
 }
 
-impl RenderModifier for ParticleTextureModifier {
+impl Modifier for ParticleTextureModifier {
     fn attributes(&self) -> &[&'static Attribute] {
         &[]
     }
+}
 
+impl RenderModifier for ParticleTextureModifier {
     fn apply(&self, render_layout: &mut RenderLayout) {
         render_layout.particle_texture = Some(self.texture.clone());
     }
@@ -39,11 +37,13 @@ pub struct ColorOverLifetimeModifier {
     pub gradient: Gradient<Vec4>,
 }
 
-impl RenderModifier for ColorOverLifetimeModifier {
+impl Modifier for ColorOverLifetimeModifier {
     fn attributes(&self) -> &[&'static Attribute] {
         &[]
     }
+}
 
+impl RenderModifier for ColorOverLifetimeModifier {
     fn apply(&self, render_layout: &mut RenderLayout) {
         render_layout.lifetime_color_gradient = Some(self.gradient.clone());
     }
@@ -57,11 +57,13 @@ pub struct SizeOverLifetimeModifier {
     pub gradient: Gradient<Vec2>,
 }
 
-impl RenderModifier for SizeOverLifetimeModifier {
+impl Modifier for SizeOverLifetimeModifier {
     fn attributes(&self) -> &[&'static Attribute] {
         &[]
     }
+}
 
+impl RenderModifier for SizeOverLifetimeModifier {
     fn apply(&self, render_layout: &mut RenderLayout) {
         render_layout.lifetime_size_gradient = Some(self.gradient.clone());
     }
@@ -71,11 +73,13 @@ impl RenderModifier for SizeOverLifetimeModifier {
 #[derive(Default, Clone, Copy)]
 pub struct BillboardModifier;
 
-impl RenderModifier for BillboardModifier {
+impl Modifier for BillboardModifier {
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::POSITION]
     }
+}
 
+impl RenderModifier for BillboardModifier {
     fn apply(&self, render_layout: &mut RenderLayout) {
         render_layout.billboard = true;
     }

@@ -5,14 +5,10 @@
 
 use bevy::prelude::*;
 
-use crate::{Attribute, UpdateLayout};
+use crate::{Attribute, Modifier, UpdateLayout};
 
 /// Trait to customize the updating of existing particles each frame.
-pub trait UpdateModifier {
-    /// Get the list of dependent attributes required for this modifier to be
-    /// used.
-    fn attributes(&self) -> &[&'static Attribute];
-
+pub trait UpdateModifier: Modifier {
     /// Apply the modifier to the update layout of the effect instance.
     fn apply(&self, update_layout: &mut UpdateLayout);
 }
@@ -26,11 +22,13 @@ pub struct AccelModifier {
     pub accel: Vec3,
 }
 
-impl UpdateModifier for AccelModifier {
+impl Modifier for AccelModifier {
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::VELOCITY]
     }
+}
 
+impl UpdateModifier for AccelModifier {
     fn apply(&self, layout: &mut UpdateLayout) {
         layout.accel = self.accel;
     }
@@ -146,11 +144,13 @@ impl ForceFieldModifier {
     }
 }
 
-impl UpdateModifier for ForceFieldModifier {
+impl Modifier for ForceFieldModifier {
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::POSITION, Attribute::VELOCITY]
     }
+}
 
+impl UpdateModifier for ForceFieldModifier {
     fn apply(&self, layout: &mut UpdateLayout) {
         layout.force_field = self.sources;
     }
@@ -172,11 +172,13 @@ impl LinearDragModifier {
     }
 }
 
-impl UpdateModifier for LinearDragModifier {
+impl Modifier for LinearDragModifier {
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::VELOCITY]
     }
+}
 
+impl UpdateModifier for LinearDragModifier {
     fn apply(&self, layout: &mut UpdateLayout) {
         layout.drag_coefficient = self.drag;
     }

@@ -2,14 +2,12 @@
 
 use bevy::prelude::*;
 
-use crate::{asset::InitLayout, modifier::ShapeDimension, Attribute, ToWgslString, Value};
+use crate::{
+    asset::InitLayout, modifier::ShapeDimension, Attribute, Modifier, ToWgslString, Value,
+};
 
 /// Trait to customize the initializing of newly spawned particles.
-pub trait InitModifier {
-    /// Get the list of dependent attributes required for this modifier to be
-    /// used.
-    fn attributes(&self) -> &[&'static Attribute];
-
+pub trait InitModifier: Modifier {
     /// Apply the modifier to the init layout of the effect instance.
     fn apply(&self, init_layout: &mut InitLayout);
 }
@@ -42,11 +40,13 @@ impl Default for PositionCircleModifier {
     }
 }
 
-impl InitModifier for PositionCircleModifier {
+impl Modifier for PositionCircleModifier {
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::POSITION, Attribute::VELOCITY]
     }
+}
 
+impl InitModifier for PositionCircleModifier {
     fn apply(&self, init_layout: &mut InitLayout) {
         let (tangent, bitangent) = self.axis.any_orthonormal_pair();
 
@@ -104,11 +104,13 @@ pub struct PositionSphereModifier {
     pub dimension: ShapeDimension,
 }
 
-impl InitModifier for PositionSphereModifier {
+impl Modifier for PositionSphereModifier {
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::POSITION, Attribute::VELOCITY]
     }
+}
 
+impl InitModifier for PositionSphereModifier {
     fn apply(&self, init_layout: &mut InitLayout) {
         let radius_code = match self.dimension {
             ShapeDimension::Surface => {
@@ -181,11 +183,13 @@ pub struct PositionCone3dModifier {
     pub dimension: ShapeDimension,
 }
 
-impl InitModifier for PositionCone3dModifier {
+impl Modifier for PositionCone3dModifier {
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::POSITION, Attribute::VELOCITY]
     }
+}
 
+impl InitModifier for PositionCone3dModifier {
     fn apply(&self, init_layout: &mut InitLayout) {
         if matches!(self.dimension, ShapeDimension::Surface) {
             unimplemented!("TODO");
@@ -263,11 +267,13 @@ pub struct ParticleLifetimeModifier {
     pub lifetime: f32,
 }
 
-impl InitModifier for ParticleLifetimeModifier {
+impl Modifier for ParticleLifetimeModifier {
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::AGE, Attribute::LIFETIME]
     }
+}
 
+impl InitModifier for ParticleLifetimeModifier {
     fn apply(&self, init_layout: &mut InitLayout) {
         init_layout.lifetime_code = format!(
             r##"

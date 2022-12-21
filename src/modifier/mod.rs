@@ -30,6 +30,8 @@ pub use init::*;
 pub use render::*;
 pub use update::*;
 
+use crate::Attribute;
+
 /// The dimension of a shape to consider.
 ///
 /// The exact meaning depends on the context where this enum is used.
@@ -45,4 +47,11 @@ impl Default for ShapeDimension {
     fn default() -> Self {
         Self::Surface
     }
+}
+
+/// Trait describing a modifier customizing an effect pipeline.
+pub trait Modifier {
+    /// Get the list of dependent attributes required for this modifier to be
+    /// used.
+    fn attributes(&self) -> &[&'static Attribute];
 }
