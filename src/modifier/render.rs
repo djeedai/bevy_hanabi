@@ -11,7 +11,7 @@ pub trait RenderModifier: Modifier {
 }
 
 /// A modifier modulating each particle's color by sampling a texture.
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone, Reflect, FromReflect)]
 pub struct ParticleTextureModifier {
     /// The texture image to modulate the particle color with.
     pub texture: Handle<Image>,
@@ -31,7 +31,7 @@ impl RenderModifier for ParticleTextureModifier {
 
 /// A modifier modulating each particle's color over its lifetime with a
 /// gradient curve.
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone, Reflect, FromReflect)]
 pub struct ColorOverLifetimeModifier {
     /// The color gradient defining the particle color based on its lifetime.
     pub gradient: Gradient<Vec4>,
@@ -51,7 +51,7 @@ impl RenderModifier for ColorOverLifetimeModifier {
 
 /// A modifier modulating each particle's size over its lifetime with a gradient
 /// curve.
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone, Reflect, FromReflect)]
 pub struct SizeOverLifetimeModifier {
     /// The size gradient defining the particle size based on its lifetime.
     pub gradient: Gradient<Vec2>,
@@ -70,7 +70,7 @@ impl RenderModifier for SizeOverLifetimeModifier {
 }
 
 /// Reorients the vertices to always face the camera when rendering.
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Reflect, FromReflect)]
 pub struct BillboardModifier;
 
 impl Modifier for BillboardModifier {

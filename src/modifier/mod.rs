@@ -22,6 +22,8 @@
 //! [`UpdateModifier`]: crate::modifier::update::UpdateModifier
 //! [`RenderModifier`]: crate::modifier::render::RenderModifier
 
+use bevy::reflect::{FromReflect, Reflect};
+
 pub mod init;
 pub mod render;
 pub mod update;
@@ -35,7 +37,7 @@ use crate::Attribute;
 /// The dimension of a shape to consider.
 ///
 /// The exact meaning depends on the context where this enum is used.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect, FromReflect)]
 pub enum ShapeDimension {
     /// Consider the surface of the shape only.
     Surface,
@@ -50,7 +52,7 @@ impl Default for ShapeDimension {
 }
 
 /// Trait describing a modifier customizing an effect pipeline.
-pub trait Modifier {
+pub trait Modifier: std::fmt::Debug + FromReflect {
     /// Get the list of dependent attributes required for this modifier to be
     /// used.
     fn attributes(&self) -> &[&'static Attribute];

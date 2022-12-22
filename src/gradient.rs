@@ -1,6 +1,6 @@
 use bevy::{
     math::{Quat, Vec2, Vec3, Vec3A, Vec4},
-    utils::FloatOrd,
+    utils::FloatOrd, reflect::{Reflect, FromReflect},
 };
 use std::vec::Vec;
 
@@ -54,8 +54,8 @@ impl Lerp for Quat {
 }
 
 /// A single key point for a [`Gradient`].
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct GradientKey<T: Lerp> {
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect)]
+pub struct GradientKey<T: Lerp + Reflect + 'static> {
     /// Ratio in \[0:1\] where the key is located.
     ratio: f32,
 
@@ -66,7 +66,7 @@ pub struct GradientKey<T: Lerp> {
     pub value: T,
 }
 
-impl<T: Lerp> GradientKey<T> {
+impl<T: Lerp + Reflect + 'static> GradientKey<T> {
     /// Get the ratio where the key point is located, in \[0:1\].
     pub fn ratio(&self) -> f32 {
         self.ratio
@@ -78,12 +78,12 @@ impl<T: Lerp> GradientKey<T> {
 /// The gradient can be sampled anywhere, and will return a linear interpolation
 /// of the values of its closest keys. Sampling before 0 or after 1 returns a
 /// constant value equal to the one of the closest bound.
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct Gradient<T: Lerp> {
+#[derive(Debug, Default, Clone, PartialEq, Reflect, FromReflect)]
+pub struct Gradient<T: Lerp + FromReflect + 'static> {
     keys: Vec<GradientKey<T>>,
 }
 
-impl<T: Default + Lerp> Gradient<T> {
+impl<T: Default + Lerp + FromReflect + 'static> Gradient<T> {
     /// Create a new empty gradient.
     pub fn new() -> Self {
         Self::default()
@@ -98,7 +98,7 @@ impl<T: Default + Lerp> Gradient<T> {
     }
 }
 
-impl<T: Lerp> Gradient<T> {
+impl<T: Lerp + FromReflect + 'static> Gradient<T> {
     /// Add a key point to the gradient.
     ///
     /// If one or more duplicate ratios already exist, append the new key after

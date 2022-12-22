@@ -13,7 +13,7 @@ pub trait InitModifier: Modifier {
 }
 
 /// An initialization modifier spawning particles on a circle/disc.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, Reflect, FromReflect)]
 pub struct PositionCircleModifier {
     /// The circle center, relative to the emitter position.
     pub center: Vec3,
@@ -92,7 +92,7 @@ impl InitModifier for PositionCircleModifier {
 }
 
 /// An initialization modifier spawning particles on a sphere.
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Reflect, FromReflect)]
 pub struct PositionSphereModifier {
     /// The sphere center, relative to the emitter position.
     pub center: Vec3,
@@ -168,7 +168,7 @@ impl InitModifier for PositionSphereModifier {
 ///
 /// The particle velocity is initialized to a random speed along the direction
 /// going from the cone apex to the particle position.
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Reflect, FromReflect)]
 pub struct PositionCone3dModifier {
     /// The cone height along its axis, between the base and top radii.
     pub height: f32,
@@ -261,7 +261,7 @@ impl InitModifier for PositionCone3dModifier {
 ///
 /// Particles with a lifetime are aged each frame by the frame's delta time, and
 /// are despawned once their age is greater than or equal to their lifetime.
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Reflect, FromReflect)]
 pub struct ParticleLifetimeModifier {
     /// The lifetime of all particles when they spawn, in seconds.
     pub lifetime: f32,
