@@ -6,10 +6,13 @@ use std::ops::Sub;
 
 /// Utility trait to compare floating-point values with a tolerance.
 pub(crate) trait AbsDiffEq {
-    /// Calculate the absolute value of the difference between two floating-point quantities. For non-scalar quantities, the maximum absolute difference for all components is returned.
+    /// Calculate the absolute value of the difference between two
+    /// floating-point quantities. For non-scalar quantities, the maximum
+    /// absolute difference for all components is returned.
     fn abs_diff(a: &Self, b: &Self) -> f32;
 
-    /// Check if two floating-point quantities are approximately equal within a given tolerance. Non-scalar values are checked component-wise.
+    /// Check if two floating-point quantities are approximately equal within a
+    /// given tolerance. Non-scalar values are checked component-wise.
     fn abs_diff_eq(a: &Self, b: &Self, tol: f32) -> bool;
 }
 
