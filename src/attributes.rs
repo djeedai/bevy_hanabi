@@ -503,9 +503,12 @@ impl ParticleLayout {
     /// assert_eq!(layout.size(), 12);
     /// ```
     pub fn size(&self) -> u32 {
-        assert!(!self.layout.is_empty());
-        let last_attr = self.layout.last().unwrap();
-        last_attr.offset + last_attr.attribute.size() as u32
+        if self.layout.is_empty() {
+            0
+        } else {
+            let last_attr = self.layout.last().unwrap();
+            last_attr.offset + last_attr.attribute.size() as u32
+        }
     }
 
     /// Get the alignment of the layout in bytes.
