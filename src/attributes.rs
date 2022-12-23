@@ -196,7 +196,7 @@ impl Attribute {
     }
 
     /// Create a new attribute.
-    const fn new(name: Cow<'static, str>, value_type: ValueType) -> Self {
+    pub(crate) const fn new(name: Cow<'static, str>, value_type: ValueType) -> Self {
         Self { name, value_type }
     }
 
@@ -569,6 +569,15 @@ mod tests {
         }
     }
 
+    const F1: &'static Attribute = &Attribute::new(Cow::Borrowed("F1"), ValueType::Float);
+    const F1B: &'static Attribute = &Attribute::new(Cow::Borrowed("F1B"), ValueType::Float);
+    const F2: &'static Attribute = &Attribute::new(Cow::Borrowed("F2"), ValueType::Float2);
+    const F2B: &'static Attribute = &Attribute::new(Cow::Borrowed("F2B"), ValueType::Float2);
+    const F3: &'static Attribute = &Attribute::new(Cow::Borrowed("F3"), ValueType::Float3);
+    const F3B: &'static Attribute = &Attribute::new(Cow::Borrowed("F3B"), ValueType::Float3);
+    const F4: &'static Attribute = &Attribute::new(Cow::Borrowed("F4"), ValueType::Float4);
+    const F4B: &'static Attribute = &Attribute::new(Cow::Borrowed("F4B"), ValueType::Float4);
+
     #[test]
     fn test_layout_build() {
         // empty
@@ -592,35 +601,44 @@ mod tests {
             );
         }
 
-        let f1 = Attribute::SIZE;
-        let f2 = Attribute::SIZE2;
-        let f3 = Attribute::POSITION;
-        let f4 = Attribute::HDR_COLOR;
-
-        // homogenous
-        for attr in [f1, f2, f3, f4] {
+        // dedup
+        for attr in [F1, F2, F3, F4] {
             let mut layout = ParticleLayout::new();
-            for _ in 0..7 {
+            for _ in 0..3 {
                 layout = layout.add(attr);
             }
             let layout = layout.build();
-            assert_eq!(layout.layout.len(), 7);
-            for i in 0..7 {
-                let attr_i = &layout.layout[i];
-                assert_eq!(attr_i.offset as usize, i * attr.size());
-            }
+            assert_eq!(layout.layout.len(), 1); // unique
+            let attr = &layout.layout[0];
+            assert_eq!(attr.offset, 0);
         }
 
-        // [3 1 3 2]
+        // homogenous
+        for attr in [[F1, F1B], [F2, F2B], [F3, F3B], [F4, F4B]] {
+            let mut layout = ParticleLayout::new();
+            for i in 0..2 {
+                layout = layout.add(attr[i]);
+            }
+            let layout = layout.build();
+            assert_eq!(layout.layout.len(), 2);
+            let attr_0 = &layout.layout[0];
+            let size = attr_0.attribute.size();
+            assert_eq!(attr_0.offset as usize, 0 * size);
+            let attr_1 = &layout.layout[1];
+            assert_eq!(attr_1.offset as usize, 1 * size);
+            assert_eq!(attr_1.attribute.size(), size);
+        }
+
+        // [3, 1, 3, 2] -> [3 1 3 2]
         {
             let mut layout = ParticleLayout::new();
-            for attr in &[f1, f3, f2, f3] {
+            for attr in &[F1, F3, F2, F3B] {
                 layout = layout.add(attr);
             }
             let layout = layout.build();
             assert_eq!(layout.layout.len(), 4);
             let mut i = 0;
-            for (off, a) in &[(0, f3), (12, f1), (16, f3), (28, f2)] {
+            for (off, a) in &[(0, F3), (12, F1), (16, F3B), (28, F2)] {
                 let attr_i = layout.layout[i];
                 assert_eq!(attr_i.offset, *off as u32);
                 assert_eq!(&attr_i.attribute, a);
@@ -628,16 +646,16 @@ mod tests {
             }
         }
 
-        // [4 3 1 2 2 3]
+        // [1, 4, 3, 2, 2, 3] -> [4 3 1 2 2 3]
         {
             let mut layout = ParticleLayout::new();
-            for attr in &[f4, f1, f3, f2, f2, f3] {
+            for attr in &[F1, F4, F3, F2, F2B, F3B] {
                 layout = layout.add(attr);
             }
             let layout = layout.build();
             assert_eq!(layout.layout.len(), 6);
             let mut i = 0;
-            for (off, a) in &[(0, f4), (16, f3), (28, f1), (32, f2), (40, f2), (48, f3)] {
+            for (off, a) in &[(0, F4), (16, F3), (28, F1), (32, F2), (40, F2B), (48, F3B)] {
                 let attr_i = layout.layout[i];
                 assert_eq!(attr_i.offset, *off as u32);
                 assert_eq!(&attr_i.attribute, a);

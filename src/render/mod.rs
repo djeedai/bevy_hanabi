@@ -1221,7 +1221,7 @@ pub(crate) fn extract_effects(
                         .render_layout
                         .particle_texture
                         .clone()
-                        .map_or(HandleId::default::<Image>(), |handle| handle.id()),
+                        .unwrap_or(HandleId::default::<Image>()),
                     init_shader,
                     update_shader,
                     render_shader,

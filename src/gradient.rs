@@ -1,7 +1,9 @@
 use bevy::{
     math::{Quat, Vec2, Vec3, Vec3A, Vec4},
+    reflect::{FromReflect, Reflect},
     utils::FloatOrd,
 };
+use serde::{Deserialize, Serialize};
 use std::vec::Vec;
 
 /// Describes a type that can be linearly interpolated between two keys.
@@ -54,8 +56,8 @@ impl Lerp for Quat {
 }
 
 /// A single key point for a [`Gradient`].
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct GradientKey<T: Lerp> {
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct GradientKey<T: Lerp + FromReflect> {
     /// Ratio in \[0:1\] where the key is located.
     ratio: f32,
 
@@ -66,7 +68,7 @@ pub struct GradientKey<T: Lerp> {
     pub value: T,
 }
 
-impl<T: Lerp> GradientKey<T> {
+impl<T: Lerp + FromReflect> GradientKey<T> {
     /// Get the ratio where the key point is located, in \[0:1\].
     pub fn ratio(&self) -> f32 {
         self.ratio
@@ -78,12 +80,12 @@ impl<T: Lerp> GradientKey<T> {
 /// The gradient can be sampled anywhere, and will return a linear interpolation
 /// of the values of its closest keys. Sampling before 0 or after 1 returns a
 /// constant value equal to the one of the closest bound.
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct Gradient<T: Lerp> {
+#[derive(Debug, Default, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct Gradient<T: Lerp + FromReflect> {
     keys: Vec<GradientKey<T>>,
 }
 
-impl<T: Default + Lerp> Gradient<T> {
+impl<T: Default + Lerp + FromReflect> Gradient<T> {
     /// Create a new empty gradient.
     pub fn new() -> Self {
         Self::default()
@@ -98,7 +100,7 @@ impl<T: Default + Lerp> Gradient<T> {
     }
 }
 
-impl<T: Lerp> Gradient<T> {
+impl<T: Lerp + FromReflect> Gradient<T> {
     /// Add a key point to the gradient.
     ///
     /// If one or more duplicate ratios already exist, append the new key after

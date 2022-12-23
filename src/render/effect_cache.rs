@@ -604,9 +604,11 @@ impl EffectCache {
 
 #[cfg(all(test, feature = "gpu_tests"))]
 mod gpu_tests {
+    use std::borrow::Cow;
+
     use bevy::asset::HandleId;
 
-    use crate::{test_utils::MockRenderer, Attribute};
+    use crate::{test_utils::MockRenderer, Attribute, ValueType};
 
     use super::*;
 
@@ -639,20 +641,18 @@ mod gpu_tests {
         assert!(slice2 > slice3);
     }
 
+    const F4A: &'static Attribute = &Attribute::new(Cow::Borrowed("F4A"), ValueType::Float4);
+    const F4B: &'static Attribute = &Attribute::new(Cow::Borrowed("F4B"), ValueType::Float4);
+    const F4C: &'static Attribute = &Attribute::new(Cow::Borrowed("F4C"), ValueType::Float4);
+    const F4D: &'static Attribute = &Attribute::new(Cow::Borrowed("F4D"), ValueType::Float4);
+
     #[test]
     fn slice_ref() {
-        let l16 = ParticleLayout::new().add(Attribute::HDR_COLOR).build();
+        let l16 = ParticleLayout::new().add(F4A).build();
         assert_eq!(16, l16.size());
-        let l32 = ParticleLayout::new()
-            .add(Attribute::HDR_COLOR)
-            .add(Attribute::HDR_COLOR) // FIXME - Should be forbidden, currently isn't yet...
-            .build();
+        let l32 = ParticleLayout::new().add(F4A).add(F4B).build();
         assert_eq!(32, l32.size());
-        let l48 = ParticleLayout::new()
-            .add(Attribute::HDR_COLOR)
-            .add(Attribute::HDR_COLOR) // FIXME - Should be forbidden, currently isn't yet...
-            .add(Attribute::HDR_COLOR) // FIXME - Should be forbidden, currently isn't yet...
-            .build();
+        let l48 = ParticleLayout::new().add(F4A).add(F4B).add(F4C).build();
         assert_eq!(48, l48.size());
         for (range, particle_layout, len, byte_size) in [
             (0..0, &l16, 0, 0),
@@ -676,10 +676,10 @@ mod gpu_tests {
         //let render_queue = renderer.queue();
 
         let l64 = ParticleLayout::new()
-            .add(Attribute::HDR_COLOR)
-            .add(Attribute::HDR_COLOR) // FIXME - Should be forbidden, currently isn't yet...
-            .add(Attribute::HDR_COLOR) // FIXME - Should be forbidden, currently isn't yet...
-            .add(Attribute::HDR_COLOR) // FIXME - Should be forbidden, currently isn't yet...
+            .add(F4A)
+            .add(F4B)
+            .add(F4C)
+            .add(F4D)
             .build();
         assert_eq!(64, l64.size());
 
@@ -749,10 +749,10 @@ mod gpu_tests {
         //let render_queue = renderer.queue();
 
         let l64 = ParticleLayout::new()
-            .add(Attribute::HDR_COLOR)
-            .add(Attribute::HDR_COLOR) // FIXME - Should be forbidden, currently isn't yet...
-            .add(Attribute::HDR_COLOR) // FIXME - Should be forbidden, currently isn't yet...
-            .add(Attribute::HDR_COLOR) // FIXME - Should be forbidden, currently isn't yet...
+            .add(F4A)
+            .add(F4B)
+            .add(F4C)
+            .add(F4D)
             .build();
         assert_eq!(64, l64.size());
 
@@ -817,10 +817,7 @@ mod gpu_tests {
         let render_device = renderer.device();
         let render_queue = renderer.queue();
 
-        let l32 = ParticleLayout::new()
-            .add(Attribute::HDR_COLOR)
-            .add(Attribute::HDR_COLOR) // FIXME - Should be forbidden, currently isn't yet...
-            .build();
+        let l32 = ParticleLayout::new().add(F4A).add(F4B).build();
         assert_eq!(32, l32.size());
 
         let mut effect_cache = EffectCache::new(render_device);

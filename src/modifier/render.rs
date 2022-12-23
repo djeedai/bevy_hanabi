@@ -1,6 +1,7 @@
 //! Modifiers to influence the rendering of each particle.
 
-use bevy::prelude::*;
+use bevy::{asset::HandleId, prelude::*};
+use serde::{Deserialize, Serialize};
 
 use crate::{Attribute, Gradient, Modifier, RenderLayout};
 
@@ -11,10 +12,18 @@ pub trait RenderModifier: Modifier {
 }
 
 /// A modifier modulating each particle's color by sampling a texture.
-#[derive(Default, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ParticleTextureModifier {
     /// The texture image to modulate the particle color with.
-    pub texture: Handle<Image>,
+    pub texture: HandleId,
+}
+
+impl Default for ParticleTextureModifier {
+    fn default() -> Self {
+        Self {
+            texture: HandleId::default::<Image>(),
+        }
+    }
 }
 
 impl Modifier for ParticleTextureModifier {
@@ -31,7 +40,7 @@ impl RenderModifier for ParticleTextureModifier {
 
 /// A modifier modulating each particle's color over its lifetime with a
 /// gradient curve.
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ColorOverLifetimeModifier {
     /// The color gradient defining the particle color based on its lifetime.
     pub gradient: Gradient<Vec4>,
@@ -51,7 +60,7 @@ impl RenderModifier for ColorOverLifetimeModifier {
 
 /// A modifier modulating each particle's size over its lifetime with a gradient
 /// curve.
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct SizeOverLifetimeModifier {
     /// The size gradient defining the particle size based on its lifetime.
     pub gradient: Gradient<Vec2>,
@@ -70,7 +79,7 @@ impl RenderModifier for SizeOverLifetimeModifier {
 }
 
 /// Reorients the vertices to always face the camera when rendering.
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct BillboardModifier;
 
 impl Modifier for BillboardModifier {
@@ -93,10 +102,8 @@ mod tests {
 
     #[test]
     fn mod_particle_texture() {
-        let texture = Handle::weak(HandleId::default::<Image>());
-        let modifier = ParticleTextureModifier {
-            texture: texture.clone(),
-        };
+        let texture = HandleId::default::<Image>();
+        let modifier = ParticleTextureModifier { texture };
 
         let mut layout = RenderLayout::default();
         modifier.apply(&mut layout);

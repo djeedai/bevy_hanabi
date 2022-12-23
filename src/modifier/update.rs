@@ -4,6 +4,7 @@
 //! update compute shader.
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::{Attribute, Modifier, UpdateLayout};
 
@@ -15,7 +16,7 @@ pub trait UpdateModifier: Modifier {
 
 /// A modifier to apply a constant acceleration to all particles each frame.
 /// Used to simulate gravity.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AccelModifier {
     /// The constant acceleration to apply to all particles in the effect each
     /// frame.
@@ -40,7 +41,7 @@ impl UpdateModifier for AccelModifier {
 /// position, with a decreasing intensity the further away from the source the
 /// particle is. This force is added to the one(s) of all the other active
 /// sources of a [`ForceFieldModifier`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ForceFieldSource {
     /// Position of the source.
     pub position: Vec3,
@@ -91,7 +92,7 @@ impl ForceFieldSource {
 /// field is made up of [`ForceFieldSource`]s.
 ///
 /// The maximum number of sources is [`ForceFieldSource::MAX_SOURCES`].
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ForceFieldModifier {
     /// Array of force field sources.
     ///
@@ -158,7 +159,7 @@ impl UpdateModifier for ForceFieldModifier {
 
 /// A modifier to apply a linear drag force to all particles each frame. The
 /// force slows down the particles without changing their direction.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct LinearDragModifier {
     /// Drag coefficient. Higher values increase the drag force, and
     /// consequently decrease the particle's speed faster.

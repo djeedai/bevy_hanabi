@@ -1,10 +1,9 @@
 use bevy::{
-    asset::{AssetLoader, Handle, LoadContext, LoadedAsset},
+    asset::{AssetLoader, HandleId, LoadContext, LoadedAsset},
     ecs::{reflect::ReflectResource, system::Resource},
     math::{Vec2, Vec3, Vec4},
     reflect::{Reflect, TypeUuid},
-    render::texture::Image,
-    utils::BoxedFuture,
+    utils::{BoxedFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +13,7 @@ use crate::{
         render::RenderModifier,
         update::{ForceFieldSource, UpdateModifier},
     },
-    Gradient, Modifier, Spawner,
+    Gradient, Modifiers, ParticleLayout, Spawner,
 };
 
 /// Struct containing snippets of WSGL code that can be used
@@ -53,7 +52,7 @@ pub struct RenderLayout {
     /// If set, defines the PARTICLE_TEXTURE shader key and extend the vertex
     /// format to contain UV coordinates. Also make available the image as a
     /// 2D texture and sampler in the render shaders.
-    pub particle_texture: Option<Handle<Image>>,
+    pub particle_texture: Option<HandleId>, // Handle<Image>
     /// Optional color gradient used to vary the particle color over its
     /// lifetime.
     pub lifetime_color_gradient: Option<Gradient<Vec4>>,
@@ -122,32 +121,60 @@ pub struct EffectAsset {
     ///
     /// Ignored for 3D rendering.
     pub z_layer_2d: f32,
-    ///
-    #[serde(skip)] // TODO
-    #[reflect(ignore)] // TODO?
-    pub modifiers: Vec<Box<dyn Modifier + Send + Sync + 'static>>,
+    /// Modifiers defining the effect.
+    pub modifiers: Vec<Modifiers>,
 }
 
 impl EffectAsset {
     /// Add an initialization modifier to the effect.
-    pub fn init<M: InitModifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
+    pub fn init<M>(mut self, modifier: M) -> Self
+    where
+        M: InitModifier + Send + Sync + 'static,
+        Modifiers: From<M>,
+    {
         modifier.apply(&mut self.init_layout);
-        self.modifiers.push(Box::new(modifier));
+        self.modifiers.push(modifier.into());
         self
     }
 
     /// Add an update modifier to the effect.
-    pub fn update<M: UpdateModifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
+    pub fn update<M>(mut self, modifier: M) -> Self
+    where
+        M: UpdateModifier + Send + Sync + 'static,
+        Modifiers: From<M>,
+    {
         modifier.apply(&mut self.update_layout);
-        self.modifiers.push(Box::new(modifier));
+        self.modifiers.push(modifier.into());
         self
     }
 
     /// Add a render modifier to the effect.
-    pub fn render<M: RenderModifier + Send + Sync + 'static>(mut self, modifier: M) -> Self {
+    pub fn render<M>(mut self, modifier: M) -> Self
+    where
+        M: RenderModifier + Send + Sync + 'static,
+        Modifiers: From<M>,
+    {
         modifier.apply(&mut self.render_layout);
-        self.modifiers.push(Box::new(modifier));
+        self.modifiers.push(modifier.into());
         self
+    }
+
+    /// Build the particle layout of the asset based on its modifiers.
+    pub fn particle_layout(&self) -> ParticleLayout {
+        // Build the set of unique attributes required for all modifiers
+        let mut set = HashSet::new();
+        for modifier in &self.modifiers {
+            for &attr in modifier.modifier().attributes() {
+                set.insert(attr);
+            }
+        }
+
+        // Build the layout
+        let mut layout = ParticleLayout::new();
+        for attr in set {
+            layout = layout.add(attr);
+        }
+        layout.build()
     }
 }
 
@@ -186,7 +213,9 @@ mod tests {
             spawner: Spawner::rate(30.0.into()),
             ..Default::default()
         }
+        //.init(PositionCircleModifier::default())
         .init(PositionSphereModifier::default())
+        //.init(PositionCone3dModifier::default())
         .init(ParticleLifetimeModifier::default())
         .update(AccelModifier::default())
         .update(LinearDragModifier::default())
