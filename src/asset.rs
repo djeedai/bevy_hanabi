@@ -149,6 +149,24 @@ impl EffectAsset {
         self.modifiers.push(Box::new(modifier));
         self
     }
+
+    /// Build the particle layout of the asset based on its modifiers.
+    pub fn particle_layout(&self) -> ParticleLayout {
+        // Build the set of unique attributes required for all modifiers
+        let mut set = HashSet::new();
+        for modifier in &self.modifiers {
+            for &attr in modifier.modifier().attributes() {
+                set.insert(attr);
+            }
+        }
+
+        // Build the layout
+        let mut layout = ParticleLayout::new();
+        for attr in set {
+            layout = layout.add(attr);
+        }
+        layout.build()
+    }
 }
 
 #[derive(Default)]
