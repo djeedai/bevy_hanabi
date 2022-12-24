@@ -22,8 +22,8 @@ pub(crate) fn new_rng() -> Pcg32 {
 pub struct Random(pub Pcg32);
 
 /// A constant or random value.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Value<T: Copy> {
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Reflect)]
+pub enum Value<T: Copy + FromReflect> {
     /// Single constant value.
     Single(T),
     /// Random value distributed uniformly between two inclusive bounds.
@@ -35,13 +35,13 @@ pub enum Value<T: Copy> {
     Uniform((T, T)),
 }
 
-impl<T: Copy + Default> Default for Value<T> {
+impl<T: Copy + Default + FromReflect> Default for Value<T> {
     fn default() -> Self {
         Self::Single(T::default())
     }
 }
 
-impl<T: Copy + SampleUniform> Value<T> {
+impl<T: Copy + SampleUniform + FromReflect> Value<T> {
     /// Sample the value.
     /// - For [`Value::Single`], always return the same single value.
     /// - For [`Value::Uniform`], use the given pseudo-random number generator
@@ -54,7 +54,7 @@ impl<T: Copy + SampleUniform> Value<T> {
     }
 }
 
-impl<T: Copy + PartialOrd> Value<T> {
+impl<T: Copy + PartialOrd + FromReflect> Value<T> {
     /// Returns the range of allowable values in the form `[minimum, maximum]`.
     /// For [`Value::Single`], both values are the same.
     pub fn range(&self) -> [T; 2] {
@@ -71,7 +71,7 @@ impl<T: Copy + PartialOrd> Value<T> {
     }
 }
 
-impl<T: Copy> From<T> for Value<T> {
+impl<T: Copy + FromReflect> From<T> for Value<T> {
     fn from(t: T) -> Self {
         Self::Single(t)
     }

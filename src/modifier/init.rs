@@ -3,7 +3,8 @@
 use bevy::prelude::*;
 
 use crate::{
-    asset::InitLayout, modifier::ShapeDimension, Attribute, Modifier, ToWgslString, Value,
+    asset::InitLayout, modifier::ShapeDimension, Attribute, Modifier, ReflectModifier,
+    ToWgslString, Value,
 };
 
 /// Trait to customize the initializing of newly spawned particles.
@@ -13,7 +14,8 @@ pub trait InitModifier: Modifier {
 }
 
 /// An initialization modifier spawning particles on a circle/disc.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Reflect)]
+#[reflect(Modifier)]
 pub struct PositionCircleModifier {
     /// The circle center, relative to the emitter position.
     pub center: Vec3,
