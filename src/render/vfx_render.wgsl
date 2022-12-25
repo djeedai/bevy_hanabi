@@ -85,6 +85,7 @@ fn vertex(
 #endif
 
     var size = vec2<f32>(1.0, 1.0);
+    {{SIZE}}
 
 {{VERTEX_MODIFIERS}}
 

@@ -1162,11 +1162,17 @@ pub(crate) fn extract_effects(
         .map(|(entity, effect)| {
             let handle = effect.handle.clone_weak();
             let asset = effects.get(&effect.handle).unwrap();
-            assert!(asset.particle_layout().size() > 0);
+            let particle_layout = asset.particle_layout();
+            assert!(
+                particle_layout.size() > 0,
+                "Invalid empty particle layout for effect '{}' on entity {:?}. Did you forget to add some modifier to the asset?",
+                asset.name,
+                entity
+            );
             AddedEffect {
                 entity,
                 capacity: asset.capacity,
-                particle_layout: asset.particle_layout().clone(),
+                particle_layout,
                 handle,
             }
         })
@@ -1193,45 +1199,57 @@ pub(crate) fn extract_effects(
         let lifetime_code = effect.lifetime_code.clone();
 
         // Check if asset is available, otherwise silently ignore
-        if let Some(asset) = effects.get(&effect.handle) {
-            let z_sort_key_2d = effect
-                .z_layer_2d
-                .map_or(FloatOrd(asset.z_layer_2d), |z_layer_2d| {
-                    FloatOrd(z_layer_2d)
-                });
+        let Some(asset) = effects.get(&effect.handle) else {
+            trace!("EffectAsset not ready; skipping ParticleEffect instance on entity {:?}.", entity);
+            continue;
+        };
 
-            extracted_effects.effects.insert(
-                entity,
-                ExtractedEffect {
-                    handle: effect.handle.clone_weak(),
-                    particle_layout: asset.particle_layout().clone(),
-                    spawn_count,
-                    color: Color::RED, //effect.color,
-                    transform: transform.compute_matrix(),
-                    accel,
-                    force_field,
-                    rect: Rect {
-                        min: Vec2::splat(-0.1),
-                        max: Vec2::splat(0.1), // effect
-                                               //.custom_size
-                                               //.unwrap_or_else(|| Vec2::new(size.width as f32, size.height as f32)),
-                    },
-                    has_image: asset.render_layout.particle_texture.is_some(),
-                    image_handle_id: asset
-                        .render_layout
-                        .particle_texture
-                        .clone()
-                        .unwrap_or(HandleId::default::<Image>()),
-                    init_shader,
-                    update_shader,
-                    render_shader,
-                    position_code,
-                    force_field_code,
-                    lifetime_code,
-                    z_sort_key_2d,
+        let z_sort_key_2d = effect
+            .z_layer_2d
+            .map_or(FloatOrd(asset.z_layer_2d), |z_layer_2d| {
+                FloatOrd(z_layer_2d)
+            });
+
+        let image_handle_id = asset
+            .render_layout
+            .particle_texture
+            .clone()
+            .unwrap_or(HandleId::default::<Image>());
+
+        trace!(
+            "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?}",
+            asset.name,
+            entity,
+            image_handle_id
+        );
+
+        extracted_effects.effects.insert(
+            entity,
+            ExtractedEffect {
+                handle: effect.handle.clone_weak(),
+                particle_layout: asset.particle_layout().clone(),
+                spawn_count,
+                color: Color::RED, //effect.color,
+                transform: transform.compute_matrix(),
+                accel,
+                force_field,
+                rect: Rect {
+                    min: Vec2::splat(-0.1),
+                    max: Vec2::splat(0.1), // effect
+                                           //.custom_size
+                                           //.unwrap_or_else(|| Vec2::new(size.width as f32, size.height as f32)),
                 },
-            );
-        }
+                has_image: asset.render_layout.particle_texture.is_some(),
+                image_handle_id,
+                init_shader,
+                update_shader,
+                render_shader,
+                position_code,
+                force_field_code,
+                lifetime_code,
+                z_sort_key_2d,
+            },
+        );
     }
 }
 

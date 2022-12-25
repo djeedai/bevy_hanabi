@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    asset::InitLayout, modifier::ShapeDimension, Attribute, Modifier, ToWgslString, Value,
+    asset::InitLayout, modifier::ShapeDimension, Attribute, DimValue, Modifier, ToWgslString, Value,
 };
 
 /// Trait to customize the initializing of newly spawned particles.
@@ -284,6 +284,39 @@ impl InitModifier for ParticleLifetimeModifier {
 "##,
             self.lifetime.to_wgsl_string(),
         );
+    }
+}
+
+/// Modifier to initialize the per-particle size attribute.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct InitSizeModifier {
+    /// The size to initialize each particle with.
+    ///
+    /// Only [`DimValue::D1`] and [`DimValue::D2`] are valid.
+    pub size: DimValue,
+}
+
+impl Modifier for InitSizeModifier {
+    fn attributes(&self) -> &[&'static Attribute] {
+        match self.size {
+            DimValue::D1(_) => &[Attribute::SIZE],
+            DimValue::D2(_) => &[Attribute::SIZE2],
+            _ => panic!("Invalid dimension for InitSizeModifier; only 1D and 2D values are valid."),
+        }
+    }
+}
+
+impl InitModifier for InitSizeModifier {
+    fn apply(&self, init_layout: &mut InitLayout) {
+        init_layout.size_code = Some(format!(
+            r##"
+    // >>> [InitSizeModifier]
+    particle.{0} = {1};
+    // <<< [InitSizeModifier]
+"##,
+            Attribute::SIZE.name(),
+            self.size.to_wgsl_string(),
+        ));
     }
 }
 

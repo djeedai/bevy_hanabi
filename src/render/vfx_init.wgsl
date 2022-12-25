@@ -156,10 +156,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let dead_index = atomicSub(&render_indirect.dead_count, 1u) - 1u;
     let index = indirect_buffer.indices[3u * dead_index + 2u];
 
-    var vPos : vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
-    var vVel : vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
-    var vAge : f32 = 0.0;
-    var vLifetime : f32 = 0.0;
+    var particle = Particle();
 
     // Update PRNG seed
     seed = pcg_hash(index ^ spawner.seed);
@@ -175,10 +172,11 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Initialize new particle
     var posVel = init_pos_vel(index, transform);
-    vPos = posVel.position;
-    vVel = posVel.velocity;
-    vAge = 0.0;
-    vLifetime = init_lifetime();
+    particle.position = posVel.position;
+    particle.velocity = posVel.velocity;
+    particle.age = 0.0;
+    particle.lifetime = init_lifetime();
+    {{INIT_SIZE}}
 
     // Count as alive
     atomicAdd(&render_indirect.alive_count, 1u);
@@ -191,8 +189,5 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     indirect_buffer.indices[3u * indirect_index + ping] = index;
 
     // Write back spawned particle
-    particle_buffer.particles[index].position = vPos;
-    particle_buffer.particles[index].velocity = vVel;
-    particle_buffer.particles[index].age = vAge;
-    particle_buffer.particles[index].lifetime = vLifetime;
+    particle_buffer.particles[index] = particle;
 }

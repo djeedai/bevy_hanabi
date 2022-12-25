@@ -142,7 +142,7 @@ pub use gradient::{Gradient, GradientKey};
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
 pub use render::ShaderCache;
-pub use spawn::{Random, Spawner, Value};
+pub use spawn::{DimValue, Random, Spawner, Value};
 
 #[allow(missing_docs)]
 pub mod prelude {
@@ -245,6 +245,45 @@ impl ToWgslString for Value<f32> {
             Self::Single(x) => x.to_wgsl_string(),
             Self::Uniform((a, b)) => format!(
                 "rand() * ({1} - {0}) + {0}",
+                a.to_wgsl_string(),
+                b.to_wgsl_string(),
+            ),
+        }
+    }
+}
+
+impl ToWgslString for Value<Vec2> {
+    fn to_wgsl_string(&self) -> String {
+        match self {
+            Self::Single(v) => v.to_wgsl_string(),
+            Self::Uniform((a, b)) => format!(
+                "rand2() * ({1} - {0}) + {0}",
+                a.to_wgsl_string(),
+                b.to_wgsl_string(),
+            ),
+        }
+    }
+}
+
+impl ToWgslString for Value<Vec3> {
+    fn to_wgsl_string(&self) -> String {
+        match self {
+            Self::Single(v) => v.to_wgsl_string(),
+            Self::Uniform((a, b)) => format!(
+                "rand3() * ({1} - {0}) + {0}",
+                a.to_wgsl_string(),
+                b.to_wgsl_string(),
+            ),
+        }
+    }
+}
+
+impl ToWgslString for Value<Vec4> {
+    fn to_wgsl_string(&self) -> String {
+        match self {
+            Self::Single(v) => v.to_wgsl_string(),
+            Self::Uniform((a, b)) => format!(
+                "rand4() * ({1} - {0}) + {0}",
                 a.to_wgsl_string(),
                 b.to_wgsl_string(),
             ),
@@ -607,6 +646,7 @@ fn tick_spawners(
             || effect.configured_render_shader.is_none()
         {
             let asset = effects.get(&effect.handle).unwrap(); // must succeed since it did above
+            let particle_layout = asset.particle_layout();
 
             // Extract the acceleration
             let accel = asset.update_layout.accel;
@@ -633,6 +673,14 @@ fn tick_spawners(
             } else {
                 lifetime_code.clone()
             };
+
+            const EMPTY_SIZE_CODE: &'static str = &"";
+            let size_code = asset
+                .init_layout
+                .size_code
+                .as_ref()
+                .map(String::as_str)
+                .unwrap_or(EMPTY_SIZE_CODE);
 
             // Generate the shader code for the force field of newly emitted particles
             // TODO - Move that to a pre-pass, not each frame!
@@ -669,12 +717,24 @@ fn tick_spawners(
 
             trace!("vertex_modifiers={}", vertex_modifiers);
 
+            let has_per_particle_size = particle_layout
+                .attributes()
+                .iter()
+                .any(|&entry| entry.attribute.name() == Attribute::SIZE.name());
+            let has_per_particle_size2 = particle_layout
+                .attributes()
+                .iter()
+                .any(|&entry| entry.attribute.name() == Attribute::SIZE.name());
+
             // Configure the init shader template, and make sure a corresponding shader
             // asset exists
             let mut init_shader_source =
                 PARTICLES_INIT_SHADER_TEMPLATE.replace("{{INIT_POS_VEL}}", &position_code);
             init_shader_source = init_shader_source.replace("{{INIT_LIFETIME}}", &lifetime_code);
             init_shader_source = init_shader_source.replace("{{ATTRIBUTES}}", &attributes_code);
+            //if has_per_particle_size || has_per_particle_size2 {
+            init_shader_source = init_shader_source.replace("{{INIT_SIZE}}", &size_code);
+            //}
             let init_shader = shader_cache.get_or_insert(&init_shader_source, &mut shaders);
 
             // Configure the update shader template, and make sure a corresponding shader
@@ -690,6 +750,19 @@ fn tick_spawners(
             let mut render_shader_source =
                 PARTICLES_RENDER_SHADER_TEMPLATE.replace("{{VERTEX_MODIFIERS}}", &vertex_modifiers);
             render_shader_source = render_shader_source.replace("{{ATTRIBUTES}}", &attributes_code);
+            if has_per_particle_size {
+                render_shader_source = render_shader_source.replace(
+                    "{{SIZE}}",
+                    &format!("size = vec2<f32>(particle.{});", Attribute::SIZE.name()),
+                );
+            } else if has_per_particle_size2 {
+                render_shader_source = render_shader_source.replace(
+                    "{{SIZE}}",
+                    &format!("size = particle.{};", Attribute::SIZE2.name()),
+                );
+            } else {
+                render_shader_source = render_shader_source.replace("{{SIZE}}", "");
+            }
             let render_shader = shader_cache.get_or_insert(&render_shader_source, &mut shaders);
 
             trace!(

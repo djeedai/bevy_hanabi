@@ -230,7 +230,7 @@ impl Attribute {
 
 /// Layout for a single [`Attribute`] inside a [`ParticleLayout`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct AttributeLayout {
+pub(crate) struct AttributeLayout {
     pub attribute: &'static Attribute,
     pub offset: u32,
 }
@@ -538,6 +538,10 @@ impl ParticleLayout {
         let size = self.size() as usize;
         let align = self.align();
         NonZeroU64::new(next_multiple_of(size, align) as u64).unwrap()
+    }
+
+    pub(crate) fn attributes(&self) -> &[AttributeLayout] {
+        &self.layout
     }
 
     /// Generate the WGSL attribute code corresponding to the layout.

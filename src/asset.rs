@@ -1,6 +1,5 @@
 use bevy::{
     asset::{AssetLoader, HandleId, LoadContext, LoadedAsset},
-    ecs::{reflect::ReflectResource, system::Resource},
     math::{Vec2, Vec3, Vec4},
     reflect::{Reflect, TypeUuid},
     utils::{BoxedFuture, HashSet},
@@ -13,7 +12,7 @@ use crate::{
         render::RenderModifier,
         update::{ForceFieldSource, UpdateModifier},
     },
-    Gradient, Modifiers, ParticleLayout, Spawner,
+    Attribute, Gradient, Modifiers, ParticleLayout, Spawner,
 };
 
 /// Struct containing snippets of WSGL code that can be used
@@ -24,6 +23,8 @@ pub struct InitLayout {
     pub position_code: String,
     /// WSGL code to set the initial lifetime of the particle.
     pub lifetime_code: String,
+    /// Optional per-particle size code.
+    pub size_code: Option<String>,
 }
 
 /// Struct containing snippets of WSGL code that can be used
@@ -70,14 +71,13 @@ pub struct RenderLayout {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, Resource, Reflect, TypeUuid)]
-#[reflect(Resource)]
+#[derive(Debug, Default, Clone, PartialEq, TypeUuid, Reflect, Serialize, Deserialize)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.
     ///
     /// This has no internal use, and is mostly for the user to identify an
-    /// effect or for display is some tool UI.
+    /// effect or for display in some tool UI.
     pub name: String,
     /// Maximum number of concurrent particles.
     ///

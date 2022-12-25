@@ -172,6 +172,9 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
+        .init(InitSizeModifier {
+            size: Value::<f32>::Uniform((0.3, 0.7)).into(),
+        })
         .update(AccelModifier {
             accel: Vec3::new(0., 5., 0.),
         })

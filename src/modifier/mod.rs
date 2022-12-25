@@ -38,18 +38,15 @@ use crate::Attribute;
 /// The dimension of a shape to consider.
 ///
 /// The exact meaning depends on the context where this enum is used.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Reflect, FromReflect, Serialize, Deserialize,
+)]
 pub enum ShapeDimension {
     /// Consider the surface of the shape only.
+    #[default]
     Surface,
     /// Consider the entire shape volume.
     Volume,
-}
-
-impl Default for ShapeDimension {
-    fn default() -> Self {
-        Self::Surface
-    }
 }
 
 /// Trait describing a modifier customizing an effect pipeline.
@@ -77,6 +74,8 @@ pub enum Modifiers {
     PositionCone3d(PositionCone3dModifier),
     /// [`ParticleLifetimeModifier`].
     ParticleLifetime(ParticleLifetimeModifier),
+    /// [`InitSizeModifier`]
+    InitSize(InitSizeModifier),
 
     /// [`AccelModifier`].
     Accel(AccelModifier),
@@ -103,9 +102,12 @@ impl Modifiers {
             Modifiers::PositionSphere(modifier) => modifier,
             Modifiers::PositionCone3d(modifier) => modifier,
             Modifiers::ParticleLifetime(modifier) => modifier,
+            Modifiers::InitSize(modifier) => modifier,
+
             Modifiers::Accel(modifier) => modifier,
             Modifiers::ForceField(modifier) => modifier,
             Modifiers::LinearDrag(modifier) => modifier,
+
             Modifiers::ParticleTexture(modifier) => modifier,
             Modifiers::ColorOverLifetime(modifier) => modifier,
             Modifiers::SizeOverLifetime(modifier) => modifier,
@@ -114,68 +116,28 @@ impl Modifiers {
     }
 }
 
-impl From<PositionCircleModifier> for Modifiers {
-    fn from(modifier: PositionCircleModifier) -> Self {
-        Self::PositionCircle(modifier)
-    }
+/// Implement `From<T> for Modifiers` for a [`Modifier`] type.
+macro_rules! impl_modifier {
+    ($e:ident, $t:ty) => {
+        impl From<$t> for $crate::Modifiers {
+            fn from(modifier: $t) -> Self {
+                Self::$e(modifier)
+            }
+        }
+    };
 }
 
-impl From<PositionSphereModifier> for Modifiers {
-    fn from(modifier: PositionSphereModifier) -> Self {
-        Self::PositionSphere(modifier)
-    }
-}
+impl_modifier!(PositionCircle, PositionCircleModifier);
+impl_modifier!(PositionSphere, PositionSphereModifier);
+impl_modifier!(PositionCone3d, PositionCone3dModifier);
+impl_modifier!(ParticleLifetime, ParticleLifetimeModifier);
+impl_modifier!(InitSize, InitSizeModifier);
 
-impl From<PositionCone3dModifier> for Modifiers {
-    fn from(modifier: PositionCone3dModifier) -> Self {
-        Self::PositionCone3d(modifier)
-    }
-}
+impl_modifier!(Accel, AccelModifier);
+impl_modifier!(ForceField, ForceFieldModifier);
+impl_modifier!(LinearDrag, LinearDragModifier);
 
-impl From<ParticleLifetimeModifier> for Modifiers {
-    fn from(modifier: ParticleLifetimeModifier) -> Self {
-        Self::ParticleLifetime(modifier)
-    }
-}
-
-impl From<AccelModifier> for Modifiers {
-    fn from(modifier: AccelModifier) -> Self {
-        Self::Accel(modifier)
-    }
-}
-
-impl From<ForceFieldModifier> for Modifiers {
-    fn from(modifier: ForceFieldModifier) -> Self {
-        Self::ForceField(modifier)
-    }
-}
-
-impl From<LinearDragModifier> for Modifiers {
-    fn from(modifier: LinearDragModifier) -> Self {
-        Self::LinearDrag(modifier)
-    }
-}
-
-impl From<ParticleTextureModifier> for Modifiers {
-    fn from(modifier: ParticleTextureModifier) -> Self {
-        Self::ParticleTexture(modifier)
-    }
-}
-
-impl From<ColorOverLifetimeModifier> for Modifiers {
-    fn from(modifier: ColorOverLifetimeModifier) -> Self {
-        Self::ColorOverLifetime(modifier)
-    }
-}
-
-impl From<SizeOverLifetimeModifier> for Modifiers {
-    fn from(modifier: SizeOverLifetimeModifier) -> Self {
-        Self::SizeOverLifetime(modifier)
-    }
-}
-
-impl From<BillboardModifier> for Modifiers {
-    fn from(modifier: BillboardModifier) -> Self {
-        Self::Billboard(modifier)
-    }
-}
+impl_modifier!(ParticleTexture, ParticleTextureModifier);
+impl_modifier!(ColorOverLifetime, ColorOverLifetimeModifier);
+impl_modifier!(SizeOverLifetime, SizeOverLifetimeModifier);
+impl_modifier!(Billboard, BillboardModifier);
