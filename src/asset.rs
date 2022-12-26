@@ -1,7 +1,8 @@
 use bevy::{
-    asset::{AssetLoader, HandleId, LoadContext, LoadedAsset},
+    asset::{AssetLoader, Handle, LoadContext, LoadedAsset},
     math::{Vec2, Vec3, Vec4},
     reflect::{Reflect, TypeUuid},
+    render::texture::Image,
     utils::{BoxedFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
@@ -53,7 +54,7 @@ pub struct RenderLayout {
     /// If set, defines the PARTICLE_TEXTURE shader key and extend the vertex
     /// format to contain UV coordinates. Also make available the image as a
     /// 2D texture and sampler in the render shaders.
-    pub particle_texture: Option<HandleId>, // Handle<Image>
+    pub particle_texture: Option<Handle<Image>>,
     /// Optional color gradient used to vary the particle color over its
     /// lifetime.
     pub lifetime_color_gradient: Option<Gradient<Vec4>>,

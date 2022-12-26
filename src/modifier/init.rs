@@ -288,11 +288,17 @@ impl InitModifier for ParticleLifetimeModifier {
 }
 
 /// Modifier to initialize the per-particle size attribute.
+///
+/// The particle is initialized with a fixed or randomly distributed size value,
+/// and will retain that size unless another modifier (like
+/// [`SizeOverLifetimeModifier`]) changes its size after spawning.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitSizeModifier {
     /// The size to initialize each particle with.
     ///
-    /// Only [`DimValue::D1`] and [`DimValue::D2`] are valid.
+    /// Only [`DimValue::D1`] and [`DimValue::D2`] are valid. The former
+    /// requires the [`Attribute::SIZE`] attribute in the particle layout, while
+    /// the latter requires the [`Attribute::SIZE2`] attribute.
     pub size: DimValue,
 }
 

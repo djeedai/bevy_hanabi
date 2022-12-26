@@ -75,7 +75,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
         })
         .render(ParticleTextureModifier {
-            texture: texture_handle.id(),
+            texture: texture_handle.clone(),
         })
         .render(BillboardModifier {})
         .render(ColorOverLifetimeModifier { gradient })

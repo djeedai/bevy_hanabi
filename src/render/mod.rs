@@ -1214,7 +1214,8 @@ pub(crate) fn extract_effects(
             .render_layout
             .particle_texture
             .clone()
-            .unwrap_or(HandleId::default::<Image>());
+            .unwrap_or(Handle::<Image>::default())
+            .id();
 
         trace!(
             "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?}",

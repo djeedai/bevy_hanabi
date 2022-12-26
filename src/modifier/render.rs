@@ -1,6 +1,6 @@
 //! Modifiers to influence the rendering of each particle.
 
-use bevy::{asset::HandleId, prelude::*};
+use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{Attribute, Gradient, Modifier, RenderLayout};
@@ -12,23 +12,19 @@ pub trait RenderModifier: Modifier {
 }
 
 /// A modifier modulating each particle's color by sampling a texture.
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ParticleTextureModifier {
     /// The texture image to modulate the particle color with.
-    pub texture: HandleId,
-}
-
-impl Default for ParticleTextureModifier {
-    fn default() -> Self {
-        Self {
-            texture: HandleId::default::<Image>(),
-        }
-    }
+    #[serde(skip)]
+    // TODO - Clarify if Modifier needs to be serializable, or we need another on-disk
+    // representation... NOTE - Need to keep a strong handle here, nothing else will keep that
+    // texture loaded currently.
+    pub texture: Handle<Image>,
 }
 
 impl Modifier for ParticleTextureModifier {
     fn attributes(&self) -> &[&'static Attribute] {
-        &[]
+        &[] // TODO - should require some UV maybe?
     }
 }
 
@@ -96,14 +92,14 @@ impl RenderModifier for BillboardModifier {
 
 #[cfg(test)]
 mod tests {
-    use bevy::asset::HandleId;
-
     use super::*;
 
     #[test]
     fn mod_particle_texture() {
-        let texture = HandleId::default::<Image>();
-        let modifier = ParticleTextureModifier { texture };
+        let texture = Handle::<Image>::default();
+        let modifier = ParticleTextureModifier {
+            texture: texture.clone(),
+        };
 
         let mut layout = RenderLayout::default();
         modifier.apply(&mut layout);
