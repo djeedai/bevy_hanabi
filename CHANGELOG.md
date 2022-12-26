@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fix (most common cases of) a bug where effects spawned after another effect was despawned will not work. This is a partial workaround; the bug can still trigger but under more rare conditions. (#106)
 - Fix simulate compute jobs running once per view instead of once per frame. (#102)
+- Fix 2D rendering not using indirect (GPU-driven) rendering.
 
 ### Removed
 
