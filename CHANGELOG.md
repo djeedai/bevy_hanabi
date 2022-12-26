@@ -3,6 +3,17 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Fix (most common cases of) a bug where effects spawned after another effect was despawned will not work. This is a partial workaround; the bug can still trigger but under more rare conditions. (#106)
+- Fix simulate compute jobs running once per view instead of once per frame. (#102)
+
+### Removed
+
+- Removed `MinMaxRect` in favor of Bevy's own `Rect` type.
+
 ## [0.5.1] 2022-12-03
 
 ### Added
@@ -15,7 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fix a panic when running the plugin without any effect.
 - Fix a bug in the way `BillboardModifier` was projecting the particle vertices onto the camera plane, producing some partial or total clipping of particles.
-- Fix (most common cases of) a bug where effects spawned after another effect was despawned will not work. This is a partial workaround; the bug can still trigger but under more rare conditions. (#106)
 
 ## [0.5.0] 2022-11-14
 
