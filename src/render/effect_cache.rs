@@ -132,7 +132,10 @@ impl EffectBuffer {
             particle_layout,
             particle_layout.min_binding_size().get(),
         );
+
         let capacity = capacity.max(Self::MIN_CAPACITY);
+        debug_assert!(capacity > 0);
+
         let particle_capacity_bytes: BufferAddress =
             capacity as u64 * particle_layout.min_binding_size().get();
         let particle_buffer = render_device.create_buffer(&BufferDescriptor {

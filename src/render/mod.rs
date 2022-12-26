@@ -2659,7 +2659,7 @@ impl Draw<Transparent2d> for DrawEffects {
             pass.set_bind_group(
                 1,
                 effect_bind_groups
-                    .particle_init(effect_batch.buffer_index)
+                    .particle_render(effect_batch.buffer_index)
                     .unwrap(),
                 &[dispatch_indirect_offset],
             );
@@ -2686,13 +2686,19 @@ impl Draw<Transparent2d> for DrawEffects {
             let vertex_count = effects_meta.vertices.len() as u32;
             let particle_count = effect_batch.slice.end - effect_batch.slice.start;
 
+            let render_indirect_buffer = effects_meta.render_dispatch_buffer.buffer().unwrap();
+
+            let render_indirect_offset =
+                effects_meta.gpu_render_indirect_aligned_size.unwrap().get() as u64
+                    * effect_batch.buffer_index as u64;
             trace!(
-                "Draw {} particles with {} vertices per particle for batch from buffer #{}.",
+                "Draw {} particles with {} vertices per particle for batch from buffer #{} (render_indirect_offset={}).",
                 particle_count,
                 vertex_count,
-                effect_batch.buffer_index
+                effect_batch.buffer_index,
+                render_indirect_offset
             );
-            pass.draw(0..vertex_count, 0..particle_count);
+            pass.draw_indirect(render_indirect_buffer, render_indirect_offset);
         }
     }
 }
