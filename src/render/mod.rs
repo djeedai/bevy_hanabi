@@ -1409,7 +1409,8 @@ impl EffectsMeta {
         );
     }
 
-    /// Allocate newly-spawned effects and deallocate despawned ones.
+    /// Allocate internal resources for newly spawned effects, and deallocate
+    /// them for just-removed ones.
     pub fn add_remove_effects(
         &mut self,
         mut added_effects: Vec<AddedEffect>,
@@ -1418,6 +1419,37 @@ impl EffectsMeta {
         render_queue: &RenderQueue,
         effect_bind_groups: &mut ResMut<EffectBindGroups>,
     ) {
+        // Deallocate GPU data for destroyed effect instances. This will automatically
+        // drop any group where there is no more effect slice.
+        trace!(
+            "Removing {} despawned effects",
+            removed_effect_entities.len()
+        );
+        for entity in &removed_effect_entities {
+            trace!("Removing ParticleEffect on entity {:?}", entity);
+            if let Some(id) = self.entity_map.remove(entity) {
+                trace!(
+                    "=> ParticleEffect on entity {:?} had cache ID {:?}, removing...",
+                    entity,
+                    id
+                );
+                if let Some(buffer_index) = self.effect_cache.remove(id) {
+                    // Clear bind groups associated with the removed buffer
+                    trace!(
+                        "=> GPU buffer #{} gone, destroying its bind groups...",
+                        buffer_index
+                    );
+                    effect_bind_groups.particle_buffers.remove(&buffer_index);
+                }
+            }
+        }
+
+        // FIXME - We delete a buffer above, and have a chance to immediatly re-create
+        // it below. We should keep the GPU buffer around until the end of this method.
+        // On the other hand, we should also be careful that allocated buffers need to
+        // be tightly packed because 'vfx_indirect.wgsl' index them by buffer index in
+        // order, so doesn't support offset.
+
         trace!("Adding {} newly spawned effects", added_effects.len());
         for added_effect in added_effects.drain(..) {
             let cache_id = self.effect_cache.insert(
@@ -1482,32 +1514,6 @@ impl EffectsMeta {
             //     .write_element(index, &render_device, &render_queue);
             self.render_dispatch_buffer
                 .write_buffer(&render_device, &render_queue);
-        }
-
-        // Deallocate GPU data for destroyed effect instances. This will automatically
-        // drop any group where there is no more effect slice.
-        trace!(
-            "Removing {} despawned effects",
-            removed_effect_entities.len()
-        );
-        for entity in &removed_effect_entities {
-            trace!("Removing ParticleEffect on entity {:?}", entity);
-            if let Some(id) = self.entity_map.remove(entity) {
-                trace!(
-                    "=> ParticleEffect on entity {:?} had cache ID {:?}, removing...",
-                    entity,
-                    id
-                );
-                if let Some(buffer_index) = self.effect_cache.remove(id) {
-                    // Clear bind groups associated with the removed buffer
-                    effect_bind_groups
-                        .update_particle_buffers
-                        .remove(&buffer_index);
-                    effect_bind_groups
-                        .render_particle_buffers
-                        .remove(&buffer_index);
-                }
-            }
         }
     }
 }
@@ -1987,23 +1993,47 @@ pub(crate) fn prepare_effects(
         .write_buffer(&render_device, &render_queue);
 }
 
+/// Per-buffer bind groups for the GPU particle buffer.
+pub(crate) struct BufferBindGroups {
+    /// Bind group for the init shader.
+    init: BindGroup,
+    /// Bind group for the update shader.
+    update: BindGroup,
+    /// Bind group for the render shader.
+    render: BindGroup,
+}
+
 #[derive(Default, Resource)]
 pub(crate) struct EffectBindGroups {
     /// Bind groups #0 for indirect dispatch shader.
     indirect_dispatch_indirect_dispatch: Option<BindGroup>,
     indirect_dispatch_indirect_dispatch_buffer: Option<Buffer>,
-    /// Bind groups for each group index for init shader.
-    init_particle_buffers: HashMap<u32, BindGroup>,
     /// Bind group for GpuRenderIndirect for init shader.
     init_render_indirect_bind_group: Option<BindGroup>,
     /// Bind groups for GpuRenderIndirect for update shader.
     update_render_indirect_bind_group: Option<BindGroup>,
-    /// Bind groups for each group index for update shader.
-    update_particle_buffers: HashMap<u32, BindGroup>,
-    /// Same for render shader.
-    render_particle_buffers: HashMap<u32, BindGroup>,
+    /// Map from buffer index to its bind groups.
+    particle_buffers: HashMap<u32, BufferBindGroups>,
     ///
     images: HashMap<Handle<Image>, BindGroup>,
+}
+
+impl EffectBindGroups {
+    pub fn particle_init(&self, buffer_index: u32) -> Option<&BindGroup> {
+        self.particle_buffers.get(&buffer_index).map(|bg| &bg.init)
+    }
+
+    pub fn particle_update(&self, buffer_index: u32) -> Option<&BindGroup> {
+        self.particle_buffers
+            .get(&buffer_index)
+            .map(|bg| &bg.update)
+    }
+
+    pub fn particle_render(&self, buffer_index: u32) -> Option<&BindGroup> {
+        self.particle_buffers
+            .get(&buffer_index)
+            .map(|bg| &bg.render)
+    }
 }
 
 #[derive(SystemParam)]
@@ -2200,16 +2230,17 @@ pub(crate) fn queue_effects(
         // Ensure all effect groups have a bind group for the entire buffer of the
         // group, since the update phase runs on an entire group/buffer at once,
         // with all the effect instances in it batched together.
-        trace!("effect init particle buffer_index=#{}", buffer_index);
+        trace!("effect particle buffer_index=#{}", buffer_index);
         effect_bind_groups
-            .init_particle_buffers
+            .particle_buffers
             .entry(buffer_index as u32)
             .or_insert_with(|| {
                 trace!(
-                    "Create new particle init bind group for buffer_index={}",
+                    "Create new particle bind groups for buffer_index={}",
                     buffer_index
                 );
-                render_device.create_bind_group(&BindGroupDescriptor {
+
+                let init = render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &[
                         BindGroupEntry {
                             binding: 0,
@@ -2225,19 +2256,10 @@ pub(crate) fn queue_effects(
                         buffer_index
                     )),
                     layout: buffer.particle_layout_bind_group(),
-                })
-            });
+                });
 
-        trace!("effect update particle buffer_index=#{}", buffer_index);
-        effect_bind_groups
-            .update_particle_buffers
-            .entry(buffer_index as u32)
-            .or_insert_with(|| {
-                trace!(
-                    "Create new particle update bind group for buffer_index={}",
-                    buffer_index
-                );
-                render_device.create_bind_group(&BindGroupDescriptor {
+                // FIXME - Same as init above; reuse?
+                let update = render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &[
                         BindGroupEntry {
                             binding: 0,
@@ -2253,19 +2275,9 @@ pub(crate) fn queue_effects(
                         buffer_index
                     )),
                     layout: buffer.particle_layout_bind_group(),
-                })
-            });
+                });
 
-        trace!("effect render particle buffer_index=#{}", buffer_index);
-        effect_bind_groups
-            .render_particle_buffers
-            .entry(buffer_index as u32)
-            .or_insert_with(|| {
-                trace!(
-                    "Create new particle render bind group for buffer_index={}",
-                    buffer_index
-                );
-                render_device.create_bind_group(&BindGroupDescriptor {
+                let render = render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &[
                         BindGroupEntry {
                             binding: 0,
@@ -2289,7 +2301,13 @@ pub(crate) fn queue_effects(
                         buffer_index
                     )),
                     layout: buffer.particle_layout_bind_group_with_dispatch(),
-                })
+                });
+
+                BufferBindGroups {
+                    init,
+                    update,
+                    render,
+                }
             });
     }
 
@@ -2641,8 +2659,7 @@ impl Draw<Transparent2d> for DrawEffects {
             pass.set_bind_group(
                 1,
                 effect_bind_groups
-                    .render_particle_buffers
-                    .get(&effect_batch.buffer_index)
+                    .particle_init(effect_batch.buffer_index)
                     .unwrap(),
                 &[dispatch_indirect_offset],
             );
@@ -2728,8 +2745,7 @@ impl Draw<Transparent3d> for DrawEffects {
             pass.set_bind_group(
                 1,
                 effect_bind_groups
-                    .render_particle_buffers
-                    .get(&effect_batch.buffer_index)
+                    .particle_render(effect_batch.buffer_index)
                     .unwrap(),
                 &[dispatch_indirect_offset],
             );
@@ -2885,8 +2901,7 @@ impl Node for VfxSimulateNode {
                         // let effect_group =
                         //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
                         let particles_bind_group = effect_bind_groups
-                            .init_particle_buffers
-                            .get(&batch.buffer_index)
+                            .particle_init(batch.buffer_index)
                             .unwrap();
 
                         let item_size = batch.particle_layout.min_binding_size();
@@ -3016,8 +3031,7 @@ impl Node for VfxSimulateNode {
                     // let effect_group =
                     //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
                     let particles_bind_group = effect_bind_groups
-                        .update_particle_buffers
-                        .get(&batch.buffer_index)
+                        .particle_update(batch.buffer_index)
                         .unwrap();
 
                     let item_size = batch.particle_layout.size();
@@ -3036,12 +3050,13 @@ impl Node for VfxSimulateNode {
                         * effects_meta.render_dispatch_buffer.aligned_size() as u32;
 
                     trace!(
-                        "record commands for update pipeline of effect {:?} ({} items / {}B/item) spawner_base={} buffer_offset={} render_indirect_offset={}...",
+                        "record commands for update pipeline of effect {:?} ({} items / {}B/item) spawner_base={} buffer_offset={} dispatch_indirect_offset={} render_indirect_offset={}...",
                         batch.handle,
                         item_count,
                         item_size,
                         spawner_base,
                         buffer_offset,
+                        dispatch_indirect_offset,
                         render_indirect_offset
                     );
 
