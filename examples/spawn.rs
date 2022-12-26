@@ -173,6 +173,7 @@ fn setup(
             speed: 2.0.into(),
         })
         .init(InitSizeModifier {
+            // At spawn time, assign each particle a random size between 0.3 and 0.7
             size: Value::<f32>::Uniform((0.3, 0.7)).into(),
         })
         .update(AccelModifier {
