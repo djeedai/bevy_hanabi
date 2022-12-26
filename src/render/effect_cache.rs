@@ -129,7 +129,10 @@ impl EffectBuffer {
             capacity,
             item_size
         );
+
         let capacity = capacity.max(Self::MIN_CAPACITY);
+        debug_assert!(capacity > 0, "Attempted to create a zero-sized effect buffer.");
+
         let particle_capacity_bytes: BufferAddress = capacity as u64 * item_size as u64;
         let particle_buffer = render_device.create_buffer(&BufferDescriptor {
             label,
