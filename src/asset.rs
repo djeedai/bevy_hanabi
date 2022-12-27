@@ -1,6 +1,5 @@
 use bevy::{
     asset::{AssetLoader, Handle, LoadContext, LoadedAsset},
-    ecs::{reflect::ReflectResource, system::Resource},
     math::{Vec2, Vec3, Vec4},
     reflect::{Reflect, TypeUuid},
     render::texture::Image,
