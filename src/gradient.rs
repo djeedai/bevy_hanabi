@@ -242,9 +242,23 @@ impl<T: Lerp + FromReflect> Gradient<T> {
 
 #[cfg(test)]
 mod tests {
+    use bevy::reflect::{ReflectRef, Struct};
+
     use crate::test_utils::*;
 
     use super::*;
+
+    const RED: Vec4 = Vec4::new(1., 0., 0., 1.);
+    const BLUE: Vec4 = Vec4::new(0., 0., 1., 1.);
+    const GREEN: Vec4 = Vec4::new(0., 1., 0., 1.);
+
+    fn make_test_gradient() -> Gradient<Vec4> {
+        let mut g = Gradient::new();
+        g.add_key(0.5, RED);
+        g.add_key(0.8, BLUE);
+        g.add_key(0.8, GREEN);
+        g
+    }
 
     fn color_approx_eq(c0: Vec4, c1: Vec4, tol: f32) -> bool {
         ((c0.x - c1.x).abs() < tol)
@@ -282,61 +296,55 @@ mod tests {
     #[test]
     fn constant() {
         let grad = Gradient::constant(3.0);
-        assert_eq!(grad.sample(0.0), 3.0);
-        assert_eq!(grad.sample(0.3), 3.0);
-        assert_eq!(grad.sample(1.0), 3.0);
+        for r in [
+            -1e5, -0.5, -0.0001, 0., 0.0001, 0.3, 0.5, 0.9, 0.9999, 1., 1.0001, 100., 1e5,
+        ] {
+            assert_approx_eq!(grad.sample(r), 3.0);
+        }
     }
 
     #[test]
     fn add_key() {
-        let red: Vec4 = Vec4::new(1., 0., 0., 1.);
-        let blue: Vec4 = Vec4::new(0., 0., 1., 1.);
-        let green: Vec4 = Vec4::new(0., 1., 0., 1.);
         let mut g = Gradient::new();
-        g.add_key(0.3, red);
+        g.add_key(0.3, RED);
         // duplicate keys allowed
-        g.add_key(0.3, red);
+        g.add_key(0.3, RED);
         // duplicate ratios stored in order they're inserted
-        g.add_key(0.7, blue);
-        g.add_key(0.7, green);
+        g.add_key(0.7, BLUE);
+        g.add_key(0.7, GREEN);
         let keys = g.keys();
         assert_eq!(4, keys.len());
-        assert!(color_approx_eq(red, keys[0].value, 1e-5));
-        assert!(color_approx_eq(red, keys[1].value, 1e-5));
-        assert!(color_approx_eq(blue, keys[2].value, 1e-5));
-        assert!(color_approx_eq(green, keys[3].value, 1e-5));
+        assert!(color_approx_eq(RED, keys[0].value, 1e-5));
+        assert!(color_approx_eq(RED, keys[1].value, 1e-5));
+        assert!(color_approx_eq(BLUE, keys[2].value, 1e-5));
+        assert!(color_approx_eq(GREEN, keys[3].value, 1e-5));
     }
 
     #[test]
     fn sample() {
-        let red: Vec4 = Vec4::new(1., 0., 0., 1.);
-        let blue: Vec4 = Vec4::new(0., 0., 1., 1.);
-        let green: Vec4 = Vec4::new(0., 1., 0., 1.);
         let mut g = Gradient::new();
-        g.add_key(0.5, red);
-        assert_eq!(red, g.sample(0.0));
-        assert_eq!(red, g.sample(0.5));
-        assert_eq!(red, g.sample(1.0));
-        g.add_key(0.8, blue);
-        g.add_key(0.8, green);
-        assert_eq!(red, g.sample(0.0));
-        assert_eq!(red, g.sample(0.499));
-        assert_eq!(red, g.sample(0.5));
-        let expected = red.lerp(blue, 1. / 3.);
+        g.add_key(0.5, RED);
+        assert_eq!(RED, g.sample(0.0));
+        assert_eq!(RED, g.sample(0.5));
+        assert_eq!(RED, g.sample(1.0));
+        g.add_key(0.8, BLUE);
+        g.add_key(0.8, GREEN);
+        assert_eq!(RED, g.sample(0.0));
+        assert_eq!(RED, g.sample(0.499));
+        assert_eq!(RED, g.sample(0.5));
+        let expected = RED.lerp(BLUE, 1. / 3.);
         let actual = g.sample(0.6);
         assert!(color_approx_eq(actual, expected, 1e-5));
-        assert_eq!(blue, g.sample(0.8));
-        assert_eq!(green, g.sample(0.801));
-        assert_eq!(green, g.sample(1.0));
+        assert_eq!(BLUE, g.sample(0.8));
+        assert_eq!(GREEN, g.sample(0.801));
+        assert_eq!(GREEN, g.sample(1.0));
     }
 
     #[test]
     fn sample_by() {
-        let red: Vec4 = Vec4::new(1., 0., 0., 1.);
-        let blue: Vec4 = Vec4::new(0., 0., 1., 1.);
         let mut g = Gradient::new();
-        g.add_key(0.5, red);
-        g.add_key(0.8, blue);
+        g.add_key(0.5, RED);
+        g.add_key(0.8, BLUE);
         const COUNT: usize = 256;
         let mut data: [Vec4; COUNT] = [Vec4::ZERO; COUNT];
         let start = 0.;
@@ -347,5 +355,49 @@ mod tests {
             let expected = g.sample(ratio);
             assert!(color_approx_eq(expected, d, 1e-5));
         }
+    }
+
+    #[test]
+    fn reflect() {
+        let g = make_test_gradient();
+
+        // Reflect
+        let reflect: &dyn Reflect = &g;
+        assert!(reflect.is::<Gradient<Vec4>>());
+        let g_reflect = reflect.downcast_ref::<Gradient<Vec4>>();
+        assert!(g_reflect.is_some());
+        let g_reflect = g_reflect.unwrap();
+        assert_eq!(*g_reflect, g);
+
+        // FromReflect
+        let g_from = Gradient::<Vec4>::from_reflect(reflect).unwrap();
+        assert_eq!(g_from, g);
+
+        // Struct
+        assert!(g
+            .type_name()
+            .starts_with("bevy_hanabi::gradient::Gradient<")); // the Vec4 type name depends on platform
+        let keys = g.field("keys").unwrap();
+        let ReflectRef::List(keys) = keys.reflect_ref() else { panic!("Invalid type"); };
+        assert_eq!(keys.len(), 3);
+        for (i, (r, v)) in [(0.5, RED), (0.8, BLUE), (0.8, GREEN)].iter().enumerate() {
+            let k = keys.get(i).unwrap();
+            let gk = k.downcast_ref::<GradientKey<Vec4>>().unwrap();
+            assert_approx_eq!(gk.ratio(), r);
+            assert_approx_eq!(gk.value, v);
+
+            let ReflectRef::Struct(k) = k.reflect_ref() else { panic!("Invalid type"); };
+            assert!(k.type_name().contains("GradientKey"));
+        }
+    }
+
+    #[test]
+    fn serde() {
+        let g = make_test_gradient();
+
+        let s = ron::to_string(&g).unwrap();
+        //println!("gradient: {:?}", s);
+        let g_serde: Gradient<Vec4> = ron::from_str(&s).unwrap();
+        assert_eq!(g, g_serde);
     }
 }
