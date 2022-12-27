@@ -71,8 +71,7 @@ pub struct RenderLayout {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, Resource, Reflect, TypeUuid)]
-#[reflect(Resource)]
+#[derive(Debug, Default, Clone, PartialEq, TypeUuid, Reflect, Serialize, Deserialize)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.
