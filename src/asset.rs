@@ -1,6 +1,5 @@
 use bevy::{
     asset::{AssetLoader, Handle, LoadContext, LoadedAsset},
-    ecs::{reflect::ReflectResource, system::Resource},
     math::{Vec2, Vec3, Vec4},
     reflect::{Reflect, TypeUuid},
     render::texture::Image,
@@ -71,8 +70,7 @@ pub struct RenderLayout {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, Resource, Reflect, TypeUuid)]
-#[reflect(Resource)]
+#[derive(Debug, Default, Clone, PartialEq, TypeUuid, Reflect, Serialize, Deserialize)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.

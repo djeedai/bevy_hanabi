@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Removed `MinMaxRect` in favor of Bevy's own `Rect` type.
+- Removed `Resource` derive from `EffectAsset`, which made little sense on an asset.
 
 ## [0.5.1] 2022-12-03
 
