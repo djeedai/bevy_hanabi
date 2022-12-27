@@ -5,6 +5,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Made `Gradient<T>` reflected and serializable by implementing `Reflect`, `FromReflect`, `Serialize`, and `Deserialize`.
+
 ### Fixed
 
 - Fix (most common cases of) a bug where effects spawned after another effect was despawned will not work. This is a partial workaround; the bug can still trigger but under more rare conditions. (#106)
