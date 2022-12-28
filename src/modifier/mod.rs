@@ -141,3 +141,40 @@ impl_modifier!(ParticleTexture, ParticleTextureModifier);
 impl_modifier!(ColorOverLifetime, ColorOverLifetimeModifier);
 impl_modifier!(SizeOverLifetime, SizeOverLifetimeModifier);
 impl_modifier!(Billboard, BillboardModifier);
+
+#[cfg(test)]
+mod tests {
+    use bevy::prelude::*;
+
+    use super::*;
+
+    fn make_test_modifier() -> Modifiers {
+        PositionSphereModifier {
+            center: Vec3::ZERO,
+            radius: 1.5,
+            speed: 3.5.into(),
+            dimension: ShapeDimension::Surface,
+        }
+        .into()
+    }
+
+    #[test]
+    fn reflect() {
+        let m = make_test_modifier();
+
+        // Reflect
+        let reflect: &dyn Reflect = &m;
+        assert!(reflect.is::<Modifiers>());
+        let m_reflect = reflect.downcast_ref::<Modifiers>().unwrap();
+        assert_eq!(*m_reflect, m);
+    }
+
+    #[test]
+    fn serde() {
+        let m = make_test_modifier();
+        let s = ron::to_string(&m).unwrap();
+        println!("modifier: {:?}", s);
+        let m_serde: Modifiers = ron::from_str(&s).unwrap();
+        assert_eq!(m, m_serde);
+    }
+}
