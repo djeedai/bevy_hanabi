@@ -123,6 +123,7 @@ fn setup(
             dimension: ShapeDimension::Surface,
             ..Default::default()
         })
+        .init(ParticleLifetimeModifier { lifetime: 5. })
         .update(ForceFieldModifier::new(vec![
             ForceFieldSource {
                 position: attractor2_position,

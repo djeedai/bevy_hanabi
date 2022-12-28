@@ -119,6 +119,7 @@
 //! ```
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::fmt::Write as _; // import without risk of name clashing
 
 mod asset;
@@ -135,7 +136,7 @@ mod test_utils;
 
 use render::EffectCacheId;
 
-pub use asset::{EffectAsset, InitLayout, RenderLayout, UpdateLayout};
+pub use asset::{EffectAsset, RenderLayout, UpdateLayout};
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
@@ -292,7 +293,9 @@ impl ToWgslString for Value<Vec4> {
 }
 
 /// Simulation space for the particles of an effect.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Reflect, FromReflect, Serialize, Deserialize,
+)]
 #[non_exhaustive]
 pub enum SimulationSpace {
     /// Particles are simulated in global space.
@@ -300,6 +303,7 @@ pub enum SimulationSpace {
     /// The global space is the Bevy world space. Particles simulated in global
     /// space are "detached" from the emitter when they spawn, and not
     /// influenced anymore by the emitter's [`Transform`] after spawning.
+    #[default]
     Global,
     //Local, // TODO
 }
@@ -354,9 +358,9 @@ pub struct ParticleEffect {
     drag: f32,
     #[reflect(ignore)]
     force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
-    position_code: String,
     force_field_code: String,
-    lifetime_code: String,
+    init_code: String,
+    init_extra: String,
 }
 
 impl ParticleEffect {
@@ -375,9 +379,9 @@ impl ParticleEffect {
             accel: Vec3::ZERO,
             drag: 0.,
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
-            position_code: String::default(),
             force_field_code: String::default(),
-            lifetime_code: String::default(),
+            init_code: String::default(),
+            init_extra: String::default(),
         }
     }
 
@@ -447,18 +451,6 @@ impl ParticleEffect {
 const PARTICLES_INIT_SHADER_TEMPLATE: &str = include_str!("render/vfx_init.wgsl");
 const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("render/vfx_update.wgsl");
 const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("render/vfx_render.wgsl");
-
-const DEFAULT_POSITION_CODE: &str = r##"
-    ret.position = transform[3].xyz;
-    var dir = rand3() * 2. - 1.;
-    dir = normalize(dir);
-    var speed = 2.;
-    ret.velocity = dir * speed;
-"##;
-
-const DEFAULT_LIFETIME_CODE: &str = r##"
-ret = 5.0;
-"##;
 
 const DEFAULT_FORCE_FIELD_CODE: &str = r##"
     vVel = vVel + (spawner.accel * sim_params.dt);
@@ -653,34 +645,19 @@ fn tick_spawners(
             let drag_coefficient = asset.update_layout.drag_coefficient;
             let force_field = asset.update_layout.force_field;
 
-            // Generate the shader code for the particle attributes
+            // Generate the shader code defining the particle attributes
             let attributes_code = asset.particle_layout().generate_code();
 
-            // Generate the shader code for the position initializing of newly emitted
-            // particles TODO - Move that to a pre-pass, not each frame!
-            let position_code = &asset.init_layout.position_code;
-            let position_code = if position_code.is_empty() {
-                DEFAULT_POSITION_CODE.to_owned()
-            } else {
-                position_code.clone()
-            };
+            // Generate the shader code for the initializing shader
+            let mut init_context = InitContext::default();
+            for m in asset.modifiers.iter().filter_map(|m| m.init_modifier()) {
+                m.init(&mut init_context);
+            }
 
-            // Generate the shader code for the lifetime initializing of newly emitted
-            // particles TODO - Move that to a pre-pass, not each frame!
-            let lifetime_code = &asset.init_layout.lifetime_code;
-            let lifetime_code = if lifetime_code.is_empty() {
-                DEFAULT_LIFETIME_CODE.to_owned()
-            } else {
-                lifetime_code.clone()
-            };
-
-            const EMPTY_SIZE_CODE: &'static str = &"";
-            let size_code = asset
-                .init_layout
-                .size_code
-                .as_ref()
-                .map(String::as_str)
-                .unwrap_or(EMPTY_SIZE_CODE);
+            #[cfg(debug_assertions)]
+            if !init_context.init_code.contains("lifetime") {
+                warn!("Effect '{}' does not initialize the particle lifetime; particles will have a default lifetime of zero, and will immediately die after spawning. Add a modifier like ParticleLifetimeModifier to initialize the lifetime to a non-zero value.", asset.name);
+            }
 
             // Generate the shader code for the force field of newly emitted particles
             // TODO - Move that to a pre-pass, not each frame!
@@ -728,13 +705,10 @@ fn tick_spawners(
 
             // Configure the init shader template, and make sure a corresponding shader
             // asset exists
-            let mut init_shader_source =
-                PARTICLES_INIT_SHADER_TEMPLATE.replace("{{INIT_POS_VEL}}", &position_code);
-            init_shader_source = init_shader_source.replace("{{INIT_LIFETIME}}", &lifetime_code);
-            init_shader_source = init_shader_source.replace("{{ATTRIBUTES}}", &attributes_code);
-            //if has_per_particle_size || has_per_particle_size2 {
-            init_shader_source = init_shader_source.replace("{{INIT_SIZE}}", &size_code);
-            //}
+            let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
+                .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{INIT_CODE}}", &init_context.init_code)
+                .replace("{{INIT_EXTRA}}", &init_context.init_extra);
             let init_shader = shader_cache.get_or_insert(&init_shader_source, &mut shaders);
 
             // Configure the update shader template, and make sure a corresponding shader
@@ -766,7 +740,7 @@ fn tick_spawners(
             let render_shader = shader_cache.get_or_insert(&render_shader_source, &mut shaders);
 
             trace!(
-                "tick_spawners: handle={:?} init_shader={:?} update_shader={:?} render_shader={:?} has_image={} position_code={} force_field_code={} lifetime_code={}",
+                "tick_spawners: handle={:?} init_shader={:?} update_shader={:?} render_shader={:?} has_image={} force_field_code={}",
                 effect.handle,
                 init_shader,
                 update_shader,
@@ -776,9 +750,7 @@ fn tick_spawners(
                 } else {
                     "N"
                 },
-                position_code,
                 force_field_code,
-                lifetime_code,
             );
 
             effect.configured_init_shader = Some(init_shader);
@@ -788,9 +760,9 @@ fn tick_spawners(
             // TEMP
             effect.accel = accel;
             effect.force_field = force_field;
-            effect.position_code = position_code;
+            effect.init_code = init_context.init_code;
+            effect.init_extra = init_context.init_extra;
             effect.force_field_code = force_field_code;
-            effect.lifetime_code = lifetime_code;
         }
     }
 }

@@ -73,6 +73,13 @@ fn setup(
             spawner: Spawner::rate(1000.0.into()),
             ..Default::default()
         }
+        .init(PositionSphereModifier {
+            center: Vec3::ZERO,
+            radius: 1.,
+            dimension: ShapeDimension::Volume,
+            speed: 2.0.into(),
+        })
+        .init(ParticleLifetimeModifier { lifetime: 5. })
         .render(ParticleTextureModifier {
             texture: texture_handle.clone(),
         })

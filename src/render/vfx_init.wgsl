@@ -114,26 +114,11 @@ fn rand4(input: u32) -> vec4<f32> {
     return vec4<f32>(x, y, z, w);
 }
 
-struct PosVel {
-    position: vec3<f32>,
-    velocity: vec3<f32>,
-};
-
-fn init_pos_vel(index: u32, transform: mat4x4<f32>) -> PosVel {
-    var ret : PosVel;
-{{INIT_POS_VEL}}
-    return ret;
-}
-
-fn init_lifetime() -> f32 {
-    var ret : f32;
-{{INIT_LIFETIME}}
-    return ret;
-}
-
 fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
     return dot(v, u) / dot(u,u) * u;
 }
+
+{{INIT_EXTRA}}
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
@@ -156,11 +141,14 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let dead_index = atomicSub(&render_indirect.dead_count, 1u) - 1u;
     let index = indirect_buffer.indices[3u * dead_index + 2u];
 
-    var particle = Particle();
-
     // Update PRNG seed
     seed = pcg_hash(index ^ spawner.seed);
 
+    // Initialize new particle
+    var particle = Particle();
+    {{INIT_CODE}}
+
+    // Global-space simulation
     let transform = transpose(
         mat4x4(
             spawner.transform[0],
@@ -169,14 +157,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
             vec4<f32>(0.0, 0.0, 0.0, 1.0)
         )
     );
-
-    // Initialize new particle
-    var posVel = init_pos_vel(index, transform);
-    particle.position = posVel.position;
-    particle.velocity = posVel.velocity;
-    particle.age = 0.0;
-    particle.lifetime = init_lifetime();
-    {{INIT_SIZE}}
+    particle.position += transform[3].xyz;
 
     // Count as alive
     atomicAdd(&render_indirect.alive_count, 1u);

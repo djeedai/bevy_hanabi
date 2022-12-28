@@ -75,6 +75,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
+        .init(ParticleLifetimeModifier { lifetime: 5. })
         .update(AccelModifier {
             accel: Vec3::new(0., 5., 0.),
         })

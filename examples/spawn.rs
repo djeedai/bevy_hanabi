@@ -84,6 +84,7 @@ fn setup(
             dimension: ShapeDimension::Surface,
             speed: 6.0.into(),
         })
+        .init(ParticleLifetimeModifier { lifetime: 5. })
         .update(AccelModifier {
             accel: Vec3::new(0., -3., 0.),
         })
@@ -117,7 +118,7 @@ fn setup(
         });
 
     let mut gradient2 = Gradient::new();
-    gradient2.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
+    gradient2.add_key(0.0, Vec4::new(0.0, 0.7, 0.0, 1.0));
     gradient2.add_key(1.0, Vec4::splat(0.0));
 
     let effect2 = effects.add(
@@ -127,6 +128,13 @@ fn setup(
             spawner: Spawner::once(1000.0.into(), true),
             ..Default::default()
         }
+        .init(PositionSphereModifier {
+            center: Vec3::ZERO,
+            radius: 5.,
+            dimension: ShapeDimension::Volume,
+            speed: 2.0.into(),
+        })
+        .init(ParticleLifetimeModifier { lifetime: 5. })
         .render(ColorOverLifetimeModifier {
             gradient: gradient2,
         }),
@@ -172,6 +180,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
+        .init(ParticleLifetimeModifier { lifetime: 5. })
         .init(InitSizeModifier {
             // At spawn time, assign each particle a random size between 0.3 and 0.7
             size: Value::<f32>::Uniform((0.3, 0.7)).into(),

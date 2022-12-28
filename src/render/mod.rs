@@ -1028,12 +1028,12 @@ pub(crate) struct ExtractedEffect {
     pub update_shader: Handle<Shader>,
     /// Render shader.
     pub render_shader: Handle<Shader>,
-    /// Update position code.
-    pub position_code: String,
     /// Update force field code.
     pub force_field_code: String,
+    /// Update position code.
+    pub init_code: String,
     /// Update lifetime code.
-    pub lifetime_code: String,
+    pub init_extra: String,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
     pub z_sort_key_2d: FloatOrd,
@@ -1194,9 +1194,9 @@ pub(crate) fn extract_effects(
         let spawn_count = effect.spawn_count;
         let accel = effect.accel;
         let force_field = effect.force_field;
-        let position_code = effect.position_code.clone();
         let force_field_code = effect.force_field_code.clone();
-        let lifetime_code = effect.lifetime_code.clone();
+        let init_code = effect.init_code.clone();
+        let init_extra = effect.init_extra.clone();
 
         // Check if asset is available, otherwise silently ignore
         let Some(asset) = effects.get(&effect.handle) else {
@@ -1245,9 +1245,9 @@ pub(crate) fn extract_effects(
                 init_shader,
                 update_shader,
                 render_shader,
-                position_code,
                 force_field_code,
-                lifetime_code,
+                init_code,
+                init_extra,
                 z_sort_key_2d,
             },
         );
@@ -1566,12 +1566,12 @@ pub(crate) struct EffectBatch {
     update_shader: Handle<Shader>,
     /// Configured shader used for the particle rendering of this batch.
     render_shader: Handle<Shader>,
-    /// Update position code.
-    position_code: String,
     /// Update force field code.
     force_field_code: String,
+    /// Update position code.
+    init_code: String,
     /// Update lifetime code.
-    lifetime_code: String,
+    init_extra: String,
     /// Init compute pipeline specialized for this batch.
     init_pipeline_id: CachedComputePipelineId,
     /// Update compute pipeline specialized for this batch.
@@ -1669,9 +1669,9 @@ pub(crate) fn prepare_effects(
     let mut start = 0;
     let mut end = 0;
     let mut num_emitted = 0;
-    let mut position_code = String::default();
     let mut force_field_code = String::default();
-    let mut lifetime_code = String::default();
+    let mut init_code = String::default();
+    let mut init_extra = String::default();
     let mut init_pipeline_id = CachedComputePipelineId::INVALID;
     let mut update_pipeline_id = CachedComputePipelineId::INVALID;
     let mut z_sort_key_2d = FloatOrd(f32::NAN);
@@ -1745,9 +1745,9 @@ pub(crate) fn prepare_effects(
                         init_shader: init_shader.clone(),
                         update_shader: update_shader.clone(),
                         render_shader: render_shader.clone(),
-                        position_code: position_code.clone(),
                         force_field_code: force_field_code.clone(),
-                        lifetime_code: lifetime_code.clone(),
+                        init_code: init_code.clone(),
+                        init_extra: init_extra.clone(),
                         init_pipeline_id,
                         update_pipeline_id,
                         z_sort_key_2d,
@@ -1815,14 +1815,14 @@ pub(crate) fn prepare_effects(
 
         trace!("particle_layout = {:?}", slice.particle_layout);
 
-        position_code = extracted_effect.position_code.clone();
-        trace!("position_code = {}", position_code);
-
         force_field_code = extracted_effect.force_field_code.clone();
         trace!("force_field_code = {}", force_field_code);
 
-        lifetime_code = extracted_effect.lifetime_code.clone();
-        trace!("lifetime_code = {}", lifetime_code);
+        init_code = extracted_effect.init_code.clone();
+        trace!("init_code = {}", init_code);
+
+        init_extra = extracted_effect.init_extra.clone();
+        trace!("init_extra = {}", init_extra);
 
         trace!("z_sort_key_2d = {:?}", z_sort_key_2d);
 
@@ -1890,9 +1890,9 @@ pub(crate) fn prepare_effects(
                     init_shader: init_shader.clone(),
                     update_shader: update_shader.clone(),
                     render_shader: render_shader.clone(),
-                    position_code: position_code.clone(),
                     force_field_code: force_field_code.clone(),
-                    lifetime_code: lifetime_code.clone(),
+                    init_code: init_code.clone(),
+                    init_extra: init_extra.clone(),
                     init_pipeline_id,
                     update_pipeline_id,
                     z_sort_key_2d,
@@ -1933,9 +1933,9 @@ pub(crate) fn prepare_effects(
             init_shader,
             update_shader,
             render_shader,
-            position_code,
             force_field_code,
-            lifetime_code,
+            init_code,
+            init_extra,
             init_pipeline_id,
             update_pipeline_id,
             z_sort_key_2d,

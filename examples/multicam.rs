@@ -58,6 +58,7 @@ fn make_effect(color: Color) -> EffectAsset {
         dimension: ShapeDimension::Surface,
         speed: 6.0.into(),
     })
+    .init(ParticleLifetimeModifier { lifetime: 5. })
     .update(AccelModifier {
         accel: Vec3::new(0., -3., 0.),
     })

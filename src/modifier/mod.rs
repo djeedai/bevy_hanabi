@@ -114,6 +114,19 @@ impl Modifiers {
             Modifiers::Billboard(modifier) => modifier,
         }
     }
+
+    /// Cast the enum value to an [`InitModifier`] if possible.
+    pub fn init_modifier(&self) -> Option<&dyn InitModifier> {
+        match self {
+            Modifiers::PositionCircle(modifier) => Some(modifier),
+            Modifiers::PositionSphere(modifier) => Some(modifier),
+            Modifiers::PositionCone3d(modifier) => Some(modifier),
+            Modifiers::ParticleLifetime(modifier) => Some(modifier),
+            Modifiers::InitSize(modifier) => Some(modifier),
+
+            _ => None,
+        }
+    }
 }
 
 /// Implement `From<T> for Modifiers` for a [`Modifier`] type.

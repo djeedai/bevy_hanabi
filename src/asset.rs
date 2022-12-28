@@ -1,7 +1,7 @@
 use bevy::{
     asset::{AssetLoader, Handle, LoadContext, LoadedAsset},
     math::{Vec2, Vec3, Vec4},
-    reflect::{Reflect, TypeUuid},
+    reflect::{FromReflect, Reflect, TypeUuid},
     render::texture::Image,
     utils::{BoxedFuture, HashSet},
 };
@@ -13,20 +13,8 @@ use crate::{
         render::RenderModifier,
         update::{ForceFieldSource, UpdateModifier},
     },
-    Attribute, Gradient, Modifiers, ParticleLayout, Spawner,
+    Attribute, Gradient, Modifiers, ParticleLayout, SimulationSpace, Spawner,
 };
-
-/// Struct containing snippets of WSGL code that can be used
-/// to define the initial conditions of particles on the GPU.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct InitLayout {
-    /// Code to define the initial position of particles.
-    pub position_code: String,
-    /// WSGL code to set the initial lifetime of the particle.
-    pub lifetime_code: String,
-    /// Optional per-particle size code.
-    pub size_code: Option<String>,
-}
 
 /// Struct containing snippets of WSGL code that can be used
 /// to update the particles every frame on the GPU.
@@ -72,7 +60,9 @@ pub struct RenderLayout {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Debug, Default, Clone, PartialEq, TypeUuid, Reflect, Serialize, Deserialize)]
+#[derive(
+    Debug, Default, Clone, PartialEq, TypeUuid, Reflect, FromReflect, Serialize, Deserialize,
+)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.
@@ -90,14 +80,6 @@ pub struct EffectAsset {
     pub capacity: u32,
     /// Spawner.
     pub spawner: Spawner,
-    /// Layout describing the particle initialize code.
-    ///
-    /// The initialize layout determines how new particles are initialized when
-    /// spawned. Compatible layouts increase the chance of batching together
-    /// effects.
-    #[serde(skip)] // TODO
-    #[reflect(ignore)] // TODO?
-    pub init_layout: InitLayout,
     /// Layout describing the particle update code.
     ///
     /// The update layout determines how all alive particles are updated each
@@ -122,6 +104,8 @@ pub struct EffectAsset {
     ///
     /// Ignored for 3D rendering.
     pub z_layer_2d: f32,
+    /// Particle simulation space.
+    pub simulation_space: SimulationSpace,
     /// Modifiers defining the effect.
     pub modifiers: Vec<Modifiers>,
 }
@@ -133,7 +117,6 @@ impl EffectAsset {
         M: InitModifier + Send + Sync + 'static,
         Modifiers: From<M>,
     {
-        modifier.apply(&mut self.init_layout);
         self.modifiers.push(modifier.into());
         self
     }
@@ -235,10 +218,10 @@ mod tests {
 
         assert_eq!(effect.capacity, 4096);
 
-        let mut init_layout = InitLayout::default();
-        PositionSphereModifier::default().apply(&mut init_layout);
-        ParticleLifetimeModifier::default().apply(&mut init_layout);
-        assert_eq!(effect.init_layout, init_layout);
+        let mut init_context = InitContext::default();
+        PositionSphereModifier::default().init(&mut init_context);
+        ParticleLifetimeModifier::default().init(&mut init_context);
+        //assert_eq!(effect., init_context.init_code);
 
         let mut update_layout = UpdateLayout::default();
         AccelModifier::default().apply(&mut update_layout);
