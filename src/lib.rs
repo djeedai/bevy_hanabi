@@ -453,8 +453,8 @@ const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("render/vfx_update.w
 const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("render/vfx_render.wgsl");
 
 const DEFAULT_FORCE_FIELD_CODE: &str = r##"
-    vVel = vVel + (spawner.accel * sim_params.dt);
-    vPos = vPos + vVel * sim_params.dt;
+    (*particle).velocity = (*particle).velocity + (spawner.accel * sim_params.dt);
+    (*particle).position = (*particle).position + (*particle).velocity * sim_params.dt;
 "##;
 
 const FORCE_FIELD_CODE: &str = include_str!("render/force_field_code.wgsl");
@@ -473,7 +473,7 @@ const DISABLED_BILLBOARD_CODE: &str = r##"
     let world_position = vec4<f32>(particle.position + vpos, 1.0);
 "##;
 
-const DRAG_CODE: &str = r##"vVel = vVel * max(0., (1. - {{DRAG}} * sim_params.dt));
+const DRAG_CODE: &str = r##"(*particle).velocity = (*particle).velocity * max(0., (1. - {{DRAG}} * sim_params.dt));
 "##;
 
 /// Trait to convert any data structure to its equivalent shader code.

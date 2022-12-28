@@ -140,17 +140,13 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     let index = indirect_buffer.indices[3u * thread_index + pong];
 
-    var vPos : vec3<f32> = particle_buffer.particles[index].position;
-    var vVel : vec3<f32> = particle_buffer.particles[index].velocity;
-    var vAge : f32 = particle_buffer.particles[index].age;
-    var vLifetime : f32 = particle_buffer.particles[index].lifetime;
+    let particle: ptr<storage, Particle, read_write> = &particle_buffer.particles[index];
 
     // Age the particle
-    vAge = vAge + sim_params.dt;
-    if (vAge >= vLifetime) {
+    (*particle).age = (*particle).age + sim_params.dt;
+    if ((*particle).age >= (*particle).lifetime) {
         // Write back constant "dead" age
-        vAge = vLifetime + 1.0;
-        particle_buffer.particles[index].age = vAge;
+        (*particle).age = (*particle).lifetime + 1.0;
         // Save dead index
         let dead_index = atomicAdd(&render_indirect.dead_count, 1u);
         indirect_buffer.indices[3u * dead_index + 2u] = index;
@@ -170,10 +166,4 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Increment alive particle count and write indirection index for later rendering
     let indirect_index = atomicAdd(&render_indirect.instance_count, 1u);
     indirect_buffer.indices[3u * indirect_index + ping] = index;
-
-    // Write back particle itself
-    particle_buffer.particles[index].position = vPos;
-    particle_buffer.particles[index].velocity = vVel;
-    particle_buffer.particles[index].age = vAge;
-    particle_buffer.particles[index].lifetime = vLifetime;
 }
