@@ -15,6 +15,7 @@ use std::num::NonZeroU64;
 use crate::next_multiple_of;
 
 /// Index of a row in a [`BufferTable`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BufferTableId(pub(crate) u32); // TEMP: pub(crate)
 
 #[derive(Debug)]
@@ -298,7 +299,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         // debug_assert!(allocated_size % self.aligned_size == 0);
         // let allocated_count = allocated_size / self.aligned_size;
 
-        // If this is the last item in the active zone, just shrink the active zone (implicit free list).
+        // If this is the last item in the active zone, just shrink the active zone
+        // (implicit free list).
         if index == self.active_size as u32 - 1 {
             self.active_size -= 1;
             self.capacity -= 1;
@@ -317,13 +319,19 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     /// but will be inefficient and allocate GPU buffers for nothing. Not
     /// calling it is safe, as the next update will call it just-in-time anyway.
     ///
+    /// # Returns
+    ///
+    /// Returns `true` if a new buffer was (re-)allocated, to indicate any bind
+    /// group needs to be re-created.
+    ///
     /// [`insert()]`: BufferTable::insert
-    pub fn allocate_gpu(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+    pub fn allocate_gpu(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
         // The allocated capacity is the capacity of the currently allocated GPU buffer,
         // which can be different from the expected capacity (self.capacity) for next
         // update.
         let allocated_size = self.buffer.as_ref().map(|ab| ab.size).unwrap_or(0);
         let size = self.aligned_size * self.capacity;
+        let mut reallocated = false;
         if size > allocated_size {
             println!(
                 "reserve: increase capacity from {} to {} elements, new size {} bytes",
@@ -356,6 +364,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                     old_size: 0,
                 });
             }
+            reallocated = true;
         }
 
         // Immediately schedule a copy of all pending rows.
@@ -434,6 +443,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             debug_assert!(self.pending_values.is_empty());
             debug_assert!(self.extra_pending_values.is_empty());
         }
+
+        reallocated
     }
 
     /// Write CPU data to the GPU buffer, (re)allocating it as needed.
@@ -964,6 +975,65 @@ mod gpu_tests {
         let len = len as usize;
 
         // This doesn't reallocate the GPU buffer since we used a free list entry
+        table.allocate_gpu(&device, &queue);
+        assert!(!table.is_empty());
+        assert_eq!(table.len(), len);
+        assert!(table.capacity() >= len);
+        let ab = table
+            .buffer
+            .as_ref()
+            .expect("GPU buffer should be allocated after allocate_gpu()");
+        assert_eq!(ab.size, table.aligned_size() * 4); // 4 == last time we grew
+        assert!(ab.old_buffer.is_none());
+
+        // Write buffer (CPU -> GPU)
+        write_buffers_and_wait(&table, &device, &queue);
+
+        {
+            // Read back (GPU -> CPU)
+            let buffer = table.buffer().expect("Buffer was not allocated").clone(); // clone() for lifetime
+            {
+                let slice = buffer.slice(..);
+                let view = read_back_gpu(&device, slice);
+                println!(
+                    "GPU data read back to CPU for validation: {} bytes",
+                    view.len()
+                );
+
+                // Validate content
+                assert!(view.len() >= final_align as usize * table.capacity());
+                for i in 0..len {
+                    let offset = i * final_align as usize;
+                    let item_size = std::mem::size_of::<GpuDummyComposed>();
+                    let src = &view[offset..offset + 16];
+                    println!("{}", to_hex_string(src));
+                    let dummy_composed: &[GpuDummyComposed] =
+                        cast_slice(&view[offset..offset + item_size]);
+                    assert_eq!(dummy_composed[0].tag, (i + 1) as u32);
+                }
+            }
+            buffer.unmap();
+        }
+
+        // New frame
+        table.clear_previous_frame_resizes();
+
+        // Insert a row; this should get into row #3 at the end of the allocated buffer
+        let mut len = len as u32;
+        let row = table.insert(GpuDummyComposed {
+            tag: 4,
+            ..Default::default()
+        });
+        assert_eq!(row.0, 3);
+        len += 1;
+        println!(
+            "Added 1 row to grow capacity from {} to {}.",
+            old_capacity,
+            table.capacity()
+        );
+        let len = len as usize;
+
+        // This doesn't reallocate the GPU buffer since we used an implicit free entry
         table.allocate_gpu(&device, &queue);
         assert!(!table.is_empty());
         assert_eq!(table.len(), len);

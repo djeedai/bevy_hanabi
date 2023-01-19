@@ -151,7 +151,7 @@ impl EffectBuffer {
         let indirect_label = if let Some(label) = label {
             format!("{}_indirect", label)
         } else {
-            "hanabi:effect_buffer_indirect".to_owned()
+            "hanabi:buffer:effect_indirect".to_owned()
         };
         let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
@@ -462,7 +462,7 @@ impl EffectCache {
                     item_size,
                     //pipeline,
                     &self.device,
-                    Some(&format!("hanabi:effect_buffer{}", buffer_index)),
+                    Some(&format!("hanabi:buffer:effect{}_particles", buffer_index)),
                 );
                 let slice_ref = buffer.allocate_slice(capacity, item_size).unwrap();
                 if buffer_index >= self.buffers.len() {
@@ -495,6 +495,11 @@ impl EffectCache {
                 item_size: slice_ref.item_size,
             })
             .unwrap()
+    }
+
+    /// Get the zero-based index of the buffer. Used internally.
+    pub(crate) fn buffer_index(&self, id: EffectCacheId) -> Option<usize> {
+        self.effects.get(&id).map(|(buffer_index, _)| *buffer_index)
     }
 
     /// Remove an effect from the cache. If this was the last effect, drop the

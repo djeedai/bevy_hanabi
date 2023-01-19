@@ -29,8 +29,10 @@ use crate::next_multiple_of;
 ///
 /// [`BufferVec`]: bevy::render::render_resource::BufferVec
 /// [`WgpuLimits`]: bevy::render::settings::WgpuLimits
-pub struct AlignedBufferVec<T: Pod + ShaderType + ShaderSize> {
+pub struct AlignedBufferVec<T: Pod + ShaderSize> {
+    /// Pending values accumulated on CPU and not yet written to GPU.
     values: Vec<T>,
+    /// GPU buffer if already allocated, or `None` otherwise.
     buffer: Option<Buffer>,
     /// Capacity of the buffer, in number of elements.
     capacity: usize,
@@ -39,7 +41,9 @@ pub struct AlignedBufferVec<T: Pod + ShaderType + ShaderSize> {
     /// Size of a single buffer element, in bytes, aligned to GPU memory
     /// constraints.
     aligned_size: usize,
+    /// GPU buffer usages.
     buffer_usage: BufferUsages,
+    /// Optional GPU buffer name, for debugging.
     label: Option<String>,
 }
 

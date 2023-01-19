@@ -51,7 +51,7 @@ mod effect_cache;
 mod shader_cache;
 
 use aligned_buffer_vec::AlignedBufferVec;
-use buffer_table::BufferTable;
+use buffer_table::{BufferTable, BufferTableId};
 pub(crate) use effect_cache::{EffectCache, EffectCacheId};
 
 pub use effect_cache::{EffectBuffer, EffectSlice};
@@ -271,7 +271,7 @@ impl FromWorld for DispatchIndirectPipeline {
                         count: None,
                     },
                 ],
-                label: Some("hanabi:dispatch_indirect_dispatch_indirect_layout"),
+                label: Some("hanabi:bind_group_layout:dispatch_indirect_dispatch_indirect"),
             });
 
         trace!(
@@ -290,11 +290,11 @@ impl FromWorld for DispatchIndirectPipeline {
                     },
                     count: None,
                 }],
-                label: Some("hanabi:dispatch_indirect_sim_params_layout"),
+                label: Some("hanabi:bind_group_layout:dispatch_indirect_sim_params"),
             });
 
         let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("hanabi:dispatch_indirect_pipeline_layout"),
+            label: Some("hanabi:pipeline_layout:dispatch_indirect"),
             bind_group_layouts: &[&dispatch_indirect_layout, &sim_params_layout],
             push_constant_ranges: &[],
         });
@@ -305,7 +305,7 @@ impl FromWorld for DispatchIndirectPipeline {
         });
 
         let pipeline = render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
-            label: Some("hanabi:pipeline_dispatch_indirect"),
+            label: Some("hanabi:compute_pipeline:dispatch_indirect"),
             layout: Some(&pipeline_layout),
             module: &shader_module,
             entry_point: "main",
@@ -1331,6 +1331,12 @@ impl EffectsMeta {
                         buffer_index
                     );
                     effect_bind_groups.particle_buffers.remove(&buffer_index);
+
+                    // NOTE: by convention (see assert below) the cache ID is also the table ID, as
+                    // those 3 data structures stay in sync.
+                    let table_id = BufferTableId(buffer_index);
+                    self.dispatch_indirect_buffer.remove(table_id);
+                    self.render_dispatch_buffer.remove(table_id);
                 }
             }
         }
@@ -1359,7 +1365,7 @@ impl EffectsMeta {
             // ones, during extraction.
 
             // FIXME - Kind of brittle since the EffectCache doesn't know about those
-            let index = cache_id.0 as usize;
+            let index = self.effect_cache.buffer_index(cache_id).unwrap();
 
             let table_id = self
                 .dispatch_indirect_buffer
@@ -1390,10 +1396,20 @@ impl EffectsMeta {
         // Once all changes are applied, immediately schedule any GPU buffer
         // (re)allocation based on the new buffer size. The actual GPU buffer content
         // will be written later.
-        self.dispatch_indirect_buffer
-            .allocate_gpu(&render_device, &render_queue);
-        self.render_dispatch_buffer
-            .allocate_gpu(&render_device, &render_queue);
+        if self
+            .dispatch_indirect_buffer
+            .allocate_gpu(&render_device, &render_queue)
+        {
+            // All those bind groups use the indirect buffer so need to be re-created.
+            effect_bind_groups.particle_buffers.clear();
+        }
+        if self
+            .render_dispatch_buffer
+            .allocate_gpu(&render_device, &render_queue)
+        {
+            // Currently we always re-create each frame any bind group that
+            // binds this buffer, so there's nothing to do here.
+        }
     }
 }
 
