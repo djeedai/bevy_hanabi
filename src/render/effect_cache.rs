@@ -68,7 +68,9 @@ impl SliceRef {
 /// Storage for a single kind of effects, sharing the same buffer(s).
 ///
 /// Currently only accepts a single unique item size (particle size), fixed at
-/// creation. Also currently only accepts instances of a unique of effect asset.
+/// creation. Also currently only accepts instances of a unique effect asset,
+/// although this restriction is purely for convenience and may be relaxed in
+/// the future to improve batching.
 pub struct EffectBuffer {
     /// GPU buffer holding all particles for the entire group of effects.
     particle_buffer: Buffer,
@@ -131,7 +133,10 @@ impl EffectBuffer {
         );
 
         let capacity = capacity.max(Self::MIN_CAPACITY);
-        debug_assert!(capacity > 0, "Attempted to create a zero-sized effect buffer.");
+        debug_assert!(
+            capacity > 0,
+            "Attempted to create a zero-sized effect buffer."
+        );
 
         let particle_capacity_bytes: BufferAddress = capacity as u64 * item_size as u64;
         let particle_buffer = render_device.create_buffer(&BufferDescriptor {
@@ -146,7 +151,7 @@ impl EffectBuffer {
         let indirect_label = if let Some(label) = label {
             format!("{}_indirect", label)
         } else {
-            "hanabi:effect_buffer_indirect".to_owned()
+            "hanabi:buffer:effect_indirect".to_owned()
         };
         let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
@@ -457,19 +462,15 @@ impl EffectCache {
                     item_size,
                     //pipeline,
                     &self.device,
-                    Some(&format!("hanabi:effect_buffer{}", buffer_index)),
+                    Some(&format!("hanabi:buffer:effect{}_particles", buffer_index)),
                 );
                 let slice_ref = buffer.allocate_slice(capacity, item_size).unwrap();
                 if buffer_index >= self.buffers.len() {
                     self.buffers.push(Some(buffer));
                 } else {
-                    assert!(self.buffers[buffer_index].is_none());
+                    debug_assert!(self.buffers[buffer_index].is_none());
                     self.buffers[buffer_index] = Some(buffer);
                 }
-                // Newly-allocated buffers are not cleared to zero, and currently we eagerly render the entire buffer
-                // since we don't have an indirection buffer to tell us how many particles are alive. So clear the buffer
-                // to zero to mark all particles as invalid and prevent rendering them.
-                //queue.cle
                 Some((buffer_index, slice_ref))
             })
             .unwrap();
@@ -494,6 +495,11 @@ impl EffectCache {
                 item_size: slice_ref.item_size,
             })
             .unwrap()
+    }
+
+    /// Get the zero-based index of the buffer. Used internally.
+    pub(crate) fn buffer_index(&self, id: EffectCacheId) -> Option<usize> {
+        self.effects.get(&id).map(|(buffer_index, _)| *buffer_index)
     }
 
     /// Remove an effect from the cache. If this was the last effect, drop the
