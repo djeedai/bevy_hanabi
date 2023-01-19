@@ -1,6 +1,6 @@
 use bevy::{
     core::{cast_slice, Pod},
-    //log::trace,
+    log::trace,
     render::{
         render_resource::{
             Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandEncoder, ShaderSize,
@@ -164,7 +164,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         } else {
             item_size
         };
-        println!(
+        trace!(
             "BufferTable: item_size={} aligned_size={}",
             item_size, aligned_size
         );
@@ -333,7 +333,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         let size = self.aligned_size * self.capacity;
         let mut reallocated = false;
         if size > allocated_size {
-            println!(
+            trace!(
                 "reserve: increase capacity from {} to {} elements, new size {} bytes",
                 allocated_size / self.aligned_size,
                 self.capacity,
@@ -386,7 +386,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 let mut aligned_buffer: Vec<u8> = vec![0; self.aligned_size];
                 let src: &[u8] = cast_slice(std::slice::from_ref(&content));
                 let dst_range = ..self.item_size;
-                println!(
+                trace!(
                     "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
                     index,
                     src.as_ptr(),
@@ -421,7 +421,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                     let mut aligned_buffer: Vec<u8> = vec![0; self.aligned_size];
                     let src: &[u8] = cast_slice(std::slice::from_ref(&content));
                     let dst_range = ..self.item_size;
-                    println!(
+                    trace!(
                         "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
                         index,
                         src.as_ptr(),
@@ -461,7 +461,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             return;
         }
 
-        println!(
+        trace!(
             "write_buffer: pending_values.len={} item_size={} aligned_size={} buffer={:?}",
             self.pending_values.len(),
             self.item_size,
@@ -477,7 +477,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         // which stays alive until the copy is done (but we don't need to care about
         // keeping it alive, wgpu does that for us).
         if let Some(old_buffer) = ab.old_buffer.as_ref() {
-            println!("Copy old buffer id {:?} of size {} bytes into newly-allocated buffer {:?} of size {} bytes.", old_buffer.id(), ab.old_size, ab.buffer.id(), ab.size);
+            trace!("Copy old buffer id {:?} of size {} bytes into newly-allocated buffer {:?} of size {} bytes.", old_buffer.id(), ab.old_size, ab.buffer.id(), ab.size);
             encoder.copy_buffer_to_buffer(old_buffer, 0, &ab.buffer, 0, ab.old_size as u64);
         }
     }
