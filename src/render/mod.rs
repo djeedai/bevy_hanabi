@@ -1354,7 +1354,7 @@ impl EffectsMeta {
                 added_effect.capacity,
                 added_effect.item_size,
                 //update_pipeline.pipeline.clone(),
-                &render_queue,
+                render_queue,
             );
 
             let entity = added_effect.entity;
@@ -1398,14 +1398,14 @@ impl EffectsMeta {
         // will be written later.
         if self
             .dispatch_indirect_buffer
-            .allocate_gpu(&render_device, &render_queue)
+            .allocate_gpu(render_device, render_queue)
         {
             // All those bind groups use the indirect buffer so need to be re-created.
             effect_bind_groups.particle_buffers.clear();
         }
         if self
             .render_dispatch_buffer
-            .allocate_gpu(&render_device, &render_queue)
+            .allocate_gpu(render_device, render_queue)
         {
             // Currently we always re-create each frame any bind group that
             // binds this buffer, so there's nothing to do here.

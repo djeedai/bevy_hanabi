@@ -166,7 +166,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         };
         trace!(
             "BufferTable: item_size={} aligned_size={}",
-            item_size, aligned_size
+            item_size,
+            aligned_size
         );
         if buffer_usage.contains(BufferUsages::UNIFORM) {
             <T as ShaderType>::assert_uniform_compat();
@@ -331,8 +332,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         // update.
         let allocated_size = self.buffer.as_ref().map(|ab| ab.size).unwrap_or(0);
         let size = self.aligned_size * self.capacity;
-        let mut reallocated = false;
-        if size > allocated_size {
+        let reallocated = if size > allocated_size {
             trace!(
                 "reserve: increase capacity from {} to {} elements, new size {} bytes",
                 allocated_size / self.aligned_size,
@@ -364,8 +364,11 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                     old_size: 0,
                 });
             }
-            reallocated = true;
-        }
+
+            true
+        } else {
+            false
+        };
 
         // Immediately schedule a copy of all pending rows.
         // - For new rows, copy directly in the new buffer, which is the only one that
@@ -647,8 +650,8 @@ mod gpu_tests {
         let len = slice.len();
         let num_chars = len * 3 - 1;
         let mut s = String::with_capacity(num_chars);
-        for i in 0..len - 1 {
-            write!(&mut s, "{:02x} ", slice[i]).unwrap();
+        for b in &slice[..len - 1] {
+            write!(&mut s, "{:02x} ", *b).unwrap();
         }
         write!(&mut s, "{:02x}", slice[len - 1]).unwrap();
         debug_assert_eq!(s.len(), num_chars);
@@ -665,7 +668,7 @@ mod gpu_tests {
         });
         table.write_buffer(&mut encoder);
         let command_buffer = encoder.finish();
-        submit_gpu_and_wait(&device, &queue, command_buffer);
+        submit_gpu_and_wait(device, queue, command_buffer);
         println!("Buffer written to GPU");
     }
 
