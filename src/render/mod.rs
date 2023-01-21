@@ -1152,6 +1152,24 @@ struct GpuParticleVertex {
     pub uv: [f32; 2],
 }
 
+/// Various GPU limits and aligned sizes computed once and cached.
+struct GpuLimits {
+    /// Value of [`WgpuLimits::min_storage_buffer_offset_alignment`].
+    ///
+    /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
+    storage_buffer_align: NonZeroU32,
+    /// Size of [`GpuDispatchIndirect`] aligned to the contraint of
+    /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
+    ///
+    /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
+    dispatch_indirect_aligned_size: NonZeroU32,
+    /// Size of [`GpuRenderIndirect`] aligned to the contraint of
+    /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
+    ///
+    /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
+    render_indirect_aligned_size: NonZeroU32,
+}
+
 /// Global resource containing the GPU data to draw all the particle effects in
 /// all views.
 ///
@@ -1196,16 +1214,8 @@ pub(crate) struct EffectsMeta {
     vertices: BufferVec<GpuParticleVertex>,
     ///
     indirect_dispatch_pipeline: Option<ComputePipeline>,
-    /// Size of [`GpuDispatchIndirect`] aligned to the contraint of
-    /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
-    ///
-    /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
-    gpu_dispatch_indirect_aligned_size: Option<NonZeroU32>,
-    /// Size of [`GpuRenderIndirect`] aligned to the contraint of
-    /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
-    ///
-    /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
-    gpu_render_indirect_aligned_size: Option<NonZeroU32>,
+    /// Various GPU limits and aligned sizes lazily allocated and cached for convenience.
+    gpu_limits: Option<GpuLimits>,
 }
 
 impl EffectsMeta {
@@ -1259,42 +1269,42 @@ impl EffectsMeta {
             ),
             vertices,
             indirect_dispatch_pipeline: None,
-            gpu_dispatch_indirect_aligned_size: None,
-            gpu_render_indirect_aligned_size: None,
+            gpu_limits: None,
         }
     }
 
     /// Cache various GPU limits for later use.
     pub fn update_gpu_limits(&mut self, render_device: &RenderDevice) {
-        let mut storage_buffer_align = None;
-
-        if self.gpu_dispatch_indirect_aligned_size.is_none() {
-            storage_buffer_align =
-                NonZeroU32::new(render_device.limits().min_storage_buffer_offset_alignment);
-            self.gpu_dispatch_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
-                GpuDispatchIndirect::min_size().get() as usize,
-                storage_buffer_align.unwrap().get() as usize,
-            ) as u32);
+        if self.gpu_limits.is_some() {
+            return;
         }
 
-        if self.gpu_render_indirect_aligned_size.is_none() {
-            let align = storage_buffer_align
-                .unwrap_or_else(|| {
-                    NonZeroU32::new(render_device.limits().min_storage_buffer_offset_alignment)
-                        .unwrap()
-                })
-                .get() as usize;
-            self.gpu_render_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
-                GpuRenderIndirect::min_size().get() as usize,
-                align,
-            ) as u32);
-        }
+        let storage_buffer_align = render_device.limits().min_storage_buffer_offset_alignment;
+
+        let dispatch_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
+            GpuDispatchIndirect::min_size().get() as usize,
+            storage_buffer_align as usize,
+        ) as u32)
+        .unwrap();
+
+        let render_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
+            GpuRenderIndirect::min_size().get() as usize,
+            storage_buffer_align as usize,
+        ) as u32)
+        .unwrap();
 
         trace!(
-            "Aligns: gpu_dispatch_indirect_aligned_size={} gpu_render_indirect_aligned_size={}",
-            self.gpu_dispatch_indirect_aligned_size.unwrap().get(),
-            self.gpu_render_indirect_aligned_size.unwrap().get()
+            "GpuLimits: storage_buffer_align={} gpu_dispatch_indirect_aligned_size={} gpu_render_indirect_aligned_size={}",
+            storage_buffer_align,
+            dispatch_indirect_aligned_size.get(),
+            render_indirect_aligned_size.get()
         );
+
+        self.gpu_limits = Some(GpuLimits {
+            storage_buffer_align: NonZeroU32::new(storage_buffer_align).unwrap(),
+            dispatch_indirect_aligned_size,
+            render_indirect_aligned_size,
+        });
     }
 
     /// Allocate internal resources for newly spawned effects, and deallocate
