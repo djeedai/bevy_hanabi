@@ -136,6 +136,7 @@ mod spawn;
 #[cfg(test)]
 mod test_utils;
 
+use properties::PropertyInstance;
 use render::EffectCacheId;
 
 pub use asset::{EffectAsset, RenderLayout, UpdateLayout};
@@ -359,6 +360,8 @@ pub struct ParticleEffect {
     /// configured.
     #[reflect(ignore)]
     configured_render_shader: Option<Handle<Shader>>,
+    /// Instances of all exposed properties.
+    properties: Vec<PropertyInstance>,
 
     // bunch of stuff that should move, which we store here temporarily between tick_spawners()
     // ticking the spawner and the extract/prepare/queue render stages consuming them.
@@ -380,6 +383,7 @@ impl ParticleEffect {
             configured_init_shader: None,
             configured_update_shader: None,
             configured_render_shader: None,
+            properties: vec![],
             //
             spawn_count: 0,
             init_code: String::default(),
@@ -412,6 +416,20 @@ impl ParticleEffect {
     /// [`set_spawner()`]: ParticleEffect::set_spawner
     pub fn maybe_spawner(&mut self) -> Option<&mut Spawner> {
         self.spawner.as_mut()
+    }
+
+    /// Initialize the instance properties from the asset ones.
+    ///
+    /// This copies the properties of the asset into the effect instance, using
+    /// the default value as the starting value of the property.
+    pub(crate) fn init_properties(&mut self, properties: &[Property]) {
+        self.properties = properties
+            .iter()
+            .map(|def| PropertyInstance {
+                def: def.clone(),
+                value: def.default_value().clone(),
+            })
+            .collect();
     }
 
     /// Configure the spawner of a new particle effect.
@@ -449,6 +467,25 @@ impl ParticleEffect {
             return None;
         };
         Some((init_shader, update_shader, render_shader))
+    }
+
+    /// Write all properties into a binary buffer ready for GPU upload.
+    fn write_properties(&self, layout: &PropertyLayout) -> Vec<u8> {
+        let size = layout.size() as usize;
+        let mut data = Vec::with_capacity(size);
+        data.resize(size, 0u8);
+        // FIXME: O(n^2) search due to offset() being O(n) linear search already
+        for property in &self.properties {
+            if let Some(offset) = layout.offset(property.def.name()) {
+                let offset = offset as usize;
+                let size = property.def.size();
+                let src = property.value.as_bytes();
+                debug_assert_eq!(src.len(), size);
+                let dst = &mut data[offset..offset + size];
+                dst.copy_from_slice(src);
+            }
+        }
+        data
     }
 }
 
@@ -623,6 +660,8 @@ fn tick_spawners(
                 continue;
             };
 
+            effect.init_properties(&asset.properties);
+
             effect.configure_spawner(&asset.spawner)
         };
 
@@ -768,11 +807,18 @@ fn tick_spawners(
                 },
             );
 
+            // TODO - Replace with Option<ConfiguredShader { handle: Handle<Shader>, hash:
+            // u64 }> where the hash takes into account the code and extra code
+            // for each pass (and any other varying item). We don't need to keep
+            // around the entire shader code, only a hash of it for compare (or, maybe safer
+            // to avoid hash collisions, an index into a shader cache). The only
+            // use is to be able to compare 2 instances and see if they can be
+            // batched together.
             effect.configured_init_shader = Some(init_shader);
             effect.configured_update_shader = Some(update_shader);
             effect.configured_render_shader = Some(render_shader);
 
-            // TEMP
+            // TEMP - Should disappear after fixing the above TODO.
             effect.init_code = init_context.init_code;
             effect.init_extra = init_context.init_extra;
             effect.update_code = update_context.update_code;

@@ -39,6 +39,11 @@ impl Property {
         self.name.as_ref()
     }
 
+    /// The default value of the property.
+    pub fn default_value(&self) -> &Value {
+        &self.default_value
+    }
+
     /// The property type.
     pub fn value_type(&self) -> ValueType {
         self.default_value.value_type()
@@ -56,6 +61,15 @@ impl ToWgslString for Property {
     fn to_wgsl_string(&self) -> String {
         format!("properties.{}", self.name)
     }
+}
+
+/// Instance of a [`Property`] owned by a specific [`ParticleEffect`] component.
+#[derive(Debug, Clone, Reflect, FromReflect)]
+pub(crate) struct PropertyInstance {
+    /// The property definition, including its default value.
+    pub def: Property,
+    /// The current runtime value of the property.
+    pub value: Value,
 }
 
 #[derive(Clone)]
@@ -311,6 +325,20 @@ impl PropertyLayout {
         } else {
             format!("struct Properties {{\n{}\n}}\n", content)
         }
+    }
+
+    /// Get the offset for the property with the given name.
+    pub(crate) fn offset(&self, name: &str) -> Option<u32> {
+        self.layout
+            .iter()
+            .filter_map(|entry| {
+                if entry.property.name == name {
+                    Some(entry.offset)
+                } else {
+                    None
+                }
+            })
+            .next()
     }
 }
 

@@ -27,9 +27,22 @@ pub enum Value {
 }
 
 impl Value {
+    /// Get the value as a binary blob ready for GPU upload.
+    pub fn as_bytes(&self) -> &[u8] {
+        match self {
+            Value::Float(f) => bytemuck::cast_slice::<f32, u8>(std::slice::from_ref(f)),
+            Value::Float2(v) => bytemuck::cast_slice::<Vec2, u8>(std::slice::from_ref(v)),
+            Value::Float3(v) => bytemuck::cast_slice::<Vec3, u8>(std::slice::from_ref(v)),
+            Value::Float4(v) => bytemuck::cast_slice::<Vec4, u8>(std::slice::from_ref(v)),
+            Value::Uint(u) => bytemuck::cast_slice::<u32, u8>(std::slice::from_ref(u)),
+        }
+    }
+}
+
+impl Value {
     /// Type of the value.
     pub fn value_type(&self) -> ValueType {
-        match *self {
+        match self {
             Value::Float(_) => ValueType::Float,
             Value::Float2(_) => ValueType::Float2,
             Value::Float3(_) => ValueType::Float3,
@@ -41,7 +54,7 @@ impl Value {
 
 impl ToWgslString for Value {
     fn to_wgsl_string(&self) -> String {
-        match *self {
+        match self {
             Value::Float(f) => f.to_wgsl_string(),
             Value::Float2(v2) => v2.to_wgsl_string(),
             Value::Float3(v3) => v3.to_wgsl_string(),

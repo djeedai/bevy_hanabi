@@ -81,7 +81,8 @@ pub struct EffectBuffer {
     ///   and 1
     /// - the dead particle indices at offset 2
     indirect_buffer: Buffer,
-    /// GPU buffer holding the properties of the effect(s), if any.
+    /// GPU buffer holding the properties of the effect(s), if any. This is
+    /// always `None` if the property layout is empty.
     properties_buffer: Option<Buffer>,
     /// Layout of particles.
     particle_layout: ParticleLayout,
@@ -195,7 +196,7 @@ impl EffectBuffer {
             let properties_label = if let Some(label) = label {
                 format!("{}_properties", label)
             } else {
-                "hanabi:effect_buffer_properties".to_owned()
+                "hanabi:buffer:effect_properties".to_owned()
             };
             let size = property_layout.min_binding_size().get(); // TODO: * num_effects_in_buffer (once batching works again)
             let properties_buffer = render_device.create_buffer(&BufferDescriptor {
@@ -348,6 +349,10 @@ impl EffectBuffer {
 
     pub fn indirect_buffer(&self) -> &Buffer {
         &self.indirect_buffer
+    }
+
+    pub fn properties_buffer(&self) -> Option<&Buffer> {
+        self.properties_buffer.as_ref()
     }
 
     pub fn particle_layout(&self) -> &ParticleLayout {
@@ -697,6 +702,18 @@ impl EffectCache {
                 particle_layout: slice_ref.particle_layout.clone(),
             })
             .unwrap()
+    }
+
+    pub fn get_property_buffer(&self, id: EffectCacheId) -> Option<&Buffer> {
+        if let Some((buffer_index, _)) = self.effects.get(&id) {
+            if let Some(buffer) = &self.buffers[*buffer_index] {
+                buffer.properties_buffer()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     /// Get the zero-based index of the buffer. Used internally.

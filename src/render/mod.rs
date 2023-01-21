@@ -427,7 +427,8 @@ impl FromWorld for ParticlesInitPipeline {
                 label: Some("hanabi:bind_group_layout:init_render_indirect"),
             });
 
-        // let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        // let pipeline_layout =
+        // render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
         //     label: Some("hanabi:pipeline_layout:init"),
         //     bind_group_layouts: &[
         //         &sim_params_layout,
@@ -1044,6 +1045,9 @@ pub(crate) struct ExtractedEffect {
     pub particle_layout: ParticleLayout,
     /// Property layout for the effect.
     pub property_layout: PropertyLayout,
+    /// Values of properties written in a binary blob according to
+    /// [`property_layout`].
+    pub property_data: Vec<u8>,
     /// Number of particles to spawn this frame for the effect.
     /// Obtained from calling [`Spawner::tick()`] on the source effect instance.
     ///
@@ -1114,6 +1118,10 @@ pub(crate) struct EffectAssetEvents {
     pub images: Vec<AssetEvent<Image>>,
 }
 
+/// System extracting all the asset events for the [`Image`] assets to enable
+/// dynamic update of images bound to any effect.
+///
+/// This system runs in parallel of [`extract_effects`].
 pub(crate) fn extract_effect_events(
     mut events: ResMut<EffectAssetEvents>,
     mut image_events: Extract<EventReader<AssetEvent<Image>>>,
@@ -1146,6 +1154,8 @@ pub(crate) fn extract_effect_events(
 /// which are visible ([`ComputedVisibility::is_visible`] is `true`), and wrap
 /// the data into a new [`ExtractedEffect`] instance added to the
 /// [`ExtractedEffects`] resource.
+///
+/// This system runs in parallel of [`extract_effect_events`].
 pub(crate) fn extract_effects(
     time: Extract<Res<Time>>,
     effects: Extract<Res<Assets<EffectAsset>>>,
@@ -1262,6 +1272,10 @@ pub(crate) fn extract_effects(
             .unwrap_or(Handle::<Image>::default())
             .id();
 
+        // TODO - Change detection and diff/caching to minimize CPU->GPU data transfer
+        let property_layout = asset.property_layout().clone();
+        let property_data = effect.write_properties(&property_layout);
+
         trace!(
             "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?}",
             asset.name,
@@ -1274,7 +1288,8 @@ pub(crate) fn extract_effects(
             ExtractedEffect {
                 handle: effect.handle.clone_weak(),
                 particle_layout: asset.particle_layout().clone(),
-                property_layout: asset.property_layout().clone(),
+                property_layout,
+                property_data,
                 spawn_count,
                 color: Color::RED, //effect.color,
                 transform: transform.compute_matrix(),
@@ -1330,19 +1345,17 @@ pub(crate) struct EffectsMeta {
     /// Bind group for the simulation parameters, like the current time and
     /// frame delta time.
     sim_params_bind_group: Option<BindGroup>,
-    /// Bind group for the particles buffer itself.
-    particles_bind_group: Option<BindGroup>,
     /// Bind group for the spawning parameters (number of particles to spawn
     /// this frame, ...).
     spawner_bind_group: Option<BindGroup>,
     /// Bind group #0 of the vfx_indirect shader, containing both the indirect
     /// compute dispatch and render buffers.
     dr_indirect_bind_group: Option<BindGroup>,
-    /// Bind group #3 of the particles_init shader, containing the indirect
-    /// render buffer.
+    /// Bind group #3 of the vfx_init shader, containing the indirect render
+    /// buffer.
     init_render_indirect_bind_group: Option<BindGroup>,
-    /// Bind group #3 of the particles_update shader, containing the indirect
-    /// render buffer.
+    /// Bind group #3 of the vfx_update shader, containing the indirect render
+    /// buffer.
     update_render_indirect_bind_group: Option<BindGroup>,
 
     sim_params_uniforms: UniformBuffer<SimParamsUniform>,
@@ -1393,7 +1406,6 @@ impl EffectsMeta {
             effect_cache: EffectCache::new(device),
             view_bind_group: None,
             sim_params_bind_group: None,
-            particles_bind_group: None,
             spawner_bind_group: None,
             dr_indirect_bind_group: None,
             init_render_indirect_bind_group: None,
@@ -1710,8 +1722,18 @@ pub(crate) fn prepare_effects(
         .iter()
         .map(|(entity, extracted_effect)| {
             let id = *effects_meta.entity_map.get(entity).unwrap();
+            let property_buffer = effects_meta
+                .effect_cache
+                .get_property_buffer(id)
+                .map(|buf| buf.clone()); // clone handle for lifetime
             let slice = effects_meta.effect_cache.get_slice(id);
-            (entity.index(), slice, extracted_effect, id.0 as u32)
+            (
+                entity.index(),
+                slice,
+                extracted_effect,
+                id.0 as u32,
+                property_buffer,
+            )
         })
         .collect::<Vec<_>>();
     trace!("Collected {} extracted effects", effect_entity_list.len());
@@ -1743,7 +1765,8 @@ pub(crate) fn prepare_effects(
     let mut update_pipeline_id = CachedComputePipelineId::INVALID;
     let mut z_sort_key_2d = FloatOrd(f32::NAN);
     let mut entities = Vec::<u32>::with_capacity(4);
-    for (entity_index, slice, extracted_effect, effect_index) in effect_entity_list {
+    for (entity_index, slice, extracted_effect, effect_index, property_buffer) in effect_entity_list
+    {
         let buffer_index = slice.group_index;
         let range = slice.slice;
         layout_flags = if extracted_effect.has_image {
@@ -1935,6 +1958,12 @@ pub(crate) fn prepare_effects(
         trace!("spawner_params = {:?}", spawner_params);
         effects_meta.spawner_buffer.push(spawner_params);
 
+        // Write properties for this effect.
+        // FIXME - This doesn't work with batching!
+        if let Some(property_buffer) = property_buffer {
+            render_queue.write_buffer(&property_buffer, 0, &extracted_effect.property_data);
+        }
+
         trace!("slice = {}-{} | prev end = {}", range.start, range.end, end);
         if (range.start > end) || (particle_layout != slice.particle_layout) {
             // Discontinuous slices; create a new batch
@@ -2072,11 +2101,28 @@ pub(crate) fn prepare_effects(
 
 /// Per-buffer bind groups for the GPU particle buffer.
 pub(crate) struct BufferBindGroups {
-    /// Bind group for the init shader.
+    /// Bind group for the init compute shader.
+    ///
+    /// ```wgsl
+    /// @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
+    /// @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
+    /// ```
     init: BindGroup,
-    /// Bind group for the update shader.
+    /// Bind group for the update compute shader.
+    ///
+    /// ```wgsl
+    /// @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
+    /// @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
+    /// @binding(2) var<storage, read> properties : Properties; // optional
+    /// ```
     update: BindGroup,
-    /// Bind group for the render shader.
+    /// Bind group for the render graphic shader.
+    ///
+    /// ```wgsl
+    /// @binding(0) var<storage, read> particle_buffer : ParticlesBuffer;
+    /// @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
+    /// @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
+    /// ```
     render: BindGroup,
 }
 
@@ -2741,14 +2787,14 @@ impl Draw<Transparent2d> for DrawEffects {
             // Vertex buffer containing the particle model to draw. Generally a quad.
             pass.set_vertex_buffer(0, effects_meta.vertices.buffer().unwrap().slice(..));
 
-            // View properties (camera matrix, etc.)
+            // @group(0) - View properties (camera matrix, etc.)
             pass.set_bind_group(
                 0,
                 effects_meta.view_bind_group.as_ref().unwrap(),
                 &[view_uniform.offset],
             );
 
-            // Particles buffer
+            // @group(1) - Particles buffer
             let dispatch_indirect_offset = effects_meta
                 .gpu_dispatch_indirect_aligned_size
                 .unwrap()
@@ -2766,7 +2812,7 @@ impl Draw<Transparent2d> for DrawEffects {
                 &[dispatch_indirect_offset],
             );
 
-            // Particle texture
+            // @group(2) - Particle texture
             if effect_batch
                 .layout_flags
                 .contains(LayoutFlags::PARTICLE_TEXTURE)
@@ -2833,14 +2879,14 @@ impl Draw<Transparent3d> for DrawEffects {
             // Vertex buffer containing the particle model to draw. Generally a quad.
             pass.set_vertex_buffer(0, effects_meta.vertices.buffer().unwrap().slice(..));
 
-            // View properties (camera matrix, etc.)
+            // @group(0) - View properties (camera matrix, etc.)
             pass.set_bind_group(
                 0,
                 effects_meta.view_bind_group.as_ref().unwrap(),
                 &[view_uniform.offset],
             );
 
-            // Particles buffer
+            // @group(1) - Particles buffer
             let dispatch_indirect_offset = effects_meta
                 .gpu_dispatch_indirect_aligned_size
                 .unwrap()
@@ -2858,7 +2904,7 @@ impl Draw<Transparent3d> for DrawEffects {
                 &[dispatch_indirect_offset],
             );
 
-            // Particle texture
+            // @group(2) - Particle texture
             if effect_batch
                 .layout_flags
                 .contains(LayoutFlags::PARTICLE_TEXTURE)
