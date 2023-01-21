@@ -1172,8 +1172,6 @@ pub(crate) struct EffectsMeta {
     /// Bind group for the simulation parameters, like the current time and
     /// frame delta time.
     sim_params_bind_group: Option<BindGroup>,
-    /// Bind group for the particles buffer itself.
-    particles_bind_group: Option<BindGroup>,
     /// Bind group for the spawning parameters (number of particles to spawn
     /// this frame, ...).
     spawner_bind_group: Option<BindGroup>,
@@ -1235,7 +1233,6 @@ impl EffectsMeta {
             effect_cache: EffectCache::new(device),
             view_bind_group: None,
             sim_params_bind_group: None,
-            particles_bind_group: None,
             spawner_bind_group: None,
             dr_indirect_bind_group: None,
             init_render_indirect_bind_group: None,
