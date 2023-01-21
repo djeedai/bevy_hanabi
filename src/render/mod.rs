@@ -1170,6 +1170,16 @@ struct GpuLimits {
     render_indirect_aligned_size: NonZeroU32,
 }
 
+impl GpuLimits {
+    pub fn dispatch_indirect_offset(&self, buffer_index: u32) -> u32 {
+        self.dispatch_indirect_aligned_size.get() * buffer_index
+    }
+
+    pub fn render_indirect_offset(&self, buffer_index: u32) -> u64 {
+        self.render_indirect_aligned_size.get() as u64 * buffer_index as u64
+    }
+}
+
 /// Global resource containing the GPU data to draw all the particle effects in
 /// all views.
 ///
@@ -2491,18 +2501,20 @@ struct ExtractedEffectEntities {
     pub entities: Vec<Entity>,
 }
 
+type DrawEffectsSystemState = SystemState<(
+    SRes<EffectsMeta>,
+    SRes<EffectBindGroups>,
+    SRes<PipelineCache>,
+    SQuery<Read<ViewUniformOffset>>,
+    SQuery<Read<EffectBatch>>,
+)>;
+
 /// Draw function for rendering all active effects for the current frame.
 ///
 /// Effects are rendered in the [`Transparent2d`] phase of the main 2D pass,
 /// and the [`Transparent3d`] phase of the main 3D pass.
 pub(crate) struct DrawEffects {
-    params: SystemState<(
-        SRes<EffectsMeta>,
-        SRes<EffectBindGroups>,
-        SRes<PipelineCache>,
-        SQuery<Read<ViewUniformOffset>>,
-        SQuery<Read<EffectBatch>>,
-    )>,
+    params: DrawEffectsSystemState,
 }
 
 impl DrawEffects {
@@ -2511,6 +2523,87 @@ impl DrawEffects {
             params: SystemState::new(world),
         }
     }
+}
+
+/// Draw all particles of all effects in view, in 2D or 3D.
+fn draw<'w>(
+    world: &'w World,
+    pass: &mut TrackedRenderPass<'w>,
+    view: Entity,
+    entity: Entity,
+    pipeline_id: CachedRenderPipelineId,
+    params: &mut DrawEffectsSystemState,
+) {
+    let (effects_meta, effect_bind_groups, pipeline_cache, views, effects) = params.get(world);
+    let view_uniform = views.get(view).unwrap();
+    let effects_meta = effects_meta.into_inner();
+    let effect_bind_groups = effect_bind_groups.into_inner();
+    let effect_batch = effects.get(entity).unwrap();
+
+    let Some(gpu_limits) = effects_meta.gpu_limits.as_ref() else { return; };
+
+    let Some(pipeline) = pipeline_cache
+    .into_inner()
+    .get_render_pipeline(pipeline_id) else { return; };
+
+    trace!("render pass");
+
+    pass.set_render_pipeline(pipeline);
+
+    // Vertex buffer containing the particle model to draw. Generally a quad.
+    pass.set_vertex_buffer(0, effects_meta.vertices.buffer().unwrap().slice(..));
+
+    // View properties (camera matrix, etc.)
+    pass.set_bind_group(
+        0,
+        effects_meta.view_bind_group.as_ref().unwrap(),
+        &[view_uniform.offset],
+    );
+
+    // Particles buffer
+    let dispatch_indirect_offset = gpu_limits.dispatch_indirect_offset(effect_batch.buffer_index);
+    trace!(
+        "set_bind_group(1): dispatch_indirect_offset={}",
+        dispatch_indirect_offset
+    );
+    pass.set_bind_group(
+        1,
+        effect_bind_groups
+            .particle_render(effect_batch.buffer_index)
+            .unwrap(),
+        &[dispatch_indirect_offset],
+    );
+
+    // Particle texture
+    if effect_batch
+        .layout_flags
+        .contains(LayoutFlags::PARTICLE_TEXTURE)
+    {
+        let image_handle = Handle::weak(effect_batch.image_handle_id);
+        if let Some(bind_group) = effect_bind_groups.images.get(&image_handle) {
+            pass.set_bind_group(2, bind_group, &[]);
+        } else {
+            // Texture not ready; skip this drawing for now
+            trace!(
+                "Particle texture bind group not available for batch buf={} slice={:?}. Skipping draw call.",
+                effect_batch.buffer_index,
+                effect_batch.slice
+            );
+            return; //continue;
+        }
+    }
+
+    let render_indirect_buffer = effects_meta.render_dispatch_buffer.buffer().unwrap();
+
+    let render_indirect_offset = gpu_limits.render_indirect_offset(effect_batch.buffer_index);
+    trace!(
+    "Draw {} particles with {} vertices per particle for batch from buffer #{} (render_indirect_offset={}).",
+    effect_batch.slice.len(),
+    effects_meta.vertices.len(),
+    effect_batch.buffer_index,
+    render_indirect_offset
+);
+    pass.draw_indirect(render_indirect_buffer, render_indirect_offset);
 }
 
 #[cfg(feature = "2d")]
@@ -2523,85 +2616,14 @@ impl Draw<Transparent2d> for DrawEffects {
         item: &Transparent2d,
     ) {
         trace!("Draw<Transparent2d>: view={:?}", view);
-        let (effects_meta, effect_bind_groups, pipeline_cache, views, effects) =
-            self.params.get(world);
-        let view_uniform = views.get(view).unwrap();
-        let effects_meta = effects_meta.into_inner();
-        let effect_bind_groups = effect_bind_groups.into_inner();
-        let effect_batch = effects.get(item.entity).unwrap();
-        if let Some(pipeline) = pipeline_cache
-            .into_inner()
-            .get_render_pipeline(item.pipeline)
-        {
-            trace!("render pass");
-            //let effect_group = &effects_meta.effect_cache.buffers()[0]; // TODO
-
-            pass.set_render_pipeline(pipeline);
-
-            // Vertex buffer containing the particle model to draw. Generally a quad.
-            pass.set_vertex_buffer(0, effects_meta.vertices.buffer().unwrap().slice(..));
-
-            // View properties (camera matrix, etc.)
-            pass.set_bind_group(
-                0,
-                effects_meta.view_bind_group.as_ref().unwrap(),
-                &[view_uniform.offset],
-            );
-
-            // Particles buffer
-            let dispatch_indirect_offset = effects_meta
-                .gpu_dispatch_indirect_aligned_size
-                .unwrap()
-                .get()
-                * effect_batch.buffer_index;
-            trace!(
-                "set_bind_group(1): dispatch_indirect_offset={}",
-                dispatch_indirect_offset
-            );
-            pass.set_bind_group(
-                1,
-                effect_bind_groups
-                    .particle_render(effect_batch.buffer_index)
-                    .unwrap(),
-                &[dispatch_indirect_offset],
-            );
-
-            // Particle texture
-            if effect_batch
-                .layout_flags
-                .contains(LayoutFlags::PARTICLE_TEXTURE)
-            {
-                let image_handle = Handle::weak(effect_batch.image_handle_id);
-                if let Some(bind_group) = effect_bind_groups.images.get(&image_handle) {
-                    pass.set_bind_group(2, bind_group, &[]);
-                } else {
-                    // Texture not ready; skip this drawing for now
-                    trace!(
-                        "Particle texture bind group not available for batch buf={} slice={:?}. Skipping draw call.",
-                        effect_batch.buffer_index,
-                        effect_batch.slice
-                    );
-                    return; //continue;
-                }
-            }
-
-            let vertex_count = effects_meta.vertices.len() as u32;
-            let particle_count = effect_batch.slice.end - effect_batch.slice.start;
-
-            let render_indirect_buffer = effects_meta.render_dispatch_buffer.buffer().unwrap();
-
-            let render_indirect_offset =
-                effects_meta.gpu_render_indirect_aligned_size.unwrap().get() as u64
-                    * effect_batch.buffer_index as u64;
-            trace!(
-                        "Draw {} particles with {} vertices per particle for batch from buffer #{} (render_indirect_offset={}).",
-                        particle_count,
-                        vertex_count,
-                        effect_batch.buffer_index,
-                        render_indirect_offset
-            );
-            pass.draw_indirect(render_indirect_buffer, render_indirect_offset);
-        }
+        draw(
+            world,
+            pass,
+            view,
+            item.entity,
+            item.pipeline,
+            &mut self.params,
+        );
     }
 }
 
@@ -2615,85 +2637,14 @@ impl Draw<Transparent3d> for DrawEffects {
         item: &Transparent3d,
     ) {
         trace!("Draw<Transparent3d>: view={:?}", view);
-        let (effects_meta, effect_bind_groups, pipeline_cache, views, effects) =
-            self.params.get(world);
-        let view_uniform = views.get(view).unwrap();
-        let effects_meta = effects_meta.into_inner();
-        let effect_bind_groups = effect_bind_groups.into_inner();
-        let effect_batch = effects.get(item.entity).unwrap();
-        if let Some(pipeline) = pipeline_cache
-            .into_inner()
-            .get_render_pipeline(item.pipeline)
-        {
-            trace!("render pass");
-            //let effect_group = &effects_meta.effect_cache.buffers()[0]; // TODO
-
-            pass.set_render_pipeline(pipeline);
-
-            // Vertex buffer containing the particle model to draw. Generally a quad.
-            pass.set_vertex_buffer(0, effects_meta.vertices.buffer().unwrap().slice(..));
-
-            // View properties (camera matrix, etc.)
-            pass.set_bind_group(
-                0,
-                effects_meta.view_bind_group.as_ref().unwrap(),
-                &[view_uniform.offset],
-            );
-
-            // Particles buffer
-            let dispatch_indirect_offset = effects_meta
-                .gpu_dispatch_indirect_aligned_size
-                .unwrap()
-                .get()
-                * effect_batch.buffer_index;
-            trace!(
-                "set_bind_group(1): dispatch_indirect_offset={}",
-                dispatch_indirect_offset
-            );
-            pass.set_bind_group(
-                1,
-                effect_bind_groups
-                    .particle_render(effect_batch.buffer_index)
-                    .unwrap(),
-                &[dispatch_indirect_offset],
-            );
-
-            // Particle texture
-            if effect_batch
-                .layout_flags
-                .contains(LayoutFlags::PARTICLE_TEXTURE)
-            {
-                let image_handle = Handle::weak(effect_batch.image_handle_id);
-                if let Some(bind_group) = effect_bind_groups.images.get(&image_handle) {
-                    pass.set_bind_group(2, bind_group, &[]);
-                } else {
-                    // Texture not ready; skip this drawing for now
-                    trace!(
-                        "Particle texture bind group not available for batch buf={} slice={:?}. Skipping draw call.",
-                        effect_batch.buffer_index,
-                        effect_batch.slice
-                    );
-                    return; //continue;
-                }
-            }
-
-            let vertex_count = effects_meta.vertices.len() as u32;
-            let particle_count = effect_batch.slice.end - effect_batch.slice.start;
-
-            let render_indirect_buffer = effects_meta.render_dispatch_buffer.buffer().unwrap();
-
-            let render_indirect_offset =
-                effects_meta.gpu_render_indirect_aligned_size.unwrap().get() as u64
-                    * effect_batch.buffer_index as u64;
-            trace!(
-                "Draw {} particles with {} vertices per particle for batch from buffer #{} (render_indirect_offset={}).",
-                particle_count,
-                vertex_count,
-                effect_batch.buffer_index,
-                render_indirect_offset
-            );
-            pass.draw_indirect(render_indirect_buffer, render_indirect_offset);
-        }
+        draw(
+            world,
+            pass,
+            view,
+            item.entity,
+            item.pipeline,
+            &mut self.params,
+        );
     }
 }
 
