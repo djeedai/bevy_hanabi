@@ -47,9 +47,12 @@ struct RenderIndirectBuffer {
     max_update: u32,
 };
 
+{{PROPERTIES}}
+
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
+{{PROPERTIES_BINDING}}
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as init
 @group(3) @binding(0) var<storage, read_write> render_indirect : RenderIndirectBuffer;
 
@@ -118,6 +121,8 @@ fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
     return dot(v, u) / dot(u,u) * u;
 }
 
+{{UPDATE_EXTRA}}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let thread_index = global_invocation_id.x;
@@ -157,11 +162,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
-    // Drag
-{{DRAG_CODE}}
-
-    // Force field
-{{FORCE_FIELD_CODE}}
+    {{UPDATE_CODE}}
 
     // Increment alive particle count and write indirection index for later rendering
     let indirect_index = atomicAdd(&render_indirect.instance_count, 1u);

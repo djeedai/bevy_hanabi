@@ -126,8 +126,10 @@ mod asset;
 mod attributes;
 mod bundle;
 mod gradient;
+pub mod graph;
 pub mod modifier;
 mod plugin;
+mod properties;
 mod render;
 mod spawn;
 
@@ -142,6 +144,7 @@ pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
+pub use properties::{Property, PropertyLayout};
 pub use render::ShaderCache;
 pub use spawn::{DimValue, Random, Spawner, Value};
 
@@ -237,6 +240,12 @@ impl ToWgslString for Vec4 {
             self.z.to_wgsl_string(),
             self.w.to_wgsl_string()
         )
+    }
+}
+
+impl ToWgslString for u32 {
+    fn to_wgsl_string(&self) -> String {
+        format!("{}", self)
     }
 }
 
@@ -354,13 +363,10 @@ pub struct ParticleEffect {
     // bunch of stuff that should move, which we store here temporarily between tick_spawners()
     // ticking the spawner and the extract/prepare/queue render stages consuming them.
     spawn_count: u32,
-    accel: Vec3,
-    drag: f32,
-    #[reflect(ignore)]
-    force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
-    force_field_code: String,
     init_code: String,
     init_extra: String,
+    update_code: String,
+    update_extra: String,
 }
 
 impl ParticleEffect {
@@ -376,12 +382,10 @@ impl ParticleEffect {
             configured_render_shader: None,
             //
             spawn_count: 0,
-            accel: Vec3::ZERO,
-            drag: 0.,
-            force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
-            force_field_code: String::default(),
             init_code: String::default(),
             init_extra: String::default(),
+            update_code: String::default(),
+            update_extra: String::default(),
         }
     }
 
@@ -471,9 +475,6 @@ const ENABLED_BILLBOARD_CODE: &str = r##"
 const DISABLED_BILLBOARD_CODE: &str = r##"
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
     let world_position = vec4<f32>(particle.position + vpos, 1.0);
-"##;
-
-const DRAG_CODE: &str = r##"(*particle).velocity = (*particle).velocity * max(0., (1. - {{DRAG}} * sim_params.dt));
 "##;
 
 /// Trait to convert any data structure to its equivalent shader code.
@@ -638,42 +639,55 @@ fn tick_spawners(
             || effect.configured_render_shader.is_none()
         {
             let asset = effects.get(&effect.handle).unwrap(); // must succeed since it did above
-            let particle_layout = asset.particle_layout();
 
             // Extract the acceleration
-            let accel = asset.update_layout.accel;
-            let drag_coefficient = asset.update_layout.drag_coefficient;
-            let force_field = asset.update_layout.force_field;
+            // let accel = asset.update_layout.accel;
+            // let drag_coefficient = asset.update_layout.drag_coefficient;
+            // let force_field = asset.update_layout.force_field;
 
             // Generate the shader code defining the particle attributes
-            let attributes_code = asset.particle_layout().generate_code();
+            let particle_layout = asset.particle_layout();
+            let attributes_code = particle_layout.generate_code();
+
+            // Generate the shader code defining the per-effect properties, if any
+            let property_layout = asset.property_layout();
+            let properties_code = property_layout.generate_code();
+            let properties_binding_code = if property_layout.is_empty() {
+                "// (no properties)".to_string()
+            } else {
+                "@group(1) @binding(2) var<storage, read> properties : Properties;".to_string()
+            };
 
             // Generate the shader code for the initializing shader
             let mut init_context = InitContext::default();
             for m in asset.modifiers.iter().filter_map(|m| m.init_modifier()) {
-                m.init(&mut init_context);
+                m.apply(&mut init_context);
             }
-
             #[cfg(debug_assertions)]
-            if !init_context.init_code.contains("lifetime") {
+            if !init_context
+                .init_code
+                .contains(&format!("particle.{}", Attribute::LIFETIME.name()))
+            {
                 warn!("Effect '{}' does not initialize the particle lifetime; particles will have a default lifetime of zero, and will immediately die after spawning. Add a modifier like ParticleLifetimeModifier to initialize the lifetime to a non-zero value.", asset.name);
             }
 
-            // Generate the shader code for the force field of newly emitted particles
-            // TODO - Move that to a pre-pass, not each frame!
-            // let force_field_code = &asset.init_layout.force_field_code;
-            // let force_field_code = if force_field_code.is_empty() {
-            let force_field_code = if 0.0 == asset.update_layout.force_field[0].force_exponent {
-                DEFAULT_FORCE_FIELD_CODE.to_owned()
-            } else {
-                FORCE_FIELD_CODE.to_owned()
-            };
-
-            let drag_code = if drag_coefficient > 0. {
-                DRAG_CODE.replace("{{DRAG}}", &drag_coefficient.to_wgsl_string())
-            } else {
-                "".to_string()
-            };
+            // Generate the shader code for the update shader
+            let mut update_context = UpdateContext::default();
+            for m in asset.modifiers.iter().filter_map(|m| m.update_modifier()) {
+                m.apply(&mut update_context);
+            }
+            if !update_context
+                .update_code
+                .contains(&format!("(*particle).{}", Attribute::VELOCITY.name()))
+                && !update_context
+                    .update_code
+                    .contains(&format!("(*particle).{}", Attribute::POSITION.name()))
+            {
+                warn!("Effect '{}' does not update the particle position nor velocity; particles will have their spawn position and velocity forever. Add a modifier like AccelModifier to animate the particles.", asset.name);
+            }
+            // Append Euler integration (TODO - Do we want to make this explicit?)
+            update_context.update_code +=
+                &format!("(*particle).position += (*particle).velocity * sim_params.dt;\n");
 
             // Generate the shader code for the color over lifetime gradient.
             // TODO - Move that to a pre-pass, not each frame!
@@ -713,10 +727,12 @@ fn tick_spawners(
 
             // Configure the update shader template, and make sure a corresponding shader
             // asset exists
-            let mut update_shader_source =
-                PARTICLES_UPDATE_SHADER_TEMPLATE.replace("{{FORCE_FIELD_CODE}}", &force_field_code);
-            update_shader_source = update_shader_source.replace("{{DRAG_CODE}}", &drag_code);
-            update_shader_source = update_shader_source.replace("{{ATTRIBUTES}}", &attributes_code);
+            let update_shader_source = PARTICLES_UPDATE_SHADER_TEMPLATE
+                .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{UPDATE_CODE}}", &update_context.update_code)
+                .replace("{{UPDATE_EXTRA}}", &update_context.update_extra)
+                .replace("{{PROPERTIES}}", &properties_code)
+                .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
             let update_shader = shader_cache.get_or_insert(&update_shader_source, &mut shaders);
 
             // Configure the render shader template, and make sure a corresponding shader
@@ -740,7 +756,7 @@ fn tick_spawners(
             let render_shader = shader_cache.get_or_insert(&render_shader_source, &mut shaders);
 
             trace!(
-                "tick_spawners: handle={:?} init_shader={:?} update_shader={:?} render_shader={:?} has_image={} force_field_code={}",
+                "tick_spawners: handle={:?} init_shader={:?} update_shader={:?} render_shader={:?} has_image={}",
                 effect.handle,
                 init_shader,
                 update_shader,
@@ -750,7 +766,6 @@ fn tick_spawners(
                 } else {
                     "N"
                 },
-                force_field_code,
             );
 
             effect.configured_init_shader = Some(init_shader);
@@ -758,11 +773,10 @@ fn tick_spawners(
             effect.configured_render_shader = Some(render_shader);
 
             // TEMP
-            effect.accel = accel;
-            effect.force_field = force_field;
             effect.init_code = init_context.init_code;
             effect.init_extra = init_context.init_extra;
-            effect.force_field_code = force_field_code;
+            effect.update_code = update_context.update_code;
+            effect.update_extra = update_context.update_extra;
         }
     }
 }

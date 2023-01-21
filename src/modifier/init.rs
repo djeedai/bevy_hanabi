@@ -18,7 +18,7 @@ pub struct InitContext {
 /// Trait to customize the initializing of newly spawned particles.
 pub trait InitModifier: Modifier {
     /// Append the initializing code.
-    fn init(&self, context: &mut InitContext);
+    fn apply(&self, context: &mut InitContext);
 }
 
 /// An initialization modifier spawning particles on a circle/disc.
@@ -56,7 +56,7 @@ impl Modifier for PositionCircleModifier {
 }
 
 impl InitModifier for PositionCircleModifier {
-    fn init(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) {
         let (tangent, bitangent) = self.axis.any_orthonormal_pair();
 
         let radius_code = match self.dimension {
@@ -123,7 +123,7 @@ impl Modifier for PositionSphereModifier {
 }
 
 impl InitModifier for PositionSphereModifier {
-    fn init(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) {
         let radius_code = match self.dimension {
             ShapeDimension::Surface => {
                 // Constant radius
@@ -206,7 +206,7 @@ impl Modifier for PositionCone3dModifier {
 }
 
 impl InitModifier for PositionCone3dModifier {
-    fn init(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) {
         context.init_extra += &format!(
             r##"fn position_cone3d(particle: ptr<function, Particle>) {{
     // Truncated cone height
@@ -281,7 +281,7 @@ impl Modifier for ParticleLifetimeModifier {
 }
 
 impl InitModifier for ParticleLifetimeModifier {
-    fn init(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) {
         context.init_code += &format!(
             "particle.{} = {};\n",
             Attribute::LIFETIME.name(),
@@ -316,7 +316,7 @@ impl Modifier for InitSizeModifier {
 }
 
 impl InitModifier for InitSizeModifier {
-    fn init(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) {
         context.init_code += &format!(
             "particle.{} = {};\n",
             Attribute::SIZE.name(),
@@ -343,7 +343,7 @@ mod tests {
         ];
         for modifier in modifiers.iter() {
             let mut context = InitContext::default();
-            modifier.init(&mut context);
+            modifier.apply(&mut context);
 
             let code = format!(
                 r##"fn rand() -> f32 {{

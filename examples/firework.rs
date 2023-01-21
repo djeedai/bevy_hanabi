@@ -81,9 +81,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         })
         .init(ParticleLifetimeModifier { lifetime: 1. })
         .update(LinearDragModifier { drag: 5. })
-        .update(AccelModifier {
-            accel: Vec3::new(0., -8., 0.),
-        })
+        .update(AccelModifier::constant(Vec3::new(0., -8., 0.)))
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient1,
         })

@@ -15,7 +15,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
 };
 
-use crate::{asset::EffectAsset, render::GpuDispatchIndirect, ParticleLayout};
+use crate::{asset::EffectAsset, render::GpuDispatchIndirect, ParticleLayout, PropertyLayout};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSlice {
@@ -69,6 +69,7 @@ impl SliceRef {
 ///
 /// Currently only accepts a single unique item size (particle size), fixed at
 /// creation. Also currently only accepts instances of a unique of effect asset.
+#[derive(Debug)]
 pub struct EffectBuffer {
     /// GPU buffer holding all particles for the entire group of effects.
     particle_buffer: Buffer,
@@ -78,9 +79,17 @@ pub struct EffectBuffer {
     ///   and 1
     /// - the dead particle indices at offset 2
     indirect_buffer: Buffer,
+    /// GPU buffer holding the properties of the effect(s), if any.
+    properties_buffer: Option<Buffer>,
     /// Layout of particles.
     particle_layout: ParticleLayout,
-    particles_buffer_layout: BindGroupLayout,
+    /// Layout of properties of the effect(s), if using properties.
+    property_layout: PropertyLayout,
+    /// -
+    particles_buffer_layout_init: BindGroupLayout,
+    /// -
+    particles_buffer_layout_update: BindGroupLayout,
+    /// -
     particles_buffer_layout_with_dispatch: BindGroupLayout,
     /// Total buffer capacity, in number of particles.
     capacity: u32,
@@ -122,15 +131,18 @@ impl EffectBuffer {
         asset: Handle<EffectAsset>,
         capacity: u32,
         particle_layout: ParticleLayout,
+        property_layout: PropertyLayout,
         //compute_pipeline: ComputePipeline,
         render_device: &RenderDevice,
         label: Option<&str>,
     ) -> Self {
         trace!(
-            "EffectBuffer::new(capacity={}, particle_layout={:?}, item_size={}B)",
+            "EffectBuffer::new(capacity={}, particle_layout={:?}, property_layout={:?}, item_size={}B, properties_size={}B)",
             capacity,
             particle_layout,
+            property_layout,
             particle_layout.min_binding_size().get(),
+            if property_layout.is_empty() { 0 } else { property_layout.min_binding_size().get() },
         );
 
         let capacity = capacity.max(Self::MIN_CAPACITY);
@@ -175,9 +187,33 @@ impl EffectBuffer {
             indirect_buffer.unmap();
         }
 
+        let properties_buffer = if property_layout.is_empty() {
+            None
+        } else {
+            let properties_label = if let Some(label) = label {
+                format!("{}_properties", label)
+            } else {
+                "hanabi:effect_buffer_properties".to_owned()
+            };
+            let size = property_layout.min_binding_size().get(); // TODO: * num_effects_in_buffer (once batching works again)
+            let properties_buffer = render_device.create_buffer(&BufferDescriptor {
+                label: Some(&properties_label),
+                size,
+                usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            });
+            Some(properties_buffer)
+        };
+
         // TODO - Cache particle_layout and associated bind group layout, instead of
         // creating one bind group layout per buffer using that layout...
-        let particles_buffer_layout =
+
+        let label = "hanabi:init_particles_buffer_layout";
+        trace!(
+            "Creating particle bind group layout '{}' for init pass with 2 entries.",
+            label,
+        );
+        let particles_buffer_layout_init =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &[
                     BindGroupLayoutEntry {
@@ -201,7 +237,53 @@ impl EffectBuffer {
                         count: None,
                     },
                 ],
-                label: Some("hanabi:init_particles_buffer_layout"),
+                label: Some(label),
+            });
+
+        let mut entries = vec![
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(particle_layout.min_binding_size()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: true,
+                    min_binding_size: BufferSize::new(12),
+                },
+                count: None,
+            },
+        ];
+        if !property_layout.is_empty() {
+            entries.push(BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false, // TODO
+                    min_binding_size: Some(property_layout.min_binding_size()),
+                },
+                count: None,
+            });
+        }
+        let label = "hanabi:update_particles_buffer_layout";
+        trace!(
+            "Creating particle bind group layout '{}' for update pass with {} entries.",
+            label,
+            entries.len(),
+        );
+        let particles_buffer_layout_update =
+            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                entries: &entries,
+                label: Some(label),
             });
 
         let particles_buffer_layout_with_dispatch =
@@ -244,8 +326,11 @@ impl EffectBuffer {
         Self {
             particle_buffer,
             indirect_buffer,
+            properties_buffer,
             particle_layout,
-            particles_buffer_layout,
+            property_layout,
+            particles_buffer_layout_init,
+            particles_buffer_layout_update,
             particles_buffer_layout_with_dispatch,
             capacity,
             used_size: 0,
@@ -267,8 +352,16 @@ impl EffectBuffer {
         &self.particle_layout
     }
 
-    pub fn particle_layout_bind_group(&self) -> &BindGroupLayout {
-        &self.particles_buffer_layout
+    pub fn property_layout(&self) -> &PropertyLayout {
+        &self.property_layout
+    }
+
+    pub fn particle_layout_bind_group_init(&self) -> &BindGroupLayout {
+        &self.particles_buffer_layout_init
+    }
+
+    pub fn particle_layout_bind_group_update(&self) -> &BindGroupLayout {
+        &self.particles_buffer_layout_update
     }
 
     pub fn particle_layout_bind_group_with_dispatch(&self) -> &BindGroupLayout {
@@ -307,6 +400,19 @@ impl EffectBuffer {
             buffer: &self.indirect_buffer,
             offset: 0,
             size: Some(NonZeroU64::new(capacity_bytes * 3).unwrap()),
+        })
+    }
+
+    /// Return a binding for the entire properties buffer associated with the
+    /// current effect buffer, if any.
+    pub fn properties_max_binding(&self) -> Option<BindingResource> {
+        self.properties_buffer.as_ref().map(|buffer| {
+            let capacity_bytes = self.property_layout.min_binding_size().get();
+            BindingResource::Buffer(BufferBinding {
+                buffer,
+                offset: 0,
+                size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
+            })
         })
     }
 
@@ -508,6 +614,7 @@ impl EffectCache {
         asset: Handle<EffectAsset>,
         capacity: u32,
         particle_layout: &ParticleLayout,
+        property_layout: &PropertyLayout,
         //pipeline: ComputePipeline,
         _queue: &RenderQueue,
     ) -> EffectCacheId {
@@ -551,6 +658,7 @@ impl EffectCache {
                     asset,
                     capacity,
                     particle_layout.clone(),
+                    property_layout.clone(),
                     //pipeline,
                     &self.device,
                     Some(&format!("hanabi:effect_buffer{}", buffer_index)),
@@ -695,6 +803,7 @@ mod gpu_tests {
             asset,
             capacity,
             l64.clone(),
+            PropertyLayout::empty(), // not using properties
             &render_device,
             Some("my_buffer"),
         );
@@ -769,6 +878,7 @@ mod gpu_tests {
             asset,
             capacity,
             l64.clone(),
+            PropertyLayout::empty(), // not using properties
             &render_device,
             Some("my_buffer"),
         );
@@ -823,6 +933,8 @@ mod gpu_tests {
         let render_device = renderer.device();
         let render_queue = renderer.queue();
 
+        let empty_property_layout = PropertyLayout::empty(); // not using properties
+
         let l32 = ParticleLayout::new().add(F4A).add(F4B).build();
         assert_eq!(32, l32.size());
 
@@ -833,7 +945,13 @@ mod gpu_tests {
         let capacity = EffectBuffer::MIN_CAPACITY;
         let item_size = l32.size();
 
-        let id1 = effect_cache.insert(asset.clone(), capacity, &l32, &render_queue);
+        let id1 = effect_cache.insert(
+            asset.clone(),
+            capacity,
+            &l32,
+            &empty_property_layout,
+            &render_queue,
+        );
         assert!(id1.is_valid());
         let slice1 = effect_cache.get_slice(id1);
         assert_eq!(
@@ -843,7 +961,13 @@ mod gpu_tests {
         assert_eq!(slice1.slice, 0..capacity);
         assert_eq!(effect_cache.buffers().len(), 1);
 
-        let id2 = effect_cache.insert(asset.clone(), capacity, &l32, &render_queue);
+        let id2 = effect_cache.insert(
+            asset.clone(),
+            capacity,
+            &l32,
+            &empty_property_layout,
+            &render_queue,
+        );
         assert!(id2.is_valid());
         let slice2 = effect_cache.get_slice(id2);
         assert_eq!(
@@ -864,7 +988,7 @@ mod gpu_tests {
         }
 
         // Regression #60
-        let id3 = effect_cache.insert(asset, capacity, &l32, &render_queue);
+        let id3 = effect_cache.insert(asset, capacity, &l32, &empty_property_layout, &render_queue);
         assert!(id3.is_valid());
         let slice3 = effect_cache.get_slice(id3);
         assert_eq!(

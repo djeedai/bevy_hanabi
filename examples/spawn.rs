@@ -78,6 +78,7 @@ fn setup(
             spawner: Spawner::rate(5.0.into()),
             ..Default::default()
         }
+        .with_property("my_accel", graph::Value::Float3(Vec3::new(0., -3., 0.)))
         .init(PositionSphereModifier {
             center: Vec3::ZERO,
             radius: 2.,
@@ -85,9 +86,7 @@ fn setup(
             speed: 6.0.into(),
         })
         .init(ParticleLifetimeModifier { lifetime: 5. })
-        .update(AccelModifier {
-            accel: Vec3::new(0., -3., 0.),
-        })
+        .update(AccelModifier::via_property("my_accel"))
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient1,
         })
@@ -185,9 +184,7 @@ fn setup(
             // At spawn time, assign each particle a random size between 0.3 and 0.7
             size: Value::<f32>::Uniform((0.3, 0.7)).into(),
         })
-        .update(AccelModifier {
-            accel: Vec3::new(0., 5., 0.),
-        })
+        .update(AccelModifier::constant(Vec3::new(0., 5., 0.)))
         .render(ColorOverLifetimeModifier {
             gradient: gradient3,
         }),
