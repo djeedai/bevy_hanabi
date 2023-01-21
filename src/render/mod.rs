@@ -46,10 +46,12 @@ use crate::{
 };
 
 mod aligned_buffer_vec;
+mod buffer_table;
 mod effect_cache;
 mod shader_cache;
 
 use aligned_buffer_vec::AlignedBufferVec;
+use buffer_table::{BufferTable, BufferTableId};
 pub(crate) use effect_cache::{EffectCache, EffectCacheId};
 
 pub use effect_cache::{EffectBuffer, EffectSlice};
@@ -187,12 +189,23 @@ struct GpuSpawnerParams {
 
 // FIXME - min_storage_buffer_offset_alignment
 #[repr(C)]
-#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct GpuDispatchIndirect {
     pub x: u32,
     pub y: u32,
     pub z: u32,
     pub pong: u32,
+}
+
+impl Default for GpuDispatchIndirect {
+    fn default() -> Self {
+        Self {
+            x: 0,
+            y: 1,
+            z: 1,
+            pong: 0,
+        }
+    }
 }
 
 #[repr(C)]
@@ -243,7 +256,7 @@ impl FromWorld for DispatchIndirectPipeline {
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Storage { read_only: false },
                             has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(256), // FIXME - Some(GpuRenderIndirect::min_size()), with proper alignment for storage offset
+                            min_binding_size: Some(GpuRenderIndirect::min_size()),
                         },
                         count: None,
                     },
@@ -253,12 +266,12 @@ impl FromWorld for DispatchIndirectPipeline {
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Storage { read_only: false },
                             has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(256), // FIXME - Some(GpuDispatchIndirect::min_size()), with proper alignment for storage offset
+                            min_binding_size: Some(GpuDispatchIndirect::min_size()),
                         },
                         count: None,
                     },
                 ],
-                label: Some("hanabi:dispatch_indirect_dispatch_indirect_layout"),
+                label: Some("hanabi:bind_group_layout:dispatch_indirect_dispatch_indirect"),
             });
 
         trace!(
@@ -277,11 +290,11 @@ impl FromWorld for DispatchIndirectPipeline {
                     },
                     count: None,
                 }],
-                label: Some("hanabi:dispatch_indirect_sim_params_layout"),
+                label: Some("hanabi:bind_group_layout:dispatch_indirect_sim_params"),
             });
 
         let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("hanabi:dispatch_indirect_pipeline_layout"),
+            label: Some("hanabi:pipeline_layout:dispatch_indirect"),
             bind_group_layouts: &[&dispatch_indirect_layout, &sim_params_layout],
             push_constant_ranges: &[],
         });
@@ -292,7 +305,7 @@ impl FromWorld for DispatchIndirectPipeline {
         });
 
         let pipeline = render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
-            label: Some("hanabi:pipeline_dispatch_indirect"),
+            label: Some("hanabi:compute_pipeline:dispatch_indirect"),
             layout: Some(&pipeline_layout),
             module: &shader_module,
             entry_point: "main",
@@ -345,10 +358,10 @@ impl FromWorld for ParticlesInitPipeline {
                     },
                     count: None,
                 }],
-                label: Some("hanabi:update_sim_params_layout"),
+                label: Some("hanabi:bind_group_layout:update_sim_params"),
             });
 
-        // trace!("GpuParticle: layout_size={}", GpuParticle::min_size());
+        // trace!("GpuParticle: min_size={}", GpuParticle::min_size());
         // let particles_buffer_layout =
         //     render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         //         entries: &[
@@ -373,7 +386,7 @@ impl FromWorld for ParticlesInitPipeline {
         //                 count: None,
         //             },
         //         ],
-        //         label: Some("hanabi:init_particles_buffer_layout"),
+        //         label: Some("hanabi:buffer_layout:init_particles"),
         //     });
 
         trace!(
@@ -392,7 +405,7 @@ impl FromWorld for ParticlesInitPipeline {
                     },
                     count: None,
                 }],
-                label: Some("hanabi:init_spawner_buffer_layout"),
+                label: Some("hanabi:buffer_layout:init_spawner"),
             });
 
         trace!(
@@ -411,12 +424,11 @@ impl FromWorld for ParticlesInitPipeline {
                     },
                     count: None,
                 }],
-                label: Some("hanabi:init_render_indirect_layout"),
+                label: Some("hanabi:bind_group_layout:init_render_indirect"),
             });
 
-        // let pipeline_layout =
-        // render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
-        //     label: Some("hanabi:init_pipeline_layout"),
+        // let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
+        //     label: Some("hanabi:pipeline_layout:init"),
         //     bind_group_layouts: &[
         //         &sim_params_layout,
         //         &particles_buffer_layout,
@@ -1335,8 +1347,8 @@ pub(crate) struct EffectsMeta {
 
     sim_params_uniforms: UniformBuffer<SimParamsUniform>,
     spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
-    dispatch_indirect_buffer: AlignedBufferVec<GpuDispatchIndirect>,
-    render_dispatch_buffer: AlignedBufferVec<GpuRenderIndirect>,
+    dispatch_indirect_buffer: BufferTable<GpuDispatchIndirect>,
+    render_dispatch_buffer: BufferTable<GpuRenderIndirect>,
     /// Unscaled vertices of the mesh of a single particle, generally a quad.
     /// The mesh is later scaled during rendering by the "particle size".
     // FIXME - This is a per-effect thing, unless we merge all meshes into a single buffer (makes
@@ -1390,17 +1402,21 @@ impl EffectsMeta {
             spawner_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
                 NonZeroU64::new(item_align),
-                Some("hanabi:buffer_spawner".to_string()),
+                Some("hanabi:buffer:spawner".to_string()),
             ),
-            dispatch_indirect_buffer: AlignedBufferVec::new(
+            dispatch_indirect_buffer: BufferTable::new(
+                BufferUsages::STORAGE | BufferUsages::INDIRECT,
+                // NOTE: Technically we're using an offset in dispatch_workgroups_indirect(), but
+                // `min_storage_buffer_offset_alignment` is documented as being for the offset in
+                // BufferBinding and the dynamic offset in set_bind_group(), so either the
+                // documentation is lacking or we don't need to align here.
+                NonZeroU64::new(item_align),
+                Some("hanabi:buffer:dispatch_indirect".to_string()),
+            ),
+            render_dispatch_buffer: BufferTable::new(
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
                 NonZeroU64::new(item_align),
-                Some("hanabi:buffer_dispatch_indirect".to_string()),
-            ),
-            render_dispatch_buffer: AlignedBufferVec::new(
-                BufferUsages::STORAGE | BufferUsages::INDIRECT,
-                NonZeroU64::new(item_align),
-                Some("hanabi:buffer_render_dispatch".to_string()),
+                Some("hanabi:buffer:render_dispatch".to_string()),
             ),
             vertices,
             indirect_dispatch_pipeline: None,
@@ -1473,6 +1489,12 @@ impl EffectsMeta {
                         buffer_index
                     );
                     effect_bind_groups.particle_buffers.remove(&buffer_index);
+
+                    // NOTE: by convention (see assert below) the cache ID is also the table ID, as
+                    // those 3 data structures stay in sync.
+                    let table_id = BufferTableId(buffer_index);
+                    self.dispatch_indirect_buffer.remove(table_id);
+                    self.render_dispatch_buffer.remove(table_id);
                 }
             }
         }
@@ -1491,7 +1513,7 @@ impl EffectsMeta {
                 &added_effect.particle_layout,
                 &added_effect.property_layout,
                 //update_pipeline.pipeline.clone(),
-                &render_queue,
+                render_queue,
             );
 
             let entity = added_effect.entity;
@@ -1502,52 +1524,50 @@ impl EffectsMeta {
             // ones, during extraction.
 
             // FIXME - Kind of brittle since the EffectCache doesn't know about those
-            let index = cache_id.0 as usize;
+            let index = self.effect_cache.buffer_index(cache_id).unwrap();
 
-            self //FIXME - Should be inside AlignedBufferVec<T>
+            let table_id = self
                 .dispatch_indirect_buffer
-                .reserve(128, &render_device);
-            while index >= self.dispatch_indirect_buffer.len() {
-                self.dispatch_indirect_buffer
-                    .push(GpuDispatchIndirect::default());
-            }
-            let di = &mut self.dispatch_indirect_buffer[index];
-            di.x = 0;
-            di.y = 1;
-            di.z = 1;
+                .insert(GpuDispatchIndirect::default());
+            // FIXME - Should have a single index and table bookeeping data structure, used
+            // by multiple buffers
+            assert_eq!(
+                table_id.0 as usize, index,
+                "Broken table invariant: buffer={} row={}",
+                index, table_id.0
+            );
 
-            // FIXME - Think about batching those writes...
-            // effects_meta
-            //     .dispatch_indirect_buffer
-            //     .write_element(index, &render_device, &render_queue);
-            self.dispatch_indirect_buffer
-                .write_buffer(&render_device, &render_queue);
+            let table_id = self.render_dispatch_buffer.insert(GpuRenderIndirect {
+                vertex_count: 6, // TODO - Flexible vertex count and mesh particles
+                dead_count: added_effect.capacity,
+                max_spawn: added_effect.capacity,
+                ..default()
+            });
+            // FIXME - Should have a single index and table bookeeping data structure, used
+            // by multiple buffers
+            assert_eq!(
+                table_id.0 as usize, index,
+                "Broken table invariant: buffer={} row={}",
+                index, table_id.0
+            );
+        }
 
-            self //FIXME - Should be inside AlignedBufferVec<T>
-                .render_dispatch_buffer
-                .reserve(128, &render_device);
-            while index >= self.render_dispatch_buffer.len() {
-                self.render_dispatch_buffer
-                    .push(GpuRenderIndirect::default());
-            }
-            let ri = &mut self.render_dispatch_buffer[index];
-            ri.vertex_count = 6; // TODO
-            ri.instance_count = 0;
-            ri.base_index = 0;
-            ri.vertex_offset = 0;
-            ri.base_instance = 0;
-            ri.alive_count = 0;
-            ri.dead_count = added_effect.capacity;
-            ri.max_spawn = added_effect.capacity;
-            ri.ping = 0;
-            ri.max_update = 0;
-
-            // FIXME - Think about batching those writes...
-            // effects_meta
-            //     .render_dispatch_buffer
-            //     .write_element(index, &render_device, &render_queue);
-            self.render_dispatch_buffer
-                .write_buffer(&render_device, &render_queue);
+        // Once all changes are applied, immediately schedule any GPU buffer
+        // (re)allocation based on the new buffer size. The actual GPU buffer content
+        // will be written later.
+        if self
+            .dispatch_indirect_buffer
+            .allocate_gpu(render_device, render_queue)
+        {
+            // All those bind groups use the indirect buffer so need to be re-created.
+            effect_bind_groups.particle_buffers.clear();
+        }
+        if self
+            .render_dispatch_buffer
+            .allocate_gpu(render_device, render_queue)
+        {
+            // Currently we always re-create each frame any bind group that
+            // binds this buffer, so there's nothing to do here.
         }
     }
 }
@@ -1652,6 +1672,15 @@ pub(crate) fn prepare_effects(
         .write_buffer(&render_device, &render_queue);
 
     effects_meta.indirect_dispatch_pipeline = Some(dispatch_indirect_pipeline.pipeline.clone());
+
+    // Clear last frame's buffer resizes which may have occured during last frame,
+    // during `Node::run()` while the `BufferTable` could not be mutated.
+    effects_meta
+        .dispatch_indirect_buffer
+        .clear_previous_frame_resizes();
+    effects_meta
+        .render_dispatch_buffer
+        .clear_previous_frame_resizes();
 
     // Allocate new effects, deallocate removed ones
     let removed_effect_entities = std::mem::take(&mut extracted_effects.removed_effect_entities);
@@ -1958,7 +1987,7 @@ pub(crate) fn prepare_effects(
         assert_ne!(asset, Handle::<EffectAsset>::default());
         assert!(particle_layout.size() > 0);
         trace!(
-            "Emit LAST batch: buffer #{} | spawner_base {} | spawn_count{} | slice {:?} | particle_layout {:?} | update_shader {:?} | render_shader {:?} | entities {}",
+            "Emit LAST batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | particle_layout {:?} | update_shader {:?} | render_shader {:?} | entities {}",
             current_buffer_index,
             spawner_base,
             spawn_count,
@@ -2940,6 +2969,16 @@ impl Node for VfxSimulateNode {
 
         let effects_meta = world.resource::<EffectsMeta>();
         let effect_bind_groups = world.resource::<EffectBindGroups>();
+        //let render_queue = world.resource::<RenderQueue>();
+
+        // Make sure to schedule any buffer copy from changed effects before accessing
+        // them
+        effects_meta
+            .dispatch_indirect_buffer
+            .write_buffer(&mut render_context.command_encoder);
+        effects_meta
+            .render_dispatch_buffer
+            .write_buffer(&mut render_context.command_encoder);
 
         // Compute init pass
         {

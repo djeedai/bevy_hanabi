@@ -101,7 +101,7 @@ commands
 
 ## Examples
 
-See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/b22be7227f092a624f97b46b19dd28652b434230/examples) folder.
+See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples) folder.
 
 ### Firework
 
@@ -111,7 +111,7 @@ Combine the `PositionSphereModifier` for spawning and `LinearDragModifier` to sl
 cargo run --example firework --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![firework](https://raw.githubusercontent.com/djeedai/bevy_hanabi/b22be7227f092a624f97b46b19dd28652b434230/examples/firework.gif)
+![firework](https://raw.githubusercontent.com/djeedai/bevy_hanabi/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples/firework.gif)
 
 ### Gradient
 
@@ -121,7 +121,7 @@ Animate an emitter by moving its `Transform` component, and emit textured quad p
 cargo run --example gradient --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/b22be7227f092a624f97b46b19dd28652b434230/examples/gradient.gif)
+![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples/gradient.gif)
 
 ### Force Field
 
@@ -131,7 +131,7 @@ This example demonstrates the force field modifier `ForceFieldModifier`, which a
 cargo run --example force_field --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![force_field](https://raw.githubusercontent.com/djeedai/bevy_hanabi/b22be7227f092a624f97b46b19dd28652b434230/examples/force_field.gif)
+![force_field](https://raw.githubusercontent.com/djeedai/bevy_hanabi/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples/force_field.gif)
 
 ### 2D
 
@@ -149,7 +149,7 @@ The example demonstrates the use of multiple cameras and render layers to select
 cargo run --example multicam --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![multicam](https://raw.githubusercontent.com/djeedai/bevy_hanabi/b22be7227f092a624f97b46b19dd28652b434230/examples/multicam.gif)
+![multicam](https://raw.githubusercontent.com/djeedai/bevy_hanabi/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples/multicam.gif)
 
 ### Activate
 
@@ -159,7 +159,7 @@ This example demonstrates manual activation and deactivation of a spawner, from 
 cargo run --example activate --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![activate](https://raw.githubusercontent.com/djeedai/bevy_hanabi/b22be7227f092a624f97b46b19dd28652b434230/examples/activate.gif)
+![activate](https://raw.githubusercontent.com/djeedai/bevy_hanabi/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples/activate.gif)
 
 ### Spawn
 
@@ -175,7 +175,7 @@ It also shows the applying of constant force (downward gravity-like, or upward s
 cargo run --example spawn --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/b22be7227f092a624f97b46b19dd28652b434230/examples/spawn.gif)
+![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples/spawn.gif)
 
 ### Spawn on Command
 
@@ -185,7 +185,7 @@ This example demonstrates how to emit a burst of particles when an event occurs.
 cargo run --example spawn_on_command --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![spawn_on_command](https://raw.githubusercontent.com/djeedai/bevy_hanabi/b22be7227f092a624f97b46b19dd28652b434230/examples/spawn_on_command.gif)
+![spawn_on_command](https://raw.githubusercontent.com/djeedai/bevy_hanabi/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples/spawn_on_command.gif)
 
 ### Circle
 
@@ -195,7 +195,7 @@ This example demonstrates the `circle` spawner type, which emits particles along
 cargo run --example circle --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/b22be7227f092a624f97b46b19dd28652b434230/examples/circle.gif)
+![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples/circle.gif)
 
 ### Random
 
@@ -205,7 +205,7 @@ This example spawns particles with randomized parameters.
 cargo run --example random --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![random](https://raw.githubusercontent.com/djeedai/bevy_hanabi/b22be7227f092a624f97b46b19dd28652b434230/examples/random.gif)
+![random](https://raw.githubusercontent.com/djeedai/bevy_hanabi/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples/random.gif)
 
 ### Lifetime
 
@@ -219,7 +219,7 @@ This example demonstrates particle effects with different lifetimes. Each effect
 cargo run --example lifetime --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![lifetime](https://raw.githubusercontent.com/djeedai/bevy_hanabi/b22be7227f092a624f97b46b19dd28652b434230/examples/lifetime.gif)
+![lifetime](https://raw.githubusercontent.com/djeedai/bevy_hanabi/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples/lifetime.gif)
 
 ### Billboard
 
@@ -230,7 +230,7 @@ cargo run --example billboard --features="bevy/bevy_winit bevy/bevy_pbr bevy/png
 ```
 
 The image on the left has the `BillboardModifier` enabled.
-![billboard](/examples/billboard.png)
+![billboard](https://raw.githubusercontent.com/djeedai/bevy_hanabi/47bff1256285eb297ff7a9f0dad3f5e11b3d485e/examples/examples/billboard.png)
 
 ## Feature List
 
@@ -278,8 +278,8 @@ The image on the left has the `BillboardModifier` enabled.
     - [ ] Velocity (trail)
   - [x] Camera support
     - [x] Render layers
-    - [x] 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.9.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) only
-    - [x] 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.9.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) only
+    - [x] 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.9.1/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) only
+    - [x] 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.9.1/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) only
     - [x] Simultaneous dual 2D/3D cameras
     - [x] Multiple viewports (split screen)
     - [x] HDR camera and bloom
@@ -298,8 +298,8 @@ The image on the left has the `BillboardModifier` enabled.
 
 | Feature | Default | Description |
 |---|:-:|---|
-| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.9.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) |
-| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.9.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) |
+| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.9.1/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) |
+| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.9.1/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) |
 
 For optimization purpose, users of a single type of camera can disable the other type by skipping default features in their `Cargo.toml`. For example to use only the 3D mode:
 

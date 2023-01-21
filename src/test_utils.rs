@@ -160,6 +160,8 @@ impl MockRenderer {
                 // Request MAPPABLE_PRIMARY_BUFFERS to allow MAP_WRITE|COPY_DST.
                 // FIXME - Should use a separate buffer from primary to support more platforms.
                 features: wgpu::Features::MAPPABLE_PRIMARY_BUFFERS,
+                // Request downlevel_defaults() for maximum compatibility in testing. The actual
+                // Hanabi library uses the default requested mode of the app.
                 limits: wgpu::Limits::downlevel_defaults(),
             },
             None,
