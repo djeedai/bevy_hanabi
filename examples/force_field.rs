@@ -7,7 +7,7 @@ use bevy::{
     prelude::*,
     render::{camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings},
 };
-use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //.add_plugin(LookTransformPlugin)
         //.add_plugin(OrbitCameraPlugin::default())
         .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin)
         .add_startup_system(setup)
         .add_system(update)
         .run();
