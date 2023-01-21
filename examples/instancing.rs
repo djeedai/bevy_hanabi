@@ -1,5 +1,5 @@
 use bevy::{log::LogPlugin, prelude::*, render::mesh::shape::Cube};
-use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -20,7 +20,7 @@ fn main() {
         }))
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin)
         .init_resource::<MyEffect>()
         .add_startup_system(setup)
         .add_system(keyboard_input_system)

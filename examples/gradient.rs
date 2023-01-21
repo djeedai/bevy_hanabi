@@ -6,7 +6,7 @@ use bevy::{
         view::RenderLayers,
     },
 };
-use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use std::f32::consts::PI;
 
 use bevy_hanabi::prelude::*;
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }))
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::new())
+        .add_plugin(WorldInspectorPlugin)
         .add_startup_system(setup)
         .add_system(update)
         .run();
