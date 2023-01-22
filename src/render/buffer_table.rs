@@ -273,7 +273,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             self.active_size += 1;
             index as u32
         } else {
-            // Note: this is inefficient O(n) but we need to apply the same logic as the EffectCache because we rely on indices being in sync.
+            // Note: this is inefficient O(n) but we need to apply the same logic as the
+            // EffectCache because we rely on indices being in sync.
             self.free_indices.remove(0)
         } as usize;
         let allocated_size = self
@@ -322,7 +323,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             self.active_size -= 1;
             self.capacity -= 1;
         } else {
-            // This is very inefficient but we need to apply the same logic as the EffectCache because we rely on indices being in sync.
+            // This is very inefficient but we need to apply the same logic as the
+            // EffectCache because we rely on indices being in sync.
             let pos = self
                 .free_indices
                 .binary_search(&index) // will fail

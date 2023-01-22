@@ -143,8 +143,10 @@ pub(crate) struct MockRenderer {
 impl MockRenderer {
     /// Create a new mock renderer with a default backend and adapter.
     pub fn new() -> Self {
-        // Create the WGPU adapter
-        let instance = wgpu::Instance::new(wgpu::Backends::all());
+        // Create the WGPU adapter. Use PRIMARY backends (Vulkan, Metal, DX12,
+        // Browser+WebGPU) to ensure we get a backend that supports compute and other
+        // modern features we might need.
+        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
         let adapter =
             futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
