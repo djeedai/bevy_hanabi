@@ -258,7 +258,13 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     /// For performance reasons, this buffers the row content on the CPU until
     /// the next GPU update, to minimize the number of CPU to GPU transfers.
     pub fn insert(&mut self, value: T) -> BufferTableId {
-        let index = self.free_indices.pop().unwrap_or_else(|| {
+        trace!(
+            "Inserting into table buffer with {} free indices, capacity: {}, active_size: {}",
+            self.free_indices.len(),
+            self.capacity,
+            self.active_size
+        );
+        let index = if self.free_indices.is_empty() {
             let index = self.active_size;
             if index == self.capacity {
                 self.capacity += 1;
@@ -266,13 +272,23 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             debug_assert!(index < self.capacity);
             self.active_size += 1;
             index as u32
-        }) as usize;
+        } else {
+            // Note: this is inefficient O(n) but we need to apply the same logic as the EffectCache because we rely on indices being in sync.
+            self.free_indices.remove(0)
+        } as usize;
         let allocated_size = self
             .buffer
             .as_ref()
             .map(|ab| ab.allocated_size())
             .unwrap_or(0);
         debug_assert!(allocated_size % self.aligned_size == 0);
+        trace!(
+            "Found free index {}, capacity: {}, active_size: {}, allocated_size: {}",
+            index,
+            self.capacity,
+            self.active_size,
+            allocated_size
+        );
         let allocated_count = allocated_size / self.aligned_size;
         if index < allocated_count {
             self.pending_values.alloc().init((index as u32, value));
@@ -306,7 +322,12 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             self.active_size -= 1;
             self.capacity -= 1;
         } else {
-            self.free_indices.push(index);
+            // This is very inefficient but we need to apply the same logic as the EffectCache because we rely on indices being in sync.
+            let pos = self
+                .free_indices
+                .binary_search(&index) // will fail
+                .unwrap_or_else(|e| e); // will get position of insertion
+            self.free_indices.insert(pos, index);
         }
     }
 

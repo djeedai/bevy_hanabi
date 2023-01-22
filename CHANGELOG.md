@@ -3,6 +3,16 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Fix a panic on `unwrap()` after despawning N > 1 effects and re-spawning M < N effects. (#123)
+
+### Changed
+
+- Changed the `instance.rs` example to spawn effects in random positions. Also added a (disabled) stress test which randomly spawns and despawns effects quickly to uncover bugs more easily.
+
 ## [0.5.2] 2023-01-20
 
 ### Added
