@@ -1224,7 +1224,8 @@ pub(crate) struct EffectsMeta {
     vertices: BufferVec<GpuParticleVertex>,
     ///
     indirect_dispatch_pipeline: Option<ComputePipeline>,
-    /// Various GPU limits and aligned sizes lazily allocated and cached for convenience.
+    /// Various GPU limits and aligned sizes lazily allocated and cached for
+    /// convenience.
     gpu_limits: Option<GpuLimits>,
 }
 
