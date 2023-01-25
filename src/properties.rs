@@ -359,11 +359,5 @@ mod tests {
         println!("property: {:?}", s);
         let p_serde: Property = ron::from_str(&s).unwrap();
         assert_eq!(p_serde, p);
-
-        // let b: BoxedExpr = Box::new(p);
-        // let s = ron::to_string(&b).unwrap();
-        // println!("boxed property: {:?}", s);
-        // let b_serde: BoxedExpr = ron::from_str(&s).unwrap();
-        // assert!(!b_serde.is_const());
     }
 }

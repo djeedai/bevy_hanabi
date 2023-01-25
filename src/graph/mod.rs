@@ -94,37 +94,6 @@ impl From<u32> for Value {
     }
 }
 
-/// Language expression producing a value.
-#[typetag::serde]
-pub trait Expr: Debug + ToWgslString + Send + Sync + 'static {
-    /// Is the expression resulting in a compile-time constant?
-    fn is_const(&self) -> bool {
-        false
-    }
-
-    /// The type of the value produced by the expression.
-    fn value_type(&self) -> ValueType;
-
-    /// Create a boxed clone of self.
-    fn boxed_clone(&self) -> BoxedExpr;
-}
-
-/// Boxed [`Expr`] for storing an expression.
-pub type BoxedExpr = Box<dyn Expr>;
-
-impl Clone for BoxedExpr {
-    fn clone(&self) -> Self {
-        self.boxed_clone()
-    }
-}
-
-impl ToWgslString for BoxedExpr {
-    fn to_wgsl_string(&self) -> String {
-        let d: &dyn Expr = self.as_ref();
-        d.to_wgsl_string()
-    }
-}
-
 /// A literal constant expression like `3.0` or `vec3<f32>(1.0, 2.0, 3.0)`.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct Literal {
@@ -146,21 +115,6 @@ impl Literal {
 impl ToWgslString for Literal {
     fn to_wgsl_string(&self) -> String {
         self.value.to_wgsl_string()
-    }
-}
-
-#[typetag::serde]
-impl Expr for Literal {
-    fn is_const(&self) -> bool {
-        true
-    }
-
-    fn value_type(&self) -> ValueType {
-        self.value.value_type()
-    }
-
-    fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(Literal { value: self.value })
     }
 }
 
@@ -187,11 +141,5 @@ mod tests {
         println!("literal: {:?}", s);
         let l_serde: Literal = ron::from_str(&s).unwrap();
         assert_eq!(l_serde, l);
-
-        let b: BoxedExpr = Box::new(l);
-        let s = ron::to_string(&b).unwrap();
-        println!("boxed literal: {:?}", s);
-        let b_serde: BoxedExpr = ron::from_str(&s).unwrap();
-        assert!(b_serde.is_const());
     }
 }
