@@ -1,15 +1,135 @@
+#![allow(dead_code)]
+
 use bevy::{log::LogPlugin, prelude::*, render::mesh::shape::Cube};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use rand::Rng;
 
 use bevy_hanabi::prelude::*;
 
 #[derive(Default, Resource)]
-struct MyEffect {
+struct InstanceManager {
     effect: Handle<EffectAsset>,
     mesh: Handle<Mesh>,
     material: Handle<StandardMaterial>,
-    next_pos: IVec2,
-    instances: Vec<Entity>,
+    instances: Vec<Option<Entity>>,
+    grid_size: IVec2,
+    count: usize,
+    frame: u64,
+}
+
+impl InstanceManager {
+    pub fn new(half_width: i32, half_height: i32) -> Self {
+        let grid_size = IVec2::new(half_width * 2 + 1, half_height * 2 + 1);
+        let count = grid_size.x as usize * grid_size.y as usize;
+        let mut instances = Vec::with_capacity(count);
+        instances.resize(count, None);
+        Self {
+            effect: default(),
+            mesh: default(),
+            material: default(),
+            instances,
+            grid_size,
+            count: 0,
+            frame: 0,
+        }
+    }
+
+    pub fn origin(&self) -> IVec2 {
+        IVec2::new(-(self.grid_size.x - 1) / 2, -(self.grid_size.y - 1) / 2)
+    }
+
+    pub fn spawn_random(&mut self, commands: &mut Commands) {
+        if self.count >= self.instances.len() {
+            return;
+        }
+        let free_count = self.instances.len() - self.count;
+
+        let pos = self.origin();
+
+        let mut rng = rand::thread_rng();
+        let index = rng.gen_range(0..free_count);
+        let (index, entry) = self
+            .instances
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, entity)| entity.is_none())
+            .nth(index)
+            .unwrap();
+        let pos = pos
+            + IVec2::new(
+                index as i32 % self.grid_size.x,
+                index as i32 / self.grid_size.x,
+            );
+
+        *entry = Some(
+            commands
+                .spawn((
+                    Name::new(format!("{:?}", pos)),
+                    ParticleEffectBundle {
+                        effect: ParticleEffect::new(self.effect.clone()),
+                        transform: Transform::from_translation(Vec3::new(
+                            pos.x as f32 * 10.,
+                            pos.y as f32 * 10.,
+                            0.,
+                        )),
+                        ..Default::default()
+                    },
+                ))
+                .with_children(|p| {
+                    // Reference cube to visualize the emit origin
+                    p.spawn((
+                        PbrBundle {
+                            mesh: self.mesh.clone(),
+                            material: self.material.clone(),
+                            ..Default::default()
+                        },
+                        Name::new("source"),
+                    ));
+                })
+                .id(),
+        );
+
+        self.count += 1;
+    }
+
+    pub fn despawn_index(&mut self, commands: &mut Commands, index: usize) {
+        let entry = self
+            .instances
+            .iter_mut()
+            .filter(|entity| entity.is_some())
+            .nth(index)
+            .unwrap();
+        let entity = entry.take().unwrap();
+        if let Some(entity_commands) = commands.get_entity(entity) {
+            entity_commands.despawn_recursive();
+        }
+        self.count -= 1;
+    }
+
+    pub fn despawn_last(&mut self, commands: &mut Commands) {
+        if self.count > 0 {
+            self.despawn_index(commands, self.count - 1);
+        }
+    }
+
+    pub fn despawn_random(&mut self, commands: &mut Commands) {
+        if self.count > 0 {
+            let mut rng = rand::thread_rng();
+            let index = rng.gen_range(0..self.count);
+            self.despawn_index(commands, index);
+        }
+    }
+
+    pub fn despawn_all(&mut self, commands: &mut Commands) {
+        for entity in &mut self.instances {
+            if let Some(entity) = entity.take() {
+                if let Some(entity_commands) = commands.get_entity(entity) {
+                    entity_commands.despawn_recursive();
+                }
+            }
+        }
+        self.count = 0;
+    }
 }
 
 fn main() {
@@ -21,9 +141,10 @@ fn main() {
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin)
-        .init_resource::<MyEffect>()
+        .insert_resource(InstanceManager::new(5, 4))
         .add_startup_system(setup)
         .add_system(keyboard_input_system)
+        //.add_system(stress_test.after(keyboard_input_system))
         .run();
 }
 
@@ -32,7 +153,7 @@ fn setup(
     mut effects: ResMut<Assets<EffectAsset>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut my_effect: ResMut<MyEffect>,
+    mut my_effect: ResMut<InstanceManager>,
 ) {
     info!("Usage: Press the SPACE key to spawn more instances, and the DELETE key to remove an existing instance.");
 
@@ -77,94 +198,50 @@ fn setup(
 
     // Store the effect for later reference
     my_effect.effect = effect.clone();
-    my_effect.next_pos = IVec2::new(-5, -4);
     my_effect.mesh = mesh.clone();
     my_effect.material = mat.clone();
 
     // Spawn a few effects as example; others can be added/removed with keyboard
     for _ in 0..45 {
-        let (id, next_pos) = spawn_instance(
-            &mut commands,
-            my_effect.next_pos,
-            my_effect.effect.clone(),
-            my_effect.mesh.clone(),
-            my_effect.material.clone(),
-        );
-        my_effect.instances.push(id);
-        my_effect.next_pos = next_pos;
+        my_effect.spawn_random(&mut commands);
     }
-}
-
-fn spawn_instance(
-    commands: &mut Commands,
-    pos: IVec2,
-    effect: Handle<EffectAsset>,
-    mesh: Handle<Mesh>,
-    material: Handle<StandardMaterial>,
-) -> (Entity, IVec2) {
-    let mut next_pos = pos;
-    next_pos.x += 1;
-    if next_pos.x > 5 {
-        next_pos.x = -5;
-        next_pos.y += 1;
-    }
-
-    let id = commands
-        .spawn((
-            Name::new(format!("{:?}", pos)),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect),
-                transform: Transform::from_translation(Vec3::new(
-                    pos.x as f32 * 10.,
-                    pos.y as f32 * 10.,
-                    0.,
-                )),
-                ..Default::default()
-            },
-        ))
-        .with_children(|p| {
-            // Reference cube to visualize the emit origin
-            p.spawn((
-                PbrBundle {
-                    mesh,
-                    material,
-                    ..Default::default()
-                },
-                Name::new("source"),
-            ));
-        })
-        .id();
-
-    (id, next_pos)
 }
 
 fn keyboard_input_system(
     keyboard_input: Res<Input<KeyCode>>,
     mut commands: Commands,
-    mut my_effect: ResMut<MyEffect>,
+    mut my_effect: ResMut<InstanceManager>,
 ) {
+    my_effect.frame += 1;
+
     if keyboard_input.just_pressed(KeyCode::Space) {
-        // Spawn a new instance
-        let (id, next_pos) = spawn_instance(
-            &mut commands,
-            my_effect.next_pos,
-            my_effect.effect.clone(),
-            my_effect.mesh.clone(),
-            my_effect.material.clone(),
-        );
-        my_effect.instances.push(id);
-        my_effect.next_pos = next_pos;
+        my_effect.spawn_random(&mut commands);
     } else if keyboard_input.just_pressed(KeyCode::Delete) {
-        // Delete an existing instance
-        if let Some(entity) = my_effect.instances.pop() {
-            if let Some(entity_commands) = commands.get_entity(entity) {
-                entity_commands.despawn_recursive();
-            }
-            my_effect.next_pos.x -= 1;
-            if my_effect.next_pos.x < -5 {
-                my_effect.next_pos.x = 5;
-                my_effect.next_pos.y -= 1;
-            }
+        my_effect.despawn_random(&mut commands);
+    }
+
+    // #123 - Hanabi 0.5.2 Causes Panic on Unwrap
+    // if my_effect.frame == 5 {
+    //     my_effect.despawn_index(&mut commands, 3);
+    //     my_effect.despawn_index(&mut commands, 2);
+    //     my_effect.spawn_random(&mut commands);
+    // }
+}
+
+fn stress_test(mut commands: Commands, mut my_effect: ResMut<InstanceManager>) {
+    let mut rng = rand::thread_rng();
+    let r = rng.gen_range(0_f32..1_f32);
+    if r < 0.45 {
+        let spawn_count = (r * 10.) as i32 + 1;
+        for _ in 0..spawn_count {
+            my_effect.spawn_random(&mut commands);
         }
+    } else if r < 0.9 {
+        let despawn_count = ((r - 0.45) * 10.) as i32 + 1;
+        for _ in 0..despawn_count {
+            my_effect.despawn_random(&mut commands);
+        }
+    } else if r < 0.95 {
+        my_effect.despawn_all(&mut commands);
     }
 }
