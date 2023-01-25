@@ -418,32 +418,21 @@ impl ParticleEffect {
         self.spawner.as_mut()
     }
 
-    /// Initialize the instance properties from the asset ones.
+    /// Initialize the instance from its asset.
     ///
-    /// This copies the properties of the asset into the effect instance, using
-    /// the default value as the starting value of the property.
-    pub(crate) fn init_properties(&mut self, properties: &[Property]) {
-        self.properties = properties
+    /// This is called internally when an instance is created, to initialize it
+    /// from its source asset.
+    pub(crate) fn init_from_asset(&mut self, asset: &EffectAsset) {
+        self.properties = asset
+            .properties
             .iter()
             .map(|def| PropertyInstance {
                 def: def.clone(),
                 value: def.default_value().clone(),
             })
             .collect();
-    }
 
-    /// Configure the spawner of a new particle effect.
-    ///
-    /// In general this is called internally while the spawner is ticked, to
-    /// assign the source asset's spawner to this instance.
-    ///
-    /// Returns a reference to the added spawner owned by the current instance,
-    /// allowing to chain adding modifiers to the effect.
-    pub(crate) fn configure_spawner(&mut self, spawner: &Spawner) -> &mut Spawner {
-        if self.spawner.is_none() {
-            self.spawner = Some(*spawner);
-        }
-        self.spawner.as_mut().unwrap()
+        self.spawner = Some(asset.spawner);
     }
 
     /// Get the init, update, and render shaders if they're all configured, or
@@ -470,6 +459,10 @@ impl ParticleEffect {
     }
 
     /// Write all properties into a binary buffer ready for GPU upload.
+    ///
+    /// Return the binary buffer where properties have been written according to
+    /// the given property layout. The size of the output buffer is guaranteed
+    /// to be equal to the size of the layout.
     fn write_properties(&self, layout: &PropertyLayout) -> Vec<u8> {
         let size = layout.size() as usize;
         let mut data = Vec::with_capacity(size);
@@ -660,9 +653,9 @@ fn tick_spawners(
                 continue;
             };
 
-            effect.init_properties(&asset.properties);
+            effect.init_from_asset(&asset);
 
-            effect.configure_spawner(&asset.spawner)
+            effect.spawner.as_mut().unwrap()
         };
 
         // Tick the effect's spawner to determine the spawn count for this frame
