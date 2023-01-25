@@ -544,6 +544,20 @@ impl ParticleLayout {
         &self.layout
     }
 
+    /// Check if the layout contains the specified [`Attribute`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # let layout = AttributeLayout::new();
+    /// let has_size = layout.contains(Attribute::SIZE);
+    /// ```
+    pub fn contains(&self, attribute: &'static Attribute) -> bool {
+        self.layout
+            .iter()
+            .any(|&entry| entry.attribute.name() == attribute.name())
+    }
+
     /// Generate the WGSL attribute code corresponding to the layout.
     pub fn generate_code(&self) -> String {
         //assert!(self.layout.is_sorted_by_key(|entry| entry.offset));

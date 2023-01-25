@@ -672,11 +672,6 @@ fn tick_spawners(
         {
             let asset = effects.get(&effect.handle).unwrap(); // must succeed since it did above
 
-            // Extract the acceleration
-            // let accel = asset.update_layout.accel;
-            // let drag_coefficient = asset.update_layout.drag_coefficient;
-            // let force_field = asset.update_layout.force_field;
-
             // Generate the shader code defining the particle attributes
             let particle_layout = asset.particle_layout();
             let attributes_code = particle_layout.generate_code();
@@ -695,6 +690,7 @@ fn tick_spawners(
             for m in asset.modifiers.iter().filter_map(|m| m.init_modifier()) {
                 m.apply(&mut init_context);
             }
+            // Warn in debug if the shader doesn't initialize the particle lifetime
             #[cfg(debug_assertions)]
             if !init_context
                 .init_code
@@ -708,6 +704,7 @@ fn tick_spawners(
             for m in asset.modifiers.iter().filter_map(|m| m.update_modifier()) {
                 m.apply(&mut update_context);
             }
+            // Warn if the shader doesn't update the particle position or velocity
             if !update_context
                 .update_code
                 .contains(&format!("(*particle).{}", Attribute::VELOCITY.name()))
@@ -740,14 +737,8 @@ fn tick_spawners(
 
             trace!("vertex_modifiers={}", vertex_modifiers);
 
-            let has_per_particle_size = particle_layout
-                .attributes()
-                .iter()
-                .any(|&entry| entry.attribute.name() == Attribute::SIZE.name());
-            let has_per_particle_size2 = particle_layout
-                .attributes()
-                .iter()
-                .any(|&entry| entry.attribute.name() == Attribute::SIZE.name());
+            let has_per_particle_size = particle_layout.contains(Attribute::SIZE);
+            let has_per_particle_size2 = particle_layout.contains(Attribute::SIZE2);
 
             // Configure the init shader template, and make sure a corresponding shader
             // asset exists
