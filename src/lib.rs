@@ -704,16 +704,6 @@ fn tick_spawners(
             for m in asset.modifiers.iter().filter_map(|m| m.update()) {
                 m.apply(&mut update_context);
             }
-            // Warn if the shader doesn't update the particle position or velocity
-            if !update_context
-                .update_code
-                .contains(&format!("(*particle).{}", Attribute::VELOCITY.name()))
-                && !update_context
-                    .update_code
-                    .contains(&format!("(*particle).{}", Attribute::POSITION.name()))
-            {
-                warn!("Effect '{}' does not update the particle position nor velocity; particles will have their spawn position and velocity forever. Add a modifier like AccelModifier to animate the particles.", asset.name);
-            }
             // Append Euler integration (TODO - Do we want to make this explicit?)
             update_context.update_code +=
                 &format!("(*particle).position += (*particle).velocity * sim_params.dt;\n");
