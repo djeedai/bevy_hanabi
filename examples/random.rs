@@ -76,9 +76,7 @@ fn setup(
             speed: 2.0.into(),
         })
         .init(ParticleLifetimeModifier { lifetime: 5. })
-        .update(AccelModifier {
-            accel: Vec3::new(0., 5., 0.),
-        })
+        .update(AccelModifier::constant(Vec3::new(0., 5., 0.)))
         .render(ColorOverLifetimeModifier { gradient }),
     );
 
