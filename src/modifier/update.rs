@@ -6,7 +6,9 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{graph::Value, Attribute, Modifier, Property, ToWgslString};
+use crate::{
+    graph::Value, Attribute, BoxedModifier, Modifier, ModifierContext, Property, ToWgslString,
+};
 
 /// Particle update shader code generation context.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -19,6 +21,7 @@ pub struct UpdateContext {
 }
 
 /// Trait to customize the updating of existing particles each frame.
+#[typetag::serde]
 pub trait UpdateModifier: Modifier {
     /// Append the update code.
     fn apply(&self, context: &mut UpdateContext);
@@ -82,9 +85,26 @@ impl AccelModifier {
     }
 }
 
+#[typetag::serde]
 impl Modifier for AccelModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn update(&self) -> Option<&dyn UpdateModifier> {
+        Some(self)
+    }
+
+    fn update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::VELOCITY]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(self.clone())
     }
 
     fn resolve_properties(&mut self, properties: &[Property]) {
@@ -99,6 +119,7 @@ impl Modifier for AccelModifier {
     }
 }
 
+#[typetag::serde]
 impl UpdateModifier for AccelModifier {
     fn apply(&self, context: &mut UpdateContext) {
         context.update_code += &format!(
@@ -218,12 +239,30 @@ impl ForceFieldModifier {
     }
 }
 
+#[typetag::serde]
 impl Modifier for ForceFieldModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn update(&self) -> Option<&dyn UpdateModifier> {
+        Some(self)
+    }
+
+    fn update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::POSITION, Attribute::VELOCITY]
     }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
 }
 
+#[typetag::serde]
 impl UpdateModifier for ForceFieldModifier {
     fn apply(&self, _context: &mut UpdateContext) {
         //layout.force_field = self.sources;
@@ -246,12 +285,30 @@ impl LinearDragModifier {
     }
 }
 
+#[typetag::serde]
 impl Modifier for LinearDragModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn update(&self) -> Option<&dyn UpdateModifier> {
+        Some(self)
+    }
+
+    fn update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::VELOCITY]
     }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
 }
 
+#[typetag::serde]
 impl UpdateModifier for LinearDragModifier {
     fn apply(&self, context: &mut UpdateContext) {
         context.update_code += &format!(

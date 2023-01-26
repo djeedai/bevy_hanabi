@@ -3,9 +3,10 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{Attribute, Gradient, Modifier, RenderLayout};
+use crate::{Attribute, BoxedModifier, Gradient, Modifier, ModifierContext, RenderLayout};
 
 /// Trait to customize the rendering of alive particles each frame.
+#[typetag::serde]
 pub trait RenderModifier: Modifier {
     /// Apply the modifier to the render layout of the effect instance.
     fn apply(&self, render_layout: &mut RenderLayout);
@@ -22,12 +23,30 @@ pub struct ParticleTextureModifier {
     pub texture: Handle<Image>,
 }
 
+#[typetag::serde]
 impl Modifier for ParticleTextureModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Render
+    }
+
+    fn render(&self) -> Option<&dyn RenderModifier> {
+        Some(self)
+    }
+
+    fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         &[] // TODO - should require some UV maybe?
     }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(self.clone())
+    }
 }
 
+#[typetag::serde]
 impl RenderModifier for ParticleTextureModifier {
     fn apply(&self, render_layout: &mut RenderLayout) {
         render_layout.particle_texture = Some(self.texture.clone());
@@ -42,12 +61,30 @@ pub struct ColorOverLifetimeModifier {
     pub gradient: Gradient<Vec4>,
 }
 
+#[typetag::serde]
 impl Modifier for ColorOverLifetimeModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Render
+    }
+
+    fn render(&self) -> Option<&dyn RenderModifier> {
+        Some(self)
+    }
+
+    fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         &[]
     }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(self.clone())
+    }
 }
 
+#[typetag::serde]
 impl RenderModifier for ColorOverLifetimeModifier {
     fn apply(&self, render_layout: &mut RenderLayout) {
         render_layout.lifetime_color_gradient = Some(self.gradient.clone());
@@ -62,12 +99,30 @@ pub struct SizeOverLifetimeModifier {
     pub gradient: Gradient<Vec2>,
 }
 
+#[typetag::serde]
 impl Modifier for SizeOverLifetimeModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Render
+    }
+
+    fn render(&self) -> Option<&dyn RenderModifier> {
+        Some(self)
+    }
+
+    fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         &[]
     }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(self.clone())
+    }
 }
 
+#[typetag::serde]
 impl RenderModifier for SizeOverLifetimeModifier {
     fn apply(&self, render_layout: &mut RenderLayout) {
         render_layout.lifetime_size_gradient = Some(self.gradient.clone());
@@ -78,12 +133,30 @@ impl RenderModifier for SizeOverLifetimeModifier {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct BillboardModifier;
 
+#[typetag::serde]
 impl Modifier for BillboardModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Render
+    }
+
+    fn render(&self) -> Option<&dyn RenderModifier> {
+        Some(self)
+    }
+
+    fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::POSITION]
     }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
 }
 
+#[typetag::serde]
 impl RenderModifier for BillboardModifier {
     fn apply(&self, render_layout: &mut RenderLayout) {
         render_layout.billboard = true;

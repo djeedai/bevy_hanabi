@@ -14,7 +14,7 @@ use crate::{
         render::RenderModifier,
         update::{ForceFieldSource, UpdateModifier},
     },
-    Attribute, Gradient, Modifiers, ParticleLayout, Property, PropertyLayout, SimulationSpace,
+    Attribute, BoxedModifier, Gradient, ParticleLayout, Property, PropertyLayout, SimulationSpace,
     Spawner,
 };
 
@@ -62,7 +62,7 @@ pub struct RenderLayout {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Debug, Default, Clone, TypeUuid, Reflect, Serialize, Deserialize, FromReflect)]
+#[derive(Default, Clone, TypeUuid, Reflect, Serialize, Deserialize, FromReflect)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.
@@ -108,7 +108,7 @@ pub struct EffectAsset {
     pub simulation_space: SimulationSpace,
     /// Modifiers defining the effect.
     #[reflect(ignore)] // TODO
-    pub modifiers: Vec<Modifiers>,
+    pub modifiers: Vec<BoxedModifier>,
     /// Properties of the effect.
     pub properties: Vec<Property>,
 }
@@ -153,10 +153,9 @@ impl EffectAsset {
     pub fn init<M>(mut self, mut modifier: M) -> Self
     where
         M: InitModifier + Send + Sync + 'static,
-        Modifiers: From<M>,
     {
         modifier.resolve_properties(&self.properties);
-        self.modifiers.push(modifier.into());
+        self.modifiers.push(Box::new(modifier));
         self
     }
 
@@ -173,10 +172,9 @@ impl EffectAsset {
     pub fn update<M>(mut self, mut modifier: M) -> Self
     where
         M: UpdateModifier + Send + Sync + 'static,
-        Modifiers: From<M>,
     {
         modifier.resolve_properties(&self.properties);
-        self.modifiers.push(modifier.into());
+        self.modifiers.push(Box::new(modifier));
         self
     }
 
@@ -193,11 +191,10 @@ impl EffectAsset {
     pub fn render<M>(mut self, mut modifier: M) -> Self
     where
         M: RenderModifier + Send + Sync + 'static,
-        Modifiers: From<M>,
     {
         modifier.resolve_properties(&self.properties);
         modifier.apply(&mut self.render_layout);
-        self.modifiers.push(modifier.into());
+        self.modifiers.push(Box::new(modifier));
         self
     }
 
@@ -206,7 +203,7 @@ impl EffectAsset {
         // Build the set of unique attributes required for all modifiers
         let mut set = HashSet::new();
         for modifier in &self.modifiers {
-            for &attr in modifier.modifier().attributes() {
+            for &attr in modifier.attributes() {
                 set.insert(attr);
             }
         }

@@ -49,8 +49,53 @@ pub enum ShapeDimension {
     Volume,
 }
 
+/// Context a modifier applies to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModifierContext {
+    /// Particle initializing.
+    Init,
+    /// Particle simulation (update).
+    Update,
+    /// Particle rendering.
+    Render,
+}
+
 /// Trait describing a modifier customizing an effect pipeline.
-pub trait Modifier {
+#[typetag::serde]
+pub trait Modifier: Send + Sync + 'static {
+    /// Get the context this modifier applies to.
+    fn context(&self) -> ModifierContext;
+
+    /// Try to cast this modifier to an [`InitModifier`].
+    fn init(&self) -> Option<&dyn InitModifier> {
+        None
+    }
+
+    /// Try to cast this modifier to an [`InitModifier`].
+    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+        None
+    }
+
+    /// Try to cast this modifier to an [`UpdateModifier`].
+    fn update(&self) -> Option<&dyn UpdateModifier> {
+        None
+    }
+
+    /// Try to cast this modifier to an [`UpdateModifier`].
+    fn update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+        None
+    }
+
+    /// Try to cast this modifier to a [`RenderModifier`].
+    fn render(&self) -> Option<&dyn RenderModifier> {
+        None
+    }
+
+    /// Try to cast this modifier to a [`RenderModifier`].
+    fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+        None
+    }
+
     /// Get the list of dependent attributes required for this modifier to be
     /// used.
     fn attributes(&self) -> &[&'static Attribute];
@@ -58,125 +103,19 @@ pub trait Modifier {
     /// Attempt to resolve any property reference to the actual property in the
     /// effect.
     fn resolve_properties(&mut self, _properties: &[Property]) {}
+
+    /// Clone self.
+    fn boxed_clone(&self) -> BoxedModifier;
 }
 
-/// Enumeration of all the possible modifiers.
-///
-/// This is mainly a workaround for the impossibility to currently serialize and
-/// deserialize some trait object in Bevy, which makes it impossible to directly
-/// hold a `Box<dyn Modifier>` in an `EffectAsset`. Instead, we use an enum to
-/// explicitly list the types and make the field a sized one that can be
-/// serialized and deserialized.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum Modifiers {
-    /// [`PositionCircleModifier`].
-    PositionCircle(PositionCircleModifier),
-    /// [`PositionSphereModifier`].
-    PositionSphere(PositionSphereModifier),
-    /// [`PositionCone3dModifier`].
-    PositionCone3d(PositionCone3dModifier),
-    /// [`ParticleLifetimeModifier`].
-    ParticleLifetime(ParticleLifetimeModifier),
-    /// [`InitSizeModifier`]
-    InitSize(InitSizeModifier),
+/// Boxed version of [`Modifier`].
+pub type BoxedModifier = Box<dyn Modifier>;
 
-    /// [`AccelModifier`].
-    Accel(AccelModifier),
-    /// [`ForceFieldModifier`].
-    ForceField(ForceFieldModifier),
-    /// [`LinearDragModifier`].
-    LinearDrag(LinearDragModifier),
-
-    /// [`ParticleTextureModifier`].
-    ParticleTexture(ParticleTextureModifier),
-    /// [`ColorOverLifetimeModifier`].
-    ColorOverLifetime(ColorOverLifetimeModifier),
-    /// [`SizeOverLifetimeModifier`].
-    SizeOverLifetime(SizeOverLifetimeModifier),
-    /// [`BillboardModifier`].
-    Billboard(BillboardModifier),
-}
-
-impl Modifiers {
-    /// Cast the enum value to the [`Modifier`] trait.
-    pub fn modifier(&self) -> &dyn Modifier {
-        match self {
-            Modifiers::PositionCircle(modifier) => modifier,
-            Modifiers::PositionSphere(modifier) => modifier,
-            Modifiers::PositionCone3d(modifier) => modifier,
-            Modifiers::ParticleLifetime(modifier) => modifier,
-            Modifiers::InitSize(modifier) => modifier,
-
-            Modifiers::Accel(modifier) => modifier,
-            Modifiers::ForceField(modifier) => modifier,
-            Modifiers::LinearDrag(modifier) => modifier,
-
-            Modifiers::ParticleTexture(modifier) => modifier,
-            Modifiers::ColorOverLifetime(modifier) => modifier,
-            Modifiers::SizeOverLifetime(modifier) => modifier,
-            Modifiers::Billboard(modifier) => modifier,
-        }
-    }
-
-    /// Cast the enum value to an [`InitModifier`] if possible.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Some(modifier)` if the cast succeeded, or `None` if it failed.
-    pub fn init_modifier(&self) -> Option<&dyn InitModifier> {
-        match self {
-            Modifiers::PositionCircle(modifier) => Some(modifier),
-            Modifiers::PositionSphere(modifier) => Some(modifier),
-            Modifiers::PositionCone3d(modifier) => Some(modifier),
-            Modifiers::ParticleLifetime(modifier) => Some(modifier),
-            Modifiers::InitSize(modifier) => Some(modifier),
-
-            _ => None,
-        }
-    }
-
-    /// Cast the enum value to an [`UpdateModifier`] if possible.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Some(modifier)` if the cast succeeded, or `None` if it failed.
-    pub fn update_modifier(&self) -> Option<&dyn UpdateModifier> {
-        match self {
-            Modifiers::Accel(modifier) => Some(modifier),
-            Modifiers::ForceField(modifier) => Some(modifier),
-            Modifiers::LinearDrag(modifier) => Some(modifier),
-
-            _ => None,
-        }
+impl Clone for BoxedModifier {
+    fn clone(&self) -> Self {
+        self.boxed_clone()
     }
 }
-
-/// Implement `From<T> for Modifiers` for a [`Modifier`] type.
-macro_rules! impl_modifier {
-    ($e:ident, $t:ty) => {
-        impl From<$t> for $crate::Modifiers {
-            fn from(modifier: $t) -> Self {
-                Self::$e(modifier)
-            }
-        }
-    };
-}
-
-impl_modifier!(PositionCircle, PositionCircleModifier);
-impl_modifier!(PositionSphere, PositionSphereModifier);
-impl_modifier!(PositionCone3d, PositionCone3dModifier);
-impl_modifier!(ParticleLifetime, ParticleLifetimeModifier);
-impl_modifier!(InitSize, InitSizeModifier);
-
-impl_modifier!(Accel, AccelModifier);
-impl_modifier!(ForceField, ForceFieldModifier);
-impl_modifier!(LinearDrag, LinearDragModifier);
-
-impl_modifier!(ParticleTexture, ParticleTextureModifier);
-impl_modifier!(ColorOverLifetime, ColorOverLifetimeModifier);
-impl_modifier!(SizeOverLifetime, SizeOverLifetimeModifier);
-impl_modifier!(Billboard, BillboardModifier);
 
 #[cfg(test)]
 mod tests {
@@ -184,14 +123,13 @@ mod tests {
 
     use super::*;
 
-    fn make_test_modifier() -> Modifiers {
-        PositionSphereModifier {
+    fn make_test_modifier() -> BoxedModifier {
+        Box::new(PositionSphereModifier {
             center: Vec3::ZERO,
             radius: 1.5,
             speed: 3.5.into(),
             dimension: ShapeDimension::Surface,
-        }
-        .into()
+        })
     }
 
     // #[test]
@@ -210,7 +148,7 @@ mod tests {
         let m = make_test_modifier();
         let s = ron::to_string(&m).unwrap();
         println!("modifier: {:?}", s);
-        let _m_serde: Modifiers = ron::from_str(&s).unwrap();
+        let _m_serde: BoxedModifier = ron::from_str(&s).unwrap();
         //assert_eq!(m, m_serde);
     }
 }

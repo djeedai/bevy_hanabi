@@ -3,7 +3,10 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{modifier::ShapeDimension, Attribute, DimValue, Modifier, ToWgslString, Value};
+use crate::{
+    modifier::ShapeDimension, Attribute, BoxedModifier, DimValue, Modifier, ModifierContext,
+    ToWgslString, Value,
+};
 
 /// Particle initializing shader code generation context.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -16,6 +19,7 @@ pub struct InitContext {
 }
 
 /// Trait to customize the initializing of newly spawned particles.
+#[typetag::serde]
 pub trait InitModifier: Modifier {
     /// Append the initializing code.
     fn apply(&self, context: &mut InitContext);
@@ -49,12 +53,30 @@ impl Default for PositionCircleModifier {
     }
 }
 
+#[typetag::serde]
 impl Modifier for PositionCircleModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Init
+    }
+
+    fn init(&self) -> Option<&dyn InitModifier> {
+        Some(self)
+    }
+
+    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::POSITION, Attribute::VELOCITY]
     }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
 }
 
+#[typetag::serde]
 impl InitModifier for PositionCircleModifier {
     fn apply(&self, context: &mut InitContext) {
         let (tangent, bitangent) = self.axis.any_orthonormal_pair();
@@ -116,12 +138,30 @@ pub struct PositionSphereModifier {
     pub dimension: ShapeDimension,
 }
 
+#[typetag::serde]
 impl Modifier for PositionSphereModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Init
+    }
+
+    fn init(&self) -> Option<&dyn InitModifier> {
+        Some(self)
+    }
+
+    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::POSITION, Attribute::VELOCITY]
     }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
 }
 
+#[typetag::serde]
 impl InitModifier for PositionSphereModifier {
     fn apply(&self, context: &mut InitContext) {
         let radius_code = match self.dimension {
@@ -199,12 +239,30 @@ pub struct PositionCone3dModifier {
     pub dimension: ShapeDimension,
 }
 
+#[typetag::serde]
 impl Modifier for PositionCone3dModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Init
+    }
+
+    fn init(&self) -> Option<&dyn InitModifier> {
+        Some(self)
+    }
+
+    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::POSITION, Attribute::VELOCITY]
     }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
 }
 
+#[typetag::serde]
 impl InitModifier for PositionCone3dModifier {
     fn apply(&self, context: &mut InitContext) {
         context.init_extra += &format!(
@@ -274,12 +332,30 @@ impl Default for ParticleLifetimeModifier {
     }
 }
 
+#[typetag::serde]
 impl Modifier for ParticleLifetimeModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Init
+    }
+
+    fn init(&self) -> Option<&dyn InitModifier> {
+        Some(self)
+    }
+
+    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         &[Attribute::AGE, Attribute::LIFETIME]
     }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
 }
 
+#[typetag::serde]
 impl InitModifier for ParticleLifetimeModifier {
     fn apply(&self, context: &mut InitContext) {
         context.init_code += &format!(
@@ -305,7 +381,20 @@ pub struct InitSizeModifier {
     pub size: DimValue,
 }
 
+#[typetag::serde]
 impl Modifier for InitSizeModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Init
+    }
+
+    fn init(&self) -> Option<&dyn InitModifier> {
+        Some(self)
+    }
+
+    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+        Some(self)
+    }
+
     fn attributes(&self) -> &[&'static Attribute] {
         match self.size {
             DimValue::D1(_) => &[Attribute::SIZE],
@@ -313,8 +402,13 @@ impl Modifier for InitSizeModifier {
             _ => panic!("Invalid dimension for InitSizeModifier; only 1D and 2D values are valid."),
         }
     }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
 }
 
+#[typetag::serde]
 impl InitModifier for InitSizeModifier {
     fn apply(&self, context: &mut InitContext) {
         context.init_code += &format!(

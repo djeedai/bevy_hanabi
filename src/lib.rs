@@ -687,7 +687,7 @@ fn tick_spawners(
 
             // Generate the shader code for the initializing shader
             let mut init_context = InitContext::default();
-            for m in asset.modifiers.iter().filter_map(|m| m.init_modifier()) {
+            for m in asset.modifiers.iter().filter_map(|m| m.init()) {
                 m.apply(&mut init_context);
             }
             // Warn in debug if the shader doesn't initialize the particle lifetime
@@ -701,7 +701,7 @@ fn tick_spawners(
 
             // Generate the shader code for the update shader
             let mut update_context = UpdateContext::default();
-            for m in asset.modifiers.iter().filter_map(|m| m.update_modifier()) {
+            for m in asset.modifiers.iter().filter_map(|m| m.update()) {
                 m.apply(&mut update_context);
             }
             // Warn if the shader doesn't update the particle position or velocity
