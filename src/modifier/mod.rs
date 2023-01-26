@@ -62,7 +62,7 @@ pub enum ModifierContext {
 
 /// Trait describing a modifier customizing an effect pipeline.
 #[typetag::serde]
-pub trait Modifier: Send + Sync + 'static {
+pub trait Modifier: Reflect + Send + Sync + 'static {
     /// Get the context this modifier applies to.
     fn context(&self) -> ModifierContext;
 

@@ -62,7 +62,7 @@ pub struct RenderLayout {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Default, Clone, TypeUuid, Reflect, Serialize, Deserialize, FromReflect)]
+#[derive(Default, Clone, TypeUuid, Reflect, FromReflect, Serialize, Deserialize)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.
@@ -107,7 +107,8 @@ pub struct EffectAsset {
     /// Particle simulation space.
     pub simulation_space: SimulationSpace,
     /// Modifiers defining the effect.
-    #[reflect(ignore)] // TODO
+    #[reflect(ignore)]
+    // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
     pub modifiers: Vec<BoxedModifier>,
     /// Properties of the effect.
     pub properties: Vec<Property>,
