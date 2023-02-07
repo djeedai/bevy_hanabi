@@ -73,10 +73,10 @@
     // // let temp_vPos = (*particle).position;
     // (*particle).position = (*particle).position + (*particle).velocity * sim_params.dt;
     
-    // // project on the sphere if within conforming distance
-    // let pos_to_source = conforming_source - (*particle).position;
-    // let difference = length(pos_to_source) - conforming_radius;
-    // (*particle).position = (*particle).position  + difference * normalize(pos_to_source) * (1.0 - not_conformed_to_sphere);
+    // project on the sphere if within conforming distance
+    let pos_to_source = conforming_source - (*particle).position;
+    let difference = length(pos_to_source) - conforming_radius;
+    (*particle).position = (*particle).position  + difference * normalize(pos_to_source) * (1.0 - not_conformed_to_sphere);
 
     // // // commented because of the potential bug where dt could be zero, although the simulation
     // // // works anyways, needs investigation
