@@ -136,7 +136,7 @@ mod spawn;
 #[cfg(test)]
 mod test_utils;
 
-use properties::PropertyInstance;
+use properties::{Property, PropertyInstance};
 use render::EffectCacheId;
 
 pub use asset::{EffectAsset, RenderLayout, UpdateLayout};
@@ -145,7 +145,7 @@ pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
-pub use properties::{Property, PropertyLayout};
+pub use properties::PropertyLayout;
 pub use render::ShaderCache;
 pub use spawn::{DimValue, Random, Spawner, Value};
 

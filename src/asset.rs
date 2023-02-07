@@ -111,11 +111,11 @@ pub struct EffectAsset {
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
     pub modifiers: Vec<BoxedModifier>,
     /// Properties of the effect.
-    pub properties: Vec<Property>,
+    pub(crate) properties: Vec<Property>,
 }
 
 impl EffectAsset {
-    /// Add a new [`Property`] to the asset.
+    /// Add a new property to the asset.
     ///
     /// # Panics
     ///
@@ -125,7 +125,7 @@ impl EffectAsset {
         self
     }
 
-    /// Add a new [`Property`] to the asset.
+    /// Add a new property to the asset.
     ///
     /// # Panics
     ///
@@ -137,7 +137,7 @@ impl EffectAsset {
     }
 
     /// Get the list of existing properties.
-    pub fn properties(&self) -> &[Property] {
+    pub(crate) fn properties(&self) -> &[Property] {
         &self.properties
     }
 
@@ -145,7 +145,7 @@ impl EffectAsset {
     ///
     /// # Panics
     ///
-    /// Panics if the modifier references a [`Property`] which doesn't exist.
+    /// Panics if the modifier references a property which doesn't exist.
     /// You should declare an effect property first with [`with_property()`]
     /// or [`add_property()`], before adding any modifier referencing it.
     ///
@@ -164,7 +164,7 @@ impl EffectAsset {
     ///
     /// # Panics
     ///
-    /// Panics if the modifier references a [`Property`] which doesn't exist.
+    /// Panics if the modifier references a property which doesn't exist.
     /// You should declare an effect property first with [`with_property()`]
     /// or [`add_property()`], before adding any modifier referencing it.
     ///
@@ -183,7 +183,7 @@ impl EffectAsset {
     ///
     /// # Panics
     ///
-    /// Panics if the modifier references a [`Property`] which doesn't exist.
+    /// Panics if the modifier references a property which doesn't exist.
     /// You should declare an effect property first with [`with_property()`]
     /// or [`add_property()`], before adding any modifier referencing it.
     ///

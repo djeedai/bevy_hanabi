@@ -24,7 +24,7 @@ pub struct Property {
 
 impl Property {
     /// Create a new property.
-    pub fn new(name: impl Into<String>, default_value: Value) -> Self {
+    pub(crate) fn new(name: impl Into<String>, default_value: Value) -> Self {
         Self {
             name: name.into(),
             default_value,
@@ -123,7 +123,7 @@ impl PropertyLayout {
     }
 
     /// Create a new collection from an iterator.
-    pub fn new<'a>(iter: impl Iterator<Item = &'a Property>) -> Self {
+    pub(crate) fn new<'a>(iter: impl Iterator<Item = &'a Property>) -> Self {
         let mut properties = iter.collect::<Vec<_>>();
 
         // Sort by size
