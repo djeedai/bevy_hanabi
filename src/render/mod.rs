@@ -2167,8 +2167,7 @@ pub(crate) fn queue_effects(
                         },
                     ],
                     label: Some(&format!(
-                        "hanabi:bind_group_init_vfx{}_particles",
-                        buffer_index
+                        "hanabi:bind_group_init_vfx{buffer_index}_particles"
                     )),
                     layout: &read_params.init_pipeline.particles_buffer_layout,
                 });
@@ -2186,8 +2185,7 @@ pub(crate) fn queue_effects(
                         },
                     ],
                     label: Some(&format!(
-                        "hanabi:bind_group_update_vfx{}_particles",
-                        buffer_index
+                        "hanabi:bind_group_update_vfx{buffer_index}_particles"
                     )),
                     layout: &read_params.update_pipeline.particles_buffer_layout,
                 });
@@ -2212,8 +2210,7 @@ pub(crate) fn queue_effects(
                         },
                     ],
                     label: Some(&format!(
-                        "hanabi:bind_group_render_vfx{}_particles",
-                        buffer_index
+                        "hanabi:bind_group_render_vfx{buffer_index}_particles",
                     )),
                     layout: &read_params.render_pipeline.particles_buffer_layout,
                 });

@@ -702,7 +702,7 @@ mod gpu_tests {
         let queue = renderer.queue();
 
         let item_align = device.limits().min_storage_buffer_offset_alignment as u64;
-        println!("min_storage_buffer_offset_alignment = {}", item_align);
+        println!("min_storage_buffer_offset_alignment = {item_align}");
         let mut table = BufferTable::<GpuDummyComposed>::new(
             BufferUsages::STORAGE | BufferUsages::MAP_READ,
             NonZeroU64::new(item_align),

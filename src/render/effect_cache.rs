@@ -149,7 +149,7 @@ impl EffectBuffer {
         let capacity_bytes: BufferAddress = capacity as u64 * 4;
 
         let indirect_label = if let Some(label) = label {
-            format!("{}_indirect", label)
+            format!("{label}_indirect")
         } else {
             "hanabi:buffer:effect_indirect".to_owned()
         };
@@ -445,8 +445,7 @@ impl EffectCache {
                 // Cannot find any suitable buffer; allocate a new one
                 let buffer_index = self.buffers.iter().position(|buf| buf.is_none()).unwrap_or(self.buffers.len());
                 let byte_size = capacity.checked_mul(item_size).unwrap_or_else(|| panic!(
-                    "Effect size overflow: capacity={} item_size={}",
-                    capacity, item_size
+                    "Effect size overflow: capacity={capacity} item_size={item_size}"
                 ));
                 trace!(
                     "Creating new effect buffer #{} for effect {:?} (capacity={}, item_size={}, byte_size={})",
@@ -462,7 +461,7 @@ impl EffectCache {
                     item_size,
                     //pipeline,
                     &self.device,
-                    Some(&format!("hanabi:buffer:effect{}_particles", buffer_index)),
+                    Some(&format!("hanabi:buffer:effect{buffer_index}_particles")),
                 );
                 let slice_ref = buffer.allocate_slice(capacity, item_size).unwrap();
                 if buffer_index >= self.buffers.len() {
