@@ -365,6 +365,8 @@ pub struct ParticleEffect {
 
     // bunch of stuff that should move, which we store here temporarily between tick_spawners()
     // ticking the spawner and the extract/prepare/queue render stages consuming them.
+    #[reflect(ignore)]
+    force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     spawn_count: u32,
     init_code: String,
     init_extra: String,
@@ -385,6 +387,7 @@ impl ParticleEffect {
             configured_render_shader: None,
             properties: vec![],
             //
+            force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
             spawn_count: 0,
             init_code: String::default(),
             init_extra: String::default(),
@@ -700,8 +703,9 @@ fn tick_spawners(
                 m.apply(&mut update_context);
             }
             // Append Euler integration (TODO - Do we want to make this explicit?)
+            // Note the prepended "\n" to prevent appending to a comment line.
             update_context.update_code +=
-                &format!("(*particle).position += (*particle).velocity * sim_params.dt;\n");
+                &format!("\n(*particle).position += (*particle).velocity * sim_params.dt;\n");
 
             // Generate the shader code for the color over lifetime gradient.
             // TODO - Move that to a pre-pass, not each frame!
@@ -792,6 +796,7 @@ fn tick_spawners(
             effect.init_extra = init_context.init_extra;
             effect.update_code = update_context.update_code;
             effect.update_extra = update_context.update_extra;
+            effect.force_field = update_context.force_field;
         }
     }
 }

@@ -177,7 +177,7 @@ struct GpuSpawnerParams {
     accel: Vec3,
     /// Number of particles to spawn this frame.
     spawn: i32,
-    /// Force field components. One PullingForceFieldParam takes up 32 bytes.
+    /// Force field components. One GpuForceFieldSource takes up 32 bytes.
     force_field: [GpuForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Spawn seed, for randomized modifiers.
     seed: u32,
@@ -1056,6 +1056,10 @@ pub(crate) struct ExtractedEffect {
     /// Global transform of the effect origin, extracted from the
     /// [`GlobalTransform`].
     pub transform: Mat4,
+    /// Force field applied to all particles in the "update" phase.
+    // FIXME - Remove from here, this should be using properties. Only left here for back-compat
+    // until we have a proper graph solution to replace it.
+    force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Particles tint to modulate with the texture image.
     pub color: Color,
     pub rect: Rect,
@@ -1248,6 +1252,7 @@ pub(crate) fn extract_effects(
 
         // TEMP - see tick_spawners()
         let spawn_count = effect.spawn_count;
+        let force_field = effect.force_field; // TEMP
         let init_code = effect.init_code.clone();
         let init_extra = effect.init_extra.clone();
         let update_code = effect.update_code.clone();
@@ -1293,6 +1298,7 @@ pub(crate) fn extract_effects(
                 spawn_count,
                 color: Color::RED, //effect.color,
                 transform: transform.compute_matrix(),
+                force_field,
                 rect: Rect {
                     min: Vec2::splat(-0.1),
                     max: Vec2::splat(0.1), // effect
@@ -1933,16 +1939,16 @@ pub(crate) fn prepare_effects(
         trace!("particle_layout = {:?}", slice.particle_layout);
 
         init_code = extracted_effect.init_code.clone();
-        trace!("init_code = {}", init_code);
+        //trace!("init_code = {}", init_code);
 
         init_extra = extracted_effect.init_extra.clone();
-        trace!("init_extra = {}", init_extra);
+        //trace!("init_extra = {}", init_extra);
 
         update_code = extracted_effect.update_code.clone();
-        trace!("update_code = {}", update_code);
+        //trace!("update_code = {}", update_code);
 
         update_extra = extracted_effect.update_extra.clone();
-        trace!("update_extra = {}", update_extra);
+        //trace!("update_extra = {}", update_extra);
 
         trace!("z_sort_key_2d = {:?}", z_sort_key_2d);
 
@@ -1955,10 +1961,10 @@ pub(crate) fn prepare_effects(
 
         // extract the force field and turn it into a struct that is compliant with
         // GPU use, namely GpuForceFieldSource
-        let extracted_force_field = [GpuForceFieldSource::default(); ForceFieldSource::MAX_SOURCES];
-        // for (i, ff) in extracted_effect.force_field.iter().enumerate() {
-        //     extracted_force_field[i] = (*ff).into();
-        // }
+        let mut extracted_force_field = [GpuForceFieldSource::default(); ForceFieldSource::MAX_SOURCES];
+        for (i, ff) in extracted_effect.force_field.iter().enumerate() {
+            extracted_force_field[i] = (*ff).into();
+        }
 
         // Prepare the spawner block for the current slice
         // FIXME - This is once per EFFECT/SLICE, not once per BATCH, so indeed this is

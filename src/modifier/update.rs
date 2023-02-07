@@ -11,13 +11,18 @@ use crate::{
 };
 
 /// Particle update shader code generation context.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq)] // Eq
 pub struct UpdateContext {
     /// Main particle update code, which needs to update the fields of the
     /// `particle` struct instance.
     pub update_code: String,
     /// Extra functions emitted at top level, which `update_code` can call.
     pub update_extra: String,
+
+    //TEMP
+    /// Array of force field components with a maximum number of components
+    /// determined by [`ForceFieldSource::MAX_SOURCES`].
+    pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
 }
 
 /// Trait to customize the updating of existing particles each frame.
@@ -264,8 +269,11 @@ impl Modifier for ForceFieldModifier {
 
 #[typetag::serde]
 impl UpdateModifier for ForceFieldModifier {
-    fn apply(&self, _context: &mut UpdateContext) {
-        //layout.force_field = self.sources;
+    fn apply(&self, context: &mut UpdateContext) {
+        context.update_code += include_str!("../render/force_field_code.wgsl");
+
+        //TEMP
+        context.force_field = self.sources;
     }
 }
 
