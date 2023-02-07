@@ -2386,7 +2386,7 @@ pub(crate) fn queue_effects(
                     buffer.property_layout(),
                 );
 
-                let label = format!("hanabi:bind_group_init_vfx{}_particles", buffer_index);
+                let label = format!("hanabi:bind_group_init_vfx{buffer_index}_particles");
                 trace!("=> create init bind group '{}' with 2 entries", label);
                 let init = render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &[
@@ -2466,8 +2466,7 @@ pub(crate) fn queue_effects(
                         },
                     ],
                     label: Some(&format!(
-                        "hanabi:bind_group_render_vfx{}_particles",
-                        buffer_index
+                        "hanabi:bind_group_render_vfx{buffer_index}_particles",
                     )),
                     layout: buffer.particle_layout_bind_group_with_dispatch(),
                 });

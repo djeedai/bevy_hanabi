@@ -166,7 +166,7 @@ impl EffectBuffer {
         let capacity_bytes: BufferAddress = capacity as u64 * 4;
 
         let indirect_label = if let Some(label) = label {
-            format!("{}_indirect", label)
+            format!("{label}_indirect")
         } else {
             "hanabi:buffer:effect_indirect".to_owned()
         };
@@ -668,7 +668,7 @@ impl EffectCache {
                     property_layout.clone(),
                     //pipeline,
                     &self.device,
-                    Some(&format!("hanabi:buffer:effect{}_particles", buffer_index)),
+                    Some(&format!("hanabi:buffer:effect{buffer_index}_particles")),
                 );
                 let slice_ref = buffer.allocate_slice(capacity, particle_layout).unwrap();
                 if buffer_index >= self.buffers.len() {
