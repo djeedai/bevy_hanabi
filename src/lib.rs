@@ -486,11 +486,6 @@ const PARTICLES_INIT_SHADER_TEMPLATE: &str = include_str!("render/vfx_init.wgsl"
 const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("render/vfx_update.wgsl");
 const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("render/vfx_render.wgsl");
 
-const DEFAULT_FORCE_FIELD_CODE: &str = r##"
-    (*particle).velocity = (*particle).velocity + (spawner.accel * sim_params.dt);
-    (*particle).position = (*particle).position + (*particle).velocity * sim_params.dt;
-"##;
-
 const FORCE_FIELD_CODE: &str = include_str!("render/force_field_code.wgsl");
 
 const ENABLED_BILLBOARD_CODE: &str = r##"
