@@ -102,6 +102,7 @@ pub trait Modifier: Reflect + Send + Sync + 'static {
 
     /// Attempt to resolve any property reference to the actual property in the
     /// effect.
+    /// WARNING - For internal use only.
     fn resolve_properties(&mut self, _properties: &[Property]) {}
 
     /// Clone self.
