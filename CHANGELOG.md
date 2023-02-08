@@ -3,6 +3,28 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added a `SimulationSpace` enum with a single value `Global`, in preparation of future support for local-space particle simulation.
+- Added properties, named quantities associated with an `EffectAsset` and modifiable at runtime at assignable to values of modifiers. This enables dynamically modifying at runtime any property-based modifier value. Other non-property-based values are assumed to be constant, and are optimized by hard-coding them into the various shaders. Use `EffectAsset::with_property()` and `EffectAsset::add_property()` to define a new property before binding it to a modifier's value. The `spawn.rs` example demonstrates this with the acceleration of the `AccelModifier`.
+- Added particle `Attribute`s, individual items holding a single per-particle scalar or vector value. Composed together, the attributes form the particle layout, which defines at runtime the set of per-particle values used in the simulation. This change marks a transition from the previous design where the particle attributes were hard-coded to be the position, velocity, age, and lifetime of the particle. With this change, a collection of various attributes is available for modifiers to manipulate. This ensures flexibility in customizing while retaining a minimal per-particle memory footprint for a given effect. Note that [`Attribute`]s are all built-in; a custom [`Attribute`] cannot be used.
+
+### Changed
+
+- Effects no longer have a default particle lifetime of 5 seconds. Instead an explicit lifetime must be set with the `ParticleLifetimeModifier`. Failure to set the lifetime will trigger a warning at runtime, and particles will default to a lifetime of zero and instantly die.
+- Effects no longer have a default initial position similar to the `PositionSphereModifier`. Add a `PositionSphereModifier` explicitly to an effect to restore the previous behavior, with a center of `Vec3::ZERO`, a radius of `1.`, a dimension of `ShapeDimension::Volume`, and a speed of `2.`.
+- The acceleration of the `AccelModifier` is now property-based. To dynamically change the acceleration at runtime, assign its value to an effect property with `AccelModifier::via_property()`. Otherwise a constant value built with `AccelModifier::constant()` can be used, and will be optimized in the update shader. See the `spawn.rs` example.
+- All modifiers are now fully reflected (derive both `Reflect` and `FromReflect`) and de/serializable. They're serialized as enums, using the `typetag` crate.
+- `ShapeDimension` now derives `Debug` and is fully reflected (derives both `Reflect` and `FromReflect`) and de/serializable.
+- `Value<T>` now requires `T: FromReflect`, and itself derives both `Reflect` and `FromReflect`.
+- Consequence of `Value<T>` being fully reflected, several fields on `Spawner` are now fully reflected too and not ignored anymore.
+
+### Removed
+
+- Deleted `InitLayout`. Init modifiers are now directly applying themselves to the `InitContext`.
+
 ## [0.5.3] 2023-02-07
 
 ### Fixed
