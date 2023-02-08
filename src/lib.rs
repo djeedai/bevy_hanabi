@@ -144,7 +144,7 @@ mod test_utils;
 use properties::{Property, PropertyInstance};
 use render::EffectCacheId;
 
-pub use asset::{EffectAsset, RenderLayout, UpdateLayout};
+pub use asset::{EffectAsset, RenderLayout};
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};

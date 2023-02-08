@@ -1,6 +1,6 @@
 use bevy::{
     asset::{AssetLoader, Handle, LoadContext, LoadedAsset},
-    math::{Vec2, Vec3, Vec4},
+    math::{Vec2, Vec4},
     reflect::{FromReflect, Reflect, TypeUuid},
     render::texture::Image,
     utils::{BoxedFuture, HashSet},
@@ -9,33 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::Value,
-    modifier::{
-        init::InitModifier,
-        render::RenderModifier,
-        update::{ForceFieldSource, UpdateModifier},
-    },
+    modifier::{init::InitModifier, render::RenderModifier, update::UpdateModifier},
     Attribute, BoxedModifier, Gradient, ParticleLayout, Property, PropertyLayout, SimulationSpace,
     Spawner,
 };
-
-/// Struct containing snippets of WSGL code that can be used
-/// to update the particles every frame on the GPU.
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct UpdateLayout {
-    /// Constant acceleration to apply to all particles.
-    /// Generally used to simulate some kind of gravity.
-    pub accel: Vec3,
-    /// Linear drag coefficient.
-    ///
-    /// Amount of (linear) drag force applied to the particles each frame, as a
-    /// fraction of the particle's acceleration. Higher values slow down the
-    /// particle in a shorter amount of time. Defaults to zero (disabled; no
-    /// drag force).
-    pub drag_coefficient: f32,
-    /// Array of force field components with a maximum number of components
-    /// determined by [`ForceFieldSource::MAX_SOURCES`].
-    pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
-}
 
 /// Struct containing data and snippets of WSGL code that can be used
 /// to render the particles every frame on the GPU.
@@ -80,14 +57,6 @@ pub struct EffectAsset {
     pub capacity: u32,
     /// Spawner.
     pub spawner: Spawner,
-    /// Layout describing the particle update code.
-    ///
-    /// The update layout determines how all alive particles are updated each
-    /// frame. Compatible layouts increase the chance of batching together
-    /// effects.
-    #[serde(skip)] // TODO
-    #[reflect(ignore)] // TODO?
-    pub update_layout: UpdateLayout,
     /// Layout describing the particle rendering code.
     ///
     /// The render layout determines how alive particles are rendered.

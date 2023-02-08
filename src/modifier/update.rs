@@ -331,75 +331,32 @@ impl UpdateModifier for LinearDragModifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    //use crate::test_utils::*;
 
-    // #[test]
-    // fn mod_accel() {
-    //     let accel = Vec3 {
-    //         x: 1.,
-    //         y: 2.,
-    //         z: 3.,
-    //     };
-    //     let modifier = AccelModifier { accel };
+    #[test]
+    fn mod_accel() {
+        let accel = Vec3::new(1., 2., 3.);
+        let modifier = AccelModifier::constant(accel);
 
-    //     let mut layout = UpdateLayout::default();
-    //     modifier.apply(&mut layout);
+        let mut context = UpdateContext::default();
+        modifier.apply(&mut context);
 
-    //     assert_eq!(layout.accel, accel);
-    // }
+        assert!(context.update_code.contains(&accel.to_wgsl_string()));
+    }
 
-    // #[test]
-    // fn mod_force_field() {
-    //     let position = Vec3 {
-    //         x: 1.,
-    //         y: 2.,
-    //         z: 3.,
-    //     };
-    //     let mut sources = [ForceFieldSource::default(); 16];
-    //     sources[0].position = position;
-    //     sources[0].mass = 1.;
-    //     let modifier = ForceFieldModifier { sources };
+    #[test]
+    fn mod_force_field() {
+        let position = Vec3::new(1., 2., 3.);
+        let mut sources = [ForceFieldSource::default(); 16];
+        sources[0].position = position;
+        sources[0].mass = 1.;
+        let modifier = ForceFieldModifier { sources };
 
-    //     let mut layout = UpdateLayout::default();
-    //     modifier.apply(&mut layout);
+        let mut context = UpdateContext::default();
+        modifier.apply(&mut context);
 
-    //     assert!(layout.force_field[0]
-    //         .position
-    //         .abs_diff_eq(sources[0].position, 1e-5));
-    // }
-
-    // #[test]
-    // fn mod_force_field_new() {
-    //     let modifier = ForceFieldModifier::new((0..10).map(|i| {
-    //         let position = Vec3 {
-    //             x: i as f32,
-    //             y: 0.,
-    //             z: 0.,
-    //         };
-    //         ForceFieldSource {
-    //             position,
-    //             mass: 1.,
-    //             ..default()
-    //         }
-    //     }));
-
-    //     let mut context = UpdateContext::default();
-    //     modifier.apply(&mut context);
-
-    //     for i in 0..16 {
-    //         assert!(layout.force_field[i].position.abs_diff_eq(
-    //             Vec3 {
-    //                 x: if i < 10 { i as f32 } else { 0. },
-    //                 y: 0.,
-    //                 z: 0.,
-    //             },
-    //             1e-5
-    //         ));
-
-    //         let mass = if i < 10 { 1. } else { 0. };
-    //         assert_approx_eq!(layout.force_field[i].mass, mass);
-    //     }
-    // }
+        // force_field_code.wgsl is too big
+        //assert!(context.update_code.contains(&include_str!("../render/force_field_code.wgsl")));
+    }
 
     #[test]
     #[should_panic]
