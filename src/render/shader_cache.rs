@@ -9,7 +9,8 @@ use bevy::{
 /// Cache of baked shaders variants.
 ///
 /// Baked shader variants are shaders where the placeholders `{{PLACEHOLDER}}`
-/// have been replaced by actual WGSL code, making them a valid shader.
+/// present in the WGSL template code have been replaced by actual WGSL code,
+/// making them a valid shader from the point of view of the Bevy renderer.
 ///
 /// Shaders present in the cache are allocated [`Shader`] resources. Note that a
 /// [`Shader`] resource _may_ further be preprocessed to replace `#define`

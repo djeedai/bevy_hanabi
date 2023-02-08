@@ -371,6 +371,8 @@ impl InitModifier for ParticleLifetimeModifier {
 /// The particle is initialized with a fixed or randomly distributed size value,
 /// and will retain that size unless another modifier (like
 /// [`SizeOverLifetimeModifier`]) changes its size after spawning.
+///
+/// [`SizeOverLifetimeModifier`]: crate::SizeOverLifetimeModifier
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitSizeModifier {
     /// The size to initialize each particle with.

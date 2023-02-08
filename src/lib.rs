@@ -37,8 +37,8 @@
 //! can disable default features and re-enable only one of the two modes.
 //!
 //! ```toml
-//! ## Example: enable only 3D integration
-//! bevy_hanabi = { version = "0.4", default-features = false, features = ["3d"] }
+//! # Example: enable only 3D integration
+//! bevy_hanabi = { version = "0.5", default-features = false, features = ["3d"] }
 //! ```
 //!
 //! # Example
@@ -85,12 +85,17 @@
 //!         dimension: ShapeDimension::Surface,
 //!         speed: 6.0.into(),
 //!     })
+//!     // Also initialize the total lifetime of the particle, that is
+//!     // the time for which it's simulated and rendered. This modifier
+//!     // is mandatory, otherwise the particles won't show up.
+//!     .init(ParticleLifetimeModifier { lifetime: 10. })
 //!     // Every frame, add a gravity-like acceleration downward
 //!     .update(AccelModifier {
 //!         accel: Vec3::new(0., -3., 0.),
 //!     })
 //!     // Render the particles with a color gradient over their
-//!     // lifetime.
+//!     // lifetime. This maps the gradient key 0 to the particle spawn
+//!     // time, and the gradient key 1 to the particle death (here, 10s).
 //!     .render(ColorOverLifetimeModifier { gradient })
 //!     );
 //!

@@ -1,4 +1,10 @@
 //! Effect graph and language definition.
+//!
+//! This module contains the elements used to build a effect graph, a fully
+//! customizable description of a visual effect.
+//!
+//! Currently effect graphs are not yet available; only some preview elements
+//! exist. So this module is a bit empty and of little interest.
 
 use std::fmt::Debug;
 
@@ -91,55 +97,5 @@ impl From<Vec4> for Value {
 impl From<u32> for Value {
     fn from(u: u32) -> Self {
         Self::Uint(u)
-    }
-}
-
-/// A literal constant expression like `3.0` or `vec3<f32>(1.0, 2.0, 3.0)`.
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct Literal {
-    value: Value,
-}
-
-impl Literal {
-    /// Create a new literal expression from a [`Value`].
-    pub fn new<V>(value: V) -> Self
-    where
-        Value: From<V>,
-    {
-        Self {
-            value: value.into(),
-        }
-    }
-}
-
-impl ToWgslString for Literal {
-    fn to_wgsl_string(&self) -> String {
-        self.value.to_wgsl_string()
-    }
-}
-
-impl From<Value> for Literal {
-    fn from(value: Value) -> Self {
-        Self { value }
-    }
-}
-
-impl From<&Value> for Literal {
-    fn from(value: &Value) -> Self {
-        Self { value: *value }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn serde() {
-        let l: Literal = Value::Float(3.0).into();
-        let s = ron::to_string(&l).unwrap();
-        println!("literal: {:?}", s);
-        let l_serde: Literal = ron::from_str(&s).unwrap();
-        assert_eq!(l_serde, l);
     }
 }

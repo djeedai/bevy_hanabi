@@ -45,6 +45,8 @@ pub enum ValueOrProperty {
     Property(String),
     /// Reference to a named property the value is derived from, resolved to the
     /// index of that property in the owning [`EffectAsset`].
+    ///
+    /// [`EffectAsset`]: crate::EffectAsset
     ResolvedProperty((usize, String)),
 }
 

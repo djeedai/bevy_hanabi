@@ -1961,7 +1961,8 @@ pub(crate) fn prepare_effects(
 
         // extract the force field and turn it into a struct that is compliant with
         // GPU use, namely GpuForceFieldSource
-        let mut extracted_force_field = [GpuForceFieldSource::default(); ForceFieldSource::MAX_SOURCES];
+        let mut extracted_force_field =
+            [GpuForceFieldSource::default(); ForceFieldSource::MAX_SOURCES];
         for (i, ff) in extracted_effect.force_field.iter().enumerate() {
             extracted_force_field[i] = (*ff).into();
         }

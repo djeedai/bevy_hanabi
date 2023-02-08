@@ -25,6 +25,9 @@ pub(crate) fn new_rng() -> Pcg32 {
 pub struct Random(pub Pcg32);
 
 /// A constant or random value.
+///
+/// This enum represents a value which is either constant, or randomly sampled
+/// according to a given probability distribution.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Reflect, FromReflect)]
 pub enum Value<T: Copy + FromReflect> {
     /// Single constant value.
@@ -81,6 +84,15 @@ impl<T: Copy + FromReflect> From<T> for Value<T> {
 }
 
 /// Dimension-variable floating-point [`Value`].
+///
+/// This enum represents a floating-point [`Value`] whose dimension (number of
+/// components) is variable. This is mainly used where a modifier can work with
+/// multiple attribute variants like [`Attribute::SIZE`] and
+/// [`Attribute::SIZE2`] which conceptually both represent the particle size,
+/// but with different representations.
+///
+/// [`Attribute::SIZE`]: crate::Attribute::SIZE
+/// [`Attribute::SIZE2`]: crate::Attribute::SIZE2
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub enum DimValue {
     /// Scalar.

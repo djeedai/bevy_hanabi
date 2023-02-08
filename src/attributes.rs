@@ -129,7 +129,7 @@ impl Attribute {
     /// # Type
     ///
     /// [`ValueType::Uint`] representing the RGBA components of the color
-    /// encoded as 0xAABBGGRR, with a single byte per component.
+    /// encoded as `0xAABBGGRR`, with a single byte per component.
     pub const COLOR: &'static Attribute = &Attribute::new(Cow::Borrowed("color"), ValueType::Uint);
 
     /// The particle's base color (HDR).
@@ -188,6 +188,14 @@ impl Attribute {
     ///
     /// See [`Attribute::ALL`] for the list of attributes, and the
     /// [`Attribute::name()`] method of each attribute for their name.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let attr = Attribute::from_name("position").unwrap();
+    /// assert_eq!(attr, Attribute::POSITION);
+    /// ```
     pub fn from_name<'a>(name: &'a str) -> Option<&'static Attribute> {
         Attribute::ALL
             .iter()
@@ -196,6 +204,7 @@ impl Attribute {
     }
 
     /// Create a new attribute.
+    #[inline]
     pub(crate) const fn new(name: Cow<'static, str>, value_type: ValueType) -> Self {
         Self { name, value_type }
     }
@@ -204,25 +213,29 @@ impl Attribute {
     ///
     /// The name of an attribute is unique, and corresponds to the name of the
     /// variable in the generated WGSL code.
+    #[inline]
     pub fn name(&self) -> &str {
         self.name.as_ref()
     }
 
     /// The attribute's type.
+    #[inline]
     pub fn value_type(&self) -> ValueType {
         self.value_type
     }
 
     /// Size of this attribute, in bytes.
     ///
-    /// This is a shortcut for [`ValueType::size()`].
+    /// This is a shortcut for `value_type().size()`.
+    #[inline]
     pub fn size(&self) -> usize {
         self.value_type.size()
     }
 
     /// Alignment of this attribute, in bytes.
     ///
-    /// This is a shortcut for [`ValueType::align()`].
+    /// This is a shortcut for `value_type().align()`.
+    #[inline]
     pub fn align(&self) -> usize {
         self.value_type.align()
     }
