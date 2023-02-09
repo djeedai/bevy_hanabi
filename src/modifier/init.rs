@@ -266,7 +266,7 @@ impl Modifier for PositionCone3dModifier {
 impl InitModifier for PositionCone3dModifier {
     fn apply(&self, context: &mut InitContext) {
         context.init_extra += &format!(
-            r##"fn position_cone3d(particle: ptr<function, Particle>) {{
+            r##"fn position_cone3d(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
     // Truncated cone height
     let h0 = {0};
     // Random height ratio
@@ -312,7 +312,7 @@ impl InitModifier for PositionCone3dModifier {
             Attribute::VELOCITY.name(),
         );
 
-        context.init_code += "position_cone3d(&particle);\n";
+        context.init_code += "position_cone3d(transform, &particle);\n";
     }
 }
 
@@ -424,6 +424,7 @@ impl InitModifier for InitSizeModifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ParticleLayout;
 
     use naga::front::wgsl::Parser;
 
@@ -440,6 +441,15 @@ mod tests {
         for modifier in modifiers.iter() {
             let mut context = InitContext::default();
             modifier.apply(&mut context);
+            let init_code = context.init_code;
+            let init_extra = context.init_extra;
+
+            let mut particle_layout = ParticleLayout::new();
+            for attr in modifier.attributes() {
+                particle_layout = particle_layout.add(attr);
+            }
+            let particle_layout = particle_layout.build();
+            let attributes_code = particle_layout.generate_code();
 
             let code = format!(
                 r##"fn rand() -> f32 {{
@@ -453,14 +463,18 @@ struct PosVel {{
     velocity: vec3<f32>,
 }};
 
-{}
+struct Particle {{
+    {attributes_code}
+}};
+
+{init_extra}
 
 @compute @workgroup_size(64)
 fn main() {{
     var particle = Particle();
-{}
-}}"##,
-                context.init_extra, context.init_code,
+    var transform: mat4x4<f32> = mat4x4<f32>();
+{init_code}
+}}"##
             );
             //println!("code: {:?}", code);
 
