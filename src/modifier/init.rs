@@ -25,6 +25,34 @@ pub trait InitModifier: Modifier {
     fn apply(&self, context: &mut InitContext);
 }
 
+/// Macro to implement the [`Modifier`] trait for an init modifier.
+macro_rules! impl_mod_init {
+    ($t:ty, $attrs:expr) => {
+        #[typetag::serde]
+        impl Modifier for $t {
+            fn context(&self) -> ModifierContext {
+                ModifierContext::Init
+            }
+
+            fn init(&self) -> Option<&dyn InitModifier> {
+                Some(self)
+            }
+
+            fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+                Some(self)
+            }
+
+            fn attributes(&self) -> &[&'static Attribute] {
+                $attrs
+            }
+
+            fn boxed_clone(&self) -> BoxedModifier {
+                Box::new(*self)
+            }
+        }
+    };
+}
+
 /// An initialization modifier spawning particles on a circle/disc.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct PositionCircleModifier {
@@ -53,28 +81,7 @@ impl Default for PositionCircleModifier {
     }
 }
 
-#[typetag::serde]
-impl Modifier for PositionCircleModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Init
-    }
-
-    fn init(&self) -> Option<&dyn InitModifier> {
-        Some(self)
-    }
-
-    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[&'static Attribute] {
-        &[Attribute::POSITION, Attribute::VELOCITY]
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(*self)
-    }
-}
+impl_mod_init!(PositionCircleModifier, &[Attribute::POSITION, Attribute::VELOCITY]);
 
 #[typetag::serde]
 impl InitModifier for PositionCircleModifier {
@@ -138,28 +145,7 @@ pub struct PositionSphereModifier {
     pub dimension: ShapeDimension,
 }
 
-#[typetag::serde]
-impl Modifier for PositionSphereModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Init
-    }
-
-    fn init(&self) -> Option<&dyn InitModifier> {
-        Some(self)
-    }
-
-    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[&'static Attribute] {
-        &[Attribute::POSITION, Attribute::VELOCITY]
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(*self)
-    }
-}
+impl_mod_init!(PositionSphereModifier, &[Attribute::POSITION, Attribute::VELOCITY]);
 
 #[typetag::serde]
 impl InitModifier for PositionSphereModifier {
@@ -239,28 +225,7 @@ pub struct PositionCone3dModifier {
     pub dimension: ShapeDimension,
 }
 
-#[typetag::serde]
-impl Modifier for PositionCone3dModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Init
-    }
-
-    fn init(&self) -> Option<&dyn InitModifier> {
-        Some(self)
-    }
-
-    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[&'static Attribute] {
-        &[Attribute::POSITION, Attribute::VELOCITY]
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(*self)
-    }
-}
+impl_mod_init!(PositionCone3dModifier, &[Attribute::POSITION, Attribute::VELOCITY]);
 
 #[typetag::serde]
 impl InitModifier for PositionCone3dModifier {
@@ -332,28 +297,7 @@ impl Default for ParticleLifetimeModifier {
     }
 }
 
-#[typetag::serde]
-impl Modifier for ParticleLifetimeModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Init
-    }
-
-    fn init(&self) -> Option<&dyn InitModifier> {
-        Some(self)
-    }
-
-    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[&'static Attribute] {
-        &[Attribute::AGE, Attribute::LIFETIME]
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(*self)
-    }
-}
+impl_mod_init!(ParticleLifetimeModifier, &[Attribute::AGE, Attribute::LIFETIME]);
 
 #[typetag::serde]
 impl InitModifier for ParticleLifetimeModifier {

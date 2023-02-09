@@ -12,6 +12,34 @@ pub trait RenderModifier: Modifier {
     fn apply(&self, render_layout: &mut RenderLayout);
 }
 
+/// Macro to implement the [`Modifier`] trait for a render modifier.
+macro_rules! impl_mod_render {
+    ($t:ty, $attrs:expr) => {
+        #[typetag::serde]
+        impl Modifier for $t {
+            fn context(&self) -> ModifierContext {
+                ModifierContext::Render
+            }
+
+            fn render(&self) -> Option<&dyn RenderModifier> {
+                Some(self)
+            }
+
+            fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+                Some(self)
+            }
+
+            fn attributes(&self) -> &[&'static Attribute] {
+                $attrs
+            }
+
+            fn boxed_clone(&self) -> BoxedModifier {
+                Box::new(self.clone())
+            }
+        }
+    };
+}
+
 /// A modifier modulating each particle's color by sampling a texture.
 #[derive(Default, Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ParticleTextureModifier {
@@ -23,28 +51,7 @@ pub struct ParticleTextureModifier {
     pub texture: Handle<Image>,
 }
 
-#[typetag::serde]
-impl Modifier for ParticleTextureModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Render
-    }
-
-    fn render(&self) -> Option<&dyn RenderModifier> {
-        Some(self)
-    }
-
-    fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[&'static Attribute] {
-        &[] // TODO - should require some UV maybe?
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(self.clone())
-    }
-}
+impl_mod_render!(ParticleTextureModifier, &[]); // TODO - should require some UV maybe?
 
 #[typetag::serde]
 impl RenderModifier for ParticleTextureModifier {
@@ -61,28 +68,7 @@ pub struct ColorOverLifetimeModifier {
     pub gradient: Gradient<Vec4>,
 }
 
-#[typetag::serde]
-impl Modifier for ColorOverLifetimeModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Render
-    }
-
-    fn render(&self) -> Option<&dyn RenderModifier> {
-        Some(self)
-    }
-
-    fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[&'static Attribute] {
-        &[]
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(self.clone())
-    }
-}
+impl_mod_render!(ColorOverLifetimeModifier, &[]);
 
 #[typetag::serde]
 impl RenderModifier for ColorOverLifetimeModifier {
@@ -99,28 +85,7 @@ pub struct SizeOverLifetimeModifier {
     pub gradient: Gradient<Vec2>,
 }
 
-#[typetag::serde]
-impl Modifier for SizeOverLifetimeModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Render
-    }
-
-    fn render(&self) -> Option<&dyn RenderModifier> {
-        Some(self)
-    }
-
-    fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[&'static Attribute] {
-        &[]
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(self.clone())
-    }
-}
+impl_mod_render!(SizeOverLifetimeModifier, &[]);
 
 #[typetag::serde]
 impl RenderModifier for SizeOverLifetimeModifier {
@@ -133,28 +98,7 @@ impl RenderModifier for SizeOverLifetimeModifier {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct BillboardModifier;
 
-#[typetag::serde]
-impl Modifier for BillboardModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Render
-    }
-
-    fn render(&self) -> Option<&dyn RenderModifier> {
-        Some(self)
-    }
-
-    fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[&'static Attribute] {
-        &[Attribute::POSITION]
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(*self)
-    }
-}
+impl_mod_render!(BillboardModifier, &[Attribute::POSITION]);
 
 #[typetag::serde]
 impl RenderModifier for BillboardModifier {

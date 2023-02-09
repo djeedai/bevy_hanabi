@@ -32,6 +32,34 @@ pub trait UpdateModifier: Modifier {
     fn apply(&self, context: &mut UpdateContext);
 }
 
+/// Macro to implement the [`Modifier`] trait for an update modifier.
+macro_rules! impl_mod_update {
+    ($t:ty, $attrs:expr) => {
+        #[typetag::serde]
+        impl Modifier for $t {
+            fn context(&self) -> ModifierContext {
+                ModifierContext::Update
+            }
+
+            fn update(&self) -> Option<&dyn UpdateModifier> {
+                Some(self)
+            }
+
+            fn update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+                Some(self)
+            }
+
+            fn attributes(&self) -> &[&'static Attribute] {
+                $attrs
+            }
+
+            fn boxed_clone(&self) -> BoxedModifier {
+                Box::new(*self)
+            }
+        }
+    };
+}
+
 /// Constant value or reference to a named property.
 ///
 /// This enumeration either directly stores a constant value assigned at
@@ -246,28 +274,7 @@ impl ForceFieldModifier {
     }
 }
 
-#[typetag::serde]
-impl Modifier for ForceFieldModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Update
-    }
-
-    fn update(&self) -> Option<&dyn UpdateModifier> {
-        Some(self)
-    }
-
-    fn update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[&'static Attribute] {
-        &[Attribute::POSITION, Attribute::VELOCITY]
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(*self)
-    }
-}
+impl_mod_update!(ForceFieldModifier, &[Attribute::POSITION, Attribute::VELOCITY]);
 
 #[typetag::serde]
 impl UpdateModifier for ForceFieldModifier {
@@ -295,28 +302,7 @@ impl LinearDragModifier {
     }
 }
 
-#[typetag::serde]
-impl Modifier for LinearDragModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Update
-    }
-
-    fn update(&self) -> Option<&dyn UpdateModifier> {
-        Some(self)
-    }
-
-    fn update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[&'static Attribute] {
-        &[Attribute::VELOCITY]
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(*self)
-    }
-}
+impl_mod_update!(LinearDragModifier, &[Attribute::VELOCITY]);
 
 #[typetag::serde]
 impl UpdateModifier for LinearDragModifier {
