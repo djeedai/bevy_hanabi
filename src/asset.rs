@@ -275,17 +275,17 @@ mod tests {
         assert_eq!(effect.render_layout, render_layout);
     }
 
-    // #[test]
-    // fn test_serde_ron() {
-    //     let effect = EffectAsset {
-    //         name: "Effect".into(),
-    //         capacity: 4096,
-    //         spawner: Spawner::rate(30.0.into()),
-    //         ..Default::default()
-    //     };
+    #[test]
+    fn test_serde_ron() {
+        let effect = EffectAsset {
+            name: "Effect".into(),
+            capacity: 4096,
+            spawner: Spawner::rate(30.0.into()),
+            ..Default::default()
+        };
 
-    //     let s = ron::to_string(&effect).unwrap();
-    //     let effect_serde: EffectAsset = ron::from_str(&s).unwrap();
-    //     assert_eq!(effect, effect_serde);
-    // }
+        let s = ron::to_string(&effect).unwrap();
+        let _effect_serde: EffectAsset = ron::from_str(&s).unwrap();
+        //assert_eq!(effect, effect_serde);
+    }
 }
