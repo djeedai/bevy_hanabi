@@ -54,7 +54,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
     // Define a color gradient from red to transparent black
     let mut gradient = Gradient::new();
     gradient.add_key(0.0, Vec4::new(1., 0., 0., 1.)); // Red
-    gradient.add_key(1.0, ZERO); // Transparent black
+    gradient.add_key(1.0, Vec4::ZERO); // Transparent black
 
     // Create the effect asset
     let effect = effects.add(EffectAsset {
