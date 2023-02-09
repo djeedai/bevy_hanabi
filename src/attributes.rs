@@ -562,8 +562,12 @@ impl ParticleLayout {
     /// # Example
     ///
     /// ```
-    /// # let layout = AttributeLayout::new();
+    /// # use bevy_hanabi::*;
+    /// let layout = ParticleLayout::new()
+    ///     .add(Attribute::SIZE)
+    ///     .build();
     /// let has_size = layout.contains(Attribute::SIZE);
+    /// assert!(has_size);
     /// ```
     pub fn contains(&self, attribute: &'static Attribute) -> bool {
         self.layout

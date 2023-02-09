@@ -355,7 +355,8 @@ mod tests {
         modifier.apply(&mut context);
 
         // force_field_code.wgsl is too big
-        //assert!(context.update_code.contains(&include_str!("../render/force_field_code.wgsl")));
+        //assert!(context.update_code.contains(&include_str!("../render/
+        // force_field_code.wgsl")));
     }
 
     #[test]

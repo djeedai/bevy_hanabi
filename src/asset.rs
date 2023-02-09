@@ -80,7 +80,15 @@ pub struct EffectAsset {
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
     pub modifiers: Vec<BoxedModifier>,
     /// Properties of the effect.
-    pub(crate) properties: Vec<Property>,
+    ///
+    /// Properties must have a unique name. Manually adding two or more
+    /// properties with the same name will result in an invalid asset and
+    /// undefined behavior are runtime. Prefer using the [`with_property()`] and
+    /// [`add_property()`] methods for safety.
+    ///
+    /// [`with_property()`]: crate::EffectAsset::with_property
+    /// [`add_property()`]: crate::EffectAsset::add_property
+    pub properties: Vec<Property>,
 }
 
 impl EffectAsset {
@@ -106,7 +114,7 @@ impl EffectAsset {
     }
 
     /// Get the list of existing properties.
-    pub(crate) fn properties(&self) -> &[Property] {
+    pub fn properties(&self) -> &[Property] {
         &self.properties
     }
 
@@ -179,7 +187,7 @@ impl EffectAsset {
         }
 
         // For legacy compatibility reasons, and because both the motion integration and
-        // the particle aging are currently non-optional, add some default attributes.
+        // the particle aging are currently mandatory, add some default attributes.
         set.insert(Attribute::POSITION);
         set.insert(Attribute::AGE);
         set.insert(Attribute::VELOCITY);
