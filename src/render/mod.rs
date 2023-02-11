@@ -42,7 +42,7 @@ use bevy::core_pipeline::core_3d::Transparent3d;
 
 use crate::{
     asset::EffectAsset, modifier::update::ForceFieldSource, next_multiple_of, ParticleEffect,
-    RemovedEffectsEvent,
+    ParticleLayout, PropertyLayout, RemovedEffectsEvent,
 };
 
 mod aligned_buffer_vec;
@@ -171,20 +171,16 @@ struct GpuSpawnerParams {
     /// spawn time, if the effect simulated in world space, or to all
     /// simulated particles if the effect is simulated in local space.
     transform: [f32; 12],
-    /// Global acceleration applied to all particles each frame.
-    /// TODO - This is NOT a spawner/emitter thing, but is a per-effect one.
-    /// Rename GpuSpawnerParams?
-    accel: Vec3,
     /// Number of particles to spawn this frame.
     spawn: i32,
-    /// Force field components. One PullingForceFieldParam takes up 32 bytes.
-    force_field: [GpuForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Spawn seed, for randomized modifiers.
     seed: u32,
     /// Current number of used particles.
     count: i32,
     /// Index of the effect into the indirect dispatch and render buffers.
     effect_index: u32,
+    /// Force field components. One GpuForceFieldSource takes up 32 bytes.
+    force_field: [GpuForceFieldSource; ForceFieldSource::MAX_SOURCES],
 }
 
 // FIXME - min_storage_buffer_offset_alignment
@@ -321,11 +317,11 @@ impl FromWorld for DispatchIndirectPipeline {
 
 #[derive(Resource)]
 pub(crate) struct ParticlesInitPipeline {
+    /// Render device the pipeline is attached to.
+    render_device: RenderDevice,
     sim_params_layout: BindGroupLayout,
-    particles_buffer_layout: BindGroupLayout,
     spawner_buffer_layout: BindGroupLayout,
     render_indirect_layout: BindGroupLayout,
-    pipeline_layout: PipelineLayout,
 }
 
 impl FromWorld for ParticlesInitPipeline {
@@ -357,34 +353,6 @@ impl FromWorld for ParticlesInitPipeline {
                     count: None,
                 }],
                 label: Some("hanabi:bind_group_layout:update_sim_params"),
-            });
-
-        trace!("GpuParticle: min_size={}", GpuParticle::min_size());
-        let particles_buffer_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: true,
-                            min_binding_size: Some(GpuParticle::min_size()),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: true,
-                            min_binding_size: BufferSize::new(12),
-                        },
-                        count: None,
-                    },
-                ],
-                label: Some("hanabi:buffer_layout:init_particles"),
             });
 
         trace!(
@@ -425,23 +393,11 @@ impl FromWorld for ParticlesInitPipeline {
                 label: Some("hanabi:bind_group_layout:init_render_indirect"),
             });
 
-        let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("hanabi:pipeline_layout:init"),
-            bind_group_layouts: &[
-                &sim_params_layout,
-                &particles_buffer_layout,
-                &spawner_buffer_layout,
-                &render_indirect_layout,
-            ],
-            push_constant_ranges: &[],
-        });
-
         Self {
+            render_device: render_device.clone(),
             sim_params_layout,
-            particles_buffer_layout,
             spawner_buffer_layout,
             render_indirect_layout,
-            pipeline_layout,
         }
     }
 }
@@ -450,17 +406,51 @@ impl FromWorld for ParticlesInitPipeline {
 pub(crate) struct ParticleInitPipelineKey {
     /// Compute shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
+    /// Particle layout.
+    particle_layout: ParticleLayout,
 }
 
 impl SpecializedComputePipeline for ParticlesInitPipeline {
     type Key = ParticleInitPipelineKey;
 
     fn specialize(&self, key: Self::Key) -> ComputePipelineDescriptor {
+        trace!(
+            "Specialize init pipeline: particle_layout.min_binding_size={}",
+            key.particle_layout.min_binding_size()
+        );
+        let particles_buffer_layout =
+            self.render_device
+                .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Storage { read_only: false },
+                                has_dynamic_offset: true,
+                                min_binding_size: Some(key.particle_layout.min_binding_size()),
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Storage { read_only: false },
+                                has_dynamic_offset: true,
+                                min_binding_size: BufferSize::new(12),
+                            },
+                            count: None,
+                        },
+                    ],
+                    label: Some("hanabi:init_particles_buffer_layout"),
+                });
+
         ComputePipelineDescriptor {
             label: Some("hanabi:pipeline_init_compute".into()),
             layout: Some(vec![
                 self.sim_params_layout.clone(),
-                self.particles_buffer_layout.clone(),
+                particles_buffer_layout,
                 self.spawner_buffer_layout.clone(),
                 self.render_indirect_layout.clone(),
             ]),
@@ -473,11 +463,10 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
 
 #[derive(Resource)]
 pub(crate) struct ParticlesUpdatePipeline {
+    render_device: RenderDevice,
     sim_params_layout: BindGroupLayout,
-    particles_buffer_layout: BindGroupLayout,
     spawner_buffer_layout: BindGroupLayout,
     render_indirect_layout: BindGroupLayout,
-    pipeline_layout: PipelineLayout,
 }
 
 impl FromWorld for ParticlesUpdatePipeline {
@@ -509,34 +498,6 @@ impl FromWorld for ParticlesUpdatePipeline {
                     count: None,
                 }],
                 label: Some("hanabi:update_sim_params_layout"),
-            });
-
-        trace!("GpuParticle: min_size={}", GpuParticle::min_size());
-        let particles_buffer_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: true,
-                            min_binding_size: Some(GpuParticle::min_size()),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: true,
-                            min_binding_size: BufferSize::new(12),
-                        },
-                        count: None,
-                    },
-                ],
-                label: Some("hanabi:update_particles_buffer_layout"),
             });
 
         trace!(
@@ -577,23 +538,11 @@ impl FromWorld for ParticlesUpdatePipeline {
                 label: Some("hanabi:update_render_indirect_layout"),
             });
 
-        let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("hanabi:update_pipeline_layout"),
-            bind_group_layouts: &[
-                &sim_params_layout,
-                &particles_buffer_layout,
-                &spawner_buffer_layout,
-                &render_indirect_layout,
-            ],
-            push_constant_ranges: &[],
-        });
-
         Self {
+            render_device: render_device.clone(),
             sim_params_layout,
-            particles_buffer_layout,
             spawner_buffer_layout,
             render_indirect_layout,
-            pipeline_layout,
         }
     }
 }
@@ -602,17 +551,79 @@ impl FromWorld for ParticlesUpdatePipeline {
 pub(crate) struct ParticleUpdatePipelineKey {
     /// Compute shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
+    /// Particle layout.
+    particle_layout: ParticleLayout,
+    /// Property layout.
+    property_layout: PropertyLayout,
 }
 
 impl SpecializedComputePipeline for ParticlesUpdatePipeline {
     type Key = ParticleUpdatePipelineKey;
 
     fn specialize(&self, key: Self::Key) -> ComputePipelineDescriptor {
+        trace!(
+            "GpuParticle: attributes.min_binding_size={} properties.min_binding_size={}",
+            key.particle_layout.min_binding_size().get(),
+            if key.property_layout.is_empty() {
+                0
+            } else {
+                key.property_layout.min_binding_size().get()
+            },
+        );
+
+        let mut entries = vec![
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(key.particle_layout.min_binding_size()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: true,
+                    min_binding_size: BufferSize::new(12),
+                },
+                count: None,
+            },
+        ];
+        if !key.property_layout.is_empty() {
+            entries.push(BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false, // TODO
+                    min_binding_size: Some(key.property_layout.min_binding_size()),
+                },
+                count: None,
+            });
+        }
+
+        let label = "hanabi:update_particles_buffer_layout";
+        trace!(
+            "Creating particle bind group layout '{}' for update pass with {} entries.",
+            label,
+            entries.len()
+        );
+        let particles_buffer_layout =
+            self.render_device
+                .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    entries: &entries,
+                    label: Some(label),
+                });
+
         ComputePipelineDescriptor {
             label: Some("hanabi:pipeline_update_compute".into()),
             layout: Some(vec![
                 self.sim_params_layout.clone(),
-                self.particles_buffer_layout.clone(),
+                particles_buffer_layout,
                 self.spawner_buffer_layout.clone(),
                 self.render_indirect_layout.clone(),
             ]),
@@ -625,8 +636,8 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
 
 #[derive(Resource)]
 pub(crate) struct ParticlesRenderPipeline {
+    render_device: RenderDevice,
     view_layout: BindGroupLayout,
-    particles_buffer_layout: BindGroupLayout,
     material_layout: BindGroupLayout,
 }
 
@@ -648,43 +659,6 @@ impl FromWorld for ParticlesRenderPipeline {
             }],
             label: Some("hanabi:view_layout_render"),
         });
-
-        let particles_buffer_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: Some(GpuParticle::min_size()),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: true,
-                            min_binding_size: Some(GpuDispatchIndirect::min_size()),
-                        },
-                        count: None,
-                    },
-                ],
-                label: Some("hanabi:buffer_layout_render"),
-            });
 
         let material_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             entries: &[
@@ -709,8 +683,8 @@ impl FromWorld for ParticlesRenderPipeline {
         });
 
         Self {
+            render_device: render_device.clone(),
             view_layout,
-            particles_buffer_layout,
             material_layout,
         }
     }
@@ -727,6 +701,8 @@ enum PipelineMode {
 pub(crate) struct ParticleRenderPipelineKey {
     /// Render shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
+    /// Particle layout.
+    particle_layout: ParticleLayout,
     /// Key: PARTICLE_TEXTURE
     /// Define a texture sampled to modulate the particle color.
     /// This key requires the presence of UV coordinates on the particle
@@ -747,6 +723,7 @@ impl Default for ParticleRenderPipelineKey {
     fn default() -> Self {
         Self {
             shader: Handle::weak(HandleId::new(Uuid::nil(), u64::MAX)),
+            particle_layout: ParticleLayout::empty(),
             particle_texture: None,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
@@ -798,10 +775,49 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             ],
         };
 
-        let mut layout = vec![
-            self.view_layout.clone(),
-            self.particles_buffer_layout.clone(),
-        ];
+        trace!(
+            "GpuParticle: layout.min_binding_size={}",
+            key.particle_layout.min_binding_size()
+        );
+        let particles_buffer_layout = self.render_device.create_bind_group_layout(
+            &BindGroupLayoutDescriptor {
+                entries: &[
+                    BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: ShaderStages::VERTEX,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: Some(key.particle_layout.min_binding_size()),
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: ShaderStages::VERTEX,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
+                        },
+                        count: None,
+                    },
+                    BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: ShaderStages::VERTEX,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: true,
+                            min_binding_size: Some(GpuDispatchIndirect::min_size()),
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("hanabi:buffer_layout_render"),
+            },
+        );
+
+        let mut layout = vec![self.view_layout.clone(), particles_buffer_layout];
         let mut shader_defs = vec![];
 
         // Key: PARTICLE_TEXTURE
@@ -896,6 +912,13 @@ pub(crate) struct ExtractedEffect {
     /// The handle is weak to prevent refcount cycles and gracefully handle
     /// assets unloaded or destroyed after a draw call has been submitted.
     pub handle: Handle<EffectAsset>,
+    /// Particle layout for the effect.
+    pub particle_layout: ParticleLayout,
+    /// Property layout for the effect.
+    pub property_layout: PropertyLayout,
+    /// Values of properties written in a binary blob according to
+    /// [`property_layout`].
+    pub property_data: Vec<u8>,
     /// Number of particles to spawn this frame for the effect.
     /// Obtained from calling [`Spawner::tick()`] on the source effect instance.
     ///
@@ -904,9 +927,9 @@ pub(crate) struct ExtractedEffect {
     /// Global transform of the effect origin, extracted from the
     /// [`GlobalTransform`].
     pub transform: Mat4,
-    /// Constant acceleration applied to all particles.
-    pub accel: Vec3,
     /// Force field applied to all particles in the "update" phase.
+    // FIXME - Remove from here, this should be using properties. Only left here for back-compat
+    // until we have a proper graph solution to replace it.
     force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Particles tint to modulate with the texture image.
     pub color: Color,
@@ -922,12 +945,14 @@ pub(crate) struct ExtractedEffect {
     pub update_shader: Handle<Shader>,
     /// Render shader.
     pub render_shader: Handle<Shader>,
-    /// Update position code.
-    pub position_code: String,
-    /// Update force field code.
-    pub force_field_code: String,
-    /// Update lifetime code.
-    pub lifetime_code: String,
+    /// Init code.
+    pub init_code: String,
+    /// Extra init code.
+    pub init_extra: String,
+    /// Update code.
+    pub update_code: String,
+    /// Extra update code.
+    pub update_extra: String,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
     pub z_sort_key_2d: FloatOrd,
@@ -941,8 +966,11 @@ pub(crate) struct AddedEffect {
     /// Capacity of the effect (and therefore, the particle buffer), in number
     /// of particles.
     pub capacity: u32,
-    /// Size in bytes of each particle.
-    pub item_size: u32,
+    /// Layout of particle attributes.
+    pub particle_layout: ParticleLayout,
+    /// Layout of properties for the effect, if properties are used at all, or
+    /// an empty layout.
+    pub property_layout: PropertyLayout,
     /// Handle of the effect asset.
     pub handle: Handle<EffectAsset>,
 }
@@ -965,6 +993,10 @@ pub(crate) struct EffectAssetEvents {
     pub images: Vec<AssetEvent<Image>>,
 }
 
+/// System extracting all the asset events for the [`Image`] assets to enable
+/// dynamic update of images bound to any effect.
+///
+/// This system runs in parallel of [`extract_effects`].
 pub(crate) fn extract_effect_events(
     mut events: ResMut<EffectAssetEvents>,
     mut image_events: Extract<EventReader<AssetEvent<Image>>>,
@@ -997,6 +1029,8 @@ pub(crate) fn extract_effect_events(
 /// which are visible ([`ComputedVisibility::is_visible`] is `true`), and wrap
 /// the data into a new [`ExtractedEffect`] instance added to the
 /// [`ExtractedEffects`] resource.
+///
+/// This system runs in parallel of [`extract_effect_events`].
 pub(crate) fn extract_effects(
     time: Extract<Res<Time>>,
     effects: Extract<Res<Assets<EffectAsset>>>,
@@ -1056,10 +1090,20 @@ pub(crate) fn extract_effects(
         .map(|(entity, effect)| {
             let handle = effect.handle.clone_weak();
             let asset = effects.get(&effect.handle).unwrap();
+            let particle_layout = asset.particle_layout();
+            assert!(
+                particle_layout.size() > 0,
+                "Invalid empty particle layout for effect '{}' on entity {:?}. Did you forget to add some modifier to the asset?",
+                asset.name,
+                entity
+            );
+            let property_layout = asset.property_layout();
+            trace!("Found new effect: entity {:?} | capacity {} | particle_layout {:?} | property_layout {:?}", entity, asset.capacity, particle_layout, property_layout);
             AddedEffect {
                 entity,
                 capacity: asset.capacity,
-                item_size: GpuParticle::min_size().get() as u32, // effect.item_size(),
+                particle_layout,
+                property_layout,
                 handle,
             }
         })
@@ -1079,66 +1123,72 @@ pub(crate) fn extract_effects(
 
         // TEMP - see tick_spawners()
         let spawn_count = effect.spawn_count;
-        let accel = effect.accel;
-        let force_field = effect.force_field;
-        let position_code = effect.position_code.clone();
-        let force_field_code = effect.force_field_code.clone();
-        let lifetime_code = effect.lifetime_code.clone();
+        let force_field = effect.force_field; // TEMP
+        let init_code = effect.init_code.clone();
+        let init_extra = effect.init_extra.clone();
+        let update_code = effect.update_code.clone();
+        let update_extra = effect.update_extra.clone();
 
         // Check if asset is available, otherwise silently ignore
-        if let Some(asset) = effects.get(&effect.handle) {
-            let z_sort_key_2d = effect
-                .z_layer_2d
-                .map_or(FloatOrd(asset.z_layer_2d), |z_layer_2d| {
-                    FloatOrd(z_layer_2d)
-                });
+        let Some(asset) = effects.get(&effect.handle) else {
+            trace!("EffectAsset not ready; skipping ParticleEffect instance on entity {:?}.", entity);
+            continue;
+        };
 
-            extracted_effects.effects.insert(
-                entity,
-                ExtractedEffect {
-                    handle: effect.handle.clone_weak(),
-                    spawn_count,
-                    color: Color::RED, //effect.color,
-                    transform: transform.compute_matrix(),
-                    accel,
-                    force_field,
-                    rect: Rect {
-                        min: Vec2::splat(-0.1),
-                        max: Vec2::splat(0.1), // effect
-                                               //.custom_size
-                                               //.unwrap_or_else(|| Vec2::new(size.width as f32, size.height as f32)),
-                    },
-                    has_image: asset.render_layout.particle_texture.is_some(),
-                    image_handle_id: asset
-                        .render_layout
-                        .particle_texture
-                        .clone()
-                        .map_or(HandleId::default::<Image>(), |handle| handle.id()),
-                    init_shader,
-                    update_shader,
-                    render_shader,
-                    position_code,
-                    force_field_code,
-                    lifetime_code,
-                    z_sort_key_2d,
+        let z_sort_key_2d = effect
+            .z_layer_2d
+            .map_or(FloatOrd(asset.z_layer_2d), |z_layer_2d| {
+                FloatOrd(z_layer_2d)
+            });
+
+        let image_handle_id = asset
+            .render_layout
+            .particle_texture
+            .clone()
+            .unwrap_or(Handle::<Image>::default())
+            .id();
+
+        // TODO - Change detection and diff/caching to minimize CPU->GPU data transfer
+        let property_layout = asset.property_layout().clone();
+        let property_data = effect.write_properties(&property_layout);
+
+        trace!(
+            "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?}",
+            asset.name,
+            entity,
+            image_handle_id
+        );
+
+        extracted_effects.effects.insert(
+            entity,
+            ExtractedEffect {
+                handle: effect.handle.clone_weak(),
+                particle_layout: asset.particle_layout().clone(),
+                property_layout,
+                property_data,
+                spawn_count,
+                color: Color::RED, //effect.color,
+                transform: transform.compute_matrix(),
+                force_field,
+                rect: Rect {
+                    min: Vec2::splat(-0.1),
+                    max: Vec2::splat(0.1), // effect
+                                           //.custom_size
+                                           //.unwrap_or_else(|| Vec2::new(size.width as f32, size.height as f32)),
                 },
-            );
-        }
+                has_image: asset.render_layout.particle_texture.is_some(),
+                image_handle_id,
+                init_shader,
+                update_shader,
+                render_shader,
+                init_code,
+                init_extra,
+                update_code,
+                update_extra,
+                z_sort_key_2d,
+            },
+        );
     }
-}
-
-/// GPU representation of a single particle stored in a GPU buffer.
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable, ShaderType)]
-struct GpuParticle {
-    /// Particle position in effect space (local or world).
-    pub position: [f32; 3],
-    /// Current particle age in \[0:`lifetime`\].
-    pub age: f32,
-    /// Particle velocity in effect space (local or world).
-    pub velocity: [f32; 3],
-    /// Total particle lifetime.
-    pub lifetime: f32,
 }
 
 /// GPU representation of a single vertex of a particle mesh stored in a GPU
@@ -1206,11 +1256,11 @@ pub(crate) struct EffectsMeta {
     /// Bind group #0 of the vfx_indirect shader, containing both the indirect
     /// compute dispatch and render buffers.
     dr_indirect_bind_group: Option<BindGroup>,
-    /// Bind group #3 of the particles_init shader, containing the indirect
-    /// render buffer.
+    /// Bind group #3 of the vfx_init shader, containing the indirect render
+    /// buffer.
     init_render_indirect_bind_group: Option<BindGroup>,
-    /// Bind group #3 of the particles_update shader, containing the indirect
-    /// render buffer.
+    /// Bind group #3 of the vfx_update shader, containing the indirect render
+    /// buffer.
     update_render_indirect_bind_group: Option<BindGroup>,
 
     sim_params_uniforms: UniformBuffer<SimParamsUniform>,
@@ -1370,7 +1420,8 @@ impl EffectsMeta {
             let cache_id = self.effect_cache.insert(
                 added_effect.handle,
                 added_effect.capacity,
-                added_effect.item_size,
+                &added_effect.particle_layout,
+                &added_effect.property_layout,
                 //update_pipeline.pipeline.clone(),
                 render_queue,
             );
@@ -1463,8 +1514,8 @@ pub(crate) struct EffectBatch {
     spawner_base: u32,
     /// Number of particles to spawn/init this frame.
     spawn_count: u32,
-    /// Size of a single particle.
-    item_size: u32,
+    /// Particle layout.
+    particle_layout: ParticleLayout,
     /// Slice of particles in the GPU effect buffer for the entire batch.
     slice: Range<u32>,
     /// Handle of the underlying effect asset describing the effect.
@@ -1479,12 +1530,14 @@ pub(crate) struct EffectBatch {
     update_shader: Handle<Shader>,
     /// Configured shader used for the particle rendering of this batch.
     render_shader: Handle<Shader>,
-    /// Update position code.
-    position_code: String,
-    /// Update force field code.
-    force_field_code: String,
-    /// Update lifetime code.
-    lifetime_code: String,
+    /// Init code.
+    init_code: String,
+    /// Extra init code.
+    init_extra: String,
+    /// Update code.
+    update_code: String,
+    /// Extra update code.
+    update_extra: String,
     /// Init compute pipeline specialized for this batch.
     init_pipeline_id: CachedComputePipelineId,
     /// Update compute pipeline specialized for this batch.
@@ -1567,8 +1620,18 @@ pub(crate) fn prepare_effects(
         .iter()
         .map(|(entity, extracted_effect)| {
             let id = *effects_meta.entity_map.get(entity).unwrap();
+            let property_buffer = effects_meta
+                .effect_cache
+                .get_property_buffer(id)
+                .map(|buf| buf.clone()); // clone handle for lifetime
             let slice = effects_meta.effect_cache.get_slice(id);
-            (entity.index(), slice, extracted_effect, id.0 as u32)
+            (
+                entity.index(),
+                slice,
+                extracted_effect,
+                id.0 as u32,
+                property_buffer,
+            )
         })
         .collect::<Vec<_>>();
     trace!("Collected {} extracted effects", effect_entity_list.len());
@@ -1580,7 +1643,8 @@ pub(crate) fn prepare_effects(
     effects_meta.spawner_buffer.clear();
     let mut spawner_base = 0;
     let mut spawn_count = 0;
-    let mut item_size = 0;
+    let mut particle_layout = ParticleLayout::empty();
+    let property_layout = PropertyLayout::empty();
     let mut current_buffer_index = u32::MAX;
     let mut asset: Handle<EffectAsset> = Default::default();
     let mut layout_flags = LayoutFlags::NONE;
@@ -1591,14 +1655,16 @@ pub(crate) fn prepare_effects(
     let mut start = 0;
     let mut end = 0;
     let mut num_emitted = 0;
-    let mut position_code = String::default();
-    let mut force_field_code = String::default();
-    let mut lifetime_code = String::default();
+    let mut init_code = String::default();
+    let mut init_extra = String::default();
+    let mut update_code = String::default();
+    let mut update_extra = String::default();
     let mut init_pipeline_id = CachedComputePipelineId::INVALID;
     let mut update_pipeline_id = CachedComputePipelineId::INVALID;
     let mut z_sort_key_2d = FloatOrd(f32::NAN);
     let mut entities = Vec::<u32>::with_capacity(4);
-    for (entity_index, slice, extracted_effect, effect_index) in effect_entity_list {
+    for (entity_index, slice, extracted_effect, effect_index, property_buffer) in effect_entity_list
+    {
         let buffer_index = slice.group_index;
         let range = slice.slice;
         layout_flags = if extracted_effect.has_image {
@@ -1618,7 +1684,11 @@ pub(crate) fn prepare_effects(
         assert!(buffer_index >= current_buffer_index || current_buffer_index == u32::MAX);
         // FIXME - This breaks batches in 3D even though the Z sort key is only for 2D.
         // Do we need separate batches for 2D and 3D? :'(
-        if current_buffer_index != buffer_index || z_sort_key_2d != extracted_effect.z_sort_key_2d {
+        if current_buffer_index != buffer_index
+            || z_sort_key_2d != extracted_effect.z_sort_key_2d
+            || particle_layout != extracted_effect.particle_layout
+            || property_layout != extracted_effect.property_layout
+        {
             if current_buffer_index != buffer_index {
                 trace!(
                     "+ New buffer! ({} -> {})",
@@ -1638,14 +1708,15 @@ pub(crate) fn prepare_effects(
                 trace!("+ Prev: {} - {}", start, end);
                 if end > start {
                     assert_ne!(asset, Handle::<EffectAsset>::default());
-                    assert!(item_size > 0);
+                    assert!(particle_layout.size() > 0);
                     trace!(
-                        "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | item_size {} | init_shader {:?} | update_shader {:?} | render_shader {:?} | z_sort_key_2d {:?} | entities {}",
+                        "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | particle_layout {:?} | property_layout {:?} | init_shader {:?} | update_shader {:?} | render_shader {:?} | z_sort_key_2d {:?} | entities {}",
                         current_buffer_index,
                         spawner_base,
                         spawn_count,
                         start..end,
-                        item_size,
+                        particle_layout,
+                        property_layout,
                         init_shader,
                         update_shader,
                         render_shader,
@@ -1657,16 +1728,18 @@ pub(crate) fn prepare_effects(
                         spawner_base: spawner_base as u32,
                         spawn_count,
                         slice: start..end,
-                        item_size,
+                        particle_layout: std::mem::take(&mut particle_layout),
+                        //property_layout: std::mem::take(&mut property_layout),
                         handle: asset.clone_weak(),
                         layout_flags,
                         image_handle_id,
                         init_shader: init_shader.clone(),
                         update_shader: update_shader.clone(),
                         render_shader: render_shader.clone(),
-                        position_code: position_code.clone(),
-                        force_field_code: force_field_code.clone(),
-                        lifetime_code: lifetime_code.clone(),
+                        init_code: init_code.clone(),
+                        init_extra: init_extra.clone(),
+                        update_code: update_code.clone(),
+                        update_extra: update_extra.clone(),
                         init_pipeline_id,
                         update_pipeline_id,
                         z_sort_key_2d,
@@ -1685,7 +1758,7 @@ pub(crate) fn prepare_effects(
             // Each effect buffer contains effect instances with a compatible layout
             // FIXME - Currently this means same effect asset, so things are easier...
             asset = extracted_effect.handle.clone_weak();
-            item_size = slice.item_size;
+            particle_layout = slice.particle_layout.clone();
             z_sort_key_2d = extracted_effect.z_sort_key_2d;
         }
 
@@ -1693,28 +1766,34 @@ pub(crate) fn prepare_effects(
 
         // Specialize the init pipeline based on the effect
         trace!(
-            "Specializing compute pipeline: init_shader={:?}",
-            extracted_effect.init_shader
+            "Specializing compute pipeline: init_shader={:?} particle_layout={:?}",
+            extracted_effect.init_shader,
+            extracted_effect.particle_layout
         );
         init_pipeline_id = specialized_init_pipelines.specialize(
             &mut pipeline_cache,
             &init_pipeline,
             ParticleInitPipelineKey {
                 shader: extracted_effect.init_shader.clone(),
+                particle_layout: extracted_effect.particle_layout.clone(),
             },
         );
         trace!("Init pipeline specialized: id={:?}", init_pipeline_id);
 
         // Specialize the compute pipeline based on the effect
         trace!(
-            "Specializing compute pipeline: update_shader={:?}",
-            extracted_effect.update_shader
+            "Specializing compute pipeline: update_shader={:?} particle_layout={:?} property_layout={:?}",
+            extracted_effect.update_shader,
+            extracted_effect.particle_layout,
+            extracted_effect.property_layout,
         );
         update_pipeline_id = specialized_update_pipelines.specialize(
             &mut pipeline_cache,
             &update_pipeline,
             ParticleUpdatePipelineKey {
                 shader: extracted_effect.update_shader.clone(),
+                particle_layout: extracted_effect.particle_layout.clone(),
+                property_layout: extracted_effect.property_layout.clone(),
             },
         );
         trace!("Update pipeline specialized: id={:?}", update_pipeline_id);
@@ -1728,16 +1807,19 @@ pub(crate) fn prepare_effects(
         render_shader = extracted_effect.render_shader.clone();
         trace!("render_shader = {:?}", render_shader);
 
-        trace!("item_size = {}B", slice.item_size);
+        trace!("particle_layout = {:?}", slice.particle_layout);
 
-        position_code = extracted_effect.position_code.clone();
-        trace!("position_code = {}", position_code);
+        init_code = extracted_effect.init_code.clone();
+        //trace!("init_code = {}", init_code);
 
-        force_field_code = extracted_effect.force_field_code.clone();
-        trace!("force_field_code = {}", force_field_code);
+        init_extra = extracted_effect.init_extra.clone();
+        //trace!("init_extra = {}", init_extra);
 
-        lifetime_code = extracted_effect.lifetime_code.clone();
-        trace!("lifetime_code = {}", lifetime_code);
+        update_code = extracted_effect.update_code.clone();
+        //trace!("update_code = {}", update_code);
+
+        update_extra = extracted_effect.update_extra.clone();
+        //trace!("update_extra = {}", update_extra);
 
         trace!("z_sort_key_2d = {:?}", z_sort_key_2d);
 
@@ -1767,28 +1849,33 @@ pub(crate) fn prepare_effects(
                 tr[0], tr[1], tr[2], tr[3], tr[4], tr[5], tr[6], tr[7], tr[8], tr[9], tr[10],
                 tr[11],
             ],
-            accel: extracted_effect.accel,
-            force_field: extracted_force_field, // extracted_effect.force_field,
-            seed: random::<u32>(),
+            force_field: extracted_force_field,
+            seed: random::<u32>(), // FIXME - Probably bad to re-seed each time there's a change
             effect_index,
         };
         trace!("spawner_params = {:?}", spawner_params);
         effects_meta.spawner_buffer.push(spawner_params);
 
+        // Write properties for this effect.
+        // FIXME - This doesn't work with batching!
+        if let Some(property_buffer) = property_buffer {
+            render_queue.write_buffer(&property_buffer, 0, &extracted_effect.property_data);
+        }
+
         trace!("slice = {}-{} | prev end = {}", range.start, range.end, end);
-        if (range.start > end) || (item_size != slice.item_size) {
+        if (range.start > end) || (particle_layout != slice.particle_layout) {
             // Discontinuous slices; create a new batch
             if end > start {
                 // Record the previous batch
                 assert_ne!(asset, Handle::<EffectAsset>::default());
-                assert!(item_size > 0);
+                assert!(particle_layout.size() > 0);
                 trace!(
-                    "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | item_size {} | update_shader {:?} | render_shader {:?} | entities {}",
+                    "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | particle_layout {:?} | update_shader {:?} | render_shader {:?} | entities {}",
                     buffer_index,
                     spawner_base,
                     spawn_count,
                     start..end,
-                    item_size,
+                    particle_layout,
                     update_shader,
                     render_shader,
                     entities.len(),
@@ -1798,16 +1885,17 @@ pub(crate) fn prepare_effects(
                     spawner_base: spawner_base as u32,
                     spawn_count,
                     slice: start..end,
-                    item_size,
+                    particle_layout: std::mem::take(&mut particle_layout),
                     handle: asset.clone_weak(),
                     layout_flags,
                     image_handle_id,
                     init_shader: init_shader.clone(),
                     update_shader: update_shader.clone(),
                     render_shader: render_shader.clone(),
-                    position_code: position_code.clone(),
-                    force_field_code: force_field_code.clone(),
-                    lifetime_code: lifetime_code.clone(),
+                    init_code: init_code.clone(),
+                    init_extra: init_extra.clone(),
+                    update_code: update_code.clone(),
+                    update_extra: update_extra.clone(),
                     init_pipeline_id,
                     update_pipeline_id,
                     z_sort_key_2d,
@@ -1816,7 +1904,7 @@ pub(crate) fn prepare_effects(
                 num_emitted += 1;
             }
             start = range.start;
-            item_size = slice.item_size;
+            particle_layout = slice.particle_layout.clone();
         }
         end = range.end;
     }
@@ -1824,14 +1912,14 @@ pub(crate) fn prepare_effects(
     // Record last open batch if any
     if end > start {
         assert_ne!(asset, Handle::<EffectAsset>::default());
-        assert!(item_size > 0);
+        assert!(particle_layout.size() > 0);
         trace!(
-            "Emit LAST batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | item_size {} | update_shader {:?} | render_shader {:?} | entities {}",
+            "Emit LAST batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | particle_layout {:?} | update_shader {:?} | render_shader {:?} | entities {}",
             current_buffer_index,
             spawner_base,
             spawn_count,
             start..end,
-            item_size,
+            particle_layout,
             update_shader,
             render_shader,
             entities.len(),
@@ -1841,16 +1929,17 @@ pub(crate) fn prepare_effects(
             spawner_base: spawner_base as u32,
             spawn_count,
             slice: start..end,
-            item_size,
+            particle_layout,
             handle: asset.clone_weak(),
             layout_flags,
             image_handle_id,
             init_shader,
             update_shader,
             render_shader,
-            position_code,
-            force_field_code,
-            lifetime_code,
+            init_code,
+            init_extra,
+            update_code,
+            update_extra,
             init_pipeline_id,
             update_pipeline_id,
             z_sort_key_2d,
@@ -1910,11 +1999,28 @@ pub(crate) fn prepare_effects(
 
 /// Per-buffer bind groups for the GPU particle buffer.
 pub(crate) struct BufferBindGroups {
-    /// Bind group for the init shader.
+    /// Bind group for the init compute shader.
+    ///
+    /// ```wgsl
+    /// @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
+    /// @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
+    /// ```
     init: BindGroup,
-    /// Bind group for the update shader.
+    /// Bind group for the update compute shader.
+    ///
+    /// ```wgsl
+    /// @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
+    /// @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
+    /// @binding(2) var<storage, read> properties : Properties; // optional
+    /// ```
     update: BindGroup,
-    /// Bind group for the render shader.
+    /// Bind group for the render graphic shader.
+    ///
+    /// ```wgsl
+    /// @binding(0) var<storage, read> particle_buffer : ParticlesBuffer;
+    /// @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
+    /// @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
+    /// ```
     render: BindGroup,
 }
 
@@ -2151,10 +2257,14 @@ pub(crate) fn queue_effects(
             .entry(buffer_index as u32)
             .or_insert_with(|| {
                 trace!(
-                    "Create new particle bind group for buffer_index={}",
-                    buffer_index
+                    "Create new particle bind groups for buffer_index={} | particle_layout {:?} | property_layout {:?}",
+                    buffer_index,
+                    buffer.particle_layout(),
+                    buffer.property_layout(),
                 );
 
+                let label = format!("hanabi:bind_group_init_vfx{buffer_index}_particles");
+                trace!("=> create init bind group '{}' with 2 entries", label);
                 let init = render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &[
                         BindGroupEntry {
@@ -2166,15 +2276,15 @@ pub(crate) fn queue_effects(
                             resource: buffer.indirect_max_binding(),
                         },
                     ],
-                    label: Some(&format!(
-                        "hanabi:bind_group_init_vfx{buffer_index}_particles"
-                    )),
-                    layout: &read_params.init_pipeline.particles_buffer_layout,
+                    label: Some(&label),
+                    layout: buffer.particle_layout_bind_group_init(),
                 });
 
-                // FIXME - Same as init above; reuse?
-                let update = render_device.create_bind_group(&BindGroupDescriptor {
-                    entries: &[
+                // FIXME - If same as init above, reuse?
+                let layout = buffer.particle_layout_bind_group_update();
+                let label = format!("hanabi:bind_group_update_vfx{}_particles", buffer_index);
+                let update = if let Some(property_binding) = buffer.properties_max_binding() {
+                    let entries = [
                         BindGroupEntry {
                             binding: 0,
                             resource: buffer.max_binding(),
@@ -2183,12 +2293,35 @@ pub(crate) fn queue_effects(
                             binding: 1,
                             resource: buffer.indirect_max_binding(),
                         },
-                    ],
-                    label: Some(&format!(
-                        "hanabi:bind_group_update_vfx{buffer_index}_particles"
-                    )),
-                    layout: &read_params.update_pipeline.particles_buffer_layout,
-                });
+                        BindGroupEntry {
+                            binding: 2,
+                            resource: property_binding,
+                        },
+                    ];
+                    trace!("=> create update bind group '{}' with 3 entries", label);
+                    render_device.create_bind_group(&BindGroupDescriptor {
+                        entries: &entries,
+                        label: Some(&label),
+                        layout,
+                    })
+                } else {
+                    let entries = [
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: buffer.max_binding(),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: buffer.indirect_max_binding(),
+                        },
+                    ];
+                    trace!("=> create update bind group '{}' with 2 entries", label);
+                    render_device.create_bind_group(&BindGroupDescriptor {
+                        entries: &entries,
+                        label: Some(&label),
+                        layout,
+                    })
+                };
 
                 let render = render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &[
@@ -2212,7 +2345,7 @@ pub(crate) fn queue_effects(
                     label: Some(&format!(
                         "hanabi:bind_group_render_vfx{buffer_index}_particles",
                     )),
-                    layout: &read_params.render_pipeline.particles_buffer_layout,
+                    layout: buffer.particle_layout_bind_group_with_dispatch(),
                 });
 
                 BufferBindGroups {
@@ -2333,8 +2466,9 @@ pub(crate) fn queue_effects(
                     &mut pipeline_cache,
                     &read_params.render_pipeline,
                     ParticleRenderPipelineKey {
-                        particle_texture,
                         shader: batch.render_shader.clone(),
+                        particle_layout: batch.particle_layout.clone(),
+                        particle_texture,
                         #[cfg(feature = "3d")]
                         pipeline_mode: PipelineMode::Camera2d,
                         msaa_samples: msaa.samples,
@@ -2466,8 +2600,9 @@ pub(crate) fn queue_effects(
                     &mut pipeline_cache,
                     &read_params.render_pipeline,
                     ParticleRenderPipelineKey {
-                        particle_texture,
                         shader: batch.render_shader.clone(),
+                        particle_layout: batch.particle_layout.clone(),
+                        particle_texture,
                         #[cfg(feature = "2d")]
                         pipeline_mode: PipelineMode::Camera3d,
                         msaa_samples: msaa.samples,
@@ -2771,7 +2906,7 @@ impl Node for VfxSimulateNode {
                             .particle_init(batch.buffer_index)
                             .unwrap();
 
-                        let item_size = batch.item_size;
+                        let item_size = batch.particle_layout.min_binding_size();
                         let item_count = batch.slice.end - batch.slice.start;
 
                         let spawner_base = batch.spawner_base;
@@ -2901,7 +3036,7 @@ impl Node for VfxSimulateNode {
                         .particle_update(batch.buffer_index)
                         .unwrap();
 
-                    let item_size = batch.item_size;
+                    let item_size = batch.particle_layout.size();
                     let item_count = batch.slice.end - batch.slice.start;
 
                     let spawner_base = batch.spawner_base;

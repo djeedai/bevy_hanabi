@@ -1,17 +1,60 @@
 //! Modifiers to initialize particles when they spawn.
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
-use crate::{asset::InitLayout, modifier::ShapeDimension, ToWgslString, Value};
+use crate::{
+    modifier::ShapeDimension, Attribute, BoxedModifier, DimValue, Modifier, ModifierContext,
+    ToWgslString, Value,
+};
+
+/// Particle initializing shader code generation context.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct InitContext {
+    /// Main particle initializing code, which needs to assign the fields of the
+    /// `particle` struct instance.
+    pub init_code: String,
+    /// Extra functions emitted at top level, which `init_code` can call.
+    pub init_extra: String,
+}
 
 /// Trait to customize the initializing of newly spawned particles.
-pub trait InitModifier {
-    /// Apply the modifier to the init layout of the effect instance.
-    fn apply(&self, init_layout: &mut InitLayout);
+#[typetag::serde]
+pub trait InitModifier: Modifier {
+    /// Append the initializing code.
+    fn apply(&self, context: &mut InitContext);
+}
+
+/// Macro to implement the [`Modifier`] trait for an init modifier.
+macro_rules! impl_mod_init {
+    ($t:ty, $attrs:expr) => {
+        #[typetag::serde]
+        impl Modifier for $t {
+            fn context(&self) -> ModifierContext {
+                ModifierContext::Init
+            }
+
+            fn as_init(&self) -> Option<&dyn InitModifier> {
+                Some(self)
+            }
+
+            fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+                Some(self)
+            }
+
+            fn attributes(&self) -> &[&'static Attribute] {
+                $attrs
+            }
+
+            fn boxed_clone(&self) -> BoxedModifier {
+                Box::new(*self)
+            }
+        }
+    };
 }
 
 /// An initialization modifier spawning particles on a circle/disc.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct PositionCircleModifier {
     /// The circle center, relative to the emitter position.
     pub center: Vec3,
@@ -38,8 +81,14 @@ impl Default for PositionCircleModifier {
     }
 }
 
+impl_mod_init!(
+    PositionCircleModifier,
+    &[Attribute::POSITION, Attribute::VELOCITY]
+);
+
+#[typetag::serde]
 impl InitModifier for PositionCircleModifier {
-    fn apply(&self, init_layout: &mut InitLayout) {
+    fn apply(&self, context: &mut InitContext) {
         let (tangent, bitangent) = self.axis.any_orthonormal_pair();
 
         let radius_code = match self.dimension {
@@ -54,9 +103,8 @@ impl InitModifier for PositionCircleModifier {
             }
         };
 
-        init_layout.position_code = format!(
-            r##"
-    // >>> [PositionCircleModifier]
+        context.init_extra += &format!(
+            r##"fn position_circle(particle: ptr<function, Particle>) {{
     // Circle center
     let c = {};
     // Circle basis
@@ -69,22 +117,26 @@ impl InitModifier for PositionCircleModifier {
     // Spawn random point on/in circle
     let theta = rand() * tau;
     let dir = tangent * cos(theta) + bitangent * sin(theta);
-    ret.pos = c + r * dir + transform[3].xyz;
+    (*particle).{} = c + r * dir;
     // Velocity away from center
-    ret.vel = dir * speed;
-    // <<< [PositionCircleModifier]
-            "##,
+    (*particle).{} = dir * speed;
+}}
+"##,
             self.center.to_wgsl_string(),
             tangent.to_wgsl_string(),
             bitangent.to_wgsl_string(),
             radius_code,
-            self.speed.to_wgsl_string()
+            self.speed.to_wgsl_string(),
+            Attribute::POSITION.name(),
+            Attribute::VELOCITY.name(),
         );
+
+        context.init_code += "position_circle(&particle);\n";
     }
 }
 
 /// An initialization modifier spawning particles on a sphere.
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct PositionSphereModifier {
     /// The sphere center, relative to the emitter position.
     pub center: Vec3,
@@ -96,8 +148,14 @@ pub struct PositionSphereModifier {
     pub dimension: ShapeDimension,
 }
 
+impl_mod_init!(
+    PositionSphereModifier,
+    &[Attribute::POSITION, Attribute::VELOCITY]
+);
+
+#[typetag::serde]
 impl InitModifier for PositionSphereModifier {
-    fn apply(&self, init_layout: &mut InitLayout) {
+    fn apply(&self, context: &mut InitContext) {
         let radius_code = match self.dimension {
             ShapeDimension::Surface => {
                 // Constant radius
@@ -113,15 +171,15 @@ impl InitModifier for PositionSphereModifier {
                 )
             }
         };
-        init_layout.position_code = format!(
-            r##"
-    // >>> [PositionSphereModifier]
+
+        context.init_extra += &format!(
+            r##"fn position_sphere(particle: ptr<function, Particle>) {{
     // Sphere center
-    let c = {0};
+    let c = {};
     // Sphere radius
-    {1}
+    {}
     // Radial speed
-    let speed = {2};
+    let speed = {};
     // Spawn randomly along the sphere surface using Archimedes's theorem
     var theta = rand() * tau;
     var z = rand() * 2. - 1.;
@@ -130,15 +188,19 @@ impl InitModifier for PositionSphereModifier {
     var x = sinphi * cos(theta);
     var y = sinphi * sin(theta);
     var dir = vec3<f32>(x, y, z);
-    ret.pos = c + r * dir + transform[3].xyz;
+    (*particle).{} = c + r * dir;
     // Radial velocity away from sphere center
-    ret.vel = dir * speed;
-    // <<< [PositionSphereModifier]
+    (*particle).{} = dir * speed;
+}}
 "##,
             self.center.to_wgsl_string(),
             radius_code,
-            self.speed.to_wgsl_string()
+            self.speed.to_wgsl_string(),
+            Attribute::POSITION.name(),
+            Attribute::VELOCITY.name(),
         );
+
+        context.init_code += "position_sphere(&particle);\n";
     }
 }
 
@@ -154,7 +216,7 @@ impl InitModifier for PositionSphereModifier {
 ///
 /// The particle velocity is initialized to a random speed along the direction
 /// going from the cone apex to the particle position.
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct PositionCone3dModifier {
     /// The cone height along its axis, between the base and top radii.
     pub height: f32,
@@ -169,29 +231,16 @@ pub struct PositionCone3dModifier {
     pub dimension: ShapeDimension,
 }
 
+impl_mod_init!(
+    PositionCone3dModifier,
+    &[Attribute::POSITION, Attribute::VELOCITY]
+);
+
+#[typetag::serde]
 impl InitModifier for PositionCone3dModifier {
-    fn apply(&self, init_layout: &mut InitLayout) {
-        if matches!(self.dimension, ShapeDimension::Surface) {
-            unimplemented!("TODO");
-        }
-        // let radius_code = match self.dimension {
-        //     ShapeDimension::Surface => {
-        //         // Constant radius
-        //         format!("let r = {};", self.radius.to_wgsl_string())
-        //     }
-        //     ShapeDimension::Volume => {
-        //         // Radius uniformly distributed in [0:1], then scaled by ^(1/3) in 3D
-        //         // to account for the increased surface covered by increased radii.
-        //         // https://stackoverflow.com/questions/54544971/how-to-generate-uniform-random-points-inside-d-dimension-ball-sphere
-        //         format!(
-        //             "var r = pow(rand(), 1./3.) * {};",
-        //             self.radius.to_wgsl_string()
-        //         )
-        //     }
-        // };
-        init_layout.position_code = format!(
-            r##"
-    // >>> [PositionCone3dModifier]
+    fn apply(&self, context: &mut InitContext) {
+        context.init_extra += &format!(
+            r##"fn position_cone3d(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
     // Truncated cone height
     let h0 = {0};
     // Random height ratio
@@ -218,44 +267,143 @@ impl InitModifier for PositionCone3dModifier {
     let z = r * sint;
     let p = vec3<f32>(x, y, z);
     let p2 = transform * vec4<f32>(p, 1.0);
-    ret.pos = p2.xyz;
+    (*particle).{3} = p2.xyz;
     // Emit direction
     let rb2 = rb * alpha_r;
     let pb = vec3<f32>(rb2 * cost, h0, rb2 * sint);
     let dir = transform * vec4<f32>(normalize(pb - p), 0.0);
     // Emit speed
-    let speed = {3};
+    let speed = {4};
     // Velocity away from cone top/apex
-    ret.vel = dir.xyz * speed;
-    // <<< [PositionCone3dModifier]
+    (*particle).{5} = dir.xyz * speed;
+}}
 "##,
             self.height.to_wgsl_string(),
             self.top_radius.to_wgsl_string(),
             self.base_radius.to_wgsl_string(),
+            Attribute::POSITION.name(),
             self.speed.to_wgsl_string(),
+            Attribute::VELOCITY.name(),
+        );
+
+        context.init_code += "position_cone3d(transform, &particle);\n";
+    }
+}
+
+/// A modifier to set the initial age of particles.
+///
+/// Particles with an age attribute are aged each frame based on the frame's
+/// delta time. Various other modifiers use that age to smoothly vary some
+/// quantities, like [`SizeOverLifetimeModifier`].
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct InitAgeModifier {
+    /// The initial age of a particle when it spawns, in seconds.
+    pub age: Value<f32>,
+}
+
+impl Default for InitAgeModifier {
+    fn default() -> Self {
+        Self { age: 0_f32.into() }
+    }
+}
+
+impl_mod_init!(InitAgeModifier, &[Attribute::AGE]);
+
+#[typetag::serde]
+impl InitModifier for InitAgeModifier {
+    fn apply(&self, context: &mut InitContext) {
+        context.init_code += &format!(
+            "particle.{} = {};\n",
+            Attribute::AGE.name(),
+            self.age.to_wgsl_string()
         );
     }
 }
 
 /// A modifier to set the lifetime of all particles.
 ///
-/// Particles with a lifetime are aged each frame by the frame's delta time, and
-/// are despawned once their age is greater than or equal to their lifetime.
-#[derive(Default, Clone, Copy)]
-pub struct ParticleLifetimeModifier {
+/// Particles with a lifetime are despawned once their age is greater than or
+/// equal to their lifetime.
+///
+/// The default lifetime is 5 seconds.
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct InitLifetimeModifier {
     /// The lifetime of all particles when they spawn, in seconds.
-    pub lifetime: f32,
+    pub lifetime: Value<f32>,
 }
 
-impl InitModifier for ParticleLifetimeModifier {
-    fn apply(&self, init_layout: &mut InitLayout) {
-        init_layout.lifetime_code = format!(
-            r##"
-    // >>> [ParticleLifetimeModifier]
-    ret = {0};
-    // <<< [ParticleLifetimeModifier]
-"##,
-            self.lifetime.to_wgsl_string(),
+impl Default for InitLifetimeModifier {
+    fn default() -> Self {
+        Self {
+            lifetime: 5_f32.into(),
+        }
+    }
+}
+
+impl_mod_init!(InitLifetimeModifier, &[Attribute::LIFETIME]);
+
+#[typetag::serde]
+impl InitModifier for InitLifetimeModifier {
+    fn apply(&self, context: &mut InitContext) {
+        context.init_code += &format!(
+            "particle.{} = {};\n",
+            Attribute::LIFETIME.name(),
+            self.lifetime.to_wgsl_string()
+        );
+    }
+}
+
+/// Modifier to initialize the per-particle size attribute.
+///
+/// The particle is initialized with a fixed or randomly distributed size value,
+/// and will retain that size unless another modifier (like
+/// [`SizeOverLifetimeModifier`]) changes its size after spawning.
+///
+/// [`SizeOverLifetimeModifier`]: crate::SizeOverLifetimeModifier
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct InitSizeModifier {
+    /// The size to initialize each particle with.
+    ///
+    /// Only [`DimValue::D1`] and [`DimValue::D2`] are valid. The former
+    /// requires the [`Attribute::SIZE`] attribute in the particle layout, while
+    /// the latter requires the [`Attribute::SIZE2`] attribute.
+    pub size: DimValue,
+}
+
+#[typetag::serde]
+impl Modifier for InitSizeModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Init
+    }
+
+    fn as_init(&self) -> Option<&dyn InitModifier> {
+        Some(self)
+    }
+
+    fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+        Some(self)
+    }
+
+    fn attributes(&self) -> &[&'static Attribute] {
+        match self.size {
+            DimValue::D1(_) => &[Attribute::SIZE],
+            DimValue::D2(_) => &[Attribute::SIZE2],
+            _ => panic!("Invalid dimension for InitSizeModifier; only 1D and 2D values are valid."),
+        }
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+}
+
+#[typetag::serde]
+impl InitModifier for InitSizeModifier {
+    fn apply(&self, context: &mut InitContext) {
+        context.init_code += &format!(
+            "particle.{} = {};\n",
+            Attribute::SIZE.name(),
+            self.size.to_wgsl_string(),
         );
     }
 }
@@ -263,6 +411,7 @@ impl InitModifier for ParticleLifetimeModifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ParticleLayout;
 
     use naga::front::wgsl::Parser;
 
@@ -277,8 +426,17 @@ mod tests {
             },
         ];
         for modifier in modifiers.iter() {
-            let mut layout = InitLayout::default();
-            modifier.apply(&mut layout);
+            let mut context = InitContext::default();
+            modifier.apply(&mut context);
+            let init_code = context.init_code;
+            let init_extra = context.init_extra;
+
+            let mut particle_layout = ParticleLayout::new();
+            for attr in modifier.attributes() {
+                particle_layout = particle_layout.add(attr);
+            }
+            let particle_layout = particle_layout.build();
+            let attributes_code = particle_layout.generate_code();
 
             let code = format!(
                 r##"fn rand() -> f32 {{
@@ -288,17 +446,22 @@ mod tests {
 let tau: f32 = 6.283185307179586476925286766559;
 
 struct PosVel {{
-    pos: vec3<f32>,
-    vel: vec3<f32>,
+    position: vec3<f32>,
+    velocity: vec3<f32>,
 }};
 
+struct Particle {{
+    {attributes_code}
+}};
+
+{init_extra}
+
 @compute @workgroup_size(64)
-fn init_pos_vel(index: u32, transform: mat4x4<f32>) -> PosVel {{
-    var ret : PosVel;
-{0}
-    return ret;
-}}"##,
-                layout.position_code
+fn main() {{
+    var particle = Particle();
+    var transform: mat4x4<f32> = mat4x4<f32>();
+{init_code}
+}}"##
             );
             //println!("code: {:?}", code);
 

@@ -17,7 +17,7 @@
             break;
         }
 
-        let particle_to_point_source = vPos - spawner.force_field[kk].position;
+        let particle_to_point_source = (*particle).position - spawner.force_field[kk].position;
         let distance = length(particle_to_point_source);
         let unit_p2p = normalize(particle_to_point_source) ;
 
@@ -62,22 +62,22 @@
     // conform to a sphere of radius min_radius/2 by projecting the velocity vector
     // onto a plane that is tangent to the sphere.
     let eps = vec3<f32>(0.000001);
-    let projected_on_sphere = vVel - proj(unit_p2p_conformed + eps, vVel + eps);
-    let conformed_field = 
-        (1.0 - not_conformed_to_sphere) * normalize(projected_on_sphere) * length(vVel);
+    let projected_on_sphere = (*particle).velocity - proj(unit_p2p_conformed + eps, (*particle).velocity + eps);
+    let conformed_field = (1.0 - not_conformed_to_sphere) * normalize(projected_on_sphere) * length((*particle).velocity);
 
     // Euler integration
-    vVel = (vVel + (spawner.accel  + ff_acceleration) * sim_params.dt) 
-        * not_conformed_to_sphere + conformed_field;
+    //(*particle).velocity = ((*particle).velocity + (spawner.accel  + ff_acceleration) * sim_params.dt) * not_conformed_to_sphere + conformed_field;
+    (*particle).velocity += ff_acceleration * sim_params.dt;
+    (*particle).velocity = (*particle).velocity * not_conformed_to_sphere + conformed_field; // TODO: lerp()
 
-    // let temp_vPos = vPos;
-    vPos = (vPos + (vVel * sim_params.dt));
+    // // let temp_vPos = (*particle).position;
+    // (*particle).position = (*particle).position + (*particle).velocity * sim_params.dt;
     
     // project on the sphere if within conforming distance
-    let pos_to_source = conforming_source - vPos ;
+    let pos_to_source = conforming_source - (*particle).position;
     let difference = length(pos_to_source) - conforming_radius;
-    vPos = vPos  + difference * normalize(pos_to_source ) * (1.0 - not_conformed_to_sphere) ;
+    (*particle).position = (*particle).position  + difference * normalize(pos_to_source) * (1.0 - not_conformed_to_sphere);
 
-    // // commented because of the potential bug where dt could be zero, although the simulation
-    // // works anyways, needs investigation
-    // vVel = (vPos - temp_vPos) / sim_params.dt;
+    // // // commented because of the potential bug where dt could be zero, although the simulation
+    // // // works anyways, needs investigation
+    // // (*particle).velocity = ((*particle).position - temp_vPos) / sim_params.dt;

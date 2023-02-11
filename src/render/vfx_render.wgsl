@@ -11,10 +11,7 @@ struct View {
 };
 
 struct Particle {
-    pos: vec3<f32>,
-    age: f32,
-    vel: vec3<f32>,
-    lifetime: f32,
+{{ATTRIBUTES}}
 };
 
 struct ParticlesBuffer {
@@ -88,6 +85,7 @@ fn vertex(
 #endif
 
     var size = vec2<f32>(1.0, 1.0);
+    {{SIZE}}
 
 {{VERTEX_MODIFIERS}}
 

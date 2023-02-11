@@ -58,9 +58,8 @@ fn make_effect(color: Color) -> EffectAsset {
         dimension: ShapeDimension::Surface,
         speed: 6.0.into(),
     })
-    .update(AccelModifier {
-        accel: Vec3::new(0., -3., 0.),
-    })
+    .init(ParticleLifetimeModifier { lifetime: 5. })
+    .update(AccelModifier::constant(Vec3::new(0., -3., 0.)))
     .render(ColorOverLifetimeModifier {
         gradient: color_gradient,
     })

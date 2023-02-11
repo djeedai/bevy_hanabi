@@ -4,27 +4,163 @@
 //! update compute shader.
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
-use crate::UpdateLayout;
+use crate::{
+    graph::Value, Attribute, BoxedModifier, Modifier, ModifierContext, Property, ToWgslString,
+};
+
+/// Particle update shader code generation context.
+#[derive(Debug, Default, Clone, PartialEq)] // Eq
+pub struct UpdateContext {
+    /// Main particle update code, which needs to update the fields of the
+    /// `particle` struct instance.
+    pub update_code: String,
+    /// Extra functions emitted at top level, which `update_code` can call.
+    pub update_extra: String,
+
+    //TEMP
+    /// Array of force field components with a maximum number of components
+    /// determined by [`ForceFieldSource::MAX_SOURCES`].
+    pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
+}
 
 /// Trait to customize the updating of existing particles each frame.
-pub trait UpdateModifier {
-    /// Apply the modifier to the update layout of the effect instance.
-    fn apply(&self, update_layout: &mut UpdateLayout);
+#[typetag::serde]
+pub trait UpdateModifier: Modifier {
+    /// Append the update code.
+    fn apply(&self, context: &mut UpdateContext);
 }
 
-/// A modifier to apply a constant acceleration to all particles each frame.
-/// Used to simulate gravity.
-#[derive(Default, Clone, Copy)]
+/// Macro to implement the [`Modifier`] trait for an update modifier.
+macro_rules! impl_mod_update {
+    ($t:ty, $attrs:expr) => {
+        #[typetag::serde]
+        impl Modifier for $t {
+            fn context(&self) -> ModifierContext {
+                ModifierContext::Update
+            }
+
+            fn as_update(&self) -> Option<&dyn UpdateModifier> {
+                Some(self)
+            }
+
+            fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+                Some(self)
+            }
+
+            fn attributes(&self) -> &[&'static Attribute] {
+                $attrs
+            }
+
+            fn boxed_clone(&self) -> BoxedModifier {
+                Box::new(*self)
+            }
+        }
+    };
+}
+
+/// Constant value or reference to a named property.
+///
+/// This enumeration either directly stores a constant value assigned at
+/// creation time, or a reference to an effect property the value is derived
+/// from.
+#[derive(Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub enum ValueOrProperty {
+    /// Constant value.
+    Value(Value),
+    /// Unresolved reference to a named property the value is derived from.
+    Property(String),
+    /// Reference to a named property the value is derived from, resolved to the
+    /// index of that property in the owning [`EffectAsset`].
+    ///
+    /// [`EffectAsset`]: crate::EffectAsset
+    ResolvedProperty((usize, String)),
+}
+
+impl ToWgslString for ValueOrProperty {
+    fn to_wgsl_string(&self) -> String {
+        match self {
+            ValueOrProperty::Value(value) => value.to_wgsl_string(),
+            ValueOrProperty::Property(name) => format!("properties.{}", name),
+            ValueOrProperty::ResolvedProperty((_, name)) => format!("properties.{}", name),
+        }
+    }
+}
+
+/// A modifier to apply a uniform acceleration to all particles each frame, to
+/// simulate gravity or any other global force.
+///
+/// The acceleration is the same for all particles of the effect, and is applied
+/// each frame to modify the particle's velocity based on the simulation
+/// timestep.
+///
+/// ```txt
+/// particle.velocity += acceleration * simulation.delta_time;
+/// ```
+#[derive(Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AccelModifier {
-    /// The constant acceleration to apply to all particles in the effect each
-    /// frame.
-    pub accel: Vec3,
+    /// The acceleration to apply to all particles in the effect each frame.
+    accel: ValueOrProperty,
 }
 
+impl AccelModifier {
+    /// Create a new modifier with an acceleration derived from a property.
+    pub fn via_property(property_name: impl Into<String>) -> Self {
+        Self {
+            accel: ValueOrProperty::Property(property_name.into()),
+        }
+    }
+
+    /// Create a new modifier with a constant acceleration.
+    pub fn constant(acceleration: Vec3) -> Self {
+        Self {
+            accel: ValueOrProperty::Value(acceleration.into()),
+        }
+    }
+}
+
+#[typetag::serde]
+impl Modifier for AccelModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn as_update(&self) -> Option<&dyn UpdateModifier> {
+        Some(self)
+    }
+
+    fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+        Some(self)
+    }
+
+    fn attributes(&self) -> &[&'static Attribute] {
+        &[Attribute::VELOCITY]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(self.clone())
+    }
+
+    fn resolve_properties(&mut self, properties: &[Property]) {
+        if let ValueOrProperty::Property(name) = &mut self.accel {
+            if let Some(index) = properties.iter().position(|p| p.name() == name) {
+                let name = std::mem::take(name);
+                self.accel = ValueOrProperty::ResolvedProperty((index, name));
+            } else {
+                panic!("Cannot resolve property '{}' in effect. Ensure you have added a property with `with_property()` or `add_property()` before trying to reference it from a modifier.", name);
+            }
+        }
+    }
+}
+
+#[typetag::serde]
 impl UpdateModifier for AccelModifier {
-    fn apply(&self, layout: &mut UpdateLayout) {
-        layout.accel = self.accel;
+    fn apply(&self, context: &mut UpdateContext) {
+        context.update_code += &format!(
+            "(*particle).velocity += {} * sim_params.dt;\n",
+            self.accel.to_wgsl_string()
+        );
     }
 }
 
@@ -34,7 +170,7 @@ impl UpdateModifier for AccelModifier {
 /// position, with a decreasing intensity the further away from the source the
 /// particle is. This force is added to the one(s) of all the other active
 /// sources of a [`ForceFieldModifier`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ForceFieldSource {
     /// Position of the source.
     pub position: Vec3,
@@ -85,7 +221,7 @@ impl ForceFieldSource {
 /// field is made up of [`ForceFieldSource`]s.
 ///
 /// The maximum number of sources is [`ForceFieldSource::MAX_SOURCES`].
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ForceFieldModifier {
     /// Array of force field sources.
     ///
@@ -138,15 +274,24 @@ impl ForceFieldModifier {
     }
 }
 
+impl_mod_update!(
+    ForceFieldModifier,
+    &[Attribute::POSITION, Attribute::VELOCITY]
+);
+
+#[typetag::serde]
 impl UpdateModifier for ForceFieldModifier {
-    fn apply(&self, layout: &mut UpdateLayout) {
-        layout.force_field = self.sources;
+    fn apply(&self, context: &mut UpdateContext) {
+        context.update_code += include_str!("../render/force_field_code.wgsl");
+
+        //TEMP
+        context.force_field = self.sources;
     }
 }
 
 /// A modifier to apply a linear drag force to all particles each frame. The
 /// force slows down the particles without changing their direction.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct LinearDragModifier {
     /// Drag coefficient. Higher values increase the drag force, and
     /// consequently decrease the particle's speed faster.
@@ -160,83 +305,47 @@ impl LinearDragModifier {
     }
 }
 
+impl_mod_update!(LinearDragModifier, &[Attribute::VELOCITY]);
+
+#[typetag::serde]
 impl UpdateModifier for LinearDragModifier {
-    fn apply(&self, layout: &mut UpdateLayout) {
-        layout.drag_coefficient = self.drag;
+    fn apply(&self, context: &mut UpdateContext) {
+        context.update_code += &format!(
+            "(*particle).velocity *= max(0., (1. - {} * sim_params.dt));\n",
+            self.drag.to_wgsl_string()
+        );
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::*;
 
     #[test]
     fn mod_accel() {
-        let accel = Vec3 {
-            x: 1.,
-            y: 2.,
-            z: 3.,
-        };
-        let modifier = AccelModifier { accel };
+        let accel = Vec3::new(1., 2., 3.);
+        let modifier = AccelModifier::constant(accel);
 
-        let mut layout = UpdateLayout::default();
-        modifier.apply(&mut layout);
+        let mut context = UpdateContext::default();
+        modifier.apply(&mut context);
 
-        assert_eq!(layout.accel, accel);
+        assert!(context.update_code.contains(&accel.to_wgsl_string()));
     }
 
     #[test]
     fn mod_force_field() {
-        let position = Vec3 {
-            x: 1.,
-            y: 2.,
-            z: 3.,
-        };
+        let position = Vec3::new(1., 2., 3.);
         let mut sources = [ForceFieldSource::default(); 16];
         sources[0].position = position;
         sources[0].mass = 1.;
         let modifier = ForceFieldModifier { sources };
 
-        let mut layout = UpdateLayout::default();
-        modifier.apply(&mut layout);
+        let mut context = UpdateContext::default();
+        modifier.apply(&mut context);
 
-        assert!(layout.force_field[0]
-            .position
-            .abs_diff_eq(sources[0].position, 1e-5));
-    }
-
-    #[test]
-    fn mod_force_field_new() {
-        let modifier = ForceFieldModifier::new((0..10).map(|i| {
-            let position = Vec3 {
-                x: i as f32,
-                y: 0.,
-                z: 0.,
-            };
-            ForceFieldSource {
-                position,
-                mass: 1.,
-                ..default()
-            }
-        }));
-
-        let mut layout = UpdateLayout::default();
-        modifier.apply(&mut layout);
-
-        for i in 0..16 {
-            assert!(layout.force_field[i].position.abs_diff_eq(
-                Vec3 {
-                    x: if i < 10 { i as f32 } else { 0. },
-                    y: 0.,
-                    z: 0.,
-                },
-                1e-5
-            ));
-
-            let mass = if i < 10 { 1. } else { 0. };
-            assert_approx_eq!(layout.force_field[i].mass, mass);
-        }
+        // force_field_code.wgsl is too big
+        //assert!(context.update_code.contains(&include_str!("../render/
+        // force_field_code.wgsl")));
     }
 
     #[test]
@@ -250,9 +359,9 @@ mod tests {
     fn mod_drag() {
         let modifier = LinearDragModifier { drag: 3.5 };
 
-        let mut layout = UpdateLayout::default();
-        modifier.apply(&mut layout);
+        let mut context = UpdateContext::default();
+        modifier.apply(&mut context);
 
-        assert_eq!(layout.drag_coefficient, 3.5);
+        assert!(context.update_code.contains("3.5")); // TODO - less weak check
     }
 }

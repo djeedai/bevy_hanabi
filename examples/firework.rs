@@ -70,7 +70,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         EffectAsset {
             name: "firework".to_string(),
             capacity: 32768,
-            spawner: Spawner::burst(500.0.into(), 2.0.into()),
+            spawner: Spawner::burst(2500.0.into(), 2.0.into()),
             ..Default::default()
         }
         .init(PositionSphereModifier {
@@ -79,11 +79,17 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             speed: 70_f32.into(),
             center: Vec3::ZERO,
         })
-        .init(ParticleLifetimeModifier { lifetime: 1. })
-        .update(LinearDragModifier { drag: 5. })
-        .update(AccelModifier {
-            accel: Vec3::new(0., -8., 0.),
+        .init(InitLifetimeModifier {
+            // Give a bit of variation by randomizing the lifetime per particle
+            lifetime: Value::Uniform((0.8, 1.2)),
         })
+        .init(InitAgeModifier {
+            // Give a bit of variation by randomizing the age per particle. This will control the
+            // starting color and size of particles.
+            age: Value::Uniform((0.0, 0.4)),
+        })
+        .update(LinearDragModifier { drag: 5. })
+        .update(AccelModifier::constant(Vec3::new(0., -8., 0.)))
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient1,
         })

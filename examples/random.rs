@@ -75,9 +75,8 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .update(AccelModifier {
-            accel: Vec3::new(0., 5., 0.),
-        })
+        .init(ParticleLifetimeModifier { lifetime: 5. })
+        .update(AccelModifier::constant(Vec3::new(0., 5., 0.)))
         .render(ColorOverLifetimeModifier { gradient }),
     );
 

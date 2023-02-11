@@ -74,6 +74,7 @@ fn setup(
             speed: Value::Uniform((0.7, 0.5)),
             dimension: ShapeDimension::Volume,
         })
+        .init(ParticleLifetimeModifier { lifetime: 5. })
         .render(ParticleTextureModifier {
             texture: texture_handle,
         })

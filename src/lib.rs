@@ -37,8 +37,8 @@
 //! can disable default features and re-enable only one of the two modes.
 //!
 //! ```toml
-//! ## Example: enable only 3D integration
-//! bevy_hanabi = { version = "0.4", default-features = false, features = ["3d"] }
+//! # Example: enable only 3D integration
+//! bevy_hanabi = { version = "0.5", default-features = false, features = ["3d"] }
 //! ```
 //!
 //! # Example
@@ -85,12 +85,15 @@
 //!         dimension: ShapeDimension::Surface,
 //!         speed: 6.0.into(),
 //!     })
+//!     // Also initialize the total lifetime of the particle, that is
+//!     // the time for which it's simulated and rendered. This modifier
+//!     // is mandatory, otherwise the particles won't show up.
+//!     .init(InitLifetimeModifier { lifetime: 10_f32.into() })
 //!     // Every frame, add a gravity-like acceleration downward
-//!     .update(AccelModifier {
-//!         accel: Vec3::new(0., -3., 0.),
-//!     })
+//!     .update(AccelModifier::constant(Vec3::new(0., -3., 0.)))
 //!     // Render the particles with a color gradient over their
-//!     // lifetime.
+//!     // lifetime. This maps the gradient key 0 to the particle spawn
+//!     // time, and the gradient key 1 to the particle death (here, 10s).
 //!     .render(ColorOverLifetimeModifier { gradient })
 //!     );
 //!
@@ -119,28 +122,35 @@
 //! ```
 
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::fmt::Write as _; // import without risk of name clashing
 
 mod asset;
+mod attributes;
 mod bundle;
 mod gradient;
+pub mod graph;
 pub mod modifier;
 mod plugin;
+mod properties;
 mod render;
 mod spawn;
 
 #[cfg(test)]
 mod test_utils;
 
+use properties::{Property, PropertyInstance};
 use render::EffectCacheId;
 
-pub use asset::{EffectAsset, InitLayout, RenderLayout, UpdateLayout};
+pub use asset::{EffectAsset, RenderLayout};
+pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
+pub use properties::PropertyLayout;
 pub use render::ShaderCache;
-pub use spawn::{Random, Spawner, Value};
+pub use spawn::{DimValue, Random, Spawner, Value};
 
 #[allow(missing_docs)]
 pub mod prelude {
@@ -237,6 +247,12 @@ impl ToWgslString for Vec4 {
     }
 }
 
+impl ToWgslString for u32 {
+    fn to_wgsl_string(&self) -> String {
+        format!("{}", self)
+    }
+}
+
 impl ToWgslString for Value<f32> {
     fn to_wgsl_string(&self) -> String {
         match self {
@@ -248,6 +264,61 @@ impl ToWgslString for Value<f32> {
             ),
         }
     }
+}
+
+impl ToWgslString for Value<Vec2> {
+    fn to_wgsl_string(&self) -> String {
+        match self {
+            Self::Single(v) => v.to_wgsl_string(),
+            Self::Uniform((a, b)) => format!(
+                "rand2() * ({1} - {0}) + {0}",
+                a.to_wgsl_string(),
+                b.to_wgsl_string(),
+            ),
+        }
+    }
+}
+
+impl ToWgslString for Value<Vec3> {
+    fn to_wgsl_string(&self) -> String {
+        match self {
+            Self::Single(v) => v.to_wgsl_string(),
+            Self::Uniform((a, b)) => format!(
+                "rand3() * ({1} - {0}) + {0}",
+                a.to_wgsl_string(),
+                b.to_wgsl_string(),
+            ),
+        }
+    }
+}
+
+impl ToWgslString for Value<Vec4> {
+    fn to_wgsl_string(&self) -> String {
+        match self {
+            Self::Single(v) => v.to_wgsl_string(),
+            Self::Uniform((a, b)) => format!(
+                "rand4() * ({1} - {0}) + {0}",
+                a.to_wgsl_string(),
+                b.to_wgsl_string(),
+            ),
+        }
+    }
+}
+
+/// Simulation space for the particles of an effect.
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Reflect, FromReflect, Serialize, Deserialize,
+)]
+#[non_exhaustive]
+pub enum SimulationSpace {
+    /// Particles are simulated in global space.
+    ///
+    /// The global space is the Bevy world space. Particles simulated in global
+    /// space are "detached" from the emitter when they spawn, and not
+    /// influenced anymore by the emitter's [`Transform`] after spawning.
+    #[default]
+    Global,
+    //Local, // TODO
 }
 
 /// Visual effect made of particles.
@@ -292,17 +363,18 @@ pub struct ParticleEffect {
     /// configured.
     #[reflect(ignore)]
     configured_render_shader: Option<Handle<Shader>>,
+    /// Instances of all exposed properties.
+    properties: Vec<PropertyInstance>,
 
     // bunch of stuff that should move, which we store here temporarily between tick_spawners()
     // ticking the spawner and the extract/prepare/queue render stages consuming them.
-    spawn_count: u32,
-    accel: Vec3,
-    drag: f32,
     #[reflect(ignore)]
     force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
-    position_code: String,
-    force_field_code: String,
-    lifetime_code: String,
+    spawn_count: u32,
+    init_code: String,
+    init_extra: String,
+    update_code: String,
+    update_extra: String,
 }
 
 impl ParticleEffect {
@@ -316,14 +388,14 @@ impl ParticleEffect {
             configured_init_shader: None,
             configured_update_shader: None,
             configured_render_shader: None,
+            properties: vec![],
             //
-            spawn_count: 0,
-            accel: Vec3::ZERO,
-            drag: 0.,
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
-            position_code: String::default(),
-            force_field_code: String::default(),
-            lifetime_code: String::default(),
+            spawn_count: 0,
+            init_code: String::default(),
+            init_extra: String::default(),
+            update_code: String::default(),
+            update_extra: String::default(),
         }
     }
 
@@ -352,18 +424,21 @@ impl ParticleEffect {
         self.spawner.as_mut()
     }
 
-    /// Configure the spawner of a new particle effect.
+    /// Initialize the instance from its asset.
     ///
-    /// In general this is called internally while the spawner is ticked, to
-    /// assign the source asset's spawner to this instance.
-    ///
-    /// Returns a reference to the added spawner owned by the current instance,
-    /// allowing to chain adding modifiers to the effect.
-    pub(crate) fn configure_spawner(&mut self, spawner: &Spawner) -> &mut Spawner {
-        if self.spawner.is_none() {
-            self.spawner = Some(*spawner);
-        }
-        self.spawner.as_mut().unwrap()
+    /// This is called internally when an instance is created, to initialize it
+    /// from its source asset.
+    pub(crate) fn init_from_asset(&mut self, asset: &EffectAsset) {
+        self.properties = asset
+            .properties
+            .iter()
+            .map(|def| PropertyInstance {
+                def: def.clone(),
+                value: def.default_value().clone(),
+            })
+            .collect();
+
+        self.spawner = Some(asset.spawner);
     }
 
     /// Get the init, update, and render shaders if they're all configured, or
@@ -388,28 +463,34 @@ impl ParticleEffect {
         };
         Some((init_shader, update_shader, render_shader))
     }
+
+    /// Write all properties into a binary buffer ready for GPU upload.
+    ///
+    /// Return the binary buffer where properties have been written according to
+    /// the given property layout. The size of the output buffer is guaranteed
+    /// to be equal to the size of the layout.
+    fn write_properties(&self, layout: &PropertyLayout) -> Vec<u8> {
+        let size = layout.size() as usize;
+        let mut data = Vec::with_capacity(size);
+        data.resize(size, 0u8);
+        // FIXME: O(n^2) search due to offset() being O(n) linear search already
+        for property in &self.properties {
+            if let Some(offset) = layout.offset(property.def.name()) {
+                let offset = offset as usize;
+                let size = property.def.size();
+                let src = property.value.as_bytes();
+                debug_assert_eq!(src.len(), size);
+                let dst = &mut data[offset..offset + size];
+                dst.copy_from_slice(src);
+            }
+        }
+        data
+    }
 }
 
 const PARTICLES_INIT_SHADER_TEMPLATE: &str = include_str!("render/vfx_init.wgsl");
 const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("render/vfx_update.wgsl");
 const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("render/vfx_render.wgsl");
-
-const DEFAULT_POSITION_CODE: &str = r##"
-    ret.pos = transform[3].xyz;
-    var dir = rand3() * 2. - 1.;
-    dir = normalize(dir);
-    var speed = 2.;
-    ret.vel = dir * speed;
-"##;
-
-const DEFAULT_LIFETIME_CODE: &str = r##"
-ret = 5.0;
-"##;
-
-const DEFAULT_FORCE_FIELD_CODE: &str = r##"
-    vVel = vVel + (spawner.accel * sim_params.dt);
-    vPos = vPos + vVel * sim_params.dt;
-"##;
 
 const FORCE_FIELD_CODE: &str = include_str!("render/force_field_code.wgsl");
 
@@ -417,17 +498,14 @@ const ENABLED_BILLBOARD_CODE: &str = r##"
     let camera_right = view.view[0];
     let camera_up = view.view[1];
 
-    let world_position = vec4<f32>(particle.pos, 1.0)
+    let world_position = vec4<f32>(particle.position, 1.0)
         + camera_right * vertex_position.x * size.x
         + camera_up * vertex_position.y * size.y;
 "##;
 
 const DISABLED_BILLBOARD_CODE: &str = r##"
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
-    let world_position = vec4<f32>(particle.pos + vpos, 1.0);
-"##;
-
-const DRAG_CODE: &str = r##"vVel = vVel * max(0., (1. - {{DRAG}} * sim_params.dt));
+    let world_position = vec4<f32>(particle.position + vpos, 1.0);
 "##;
 
 /// Trait to convert any data structure to its equivalent shader code.
@@ -576,7 +654,9 @@ fn tick_spawners(
                 continue;
             };
 
-            effect.configure_spawner(&asset.spawner)
+            effect.init_from_asset(&asset);
+
+            effect.spawner.as_mut().unwrap()
         };
 
         // Tick the effect's spawner to determine the spawn count for this frame
@@ -593,44 +673,42 @@ fn tick_spawners(
         {
             let asset = effects.get(&effect.handle).unwrap(); // must succeed since it did above
 
-            // Extract the acceleration
-            let accel = asset.update_layout.accel;
-            let drag_coefficient = asset.update_layout.drag_coefficient;
-            let force_field = asset.update_layout.force_field;
+            // Generate the shader code defining the particle attributes
+            let particle_layout = asset.particle_layout();
+            let attributes_code = particle_layout.generate_code();
 
-            // Generate the shader code for the position initializing of newly emitted
-            // particles TODO - Move that to a pre-pass, not each frame!
-            let position_code = &asset.init_layout.position_code;
-            let position_code = if position_code.is_empty() {
-                DEFAULT_POSITION_CODE.to_owned()
+            // Generate the shader code defining the per-effect properties, if any
+            let property_layout = asset.property_layout();
+            let properties_code = property_layout.generate_code();
+            let properties_binding_code = if property_layout.is_empty() {
+                "// (no properties)".to_string()
             } else {
-                position_code.clone()
+                "@group(1) @binding(2) var<storage, read> properties : Properties;".to_string()
             };
 
-            // Generate the shader code for the lifetime initializing of newly emitted
-            // particles TODO - Move that to a pre-pass, not each frame!
-            let lifetime_code = &asset.init_layout.lifetime_code;
-            let lifetime_code = if lifetime_code.is_empty() {
-                DEFAULT_LIFETIME_CODE.to_owned()
-            } else {
-                lifetime_code.clone()
-            };
+            // Generate the shader code for the initializing shader
+            let mut init_context = InitContext::default();
+            for m in asset.modifiers.iter().filter_map(|m| m.as_init()) {
+                m.apply(&mut init_context);
+            }
+            // Warn in debug if the shader doesn't initialize the particle lifetime
+            #[cfg(debug_assertions)]
+            if !init_context
+                .init_code
+                .contains(&format!("particle.{}", Attribute::LIFETIME.name()))
+            {
+                warn!("Effect '{}' does not initialize the particle lifetime; particles will have a default lifetime of zero, and will immediately die after spawning. Add an InitLifetimeModifier to initialize the lifetime to a non-zero value.", asset.name);
+            }
 
-            // Generate the shader code for the force field of newly emitted particles
-            // TODO - Move that to a pre-pass, not each frame!
-            // let force_field_code = &asset.init_layout.force_field_code;
-            // let force_field_code = if force_field_code.is_empty() {
-            let force_field_code = if 0.0 == asset.update_layout.force_field[0].force_exponent {
-                DEFAULT_FORCE_FIELD_CODE.to_owned()
-            } else {
-                FORCE_FIELD_CODE.to_owned()
-            };
-
-            let drag_code = if drag_coefficient > 0. {
-                DRAG_CODE.replace("{{DRAG}}", &drag_coefficient.to_wgsl_string())
-            } else {
-                "".to_string()
-            };
+            // Generate the shader code for the update shader
+            let mut update_context = UpdateContext::default();
+            for m in asset.modifiers.iter().filter_map(|m| m.as_update()) {
+                m.apply(&mut update_context);
+            }
+            // Append Euler integration (TODO - Do we want to make this explicit?)
+            // Note the prepended "\n" to prevent appending to a comment line.
+            update_context.update_code +=
+                &format!("\n(*particle).position += (*particle).velocity * sim_params.dt;\n");
 
             // Generate the shader code for the color over lifetime gradient.
             // TODO - Move that to a pre-pass, not each frame!
@@ -651,28 +729,49 @@ fn tick_spawners(
 
             trace!("vertex_modifiers={}", vertex_modifiers);
 
+            let has_per_particle_size = particle_layout.contains(Attribute::SIZE);
+            let has_per_particle_size2 = particle_layout.contains(Attribute::SIZE2);
+
             // Configure the init shader template, and make sure a corresponding shader
             // asset exists
-            let mut init_shader_source =
-                PARTICLES_INIT_SHADER_TEMPLATE.replace("{{INIT_POS_VEL}}", &position_code);
-            init_shader_source = init_shader_source.replace("{{INIT_LIFETIME}}", &lifetime_code);
+            let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
+                .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{INIT_CODE}}", &init_context.init_code)
+                .replace("{{INIT_EXTRA}}", &init_context.init_extra);
             let init_shader = shader_cache.get_or_insert(&init_shader_source, &mut shaders);
 
             // Configure the update shader template, and make sure a corresponding shader
             // asset exists
-            let mut update_shader_source =
-                PARTICLES_UPDATE_SHADER_TEMPLATE.replace("{{FORCE_FIELD_CODE}}", &force_field_code);
-            update_shader_source = update_shader_source.replace("{{DRAG_CODE}}", &drag_code);
+            let update_shader_source = PARTICLES_UPDATE_SHADER_TEMPLATE
+                .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{UPDATE_CODE}}", &update_context.update_code)
+                .replace("{{UPDATE_EXTRA}}", &update_context.update_extra)
+                .replace("{{PROPERTIES}}", &properties_code)
+                .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
             let update_shader = shader_cache.get_or_insert(&update_shader_source, &mut shaders);
 
             // Configure the render shader template, and make sure a corresponding shader
             // asset exists
-            let render_shader_source =
+            let mut render_shader_source =
                 PARTICLES_RENDER_SHADER_TEMPLATE.replace("{{VERTEX_MODIFIERS}}", &vertex_modifiers);
+            render_shader_source = render_shader_source.replace("{{ATTRIBUTES}}", &attributes_code);
+            if has_per_particle_size {
+                render_shader_source = render_shader_source.replace(
+                    "{{SIZE}}",
+                    &format!("size = vec2<f32>(particle.{});", Attribute::SIZE.name()),
+                );
+            } else if has_per_particle_size2 {
+                render_shader_source = render_shader_source.replace(
+                    "{{SIZE}}",
+                    &format!("size = particle.{};", Attribute::SIZE2.name()),
+                );
+            } else {
+                render_shader_source = render_shader_source.replace("{{SIZE}}", "");
+            }
             let render_shader = shader_cache.get_or_insert(&render_shader_source, &mut shaders);
 
             trace!(
-                "tick_spawners: handle={:?} init_shader={:?} update_shader={:?} render_shader={:?} has_image={} position_code={} force_field_code={} lifetime_code={}",
+                "tick_spawners: handle={:?} init_shader={:?} update_shader={:?} render_shader={:?} has_image={}",
                 effect.handle,
                 init_shader,
                 update_shader,
@@ -682,21 +781,25 @@ fn tick_spawners(
                 } else {
                     "N"
                 },
-                position_code,
-                force_field_code,
-                lifetime_code,
             );
 
+            // TODO - Replace with Option<ConfiguredShader { handle: Handle<Shader>, hash:
+            // u64 }> where the hash takes into account the code and extra code
+            // for each pass (and any other varying item). We don't need to keep
+            // around the entire shader code, only a hash of it for compare (or, maybe safer
+            // to avoid hash collisions, an index into a shader cache). The only
+            // use is to be able to compare 2 instances and see if they can be
+            // batched together.
             effect.configured_init_shader = Some(init_shader);
             effect.configured_update_shader = Some(update_shader);
             effect.configured_render_shader = Some(render_shader);
 
-            // TEMP
-            effect.accel = accel;
-            effect.force_field = force_field;
-            effect.position_code = position_code;
-            effect.force_field_code = force_field_code;
-            effect.lifetime_code = lifetime_code;
+            // TEMP - Should disappear after fixing the above TODO.
+            effect.init_code = init_context.init_code;
+            effect.init_extra = init_context.init_extra;
+            effect.update_code = update_context.update_code;
+            effect.update_extra = update_context.update_extra;
+            effect.force_field = update_context.force_field;
         }
     }
 }

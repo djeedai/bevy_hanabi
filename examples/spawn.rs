@@ -78,15 +78,15 @@ fn setup(
             spawner: Spawner::rate(5.0.into()),
             ..Default::default()
         }
+        .with_property("my_accel", graph::Value::Float3(Vec3::new(0., -3., 0.)))
         .init(PositionSphereModifier {
             center: Vec3::ZERO,
             radius: 2.,
             dimension: ShapeDimension::Surface,
             speed: 6.0.into(),
         })
-        .update(AccelModifier {
-            accel: Vec3::new(0., -3., 0.),
-        })
+        .init(ParticleLifetimeModifier { lifetime: 5. })
+        .update(AccelModifier::via_property("my_accel"))
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient1,
         })
@@ -117,7 +117,7 @@ fn setup(
         });
 
     let mut gradient2 = Gradient::new();
-    gradient2.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
+    gradient2.add_key(0.0, Vec4::new(0.0, 0.7, 0.0, 1.0));
     gradient2.add_key(1.0, Vec4::splat(0.0));
 
     let effect2 = effects.add(
@@ -127,6 +127,13 @@ fn setup(
             spawner: Spawner::once(1000.0.into(), true),
             ..Default::default()
         }
+        .init(PositionSphereModifier {
+            center: Vec3::ZERO,
+            radius: 5.,
+            dimension: ShapeDimension::Volume,
+            speed: 2.0.into(),
+        })
+        .init(ParticleLifetimeModifier { lifetime: 5. })
         .render(ColorOverLifetimeModifier {
             gradient: gradient2,
         }),
@@ -172,9 +179,12 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .update(AccelModifier {
-            accel: Vec3::new(0., 5., 0.),
+        .init(ParticleLifetimeModifier { lifetime: 5. })
+        .init(InitSizeModifier {
+            // At spawn time, assign each particle a random size between 0.3 and 0.7
+            size: Value::<f32>::Uniform((0.3, 0.7)).into(),
         })
+        .update(AccelModifier::constant(Vec3::new(0., 5., 0.)))
         .render(ColorOverLifetimeModifier {
             gradient: gradient3,
         }),

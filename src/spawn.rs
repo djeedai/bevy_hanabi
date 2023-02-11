@@ -1,5 +1,6 @@
 use bevy::{
     ecs::system::Resource,
+    prelude::{Vec2, Vec3, Vec4},
     reflect::{FromReflect, Reflect},
 };
 use rand::{
@@ -8,6 +9,8 @@ use rand::{
 };
 use rand_pcg::Pcg32;
 use serde::{Deserialize, Serialize};
+
+use crate::ToWgslString;
 
 /// An RNG to be used in the CPU for the particle system engine
 pub(crate) fn new_rng() -> Pcg32 {
@@ -22,8 +25,11 @@ pub(crate) fn new_rng() -> Pcg32 {
 pub struct Random(pub Pcg32);
 
 /// A constant or random value.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum Value<T: Copy> {
+///
+/// This enum represents a value which is either constant, or randomly sampled
+/// according to a given probability distribution.
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Reflect, FromReflect)]
+pub enum Value<T: Copy + FromReflect> {
     /// Single constant value.
     Single(T),
     /// Random value distributed uniformly between two inclusive bounds.
@@ -35,13 +41,13 @@ pub enum Value<T: Copy> {
     Uniform((T, T)),
 }
 
-impl<T: Copy + Default> Default for Value<T> {
+impl<T: Copy + FromReflect + Default> Default for Value<T> {
     fn default() -> Self {
         Self::Single(T::default())
     }
 }
 
-impl<T: Copy + SampleUniform> Value<T> {
+impl<T: Copy + FromReflect + SampleUniform> Value<T> {
     /// Sample the value.
     /// - For [`Value::Single`], always return the same single value.
     /// - For [`Value::Uniform`], use the given pseudo-random number generator
@@ -54,7 +60,7 @@ impl<T: Copy + SampleUniform> Value<T> {
     }
 }
 
-impl<T: Copy + PartialOrd> Value<T> {
+impl<T: Copy + FromReflect + PartialOrd> Value<T> {
     /// Returns the range of allowable values in the form `[minimum, maximum]`.
     /// For [`Value::Single`], both values are the same.
     pub fn range(&self) -> [T; 2] {
@@ -71,9 +77,72 @@ impl<T: Copy + PartialOrd> Value<T> {
     }
 }
 
-impl<T: Copy> From<T> for Value<T> {
+impl<T: Copy + FromReflect> From<T> for Value<T> {
     fn from(t: T) -> Self {
         Self::Single(t)
+    }
+}
+
+/// Dimension-variable floating-point [`Value`].
+///
+/// This enum represents a floating-point [`Value`] whose dimension (number of
+/// components) is variable. This is mainly used where a modifier can work with
+/// multiple attribute variants like [`Attribute::SIZE`] and
+/// [`Attribute::SIZE2`] which conceptually both represent the particle size,
+/// but with different representations.
+///
+/// [`Attribute::SIZE`]: crate::Attribute::SIZE
+/// [`Attribute::SIZE2`]: crate::Attribute::SIZE2
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub enum DimValue {
+    /// Scalar.
+    D1(Value<f32>),
+    /// 2D vector.
+    D2(Value<Vec2>),
+    /// 3D vector.
+    D3(Value<Vec3>),
+    /// 4D vector.
+    D4(Value<Vec4>),
+}
+
+impl Default for DimValue {
+    fn default() -> Self {
+        DimValue::D1(Value::<f32>::default())
+    }
+}
+
+impl From<Value<f32>> for DimValue {
+    fn from(value: Value<f32>) -> Self {
+        DimValue::D1(value)
+    }
+}
+
+impl From<Value<Vec2>> for DimValue {
+    fn from(value: Value<Vec2>) -> Self {
+        DimValue::D2(value)
+    }
+}
+
+impl From<Value<Vec3>> for DimValue {
+    fn from(value: Value<Vec3>) -> Self {
+        DimValue::D3(value)
+    }
+}
+
+impl From<Value<Vec4>> for DimValue {
+    fn from(value: Value<Vec4>) -> Self {
+        DimValue::D4(value)
+    }
+}
+
+impl ToWgslString for DimValue {
+    fn to_wgsl_string(&self) -> String {
+        match self {
+            DimValue::D1(s) => s.to_wgsl_string(),
+            DimValue::D2(v) => v.to_wgsl_string(),
+            DimValue::D3(v) => v.to_wgsl_string(),
+            DimValue::D4(v) => v.to_wgsl_string(),
+        }
     }
 }
 
@@ -83,22 +152,19 @@ impl<T: Copy> From<T> for Value<T> {
 /// spawner ticks, once per frame, it calculates a number of particles to emit
 /// for this tick. This spawn count is passed to the GPU for the init compute
 /// pass to actually allocate the new particles and initialize them.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Reflect, FromReflect)]
+#[derive(Debug, Copy, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct Spawner {
     /// Number of particles to spawn over [`spawn_time`].
     ///
     /// [`spawn_time`]: Spawner::spawn_time
-    #[reflect(ignore)] // TODO
     num_particles: Value<f32>,
 
     /// Time over which to spawn `num_particles`, in seconds
-    #[reflect(ignore)] // TODO
     spawn_time: Value<f32>,
 
     /// Time between bursts of the particle system, in seconds.
     /// If this is infinity, there's only one burst.
     /// If this is `spawn_time`, the system spawns a steady stream of particles.
-    #[reflect(ignore)] // TODO
     period: Value<f32>,
 
     /// Time since last spawn.

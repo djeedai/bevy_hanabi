@@ -1,8 +1,5 @@
 struct Particle {
-    pos: vec3<f32>,
-    age: f32,
-    vel: vec3<f32>,
-    lifetime: f32,
+{{ATTRIBUTES}}
 };
 
 struct ParticleBuffer {
@@ -25,12 +22,11 @@ struct ForceFieldSource {
 
 struct Spawner {
     transform: mat3x4<f32>, // transposed (row-major)
-    accel: vec3<f32>,
     spawn: atomic<i32>,
-    force_field: array<ForceFieldSource, 16>,
     seed: u32,
     count_unused: u32,
     effect_index: u32,
+    force_field: array<ForceFieldSource, 16>,
 };
 
 struct IndirectBuffer {
@@ -50,9 +46,12 @@ struct RenderIndirectBuffer {
     max_update: u32,
 };
 
+{{PROPERTIES}}
+
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
+{{PROPERTIES_BINDING}}
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as init
 @group(3) @binding(0) var<storage, read_write> render_indirect : RenderIndirectBuffer;
 
@@ -121,6 +120,8 @@ fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
     return dot(v, u) / dot(u,u) * u;
 }
 
+{{UPDATE_EXTRA}}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let thread_index = global_invocation_id.x;
@@ -143,40 +144,26 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     let index = indirect_buffer.indices[3u * thread_index + pong];
 
-    var vPos : vec3<f32> = particle_buffer.particles[index].pos;
-    var vVel : vec3<f32> = particle_buffer.particles[index].vel;
-    var vAge : f32 = particle_buffer.particles[index].age;
-    var vLifetime : f32 = particle_buffer.particles[index].lifetime;
+    let particle: ptr<storage, Particle, read_write> = &particle_buffer.particles[index];
 
     // Age the particle
-    vAge = vAge + sim_params.dt;
-    if (vAge >= vLifetime) {
+    (*particle).age = (*particle).age + sim_params.dt;
+    if ((*particle).age >= (*particle).lifetime) {
         // Write back constant "dead" age
-        vAge = vLifetime + 1.0;
-        particle_buffer.particles[index].age = vAge;
+        (*particle).age = (*particle).lifetime + 1.0;
         // Save dead index
         let dead_index = atomicAdd(&render_indirect.dead_count, 1u);
         indirect_buffer.indices[3u * dead_index + 2u] = index;
         // Also increment copy of dead count, which was updated in dispatch indirect
-        // pass just before, and need to remain right after this pass
+        // pass just before, and need to remain correct after this pass
         atomicAdd(&render_indirect.max_spawn, 1u);
         atomicSub(&render_indirect.alive_count, 1u);
         return;
     }
 
-    // Drag
-{{DRAG_CODE}}
-
-    // Force field
-{{FORCE_FIELD_CODE}}
+    {{UPDATE_CODE}}
 
     // Increment alive particle count and write indirection index for later rendering
     let indirect_index = atomicAdd(&render_indirect.instance_count, 1u);
     indirect_buffer.indices[3u * indirect_index + ping] = index;
-
-    // Write back particle itself
-    particle_buffer.particles[index].pos = vPos;
-    particle_buffer.particles[index].vel = vVel;
-    particle_buffer.particles[index].age = vAge;
-    particle_buffer.particles[index].lifetime = vLifetime;
 }

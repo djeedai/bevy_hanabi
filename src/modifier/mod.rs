@@ -22,6 +22,9 @@
 //! [`UpdateModifier`]: crate::modifier::update::UpdateModifier
 //! [`RenderModifier`]: crate::modifier::render::RenderModifier
 
+use bevy::reflect::{FromReflect, Reflect};
+use serde::{Deserialize, Serialize};
+
 pub mod init;
 pub mod render;
 pub mod update;
@@ -30,19 +33,142 @@ pub use init::*;
 pub use render::*;
 pub use update::*;
 
+use crate::{Attribute, Property};
+
 /// The dimension of a shape to consider.
 ///
 /// The exact meaning depends on the context where this enum is used.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Reflect, FromReflect, Serialize, Deserialize,
+)]
 pub enum ShapeDimension {
     /// Consider the surface of the shape only.
+    #[default]
     Surface,
     /// Consider the entire shape volume.
     Volume,
 }
 
-impl Default for ShapeDimension {
-    fn default() -> Self {
-        Self::Surface
+/// Context a modifier applies to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModifierContext {
+    /// Particle initializing.
+    Init,
+    /// Particle simulation (update).
+    Update,
+    /// Particle rendering.
+    Render,
+}
+
+/// Trait describing a modifier customizing an effect pipeline.
+#[typetag::serde]
+pub trait Modifier: Reflect + Send + Sync + 'static {
+    /// Get the context this modifier applies to.
+    fn context(&self) -> ModifierContext;
+
+    /// Try to cast this modifier to an [`InitModifier`].
+    fn as_init(&self) -> Option<&dyn InitModifier> {
+        None
+    }
+
+    /// Try to cast this modifier to an [`InitModifier`].
+    fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+        None
+    }
+
+    /// Try to cast this modifier to an [`UpdateModifier`].
+    fn as_update(&self) -> Option<&dyn UpdateModifier> {
+        None
+    }
+
+    /// Try to cast this modifier to an [`UpdateModifier`].
+    fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+        None
+    }
+
+    /// Try to cast this modifier to a [`RenderModifier`].
+    fn as_render(&self) -> Option<&dyn RenderModifier> {
+        None
+    }
+
+    /// Try to cast this modifier to a [`RenderModifier`].
+    fn as_render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+        None
+    }
+
+    /// Get the list of dependent attributes required for this modifier to be
+    /// used.
+    fn attributes(&self) -> &[&'static Attribute];
+
+    /// Attempt to resolve any property reference to the actual property in the
+    /// effect.
+    /// WARNING - For internal use only.
+    fn resolve_properties(&mut self, _properties: &[Property]) {}
+
+    /// Clone self.
+    fn boxed_clone(&self) -> BoxedModifier;
+}
+
+/// Boxed version of [`Modifier`].
+pub type BoxedModifier = Box<dyn Modifier>;
+
+impl Clone for BoxedModifier {
+    fn clone(&self) -> Self {
+        self.boxed_clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::prelude::*;
+
+    use super::*;
+
+    fn make_test_modifier() -> PositionSphereModifier {
+        PositionSphereModifier {
+            center: Vec3::new(1., -3.5, 42.42),
+            radius: 1.5,
+            speed: 3.5.into(),
+            dimension: ShapeDimension::Surface,
+        }
+    }
+
+    fn make_boxed_test_modifier() -> BoxedModifier {
+        Box::new(make_test_modifier())
+    }
+
+    #[test]
+    fn reflect() {
+        let m = make_test_modifier();
+
+        // Reflect
+        let reflect: &dyn Reflect = m.as_reflect();
+        assert!(reflect.is::<PositionSphereModifier>());
+        let m_reflect = reflect.downcast_ref::<PositionSphereModifier>().unwrap();
+        assert_eq!(*m_reflect, m);
+    }
+
+    #[test]
+    fn serde() {
+        let m = make_test_modifier();
+        let bm: BoxedModifier = Box::new(m);
+
+        // Ser
+        let s = ron::to_string(&bm).unwrap();
+        println!("modifier: {:?}", s);
+
+        // De
+        let m_serde: BoxedModifier = ron::from_str(&s).unwrap();
+
+        let rm: &dyn Reflect = m.as_reflect();
+        let rm_serde: &dyn Reflect = m_serde.as_reflect();
+        assert_eq!(
+            rm.get_type_info().type_id(),
+            rm_serde.get_type_info().type_id()
+        );
+
+        assert!(rm_serde.is::<PositionSphereModifier>());
+        let rm_reflect = rm_serde.downcast_ref::<PositionSphereModifier>().unwrap();
+        assert_eq!(*rm_reflect, m);
     }
 }
