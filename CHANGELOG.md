@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ShapeDimension` now derives `Debug` and is fully reflected (derives both `Reflect` and `FromReflect`) and de/serializable.
 - `Value<T>` now requires `T: FromReflect`, and itself derives both `Reflect` and `FromReflect`.
 - Consequence of `Value<T>` being fully reflected, several fields on `Spawner` are now fully reflected too and not ignored anymore.
+- The conforming to sphere feature of `ForceFieldModifier` is now applied before the Euler integration updating the particle position. This may result is tiny deviations from the previous behavior, as the particle position will not strictly conform to the sphere at the end of the step. However the delta should be very small, and no visible difference is expected in practice.
 
 ### Removed
 
