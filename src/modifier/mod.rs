@@ -67,32 +67,32 @@ pub trait Modifier: Reflect + Send + Sync + 'static {
     fn context(&self) -> ModifierContext;
 
     /// Try to cast this modifier to an [`InitModifier`].
-    fn init(&self) -> Option<&dyn InitModifier> {
+    fn as_init(&self) -> Option<&dyn InitModifier> {
         None
     }
 
     /// Try to cast this modifier to an [`InitModifier`].
-    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+    fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
         None
     }
 
     /// Try to cast this modifier to an [`UpdateModifier`].
-    fn update(&self) -> Option<&dyn UpdateModifier> {
+    fn as_update(&self) -> Option<&dyn UpdateModifier> {
         None
     }
 
     /// Try to cast this modifier to an [`UpdateModifier`].
-    fn update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+    fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
         None
     }
 
     /// Try to cast this modifier to a [`RenderModifier`].
-    fn render(&self) -> Option<&dyn RenderModifier> {
+    fn as_render(&self) -> Option<&dyn RenderModifier> {
         None
     }
 
     /// Try to cast this modifier to a [`RenderModifier`].
-    fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+    fn as_render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
         None
     }
 
@@ -124,32 +124,48 @@ mod tests {
 
     use super::*;
 
-    fn make_test_modifier() -> BoxedModifier {
-        Box::new(PositionSphereModifier {
-            center: Vec3::ZERO,
+    fn make_test_modifier() -> PositionSphereModifier {
+        PositionSphereModifier {
+            center: Vec3::new(1., -3.5, 42.42),
             radius: 1.5,
             speed: 3.5.into(),
             dimension: ShapeDimension::Surface,
-        })
+        }
     }
 
-    // #[test]
-    // fn reflect() {
-    //     let m = make_test_modifier();
+    fn make_boxed_test_modifier() -> BoxedModifier {
+        Box::new(make_test_modifier())
+    }
 
-    //     // Reflect
-    //     let reflect: &dyn Reflect = &m;
-    //     assert!(reflect.is::<Modifiers>());
-    //     let m_reflect = reflect.downcast_ref::<Modifiers>().unwrap();
-    //     assert_eq!(*m_reflect, m);
-    // }
+    #[test]
+    fn reflect() {
+        let m = make_test_modifier();
+
+        // Reflect
+        let reflect: &dyn Reflect = m.as_reflect();
+        assert!(reflect.is::<PositionSphereModifier>());
+        let m_reflect = reflect.downcast_ref::<PositionSphereModifier>().unwrap();
+        assert_eq!(*m_reflect, m);
+    }
 
     #[test]
     fn serde() {
         let m = make_test_modifier();
-        let s = ron::to_string(&m).unwrap();
+        let bm: BoxedModifier = Box::new(m);
+
+        // Ser
+        let s = ron::to_string(&bm).unwrap();
         println!("modifier: {:?}", s);
-        let _m_serde: BoxedModifier = ron::from_str(&s).unwrap();
-        //assert_eq!(m, m_serde);
+
+        // De
+        let m_serde: BoxedModifier = ron::from_str(&s).unwrap();
+
+        let rm: &dyn Reflect = m.as_reflect();
+        let rm_serde: &dyn Reflect = m_serde.as_reflect();
+        assert_eq!(rm.get_type_info().type_id(), rm_serde.get_type_info().type_id());
+
+        assert!(rm_serde.is::<PositionSphereModifier>());
+        let rm_reflect = rm_serde.downcast_ref::<PositionSphereModifier>().unwrap();
+        assert_eq!(*rm_reflect, m);
     }
 }

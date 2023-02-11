@@ -41,11 +41,11 @@ macro_rules! impl_mod_update {
                 ModifierContext::Update
             }
 
-            fn update(&self) -> Option<&dyn UpdateModifier> {
+            fn as_update(&self) -> Option<&dyn UpdateModifier> {
                 Some(self)
             }
 
-            fn update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+            fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
                 Some(self)
             }
 
@@ -126,11 +126,11 @@ impl Modifier for AccelModifier {
         ModifierContext::Update
     }
 
-    fn update(&self) -> Option<&dyn UpdateModifier> {
+    fn as_update(&self) -> Option<&dyn UpdateModifier> {
         Some(self)
     }
 
-    fn update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+    fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
         Some(self)
     }
 

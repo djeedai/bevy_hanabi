@@ -34,11 +34,11 @@ macro_rules! impl_mod_init {
                 ModifierContext::Init
             }
 
-            fn init(&self) -> Option<&dyn InitModifier> {
+            fn as_init(&self) -> Option<&dyn InitModifier> {
                 Some(self)
             }
 
-            fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+            fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
                 Some(self)
             }
 
@@ -333,11 +333,11 @@ impl Modifier for InitSizeModifier {
         ModifierContext::Init
     }
 
-    fn init(&self) -> Option<&dyn InitModifier> {
+    fn as_init(&self) -> Option<&dyn InitModifier> {
         Some(self)
     }
 
-    fn init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+    fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
         Some(self)
     }
 

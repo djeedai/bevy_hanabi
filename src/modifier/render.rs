@@ -21,11 +21,11 @@ macro_rules! impl_mod_render {
                 ModifierContext::Render
             }
 
-            fn render(&self) -> Option<&dyn RenderModifier> {
+            fn as_render(&self) -> Option<&dyn RenderModifier> {
                 Some(self)
             }
 
-            fn render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+            fn as_render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
                 Some(self)
             }
 

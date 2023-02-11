@@ -688,7 +688,7 @@ fn tick_spawners(
 
             // Generate the shader code for the initializing shader
             let mut init_context = InitContext::default();
-            for m in asset.modifiers.iter().filter_map(|m| m.init()) {
+            for m in asset.modifiers.iter().filter_map(|m| m.as_init()) {
                 m.apply(&mut init_context);
             }
             // Warn in debug if the shader doesn't initialize the particle lifetime
@@ -702,7 +702,7 @@ fn tick_spawners(
 
             // Generate the shader code for the update shader
             let mut update_context = UpdateContext::default();
-            for m in asset.modifiers.iter().filter_map(|m| m.update()) {
+            for m in asset.modifiers.iter().filter_map(|m| m.as_update()) {
                 m.apply(&mut update_context);
             }
             // Append Euler integration (TODO - Do we want to make this explicit?)
