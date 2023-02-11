@@ -290,29 +290,60 @@ impl InitModifier for PositionCone3dModifier {
     }
 }
 
-/// A modifier to set the lifetime of all particles.
+/// A modifier to set the initial age of particles.
 ///
-/// Particles with a lifetime are aged each frame by the frame's delta time, and
-/// are despawned once their age is greater than or equal to their lifetime.
+/// Particles with an age attribute are aged each frame based on the frame's
+/// delta time. Various other modifiers use that age to smoothly vary some
+/// quantities, like [`SizeOverLifetimeModifier`].
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct ParticleLifetimeModifier {
-    /// The lifetime of all particles when they spawn, in seconds.
-    pub lifetime: f32,
+pub struct InitAgeModifier {
+    /// The initial age of a particle when it spawns, in seconds.
+    pub age: Value<f32>,
 }
 
-impl Default for ParticleLifetimeModifier {
+impl Default for InitAgeModifier {
     fn default() -> Self {
-        Self { lifetime: 5. }
+        Self { age: 0_f32.into() }
     }
 }
 
-impl_mod_init!(
-    ParticleLifetimeModifier,
-    &[Attribute::AGE, Attribute::LIFETIME]
-);
+impl_mod_init!(InitAgeModifier, &[Attribute::AGE]);
 
 #[typetag::serde]
-impl InitModifier for ParticleLifetimeModifier {
+impl InitModifier for InitAgeModifier {
+    fn apply(&self, context: &mut InitContext) {
+        context.init_code += &format!(
+            "particle.{} = {};\n",
+            Attribute::AGE.name(),
+            self.age.to_wgsl_string()
+        );
+    }
+}
+
+/// A modifier to set the lifetime of all particles.
+///
+/// Particles with a lifetime are despawned once their age is greater than or
+/// equal to their lifetime.
+///
+/// The default lifetime is 5 seconds.
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct InitLifetimeModifier {
+    /// The lifetime of all particles when they spawn, in seconds.
+    pub lifetime: Value<f32>,
+}
+
+impl Default for InitLifetimeModifier {
+    fn default() -> Self {
+        Self {
+            lifetime: 5_f32.into(),
+        }
+    }
+}
+
+impl_mod_init!(InitLifetimeModifier, &[Attribute::LIFETIME]);
+
+#[typetag::serde]
+impl InitModifier for InitLifetimeModifier {
     fn apply(&self, context: &mut InitContext) {
         context.init_code += &format!(
             "particle.{} = {};\n",

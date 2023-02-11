@@ -284,7 +284,8 @@ mod tests {
         //.init(PositionCircleModifier::default())
         .init(PositionSphereModifier::default())
         //.init(PositionCone3dModifier::default())
-        .init(ParticleLifetimeModifier::default())
+        .init(InitAgeModifier::default())
+        .init(InitLifetimeModifier::default())
         //.update(AccelModifier::default())
         .update(LinearDragModifier::default())
         .update(ForceFieldModifier::default())
@@ -297,7 +298,8 @@ mod tests {
 
         let mut init_context = InitContext::default();
         PositionSphereModifier::default().apply(&mut init_context);
-        ParticleLifetimeModifier::default().apply(&mut init_context);
+        InitAgeModifier::default().apply(&mut init_context);
+        InitLifetimeModifier::default().apply(&mut init_context);
         //assert_eq!(effect., init_context.init_code);
 
         let mut update_context = UpdateContext::default();

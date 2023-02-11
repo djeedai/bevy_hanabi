@@ -155,7 +155,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         let dead_index = atomicAdd(&render_indirect.dead_count, 1u);
         indirect_buffer.indices[3u * dead_index + 2u] = index;
         // Also increment copy of dead count, which was updated in dispatch indirect
-        // pass just before, and need to remain right after this pass
+        // pass just before, and need to remain correct after this pass
         atomicAdd(&render_indirect.max_spawn, 1u);
         atomicSub(&render_indirect.alive_count, 1u);
         return;

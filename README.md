@@ -78,7 +78,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
         // Also initialize the total lifetime of the particle, that is
         // the time for which it's simulated and rendered. This modifier
         // is mandatory, otherwise the particles won't show up.
-        .init(ParticleLifetimeModifier { lifetime: 10. })
+        .init(InitLifetimeModifier { lifetime: 10_f32.into() })
         // Every frame, add a gravity-like acceleration downward
         .update(AccelModifier::constant(Vec3::new(0., -3., 0.)))
         // Render the particles with a color gradient over their
@@ -258,6 +258,7 @@ The image on the left has the `BillboardModifier` enabled.
   - [x] Random velocity (partial; linked to emitter type)
   - [ ] Constant color
   - [ ] Random color
+  - [x] Constant/random age and lifetime
 - Update
   - [x] Motion integration
   - [x] Apply forces
