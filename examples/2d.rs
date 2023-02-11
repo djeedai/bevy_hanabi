@@ -86,7 +86,7 @@ fn setup(
             dimension: ShapeDimension::Surface,
             ..Default::default()
         })
-        .init(ParticleLifetimeModifier { lifetime: 5. })
+        .init(InitLifetimeModifier { lifetime: 5_f32.into() })
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::constant(Vec2::splat(0.02)),
         })

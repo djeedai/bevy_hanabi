@@ -69,7 +69,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .init(ParticleLifetimeModifier { lifetime: 12.0 })
+        .init(InitLifetimeModifier { lifetime: 12_f32.into() })
         .render(ColorOverLifetimeModifier {
             gradient: gradient.clone(),
         }),
@@ -109,7 +109,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .init(ParticleLifetimeModifier { lifetime: 3.0 })
+        .init(InitLifetimeModifier { lifetime: 3_f32.into() })
         .render(ColorOverLifetimeModifier {
             gradient: gradient.clone(),
         }),
@@ -149,7 +149,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .init(ParticleLifetimeModifier { lifetime: 0.75 })
+        .init(InitLifetimeModifier { lifetime: 0.75_f32.into() })
         .render(ColorOverLifetimeModifier {
             gradient: gradient.clone(),
         }),

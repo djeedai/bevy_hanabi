@@ -85,7 +85,7 @@ fn setup(
             dimension: ShapeDimension::Surface,
             speed: 6.0.into(),
         })
-        .init(ParticleLifetimeModifier { lifetime: 5. })
+        .init(InitLifetimeModifier { lifetime: 5_f32.into() })
         .update(AccelModifier::via_property("my_accel"))
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient1,
@@ -133,7 +133,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .init(ParticleLifetimeModifier { lifetime: 5. })
+        .init(InitLifetimeModifier { lifetime: 5_f32.into() })
         .render(ColorOverLifetimeModifier {
             gradient: gradient2,
         }),
@@ -179,7 +179,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .init(ParticleLifetimeModifier { lifetime: 5. })
+        .init(InitLifetimeModifier { lifetime: 5_f32.into() })
         .init(InitSizeModifier {
             // At spawn time, assign each particle a random size between 0.3 and 0.7
             size: Value::<f32>::Uniform((0.3, 0.7)).into(),
