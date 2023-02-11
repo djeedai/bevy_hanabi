@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- Deleted `InitLayout`. Init modifiers are now directly applying themselves to the `InitContext`.
+- Deleted `InitLayout` and `UpdateLayout`. Init and update modifiers are now directly applying themselves to the `InitContext` and `UpdateContext`, respectively. The `RenderLayout` is retained, as render modifiers are not yet transitioned to the new attribute-based API.
 
 ## [0.5.3] 2023-02-07
 
