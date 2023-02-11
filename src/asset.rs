@@ -235,6 +235,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn property() {
+        let mut effect = EffectAsset {
+            name: "Effect".into(),
+            capacity: 4096,
+            spawner: Spawner::rate(30.0.into()),
+            ..Default::default()
+        }
+        .with_property("my_prop", 345_u32.into());
+
+        effect.add_property(
+            "other_prop",
+            graph::Value::Float3(Vec3::new(3., -7.5, 42.42)),
+        );
+
+        assert!(effect
+            .properties()
+            .iter()
+            .find(|p| p.name() == "my_prop")
+            .is_some());
+        assert!(effect
+            .properties()
+            .iter()
+            .find(|p| p.name() == "other_prop")
+            .is_some());
+        assert!(effect
+            .properties()
+            .iter()
+            .find(|p| p.name() == "do_not_exist")
+            .is_none());
+
+        let layout = effect.property_layout();
+        assert_eq!(layout.size(), 16);
+        assert_eq!(layout.align(), 16);
+        assert_eq!(layout.offset("my_prop"), Some(12));
+        assert_eq!(layout.offset("other_prop"), Some(0));
+        assert_eq!(layout.offset("unknown"), None);
+    }
+
+    #[test]
     fn test_apply_modifiers() {
         let effect = EffectAsset {
             name: "Effect".into(),
@@ -262,7 +301,7 @@ mod tests {
         //assert_eq!(effect., init_context.init_code);
 
         let mut update_context = UpdateContext::default();
-        //AccelModifier::default().apply(&mut update_context);
+        AccelModifier::constant(Vec3::ONE).apply(&mut update_context);
         LinearDragModifier::default().apply(&mut update_context);
         ForceFieldModifier::default().apply(&mut update_context);
         //assert_eq!(effect.update_layout, update_layout);
