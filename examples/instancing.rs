@@ -192,7 +192,9 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .init(InitLifetimeModifier { lifetime: 12_f32.into() })
+        .init(InitLifetimeModifier {
+            lifetime: 12_f32.into(),
+        })
         .render(ColorOverLifetimeModifier { gradient }),
     );
 

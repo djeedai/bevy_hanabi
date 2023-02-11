@@ -75,7 +75,9 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .init(InitLifetimeModifier { lifetime: 5_f32.into() })
+        .init(InitLifetimeModifier {
+            lifetime: 5_f32.into(),
+        })
         .update(AccelModifier::constant(Vec3::new(0., 5., 0.)))
         .render(ColorOverLifetimeModifier { gradient }),
     );

@@ -58,7 +58,9 @@ fn make_effect(color: Color) -> EffectAsset {
         dimension: ShapeDimension::Surface,
         speed: 6.0.into(),
     })
-    .init(InitLifetimeModifier { lifetime: 5_f32.into() })
+    .init(InitLifetimeModifier {
+        lifetime: 5_f32.into(),
+    })
     .update(AccelModifier::constant(Vec3::new(0., -3., 0.)))
     .render(ColorOverLifetimeModifier {
         gradient: color_gradient,
