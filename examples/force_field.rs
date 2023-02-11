@@ -1,7 +1,15 @@
-//! Left clicking spawns particles that are repulsed by one point and attracted
-//! by another. The attractor also conforms the particles that are close to a
-//! sphere around it. Left Control + Mouse movement orbits the camera.
-//! Mouse scroll wheel zooms the camera.
+//! Force field example.
+//!
+//! This example demonstrates how to use the `ForceFieldModifier` to simulate
+//! attraction and repulsion forces. The example is interactif; left clicking
+//! spawns particles that are repulsed by one point and attracted by another.
+//! The attractor also conforms the particles that are close to a sphere around
+//! it.
+//!
+//! The example also demonstrates the `AabbKillModifier` through two boxes: a
+//! green "allow" box to which particles are confined, and a red "forbid" box
+//! killing all particles entering it.
+
 use bevy::{
     log::LogPlugin,
     prelude::*,
@@ -47,19 +55,12 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // let orbit_controller = OrbitCameraController {
-    //     mouse_translate_sensitivity: Vec2::ZERO,
-    //     ..Default::default()
-    // };
-    // commands.spawn(OrbitCameraBundle::new(
-    //     orbit_controller,
-    //     Camera3dBundle::default(),
-    //     Vec3::new(0.0, 0.0, 6.0), // eye of the camera
-    //     Vec3::new(0., 0., 0.),
-    // ));
-    let mut bundle = Camera3dBundle::default();
-    bundle.transform.translation = Vec3::new(0.0, 0.0, 6.0);
-    commands.spawn(bundle);
+    let mut camera = Camera3dBundle::default();
+    let mut projection = OrthographicProjection::default();
+    projection.scaling_mode = bevy::render::camera::ScalingMode::FixedVertical(5.);
+    camera.transform.translation.z = projection.far / 2.0;
+    camera.projection = Projection::Orthographic(projection);
+    commands.spawn(camera);
 
     let attractor1_position = Vec3::new(0.01, 0.0, 0.0);
     let attractor2_position = Vec3::new(1.0, 0.5, 0.0);
@@ -100,6 +101,31 @@ fn setup(
             ..Default::default()
         }),
         transform: Transform::from_translation(attractor2_position),
+        ..Default::default()
+    });
+
+    // "allow" box
+    commands.spawn(PbrBundle {
+        mesh: meshes.add(Mesh::from(shape::Box::new(6., 4., 6.))),
+        material: materials.add(StandardMaterial {
+            base_color: Color::rgba(0., 0.7, 0., 0.3),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    // "forbid" box
+    commands.spawn(PbrBundle {
+        mesh: meshes.add(Mesh::from(shape::Box::new(0.8, 0.4, 6.))),
+        material: materials.add(StandardMaterial {
+            base_color: Color::rgba(0.7, 0., 0., 0.3),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..Default::default()
+        }),
+        transform: Transform::from_translation(Vec3::new(-2., -1., 0.)),
         ..Default::default()
     });
 
@@ -147,6 +173,16 @@ fn setup(
                 conform_to_sphere: true,
             },
         ]))
+        .update(AabbKillModifier {
+            min: Vec3::new(-3., -2., -3.),
+            max: Vec3::new(3., 2., 3.),
+            kill_inside: false,
+        })
+        .update(AabbKillModifier {
+            min: Vec3::new(-2.4, -1.2, -3.),
+            max: Vec3::new(-1.6, -0.8, 3.),
+            kill_inside: true,
+        })
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::constant(Vec2::splat(0.05)),
         })
@@ -159,26 +195,19 @@ fn setup(
 fn update(
     mut effect: Query<(&mut ParticleEffect, &mut Transform), Without<Projection>>,
     mouse_button_input: Res<Input<MouseButton>>,
-    camera_query: Query<&Transform, With<Projection>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<Projection>>,
     windows: Res<Windows>,
 ) {
     let (mut effect, mut effect_transform) = effect.single_mut();
-    let camera_transform = camera_query.single();
-
-    let up = camera_transform.up();
-    let right = camera_transform.right();
+    let (camera, camera_transform) = camera_query.single();
 
     if let Some(window) = windows.get_primary() {
         if let Some(mouse_pos) = window.cursor_position() {
             if mouse_button_input.just_pressed(MouseButton::Left) {
-                let screen_mouse_pos = (mouse_pos
-                    - Vec2::new(window.width(), window.height()) / 2.0)
-                    * camera_transform.translation.length()
-                    / 870.0; // investigate: why 870?
-
-                // converts the mouse position to a position on the view plane centered at the
-                // origin.
-                let spawning_pos = screen_mouse_pos.x * right + screen_mouse_pos.y * up;
+                let ray = camera
+                    .viewport_to_world(camera_transform, mouse_pos)
+                    .unwrap();
+                let spawning_pos = Vec3::new(ray.origin.x, ray.origin.y, 0.);
 
                 effect_transform.translation = spawning_pos;
 

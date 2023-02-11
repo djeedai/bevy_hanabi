@@ -148,7 +148,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Age the particle
     (*particle).age = (*particle).age + sim_params.dt;
-    if ((*particle).age >= (*particle).lifetime) {
+    var is_alive = (*particle).age < (*particle).lifetime;
+
+    {{UPDATE_CODE}}
+
+    // Check if alive
+    if (!is_alive || ((*particle).age >= (*particle).lifetime)) {
         // Write back constant "dead" age
         (*particle).age = (*particle).lifetime + 1.0;
         // Save dead index
@@ -158,12 +163,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         // pass just before, and need to remain correct after this pass
         atomicAdd(&render_indirect.max_spawn, 1u);
         atomicSub(&render_indirect.alive_count, 1u);
-        return;
+    } else {
+        // Increment alive particle count and write indirection index for later rendering
+        let indirect_index = atomicAdd(&render_indirect.instance_count, 1u);
+        indirect_buffer.indices[3u * indirect_index + ping] = index;
     }
-
-    {{UPDATE_CODE}}
-
-    // Increment alive particle count and write indirection index for later rendering
-    let indirect_index = atomicAdd(&render_indirect.instance_count, 1u);
-    indirect_buffer.indices[3u * indirect_index + ping] = index;
 }

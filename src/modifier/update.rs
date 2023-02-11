@@ -317,6 +317,43 @@ impl UpdateModifier for LinearDragModifier {
     }
 }
 
+/// A modifier killing all particles that enter or exit an AABB.
+///
+/// This enables confining particles to a region in space, or preventing
+/// particles to enter that region.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct AabbKillModifier {
+    /// Min corner of the AABB.
+    pub min: Vec3,
+    /// Max corner of the AABB.
+    pub max: Vec3,
+    /// If `true`, invert the kill condition and kill all particles inside the
+    /// AABB. If `false` (default), kill all particles outside the AABB.
+    pub kill_inside: bool,
+}
+
+impl_mod_update!(AabbKillModifier, &[Attribute::POSITION]);
+
+#[typetag::serde]
+impl UpdateModifier for AabbKillModifier {
+    fn apply(&self, context: &mut UpdateContext) {
+        let center = (self.min + self.max) / 2.;
+        let half_size = (self.max - self.min) / 2.;
+        let cmp = if self.kill_inside { "<" } else { ">" };
+        let reduce = if self.kill_inside { "all" } else { "any" };
+        context.update_code += &format!(
+            r#"if ({}(abs((*particle).position - {}) {} {})) {{
+    is_alive = false;
+}}
+"#,
+            reduce,
+            center.to_wgsl_string(),
+            cmp,
+            half_size.to_wgsl_string()
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
