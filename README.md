@@ -128,13 +128,13 @@ cargo run --example gradient --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 
 
 ### Force Field
 
-This example demonstrates the force field modifier `ForceFieldModifier`, which allows creating some attraction and repulsion sources affecting the motion of the particles.
+This example demonstrates the force field modifier `ForceFieldModifier`, which allows creating some attraction and repulsion sources affecting the motion of the particles. It also demonstrates the use of the `AabbKillModifier` to either kill the particles exiting an "allowed" space (green box) or entering a "forbidden" space (red box).
 
 ```shell
 cargo run --example force_field --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![force_field](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/force_field.gif)
+![force_field](./examples/force_field.gif)
 
 ### 2D
 
