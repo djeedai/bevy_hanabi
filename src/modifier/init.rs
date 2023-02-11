@@ -81,7 +81,10 @@ impl Default for PositionCircleModifier {
     }
 }
 
-impl_mod_init!(PositionCircleModifier, &[Attribute::POSITION, Attribute::VELOCITY]);
+impl_mod_init!(
+    PositionCircleModifier,
+    &[Attribute::POSITION, Attribute::VELOCITY]
+);
 
 #[typetag::serde]
 impl InitModifier for PositionCircleModifier {
@@ -145,7 +148,10 @@ pub struct PositionSphereModifier {
     pub dimension: ShapeDimension,
 }
 
-impl_mod_init!(PositionSphereModifier, &[Attribute::POSITION, Attribute::VELOCITY]);
+impl_mod_init!(
+    PositionSphereModifier,
+    &[Attribute::POSITION, Attribute::VELOCITY]
+);
 
 #[typetag::serde]
 impl InitModifier for PositionSphereModifier {
@@ -225,7 +231,10 @@ pub struct PositionCone3dModifier {
     pub dimension: ShapeDimension,
 }
 
-impl_mod_init!(PositionCone3dModifier, &[Attribute::POSITION, Attribute::VELOCITY]);
+impl_mod_init!(
+    PositionCone3dModifier,
+    &[Attribute::POSITION, Attribute::VELOCITY]
+);
 
 #[typetag::serde]
 impl InitModifier for PositionCone3dModifier {
@@ -297,7 +306,10 @@ impl Default for ParticleLifetimeModifier {
     }
 }
 
-impl_mod_init!(ParticleLifetimeModifier, &[Attribute::AGE, Attribute::LIFETIME]);
+impl_mod_init!(
+    ParticleLifetimeModifier,
+    &[Attribute::AGE, Attribute::LIFETIME]
+);
 
 #[typetag::serde]
 impl InitModifier for ParticleLifetimeModifier {

@@ -274,7 +274,10 @@ impl ForceFieldModifier {
     }
 }
 
-impl_mod_update!(ForceFieldModifier, &[Attribute::POSITION, Attribute::VELOCITY]);
+impl_mod_update!(
+    ForceFieldModifier,
+    &[Attribute::POSITION, Attribute::VELOCITY]
+);
 
 #[typetag::serde]
 impl UpdateModifier for ForceFieldModifier {

@@ -1850,7 +1850,7 @@ pub(crate) fn prepare_effects(
                 tr[11],
             ],
             force_field: extracted_force_field,
-            seed: random::<u32>(),
+            seed: random::<u32>(), // FIXME - Probably bad to re-seed each time there's a change
             effect_index,
         };
         trace!("spawner_params = {:?}", spawner_params);
