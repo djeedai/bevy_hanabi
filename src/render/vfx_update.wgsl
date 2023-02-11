@@ -22,12 +22,11 @@ struct ForceFieldSource {
 
 struct Spawner {
     transform: mat3x4<f32>, // transposed (row-major)
-    accel: vec3<f32>,
     spawn: atomic<i32>,
-    force_field: array<ForceFieldSource, 16>,
     seed: u32,
     count_unused: u32,
     effect_index: u32,
+    force_field: array<ForceFieldSource, 16>,
 };
 
 struct IndirectBuffer {

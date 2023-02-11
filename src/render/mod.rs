@@ -171,20 +171,16 @@ struct GpuSpawnerParams {
     /// spawn time, if the effect simulated in world space, or to all
     /// simulated particles if the effect is simulated in local space.
     transform: [f32; 12],
-    /// Global acceleration applied to all particles each frame.
-    /// TODO - This is NOT a spawner/emitter thing, but is a per-effect one.
-    /// Rename GpuSpawnerParams?
-    accel: Vec3,
     /// Number of particles to spawn this frame.
     spawn: i32,
-    /// Force field components. One GpuForceFieldSource takes up 32 bytes.
-    force_field: [GpuForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Spawn seed, for randomized modifiers.
     seed: u32,
     /// Current number of used particles.
     count: i32,
     /// Index of the effect into the indirect dispatch and render buffers.
     effect_index: u32,
+    /// Force field components. One GpuForceFieldSource takes up 32 bytes.
+    force_field: [GpuForceFieldSource; ForceFieldSource::MAX_SOURCES],
 }
 
 // FIXME - min_storage_buffer_offset_alignment
@@ -1853,8 +1849,7 @@ pub(crate) fn prepare_effects(
                 tr[0], tr[1], tr[2], tr[3], tr[4], tr[5], tr[6], tr[7], tr[8], tr[9], tr[10],
                 tr[11],
             ],
-            accel: Vec3::ZERO,                  // TODO -  extracted_effect.accel,
-            force_field: extracted_force_field, // extracted_effect.force_field,
+            force_field: extracted_force_field,
             seed: random::<u32>(),
             effect_index,
         };
