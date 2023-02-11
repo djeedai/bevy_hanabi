@@ -192,7 +192,7 @@ fn setup(
             dimension: ShapeDimension::Volume,
             speed: 2.0.into(),
         })
-        .init(ParticleLifetimeModifier { lifetime: 12.0 })
+        .init(InitLifetimeModifier { lifetime: 12_f32.into() })
         .render(ColorOverLifetimeModifier { gradient }),
     );
 

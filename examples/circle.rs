@@ -68,7 +68,7 @@ fn setup(
             speed: Value::Uniform((1.0, 1.5)),
             dimension: ShapeDimension::Surface,
         })
-        .init(ParticleLifetimeModifier { lifetime: 5. })
+        .init(InitLifetimeModifier { lifetime: 5_f32.into() })
         .render(ParticleTextureModifier {
             texture: texture_handle.clone(),
         })
