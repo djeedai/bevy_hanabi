@@ -76,13 +76,16 @@
 //!         ..Default::default()
 //!     }
 //!     // On spawn, randomly initialize the position of the particle
-//!     // to be over the surface of a sphere of radius 2 units, with
-//!     // a radial initial velocity of 6 units/sec away from the
-//!     // sphere center.
-//!     .init(PositionSphereModifier {
+//!     // to be over the surface of a sphere of radius 2 units.
+//!     .init(InitPositionSphereModifier {
 //!         center: Vec3::ZERO,
 //!         radius: 2.,
 //!         dimension: ShapeDimension::Surface,
+//!     })
+//!     // Also initialize a radial initial velocity to 6 units/sec
+//!     // away from the (same) sphere center.
+//!     .init(InitVelocitySphereModifier {
+//!         center: Vec3::ZERO,
 //!         speed: 6.0.into(),
 //!     })
 //!     // Also initialize the total lifetime of the particle, that is

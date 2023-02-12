@@ -69,10 +69,13 @@ fn setup(
             spawner: Spawner::burst(Value::Uniform((1., 100.)), Value::Uniform((1., 4.))),
             ..Default::default()
         }
-        .init(PositionSphereModifier {
+        .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
             dimension: ShapeDimension::Volume,
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
             speed: 2.0.into(),
         })
         .init(InitLifetimeModifier {

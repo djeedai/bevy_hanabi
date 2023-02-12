@@ -8,7 +8,7 @@
 //! - An HDR camera with [`BloomSettings`] to ensure the particles "glow".
 //! - Use of a [`ColorOverLifetimeModifier`] with a [`Gradient`] made of colors
 //!   outside the \[0:1\] range, to ensure bloom has an effect.
-//! - [`PositionSphereModifier`] with a reasonably large initial speed for
+//! - [`InitVelocitySphereModifier`] with a reasonably large initial speed for
 //!   particles, and [`LinearDragModifier`] to quickly slow them down. This is
 //!   the core of the "explosion" effect.
 //! - An [`AccelModifier`] to pull particles down once they slow down, for
@@ -73,11 +73,15 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             spawner: Spawner::burst(2500.0.into(), 2.0.into()),
             ..Default::default()
         }
-        .init(PositionSphereModifier {
-            dimension: ShapeDimension::Volume,
-            radius: 2.,
-            speed: 70_f32.into(),
+        .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
+            radius: 2.,
+            dimension: ShapeDimension::Volume,
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
+            // Give a bit of variation by randomizing the initial speed
+            speed: Value::Uniform((65., 75.)),
         })
         .init(InitLifetimeModifier {
             // Give a bit of variation by randomizing the lifetime per particle
@@ -85,8 +89,8 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         })
         .init(InitAgeModifier {
             // Give a bit of variation by randomizing the age per particle. This will control the
-            // starting color and size of particles.
-            age: Value::Uniform((0.0, 0.4)),
+            // starting color and starting size of particles.
+            age: Value::Uniform((0.0, 0.2)),
         })
         .update(LinearDragModifier { drag: 5. })
         .update(AccelModifier::constant(Vec3::new(0., -8., 0.)))

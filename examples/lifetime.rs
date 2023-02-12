@@ -63,10 +63,13 @@ fn setup(
             spawner: Spawner::burst(50.0.into(), 3.0.into()),
             ..Default::default()
         }
-        .init(PositionSphereModifier {
+        .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
             dimension: ShapeDimension::Volume,
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
             speed: 2.0.into(),
         })
         .init(InitLifetimeModifier {
@@ -105,10 +108,13 @@ fn setup(
             spawner: Spawner::burst(50.0.into(), 3.0.into()),
             ..Default::default()
         }
-        .init(PositionSphereModifier {
+        .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
             dimension: ShapeDimension::Volume,
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
             speed: 2.0.into(),
         })
         .init(InitLifetimeModifier {
@@ -147,10 +153,13 @@ fn setup(
             spawner: Spawner::burst(50.0.into(), 3.0.into()),
             ..Default::default()
         }
-        .init(PositionSphereModifier {
+        .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
             dimension: ShapeDimension::Volume,
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
             speed: 2.0.into(),
         })
         .init(InitLifetimeModifier {

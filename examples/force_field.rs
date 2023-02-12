@@ -143,11 +143,14 @@ fn setup(
             spawner,
             ..Default::default()
         }
-        .init(PositionSphereModifier {
+        .init(InitPositionSphereModifier {
+            center: Vec3::ZERO,
             radius: BALL_RADIUS,
-            speed: Value::Uniform((0.1, 0.3)),
             dimension: ShapeDimension::Surface,
-            ..Default::default()
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
+            speed: Value::Uniform((0.1, 0.3)),
         })
         .init(InitLifetimeModifier {
             lifetime: 5_f32.into(),

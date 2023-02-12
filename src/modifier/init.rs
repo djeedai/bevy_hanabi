@@ -137,24 +137,19 @@ impl InitModifier for PositionCircleModifier {
 
 /// An initialization modifier spawning particles on a sphere.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct PositionSphereModifier {
+pub struct InitPositionSphereModifier {
     /// The sphere center, relative to the emitter position.
     pub center: Vec3,
     /// The sphere radius.
     pub radius: f32,
-    /// The radial speed of the particles on spawn.
-    pub speed: Value<f32>,
     /// The shape dimension to spawn from.
     pub dimension: ShapeDimension,
 }
 
-impl_mod_init!(
-    PositionSphereModifier,
-    &[Attribute::POSITION, Attribute::VELOCITY]
-);
+impl_mod_init!(InitPositionSphereModifier, &[Attribute::POSITION]);
 
 #[typetag::serde]
-impl InitModifier for PositionSphereModifier {
+impl InitModifier for InitPositionSphereModifier {
     fn apply(&self, context: &mut InitContext) {
         let radius_code = match self.dimension {
             ShapeDimension::Surface => {
@@ -166,41 +161,37 @@ impl InitModifier for PositionSphereModifier {
                 // to account for the increased surface covered by increased radii.
                 // https://stackoverflow.com/questions/54544971/how-to-generate-uniform-random-points-inside-d-dimension-ball-sphere
                 format!(
-                    "var r = pow(rand(), 1./3.) * {};",
+                    "let r = pow(rand(), 1./3.) * {};",
                     self.radius.to_wgsl_string()
                 )
             }
         };
 
         context.init_extra += &format!(
-            r##"fn position_sphere(particle: ptr<function, Particle>) {{
+            r##"fn init_position_sphere(particle: ptr<function, Particle>) {{
     // Sphere center
     let c = {};
+
     // Sphere radius
     {}
-    // Radial speed
-    let speed = {};
+
     // Spawn randomly along the sphere surface using Archimedes's theorem
-    var theta = rand() * tau;
-    var z = rand() * 2. - 1.;
-    var phi = acos(z);
-    var sinphi = sin(phi);
-    var x = sinphi * cos(theta);
-    var y = sinphi * sin(theta);
-    var dir = vec3<f32>(x, y, z);
+    let theta = rand() * tau;
+    let z = rand() * 2. - 1.;
+    let phi = acos(z);
+    let sinphi = sin(phi);
+    let x = sinphi * cos(theta);
+    let y = sinphi * sin(theta);
+    let dir = vec3<f32>(x, y, z);
     (*particle).{} = c + r * dir;
-    // Radial velocity away from sphere center
-    (*particle).{} = dir * speed;
 }}
 "##,
             self.center.to_wgsl_string(),
             radius_code,
-            self.speed.to_wgsl_string(),
             Attribute::POSITION.name(),
-            Attribute::VELOCITY.name(),
         );
 
-        context.init_code += "position_sphere(&particle);\n";
+        context.init_code += "init_position_sphere(&particle);\n";
     }
 }
 
@@ -240,7 +231,7 @@ impl_mod_init!(
 impl InitModifier for PositionCone3dModifier {
     fn apply(&self, context: &mut InitContext) {
         context.init_extra += &format!(
-            r##"fn position_cone3d(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
+            r##"fn init_position_cone3d(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
     // Truncated cone height
     let h0 = {0};
     // Random height ratio
@@ -286,7 +277,36 @@ impl InitModifier for PositionCone3dModifier {
             Attribute::VELOCITY.name(),
         );
 
-        context.init_code += "position_cone3d(transform, &particle);\n";
+        context.init_code += "init_position_cone3d(transform, &particle);\n";
+    }
+}
+
+/// A modifier to set the initial velocity of particles to a spherical
+/// distribution.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct InitVelocitySphereModifier {
+    /// Center of the sphere. The radial direction of the velocity is the
+    /// direction from the sphere center to the particle position.
+    pub center: Vec3,
+    /// The initial speed distribution of a particle when it spawns.
+    pub speed: Value<f32>,
+}
+
+impl_mod_init!(
+    InitVelocitySphereModifier,
+    &[Attribute::POSITION, Attribute::VELOCITY]
+);
+
+#[typetag::serde]
+impl InitModifier for InitVelocitySphereModifier {
+    fn apply(&self, context: &mut InitContext) {
+        context.init_code += &format!(
+            "particle.{} = normalize(particle.{} - {}) * ({});\n",
+            Attribute::VELOCITY.name(),
+            Attribute::POSITION.name(),
+            self.center.to_wgsl_string(),
+            self.speed.to_wgsl_string()
+        );
     }
 }
 
@@ -295,16 +315,10 @@ impl InitModifier for PositionCone3dModifier {
 /// Particles with an age attribute are aged each frame based on the frame's
 /// delta time. Various other modifiers use that age to smoothly vary some
 /// quantities, like [`SizeOverLifetimeModifier`].
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitAgeModifier {
     /// The initial age of a particle when it spawns, in seconds.
     pub age: Value<f32>,
-}
-
-impl Default for InitAgeModifier {
-    fn default() -> Self {
-        Self { age: 0_f32.into() }
-    }
 }
 
 impl_mod_init!(InitAgeModifier, &[Attribute::AGE]);
@@ -419,7 +433,7 @@ mod tests {
     fn validate() {
         let modifiers: &[&dyn InitModifier] = &[
             &PositionCircleModifier::default(),
-            &PositionSphereModifier::default(),
+            &InitPositionSphereModifier::default(),
             &PositionCone3dModifier {
                 dimension: ShapeDimension::Volume,
                 ..Default::default()

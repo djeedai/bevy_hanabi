@@ -124,11 +124,10 @@ mod tests {
 
     use super::*;
 
-    fn make_test_modifier() -> PositionSphereModifier {
-        PositionSphereModifier {
+    fn make_test_modifier() -> InitPositionSphereModifier {
+        InitPositionSphereModifier {
             center: Vec3::new(1., -3.5, 42.42),
             radius: 1.5,
-            speed: 3.5.into(),
             dimension: ShapeDimension::Surface,
         }
     }
@@ -143,8 +142,10 @@ mod tests {
 
         // Reflect
         let reflect: &dyn Reflect = m.as_reflect();
-        assert!(reflect.is::<PositionSphereModifier>());
-        let m_reflect = reflect.downcast_ref::<PositionSphereModifier>().unwrap();
+        assert!(reflect.is::<InitPositionSphereModifier>());
+        let m_reflect = reflect
+            .downcast_ref::<InitPositionSphereModifier>()
+            .unwrap();
         assert_eq!(*m_reflect, m);
     }
 
@@ -167,8 +168,10 @@ mod tests {
             rm_serde.get_type_info().type_id()
         );
 
-        assert!(rm_serde.is::<PositionSphereModifier>());
-        let rm_reflect = rm_serde.downcast_ref::<PositionSphereModifier>().unwrap();
+        assert!(rm_serde.is::<InitPositionSphereModifier>());
+        let rm_reflect = rm_serde
+            .downcast_ref::<InitPositionSphereModifier>()
+            .unwrap();
         assert_eq!(*rm_reflect, m);
     }
 }

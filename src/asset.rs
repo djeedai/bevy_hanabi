@@ -282,7 +282,8 @@ mod tests {
             ..Default::default()
         }
         //.init(PositionCircleModifier::default())
-        .init(PositionSphereModifier::default())
+        .init(InitPositionSphereModifier::default())
+        .init(InitVelocitySphereModifier::default())
         //.init(PositionCone3dModifier::default())
         .init(InitAgeModifier::default())
         .init(InitLifetimeModifier::default())
@@ -297,7 +298,8 @@ mod tests {
         assert_eq!(effect.capacity, 4096);
 
         let mut init_context = InitContext::default();
-        PositionSphereModifier::default().apply(&mut init_context);
+        InitPositionSphereModifier::default().apply(&mut init_context);
+        InitVelocitySphereModifier::default().apply(&mut init_context);
         InitAgeModifier::default().apply(&mut init_context);
         InitLifetimeModifier::default().apply(&mut init_context);
         //assert_eq!(effect., init_context.init_code);
