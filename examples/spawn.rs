@@ -79,10 +79,13 @@ fn setup(
             ..Default::default()
         }
         .with_property("my_accel", graph::Value::Float3(Vec3::new(0., -3., 0.)))
-        .init(PositionSphereModifier {
+        .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 2.,
             dimension: ShapeDimension::Surface,
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
             speed: 6.0.into(),
         })
         .init(InitLifetimeModifier {
@@ -129,10 +132,13 @@ fn setup(
             spawner: Spawner::once(1000.0.into(), true),
             ..Default::default()
         }
-        .init(PositionSphereModifier {
+        .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
             dimension: ShapeDimension::Volume,
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
             speed: 2.0.into(),
         })
         .init(InitLifetimeModifier {
@@ -177,10 +183,13 @@ fn setup(
             spawner: Spawner::burst(400.0.into(), 3.0.into()),
             ..Default::default()
         }
-        .init(PositionSphereModifier {
+        .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
             dimension: ShapeDimension::Volume,
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
             speed: 2.0.into(),
         })
         .init(InitLifetimeModifier {

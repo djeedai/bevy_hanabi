@@ -29,6 +29,7 @@ pub struct Random(pub Pcg32);
 /// This enum represents a value which is either constant, or randomly sampled
 /// according to a given probability distribution.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Reflect, FromReflect)]
+#[non_exhaustive]
 pub enum Value<T: Copy + FromReflect> {
     /// Single constant value.
     Single(T),

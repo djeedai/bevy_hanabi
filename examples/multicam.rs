@@ -52,10 +52,13 @@ fn make_effect(color: Color) -> EffectAsset {
         spawner: Spawner::rate(5.0.into()),
         ..Default::default()
     }
-    .init(PositionSphereModifier {
+    .init(InitPositionSphereModifier {
         center: Vec3::ZERO,
         radius: 2.,
         dimension: ShapeDimension::Surface,
+    })
+    .init(InitVelocitySphereModifier {
+        center: Vec3::ZERO,
         speed: 6.0.into(),
     })
     .init(InitLifetimeModifier {

@@ -186,10 +186,13 @@ fn setup(
             spawner: Spawner::rate(50.0.into()),
             ..Default::default()
         }
-        .init(PositionSphereModifier {
+        .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 1.,
             dimension: ShapeDimension::Volume,
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
             speed: 2.0.into(),
         })
         .init(InitLifetimeModifier {
