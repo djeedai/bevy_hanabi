@@ -261,7 +261,7 @@ impl ToWgslString for Value<f32> {
         match self {
             Self::Single(x) => x.to_wgsl_string(),
             Self::Uniform((a, b)) => format!(
-                "rand() * ({1} - {0}) + {0}",
+                "(rand() * ({1} - {0}) + {0})",
                 a.to_wgsl_string(),
                 b.to_wgsl_string(),
             ),
@@ -274,7 +274,7 @@ impl ToWgslString for Value<Vec2> {
         match self {
             Self::Single(v) => v.to_wgsl_string(),
             Self::Uniform((a, b)) => format!(
-                "rand2() * ({1} - {0}) + {0}",
+                "(rand2() * ({1} - {0}) + {0})",
                 a.to_wgsl_string(),
                 b.to_wgsl_string(),
             ),
@@ -287,7 +287,7 @@ impl ToWgslString for Value<Vec3> {
         match self {
             Self::Single(v) => v.to_wgsl_string(),
             Self::Uniform((a, b)) => format!(
-                "rand3() * ({1} - {0}) + {0}",
+                "(rand3() * ({1} - {0}) + {0})",
                 a.to_wgsl_string(),
                 b.to_wgsl_string(),
             ),
@@ -300,7 +300,7 @@ impl ToWgslString for Value<Vec4> {
         match self {
             Self::Single(v) => v.to_wgsl_string(),
             Self::Uniform((a, b)) => format!(
-                "rand4() * ({1} - {0}) + {0}",
+                "(rand4() * ({1} - {0}) + {0})",
                 a.to_wgsl_string(),
                 b.to_wgsl_string(),
             ),

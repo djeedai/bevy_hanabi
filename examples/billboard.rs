@@ -67,12 +67,16 @@ fn setup(
             spawner: Spawner::rate(64.0.into()),
             ..Default::default()
         }
-        .init(PositionCircleModifier {
+        .init(InitPositionCircleModifier {
             center: Vec3::Y * 0.1,
             axis: Vec3::Y,
             radius: 1.0,
-            speed: Value::Uniform((0.7, 0.5)),
             dimension: ShapeDimension::Volume,
+        })
+        .init(InitVelocityCircleModifier {
+            center: Vec3::ZERO,
+            axis: Vec3::Y,
+            speed: Value::Uniform((0.7, 0.5)),
         })
         .init(InitLifetimeModifier {
             lifetime: 5_f32.into(),

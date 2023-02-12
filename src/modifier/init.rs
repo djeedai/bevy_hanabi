@@ -55,7 +55,7 @@ macro_rules! impl_mod_init {
 
 /// An initialization modifier spawning particles on a circle/disc.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct PositionCircleModifier {
+pub struct InitPositionCircleModifier {
     /// The circle center, relative to the emitter position.
     pub center: Vec3,
     /// The circle axis, which is the normalized normal of the circle's plane.
@@ -63,31 +63,25 @@ pub struct PositionCircleModifier {
     pub axis: Vec3,
     /// The circle radius.
     pub radius: f32,
-    /// The radial speed of the particles on spawn.
-    pub speed: Value<f32>,
     /// The shape dimension to spawn from.
     pub dimension: ShapeDimension,
 }
 
-impl Default for PositionCircleModifier {
+impl Default for InitPositionCircleModifier {
     fn default() -> Self {
         Self {
             center: Default::default(),
             axis: Vec3::Z,
             radius: Default::default(),
-            speed: Default::default(),
             dimension: Default::default(),
         }
     }
 }
 
-impl_mod_init!(
-    PositionCircleModifier,
-    &[Attribute::POSITION, Attribute::VELOCITY]
-);
+impl_mod_init!(InitPositionCircleModifier, &[Attribute::POSITION]);
 
 #[typetag::serde]
-impl InitModifier for PositionCircleModifier {
+impl InitModifier for InitPositionCircleModifier {
     fn apply(&self, context: &mut InitContext) {
         let (tangent, bitangent) = self.axis.any_orthonormal_pair();
 
@@ -104,7 +98,7 @@ impl InitModifier for PositionCircleModifier {
         };
 
         context.init_extra += &format!(
-            r##"fn position_circle(particle: ptr<function, Particle>) {{
+            r##"fn init_position_circle(particle: ptr<function, Particle>) {{
     // Circle center
     let c = {};
     // Circle basis
@@ -112,26 +106,20 @@ impl InitModifier for PositionCircleModifier {
     let bitangent = {};
     // Circle radius
     {}
-    // Radial speed
-    let speed = {};
     // Spawn random point on/in circle
     let theta = rand() * tau;
     let dir = tangent * cos(theta) + bitangent * sin(theta);
     (*particle).{} = c + r * dir;
-    // Velocity away from center
-    (*particle).{} = dir * speed;
 }}
 "##,
             self.center.to_wgsl_string(),
             tangent.to_wgsl_string(),
             bitangent.to_wgsl_string(),
             radius_code,
-            self.speed.to_wgsl_string(),
             Attribute::POSITION.name(),
-            Attribute::VELOCITY.name(),
         );
 
-        context.init_code += "position_circle(&particle);\n";
+        context.init_code += "init_position_circle(&particle);\n";
     }
 }
 
@@ -281,6 +269,45 @@ impl InitModifier for PositionCone3dModifier {
     }
 }
 
+/// A modifier to set the initial velocity of particles radially on a circle.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct InitVelocityCircleModifier {
+    /// The circle center, relative to the emitter position.
+    pub center: Vec3,
+    /// The circle axis, which is the normalized normal of the circle's plane.
+    /// Set this to `Vec3::Z` for a 2D game.
+    pub axis: Vec3,
+    /// The initial speed distribution of a particle when it spawns.
+    pub speed: Value<f32>,
+}
+
+impl_mod_init!(
+    InitVelocityCircleModifier,
+    &[Attribute::POSITION, Attribute::VELOCITY]
+);
+
+#[typetag::serde]
+impl InitModifier for InitVelocityCircleModifier {
+    fn apply(&self, context: &mut InitContext) {
+        context.init_extra += &format!(
+            r##"fn init_velocity_circle(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
+    let delta = (*particle).{0} - {1};
+    let radial = normalize(delta - dot(delta, {2}) * {2});
+    let radial = transform * vec4<f32>(radial.xyz, 0.0);
+    (*particle).{3} = radial.xyz * {4};
+}}
+"##,
+            Attribute::POSITION.name(),
+            self.center.to_wgsl_string(),
+            self.axis.to_wgsl_string(),
+            Attribute::VELOCITY.name(),
+            self.speed.to_wgsl_string(),
+        );
+
+        context.init_code += "init_velocity_circle(transform, &particle);\n";
+    }
+}
+
 /// A modifier to set the initial velocity of particles to a spherical
 /// distribution.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
@@ -307,6 +334,47 @@ impl InitModifier for InitVelocitySphereModifier {
             self.center.to_wgsl_string(),
             self.speed.to_wgsl_string()
         );
+    }
+}
+
+/// A modifier to set the initial velocity of particles along the tangent to an
+/// axis.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct InitVelocityTangentModifier {
+    /// Origin from which to derive the radial axis based on the particle
+    /// position.
+    pub origin: Vec3,
+    /// Axis defining the normal to the plane containing the radial and tangent
+    /// axes.
+    pub axis: Vec3,
+    /// The initial speed distribution of a particle when it spawns.
+    pub speed: Value<f32>,
+}
+
+impl_mod_init!(
+    InitVelocityTangentModifier,
+    &[Attribute::POSITION, Attribute::VELOCITY]
+);
+
+#[typetag::serde]
+impl InitModifier for InitVelocityTangentModifier {
+    fn apply(&self, context: &mut InitContext) {
+        context.init_extra += &format!(
+            r##"fn init_velocity_tangent(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
+    let radial = (*particle).{0} - {1};
+    let tangent = normalize(cross({2}, radial));
+    let tangent = transform * vec4<f32>(tangent.xyz, 0.0);
+    (*particle).{3} = tangent.xyz * {4};
+}}
+"##,
+            Attribute::POSITION.name(),
+            self.origin.to_wgsl_string(),
+            self.axis.to_wgsl_string(),
+            Attribute::VELOCITY.name(),
+            self.speed.to_wgsl_string(),
+        );
+
+        context.init_code += "init_velocity_tangent(transform, &particle);\n";
     }
 }
 
@@ -432,7 +500,7 @@ mod tests {
     #[test]
     fn validate() {
         let modifiers: &[&dyn InitModifier] = &[
-            &PositionCircleModifier::default(),
+            &InitPositionCircleModifier::default(),
             &InitPositionSphereModifier::default(),
             &PositionCone3dModifier {
                 dimension: ShapeDimension::Volume,

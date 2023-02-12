@@ -281,7 +281,7 @@ mod tests {
             spawner: Spawner::rate(30.0.into()),
             ..Default::default()
         }
-        //.init(PositionCircleModifier::default())
+        //.init(InitPositionCircleModifier::default())
         .init(InitPositionSphereModifier::default())
         .init(InitVelocitySphereModifier::default())
         //.init(PositionCone3dModifier::default())
