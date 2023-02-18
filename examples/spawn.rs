@@ -10,6 +10,12 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
+/// Set this to `true` to enable WGPU downlevel constraints. This is disabled by
+/// default to prevent the example from failing to start on devices with a
+/// monitor resolution larger than the maximum resolution imposed by the
+/// downlevel settings of WGPU.
+const USE_LOW_LIMITS: bool = false;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Optional; test that a stronger constraint is handled correctly.
     // For example, on macOS the alignment for storage buffer offsets is commonly
@@ -17,8 +23,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // only. Force the downlevel limits here, and as an example of how
     // to force a particular limit, and to show Hanabi works with those settings.
     let mut options = WgpuSettings::default();
-    let limits = WgpuLimits::downlevel_defaults();
-    options.constrained_limits = Some(limits);
+    if USE_LOW_LIMITS {
+        let limits = WgpuLimits::downlevel_defaults();
+        options.constrained_limits = Some(limits);
+    }
 
     App::default()
         .insert_resource(options)

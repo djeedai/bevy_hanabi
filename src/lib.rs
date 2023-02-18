@@ -905,7 +905,10 @@ mod tests {
         let s = Value::Single(Vec2::ONE).to_wgsl_string();
         assert_eq!(s, "vec2<f32>(1., 1.)");
         let s = Value::Uniform((Vec2::ZERO, Vec2::ONE)).to_wgsl_string();
-        assert_eq!(s, "(rand2() * (vec2<f32>(1., 1.) - vec2<f32>(0., 0.)) + vec2<f32>(0., 0.))");
+        assert_eq!(
+            s,
+            "(rand2() * (vec2<f32>(1., 1.) - vec2<f32>(0., 0.)) + vec2<f32>(0., 0.))"
+        );
     }
 
     #[test]
@@ -913,7 +916,10 @@ mod tests {
         let s = Value::Single(Vec3::ONE).to_wgsl_string();
         assert_eq!(s, "vec3<f32>(1., 1., 1.)");
         let s = Value::Uniform((Vec3::ZERO, Vec3::ONE)).to_wgsl_string();
-        assert_eq!(s, "(rand3() * (vec3<f32>(1., 1., 1.) - vec3<f32>(0., 0., 0.)) + vec3<f32>(0., 0., 0.))");
+        assert_eq!(
+            s,
+            "(rand3() * (vec3<f32>(1., 1., 1.) - vec3<f32>(0., 0., 0.)) + vec3<f32>(0., 0., 0.))"
+        );
     }
 
     #[test]
