@@ -945,14 +945,6 @@ pub(crate) struct ExtractedEffect {
     pub update_shader: Handle<Shader>,
     /// Render shader.
     pub render_shader: Handle<Shader>,
-    /// Init code.
-    pub init_code: String,
-    /// Extra init code.
-    pub init_extra: String,
-    /// Update code.
-    pub update_code: String,
-    /// Extra update code.
-    pub update_extra: String,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
     pub z_sort_key_2d: FloatOrd,
@@ -1124,10 +1116,6 @@ pub(crate) fn extract_effects(
         // TEMP - see tick_spawners()
         let spawn_count = effect.spawn_count;
         let force_field = effect.force_field; // TEMP
-        let init_code = effect.init_code.clone();
-        let init_extra = effect.init_extra.clone();
-        let update_code = effect.update_code.clone();
-        let update_extra = effect.update_extra.clone();
 
         // Check if asset is available, otherwise silently ignore
         let Some(asset) = effects.get(&effect.handle) else {
@@ -1181,10 +1169,6 @@ pub(crate) fn extract_effects(
                 init_shader,
                 update_shader,
                 render_shader,
-                init_code,
-                init_extra,
-                update_code,
-                update_extra,
                 z_sort_key_2d,
             },
         );
@@ -1530,14 +1514,6 @@ pub(crate) struct EffectBatch {
     update_shader: Handle<Shader>,
     /// Configured shader used for the particle rendering of this batch.
     render_shader: Handle<Shader>,
-    /// Init code.
-    init_code: String,
-    /// Extra init code.
-    init_extra: String,
-    /// Update code.
-    update_code: String,
-    /// Extra update code.
-    update_extra: String,
     /// Init compute pipeline specialized for this batch.
     init_pipeline_id: CachedComputePipelineId,
     /// Update compute pipeline specialized for this batch.
@@ -1655,10 +1631,6 @@ pub(crate) fn prepare_effects(
     let mut start = 0;
     let mut end = 0;
     let mut num_emitted = 0;
-    let mut init_code = String::default();
-    let mut init_extra = String::default();
-    let mut update_code = String::default();
-    let mut update_extra = String::default();
     let mut init_pipeline_id = CachedComputePipelineId::INVALID;
     let mut update_pipeline_id = CachedComputePipelineId::INVALID;
     let mut z_sort_key_2d = FloatOrd(f32::NAN);
@@ -1736,10 +1708,6 @@ pub(crate) fn prepare_effects(
                         init_shader: init_shader.clone(),
                         update_shader: update_shader.clone(),
                         render_shader: render_shader.clone(),
-                        init_code: init_code.clone(),
-                        init_extra: init_extra.clone(),
-                        update_code: update_code.clone(),
-                        update_extra: update_extra.clone(),
                         init_pipeline_id,
                         update_pipeline_id,
                         z_sort_key_2d,
@@ -1808,18 +1776,6 @@ pub(crate) fn prepare_effects(
         trace!("render_shader = {:?}", render_shader);
 
         trace!("particle_layout = {:?}", slice.particle_layout);
-
-        init_code = extracted_effect.init_code.clone();
-        //trace!("init_code = {}", init_code);
-
-        init_extra = extracted_effect.init_extra.clone();
-        //trace!("init_extra = {}", init_extra);
-
-        update_code = extracted_effect.update_code.clone();
-        //trace!("update_code = {}", update_code);
-
-        update_extra = extracted_effect.update_extra.clone();
-        //trace!("update_extra = {}", update_extra);
 
         trace!("z_sort_key_2d = {:?}", z_sort_key_2d);
 
@@ -1892,10 +1848,6 @@ pub(crate) fn prepare_effects(
                     init_shader: init_shader.clone(),
                     update_shader: update_shader.clone(),
                     render_shader: render_shader.clone(),
-                    init_code: init_code.clone(),
-                    init_extra: init_extra.clone(),
-                    update_code: update_code.clone(),
-                    update_extra: update_extra.clone(),
                     init_pipeline_id,
                     update_pipeline_id,
                     z_sort_key_2d,
@@ -1936,10 +1888,6 @@ pub(crate) fn prepare_effects(
             init_shader,
             update_shader,
             render_shader,
-            init_code,
-            init_extra,
-            update_code,
-            update_extra,
             init_pipeline_id,
             update_pipeline_id,
             z_sort_key_2d,

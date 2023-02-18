@@ -374,10 +374,6 @@ pub struct ParticleEffect {
     #[reflect(ignore)]
     force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     spawn_count: u32,
-    init_code: String,
-    init_extra: String,
-    update_code: String,
-    update_extra: String,
 }
 
 impl ParticleEffect {
@@ -395,10 +391,6 @@ impl ParticleEffect {
             //
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
             spawn_count: 0,
-            init_code: String::default(),
-            init_extra: String::default(),
-            update_code: String::default(),
-            update_extra: String::default(),
         }
     }
 
@@ -742,6 +734,7 @@ fn tick_spawners(
                 .replace("{{INIT_CODE}}", &init_context.init_code)
                 .replace("{{INIT_EXTRA}}", &init_context.init_extra);
             let init_shader = shader_cache.get_or_insert(&init_shader_source, &mut shaders);
+            trace!("Configured init shader:\n{}", init_shader_source);
 
             // Configure the update shader template, and make sure a corresponding shader
             // asset exists
@@ -752,6 +745,7 @@ fn tick_spawners(
                 .replace("{{PROPERTIES}}", &properties_code)
                 .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
             let update_shader = shader_cache.get_or_insert(&update_shader_source, &mut shaders);
+            trace!("Configured update shader:\n{}", update_shader_source);
 
             // Configure the render shader template, and make sure a corresponding shader
             // asset exists
@@ -772,6 +766,7 @@ fn tick_spawners(
                 render_shader_source = render_shader_source.replace("{{SIZE}}", "");
             }
             let render_shader = shader_cache.get_or_insert(&render_shader_source, &mut shaders);
+            trace!("Configured render shader:\n{}", render_shader_source);
 
             trace!(
                 "tick_spawners: handle={:?} init_shader={:?} update_shader={:?} render_shader={:?} has_image={}",
@@ -798,10 +793,6 @@ fn tick_spawners(
             effect.configured_render_shader = Some(render_shader);
 
             // TEMP - Should disappear after fixing the above TODO.
-            effect.init_code = init_context.init_code;
-            effect.init_extra = init_context.init_extra;
-            effect.update_code = update_context.update_code;
-            effect.update_extra = update_context.update_extra;
             effect.force_field = update_context.force_field;
         }
     }
