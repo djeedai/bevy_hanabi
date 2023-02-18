@@ -1,4 +1,11 @@
-#![allow(dead_code)]
+//! Instancing
+//!
+//! An example to demonstrate instancing a single effect asset multiple times.
+//! The example defines a single [`EffectAsset`] then creates many
+//! [`ParticleEffect`]s from that same asset, disposed in a grid pattern.
+//!
+//! Use the SPACE key to add more effect instances, or the DELETE key to remove
+//! an existing instance.
 
 use bevy::{log::LogPlugin, prelude::*, render::mesh::shape::Cube};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -221,7 +228,9 @@ fn keyboard_input_system(
 
     if keyboard_input.just_pressed(KeyCode::Space) {
         my_effect.spawn_random(&mut commands);
-    } else if keyboard_input.just_pressed(KeyCode::Delete) {
+    } else if keyboard_input.just_pressed(KeyCode::Delete)
+        || keyboard_input.just_pressed(KeyCode::Back)
+    {
         my_effect.despawn_random(&mut commands);
     }
 

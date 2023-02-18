@@ -1,3 +1,16 @@
+//! Lifetime
+//!
+//! An example demonstrating the effect of the particle's lifetime. The example
+//! spawns 3 effect instances, which emit a burst of particles every 3 seconds.
+//! Each effect has a different particle lifetime:
+//! - The left effect has a lifetime of 12 seconds, much longer than the spawn
+//!   rate. Multiple bursts of particles are alive at the same time.
+//! - The center effect has a lifetime of 3 seconds, exactly the spawn rate. As
+//!   soon as particles die, a new burst spawns some more.
+//! - The right effect has a lifetime of 0.75 seconds. Particle die very
+//!   quickly, and during 2.25 seconds there's no particle, until the next burst
+//!   spawns some more.
+
 use bevy::{
     log::LogPlugin,
     prelude::*,
@@ -52,15 +65,23 @@ fn setup(
     let cube = meshes.add(Mesh::from(Cube { size: 1.0 }));
     let mat = materials.add(Color::PURPLE.into());
 
-    let mut gradient = Gradient::new();
-    gradient.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
-    gradient.add_key(1.0, Vec4::splat(0.0));
+    let lifetime1 = 12.;
+    let lifetime2 = 3.;
+    let lifetime3 = 0.75;
+    let period = 3.;
+
+    let mut gradient1 = Gradient::new();
+    gradient1.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
+    gradient1.add_key(0.25, Vec4::new(1.0, 1.0, 0.0, 1.0));
+    gradient1.add_key(0.5, Vec4::new(0.0, 1.0, 0.0, 1.0));
+    gradient1.add_key(0.75, Vec4::new(0.0, 1.0, 1.0, 1.0));
+    gradient1.add_key(1.0, Vec4::ONE);
 
     let effect1 = effects.add(
         EffectAsset {
             name: "emit:burst".to_string(),
             capacity: 512,
-            spawner: Spawner::burst(50.0.into(), 3.0.into()),
+            spawner: Spawner::burst(50.0.into(), period.into()),
             ..Default::default()
         }
         .init(InitPositionSphereModifier {
@@ -73,10 +94,10 @@ fn setup(
             speed: 2.0.into(),
         })
         .init(InitLifetimeModifier {
-            lifetime: 12_f32.into(),
+            lifetime: lifetime1.into(),
         })
         .render(ColorOverLifetimeModifier {
-            gradient: gradient.clone(),
+            gradient: gradient1,
         }),
     );
 
@@ -101,11 +122,15 @@ fn setup(
             ));
         });
 
+    let mut gradient2 = Gradient::new();
+    gradient2.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
+    gradient2.add_key(1.0, Vec4::new(1.0, 1.0, 0.0, 1.0));
+
     let effect2 = effects.add(
         EffectAsset {
             name: "emit:burst".to_string(),
             capacity: 512,
-            spawner: Spawner::burst(50.0.into(), 3.0.into()),
+            spawner: Spawner::burst(50.0.into(), period.into()),
             ..Default::default()
         }
         .init(InitPositionSphereModifier {
@@ -118,10 +143,10 @@ fn setup(
             speed: 2.0.into(),
         })
         .init(InitLifetimeModifier {
-            lifetime: 3_f32.into(),
+            lifetime: lifetime2.into(),
         })
         .render(ColorOverLifetimeModifier {
-            gradient: gradient.clone(),
+            gradient: gradient2,
         }),
     );
 
@@ -146,11 +171,15 @@ fn setup(
             ));
         });
 
+    let mut gradient3 = Gradient::new();
+    gradient3.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
+    gradient3.add_key(1.0, Vec4::new(0.75, 0.25, 0.0, 1.0));
+
     let effect3 = effects.add(
         EffectAsset {
             name: "emit:burst".to_string(),
             capacity: 512,
-            spawner: Spawner::burst(50.0.into(), 3.0.into()),
+            spawner: Spawner::burst(50.0.into(), period.into()),
             ..Default::default()
         }
         .init(InitPositionSphereModifier {
@@ -163,10 +192,10 @@ fn setup(
             speed: 2.0.into(),
         })
         .init(InitLifetimeModifier {
-            lifetime: 0.75_f32.into(),
+            lifetime: lifetime3.into(),
         })
         .render(ColorOverLifetimeModifier {
-            gradient: gradient.clone(),
+            gradient: gradient3,
         }),
     );
 
