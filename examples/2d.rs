@@ -80,11 +80,16 @@ fn setup(
             spawner,
             ..Default::default()
         }
-        .init(PositionCircleModifier {
+        .init(InitPositionCircleModifier {
+            center: Vec3::ZERO,
+            axis: Vec3::Z,
             radius: 0.05,
-            speed: 0.1.into(),
             dimension: ShapeDimension::Surface,
-            ..Default::default()
+        })
+        .init(InitVelocityCircleModifier {
+            center: Vec3::ZERO,
+            axis: Vec3::Z,
+            speed: 0.1.into(),
         })
         .init(InitLifetimeModifier {
             lifetime: 5_f32.into(),

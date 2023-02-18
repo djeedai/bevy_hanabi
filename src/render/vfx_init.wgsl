@@ -142,11 +142,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Update PRNG seed
     seed = pcg_hash(index ^ spawner.seed);
 
-    // Initialize new particle
-    var particle = Particle();
-    {{INIT_CODE}}
-
-    // Global-space simulation
+    // Spawner transform
     let transform = transpose(
         mat4x4(
             spawner.transform[0],
@@ -155,6 +151,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
             vec4<f32>(0.0, 0.0, 0.0, 1.0)
         )
     );
+
+    // Initialize new particle
+    var particle = Particle();
+    {{INIT_CODE}}
+
+    // Global-space simulation
     particle.position += transform[3].xyz;
 
     // Count as alive
