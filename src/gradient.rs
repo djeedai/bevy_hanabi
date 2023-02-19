@@ -4,7 +4,10 @@ use bevy::{
     utils::FloatOrd,
 };
 use serde::{Deserialize, Serialize};
-use std::vec::Vec;
+use std::{
+    hash::{Hash, Hasher},
+    vec::Vec,
+};
 
 /// Describes a type that can be linearly interpolated between two keys.
 ///
@@ -75,6 +78,40 @@ impl<T: Lerp + FromReflect> GradientKey<T> {
     }
 }
 
+impl Hash for GradientKey<f32> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        FloatOrd(self.ratio).hash(state);
+        FloatOrd(self.value).hash(state);
+    }
+}
+
+impl Hash for GradientKey<Vec2> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        FloatOrd(self.ratio).hash(state);
+        FloatOrd(self.value.x).hash(state);
+        FloatOrd(self.value.y).hash(state);
+    }
+}
+
+impl Hash for GradientKey<Vec3> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        FloatOrd(self.ratio).hash(state);
+        FloatOrd(self.value.x).hash(state);
+        FloatOrd(self.value.y).hash(state);
+        FloatOrd(self.value.z).hash(state);
+    }
+}
+
+impl Hash for GradientKey<Vec4> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        FloatOrd(self.ratio).hash(state);
+        FloatOrd(self.value.x).hash(state);
+        FloatOrd(self.value.y).hash(state);
+        FloatOrd(self.value.z).hash(state);
+        FloatOrd(self.value.w).hash(state);
+    }
+}
+
 /// A gradient curve made of keypoints and associated values.
 ///
 /// The gradient can be sampled anywhere, and will return a linear interpolation
@@ -83,6 +120,16 @@ impl<T: Lerp + FromReflect> GradientKey<T> {
 #[derive(Debug, Default, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct Gradient<T: Lerp + FromReflect> {
     keys: Vec<GradientKey<T>>,
+}
+
+impl<T> Hash for Gradient<T>
+where
+    T: Default + Lerp + FromReflect,
+    GradientKey<T>: Hash,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.keys.hash(state);
+    }
 }
 
 impl<T: Default + Lerp + FromReflect> Gradient<T> {
@@ -242,6 +289,8 @@ impl<T: Lerp + FromReflect> Gradient<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::hash_map::DefaultHasher;
+
     use bevy::reflect::{ReflectRef, Struct};
 
     use crate::test_utils::*;
@@ -399,5 +448,14 @@ mod tests {
         //println!("gradient: {:?}", s);
         let g_serde: Gradient<Vec4> = ron::from_str(&s).unwrap();
         assert_eq!(g, g_serde);
+    }
+
+    #[test]
+    fn hash() {
+        let g = make_test_gradient();
+        let mut hasher = DefaultHasher::default();
+        g.hash(&mut hasher);
+        let h = hasher.finish();
+        println!("gradient: {:?}\nhash: {:016X}", g, h);
     }
 }

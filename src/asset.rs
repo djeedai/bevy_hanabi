@@ -1,8 +1,6 @@
 use bevy::{
-    asset::{AssetLoader, Handle, LoadContext, LoadedAsset},
-    math::{Vec2, Vec4},
+    asset::{AssetLoader, LoadContext, LoadedAsset},
     reflect::{FromReflect, Reflect, TypeUuid},
-    render::texture::Image,
     utils::{BoxedFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
@@ -10,27 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     graph::Value,
     modifier::{init::InitModifier, render::RenderModifier, update::UpdateModifier},
-    Attribute, BoxedModifier, Gradient, ParticleLayout, Property, PropertyLayout, SimulationSpace,
-    Spawner,
+    Attribute, BoxedModifier, ParticleLayout, Property, PropertyLayout, SimulationSpace, Spawner,
 };
-
-/// Struct containing data and snippets of WSGL code that can be used
-/// to render the particles every frame on the GPU.
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct RenderLayout {
-    /// If set, defines the PARTICLE_TEXTURE shader key and extend the vertex
-    /// format to contain UV coordinates. Also make available the image as a
-    /// 2D texture and sampler in the render shaders.
-    pub particle_texture: Option<Handle<Image>>,
-    /// Optional color gradient used to vary the particle color over its
-    /// lifetime.
-    pub lifetime_color_gradient: Option<Gradient<Vec4>>,
-    /// Optional size gradient used to vary the particle size over its lifetime.
-    pub lifetime_size_gradient: Option<Gradient<Vec2>>,
-    /// If true, renders sprites as "billboards", that is, they will always face
-    /// the camera when rendered.
-    pub billboard: bool,
-}
 
 /// Asset describing a visual effect.
 ///
@@ -57,13 +36,6 @@ pub struct EffectAsset {
     pub capacity: u32,
     /// Spawner.
     pub spawner: Spawner,
-    /// Layout describing the particle rendering code.
-    ///
-    /// The render layout determines how alive particles are rendered.
-    /// Compatible layouts increase the chance of batching together effects.
-    #[serde(skip)] // TODO
-    #[reflect(ignore)] // TODO?
-    pub render_layout: RenderLayout,
     /// For 2D rendering, the Z coordinate used as the sort key.
     ///
     /// This value is passed to the render pipeline and used when sorting
@@ -171,7 +143,6 @@ impl EffectAsset {
         M: RenderModifier + Send + Sync + 'static,
     {
         modifier.resolve_properties(&self.properties);
-        modifier.apply(&mut self.render_layout);
         self.modifiers.push(Box::new(modifier));
         self
     }
@@ -310,12 +281,12 @@ mod tests {
         ForceFieldModifier::default().apply(&mut update_context);
         //assert_eq!(effect.update_layout, update_layout);
 
-        let mut render_layout = RenderLayout::default();
-        ParticleTextureModifier::default().apply(&mut render_layout);
-        ColorOverLifetimeModifier::default().apply(&mut render_layout);
-        SizeOverLifetimeModifier::default().apply(&mut render_layout);
-        BillboardModifier::default().apply(&mut render_layout);
-        assert_eq!(effect.render_layout, render_layout);
+        let mut render_context = RenderContext::default();
+        ParticleTextureModifier::default().apply(&mut render_context);
+        ColorOverLifetimeModifier::default().apply(&mut render_context);
+        SizeOverLifetimeModifier::default().apply(&mut render_context);
+        BillboardModifier::default().apply(&mut render_context);
+        //assert_eq!(effect.render_layout, render_layout);
     }
 
     #[test]

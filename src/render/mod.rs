@@ -707,7 +707,7 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// Define a texture sampled to modulate the particle color.
     /// This key requires the presence of UV coordinates on the particle
     /// vertices.
-    particle_texture: Option<Handle<Image>>,
+    has_image: bool,
     /// For dual-mode configurations only, the actual mode of the current render
     /// pipeline. Otherwise the mode is implicitly determined by the active
     /// feature.
@@ -724,7 +724,7 @@ impl Default for ParticleRenderPipelineKey {
         Self {
             shader: Handle::weak(HandleId::new(Uuid::nil(), u64::MAX)),
             particle_layout: ParticleLayout::empty(),
-            particle_texture: None,
+            has_image: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
             msaa_samples: Msaa::default().samples,
@@ -821,7 +821,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         let mut shader_defs = vec![];
 
         // Key: PARTICLE_TEXTURE
-        if key.particle_texture.is_some() {
+        if key.has_image {
             layout.push(self.material_layout.clone());
             shader_defs.push("PARTICLE_TEXTURE".to_string());
             // //  @location(1) vertex_uv: vec2<f32>
@@ -1129,8 +1129,7 @@ pub(crate) fn extract_effects(
                 FloatOrd(z_layer_2d)
             });
 
-        let image_handle_id = asset
-            .render_layout
+        let image_handle_id = effect
             .particle_texture
             .clone()
             .unwrap_or(Handle::<Image>::default())
@@ -1141,10 +1140,11 @@ pub(crate) fn extract_effects(
         let property_data = effect.write_properties(&property_layout);
 
         trace!(
-            "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?}",
+            "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?} has_image={}",
             asset.name,
             entity,
-            image_handle_id
+            image_handle_id,
+            effect.particle_texture.is_some()
         );
 
         extracted_effects.effects.insert(
@@ -1164,7 +1164,7 @@ pub(crate) fn extract_effects(
                                            //.custom_size
                                            //.unwrap_or_else(|| Vec2::new(size.width as f32, size.height as f32)),
                 },
-                has_image: asset.render_layout.particle_texture.is_some(),
+                has_image: effect.particle_texture.is_some(),
                 image_handle_id,
                 init_shader,
                 update_shader,
@@ -2356,8 +2356,8 @@ pub(crate) fn queue_effects(
 
                 // Ensure the particle texture is available as a GPU resource and create a bind
                 // group for it
-                let particle_texture = if batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE)
-                {
+                let has_image = batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE);
+                if has_image {
                     let image_handle = Handle::weak(batch.image_handle_id);
                     if effect_bind_groups.images.get(&image_handle).is_none() {
                         trace!(
@@ -2388,26 +2388,19 @@ pub(crate) fn queue_effects(
                             effect_bind_groups
                                 .images
                                 .insert(image_handle.clone(), bind_group);
-                            Some(image_handle)
                         } else {
                             // Texture is not ready; skip for now...
                             trace!("GPU image not yet available; skipping batch for now.");
-                            None
+                            continue;
                         }
-                    } else {
-                        // Bind group already exists, meaning texture is ready
-                        Some(image_handle)
                     }
-                } else {
-                    // Batch doesn't use particle texture
-                    None
-                };
+                }
 
                 // Specialize the render pipeline based on the effect batch
                 trace!(
-                    "Specializing render pipeline: render_shader={:?} particle_texture={:?} hdr={}",
+                    "Specializing render pipeline: render_shader={:?} has_image={:?} hdr={}",
                     batch.render_shader,
-                    particle_texture,
+                    has_image,
                     view.hdr
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2416,7 +2409,7 @@ pub(crate) fn queue_effects(
                     ParticleRenderPipelineKey {
                         shader: batch.render_shader.clone(),
                         particle_layout: batch.particle_layout.clone(),
-                        particle_texture,
+                        has_image,
                         #[cfg(feature = "3d")]
                         pipeline_mode: PipelineMode::Camera2d,
                         msaa_samples: msaa.samples,
@@ -2490,8 +2483,8 @@ pub(crate) fn queue_effects(
 
                 // Ensure the particle texture is available as a GPU resource and create a bind
                 // group for it
-                let particle_texture = if batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE)
-                {
+                let has_image = batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE);
+                if has_image {
                     let image_handle = Handle::weak(batch.image_handle_id);
                     if effect_bind_groups.images.get(&image_handle).is_none() {
                         trace!(
@@ -2522,26 +2515,19 @@ pub(crate) fn queue_effects(
                             effect_bind_groups
                                 .images
                                 .insert(image_handle.clone(), bind_group);
-                            Some(image_handle)
                         } else {
                             // Texture is not ready; skip for now...
                             trace!("GPU image not yet available; skipping batch for now.");
-                            None
+                            continue;
                         }
-                    } else {
-                        // Bind group already exists, meaning texture is ready
-                        Some(image_handle)
                     }
-                } else {
-                    // Batch doesn't use particle texture
-                    None
-                };
+                }
 
                 // Specialize the render pipeline based on the effect batch
                 trace!(
-                    "Specializing render pipeline: render_shader={:?} particle_texture={:?} hdr={}",
+                    "Specializing render pipeline: render_shader={:?} has_image={:?} hdr={}",
                     batch.render_shader,
-                    particle_texture,
+                    has_image,
                     view.hdr
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2550,7 +2536,7 @@ pub(crate) fn queue_effects(
                     ParticleRenderPipelineKey {
                         shader: batch.render_shader.clone(),
                         particle_layout: batch.particle_layout.clone(),
-                        particle_texture,
+                        has_image,
                         #[cfg(feature = "2d")]
                         pipeline_mode: PipelineMode::Camera3d,
                         msaa_samples: msaa.samples,
