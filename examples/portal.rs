@@ -2,15 +2,12 @@
 //!
 //! An example demonstrating the use of the `InitVelocityTangentModifier` to
 //! create a kind of portal effect where particles turn around a circle and
-//! appear to be ejected from it.
+//! appear to be ejected from it. The `OrientAlongVelocityModifier` paired with
+//! an elongated particle size gives the appearance of sparks.
 //!
 //! The addition of some gravity and drag, combined with a careful choice of
 //! lifetime, give a subtle effect of particles appearing to fall down right
 //! before they disappear, like sparkles fading away.
-//!
-//! Note: there's currently no way to orient the particles along their velocity
-//! to create streaks.
-//! This is logged as https://github.com/djeedai/bevy_hanabi/issues/133.
 
 use bevy::{
     core_pipeline::{bloom::BloomSettings, clear_color::ClearColorConfig},
@@ -60,7 +57,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     color_gradient1.add_key(1.0, Vec4::new(4.0, 0.0, 0.0, 0.0));
 
     let mut size_gradient1 = Gradient::new();
-    size_gradient1.add_key(0.3, Vec2::splat(0.07));
+    size_gradient1.add_key(0.3, Vec2::new(0.2, 0.02));
     size_gradient1.add_key(1.0, Vec2::splat(0.0));
 
     let effect1 = effects.add(
@@ -92,7 +89,8 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         })
         .render(SizeOverLifetimeModifier {
             gradient: size_gradient1,
-        }),
+        })
+        .render(OrientAlongVelocityModifier),
     );
 
     commands.spawn((

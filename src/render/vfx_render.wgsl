@@ -50,21 +50,7 @@ struct VertexOutput {
 // @group(3) @binding(1) var gradient_sampler: sampler;
 // #endif
 
-// fn color_over_lifetime(life: f32) -> vec4<f32> {
-//     let c0 = vec4<f32>(1.0, 1.0, 1.0, 1.0);
-//     let t1 = 0.1;
-//     let c1 = vec4<f32>(1.0, 1.0, 0.0, 1.0);
-//     let t2 = 0.4;
-//     let c2 = vec4<f32>(1.0, 0.0, 0.0, 1.0);
-//     let c3 = vec4<f32>(0.0, 0.0, 0.0, 0.0);
-//     if (life <= t1) {
-//         return mix(c0, c1, life / t1);
-//     } else if (life <= t2) {
-//         return mix(c1, c2, (life - t1) / (t2 - t1));
-//     } else {
-//         return mix(c2, c3, (life - t2) / (1.0 - t2));
-//     }
-// }
+{{RENDER_EXTRA}}
 
 @vertex
 fn vertex(
@@ -85,23 +71,28 @@ fn vertex(
 #endif
 
     var size = vec2<f32>(1.0, 1.0);
-    {{SIZE}}
+    var axis_x = vec3<f32>(1.0, 0.0, 0.0);
+    var axis_y = vec3<f32>(0.0, 1.0, 0.0);
+    var axis_z = vec3<f32>(0.0, 0.0, 1.0);
+    var color = vec4<f32>(1.0, 1.0, 1.0, 1.0); 
 
 {{VERTEX_MODIFIERS}}
 
-    out.position = view.view_proj * world_position;
+    let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
+    let world_position = particle.position
+        + axis_x * vpos.x
+        + axis_y * vpos.y;
+    out.position = view.view_proj * vec4<f32>(world_position, 1.0);
+    out.color = color;
 
-    //out.color = vec4<f32>((vec4<u32>(vertex_color) >> vec4<u32>(0u, 8u, 16u, 24u)) & vec4<u32>(255u)) / 255.0;
-    //out.color = color_over_lifetime(particle.age / particle.lifetime);
-    // out.color[3] = 1.0;
-    // if (particle.age < 0.0) {
-    //     out.color = vec4<f32>(1.0, 0.0, 0.0, 1.0);
-    // }
     return out;
 }
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+
+{{FRAGMENT_MODIFIERS}}
+
 #ifdef PARTICLE_TEXTURE
     var color = textureSample(particle_texture, particle_sampler, in.uv);
     color = vec4<f32>(1.0, 1.0, 1.0, color.r); // FIXME - grayscale modulate

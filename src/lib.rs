@@ -145,7 +145,7 @@ mod test_utils;
 use properties::{Property, PropertyInstance};
 use render::EffectCacheId;
 
-pub use asset::{EffectAsset, RenderLayout};
+pub use asset::EffectAsset;
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
@@ -374,6 +374,7 @@ pub struct ParticleEffect {
     #[reflect(ignore)]
     force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     spawn_count: u32,
+    particle_texture: Option<Handle<Image>>,
 }
 
 impl ParticleEffect {
@@ -391,6 +392,7 @@ impl ParticleEffect {
             //
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
             spawn_count: 0,
+            particle_texture: None,
         }
     }
 
@@ -489,28 +491,14 @@ const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("render/vfx_render.w
 
 const FORCE_FIELD_CODE: &str = include_str!("render/force_field_code.wgsl");
 
-const ENABLED_BILLBOARD_CODE: &str = r##"
-    let camera_right = view.view[0];
-    let camera_up = view.view[1];
-
-    let world_position = vec4<f32>(particle.position, 1.0)
-        + camera_right * vertex_position.x * size.x
-        + camera_up * vertex_position.y * size.y;
-"##;
-
-const DISABLED_BILLBOARD_CODE: &str = r##"
-    let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
-    let world_position = vec4<f32>(particle.position + vpos, 1.0);
-"##;
-
 /// Trait to convert any data structure to its equivalent shader code.
 trait ShaderCode {
     /// Generate the shader code for the current state of the object.
-    fn to_shader_code(&self) -> String;
+    fn to_shader_code(&self, input: &str) -> String;
 }
 
 impl ShaderCode for Gradient<Vec2> {
-    fn to_shader_code(&self) -> String {
+    fn to_shader_code(&self, input: &str) -> String {
         if self.keys().is_empty() {
             return String::new();
         }
@@ -528,10 +516,9 @@ impl ShaderCode for Gradient<Vec2> {
             })
             .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
         if self.keys().len() == 1 {
-            s + "size = v0;\n"
+            s + "return v0;\n"
         } else {
-            // FIXME - particle.age and particle.lifetime are unrelated to Gradient<Vec4>
-            s += "let life = particle.age / particle.lifetime;\nif (life <= t0) { size = v0; }\n";
+            s += &format!("if ({input} <= t0) {{ return v0; }}\n");
             let mut s = self
                 .keys()
                 .iter()
@@ -539,20 +526,20 @@ impl ShaderCode for Gradient<Vec2> {
                 .enumerate()
                 .map(|(index, _key)| {
                     format!(
-                        "else if (life <= t{1}) {{ size = mix(v{0}, v{1}, (life - t{0}) / (t{1} - t{0})); }}\n",
+                        "else if ({input} <= t{1}) {{ return mix(v{0}, v{1}, ({input} - t{0}) / (t{1} - t{0})); }}\n",
                         index,
                         index + 1
                     )
                 })
                 .fold(s, |s, key| s + &key);
-            let _ = writeln!(s, "else {{ size = v{}; }}", self.keys().len() - 1);
+            let _ = writeln!(s, "else {{ return v{}; }}", self.keys().len() - 1);
             s
         }
     }
 }
 
 impl ShaderCode for Gradient<Vec4> {
-    fn to_shader_code(&self) -> String {
+    fn to_shader_code(&self, input: &str) -> String {
         if self.keys().is_empty() {
             return String::new();
         }
@@ -570,10 +557,9 @@ impl ShaderCode for Gradient<Vec4> {
             })
             .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
         if self.keys().len() == 1 {
-            s + "out.color = c0;\n"
+            s + "return c0;\n"
         } else {
-            // FIXME - particle.age and particle.lifetime are unrelated to Gradient<Vec4>
-            s += "let life = particle.age / particle.lifetime;\nif (life <= t0) { out.color = c0; }\n";
+            s += &format!("if ({input} <= t0) {{ return c0; }}\n");
             let mut s = self
                 .keys()
                 .iter()
@@ -581,13 +567,13 @@ impl ShaderCode for Gradient<Vec4> {
                 .enumerate()
                 .map(|(index, _key)| {
                     format!(
-                        "else if (life <= t{1}) {{ out.color = mix(c{0}, c{1}, (life - t{0}) / (t{1} - t{0})); }}\n",
+                        "else if ({input} <= t{1}) {{ return mix(c{0}, c{1}, ({input} - t{0}) / (t{1} - t{0})); }}\n",
                         index,
                         index + 1
                     )
                 })
                 .fold(s, |s, key| s + &key);
-            let _ = writeln!(s, "else {{ out.color = c{}; }}", self.keys().len() - 1);
+            let _ = writeln!(s, "else {{ return c{}; }}", self.keys().len() - 1);
             s
         }
     }
@@ -705,27 +691,11 @@ fn tick_spawners(
             update_context.update_code +=
                 &format!("\n(*particle).position += (*particle).velocity * sim_params.dt;\n");
 
-            // Generate the shader code for the color over lifetime gradient.
-            // TODO - Move that to a pre-pass, not each frame!
-            let mut vertex_modifiers = asset
-                .render_layout
-                .lifetime_color_gradient
-                .as_ref()
-                .map_or_else(String::new, |grad| grad.to_shader_code());
-            if let Some(grad) = &asset.render_layout.lifetime_size_gradient {
-                vertex_modifiers += &grad.to_shader_code();
+            // Generate the shader code for the render shader
+            let mut render_context = RenderContext::default();
+            for m in asset.modifiers.iter().filter_map(|m| m.as_render()) {
+                m.apply(&mut render_context);
             }
-
-            if asset.render_layout.billboard {
-                vertex_modifiers += ENABLED_BILLBOARD_CODE
-            } else {
-                vertex_modifiers += DISABLED_BILLBOARD_CODE
-            }
-
-            trace!("vertex_modifiers={}", vertex_modifiers);
-
-            let has_per_particle_size = particle_layout.contains(Attribute::SIZE);
-            let has_per_particle_size2 = particle_layout.contains(Attribute::SIZE2);
 
             // Configure the init shader template, and make sure a corresponding shader
             // asset exists
@@ -749,22 +719,11 @@ fn tick_spawners(
 
             // Configure the render shader template, and make sure a corresponding shader
             // asset exists
-            let mut render_shader_source =
-                PARTICLES_RENDER_SHADER_TEMPLATE.replace("{{VERTEX_MODIFIERS}}", &vertex_modifiers);
-            render_shader_source = render_shader_source.replace("{{ATTRIBUTES}}", &attributes_code);
-            if has_per_particle_size {
-                render_shader_source = render_shader_source.replace(
-                    "{{SIZE}}",
-                    &format!("size = vec2<f32>(particle.{});", Attribute::SIZE.name()),
-                );
-            } else if has_per_particle_size2 {
-                render_shader_source = render_shader_source.replace(
-                    "{{SIZE}}",
-                    &format!("size = particle.{};", Attribute::SIZE2.name()),
-                );
-            } else {
-                render_shader_source = render_shader_source.replace("{{SIZE}}", "");
-            }
+            let render_shader_source = PARTICLES_RENDER_SHADER_TEMPLATE
+                .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{VERTEX_MODIFIERS}}", &render_context.vertex_code)
+                .replace("{{FRAGMENT_MODIFIERS}}", &render_context.fragment_code)
+                .replace("{{RENDER_EXTRA}}", &render_context.render_extra);
             let render_shader = shader_cache.get_or_insert(&render_shader_source, &mut shaders);
             trace!("Configured render shader:\n{}", render_shader_source);
 
@@ -774,7 +733,7 @@ fn tick_spawners(
                 init_shader,
                 update_shader,
                 render_shader,
-                if asset.render_layout.particle_texture.is_some() {
+                if render_context.particle_texture.is_some() {
                     "Y"
                 } else {
                     "N"
@@ -794,6 +753,7 @@ fn tick_spawners(
 
             // TEMP - Should disappear after fixing the above TODO.
             effect.force_field = update_context.force_field;
+            effect.particle_texture = render_context.particle_texture.clone();
         }
     }
 }
@@ -924,12 +884,12 @@ mod tests {
     #[test]
     fn to_shader_code() {
         let mut grad = Gradient::new();
-        assert_eq!("", grad.to_shader_code());
+        assert_eq!("", grad.to_shader_code("key"));
 
         grad.add_key(0.0, Vec4::splat(0.0));
         assert_eq!(
-            "// Gradient\nlet t0 = 0.;\nlet c0 = vec4<f32>(0., 0., 0., 0.);\nout.color = c0;\n",
-            grad.to_shader_code()
+            "// Gradient\nlet t0 = 0.;\nlet c0 = vec4<f32>(0., 0., 0., 0.);\nreturn c0;\n",
+            grad.to_shader_code("key")
         );
 
         grad.add_key(1.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
@@ -939,12 +899,11 @@ let t0 = 0.;
 let c0 = vec4<f32>(0., 0., 0., 0.);
 let t1 = 1.;
 let c1 = vec4<f32>(1., 0., 0., 1.);
-let life = particle.age / particle.lifetime;
-if (life <= t0) { out.color = c0; }
-else if (life <= t1) { out.color = mix(c0, c1, (life - t0) / (t1 - t0)); }
-else { out.color = c1; }
+if (key <= t0) { return c0; }
+else if (key <= t1) { return mix(c0, c1, (key - t0) / (t1 - t0)); }
+else { return c1; }
 "#,
-            grad.to_shader_code()
+            grad.to_shader_code("key")
         );
     }
 }

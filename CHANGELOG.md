@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added properties, named quantities associated with an `EffectAsset` and modifiable at runtime at assignable to values of modifiers. This enables dynamically modifying at runtime any property-based modifier value. Other non-property-based values are assumed to be constant, and are optimized by hard-coding them into the various shaders. Use `EffectAsset::with_property()` and `EffectAsset::add_property()` to define a new property before binding it to a modifier's value. The `spawn.rs` example demonstrates this with the acceleration of the `AccelModifier`.
 - Added particle `Attribute`s, individual items holding a single per-particle scalar or vector value. Composed together, the attributes form the particle layout, which defines at runtime the set of per-particle values used in the simulation. This change marks a transition from the previous design where the particle attributes were hard-coded to be the position, velocity, age, and lifetime of the particle. With this change, a collection of various attributes is available for modifiers to manipulate. This ensures flexibility in customizing while retaining a minimal per-particle memory footprint for a given effect. Note that [`Attribute`]s are all built-in; a custom [`Attribute`] cannot be used.
 - Added a new `AabbKillModifier` which kills all particles entering or exiting an AABB.
+- Added a new `OrientAlongVelocityModifier` which orients the local X axis of particles alongside their velocity, and builds a local Z axis perpendicular to the camera view's plane. The local Y axis is derived to form an orthonormal frame.
 
 ### Changed
 
@@ -31,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- Deleted `InitLayout` and `UpdateLayout`. Init and update modifiers are now directly applying themselves to the `InitContext` and `UpdateContext`, respectively. The `RenderLayout` is retained, as render modifiers are not yet transitioned to the new attribute-based API.
+- Deleted `InitLayout`, `UpdateLayout`, and `RenderLayout`. Init, update, and render modifiers are now directly applying themselves to the `InitContext`, `UpdateContext`, and `RenderContext`, respectively.
 
 ### Fixed
 

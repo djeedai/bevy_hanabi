@@ -7,6 +7,8 @@
 //! Use the SPACE key to add more effect instances, or the DELETE key to remove
 //! an existing instance.
 
+#![allow(dead_code)]
+
 use bevy::{log::LogPlugin, prelude::*, render::mesh::shape::Cube};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use rand::Rng;
