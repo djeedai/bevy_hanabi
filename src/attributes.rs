@@ -600,8 +600,85 @@ impl ParticleLayout {
 mod tests {
     use super::*;
 
+    use bevy::math::{Vec2, Vec3, Vec4};
+    use naga::{front::wgsl::Parser, proc::Layouter};
+
+    // Ensure the size and alignment of all types conforms to the WGSL spec by
+    // querying naga as a reference.
     #[test]
-    fn test_from_name() {
+    fn value_type_align() {
+        let mut parser = Parser::new();
+        for (value_type, value) in &[
+            (ValueType::Float, crate::graph::Value::Float(0.)),
+            (
+                ValueType::Float2,
+                crate::graph::Value::Float2(Vec2::new(-0.5, 3.458)),
+            ),
+            (
+                ValueType::Float3,
+                crate::graph::Value::Float3(Vec3::new(-0.5, 3.458, -53.)),
+            ),
+            (
+                ValueType::Float4,
+                crate::graph::Value::Float4(Vec4::new(-0.5, 3.458, 0., -53.)),
+            ),
+            (ValueType::Uint, crate::graph::Value::Uint(42_u32)),
+        ] {
+            assert_eq!(value.value_type(), *value_type);
+
+            // Create a tiny WGSL snippet with the Value(Type) and parse it
+            let src = format!("let x = {};", value.to_wgsl_string());
+            let res = parser.parse(&src);
+            if let Err(err) = &res {
+                println!("Error: {:?}", err);
+            }
+            assert!(res.is_ok());
+            let m = res.unwrap();
+            //println!("Module: {:?}", m);
+
+            // Retrieve the "x" constant and the size/align of its type
+            let (_cst_handle, cst) = m
+                .constants
+                .iter()
+                .find(|c| c.1.name == Some("x".to_string()))
+                .unwrap();
+            let (size, align) = if let naga::ConstantInner::Scalar { width, value: _ } = &cst.inner
+            {
+                // Scalar types have the same size and align
+                (
+                    *width as u32,
+                    naga::proc::Alignment::new(*width as u32).unwrap(),
+                )
+            } else {
+                // For non-scalar types, calculate the type layout according to WGSL
+                let type_handle = cst.inner.resolve_type().handle().unwrap();
+                let mut layouter = Layouter::default();
+                assert!(layouter.update(&m.types, &m.constants).is_ok());
+                let layout = layouter[type_handle];
+                (layout.size, layout.alignment)
+            };
+
+            // Compare WGSL layout with the one of Value(Type)
+            assert_eq!(size, value_type.size() as u32);
+            assert_eq!(
+                align,
+                naga::proc::Alignment::new(value_type.align() as u32).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn attr_new() {
+        let name = "test_attr";
+        let attr = Attribute::new(Cow::Borrowed(name), ValueType::Float3);
+        assert_eq!(attr.name, name);
+        assert_eq!(attr.size(), 12);
+        assert_eq!(attr.align(), 16);
+        assert_eq!(attr.value_type, ValueType::Float3);
+    }
+
+    #[test]
+    fn attr_from_name() {
         for attr in Attribute::ALL {
             assert_eq!(Attribute::from_name(attr.name()), Some(attr));
         }

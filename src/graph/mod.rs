@@ -99,3 +99,76 @@ impl From<u32> for Value {
         Self::Uint(u)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn as_bytes() {
+        let v = Value::Float(3.);
+        let b = v.as_bytes();
+        assert_eq!(b, &[0u8, 0u8, 0x40u8, 0x40u8]); // 0x40400000
+
+        let v = Value::Float2(Vec2::new(-2., 3.));
+        let b = v.as_bytes();
+        assert_eq!(b, &[0u8, 0u8, 0u8, 0xC0u8, 0u8, 0u8, 0x40u8, 0x40u8]); // 0xc0000000 0x40400000
+
+        let v = Value::Float3(Vec3::new(-2., 3., 4.));
+        let b = v.as_bytes();
+        assert_eq!(
+            b,
+            &[0u8, 0u8, 0u8, 0xC0u8, 0u8, 0u8, 0x40u8, 0x40u8, 0u8, 0u8, 0x80u8, 0x40u8]
+        ); // 0xc0000000 0x40400000 0x40800000
+
+        let v = Value::Float4(Vec4::new(-2., 3., 4., -5.));
+        let b = v.as_bytes();
+        assert_eq!(
+            b,
+            &[
+                0u8, 0u8, 0u8, 0xC0u8, 0u8, 0u8, 0x40u8, 0x40u8, 0u8, 0u8, 0x80u8, 0x40u8, 0u8,
+                0u8, 0xa0u8, 0xc0u8
+            ]
+        ); // 0xc0000000 0x40400000 0x40800000 0xc0a00000
+
+        let v = Value::Uint(0x12FF89ACu32);
+        let b = v.as_bytes();
+        assert_eq!(b, &[0xACu8, 0x89u8, 0xFFu8, 0x12u8]);
+    }
+
+    #[test]
+    fn value_type() {
+        assert_eq!(Value::Float(0.).value_type(), ValueType::Float);
+        assert_eq!(Value::Float2(Vec2::ZERO).value_type(), ValueType::Float2);
+        assert_eq!(Value::Float3(Vec3::ZERO).value_type(), ValueType::Float3);
+        assert_eq!(Value::Float4(Vec4::ZERO).value_type(), ValueType::Float4);
+        assert_eq!(Value::Uint(0).value_type(), ValueType::Uint);
+    }
+
+    #[test]
+    fn to_wgsl_string() {
+        assert_eq!(Value::Float(0.).to_wgsl_string(), 0_f32.to_wgsl_string());
+        assert_eq!(
+            Value::Float2(Vec2::ZERO).to_wgsl_string(),
+            Vec2::ZERO.to_wgsl_string()
+        );
+        assert_eq!(
+            Value::Float3(Vec3::ZERO).to_wgsl_string(),
+            Vec3::ZERO.to_wgsl_string()
+        );
+        assert_eq!(
+            Value::Float4(Vec4::ZERO).to_wgsl_string(),
+            Vec4::ZERO.to_wgsl_string()
+        );
+        assert_eq!(Value::Uint(0).to_wgsl_string(), 0_u32.to_wgsl_string());
+    }
+
+    #[test]
+    fn from() {
+        assert_eq!(Value::Float(0.), 0_f32.into());
+        assert_eq!(Value::Float2(Vec2::ZERO), Vec2::ZERO.into());
+        assert_eq!(Value::Float3(Vec3::ZERO), Vec3::ZERO.into());
+        assert_eq!(Value::Float4(Vec4::ZERO), Vec4::ZERO.into());
+        assert_eq!(Value::Uint(0), 0_u32.into());
+    }
+}
