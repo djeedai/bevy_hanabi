@@ -356,7 +356,11 @@ impl UpdateModifier for AabbKillModifier {
 
 #[cfg(test)]
 mod tests {
+    use crate::ParticleLayout;
+
     use super::*;
+
+    use naga::front::wgsl::Parser;
 
     #[test]
     fn mod_accel() {
@@ -400,5 +404,93 @@ mod tests {
         modifier.apply(&mut context);
 
         assert!(context.update_code.contains("3.5")); // TODO - less weak check
+    }
+
+    #[test]
+    fn validate() {
+        let modifiers: &[&dyn UpdateModifier] = &[
+            &AccelModifier::constant(Vec3::ONE),
+            &ForceFieldModifier::default(),
+            &LinearDragModifier::default(),
+            &AabbKillModifier::default(),
+        ];
+        for &modifier in modifiers.iter() {
+            let mut context = UpdateContext::default();
+            modifier.apply(&mut context);
+            let update_code = context.update_code;
+            let update_extra = context.update_extra;
+
+            let mut particle_layout = ParticleLayout::new();
+            for &attr in modifier.attributes() {
+                particle_layout = particle_layout.add(attr);
+            }
+            let particle_layout = particle_layout.build();
+            let attributes_code = particle_layout.generate_code();
+
+            let code = format!(
+                r##"fn rand() -> f32 {{
+    return 0.0;
+}}
+
+let tau: f32 = 6.283185307179586476925286766559;
+
+struct Particle {{
+    {attributes_code}
+}};
+
+struct ParticleBuffer {{
+    particles: array<Particle>,
+}};
+
+struct SimParams {{
+    dt: f32,
+    time: f32,
+}};
+
+struct ForceFieldSource {{
+    position: vec3<f32>,
+    max_radius: f32,
+    min_radius: f32,
+    mass: f32,
+    force_exponent: f32,
+    conform_to_sphere: f32,
+}};
+
+struct Spawner {{
+    transform: mat3x4<f32>, // transposed (row-major)
+    spawn: atomic<i32>,
+    seed: u32,
+    count_unused: u32,
+    effect_index: u32,
+    force_field: array<ForceFieldSource, 16>,
+}};
+
+fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {{
+    return dot(v, u) / dot(u,u) * u;
+}}
+
+{update_extra}
+
+@group(0) @binding(0) var<uniform> sim_params : SimParams;
+@group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
+@group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as init
+
+@compute @workgroup_size(64)
+fn main() {{
+    let particle: ptr<storage, Particle, read_write> = &particle_buffer.particles[0];
+    var transform: mat4x4<f32> = mat4x4<f32>();
+    var is_alive = true;
+{update_code}
+}}"##
+            );
+
+            let mut parser = Parser::new();
+            let res = parser.parse(&code);
+            if let Err(err) = &res {
+                println!("Code: {:?}", code);
+                println!("Err: {:?}", err);
+            }
+            assert!(res.is_ok());
+        }
     }
 }
