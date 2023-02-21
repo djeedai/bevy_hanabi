@@ -131,7 +131,10 @@ pub struct ColorOverLifetimeModifier {
     pub gradient: Gradient<Vec4>,
 }
 
-impl_mod_render!(ColorOverLifetimeModifier, &[]);
+impl_mod_render!(
+    ColorOverLifetimeModifier,
+    &[Attribute::AGE, Attribute::LIFETIME]
+);
 
 #[typetag::serde]
 impl RenderModifier for ColorOverLifetimeModifier {
@@ -162,7 +165,10 @@ pub struct SizeOverLifetimeModifier {
     pub gradient: Gradient<Vec2>,
 }
 
-impl_mod_render!(SizeOverLifetimeModifier, &[]);
+impl_mod_render!(
+    SizeOverLifetimeModifier,
+    &[Attribute::AGE, Attribute::LIFETIME]
+);
 
 #[typetag::serde]
 impl RenderModifier for SizeOverLifetimeModifier {
@@ -222,7 +228,11 @@ impl RenderModifier for OrientAlongVelocityModifier {
 
 #[cfg(test)]
 mod tests {
+    use crate::ParticleLayout;
+
     use super::*;
+
+    use naga::front::wgsl::Parser;
 
     #[test]
     fn mod_particle_texture() {
@@ -282,5 +292,93 @@ mod tests {
         let mut context = RenderContext::default();
         modifier.apply(&mut context);
         assert!(context.vertex_code.contains("view.view"));
+    }
+
+    #[test]
+    fn validate() {
+        let modifiers: &[&dyn RenderModifier] = &[
+            &ParticleTextureModifier::default(),
+            &ColorOverLifetimeModifier::default(),
+            &SizeOverLifetimeModifier::default(),
+            &BillboardModifier::default(),
+            &OrientAlongVelocityModifier::default(),
+        ];
+        for &modifier in modifiers.iter() {
+            let mut context = RenderContext::default();
+            modifier.apply(&mut context);
+            let vertex_code = context.vertex_code;
+            let fragment_code = context.fragment_code;
+            let render_extra = context.render_extra;
+
+            let mut particle_layout = ParticleLayout::new();
+            for &attr in modifier.attributes() {
+                particle_layout = particle_layout.add(attr);
+            }
+            let particle_layout = particle_layout.build();
+            let attributes_code = particle_layout.generate_code();
+
+            let code = format!(
+                r##"
+struct View {{
+    view_proj: mat4x4<f32>,
+    inverse_view_proj: mat4x4<f32>,
+    view: mat4x4<f32>,
+    inverse_view: mat4x4<f32>,
+    projection: mat4x4<f32>,
+    inverse_projection: mat4x4<f32>,
+    world_position: vec3<f32>,
+    width: f32,
+    height: f32,
+}};
+
+fn rand() -> f32 {{
+    return 0.0;
+}}
+
+let tau: f32 = 6.283185307179586476925286766559;
+
+struct Particle {{
+    {attributes_code}
+}};
+
+struct VertexOutput {{
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+}};
+
+@group(0) @binding(0) var<uniform> view: View;
+
+{render_extra}
+
+@compute @workgroup_size(64)
+fn main() {{
+    var particle = Particle();
+    var size = vec2<f32>(1.0, 1.0);
+    var axis_x = vec3<f32>(1.0, 0.0, 0.0);
+    var axis_y = vec3<f32>(0.0, 1.0, 0.0);
+    var axis_z = vec3<f32>(0.0, 0.0, 1.0);
+    var color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+{vertex_code}
+    var out: VertexOutput;
+    return out;
+}}
+
+
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {{
+{fragment_code}
+    return vec4<f32>(1.0);
+}}"##
+            );
+
+            let mut parser = Parser::new();
+            let res = parser.parse(&code);
+            if let Err(err) = &res {
+                println!("Modifier: {:?}", modifier.get_type_info().type_name());
+                println!("Code: {:?}", code);
+                println!("Err: {:?}", err);
+            }
+            assert!(res.is_ok());
+        }
     }
 }

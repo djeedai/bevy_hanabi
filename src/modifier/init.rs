@@ -506,15 +506,18 @@ mod tests {
                 dimension: ShapeDimension::Volume,
                 ..Default::default()
             },
+            &InitVelocityCircleModifier::default(),
+            &InitVelocitySphereModifier::default(),
+            &InitVelocityTangentModifier::default(),
         ];
-        for modifier in modifiers.iter() {
+        for &modifier in modifiers.iter() {
             let mut context = InitContext::default();
             modifier.apply(&mut context);
             let init_code = context.init_code;
             let init_extra = context.init_extra;
 
             let mut particle_layout = ParticleLayout::new();
-            for attr in modifier.attributes() {
+            for &attr in modifier.attributes() {
                 particle_layout = particle_layout.add(attr);
             }
             let particle_layout = particle_layout.build();
@@ -526,11 +529,6 @@ mod tests {
 }}
 
 let tau: f32 = 6.283185307179586476925286766559;
-
-struct PosVel {{
-    position: vec3<f32>,
-    velocity: vec3<f32>,
-}};
 
 struct Particle {{
     {attributes_code}
@@ -549,10 +547,11 @@ fn main() {{
 
             let mut parser = Parser::new();
             let res = parser.parse(&code);
+            if let Err(err) = &res {
+                println!("Code: {:?}", code);
+                println!("Err: {:?}", err);
+            }
             assert!(res.is_ok());
-            // if let Err(err) = res {
-            //     println!("Err: {:?}", err);
-            // }
         }
     }
 }
