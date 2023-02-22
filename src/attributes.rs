@@ -1,6 +1,8 @@
 use std::{borrow::Cow, num::NonZeroU64};
 
-use crate::{next_multiple_of, ToWgslString};
+use bevy::math::{Vec2, Vec3, Vec4};
+
+use crate::{graph::Value, next_multiple_of, ToWgslString};
 
 /// Type of an [`Attribute`]'s value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -68,11 +70,20 @@ impl ToWgslString for ValueType {
 /// Common attributes include the particle's position, its age, or its color.
 /// See [`Attribute::ALL`] for a list of supported attributes. Custom attributes
 /// are not supported.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Hash)]
 pub struct Attribute {
     name: Cow<'static, str>,
-    value_type: ValueType,
+    default_value: Value,
 }
+
+impl PartialEq for Attribute {
+    fn eq(&self, other: &Self) -> bool {
+        // Compare attributes by name since it's unique.
+        self.name == other.name
+    }
+}
+
+impl Eq for Attribute {}
 
 impl Attribute {
     /// The particle position in [simulation space].
@@ -83,7 +94,7 @@ impl Attribute {
     ///
     /// [simulation space]: crate::SimulationSpace
     pub const POSITION: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("position"), ValueType::Float3);
+        &Attribute::new(Cow::Borrowed("position"), Value::Float3(Vec3::ZERO));
 
     /// The particle velocity in [simulation space].
     ///
@@ -93,7 +104,7 @@ impl Attribute {
     ///
     /// [simulation space]: crate::SimulationSpace
     pub const VELOCITY: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("velocity"), ValueType::Float3);
+        &Attribute::new(Cow::Borrowed("velocity"), Value::Float3(Vec3::ZERO));
 
     /// The age of the particle.
     ///
@@ -105,7 +116,7 @@ impl Attribute {
     /// # Type
     ///
     /// [`ValueType::Float`]
-    pub const AGE: &'static Attribute = &Attribute::new(Cow::Borrowed("age"), ValueType::Float);
+    pub const AGE: &'static Attribute = &Attribute::new(Cow::Borrowed("age"), Value::Float(0.));
 
     /// The lifetime of the particle.
     ///
@@ -118,7 +129,7 @@ impl Attribute {
     ///
     /// [`ValueType::Float`]
     pub const LIFETIME: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("lifetime"), ValueType::Float);
+        &Attribute::new(Cow::Borrowed("lifetime"), Value::Float(1.));
 
     /// The particle's base color.
     ///
@@ -130,7 +141,8 @@ impl Attribute {
     ///
     /// [`ValueType::Uint`] representing the RGBA components of the color
     /// encoded as `0xAABBGGRR`, with a single byte per component.
-    pub const COLOR: &'static Attribute = &Attribute::new(Cow::Borrowed("color"), ValueType::Uint);
+    pub const COLOR: &'static Attribute =
+        &Attribute::new(Cow::Borrowed("color"), Value::Uint(0xFFFFFFFFu32));
 
     /// The particle's base color (HDR).
     ///
@@ -144,12 +156,12 @@ impl Attribute {
     /// Values are not clamped, and can be outside the \[0:1\] range to
     /// represent HDR values.
     pub const HDR_COLOR: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("hdr_color"), ValueType::Float4);
+        &Attribute::new(Cow::Borrowed("hdr_color"), Value::Float4(Vec4::ONE));
 
     /// The particle's transparency (alpha).
     ///
     /// Type: [`ValueType::Float`]
-    pub const ALPHA: &'static Attribute = &Attribute::new(Cow::Borrowed("alpha"), ValueType::Float);
+    pub const ALPHA: &'static Attribute = &Attribute::new(Cow::Borrowed("alpha"), Value::Float(1.));
 
     /// The particle's uniform size.
     ///
@@ -158,7 +170,7 @@ impl Attribute {
     /// # Type
     ///
     /// [`ValueType::Float`]
-    pub const SIZE: &'static Attribute = &Attribute::new(Cow::Borrowed("size"), ValueType::Float);
+    pub const SIZE: &'static Attribute = &Attribute::new(Cow::Borrowed("size"), Value::Float(1.));
 
     /// The particle's 2D size, for quad rendering.
     ///
@@ -169,7 +181,7 @@ impl Attribute {
     ///
     /// [`ValueType::Float2`] representing the XY sizes of the particle.
     pub const SIZE2: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("size2"), ValueType::Float2);
+        &Attribute::new(Cow::Borrowed("size2"), Value::Float2(Vec2::ONE));
 
     /// Collection of all the existing particle attributes.
     pub const ALL: [&'static Attribute; 9] = [
@@ -204,9 +216,15 @@ impl Attribute {
     }
 
     /// Create a new attribute.
+    ///
+    /// The type of the attribute is inferred from the type of its default
+    /// value.
     #[inline]
-    pub(crate) const fn new(name: Cow<'static, str>, value_type: ValueType) -> Self {
-        Self { name, value_type }
+    pub(crate) const fn new(name: Cow<'static, str>, default_value: Value) -> Self {
+        Self {
+            name,
+            default_value,
+        }
     }
 
     /// The attribute's name.
@@ -218,10 +236,16 @@ impl Attribute {
         self.name.as_ref()
     }
 
+    /// The attribute's default value.
+    #[inline]
+    pub fn default_value(&self) -> Value {
+        self.default_value
+    }
+
     /// The attribute's type.
     #[inline]
     pub fn value_type(&self) -> ValueType {
-        self.value_type
+        self.default_value.value_type()
     }
 
     /// Size of this attribute, in bytes.
@@ -229,7 +253,7 @@ impl Attribute {
     /// This is a shortcut for `value_type().size()`.
     #[inline]
     pub fn size(&self) -> usize {
-        self.value_type.size()
+        self.value_type().size()
     }
 
     /// Alignment of this attribute, in bytes.
@@ -237,7 +261,7 @@ impl Attribute {
     /// This is a shortcut for `value_type().align()`.
     #[inline]
     pub fn align(&self) -> usize {
-        self.value_type.align()
+        self.value_type().align()
     }
 }
 
@@ -670,11 +694,12 @@ mod tests {
     #[test]
     fn attr_new() {
         let name = "test_attr";
-        let attr = Attribute::new(Cow::Borrowed(name), ValueType::Float3);
+        let attr = Attribute::new(Cow::Borrowed(name), Value::Float3(Vec3::ONE));
         assert_eq!(attr.name, name);
         assert_eq!(attr.size(), 12);
         assert_eq!(attr.align(), 16);
-        assert_eq!(attr.value_type, ValueType::Float3);
+        assert_eq!(attr.value_type(), ValueType::Float3);
+        assert_eq!(attr.default_value(), Value::Float3(Vec3::ONE));
     }
 
     #[test]
@@ -684,14 +709,14 @@ mod tests {
         }
     }
 
-    const F1: &'static Attribute = &Attribute::new(Cow::Borrowed("F1"), ValueType::Float);
-    const F1B: &'static Attribute = &Attribute::new(Cow::Borrowed("F1B"), ValueType::Float);
-    const F2: &'static Attribute = &Attribute::new(Cow::Borrowed("F2"), ValueType::Float2);
-    const F2B: &'static Attribute = &Attribute::new(Cow::Borrowed("F2B"), ValueType::Float2);
-    const F3: &'static Attribute = &Attribute::new(Cow::Borrowed("F3"), ValueType::Float3);
-    const F3B: &'static Attribute = &Attribute::new(Cow::Borrowed("F3B"), ValueType::Float3);
-    const F4: &'static Attribute = &Attribute::new(Cow::Borrowed("F4"), ValueType::Float4);
-    const F4B: &'static Attribute = &Attribute::new(Cow::Borrowed("F4B"), ValueType::Float4);
+    const F1: &'static Attribute = &Attribute::new(Cow::Borrowed("F1"), Value::Float(3.));
+    const F1B: &'static Attribute = &Attribute::new(Cow::Borrowed("F1B"), Value::Float(5.));
+    const F2: &'static Attribute = &Attribute::new(Cow::Borrowed("F2"), Value::Float2(Vec2::ZERO));
+    const F2B: &'static Attribute = &Attribute::new(Cow::Borrowed("F2B"), Value::Float2(Vec2::ONE));
+    const F3: &'static Attribute = &Attribute::new(Cow::Borrowed("F3"), Value::Float3(Vec3::ZERO));
+    const F3B: &'static Attribute = &Attribute::new(Cow::Borrowed("F3B"), Value::Float3(Vec3::ONE));
+    const F4: &'static Attribute = &Attribute::new(Cow::Borrowed("F4"), Value::Float4(Vec4::ZERO));
+    const F4B: &'static Attribute = &Attribute::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
 
     #[test]
     fn test_layout_build() {
@@ -711,7 +736,7 @@ mod tests {
                 format!(
                     "    {}: {},\n",
                     attr0.attribute.name(),
-                    attr0.attribute.value_type.to_wgsl_string()
+                    attr0.attribute.value_type().to_wgsl_string()
                 )
             );
         }
@@ -755,7 +780,7 @@ mod tests {
             let mut i = 0;
             for (off, a) in &[(0, F3), (12, F1), (16, F3B), (28, F2)] {
                 let attr_i = layout.layout[i];
-                assert_eq!(attr_i.offset, *off as u32);
+                assert_eq!(attr_i.offset, *off);
                 assert_eq!(&attr_i.attribute, a);
                 i += 1;
             }
@@ -772,7 +797,7 @@ mod tests {
             let mut i = 0;
             for (off, a) in &[(0, F4), (16, F3), (28, F1), (32, F2), (40, F2B), (48, F3B)] {
                 let attr_i = layout.layout[i];
-                assert_eq!(attr_i.offset, *off as u32);
+                assert_eq!(attr_i.offset, *off);
                 assert_eq!(&attr_i.attribute, a);
                 i += 1;
             }
