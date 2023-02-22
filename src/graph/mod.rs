@@ -11,6 +11,7 @@ use std::fmt::Debug;
 use bevy::{
     math::{Vec2, Vec3, Vec4},
     reflect::{FromReflect, Reflect},
+    utils::FloatOrd,
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +31,30 @@ pub enum Value {
     Float4(Vec4),
     /// Single `u32` value.
     Uint(u32),
+}
+
+impl std::hash::Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match *self {
+            Value::Float(f) => FloatOrd(f).hash(state),
+            Value::Float2(v) => {
+                FloatOrd(v.x).hash(state);
+                FloatOrd(v.y).hash(state);
+            }
+            Value::Float3(v) => {
+                FloatOrd(v.x).hash(state);
+                FloatOrd(v.y).hash(state);
+                FloatOrd(v.z).hash(state);
+            }
+            Value::Float4(v) => {
+                FloatOrd(v.x).hash(state);
+                FloatOrd(v.y).hash(state);
+                FloatOrd(v.z).hash(state);
+                FloatOrd(v.w).hash(state);
+            }
+            Value::Uint(u) => u.hash(state),
+        }
+    }
 }
 
 impl Value {
@@ -102,6 +127,11 @@ impl From<u32> for Value {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        collections::hash_map::DefaultHasher,
+        hash::{Hash, Hasher},
+    };
+
     use super::*;
 
     #[test]
@@ -170,5 +200,40 @@ mod tests {
         assert_eq!(Value::Float3(Vec3::ZERO), Vec3::ZERO.into());
         assert_eq!(Value::Float4(Vec4::ZERO), Vec4::ZERO.into());
         assert_eq!(Value::Uint(0), 0_u32.into());
+    }
+
+    fn scalar_hash<H: Hash>(value: &H) -> u64 {
+        let mut hasher = DefaultHasher::default();
+        value.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn vector_hash(values: &[f32]) -> u64 {
+        let mut hasher = DefaultHasher::default();
+        for f in values {
+            FloatOrd(*f).hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+
+    #[test]
+    fn hash() {
+        assert_eq!(
+            scalar_hash(&Value::Float(0.)),
+            scalar_hash(&FloatOrd(0_f32))
+        );
+        assert_eq!(scalar_hash(&Value::Uint(0)), scalar_hash(&0_u32));
+        assert_eq!(
+            scalar_hash(&Value::Float2(Vec2::new(3.5, -42.))),
+            vector_hash(&[3.5, -42.])
+        );
+        assert_eq!(
+            scalar_hash(&Value::Float3(Vec3::new(3.5, -42., 999.99))),
+            vector_hash(&[3.5, -42., 999.99])
+        );
+        assert_eq!(
+            scalar_hash(&Value::Float4(Vec4::new(3.5, -42., 999.99, -0.01))),
+            vector_hash(&[3.5, -42., 999.99, -0.01])
+        );
     }
 }

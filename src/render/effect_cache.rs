@@ -740,9 +740,9 @@ impl EffectCache {
 mod gpu_tests {
     use std::borrow::Cow;
 
-    use bevy::asset::HandleId;
+    use bevy::{asset::HandleId, math::Vec4};
 
-    use crate::{test_utils::MockRenderer, Attribute, ValueType};
+    use crate::{graph::Value, test_utils::MockRenderer, Attribute};
 
     use super::*;
 
@@ -775,10 +775,10 @@ mod gpu_tests {
         assert!(slice2 > slice3);
     }
 
-    const F4A: &'static Attribute = &Attribute::new(Cow::Borrowed("F4A"), ValueType::Float4);
-    const F4B: &'static Attribute = &Attribute::new(Cow::Borrowed("F4B"), ValueType::Float4);
-    const F4C: &'static Attribute = &Attribute::new(Cow::Borrowed("F4C"), ValueType::Float4);
-    const F4D: &'static Attribute = &Attribute::new(Cow::Borrowed("F4D"), ValueType::Float4);
+    const F4A: &'static Attribute = &Attribute::new(Cow::Borrowed("F4A"), Value::Float4(Vec4::ONE));
+    const F4B: &'static Attribute = &Attribute::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
+    const F4C: &'static Attribute = &Attribute::new(Cow::Borrowed("F4C"), Value::Float4(Vec4::ONE));
+    const F4D: &'static Attribute = &Attribute::new(Cow::Borrowed("F4D"), Value::Float4(Vec4::ONE));
 
     #[test]
     fn slice_ref() {
