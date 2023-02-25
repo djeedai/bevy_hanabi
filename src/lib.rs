@@ -152,7 +152,7 @@ pub use gradient::{Gradient, GradientKey};
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
 pub use properties::PropertyLayout;
-pub use render::ShaderCache;
+pub use render::{EffectSystems, ShaderCache};
 pub use spawn::{DimValue, Random, Spawner, Value};
 
 #[allow(missing_docs)]
@@ -438,6 +438,7 @@ impl ParticleEffect {
     /// after the effect is added as a component.
     ///
     /// [`set_spawner()`]: ParticleEffect::set_spawner
+    /// [`EffectSystems::TickSpawners`]: crate::render::EffectSystems::TickSpawners
     pub fn maybe_spawner(&mut self) -> Option<&mut Spawner> {
         self.spawner.as_mut()
     }

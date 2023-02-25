@@ -58,7 +58,7 @@ pub use effect_cache::{EffectBuffer, EffectSlice};
 pub use shader_cache::ShaderCache;
 
 /// Labels for the Hanabi systems.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, SystemLabel)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemLabel)]
 pub enum EffectSystems {
     /// Tick all effect instances to generate spawner counts, and configure
     /// shaders based on modifiers. This system runs during the

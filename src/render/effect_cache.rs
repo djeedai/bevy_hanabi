@@ -775,10 +775,10 @@ mod gpu_tests {
         assert!(slice2 > slice3);
     }
 
-    const F4A: &'static Attribute = &Attribute::new(Cow::Borrowed("F4A"), Value::Float4(Vec4::ONE));
-    const F4B: &'static Attribute = &Attribute::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
-    const F4C: &'static Attribute = &Attribute::new(Cow::Borrowed("F4C"), Value::Float4(Vec4::ONE));
-    const F4D: &'static Attribute = &Attribute::new(Cow::Borrowed("F4D"), Value::Float4(Vec4::ONE));
+    const F4A: &Attribute = &Attribute::new(Cow::Borrowed("F4A"), Value::Float4(Vec4::ONE));
+    const F4B: &Attribute = &Attribute::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
+    const F4C: &Attribute = &Attribute::new(Cow::Borrowed("F4C"), Value::Float4(Vec4::ONE));
+    const F4D: &Attribute = &Attribute::new(Cow::Borrowed("F4D"), Value::Float4(Vec4::ONE));
 
     #[test]
     fn slice_ref() {

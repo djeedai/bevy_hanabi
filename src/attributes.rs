@@ -751,14 +751,14 @@ mod tests {
         }
     }
 
-    const F1: &'static Attribute = &Attribute::new(Cow::Borrowed("F1"), Value::Float(3.));
-    const F1B: &'static Attribute = &Attribute::new(Cow::Borrowed("F1B"), Value::Float(5.));
-    const F2: &'static Attribute = &Attribute::new(Cow::Borrowed("F2"), Value::Float2(Vec2::ZERO));
-    const F2B: &'static Attribute = &Attribute::new(Cow::Borrowed("F2B"), Value::Float2(Vec2::ONE));
-    const F3: &'static Attribute = &Attribute::new(Cow::Borrowed("F3"), Value::Float3(Vec3::ZERO));
-    const F3B: &'static Attribute = &Attribute::new(Cow::Borrowed("F3B"), Value::Float3(Vec3::ONE));
-    const F4: &'static Attribute = &Attribute::new(Cow::Borrowed("F4"), Value::Float4(Vec4::ZERO));
-    const F4B: &'static Attribute = &Attribute::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
+    const F1: &Attribute = &Attribute::new(Cow::Borrowed("F1"), Value::Float(3.));
+    const F1B: &Attribute = &Attribute::new(Cow::Borrowed("F1B"), Value::Float(5.));
+    const F2: &Attribute = &Attribute::new(Cow::Borrowed("F2"), Value::Float2(Vec2::ZERO));
+    const F2B: &Attribute = &Attribute::new(Cow::Borrowed("F2B"), Value::Float2(Vec2::ONE));
+    const F3: &Attribute = &Attribute::new(Cow::Borrowed("F3"), Value::Float3(Vec3::ZERO));
+    const F3B: &Attribute = &Attribute::new(Cow::Borrowed("F3B"), Value::Float3(Vec3::ONE));
+    const F4: &Attribute = &Attribute::new(Cow::Borrowed("F4"), Value::Float4(Vec4::ZERO));
+    const F4B: &Attribute = &Attribute::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
 
     #[test]
     fn test_layout_build() {
