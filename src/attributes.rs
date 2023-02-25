@@ -183,8 +183,47 @@ impl Attribute {
     pub const SIZE2: &'static Attribute =
         &Attribute::new(Cow::Borrowed("size2"), Value::Float2(Vec2::ONE));
 
+    /// The local X axis of the particle.
+    ///
+    /// This attribute stores a per-particle X axis, which defines the
+    /// horizontal direction of a quad particle. This is generally used to
+    /// re-orient the particle during rendering, for example to face the camera
+    /// or another point of interest.
+    ///
+    /// # Type
+    ///
+    /// [`ValueType::Float3`]
+    pub const AXIS_X: &'static Attribute =
+        &Attribute::new(Cow::Borrowed("axis_x"), Value::Float3(Vec3::X));
+
+    /// The local Y axis of the particle.
+    ///
+    /// This attribute stores a per-particle Y axis, which defines the vertical
+    /// direction of a quad particle. This is generally used to re-orient the
+    /// particle during rendering, for example to face the camera or another
+    /// point of interest.
+    ///
+    /// # Type
+    ///
+    /// [`ValueType::Float3`]
+    pub const AXIS_Y: &'static Attribute =
+        &Attribute::new(Cow::Borrowed("axis_y"), Value::Float3(Vec3::Y));
+
+    /// The local Z axis of the particle.
+    ///
+    /// This attribute stores a per-particle Z axis, which defines the normal to
+    /// a quad particle's plane. This is generally used to re-orient the
+    /// particle during rendering, for example to face the camera or another
+    /// point of interest.
+    ///
+    /// # Type
+    ///
+    /// [`ValueType::Float3`]
+    pub const AXIS_Z: &'static Attribute =
+        &Attribute::new(Cow::Borrowed("axis_z"), Value::Float3(Vec3::Z));
+
     /// Collection of all the existing particle attributes.
-    pub const ALL: [&'static Attribute; 9] = [
+    pub const ALL: [&'static Attribute; 12] = [
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,
@@ -194,6 +233,9 @@ impl Attribute {
         Attribute::ALPHA,
         Attribute::SIZE,
         Attribute::SIZE2,
+        Attribute::AXIS_X,
+        Attribute::AXIS_Y,
+        Attribute::AXIS_Z,
     ];
 
     /// Retrieve an attribute by its name.

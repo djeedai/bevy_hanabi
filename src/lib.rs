@@ -124,7 +124,7 @@
 //! # }
 //! ```
 
-use bevy::prelude::*;
+use bevy::{prelude::*, utils::HashSet};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _; // import without risk of name clashing
 
@@ -658,6 +658,81 @@ fn tick_spawners(
             let particle_layout = asset.particle_layout();
             let attributes_code = particle_layout.generate_code();
 
+            // For the renderer, assign all its inputs to the values of the attributes
+            // present, or a default value
+            let mut inputs_code = String::new();
+            // All required attributes, except the size/color which are variadic
+            let required_attributes =
+                HashSet::from_iter([Attribute::AXIS_X, Attribute::AXIS_Y, Attribute::AXIS_Z]);
+            let mut present_attributes = HashSet::new();
+            let mut has_size = false;
+            let mut has_color = false;
+            for attr_layout in particle_layout.attributes() {
+                let attr = attr_layout.attribute;
+                if attr == Attribute::SIZE {
+                    if !has_size {
+                        inputs_code += &format!(
+                            "var size = vec2<f32>(particle.{0}, particle.{0});\n",
+                            Attribute::SIZE.name()
+                        );
+                        has_size = true;
+                    } else {
+                        warn!("Attribute SIZE conflicts with another size attribute; ignored.");
+                    }
+                } else if attr == Attribute::SIZE2 {
+                    if !has_size {
+                        inputs_code +=
+                            &format!("var size = particle.{0};\n", Attribute::SIZE2.name());
+                        has_size = true;
+                    } else {
+                        warn!("Attribute SIZE2 conflicts with another size attribute; ignored.");
+                    }
+                } else if attr == Attribute::HDR_COLOR {
+                    if !has_color {
+                        inputs_code +=
+                            &format!("var color = particle.{};\n", Attribute::HDR_COLOR.name());
+                        has_color = true;
+                    } else {
+                        warn!(
+                            "Attribute HDR_COLOR conflicts with another color attribute; ignored."
+                        );
+                    }
+                } else if attr == Attribute::COLOR {
+                    if !has_color {
+                        inputs_code += &format!(
+                            "var color = unpack4x8unorm(particle.{0});\n",
+                            Attribute::COLOR.name()
+                        );
+                        has_color = true;
+                    } else {
+                        warn!("Attribute COLOR conflicts with another color attribute; ignored.");
+                    }
+                } else {
+                    inputs_code += &format!("var {0} = particle.{0};\n", attr.name());
+                    present_attributes.insert(attr);
+                }
+            }
+            // Assign default values if not present
+            if !has_size {
+                inputs_code += &format!(
+                    "var size = {0};\n",
+                    Attribute::SIZE2.default_value().to_wgsl_string() // TODO - or SIZE?
+                );
+            }
+            if !has_color {
+                inputs_code += &format!(
+                    "var color = {};\n",
+                    Attribute::HDR_COLOR.default_value().to_wgsl_string() // TODO - or COLOR?
+                );
+            }
+            for attr in required_attributes.difference(&present_attributes) {
+                inputs_code += &format!(
+                    "var {} = {};\n",
+                    attr.name(),
+                    attr.default_value().to_wgsl_string()
+                );
+            }
+
             // Generate the shader code defining the per-effect properties, if any
             let property_layout = asset.property_layout();
             let properties_code = property_layout.generate_code();
@@ -721,6 +796,7 @@ fn tick_spawners(
             // asset exists
             let render_shader_source = PARTICLES_RENDER_SHADER_TEMPLATE
                 .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{INPUTS}}", &inputs_code)
                 .replace("{{VERTEX_MODIFIERS}}", &render_context.vertex_code)
                 .replace("{{FRAGMENT_MODIFIERS}}", &render_context.fragment_code)
                 .replace("{{RENDER_EXTRA}}", &render_context.render_extra);
