@@ -8,7 +8,7 @@ use bevy::{
     log::LogPlugin,
     prelude::*,
     render::{camera::ScalingMode, render_resource::WgpuFeatures, settings::WgpuSettings},
-    sprite::MaterialMesh2dBundle,
+    sprite::{MaterialMesh2dBundle, Mesh2dHandle},
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
@@ -30,6 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin)
         .add_startup_system(setup)
+        .add_system(update_plane)
         .run();
 
     Ok(())
@@ -109,4 +110,10 @@ fn setup(
             ..default()
         })
         .insert(Name::new("effect:2d"));
+}
+
+fn update_plane(time: Res<Time>, mut query: Query<&mut Transform, With<Mesh2dHandle>>) {
+    let mut transform = query.single_mut();
+    // Move the plane back and forth to show particles ordering relative to it
+    transform.translation.z = (time.elapsed_seconds() * 2.5).sin() * 0.045 + 0.1;
 }

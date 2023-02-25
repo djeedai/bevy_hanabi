@@ -38,10 +38,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin)
         .add_startup_system(setup)
+        .add_system(update_accel)
         .run();
 
     Ok(())
 }
+
+/// A simple marker component to identify the effect using rate-based spawning.
+#[derive(Component)]
+struct RateBasedSpawner;
 
 fn setup(
     mut commands: Commands,
@@ -74,16 +79,16 @@ fn setup(
     color_gradient1.add_key(1.0, Vec4::splat(0.0));
 
     let mut size_gradient1 = Gradient::new();
-    size_gradient1.add_key(0.0, Vec2::splat(1.0));
-    size_gradient1.add_key(0.5, Vec2::splat(5.0));
-    size_gradient1.add_key(0.8, Vec2::splat(0.8));
+    size_gradient1.add_key(0.0, Vec2::splat(0.1));
+    size_gradient1.add_key(0.5, Vec2::splat(0.5));
+    size_gradient1.add_key(0.8, Vec2::splat(0.08));
     size_gradient1.add_key(1.0, Vec2::splat(0.0));
 
     let effect1 = effects.add(
         EffectAsset {
             name: "emit:rate".to_string(),
             capacity: 32768,
-            spawner: Spawner::rate(5.0.into()),
+            spawner: Spawner::rate(50.0.into()),
             ..Default::default()
         }
         .with_property("my_accel", graph::Value::Float3(Vec3::new(0., -3., 0.)))
@@ -116,6 +121,7 @@ fn setup(
                 transform: Transform::from_translation(Vec3::new(-30., 0., 0.)),
                 ..Default::default()
             },
+            RateBasedSpawner,
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin
@@ -233,4 +239,12 @@ fn setup(
                 Name::new("source"),
             ));
         });
+}
+
+fn update_accel(time: Res<Time>, mut query: Query<&mut ParticleEffect, With<RateBasedSpawner>>) {
+    let mut effect = query.single_mut();
+    let accel0 = 10.;
+    let (s, c) = (time.elapsed_seconds() * 0.3).sin_cos();
+    let accel = Vec3::new(c * accel0, s * accel0, 0.);
+    effect.set_property("my_accel", graph::Value::Float3(accel));
 }

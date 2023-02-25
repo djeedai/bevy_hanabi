@@ -29,6 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin)
         .add_startup_system(setup)
+        .add_system(rotate_camera)
         .run();
 
     Ok(())
@@ -42,7 +43,7 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let camera = Camera3dBundle {
-        transform: Transform::from_xyz(3.0, 3.0, 3.0).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
+        transform: Transform::from_xyz(3.0, 3.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
         projection: Projection::Perspective(PerspectiveProjection {
             fov: 120.0,
             ..Default::default()
@@ -55,8 +56,8 @@ fn setup(
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");
 
     let mut gradient = Gradient::new();
-    gradient.add_key(0.0, Vec4::splat(1.0));
-    gradient.add_key(0.5, Vec4::splat(1.0));
+    gradient.add_key(0.0, Vec4::ONE);
+    gradient.add_key(0.5, Vec4::ONE);
     gradient.add_key(1.0, Vec4::new(1.0, 1.0, 1.0, 0.0));
 
     let effect = effects.add(
@@ -104,4 +105,13 @@ fn setup(
     commands
         .spawn(ParticleEffectBundle::new(effect))
         .insert(Name::new("effect"));
+}
+
+fn rotate_camera(time: Res<Time>, mut query: Query<&mut Transform, With<Camera>>) {
+    let mut transform = query.single_mut();
+    let radius_xz = 18_f32.sqrt();
+    let a = (time.elapsed_seconds() * 0.3).sin();
+    let (s, c) = a.sin_cos();
+    *transform =
+        Transform::from_xyz(c * radius_xz, 3.0, s * radius_xz).looking_at(Vec3::ZERO, Vec3::Y)
 }
