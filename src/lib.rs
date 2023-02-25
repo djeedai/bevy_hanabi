@@ -396,7 +396,26 @@ impl ParticleEffect {
         }
     }
 
+    /// Set the value of the Z layer used when rendering in 2D mode.
     ///
+    /// In 2D mode, the Bevy renderer sorts all render items according to their
+    /// Z layer value, from back (negative) to front (positive). This
+    /// function sets the value assigned to the current particle effect, to
+    /// order it relative to any other 2D render item (including non-effects).
+    /// Setting the value to `None` reverts to the default sorting and put the
+    /// effect back into the default layer.
+    ///
+    /// This function has no effect when rendering in 3D mode.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::asset::{Handle, HandleId};
+    /// # let asset = Handle::weak(HandleId::random::<EffectAsset>());
+    /// // Always render the effect in front of the default layer (z=0)
+    /// let effect = ParticleEffect::new(asset).with_z_layer_2d(Some(0.1));
+    /// ```
     pub fn with_z_layer_2d(mut self, z_layer_2d: Option<f32>) -> Self {
         self.z_layer_2d = z_layer_2d;
         self
@@ -414,7 +433,9 @@ impl ParticleEffect {
     /// Get the spawner of this particle effect.
     ///
     /// Returns `None` if the effect has not yet been copied from the
-    /// [`EffectAsset`] nor overridden by [`set_spawner()`].
+    /// [`EffectAsset`] nor overridden by [`set_spawner()`]. The asset spawner
+    /// is copied by the system with the [`EffectSystems::TickSpawners`] label
+    /// after the effect is added as a component.
     ///
     /// [`set_spawner()`]: ParticleEffect::set_spawner
     pub fn maybe_spawner(&mut self) -> Option<&mut Spawner> {
@@ -488,8 +509,6 @@ impl ParticleEffect {
 const PARTICLES_INIT_SHADER_TEMPLATE: &str = include_str!("render/vfx_init.wgsl");
 const PARTICLES_UPDATE_SHADER_TEMPLATE: &str = include_str!("render/vfx_update.wgsl");
 const PARTICLES_RENDER_SHADER_TEMPLATE: &str = include_str!("render/vfx_render.wgsl");
-
-const FORCE_FIELD_CODE: &str = include_str!("render/force_field_code.wgsl");
 
 /// Trait to convert any data structure to its equivalent shader code.
 trait ShaderCode {
