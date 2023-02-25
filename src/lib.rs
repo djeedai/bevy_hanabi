@@ -461,6 +461,15 @@ impl ParticleEffect {
         Some((init_shader, update_shader, render_shader))
     }
 
+    /// Set the value of a property associated with this effect instance.
+    ///
+    /// A property must exist which has been added to the source [`EffectAsset`].
+    pub fn set_property(&mut self, name: &str, value: graph::Value) {
+        if let Some(prop) = self.properties.iter_mut().find(|p| p.def.name() == name) {
+            prop.value = value;
+        }
+    }
+
     /// Write all properties into a binary buffer ready for GPU upload.
     ///
     /// Return the binary buffer where properties have been written according to
