@@ -22,7 +22,7 @@ default = ["2d", "3d", "gpu_tests"]
 gpu_tests = []
 
 [dependencies]
-bytemuck = { version = "=1.12.3", features = ["derive"] }
+bytemuck = { version = "1.13", features = ["derive"] }
 copyless = "0.1"
 rand = "0.8"
 rand_pcg = "0.3"
