@@ -70,11 +70,7 @@ fn vertex(
     out.uv = vertex_uv;
 #endif
 
-    var size = vec2<f32>(1.0, 1.0);
-    var axis_x = vec3<f32>(1.0, 0.0, 0.0);
-    var axis_y = vec3<f32>(0.0, 1.0, 0.0);
-    var axis_z = vec3<f32>(0.0, 0.0, 1.0);
-    var color = vec4<f32>(1.0, 1.0, 1.0, 1.0); 
+{{INPUTS}}
 
 {{VERTEX_MODIFIERS}}
 
