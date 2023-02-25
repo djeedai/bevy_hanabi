@@ -167,7 +167,7 @@ impl EffectAsset {
         // Build the layout
         let mut layout = ParticleLayout::new();
         for attr in set {
-            layout = layout.add(attr);
+            layout = layout.append(attr);
         }
         layout.build()
     }
@@ -220,17 +220,12 @@ mod tests {
             graph::Value::Float3(Vec3::new(3., -7.5, 42.42)),
         );
 
-        assert!(effect
-            .properties()
-            .iter()
-            .any(|p| p.name() == "my_prop"));
-        assert!(effect
-            .properties()
-            .iter()
-            .any(|p| p.name() == "other_prop"));
+        assert!(effect.properties().iter().any(|p| p.name() == "my_prop"));
+        assert!(effect.properties().iter().any(|p| p.name() == "other_prop"));
         assert!(!effect
             .properties()
-            .iter().any(|p| p.name() == "do_not_exist"));
+            .iter()
+            .any(|p| p.name() == "do_not_exist"));
 
         let layout = effect.property_layout();
         assert_eq!(layout.size(), 16);

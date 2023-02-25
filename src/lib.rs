@@ -499,8 +499,7 @@ impl ParticleEffect {
     /// to be equal to the size of the layout.
     fn write_properties(&self, layout: &PropertyLayout) -> Vec<u8> {
         let size = layout.size() as usize;
-        let mut data = Vec::with_capacity(size);
-        data.resize(size, 0u8);
+        let mut data = vec![0; size];
         // FIXME: O(n^2) search due to offset() being O(n) linear search already
         for property in &self.properties {
             if let Some(offset) = layout.offset(property.def.name()) {

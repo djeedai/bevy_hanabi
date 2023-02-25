@@ -748,7 +748,7 @@ mod gpu_tests {
 
     #[test]
     fn effect_slice_ord() {
-        let particle_layout = ParticleLayout::new().add(Attribute::POSITION).build();
+        let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
         let slice1 = EffectSlice {
             slice: 0..32,
             group_index: 1,
@@ -782,11 +782,15 @@ mod gpu_tests {
 
     #[test]
     fn slice_ref() {
-        let l16 = ParticleLayout::new().add(F4A).build();
+        let l16 = ParticleLayout::new().append(F4A).build();
         assert_eq!(16, l16.size());
-        let l32 = ParticleLayout::new().add(F4A).add(F4B).build();
+        let l32 = ParticleLayout::new().append(F4A).append(F4B).build();
         assert_eq!(32, l32.size());
-        let l48 = ParticleLayout::new().add(F4A).add(F4B).add(F4C).build();
+        let l48 = ParticleLayout::new()
+            .append(F4A)
+            .append(F4B)
+            .append(F4C)
+            .build();
         assert_eq!(48, l48.size());
         for (range, particle_layout, len, byte_size) in [
             (0..0, &l16, 0, 0),
@@ -810,10 +814,10 @@ mod gpu_tests {
         //let render_queue = renderer.queue();
 
         let l64 = ParticleLayout::new()
-            .add(F4A)
-            .add(F4B)
-            .add(F4C)
-            .add(F4D)
+            .append(F4A)
+            .append(F4B)
+            .append(F4C)
+            .append(F4D)
             .build();
         assert_eq!(64, l64.size());
 
@@ -884,10 +888,10 @@ mod gpu_tests {
         //let render_queue = renderer.queue();
 
         let l64 = ParticleLayout::new()
-            .add(F4A)
-            .add(F4B)
-            .add(F4C)
-            .add(F4D)
+            .append(F4A)
+            .append(F4B)
+            .append(F4C)
+            .append(F4D)
             .build();
         assert_eq!(64, l64.size());
 
@@ -955,7 +959,7 @@ mod gpu_tests {
 
         let empty_property_layout = PropertyLayout::empty(); // not using properties
 
-        let l32 = ParticleLayout::new().add(F4A).add(F4B).build();
+        let l32 = ParticleLayout::new().append(F4A).append(F4B).build();
         assert_eq!(32, l32.size());
 
         let mut effect_cache = EffectCache::new(render_device);

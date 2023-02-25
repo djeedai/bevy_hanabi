@@ -312,7 +312,7 @@ mod tests {
 
             let mut particle_layout = ParticleLayout::new();
             for &attr in modifier.attributes() {
-                particle_layout = particle_layout.add(attr);
+                particle_layout = particle_layout.append(attr);
             }
             let particle_layout = particle_layout.build();
             let attributes_code = particle_layout.generate_code();

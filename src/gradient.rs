@@ -122,6 +122,8 @@ pub struct Gradient<T: Lerp + FromReflect> {
     keys: Vec<GradientKey<T>>,
 }
 
+// SAFETY: This is consistent with the derive, but we can't derive due to trait bounds.
+#[allow(clippy::derive_hash_xor_eq)]
 impl<T> Hash for Gradient<T>
 where
     T: Default + Lerp + FromReflect,

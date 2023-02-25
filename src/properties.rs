@@ -135,8 +135,7 @@ impl PropertyLayout {
 
         // Enqueue all Float4, which are already aligned
         let index4 = properties.partition_point(|prop| prop.size() < 16);
-        for i in index4..properties.len() {
-            let prop = properties[i];
+        for &prop in properties.iter().skip(index4) {
             let entry = PropertyLayoutEntry {
                 property: prop.clone(),
                 offset,

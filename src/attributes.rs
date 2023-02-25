@@ -70,7 +70,7 @@ impl ToWgslString for ValueType {
 /// Common attributes include the particle's position, its age, or its color.
 /// See [`Attribute::ALL`] for a list of supported attributes. Custom attributes
 /// are not supported.
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct Attribute {
     name: Cow<'static, str>,
     default_value: Value,
@@ -84,6 +84,13 @@ impl PartialEq for Attribute {
 }
 
 impl Eq for Attribute {}
+
+impl std::hash::Hash for Attribute {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Keep consistent with PartialEq and Eq
+        self.name.hash(state);
+    }
+}
 
 impl Attribute {
     /// The particle position in [simulation space].
@@ -250,7 +257,7 @@ impl Attribute {
     /// let attr = Attribute::from_name("position").unwrap();
     /// assert_eq!(attr, Attribute::POSITION);
     /// ```
-    pub fn from_name<'a>(name: &'a str) -> Option<&'static Attribute> {
+    pub fn from_name(name: &str) -> Option<&'static Attribute> {
         Attribute::ALL
             .iter()
             .find(|&&attr| attr.name() == name)
@@ -342,9 +349,9 @@ impl ParticleLayoutBuilder {
     /// ```
     /// # use bevy_hanabi::*;
     /// let mut builder = ParticleLayout::new();
-    /// builder.add(Attribute::POSITION);
+    /// builder.append(Attribute::POSITION);
     /// ```
-    pub fn add(mut self, attribute: &'static Attribute) -> Self {
+    pub fn append(mut self, attribute: &'static Attribute) -> Self {
         self.layout.push(AttributeLayout {
             attribute,
             offset: 0, // fixed up by build()
@@ -517,10 +524,10 @@ impl Default for ParticleLayout {
     fn default() -> Self {
         // Default layout: { position, age, velocity, lifetime }
         ParticleLayout::new()
-            .add(Attribute::POSITION)
-            .add(Attribute::AGE)
-            .add(Attribute::VELOCITY)
-            .add(Attribute::LIFETIME)
+            .append(Attribute::POSITION)
+            .append(Attribute::AGE)
+            .append(Attribute::VELOCITY)
+            .append(Attribute::LIFETIME)
             .build()
     }
 }
@@ -551,6 +558,7 @@ impl ParticleLayout {
     ///     .add(Attribute::LIFETIME)
     ///     .build();
     /// ```
+    #[allow(clippy::new_ret_no_self)]
     pub fn new() -> ParticleLayoutBuilder {
         ParticleLayoutBuilder::default()
     }
@@ -565,7 +573,7 @@ impl ParticleLayout {
         let mut builder = ParticleLayoutBuilder::from(self);
         //for attr in attributes.into_iter() {
         for attr in attributes {
-            builder = builder.add(attr);
+            builder = builder.append(attr);
         }
         builder.build()
     }
@@ -769,7 +777,7 @@ mod tests {
 
         // single
         for attr in Attribute::ALL {
-            let layout = ParticleLayout::new().add(attr).build();
+            let layout = ParticleLayout::new().append(attr).build();
             assert_eq!(layout.layout.len(), 1);
             let attr0 = &layout.layout[0];
             assert_eq!(attr0.offset, 0);
@@ -787,7 +795,7 @@ mod tests {
         for attr in [F1, F2, F3, F4] {
             let mut layout = ParticleLayout::new();
             for _ in 0..3 {
-                layout = layout.add(attr);
+                layout = layout.append(attr);
             }
             let layout = layout.build();
             assert_eq!(layout.layout.len(), 1); // unique
@@ -796,16 +804,16 @@ mod tests {
         }
 
         // homogenous
-        for attr in [[F1, F1B], [F2, F2B], [F3, F3B], [F4, F4B]] {
+        for attrs in [[F1, F1B], [F2, F2B], [F3, F3B], [F4, F4B]] {
             let mut layout = ParticleLayout::new();
-            for i in 0..2 {
-                layout = layout.add(attr[i]);
+            for &attr in &attrs {
+                layout = layout.append(attr);
             }
             let layout = layout.build();
             assert_eq!(layout.layout.len(), 2);
             let attr_0 = &layout.layout[0];
             let size = attr_0.attribute.size();
-            assert_eq!(attr_0.offset as usize, 0 * size);
+            assert_eq!(attr_0.offset as usize, 0);
             let attr_1 = &layout.layout[1];
             assert_eq!(attr_1.offset as usize, size);
             assert_eq!(attr_1.attribute.size(), size);
@@ -815,16 +823,14 @@ mod tests {
         {
             let mut layout = ParticleLayout::new();
             for attr in &[F1, F3, F2, F3B] {
-                layout = layout.add(attr);
+                layout = layout.append(attr);
             }
             let layout = layout.build();
             assert_eq!(layout.layout.len(), 4);
-            let mut i = 0;
-            for (off, a) in &[(0, F3), (12, F1), (16, F3B), (28, F2)] {
+            for (i, (off, a)) in [(0, F3), (12, F1), (16, F3B), (28, F2)].iter().enumerate() {
                 let attr_i = layout.layout[i];
                 assert_eq!(attr_i.offset, *off);
                 assert_eq!(&attr_i.attribute, a);
-                i += 1;
             }
         }
 
@@ -832,16 +838,17 @@ mod tests {
         {
             let mut layout = ParticleLayout::new();
             for attr in &[F1, F4, F3, F2, F2B, F3B] {
-                layout = layout.add(attr);
+                layout = layout.append(attr);
             }
             let layout = layout.build();
             assert_eq!(layout.layout.len(), 6);
-            let mut i = 0;
-            for (off, a) in &[(0, F4), (16, F3), (28, F1), (32, F2), (40, F2B), (48, F3B)] {
+            for (i, (off, a)) in [(0, F4), (16, F3), (28, F1), (32, F2), (40, F2B), (48, F3B)]
+                .iter()
+                .enumerate()
+            {
                 let attr_i = layout.layout[i];
                 assert_eq!(attr_i.offset, *off);
                 assert_eq!(&attr_i.attribute, a);
-                i += 1;
             }
         }
     }
