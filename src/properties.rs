@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn serde() {
-        let p = Property::new("my_prop", Value::Float(3.0).into());
+        let p = Property::new("my_prop", Value::Float(3.));
         let s = ron::to_string(&p).unwrap();
         println!("property: {:?}", s);
         let p_serde: Property = ron::from_str(&s).unwrap();

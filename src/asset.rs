@@ -81,7 +81,7 @@ impl EffectAsset {
     /// Panics if a property with the same name already exists.
     pub fn add_property(&mut self, name: impl Into<String>, default_value: Value) {
         let name = name.into();
-        assert!(self.properties.iter().find(|&p| p.name() == name).is_none());
+        assert!(!self.properties.iter().any(|p| p.name() == name));
         self.properties.push(Property::new(name, default_value));
     }
 
@@ -223,18 +223,14 @@ mod tests {
         assert!(effect
             .properties()
             .iter()
-            .find(|p| p.name() == "my_prop")
-            .is_some());
+            .any(|p| p.name() == "my_prop"));
         assert!(effect
             .properties()
             .iter()
-            .find(|p| p.name() == "other_prop")
-            .is_some());
-        assert!(effect
+            .any(|p| p.name() == "other_prop"));
+        assert!(!effect
             .properties()
-            .iter()
-            .find(|p| p.name() == "do_not_exist")
-            .is_none());
+            .iter().any(|p| p.name() == "do_not_exist"));
 
         let layout = effect.property_layout();
         assert_eq!(layout.size(), 16);

@@ -453,7 +453,7 @@ impl ParticleEffect {
             .iter()
             .map(|def| PropertyInstance {
                 def: def.clone(),
-                value: def.default_value().clone(),
+                value: *def.default_value(),
             })
             .collect();
 
@@ -664,7 +664,7 @@ fn tick_spawners(
                 continue;
             };
 
-            effect.init_from_asset(&asset);
+            effect.init_from_asset(asset);
 
             effect.spawner.as_mut().unwrap()
         };
@@ -793,7 +793,7 @@ fn tick_spawners(
             // Append Euler integration (TODO - Do we want to make this explicit?)
             // Note the prepended "\n" to prevent appending to a comment line.
             update_context.update_code +=
-                &format!("\n(*particle).position += (*particle).velocity * sim_params.dt;\n");
+                "\n(*particle).position += (*particle).velocity * sim_params.dt;\n";
 
             // Generate the shader code for the render shader
             let mut render_context = RenderContext::default();

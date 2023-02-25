@@ -565,7 +565,7 @@ impl ParticleLayout {
         let mut builder = ParticleLayoutBuilder::from(self);
         //for attr in attributes.into_iter() {
         for attr in attributes {
-            builder = builder.add(*attr);
+            builder = builder.add(attr);
         }
         builder.build()
     }
@@ -807,7 +807,7 @@ mod tests {
             let size = attr_0.attribute.size();
             assert_eq!(attr_0.offset as usize, 0 * size);
             let attr_1 = &layout.layout[1];
-            assert_eq!(attr_1.offset as usize, 1 * size);
+            assert_eq!(attr_1.offset as usize, size);
             assert_eq!(attr_1.attribute.size(), size);
         }
 

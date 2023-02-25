@@ -1598,8 +1598,7 @@ pub(crate) fn prepare_effects(
             let id = *effects_meta.entity_map.get(entity).unwrap();
             let property_buffer = effects_meta
                 .effect_cache
-                .get_property_buffer(id)
-                .map(|buf| buf.clone()); // clone handle for lifetime
+                .get_property_buffer(id).cloned(); // clone handle for lifetime
             let slice = effects_meta.effect_cache.get_slice(id);
             (
                 entity.index(),
