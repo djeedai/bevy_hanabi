@@ -1506,7 +1506,8 @@ pub(crate) struct EffectBatch {
     /// Texture to modulate the particle color.
     image_handle_id: HandleId,
     /// Configured shader used for the particle rendering of this batch.
-    /// Note that we don't need to keep the init/update shaders alive because their pipeline specialization is doing it via the specialization key.
+    /// Note that we don't need to keep the init/update shaders alive because
+    /// their pipeline specialization is doing it via the specialization key.
     render_shader: Handle<Shader>,
     /// Init compute pipeline specialized for this batch.
     init_pipeline_id: CachedComputePipelineId,

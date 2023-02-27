@@ -1,7 +1,8 @@
-use bevy::{
-    prelude::{Quat, Vec2, Vec3, Vec4},
-    render::renderer::{RenderDevice, RenderQueue},
-};
+#![cfg(test)]
+
+use bevy::prelude::{Quat, Vec2, Vec3, Vec4};
+#[cfg(feature = "gpu_tests")]
+use bevy::render::renderer::{RenderDevice, RenderQueue};
 use std::ops::Sub;
 
 /// Utility trait to compare floating-point values with a tolerance.
@@ -129,6 +130,7 @@ pub(crate) use assert_approx_eq;
 
 /// Mock renderer backed by any available WGPU backend, and simulating the real
 /// Bevy backend to enable testing rendering-related features.
+#[cfg(feature = "gpu_tests")]
 #[allow(dead_code)]
 pub(crate) struct MockRenderer {
     /// WGPU instance backed by any available backend.
@@ -141,6 +143,7 @@ pub(crate) struct MockRenderer {
     queue: RenderQueue,
 }
 
+#[cfg(feature = "gpu_tests")]
 impl MockRenderer {
     /// Create a new mock renderer with a default backend and adapter.
     pub fn new() -> Self {

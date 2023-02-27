@@ -33,7 +33,8 @@ pub enum Value {
     Uint(u32),
 }
 
-// SAFETY: This is consistent with the derive, but we can't derive due to FloatOrd.
+// SAFETY: This is consistent with the derive, but we can't derive due to
+// FloatOrd.
 #[allow(clippy::derive_hash_xor_eq)]
 impl std::hash::Hash for Value {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
