@@ -55,11 +55,13 @@ pub struct SliceRef {
 
 impl SliceRef {
     /// The length of the slice, in number of items.
+    #[allow(dead_code)]
     pub fn len(&self) -> u32 {
         self.range.end - self.range.start
     }
 
     /// The size in bytes of the slice.
+    #[allow(dead_code)]
     pub fn byte_size(&self) -> usize {
         (self.len() as usize) * (self.particle_layout.min_binding_size().get() as usize)
     }
@@ -343,14 +345,6 @@ impl EffectBuffer {
         }
     }
 
-    pub fn particle_buffer(&self) -> &Buffer {
-        &self.particle_buffer
-    }
-
-    pub fn indirect_buffer(&self) -> &Buffer {
-        &self.indirect_buffer
-    }
-
     pub fn properties_buffer(&self) -> Option<&Buffer> {
         self.properties_buffer.as_ref()
     }
@@ -375,10 +369,6 @@ impl EffectBuffer {
         &self.particles_buffer_layout_with_dispatch
     }
 
-    pub fn capacity(&self) -> u32 {
-        self.capacity
-    }
-
     /// Return a binding for the entire particle buffer.
     pub fn max_binding(&self) -> BindingResource {
         let capacity_bytes = self.capacity as u64 * self.particle_layout.min_binding_size().get();
@@ -391,6 +381,7 @@ impl EffectBuffer {
 
     /// Return a binding of the buffer for a starting range of a given size (in
     /// bytes).
+    #[allow(dead_code)]
     pub fn binding(&self, size: u32) -> BindingResource {
         BindingResource::Buffer(BufferBinding {
             buffer: &self.particle_buffer,
@@ -581,6 +572,7 @@ impl EffectCacheId {
     }
 
     /// Check if the ID is valid.
+    #[allow(dead_code)]
     pub fn is_valid(&self) -> bool {
         *self != Self::INVALID
     }
@@ -608,6 +600,7 @@ impl EffectCache {
         }
     }
 
+    #[allow(dead_code)]
     pub fn buffers(&self) -> &[Option<EffectBuffer>] {
         &self.buffers
     }

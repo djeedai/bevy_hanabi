@@ -45,13 +45,6 @@ pub mod simulate_graph {
     }
 }
 
-pub mod draw_graph {
-    pub mod node {
-        /// Label for a render node to render particles on a 2D or 3D view.
-        pub const RENDER: &str = "hanabi_render";
-    }
-}
-
 /// Plugin to add systems related to Hanabi.
 #[derive(Debug, Clone, Copy)]
 pub struct HanabiPlugin;

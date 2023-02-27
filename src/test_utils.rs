@@ -129,6 +129,7 @@ pub(crate) use assert_approx_eq;
 
 /// Mock renderer backed by any available WGPU backend, and simulating the real
 /// Bevy backend to enable testing rendering-related features.
+#[allow(dead_code)]
 pub(crate) struct MockRenderer {
     /// WGPU instance backed by any available backend.
     instance: wgpu::Instance,

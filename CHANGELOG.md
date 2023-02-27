@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The conforming to sphere feature of `ForceFieldModifier` is now applied before the Euler integration updating the particle position. This may result is tiny deviations from the previous behavior, as the particle position will not strictly conform to the sphere at the end of the step. However the delta should be very small, and no visible difference is expected in practice.
 - Changed the `instancing` example to allow removing particles with the BACKSPACE key in addition of the DELETE one, mainly for useability on macOS.
 - Changed the `lifetime` example to render particles with a colored gradient, to make the lifetime effect more clear.
+- The library builds with `#[deny(dead_code)]`.
 
 ### Removed
 

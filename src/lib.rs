@@ -14,7 +14,6 @@
     clippy::suspicious_operation_groupings,
     clippy::useless_let_if_seq
 )]
-#![allow(dead_code)] // TEMP
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 //! 🎆 Hanabi -- a GPU particle system plugin for the Bevy game engine.
@@ -143,7 +142,6 @@ mod spawn;
 mod test_utils;
 
 use properties::{Property, PropertyInstance};
-use render::EffectCacheId;
 
 pub use asset::EffectAsset;
 pub use attributes::*;
@@ -348,10 +346,8 @@ pub struct ParticleEffect {
     /// negatively affect performance.
     ///
     /// Ignored for 3D rendering.
+    #[cfg(feature = "2d")]
     z_layer_2d: Option<f32>,
-    /// Internal effect cache ID of the effect once allocated.
-    #[reflect(ignore)]
-    effect: EffectCacheId,
     /// Particle spawning descriptor.
     spawner: Option<Spawner>,
     /// Handle to the configured init shader for his effect instance, if
@@ -382,8 +378,8 @@ impl ParticleEffect {
     pub fn new(handle: Handle<EffectAsset>) -> Self {
         Self {
             handle,
+            #[cfg(feature = "2d")]
             z_layer_2d: None,
-            effect: EffectCacheId::INVALID,
             spawner: None,
             configured_init_shader: None,
             configured_update_shader: None,
@@ -416,6 +412,7 @@ impl ParticleEffect {
     /// // Always render the effect in front of the default layer (z=0)
     /// let effect = ParticleEffect::new(asset).with_z_layer_2d(Some(0.1));
     /// ```
+    #[cfg(feature = "2d")]
     pub fn with_z_layer_2d(mut self, z_layer_2d: Option<f32>) -> Self {
         self.z_layer_2d = z_layer_2d;
         self

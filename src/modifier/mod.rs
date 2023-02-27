@@ -132,10 +132,6 @@ mod tests {
         }
     }
 
-    fn make_boxed_test_modifier() -> BoxedModifier {
-        Box::new(make_test_modifier())
-    }
-
     #[test]
     fn reflect() {
         let m = make_test_modifier();

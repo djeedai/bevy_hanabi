@@ -1,3 +1,5 @@
+#[cfg(feature = "2d")]
+use bevy::utils::FloatOrd;
 use bevy::{
     asset::{AssetEvent, Assets, Handle, HandleId},
     core::{Pod, Zeroable},
@@ -6,10 +8,9 @@ use bevy::{
         system::{lifetimeless::*, SystemParam, SystemState},
     },
     log::trace,
-    math::{Mat4, Vec2, Vec3},
+    math::{Mat4, Vec3},
     prelude::*,
     render::{
-        color::Color,
         render_asset::RenderAssets,
         render_graph::{Node, NodeRunError, RenderGraphContext, SlotInfo},
         render_phase::{Draw, DrawFunctions, RenderPhase, TrackedRenderPass},
@@ -24,7 +25,7 @@ use bevy::{
     },
     time::Time,
     transform::components::GlobalTransform,
-    utils::{FloatOrd, HashMap, Uuid},
+    utils::{HashMap, Uuid},
 };
 use bitflags::bitflags;
 use rand::random;
@@ -229,7 +230,6 @@ pub struct GpuRenderIndirect {
 #[derive(Resource)]
 pub(crate) struct DispatchIndirectPipeline {
     dispatch_indirect_layout: BindGroupLayout,
-    pipeline_layout: PipelineLayout,
     pipeline: ComputePipeline,
 }
 
@@ -309,7 +309,6 @@ impl FromWorld for DispatchIndirectPipeline {
 
         Self {
             dispatch_indirect_layout,
-            pipeline_layout,
             pipeline,
         }
     }
@@ -931,9 +930,6 @@ pub(crate) struct ExtractedEffect {
     // FIXME - Remove from here, this should be using properties. Only left here for back-compat
     // until we have a proper graph solution to replace it.
     force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
-    /// Particles tint to modulate with the texture image.
-    pub color: Color,
-    pub rect: Rect,
     // Texture to use for the sprites of the particles of this effect.
     //pub image: Handle<Image>,
     pub has_image: bool, // TODO -> use flags
@@ -947,6 +943,7 @@ pub(crate) struct ExtractedEffect {
     pub render_shader: Handle<Shader>,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
+    #[cfg(feature = "2d")]
     pub z_sort_key_2d: FloatOrd,
 }
 
@@ -1123,6 +1120,7 @@ pub(crate) fn extract_effects(
             continue;
         };
 
+        #[cfg(feature = "2d")]
         let z_sort_key_2d = effect
             .z_layer_2d
             .map_or(FloatOrd(asset.z_layer_2d), |z_layer_2d| {
@@ -1155,20 +1153,14 @@ pub(crate) fn extract_effects(
                 property_layout,
                 property_data,
                 spawn_count,
-                color: Color::RED, //effect.color,
                 transform: transform.compute_matrix(),
                 force_field,
-                rect: Rect {
-                    min: Vec2::splat(-0.1),
-                    max: Vec2::splat(0.1), // effect
-                                           //.custom_size
-                                           //.unwrap_or_else(|| Vec2::new(size.width as f32, size.height as f32)),
-                },
                 has_image: effect.particle_texture.is_some(),
                 image_handle_id,
                 init_shader,
                 update_shader,
                 render_shader,
+                #[cfg(feature = "2d")]
                 z_sort_key_2d,
             },
         );
@@ -1205,6 +1197,11 @@ struct GpuLimits {
 }
 
 impl GpuLimits {
+    #[allow(dead_code)]
+    pub fn storage_buffer_align(&self) -> NonZeroU32 {
+        self.storage_buffer_align
+    }
+
     pub fn dispatch_indirect_offset(&self, buffer_index: u32) -> u32 {
         self.dispatch_indirect_aligned_size.get() * buffer_index
     }
@@ -1508,11 +1505,8 @@ pub(crate) struct EffectBatch {
     layout_flags: LayoutFlags,
     /// Texture to modulate the particle color.
     image_handle_id: HandleId,
-    /// Configured shader used for the particle init of this batch.
-    init_shader: Handle<Shader>,
-    /// Configured shader used for the particle updating of this batch.
-    update_shader: Handle<Shader>,
     /// Configured shader used for the particle rendering of this batch.
+    /// Note that we don't need to keep the init/update shaders alive because their pipeline specialization is doing it via the specialization key.
     render_shader: Handle<Shader>,
     /// Init compute pipeline specialized for this batch.
     init_pipeline_id: CachedComputePipelineId,
@@ -1520,6 +1514,7 @@ pub(crate) struct EffectBatch {
     update_pipeline_id: CachedComputePipelineId,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
+    #[cfg(feature = "2d")]
     z_sort_key_2d: FloatOrd,
     /// Entities holding the source [`ParticleEffect`] instances which were
     /// batched into this single batch. Used to determine visibility per view.
@@ -1596,9 +1591,7 @@ pub(crate) fn prepare_effects(
         .iter()
         .map(|(entity, extracted_effect)| {
             let id = *effects_meta.entity_map.get(entity).unwrap();
-            let property_buffer = effects_meta
-                .effect_cache
-                .get_property_buffer(id).cloned(); // clone handle for lifetime
+            let property_buffer = effects_meta.effect_cache.get_property_buffer(id).cloned(); // clone handle for lifetime
             let slice = effects_meta.effect_cache.get_slice(id);
             (
                 entity.index(),
@@ -1632,6 +1625,7 @@ pub(crate) fn prepare_effects(
     let mut num_emitted = 0;
     let mut init_pipeline_id = CachedComputePipelineId::INVALID;
     let mut update_pipeline_id = CachedComputePipelineId::INVALID;
+    #[cfg(feature = "2d")]
     let mut z_sort_key_2d = FloatOrd(f32::NAN);
     let mut entities = Vec::<u32>::with_capacity(4);
     for (entity_index, slice, extracted_effect, effect_index, property_buffer) in effect_entity_list
@@ -1644,33 +1638,31 @@ pub(crate) fn prepare_effects(
             LayoutFlags::NONE
         };
         image_handle_id = extracted_effect.image_handle_id;
-        trace!(
-            "Effect: buffer #{} | range {:?} | z_sort_key_2d {:?}",
-            buffer_index,
-            range,
-            extracted_effect.z_sort_key_2d
-        );
+        trace!("Effect: buffer #{} | range {:?}", buffer_index, range);
+
+        #[cfg(feature = "2d")]
+        let is_compatible = current_buffer_index != buffer_index
+            || z_sort_key_2d != extracted_effect.z_sort_key_2d
+            || particle_layout != extracted_effect.particle_layout
+            || property_layout != extracted_effect.property_layout
+            || init_shader != extracted_effect.init_shader;
+
+        #[cfg(not(feature = "2d"))]
+        let is_compatible = current_buffer_index != buffer_index
+            || particle_layout != extracted_effect.particle_layout
+            || property_layout != extracted_effect.property_layout
+            || init_shader != extracted_effect.init_shader;
 
         // Check the buffer the effect is in
         assert!(buffer_index >= current_buffer_index || current_buffer_index == u32::MAX);
         // FIXME - This breaks batches in 3D even though the Z sort key is only for 2D.
         // Do we need separate batches for 2D and 3D? :'(
-        if current_buffer_index != buffer_index
-            || z_sort_key_2d != extracted_effect.z_sort_key_2d
-            || particle_layout != extracted_effect.particle_layout
-            || property_layout != extracted_effect.property_layout
-        {
+        if is_compatible {
             if current_buffer_index != buffer_index {
                 trace!(
                     "+ New buffer! ({} -> {})",
                     current_buffer_index,
                     buffer_index
-                );
-            } else {
-                trace!(
-                    "+ New Z sort key! ({:?} -> {:?})",
-                    z_sort_key_2d,
-                    extracted_effect.z_sort_key_2d
                 );
             }
             // Commit previous buffer if any
@@ -1681,7 +1673,7 @@ pub(crate) fn prepare_effects(
                     assert_ne!(asset, Handle::<EffectAsset>::default());
                     assert!(particle_layout.size() > 0);
                     trace!(
-                        "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | particle_layout {:?} | property_layout {:?} | init_shader {:?} | update_shader {:?} | render_shader {:?} | z_sort_key_2d {:?} | entities {}",
+                        "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | particle_layout {:?} | property_layout {:?} | init_shader {:?} | update_shader {:?} | render_shader {:?} | entities {}",
                         current_buffer_index,
                         spawner_base,
                         spawn_count,
@@ -1691,7 +1683,6 @@ pub(crate) fn prepare_effects(
                         init_shader,
                         update_shader,
                         render_shader,
-                        z_sort_key_2d,
                         entities.len(),
                     );
                     commands.spawn(EffectBatch {
@@ -1704,11 +1695,10 @@ pub(crate) fn prepare_effects(
                         handle: asset.clone_weak(),
                         layout_flags,
                         image_handle_id,
-                        init_shader: init_shader.clone(),
-                        update_shader: update_shader.clone(),
                         render_shader: render_shader.clone(),
                         init_pipeline_id,
                         update_pipeline_id,
+                        #[cfg(feature = "2d")]
                         z_sort_key_2d,
                         entities: std::mem::take(&mut entities),
                     });
@@ -1726,7 +1716,10 @@ pub(crate) fn prepare_effects(
             // FIXME - Currently this means same effect asset, so things are easier...
             asset = extracted_effect.handle.clone_weak();
             particle_layout = slice.particle_layout.clone();
-            z_sort_key_2d = extracted_effect.z_sort_key_2d;
+            #[cfg(feature = "2d")]
+            {
+                z_sort_key_2d = extracted_effect.z_sort_key_2d;
+            }
         }
 
         assert_ne!(asset, Handle::<EffectAsset>::default());
@@ -1776,7 +1769,10 @@ pub(crate) fn prepare_effects(
 
         trace!("particle_layout = {:?}", slice.particle_layout);
 
-        trace!("z_sort_key_2d = {:?}", z_sort_key_2d);
+        #[cfg(feature = "2d")]
+        {
+            trace!("z_sort_key_2d = {:?}", z_sort_key_2d);
+        }
 
         // FIXME - This overwrites the value of the previous effect if > 1 are batched
         // together!
@@ -1844,11 +1840,10 @@ pub(crate) fn prepare_effects(
                     handle: asset.clone_weak(),
                     layout_flags,
                     image_handle_id,
-                    init_shader: init_shader.clone(),
-                    update_shader: update_shader.clone(),
                     render_shader: render_shader.clone(),
                     init_pipeline_id,
                     update_pipeline_id,
+                    #[cfg(feature = "2d")]
                     z_sort_key_2d,
                     entities: std::mem::take(&mut entities),
                 });
@@ -1884,11 +1879,10 @@ pub(crate) fn prepare_effects(
             handle: asset.clone_weak(),
             layout_flags,
             image_handle_id,
-            init_shader,
-            update_shader,
             render_shader,
             init_pipeline_id,
             update_pipeline_id,
+            #[cfg(feature = "2d")]
             z_sort_key_2d,
             entities,
         });
@@ -1973,13 +1967,6 @@ pub(crate) struct BufferBindGroups {
 
 #[derive(Default, Resource)]
 pub(crate) struct EffectBindGroups {
-    /// Bind groups #0 for indirect dispatch shader.
-    indirect_dispatch_indirect_dispatch: Option<BindGroup>,
-    indirect_dispatch_indirect_dispatch_buffer: Option<Buffer>,
-    /// Bind group for GpuRenderIndirect for init shader.
-    init_render_indirect_bind_group: Option<BindGroup>,
-    /// Bind groups for GpuRenderIndirect for update shader.
-    update_render_indirect_bind_group: Option<BindGroup>,
     /// Map from buffer index to its bind groups.
     particle_buffers: HashMap<u32, BufferBindGroups>,
     ///
@@ -2557,16 +2544,6 @@ pub(crate) fn queue_effects(
     }
 }
 
-/// Component to hold all the entities with a [`ExtractedEffect`] component on
-/// them that need to be updated this frame with a compute pass. This is
-/// view-independent because the update phase itself is also view-independent
-/// (effects like camera facing are applied in the render phase, which runs once
-/// per view).
-#[derive(Component)]
-struct ExtractedEffectEntities {
-    pub entities: Vec<Entity>,
-}
-
 type DrawEffectsSystemState = SystemState<(
     SRes<EffectsMeta>,
     SRes<EffectBindGroups>,
@@ -2807,9 +2784,7 @@ impl Node for VfxSimulateNode {
                     });
 
             {
-                // Loop on all entities recorded inside the ExtractedEffectEntities input
                 trace!("loop over effect batches...");
-                //for effect_entity in extracted_effect_entities.entities.iter().copied() {
 
                 // Dispatch init compute jobs
                 for batch in self.effect_query.iter_manual(world) {
