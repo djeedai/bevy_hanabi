@@ -367,7 +367,7 @@ impl ParticleLayoutBuilder {
     /// ```
     /// # use bevy_hanabi::*;
     /// let layout = ParticleLayout::new()
-    ///     .add(Attribute::POSITION)
+    ///     .append(Attribute::POSITION)
     ///     .build();
     /// ```
     pub fn build(mut self) -> ParticleLayout {
@@ -553,9 +553,9 @@ impl ParticleLayout {
     /// ```
     /// # use bevy_hanabi::*;
     /// let layout = ParticleLayout::new()
-    ///     .add(Attribute::POSITION)
-    ///     .add(Attribute::AGE)
-    ///     .add(Attribute::LIFETIME)
+    ///     .append(Attribute::POSITION)
+    ///     .append(Attribute::AGE)
+    ///     .append(Attribute::LIFETIME)
     ///     .build();
     /// ```
     #[allow(clippy::new_ret_no_self)]
@@ -585,7 +585,7 @@ impl ParticleLayout {
     /// ```
     /// # use bevy_hanabi::*;
     /// let layout = ParticleLayout::new()
-    ///     .add(Attribute::POSITION) // vec3<f32>
+    ///     .append(Attribute::POSITION) // vec3<f32>
     ///     .build();
     /// assert_eq!(layout.size(), 12);
     /// ```
@@ -605,7 +605,7 @@ impl ParticleLayout {
     /// ```
     /// # use bevy_hanabi::*;
     /// let layout = ParticleLayout::new()
-    ///     .add(Attribute::POSITION) // vec3<f32>
+    ///     .append(Attribute::POSITION) // vec3<f32>
     ///     .build();
     /// assert_eq!(layout.align(), 16);
     /// ```
@@ -638,7 +638,7 @@ impl ParticleLayout {
     /// ```
     /// # use bevy_hanabi::*;
     /// let layout = ParticleLayout::new()
-    ///     .add(Attribute::SIZE)
+    ///     .append(Attribute::SIZE)
     ///     .build();
     /// let has_size = layout.contains(Attribute::SIZE);
     /// assert!(has_size);
