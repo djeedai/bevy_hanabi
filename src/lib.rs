@@ -14,7 +14,6 @@
     clippy::suspicious_operation_groupings,
     clippy::useless_let_if_seq
 )]
-#![allow(dead_code)] // TEMP
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 //! 🎆 Hanabi -- a GPU particle system plugin for the Bevy game engine.
@@ -143,7 +142,6 @@ mod spawn;
 mod test_utils;
 
 use properties::{Property, PropertyInstance};
-use render::EffectCacheId;
 
 pub use asset::EffectAsset;
 pub use attributes::*;
@@ -152,7 +150,7 @@ pub use gradient::{Gradient, GradientKey};
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
 pub use properties::PropertyLayout;
-pub use render::ShaderCache;
+pub use render::{EffectSystems, ShaderCache};
 pub use spawn::{DimValue, Random, Spawner, Value};
 
 #[allow(missing_docs)]
@@ -348,10 +346,8 @@ pub struct ParticleEffect {
     /// negatively affect performance.
     ///
     /// Ignored for 3D rendering.
+    #[cfg(feature = "2d")]
     z_layer_2d: Option<f32>,
-    /// Internal effect cache ID of the effect once allocated.
-    #[reflect(ignore)]
-    effect: EffectCacheId,
     /// Particle spawning descriptor.
     spawner: Option<Spawner>,
     /// Handle to the configured init shader for his effect instance, if
@@ -382,8 +378,8 @@ impl ParticleEffect {
     pub fn new(handle: Handle<EffectAsset>) -> Self {
         Self {
             handle,
+            #[cfg(feature = "2d")]
             z_layer_2d: None,
-            effect: EffectCacheId::INVALID,
             spawner: None,
             configured_init_shader: None,
             configured_update_shader: None,
@@ -416,6 +412,7 @@ impl ParticleEffect {
     /// // Always render the effect in front of the default layer (z=0)
     /// let effect = ParticleEffect::new(asset).with_z_layer_2d(Some(0.1));
     /// ```
+    #[cfg(feature = "2d")]
     pub fn with_z_layer_2d(mut self, z_layer_2d: Option<f32>) -> Self {
         self.z_layer_2d = z_layer_2d;
         self
@@ -438,6 +435,7 @@ impl ParticleEffect {
     /// after the effect is added as a component.
     ///
     /// [`set_spawner()`]: ParticleEffect::set_spawner
+    /// [`EffectSystems::TickSpawners`]: crate::render::EffectSystems::TickSpawners
     pub fn maybe_spawner(&mut self) -> Option<&mut Spawner> {
         self.spawner.as_mut()
     }
@@ -452,7 +450,7 @@ impl ParticleEffect {
             .iter()
             .map(|def| PropertyInstance {
                 def: def.clone(),
-                value: def.default_value().clone(),
+                value: *def.default_value(),
             })
             .collect();
 
@@ -484,7 +482,8 @@ impl ParticleEffect {
 
     /// Set the value of a property associated with this effect instance.
     ///
-    /// A property must exist which has been added to the source [`EffectAsset`].
+    /// A property must exist which has been added to the source
+    /// [`EffectAsset`].
     pub fn set_property(&mut self, name: &str, value: graph::Value) {
         if let Some(prop) = self.properties.iter_mut().find(|p| p.def.name() == name) {
             prop.value = value;
@@ -498,8 +497,7 @@ impl ParticleEffect {
     /// to be equal to the size of the layout.
     fn write_properties(&self, layout: &PropertyLayout) -> Vec<u8> {
         let size = layout.size() as usize;
-        let mut data = Vec::with_capacity(size);
-        data.resize(size, 0u8);
+        let mut data = vec![0; size];
         // FIXME: O(n^2) search due to offset() being O(n) linear search already
         for property in &self.properties {
             if let Some(offset) = layout.offset(property.def.name()) {
@@ -663,7 +661,7 @@ fn tick_spawners(
                 continue;
             };
 
-            effect.init_from_asset(&asset);
+            effect.init_from_asset(asset);
 
             effect.spawner.as_mut().unwrap()
         };
@@ -792,7 +790,7 @@ fn tick_spawners(
             // Append Euler integration (TODO - Do we want to make this explicit?)
             // Note the prepended "\n" to prevent appending to a comment line.
             update_context.update_code +=
-                &format!("\n(*particle).position += (*particle).velocity * sim_params.dt;\n");
+                "\n(*particle).position += (*particle).velocity * sim_params.dt;\n";
 
             // Generate the shader code for the render shader
             let mut render_context = RenderContext::default();

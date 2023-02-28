@@ -205,12 +205,14 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     /// CPU rows to insert, then a new buffer will be allocated on next
     /// update with this capacity.
     #[inline]
+    #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
     /// Current number of rows in use in the table.
     #[inline]
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.active_size - self.free_indices.len()
     }
@@ -223,6 +225,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
 
     /// Is the table empty?
     #[inline]
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.active_size == 0
     }
@@ -233,6 +236,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     /// This operation only updates the CPU cache of the table, without touching
     /// any GPU buffer. On next GPU buffer update, the GPU buffer will be
     /// deallocated.
+    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.pending_values.clear();
         self.extra_pending_values.clear();

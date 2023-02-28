@@ -119,6 +119,7 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
@@ -134,6 +135,7 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
     }
@@ -189,27 +191,6 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
             }
             let bytes: &[u8] = cast_slice(&aligned_buffer);
             queue.write_buffer(buffer, 0, bytes);
-        }
-    }
-
-    // FIXME - This is very inefficient...
-    pub fn write_element(&mut self, index: usize, device: &RenderDevice, queue: &RenderQueue) {
-        trace!(
-            "write_element: index={} item_size={} aligned_size={}",
-            index,
-            self.item_size,
-            self.aligned_size
-        );
-        self.reserve(self.values.len(), device);
-        if let Some(buffer) = &self.buffer {
-            trace!("aligned_buffer: size={}", self.aligned_size);
-            let mut aligned_buffer: Vec<u8> = vec![0; self.aligned_size];
-            let src: &[u8] = cast_slice(std::slice::from_ref(&self.values[index]));
-            let offset_bytes = index * self.item_size;
-            trace!("-> copy: offset={} src={:?}", offset_bytes, src.as_ptr());
-            let dst = &mut aligned_buffer[..];
-            dst.copy_from_slice(src);
-            queue.write_buffer(buffer, offset_bytes as u64, dst);
         }
     }
 

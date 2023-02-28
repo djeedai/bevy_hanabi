@@ -55,11 +55,13 @@ pub struct SliceRef {
 
 impl SliceRef {
     /// The length of the slice, in number of items.
+    #[allow(dead_code)]
     pub fn len(&self) -> u32 {
         self.range.end - self.range.start
     }
 
     /// The size in bytes of the slice.
+    #[allow(dead_code)]
     pub fn byte_size(&self) -> usize {
         (self.len() as usize) * (self.particle_layout.min_binding_size().get() as usize)
     }
@@ -343,14 +345,6 @@ impl EffectBuffer {
         }
     }
 
-    pub fn particle_buffer(&self) -> &Buffer {
-        &self.particle_buffer
-    }
-
-    pub fn indirect_buffer(&self) -> &Buffer {
-        &self.indirect_buffer
-    }
-
     pub fn properties_buffer(&self) -> Option<&Buffer> {
         self.properties_buffer.as_ref()
     }
@@ -375,10 +369,6 @@ impl EffectBuffer {
         &self.particles_buffer_layout_with_dispatch
     }
 
-    pub fn capacity(&self) -> u32 {
-        self.capacity
-    }
-
     /// Return a binding for the entire particle buffer.
     pub fn max_binding(&self) -> BindingResource {
         let capacity_bytes = self.capacity as u64 * self.particle_layout.min_binding_size().get();
@@ -391,6 +381,7 @@ impl EffectBuffer {
 
     /// Return a binding of the buffer for a starting range of a given size (in
     /// bytes).
+    #[allow(dead_code)]
     pub fn binding(&self, size: u32) -> BindingResource {
         BindingResource::Buffer(BufferBinding {
             buffer: &self.particle_buffer,
@@ -581,6 +572,7 @@ impl EffectCacheId {
     }
 
     /// Check if the ID is valid.
+    #[allow(dead_code)]
     pub fn is_valid(&self) -> bool {
         *self != Self::INVALID
     }
@@ -608,6 +600,7 @@ impl EffectCache {
         }
     }
 
+    #[allow(dead_code)]
     pub fn buffers(&self) -> &[Option<EffectBuffer>] {
         &self.buffers
     }
@@ -748,7 +741,7 @@ mod gpu_tests {
 
     #[test]
     fn effect_slice_ord() {
-        let particle_layout = ParticleLayout::new().add(Attribute::POSITION).build();
+        let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
         let slice1 = EffectSlice {
             slice: 0..32,
             group_index: 1,
@@ -775,18 +768,22 @@ mod gpu_tests {
         assert!(slice2 > slice3);
     }
 
-    const F4A: &'static Attribute = &Attribute::new(Cow::Borrowed("F4A"), Value::Float4(Vec4::ONE));
-    const F4B: &'static Attribute = &Attribute::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
-    const F4C: &'static Attribute = &Attribute::new(Cow::Borrowed("F4C"), Value::Float4(Vec4::ONE));
-    const F4D: &'static Attribute = &Attribute::new(Cow::Borrowed("F4D"), Value::Float4(Vec4::ONE));
+    const F4A: &Attribute = &Attribute::new(Cow::Borrowed("F4A"), Value::Float4(Vec4::ONE));
+    const F4B: &Attribute = &Attribute::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
+    const F4C: &Attribute = &Attribute::new(Cow::Borrowed("F4C"), Value::Float4(Vec4::ONE));
+    const F4D: &Attribute = &Attribute::new(Cow::Borrowed("F4D"), Value::Float4(Vec4::ONE));
 
     #[test]
     fn slice_ref() {
-        let l16 = ParticleLayout::new().add(F4A).build();
+        let l16 = ParticleLayout::new().append(F4A).build();
         assert_eq!(16, l16.size());
-        let l32 = ParticleLayout::new().add(F4A).add(F4B).build();
+        let l32 = ParticleLayout::new().append(F4A).append(F4B).build();
         assert_eq!(32, l32.size());
-        let l48 = ParticleLayout::new().add(F4A).add(F4B).add(F4C).build();
+        let l48 = ParticleLayout::new()
+            .append(F4A)
+            .append(F4B)
+            .append(F4C)
+            .build();
         assert_eq!(48, l48.size());
         for (range, particle_layout, len, byte_size) in [
             (0..0, &l16, 0, 0),
@@ -810,10 +807,10 @@ mod gpu_tests {
         //let render_queue = renderer.queue();
 
         let l64 = ParticleLayout::new()
-            .add(F4A)
-            .add(F4B)
-            .add(F4C)
-            .add(F4D)
+            .append(F4A)
+            .append(F4B)
+            .append(F4C)
+            .append(F4D)
             .build();
         assert_eq!(64, l64.size());
 
@@ -884,10 +881,10 @@ mod gpu_tests {
         //let render_queue = renderer.queue();
 
         let l64 = ParticleLayout::new()
-            .add(F4A)
-            .add(F4B)
-            .add(F4C)
-            .add(F4D)
+            .append(F4A)
+            .append(F4B)
+            .append(F4C)
+            .append(F4D)
             .build();
         assert_eq!(64, l64.size());
 
@@ -955,7 +952,7 @@ mod gpu_tests {
 
         let empty_property_layout = PropertyLayout::empty(); // not using properties
 
-        let l32 = ParticleLayout::new().add(F4A).add(F4B).build();
+        let l32 = ParticleLayout::new().append(F4A).append(F4B).build();
         assert_eq!(32, l32.size());
 
         let mut effect_cache = EffectCache::new(render_device);

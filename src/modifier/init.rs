@@ -383,6 +383,8 @@ impl InitModifier for InitVelocityTangentModifier {
 /// Particles with an age attribute are aged each frame based on the frame's
 /// delta time. Various other modifiers use that age to smoothly vary some
 /// quantities, like [`SizeOverLifetimeModifier`].
+///
+/// [`SizeOverLifetimeModifier`]: crate::SizeOverLifetimeModifier
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitAgeModifier {
     /// The initial age of a particle when it spawns, in seconds.
@@ -518,7 +520,7 @@ mod tests {
 
             let mut particle_layout = ParticleLayout::new();
             for &attr in modifier.attributes() {
-                particle_layout = particle_layout.add(attr);
+                particle_layout = particle_layout.append(attr);
             }
             let particle_layout = particle_layout.build();
             let attributes_code = particle_layout.generate_code();
