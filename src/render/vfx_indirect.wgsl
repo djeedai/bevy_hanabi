@@ -27,6 +27,28 @@ struct SimParams {
     dispatch_stride: u32,
 };
 
+struct ForceFieldSource {
+    position: vec3<f32>,
+    max_radius: f32,
+    min_radius: f32,
+    mass: f32,
+    force_exponent: f32,
+    conform_to_sphere: f32,
+};
+
+struct Spawner {
+    transform: mat3x4<f32>, // transposed (row-major)
+    spawn: i32,
+    seed: u32,
+    count: atomic<i32>,
+    effect_index: u32,
+    force_field: array<ForceFieldSource, 16>,
+};
+
+struct SpawnerBuffer {
+    spawners: array<Spawner>,
+}
+
 // naga doesn't support 'const' yet
 // https://github.com/gfx-rs/naga/issues/1829
 
@@ -44,6 +66,7 @@ struct SimParams {
 
 @group(0) @binding(0) var<storage, read_write> render_indirect_buffer : array<u32>;
 @group(0) @binding(1) var<storage, read_write> dispatch_indirect : array<u32>;
+@group(0) @binding(2) var<storage, read> spawner_buffer : SpawnerBuffer;
 @group(1) @binding(0) var<uniform> sim_params : SimParams;
 
 /// Calculate the indirect workgroups counts based on the number of particles alive.
@@ -51,11 +74,21 @@ struct SimParams {
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap at maximum number of effect to process
-    let effect_index = global_invocation_id.x;
-    if (effect_index >= sim_params.num_effects) {
+    let index = global_invocation_id.x;
+    if (index >= sim_params.num_effects) {
         return;
     }
-    
+
+    // Cap at spawner array size, just for safety
+    if (index >= arrayLength(&spawner_buffer.spawners)) {
+        return;
+    }
+
+    // Retrieve the effect index from the spawner table
+    let effect_index = spawner_buffer.spawners[index].effect_index;
+
+    // Calculate the base offset (in number of u32 items) into the render indirect and
+    // dispatch indirect arrays.
     let ri_base = sim_params.render_stride * effect_index / 4u;
     let di_base = sim_params.dispatch_stride * effect_index / 4u;
 

@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed a bug breaking effect simulation after some effects are despawned and others are subsequently spawned. (#106)
 - Fixed the `spawn` example failing to start on several devices due to the monitor resolution being larger than the maximum resolution imposed by the downlevel settings of WGPU. The downlevel settings are now disabled by default, and can be manually re-added for testing.
 
 ## [0.5.3] 2023-02-07

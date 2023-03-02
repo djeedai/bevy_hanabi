@@ -44,7 +44,7 @@ impl AllocatedBuffer {
     }
 }
 
-/// GPU buffer holding a table.
+/// GPU buffer holding a table with concurrent interleaved CPU/GPU access.
 ///
 /// The buffer table data structure represents a GPU buffer holding a table made
 /// of individual rows. Each row of the table has the same layout (same size),
@@ -64,7 +64,9 @@ impl AllocatedBuffer {
 ///
 /// This is similar to a [`BufferVec`] or [`AlignedBufferVec`], but unlike those
 /// data structures a buffer table preserves rows modified by the GPU without
-/// overwriting.
+/// overwriting. This is useful when the buffer is also modified by GPU shaders,
+/// so neither the CPU side nor the GPU side have an up-to-date view of the
+/// entire table, and so the CPU cannot re-upload the entire table on changes.
 ///
 /// # Usage
 ///
