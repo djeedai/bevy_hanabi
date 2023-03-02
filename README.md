@@ -119,6 +119,16 @@ cargo run --example firework --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 
 
 ![firework](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/firework.gif)
 
+### Portal
+
+Combine the `InitVelocityTangentModifier` for tangential rotation of particles around a circle and the `OrientAlongVelocityModifier` to create elongated sparks, to produce a kind of "magic portal" effect. This example makes use of an HDR camera with Bloom. See the example file for more details about how the effect is designed.
+
+```shell
+cargo run --example portal --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
+```
+
+![portal](./examples/portal.gif)
+
 ### Gradient
 
 Animate an emitter by moving its `Transform` component, and emit textured quad particles with a `ColorOverLifetimeModifier`.
@@ -175,13 +185,13 @@ This example demonstrates three spawn modes:
 - **Center:** One-shot burst emission of a fixed count of particles.
 - **Right:** Continuous bursts of particles, an hybrid between the previous two.
 
-It also shows the applying of constant force (downward gravity-like, or upward smoke-style).
+It also shows the applying of constant force (downward gravity-like, or upward smoke-style). The left spawner's gravity is controlled by a custom property, which is slowly rotated by a Bevy system (CPU side).
 
 ```shell
 cargo run --example spawn --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/spawn.gif)
+![spawn](./examples/spawn.gif)
 
 ### Spawn on Command
 
@@ -225,7 +235,7 @@ This example demonstrates particle effects with different lifetimes. Each effect
 cargo run --example lifetime --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![lifetime](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/lifetime.gif)
+![lifetime](./examples/lifetime.gif)
 
 ### Billboard
 
@@ -257,13 +267,16 @@ The image on the left has the `BillboardModifier` enabled.
     - [ ] plane
     - [ ] generic mesh / point cloud (?)
   - [ ] Random position offset
-  - [x] Constant velocity
+  - [x] Velocity over shape
+    - [x] circle
+    - [x] sphere
+    - [x] tangent
   - [x] Random velocity (partial; linked to emitter type)
   - [ ] Constant color
   - [ ] Random color
   - [x] Constant/random age and lifetime
 - Update
-  - [x] Motion integration
+  - [x] Motion integration (Euler)
   - [x] Apply forces
     - [x] Constant (gravity)
     - [x] Force field
@@ -274,6 +287,7 @@ The image on the left has the `BillboardModifier` enabled.
       - [ ] cube
       - [ ] sphere
     - [ ] Depth buffer
+  - [x] Allow/deny despawn box
   - [x] Lifetime
   - [x] Size change over lifetime
   - [x] Color change over lifetime
@@ -290,8 +304,10 @@ The image on the left has the `BillboardModifier` enabled.
     - [x] Simultaneous dual 2D/3D cameras
     - [x] Multiple viewports (split screen)
     - [x] HDR camera and bloom
-  - [x] Face camera (Billboard)
-  - [ ] Face constant direction
+  - [ ] Orient particles
+    - [x] Face camera (Billboard)
+    - [ ] Face constant direction
+    - [x] Orient alongside velocity
 - Debug
   - [x] GPU debug labels / groups
   - [ ] Debug visualization
