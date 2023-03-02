@@ -266,6 +266,16 @@ impl FromWorld for DispatchIndirectPipeline {
                         },
                         count: None,
                     },
+                    BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: ShaderStages::COMPUTE,
+                        ty: BindingType::Buffer {
+                            ty: BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: Some(GpuSpawnerParams::min_size()),
+                        },
+                        count: None,
+                    },
                 ],
                 label: Some("hanabi:bind_group_layout:dispatch_indirect_dispatch_indirect"),
             });
@@ -1594,11 +1604,12 @@ pub(crate) fn prepare_effects(
             let id = *effects_meta.entity_map.get(entity).unwrap();
             let property_buffer = effects_meta.effect_cache.get_property_buffer(id).cloned(); // clone handle for lifetime
             let slice = effects_meta.effect_cache.get_slice(id);
+            let effect_index = effects_meta.effect_cache.buffer_index(id).unwrap() as u32;
             (
                 entity.index(),
                 slice,
                 extracted_effect,
-                id.0 as u32,
+                effect_index,
                 property_buffer,
             )
         })
@@ -2119,6 +2130,14 @@ pub(crate) fn queue_effects(
                         buffer: effects_meta.dispatch_indirect_buffer.buffer().unwrap(),
                         offset: 0,
                         size: None, //NonZeroU64::new(256), // Some(GpuDispatchIndirect::min_size()),
+                    }),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::Buffer(BufferBinding {
+                        buffer: effects_meta.spawner_buffer.buffer().unwrap(),
+                        offset: 0,
+                        size: None,
                     }),
                 },
             ],

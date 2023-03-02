@@ -43,28 +43,30 @@ impl InstanceManager {
         }
     }
 
+    /// Get the origin of the grid in the 2D camera space. This is the offset to
+    /// apply to a particle effect to transform it from the grid space to the
+    /// camera space.
     pub fn origin(&self) -> IVec2 {
         IVec2::new(-(self.grid_size.x - 1) / 2, -(self.grid_size.y - 1) / 2)
     }
 
-    pub fn spawn_random(&mut self, commands: &mut Commands) {
+    /// Spawn a particle effect at the given index in the grid. The index
+    /// determines both the position in the global effect array and the
+    /// associated 2D grid position. If a particle effect already exists at this
+    /// index / grid position, the call is ignored.
+    pub fn spawn_index(&mut self, index: i32, commands: &mut Commands) {
         if self.count >= self.instances.len() {
             return;
         }
-        let free_count = self.instances.len() - self.count;
 
-        let pos = self.origin();
+        let origin = self.origin();
 
-        let mut rng = rand::thread_rng();
-        let index = rng.gen_range(0..free_count);
-        let (index, entry) = self
-            .instances
-            .iter_mut()
-            .enumerate()
-            .filter(|(_, entity)| entity.is_none())
-            .nth(index)
-            .unwrap();
-        let pos = pos
+        let entry = &mut self.instances[index as usize];
+        if entry.is_some() {
+            return;
+        }
+
+        let pos = origin
             + IVec2::new(
                 index as i32 % self.grid_size.x,
                 index as i32 / self.grid_size.x,
@@ -101,12 +103,33 @@ impl InstanceManager {
         self.count += 1;
     }
 
-    pub fn despawn_index(&mut self, commands: &mut Commands, index: usize) {
+    /// Spawn a particle effect at a random free position in the grid. The
+    /// effect is always spawned, unless the grid is full.
+    pub fn spawn_random(&mut self, commands: &mut Commands) {
+        if self.count >= self.instances.len() {
+            return;
+        }
+        let free_count = self.instances.len() - self.count;
+
+        let mut rng = rand::thread_rng();
+        let index = rng.gen_range(0..free_count);
+        let (index, _) = self
+            .instances
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, entity)| entity.is_none())
+            .nth(index)
+            .unwrap();
+        self.spawn_index(index as i32, commands);
+    }
+
+    /// Despawn the n-th existing particle effect.
+    pub fn despawn_nth(&mut self, commands: &mut Commands, n: usize) {
         let entry = self
             .instances
             .iter_mut()
             .filter(|entity| entity.is_some())
-            .nth(index)
+            .nth(n)
             .unwrap();
         let entity = entry.take().unwrap();
         if let Some(entity_commands) = commands.get_entity(entity) {
@@ -115,20 +138,23 @@ impl InstanceManager {
         self.count -= 1;
     }
 
+    /// Despawn the last particle effect spawned.
     pub fn despawn_last(&mut self, commands: &mut Commands) {
         if self.count > 0 {
-            self.despawn_index(commands, self.count - 1);
+            self.despawn_nth(commands, self.count - 1);
         }
     }
 
+    /// Randomly despawn one of the existing particle effects, if any.
     pub fn despawn_random(&mut self, commands: &mut Commands) {
         if self.count > 0 {
             let mut rng = rand::thread_rng();
             let index = rng.gen_range(0..self.count);
-            self.despawn_index(commands, index);
+            self.despawn_nth(commands, index);
         }
     }
 
+    /// Despawn all existing particle effects.
     pub fn despawn_all(&mut self, commands: &mut Commands) {
         for entity in &mut self.instances {
             if let Some(entity) = entity.take() {
@@ -238,8 +264,8 @@ fn keyboard_input_system(
 
     // #123 - Hanabi 0.5.2 Causes Panic on Unwrap
     // if my_effect.frame == 5 {
-    //     my_effect.despawn_index(&mut commands, 3);
-    //     my_effect.despawn_index(&mut commands, 2);
+    //     my_effect.despawn_nth(&mut commands, 3);
+    //     my_effect.despawn_nth(&mut commands, 2);
     //     my_effect.spawn_random(&mut commands);
     // }
 }
