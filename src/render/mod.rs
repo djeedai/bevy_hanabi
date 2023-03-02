@@ -59,7 +59,7 @@ pub use effect_cache::{EffectBuffer, EffectSlice};
 pub use shader_cache::ShaderCache;
 
 /// Labels for the Hanabi systems.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemLabel)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
 pub enum EffectSystems {
     /// Tick all effect instances to generate spawner counts, and configure
     /// shaders based on modifiers. This system runs during the
@@ -457,15 +457,16 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
 
         ComputePipelineDescriptor {
             label: Some("hanabi:pipeline_init_compute".into()),
-            layout: Some(vec![
+            layout: vec![
                 self.sim_params_layout.clone(),
                 particles_buffer_layout,
                 self.spawner_buffer_layout.clone(),
                 self.render_indirect_layout.clone(),
-            ]),
+            ],
             shader: key.shader,
             shader_defs: vec![],
             entry_point: "main".into(),
+            push_constant_ranges: Vec::new(),
         }
     }
 }
@@ -630,15 +631,16 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
 
         ComputePipelineDescriptor {
             label: Some("hanabi:pipeline_update_compute".into()),
-            layout: Some(vec![
+            layout: vec![
                 self.sim_params_layout.clone(),
                 particles_buffer_layout,
                 self.spawner_buffer_layout.clone(),
                 self.render_indirect_layout.clone(),
-            ]),
+            ],
             shader: key.shader,
             shader_defs: vec![],
             entry_point: "main".into(),
+            push_constant_ranges: Vec::new(),
         }
     }
 }
@@ -736,7 +738,7 @@ impl Default for ParticleRenderPipelineKey {
             has_image: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
-            msaa_samples: Msaa::default().samples,
+            msaa_samples: Msaa::default().samples(),
             hdr: false,
         }
     }
@@ -832,7 +834,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         // Key: PARTICLE_TEXTURE
         if key.has_image {
             layout.push(self.material_layout.clone());
-            shader_defs.push("PARTICLE_TEXTURE".to_string());
+            shader_defs.push("PARTICLE_TEXTURE".into());
             // //  @location(1) vertex_uv: vec2<f32>
             // vertex_buffer_layout.attributes.push(VertexAttribute {
             //     format: VertexFormat::Float32x2,
@@ -892,7 +894,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                     write_mask: ColorWrites::ALL,
                 })],
             }),
-            layout: Some(layout),
+            layout,
             primitive: PrimitiveState {
                 front_face: FrontFace::Ccw,
                 cull_mode: None,
@@ -909,6 +911,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 alpha_to_coverage_enabled: false,
             },
             label: Some("hanabi:pipeline_render".into()),
+            push_constant_ranges: Vec::new(),
         }
     }
 }
@@ -2418,7 +2421,7 @@ pub(crate) fn queue_effects(
                         has_image,
                         #[cfg(feature = "3d")]
                         pipeline_mode: PipelineMode::Camera2d,
-                        msaa_samples: msaa.samples,
+                        msaa_samples: msaa.samples(),
                         hdr: view.hdr,
                     },
                 );
@@ -2545,7 +2548,7 @@ pub(crate) fn queue_effects(
                         has_image,
                         #[cfg(feature = "2d")]
                         pipeline_mode: PipelineMode::Camera3d,
-                        msaa_samples: msaa.samples,
+                        msaa_samples: msaa.samples(),
                         hdr: view.hdr,
                     },
                 );
@@ -2789,16 +2792,16 @@ impl Node for VfxSimulateNode {
         // them
         effects_meta
             .dispatch_indirect_buffer
-            .write_buffer(&mut render_context.command_encoder);
+            .write_buffer(&mut render_context.command_encoder());
         effects_meta
             .render_dispatch_buffer
-            .write_buffer(&mut render_context.command_encoder);
+            .write_buffer(&mut render_context.command_encoder());
 
         // Compute init pass
         {
             let mut compute_pass =
                 render_context
-                    .command_encoder
+                    .command_encoder()
                     .begin_compute_pass(&ComputePassDescriptor {
                         label: Some("hanabi:init"),
                     });
@@ -2901,7 +2904,7 @@ impl Node for VfxSimulateNode {
             // Only if there's an effect
             let mut compute_pass =
                 render_context
-                    .command_encoder
+                    .command_encoder()
                     .begin_compute_pass(&ComputePassDescriptor {
                         label: Some("hanabi:indirect_dispatch"),
                     });
@@ -2940,7 +2943,7 @@ impl Node for VfxSimulateNode {
         {
             let mut compute_pass =
                 render_context
-                    .command_encoder
+                    .command_encoder()
                     .begin_compute_pass(&ComputePassDescriptor {
                         label: Some("hanabi:update"),
                     });

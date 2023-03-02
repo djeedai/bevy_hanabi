@@ -432,7 +432,7 @@ mod tests {
     return 0.0;
 }}
 
-let tau: f32 = 6.283185307179586476925286766559;
+const tau: f32 = 6.283185307179586476925286766559;
 
 struct Particle {{
     {attributes_code}
@@ -487,6 +487,7 @@ fn main() {{
             let mut parser = Parser::new();
             let res = parser.parse(&code);
             if let Err(err) = &res {
+                println!("Modifier: {:?}", modifier.type_name());
                 println!("Code: {:?}", code);
                 println!("Err: {:?}", err);
             }

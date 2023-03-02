@@ -4,6 +4,7 @@ use bevy::{
     render::{
         mesh::shape::Cube,
         settings::{WgpuLimits, WgpuSettings},
+        RenderPlugin,
     },
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -22,18 +23,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 256 bytes, whereas on Desktop GPUs it can be much smaller, like 16 bytes
     // only. Force the downlevel limits here, and as an example of how
     // to force a particular limit, and to show Hanabi works with those settings.
-    let mut options = WgpuSettings::default();
+    let mut wgpu_settings = WgpuSettings::default();
     if USE_LOW_LIMITS {
         let limits = WgpuLimits::downlevel_defaults();
-        options.constrained_limits = Some(limits);
+        wgpu_settings.constrained_limits = Some(limits);
     }
 
     App::default()
-        .insert_resource(options)
-        .add_plugins(DefaultPlugins.set(LogPlugin {
-            level: bevy::log::Level::WARN,
-            filter: "bevy_hanabi=warn,spawn=trace".to_string(),
-        }))
+        .insert_resource(ClearColor(Color::DARK_GRAY))
+        .add_plugins(
+            DefaultPlugins
+                .set(LogPlugin {
+                    level: bevy::log::Level::WARN,
+                    filter: "bevy_hanabi=warn,spawn=trace".to_string(),
+                })
+                .set(RenderPlugin { wgpu_settings }),
+        )
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
         .add_plugin(WorldInspectorPlugin)

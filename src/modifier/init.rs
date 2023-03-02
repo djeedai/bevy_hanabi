@@ -293,8 +293,8 @@ impl InitModifier for InitVelocityCircleModifier {
             r##"fn init_velocity_circle(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
     let delta = (*particle).{0} - {1};
     let radial = normalize(delta - dot(delta, {2}) * {2});
-    let radial = transform * vec4<f32>(radial.xyz, 0.0);
-    (*particle).{3} = radial.xyz * {4};
+    let radial_vec4 = transform * vec4<f32>(radial.xyz, 0.0);
+    (*particle).{3} = radial_vec4.xyz * {4};
 }}
 "##,
             Attribute::POSITION.name(),
@@ -363,8 +363,8 @@ impl InitModifier for InitVelocityTangentModifier {
             r##"fn init_velocity_tangent(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
     let radial = (*particle).{0} - {1};
     let tangent = normalize(cross({2}, radial));
-    let tangent = transform * vec4<f32>(tangent.xyz, 0.0);
-    (*particle).{3} = tangent.xyz * {4};
+    let tangent_vec4 = transform * vec4<f32>(tangent.xyz, 0.0);
+    (*particle).{3} = tangent_vec4.xyz * {4};
 }}
 "##,
             Attribute::POSITION.name(),
@@ -530,7 +530,7 @@ mod tests {
     return 0.0;
 }}
 
-let tau: f32 = 6.283185307179586476925286766559;
+const tau: f32 = 6.283185307179586476925286766559;
 
 struct Particle {{
     {attributes_code}
@@ -550,6 +550,7 @@ fn main() {{
             let mut parser = Parser::new();
             let res = parser.parse(&code);
             if let Err(err) = &res {
+                println!("Modifier: {:?}", modifier.type_name());
                 println!("Code: {:?}", code);
                 println!("Err: {:?}", err);
             }
