@@ -245,8 +245,7 @@ impl InitModifier for PositionCone3dModifier {
     let y = h;
     let z = r * sint;
     let p = vec3<f32>(x, y, z);
-    let p2 = transform * vec4<f32>(p, 1.0);
-    (*particle).{3} = p2.xyz;
+    (*particle).{3} = p.xyz;
     // Emit direction
     let rb2 = rb * alpha_r;
     let pb = vec3<f32>(rb2 * cost, h0, rb2 * sint);
