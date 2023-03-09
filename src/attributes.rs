@@ -701,7 +701,7 @@ mod tests {
             assert_eq!(value.value_type(), *value_type);
 
             // Create a tiny WGSL snippet with the Value(Type) and parse it
-            let src = format!("let x = {};", value.to_wgsl_string());
+            let src = format!("const x = {};", value.to_wgsl_string());
             let res = parser.parse(&src);
             if let Err(err) = &res {
                 println!("Error: {:?}", err);

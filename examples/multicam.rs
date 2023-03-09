@@ -8,7 +8,7 @@ use bevy::{
         mesh::shape::{Cube, Plane},
         view::RenderLayers,
     },
-    window::{WindowId, WindowResized},
+    window::WindowResized,
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
@@ -22,7 +22,7 @@ fn main() {
         }))
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin)
+        .add_plugin(WorldInspectorPlugin::default())
         .add_startup_system(setup)
         .add_system(update_camera_viewports)
         .run();
@@ -95,8 +95,8 @@ fn setup(
         commands.spawn((
             Camera3dBundle {
                 camera: Camera {
-                    // Have a different priority for each camera to ensure determinism
-                    priority: i as isize,
+                    // Have a different order for each camera to ensure determinism
+                    order: i as isize,
                     ..default()
                 },
                 camera_3d: Camera3d {
@@ -133,7 +133,10 @@ fn setup(
     });
 
     let cube = meshes.add(Mesh::from(Cube { size: 1.0 }));
-    let plane = meshes.add(Mesh::from(Plane { size: 200.0 }));
+    let plane = meshes.add(Mesh::from(Plane {
+        size: 200.0,
+        ..default()
+    }));
     let mat = materials.add(Color::PURPLE.into());
     let ground_mat = materials.add(Color::OLIVE.into());
 
@@ -227,7 +230,7 @@ fn setup(
 }
 
 fn update_camera_viewports(
-    windows: Res<Windows>,
+    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut resize_events: EventReader<WindowResized>,
     mut query: Query<(&mut Camera, &SplitCamera)>,
 ) {
@@ -236,22 +239,20 @@ fn update_camera_viewports(
     // A resize_event is sent when the window is first created, allowing us to reuse
     // this system for initial setup.
     for resize_event in resize_events.iter() {
-        if resize_event.id == WindowId::primary() {
-            let window = windows.primary();
-            let dw = window.physical_width() / 2;
-            let dh = window.physical_height() / 2;
-            let physical_size = UVec2::new(dw, dh);
+        let Ok(window) = window.get(resize_event.window) else {continue;};
+        let dw = window.physical_width() / 2;
+        let dh = window.physical_height() / 2;
+        let physical_size = UVec2::new(dw, dh);
 
-            for (mut camera, split_camera) in query.iter_mut() {
-                camera.viewport = Some(Viewport {
-                    physical_position: UVec2::new(
-                        dw * split_camera.pos.x,
-                        dh * (1 - split_camera.pos.y),
-                    ),
-                    physical_size,
-                    ..default()
-                });
-            }
+        for (mut camera, split_camera) in query.iter_mut() {
+            camera.viewport = Some(Viewport {
+                physical_position: UVec2::new(
+                    dw * split_camera.pos.x,
+                    dh * (1 - split_camera.pos.y),
+                ),
+                physical_size,
+                ..default()
+            });
         }
     }
 }

@@ -865,7 +865,7 @@ struct RemovedEffectsEvent {
 }
 
 fn gather_removed_effects(
-    removed_effects: RemovedComponents<ParticleEffect>,
+    mut removed_effects: RemovedComponents<ParticleEffect>,
     mut removed_effects_event_writer: EventWriter<RemovedEffectsEvent>,
 ) {
     let entities: Vec<Entity> = removed_effects.iter().collect();

@@ -53,7 +53,7 @@ struct RenderIndirectBuffer {
 
 var<private> seed : u32 = 0u;
 
-let tau: f32 = 6.283185307179586476925286766559;
+const tau: f32 = 6.283185307179586476925286766559;
 
 // Rand: PCG
 // https://www.reedbeta.com/blog/hash-functions-for-gpu-rendering/
@@ -120,7 +120,7 @@ fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    let index = global_invocation_id.x;
+    var index = global_invocation_id.x;
 
     // Cap to max number of dead particles, copied from dead_count at the end of the
     // previous iteration, and constant during this pass (unlike dead_count).
@@ -137,7 +137,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Recycle a dead particle
     let dead_index = atomicSub(&render_indirect.dead_count, 1u) - 1u;
-    let index = indirect_buffer.indices[3u * dead_index + 2u];
+    index = indirect_buffer.indices[3u * dead_index + 2u];
 
     // Update PRNG seed
     seed = pcg_hash(index ^ spawner.seed);

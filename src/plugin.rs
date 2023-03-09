@@ -10,7 +10,7 @@ use bevy::{
         render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
         renderer::{RenderAdapterInfo, RenderDevice},
         view::visibility::VisibilitySystems,
-        RenderApp, RenderStage,
+        RenderApp, RenderSet,
     },
 };
 
@@ -71,18 +71,14 @@ impl Plugin for HanabiPlugin {
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<ShaderCache>()
             .init_asset_loader::<EffectAssetLoader>()
-            .add_system_to_stage(
-                CoreStage::PostUpdate,
-                tick_spawners
-                    .label(EffectSystems::TickSpawners)
-                    // This checks the visibility to skip shader work, so needs to run
-                    // after ComputedVisibility was updated.
+            .configure_sets((
+                EffectSystems::TickSpawners
+                    .in_base_set(CoreSet::PostUpdate)
                     .after(VisibilitySystems::CheckVisibility),
-            )
-            .add_system_to_stage(
-                CoreStage::PostUpdate,
-                gather_removed_effects.label(EffectSystems::GatherRemovedEffects),
-            );
+                EffectSystems::GatherRemovedEffects.in_base_set(CoreSet::PostUpdate),
+            ))
+            .add_system(tick_spawners.in_set(EffectSystems::TickSpawners))
+            .add_system(gather_removed_effects.in_set(EffectSystems::GatherRemovedEffects));
 
         // Register the component reflection
         app.register_type::<EffectAsset>();
@@ -106,22 +102,17 @@ impl Plugin for HanabiPlugin {
             .init_resource::<ExtractedEffects>()
             .init_resource::<EffectAssetEvents>()
             .init_resource::<SimParams>()
-            .add_system_to_stage(
-                RenderStage::Extract,
-                extract_effects.label(EffectSystems::ExtractEffects),
-            )
-            .add_system_to_stage(
-                RenderStage::Extract,
-                extract_effect_events.label(EffectSystems::ExtractEffectEvents),
-            )
-            .add_system_to_stage(
-                RenderStage::Prepare,
-                prepare_effects.label(EffectSystems::PrepareEffects),
-            )
-            .add_system_to_stage(
-                RenderStage::Queue,
-                queue_effects.label(EffectSystems::QueueEffects),
-            );
+            .configure_sets((
+                EffectSystems::PrepareEffects.in_set(RenderSet::Prepare),
+                EffectSystems::QueueEffects.in_set(RenderSet::Queue),
+            ))
+            .edit_schedule(ExtractSchedule, |schedule| {
+                schedule
+                    .add_system(extract_effects)
+                    .add_system(extract_effect_events);
+            })
+            .add_system(prepare_effects.in_set(EffectSystems::PrepareEffects))
+            .add_system(queue_effects.in_set(EffectSystems::QueueEffects));
 
         // Register the draw function for drawing the particles. This will be called
         // during the main 2D/3D pass, at the Transparent2d/3d phase, after the
@@ -160,11 +151,9 @@ impl Plugin for HanabiPlugin {
         // runs before the camera driver, since rendering needs to access simulated
         // particles.
         graph.add_node(main_graph::node::HANABI, VfxSimulateDriverNode {});
-        graph
-            .add_node_edge(
-                main_graph::node::HANABI,
-                bevy::render::main_graph::node::CAMERA_DRIVER,
-            )
-            .unwrap();
+        graph.add_node_edge(
+            main_graph::node::HANABI,
+            bevy::render::main_graph::node::CAMERA_DRIVER,
+        );
     }
 }

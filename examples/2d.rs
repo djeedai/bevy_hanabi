@@ -7,7 +7,9 @@
 use bevy::{
     log::LogPlugin,
     prelude::*,
-    render::{camera::ScalingMode, render_resource::WgpuFeatures, settings::WgpuSettings},
+    render::{
+        camera::ScalingMode, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
+    },
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -15,20 +17,24 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_hanabi::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut options = WgpuSettings::default();
-    options
+    let mut wgpu_settings = WgpuSettings::default();
+    wgpu_settings
         .features
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
+
     App::default()
         .insert_resource(ClearColor(Color::DARK_GRAY))
-        .insert_resource(options)
-        .add_plugins(DefaultPlugins.set(LogPlugin {
-            level: bevy::log::Level::WARN,
-            filter: "bevy_hanabi=warn,spawn=trace".to_string(),
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(LogPlugin {
+                    level: bevy::log::Level::WARN,
+                    filter: "bevy_hanabi=warn,spawn=trace".to_string(),
+                })
+                .set(RenderPlugin { wgpu_settings }),
+        )
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin)
+        .add_plugin(WorldInspectorPlugin::default())
         .add_startup_system(setup)
         .add_system(update_plane)
         .run();

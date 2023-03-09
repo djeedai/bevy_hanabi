@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }))
         .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin)
+        .add_plugin(WorldInspectorPlugin::default())
         .add_startup_system(setup)
         .run();
 

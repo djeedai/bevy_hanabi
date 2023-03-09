@@ -33,7 +33,7 @@ bitflags = "1.3"
 typetag = "0.2"
 
 [dependencies.bevy]
-version = "0.9"
+version = "0.10"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset" ]
 
@@ -41,13 +41,18 @@ features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset" ]
 all-features = true
 
 [dev-dependencies]
-# Same version as Bevy 0.9 (bevy_render)
-wgpu = "0.14.0"
+# Same version as Bevy 0.10 (bevy_render)
+wgpu = "0.15"
 # For shader snippet validation
-naga = "0.10"
+naga = "0.11"
 
 futures = "0.3"
-bevy-inspector-egui = "0.17"
+bevy-inspector-egui = "0.18"
+
+# Enable default features for examples and tests
+[dev-dependencies.bevy]
+version = "0.10"
+default-features = true
 
 [[example]]
 name = "firework"

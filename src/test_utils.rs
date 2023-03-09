@@ -150,7 +150,10 @@ impl MockRenderer {
         // Create the WGPU adapter. Use PRIMARY backends (Vulkan, Metal, DX12,
         // Browser+WebGPU) to ensure we get a backend that supports compute and other
         // modern features we might need.
-        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            dx12_shader_compiler: wgpu::Dx12Compiler::default(),
+        });
         let adapter =
             futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -175,7 +178,7 @@ impl MockRenderer {
         .expect("Failed to create device");
 
         // Turn into Bevy objects
-        let device = RenderDevice::from(std::sync::Arc::new(device));
+        let device = RenderDevice::from(device);
         let queue = RenderQueue(std::sync::Arc::new(queue));
 
         Self {
