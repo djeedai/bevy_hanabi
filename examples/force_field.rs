@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         //.add_plugin(LookTransformPlugin)
         //.add_plugin(OrbitCameraPlugin::default())
         .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin)
+        .add_plugin(WorldInspectorPlugin::default())
         .add_startup_system(setup)
         .add_system(update)
         .run();
