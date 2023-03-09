@@ -74,6 +74,8 @@ impl Plugin for HanabiPlugin {
             .configure_sets((
                 EffectSystems::TickSpawners
                     .in_base_set(CoreSet::PostUpdate)
+                    // This checks the visibility to skip shader work, so needs to run
+                    // after ComputedVisibility was updated.
                     .after(VisibilitySystems::CheckVisibility),
                 EffectSystems::GatherRemovedEffects.in_base_set(CoreSet::PostUpdate),
             ))
