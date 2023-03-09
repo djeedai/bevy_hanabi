@@ -49,11 +49,6 @@ naga = "0.11"
 futures = "0.3"
 bevy-inspector-egui = "0.18"
 
-# Enable default features for examples and tests
-[dev-dependencies.bevy]
-version = "0.10"
-default-features = true
-
 [[example]]
 name = "firework"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]

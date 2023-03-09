@@ -63,20 +63,16 @@ pub use shader_cache::ShaderCache;
 pub enum EffectSystems {
     /// Tick all effect instances to generate spawner counts, and configure
     /// shaders based on modifiers. This system runs during the
-    /// [`CoreStage::PostUpdate`] stage.
+    /// [`CoreSet::PostUpdate`] set.
     ///
-    /// [`CoreStage::PostUpdate`]: bevy::app::CoreStage::PostUpdate
+    /// [`CoreSet::PostUpdate`]: bevy::app::CoreSet::PostUpdate
     TickSpawners,
     /// Gather all removed [`ParticleEffect`] components during the
-    /// [`CoreStage::PostUpdate`] stage, to be able to clean-up GPU
+    /// [`CoreSet::PostUpdate`] set, to be able to clean-up GPU
     /// resources.
     ///
-    /// [`CoreStage::PostUpdate`]: bevy::app::CoreStage::PostUpdate
+    /// [`CoreSet::PostUpdate`]: bevy::app::CoreSet::PostUpdate
     GatherRemovedEffects,
-    /// Extract the effects to render this frame.
-    ExtractEffects,
-    /// Extract the effect events to process this frame.
-    ExtractEffectEvents,
     /// Prepare GPU data for the extracted effects.
     PrepareEffects,
     /// Queue the GPU commands for the extracted effects.
@@ -1540,7 +1536,7 @@ pub(crate) fn prepare_effects(
     sim_params: Res<SimParams>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
-    mut pipeline_cache: ResMut<PipelineCache>,
+    pipeline_cache: Res<PipelineCache>,
     dispatch_indirect_pipeline: Res<DispatchIndirectPipeline>,
     init_pipeline: Res<ParticlesInitPipeline>,
     update_pipeline: Res<ParticlesUpdatePipeline>,
@@ -1746,7 +1742,7 @@ pub(crate) fn prepare_effects(
             extracted_effect.particle_layout
         );
         init_pipeline_id = specialized_init_pipelines.specialize(
-            &mut pipeline_cache,
+            &pipeline_cache,
             &init_pipeline,
             ParticleInitPipelineKey {
                 shader: extracted_effect.init_shader.clone(),
@@ -1763,7 +1759,7 @@ pub(crate) fn prepare_effects(
             extracted_effect.property_layout,
         );
         update_pipeline_id = specialized_update_pipelines.specialize(
-            &mut pipeline_cache,
+            &pipeline_cache,
             &update_pipeline,
             ParticleUpdatePipelineKey {
                 shader: extracted_effect.update_shader.clone(),
@@ -2036,7 +2032,7 @@ pub(crate) fn queue_effects(
     render_device: Res<RenderDevice>,
     view_uniforms: Res<ViewUniforms>,
     mut specialized_render_pipelines: ResMut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
-    mut pipeline_cache: ResMut<PipelineCache>,
+    pipeline_cache: Res<PipelineCache>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
     gpu_images: Res<RenderAssets<Image>>,
     effect_batches: Query<(Entity, &mut EffectBatch)>,
@@ -2413,7 +2409,7 @@ pub(crate) fn queue_effects(
                     view.hdr
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
-                    &mut pipeline_cache,
+                    &pipeline_cache,
                     &read_params.render_pipeline,
                     ParticleRenderPipelineKey {
                         shader: batch.render_shader.clone(),
@@ -2540,7 +2536,7 @@ pub(crate) fn queue_effects(
                     view.hdr
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
-                    &mut pipeline_cache,
+                    &pipeline_cache,
                     &read_params.render_pipeline,
                     ParticleRenderPipelineKey {
                         shader: batch.render_shader.clone(),
@@ -2792,10 +2788,10 @@ impl Node for VfxSimulateNode {
         // them
         effects_meta
             .dispatch_indirect_buffer
-            .write_buffer(&mut render_context.command_encoder());
+            .write_buffer(render_context.command_encoder());
         effects_meta
             .render_dispatch_buffer
-            .write_buffer(&mut render_context.command_encoder());
+            .write_buffer(render_context.command_encoder());
 
         // Compute init pass
         {
