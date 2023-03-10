@@ -5,7 +5,7 @@
 [![Crate](https://img.shields.io/crates/v/bevy_hanabi.svg)](https://crates.io/crates/bevy_hanabi)
 [![Build Status](https://github.com/djeedai/bevy_hanabi/actions/workflows/ci.yaml/badge.svg)](https://github.com/djeedai/bevy_hanabi/actions/workflows/ci.yaml)
 [![Coverage Status](https://coveralls.io/repos/github/djeedai/bevy_hanabi/badge.svg?branch=main)](https://coveralls.io/github/djeedai/bevy_hanabi?branch=main)
-[![Bevy tracking](https://img.shields.io/badge/Bevy%20tracking-v0.9-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
+[![Bevy tracking](https://img.shields.io/badge/Bevy%20tracking-v0.10-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
 
 🎆 Hanabi — a GPU particle system for the Bevy game engine.
 
@@ -15,7 +15,7 @@ The Hanabi particle system is a modern GPU-based particle system for the Bevy ga
 
 🚧 _This project is under heavy development, and is currently lacking both features and performance / usability polish. However, for moderate-size effects, it can already be used in your project. Feedback and contributions on both design and features are very much welcome._
 
-🎆 Hanabi makes heavy use of compute shaders to offload work to the GPU in a performant way, and therefore is not available for the `wasm` target (WebAssembly). This is a limitation of `wgpu`.
+🎆 Hanabi makes heavy use of compute shaders to offload work to the GPU in a performant way, and therefore is not available for the `wasm` target (WebAssembly). This is a limitation of how Bevy itself uses `wgpu`.
 
 ## Usage
 
@@ -27,7 +27,7 @@ Add the `bevy_hanabi` dependency to `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_hanabi = "0.5"
+bevy_hanabi = "0.6"
 ```
 
 See also [Features](#features) below for the list of supported features.
@@ -107,7 +107,7 @@ commands
 
 ## Examples
 
-See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples) folder.
+See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/4cbd23f4734874f779668de85c0ffe53f7412f74/examples) folder.
 
 ### Firework
 
@@ -117,7 +117,7 @@ Combine the `InitPositionSphereModifier` for spawning and `LinearDragModifier` t
 cargo run --example firework --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![firework](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/firework.gif)
+![firework](https://raw.githubusercontent.com/djeedai/bevy_hanabi/4cbd23f4734874f779668de85c0ffe53f7412f74/examples/firework.gif)
 
 ### Portal
 
@@ -137,7 +137,7 @@ Animate an emitter by moving its `Transform` component, and emit textured quad p
 cargo run --example gradient --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/gradient.gif)
+![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/4cbd23f4734874f779668de85c0ffe53f7412f74/examples/gradient.gif)
 
 ### Force Field
 
@@ -165,7 +165,7 @@ The example demonstrates the use of multiple cameras and render layers to select
 cargo run --example multicam --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![multicam](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/multicam.gif)
+![multicam](https://raw.githubusercontent.com/djeedai/bevy_hanabi/4cbd23f4734874f779668de85c0ffe53f7412f74/examples/multicam.gif)
 
 ### Activate
 
@@ -175,7 +175,7 @@ This example demonstrates manual activation and deactivation of a spawner, from 
 cargo run --example activate --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![activate](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/activate.gif)
+![activate](https://raw.githubusercontent.com/djeedai/bevy_hanabi/4cbd23f4734874f779668de85c0ffe53f7412f74/examples/activate.gif)
 
 ### Spawn
 
@@ -201,7 +201,7 @@ This example demonstrates how to emit a burst of particles when an event occurs.
 cargo run --example spawn_on_command --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![spawn_on_command](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/spawn_on_command.gif)
+![spawn_on_command](https://raw.githubusercontent.com/djeedai/bevy_hanabi/4cbd23f4734874f779668de85c0ffe53f7412f74/examples/spawn_on_command.gif)
 
 ### Circle
 
@@ -211,7 +211,7 @@ This example demonstrates the `circle` spawner type, which emits particles along
 cargo run --example circle --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/circle.gif)
+![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/4cbd23f4734874f779668de85c0ffe53f7412f74/examples/circle.gif)
 
 ### Random
 
@@ -221,7 +221,7 @@ This example spawns particles with randomized parameters.
 cargo run --example random --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![random](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/random.gif)
+![random](https://raw.githubusercontent.com/djeedai/bevy_hanabi/4cbd23f4734874f779668de85c0ffe53f7412f74/examples/random.gif)
 
 ### Lifetime
 
@@ -246,7 +246,7 @@ cargo run --example billboard --features="bevy/bevy_winit bevy/bevy_pbr bevy/png
 ```
 
 The image on the left has the `BillboardModifier` enabled.
-![billboard](https://raw.githubusercontent.com/djeedai/bevy_hanabi/70d8c241e0c3d3f61315793755bf5ddeda5afe9d/examples/examples/billboard.png)
+![billboard](https://raw.githubusercontent.com/djeedai/bevy_hanabi/4cbd23f4734874f779668de85c0ffe53f7412f74/examples/billboard.png)
 
 ## Feature List
 
@@ -299,8 +299,8 @@ The image on the left has the `BillboardModifier` enabled.
     - [ ] Velocity (trail)
   - [x] Camera support
     - [x] Render layers
-    - [x] 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.9.1/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) only
-    - [x] 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.9.1/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) only
+    - [x] 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.10.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) only
+    - [x] 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.10.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) only
     - [x] Simultaneous dual 2D/3D cameras
     - [x] Multiple viewports (split screen)
     - [x] HDR camera and bloom
@@ -321,13 +321,13 @@ The image on the left has the `BillboardModifier` enabled.
 
 | Feature | Default | Description |
 |---|:-:|---|
-| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.9.1/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) |
-| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.9.1/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) |
+| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.10.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) |
+| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.10.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) |
 
 For optimization purpose, users of a single type of camera can disable the other type by skipping default features in their `Cargo.toml`. For example to use only the 3D mode:
 
 ```toml
-bevy_hanabi = { version = "0.5", default-features = false, features = [ "3d" ] }
+bevy_hanabi = { version = "0.6", default-features = false, features = [ "3d" ] }
 ```
 
 ## Compatible Bevy versions
@@ -338,6 +338,7 @@ Compatibility of `bevy_hanabi` versions:
 
 | `bevy_hanabi` | `bevy` |
 | :--           | :--    |
+| `0.6`         | `0.10` |
 | `0.5`         | `0.9`  |
 | `0.3`-`0.4`   | `0.8`  |
 | `0.2`         | `0.7`  |

@@ -3,7 +3,7 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] 2023-03-10
 
 ### Added
 
@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Switch to Bevy v0.10.
 - The `ParticleLifetimeModifier` was renamed to `InitLifetimeModifier` for clarity, and its `lifetime` field is now a `Value<f32>` to allow randomizing per particle.
 - Effects no longer have a default particle lifetime of 5 seconds. Instead an explicit lifetime must be set with the `InitLifetimeModifier`. Failure to set the lifetime will trigger a warning at runtime, and particles will default to a lifetime of zero and instantly die.
 - The `PositionSphereModifier` was previously initializing both the position and velocity of particles. It has been split into an `InitPositionSphereModifier` to initialize the position, and `InitVelocitySphereModifier` to initialize the velocity.
