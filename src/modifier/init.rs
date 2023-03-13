@@ -492,10 +492,6 @@ mod tests {
             },
             &InitVelocityCircleModifier::default(),
             &InitVelocitySphereModifier::default(),
-            &InitVelocityCone3dModifier {
-                dimension: ShapeDimension::Volume,
-                ..Default::default()
-            },
             &InitVelocityTangentModifier::default(),
         ];
         for &modifier in modifiers.iter() {
