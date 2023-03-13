@@ -170,20 +170,19 @@ fn setup(
 
     spawn_effect(
         &mut commands,
-        "PositionCone3dModifier".to_string(),
+        "InitPositionCone3dModifier".to_string(),
         Transform::from_translation(Vec3::new(20., -5., 0.))
             .with_rotation(Quat::from_rotation_z(1.)),
         effects.add(
             base_effect(
-                "PositionCone3dModifier",
+                "InitPositionCone3dModifier",
                 color_mod.clone(),
                 size_mod.clone(),
             )
-            .init(PositionCone3dModifier {
+            .init(InitPositionCone3dModifier {
                 height: 10.,
                 base_radius: 1.,
                 top_radius: 4.,
-                speed: 0_f32.into(),
                 dimension: ShapeDimension::Volume,
             }),
         ),
