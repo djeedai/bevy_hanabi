@@ -49,9 +49,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// A simple marker component to identify the effect using rate-based spawning.
+/// A simple marker component to identify the effect using a dynamic
+/// property-based acceleration that the `update_accel()` system will control at
+/// runtime.
 #[derive(Component)]
-struct RateBasedSpawner;
+struct DynamicRuntimeAccel;
 
 fn setup(
     mut commands: Commands,
@@ -93,23 +95,25 @@ fn setup(
         EffectAsset {
             name: "emit:rate".to_string(),
             capacity: 32768,
-            spawner: Spawner::rate(50.0.into()),
+            spawner: Spawner::rate(500.0.into()),
             ..Default::default()
         }
         .with_property("my_accel", graph::Value::Float3(Vec3::new(0., -3., 0.)))
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 2.,
-            dimension: ShapeDimension::Surface,
+        .init(InitPositionCone3dModifier {
+            base_radius: 0.,
+            top_radius: 10.,
+            height: 20.,
+            dimension: ShapeDimension::Volume,
         })
+        // Make spawned particles move away from the emitter origin
         .init(InitVelocitySphereModifier {
             center: Vec3::ZERO,
-            speed: 6.0.into(),
+            speed: 10.0.into(),
         })
         .init(InitLifetimeModifier {
             lifetime: 5_f32.into(),
         })
-        .update(AccelModifier::via_property("my_accel"))
+        .update(AccelModifier::constant(Vec3::Y * -3.))
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient1,
         })
@@ -123,10 +127,10 @@ fn setup(
             Name::new("emit:rate"),
             ParticleEffectBundle {
                 effect: ParticleEffect::new(effect1),
-                transform: Transform::from_translation(Vec3::new(-30., 0., 0.)),
+                transform: Transform::from_translation(Vec3::new(-30., 0., 0.))
+                    .with_rotation(Quat::from_rotation_z(1.)),
                 ..Default::default()
             },
-            RateBasedSpawner,
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin
@@ -202,6 +206,7 @@ fn setup(
             spawner: Spawner::burst(400.0.into(), 3.0.into()),
             ..Default::default()
         }
+        .with_property("my_accel", graph::Value::Float3(Vec3::new(0., -3., 0.)))
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
@@ -218,7 +223,7 @@ fn setup(
             // At spawn time, assign each particle a random size between 0.3 and 0.7
             size: Value::<f32>::Uniform((0.3, 0.7)).into(),
         })
-        .update(AccelModifier::constant(Vec3::new(0., 5., 0.)))
+        .update(AccelModifier::via_property("my_accel"))
         .render(ColorOverLifetimeModifier {
             gradient: gradient3,
         }),
@@ -232,6 +237,7 @@ fn setup(
                 transform: Transform::from_translation(Vec3::new(30., 0., 0.)),
                 ..Default::default()
             },
+            DynamicRuntimeAccel,
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin
@@ -246,7 +252,7 @@ fn setup(
         });
 }
 
-fn update_accel(time: Res<Time>, mut query: Query<&mut ParticleEffect, With<RateBasedSpawner>>) {
+fn update_accel(time: Res<Time>, mut query: Query<&mut ParticleEffect, With<DynamicRuntimeAccel>>) {
     let mut effect = query.single_mut();
     let accel0 = 10.;
     let (s, c) = (time.elapsed_seconds() * 0.3).sin_cos();

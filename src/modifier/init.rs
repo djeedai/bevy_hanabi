@@ -186,17 +186,14 @@ impl InitModifier for InitPositionSphereModifier {
 /// An initialization modifier spawning particles inside a truncated 3D cone.
 ///
 /// The 3D cone is oriented along the Y axis, with its origin at the center of
-/// the top circle truncating the cone. The center of the base circle of the
+/// the base circle of the cone. The center of the top circle truncating the
 /// cone is located at a positive Y.
 ///
 /// Particles are spawned somewhere inside the volume or on the surface of a
 /// truncated 3D cone defined by its base radius, its top radius, and the height
 /// of the cone section.
-///
-/// The particle velocity is initialized to a random speed along the direction
-/// going from the cone apex to the particle position.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct PositionCone3dModifier {
+pub struct InitPositionCone3dModifier {
     /// The cone height along its axis, between the base and top radii.
     pub height: f32,
     /// The cone radius at its base, perpendicularly to its axis.
@@ -204,19 +201,14 @@ pub struct PositionCone3dModifier {
     /// The cone radius at its truncated top, perpendicularly to its axis.
     /// This can be set to zero to get a non-truncated cone.
     pub top_radius: f32,
-    /// The speed of the particles on spawn.
-    pub speed: Value<f32>,
     /// The shape dimension to spawn from.
     pub dimension: ShapeDimension,
 }
 
-impl_mod_init!(
-    PositionCone3dModifier,
-    &[Attribute::POSITION, Attribute::VELOCITY]
-);
+impl_mod_init!(InitPositionCone3dModifier, &[Attribute::POSITION]);
 
 #[typetag::serde]
-impl InitModifier for PositionCone3dModifier {
+impl InitModifier for InitPositionCone3dModifier {
     fn apply(&self, context: &mut InitContext) {
         context.init_extra += &format!(
             r##"fn init_position_cone3d(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
@@ -231,7 +223,7 @@ impl InitModifier for PositionCone3dModifier {
     // Bottom radius
     let rb = {2};
     // Radius at height h
-    let r0 = rt + (rb - rt) * alpha_h;
+    let r0 = rb + (rt - rb) * alpha_h;
     // Random delta radius
     let alpha_r = sqrt(rand());
     // Random radius at height h
@@ -247,22 +239,12 @@ impl InitModifier for PositionCone3dModifier {
     let p = vec3<f32>(x, y, z);
     let p2 = transform * vec4<f32>(p, 0.0);
     (*particle).{3} = p2.xyz;
-    // Emit direction
-    let rb2 = rb * alpha_r;
-    let pb = vec3<f32>(rb2 * cost, h0, rb2 * sint);
-    let dir = transform * vec4<f32>(normalize(pb - p), 0.0);
-    // Emit speed
-    let speed = {4};
-    // Velocity away from cone top/apex
-    (*particle).{5} = dir.xyz * speed;
 }}
 "##,
             self.height.to_wgsl_string(),
             self.top_radius.to_wgsl_string(),
             self.base_radius.to_wgsl_string(),
             Attribute::POSITION.name(),
-            self.speed.to_wgsl_string(),
-            Attribute::VELOCITY.name(),
         );
 
         context.init_code += "init_position_cone3d(transform, &particle);\n";
@@ -504,7 +486,7 @@ mod tests {
         let modifiers: &[&dyn InitModifier] = &[
             &InitPositionCircleModifier::default(),
             &InitPositionSphereModifier::default(),
-            &PositionCone3dModifier {
+            &InitPositionCone3dModifier {
                 dimension: ShapeDimension::Volume,
                 ..Default::default()
             },

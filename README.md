@@ -185,7 +185,7 @@ This example demonstrates three spawn modes:
 - **Center:** One-shot burst emission of a fixed count of particles.
 - **Right:** Continuous bursts of particles, an hybrid between the previous two.
 
-It also shows the applying of constant force (downward gravity-like, or upward smoke-style). The left spawner's gravity is controlled by a custom property, which is slowly rotated by a Bevy system (CPU side).
+It also shows the applying of constant acceleration to all particles. The right spawner's acceleration (gravity) is controlled by a custom property, which is slowly rotated by a Bevy system (CPU side).
 
 ```shell
 cargo run --example spawn --features="bevy/bevy_winit bevy/bevy_pbr 3d"

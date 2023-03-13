@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added an example `init.rs` showing the various kinds of position ininitializing modifiers.
+- Added an example `init.rs` showing the various kinds of position initializing modifiers.
+
+### Changed
+
+- Renamed `PositionCone3dModifier` into `InitPositionCone3dModifier`, and removed the velocity initializing. To recover the older behavior, add an extra `InitVelocitySphereModifier` to initialize the velocity like `PositionCone3dModifier` used to do.
 
 ### Fixed
 
