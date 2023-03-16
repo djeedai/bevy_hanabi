@@ -751,7 +751,7 @@ fn tick_spawners(
                     Attribute::HDR_COLOR.default_value().to_wgsl_string() // TODO - or COLOR?
                 );
             }
-            for attr in required_attributes.difference(&present_attributes) {
+            for &attr in required_attributes.difference(&present_attributes) {
                 inputs_code += &format!(
                     "var {} = {};\n",
                     attr.name(),
@@ -798,6 +798,42 @@ fn tick_spawners(
                 m.apply(&mut render_context);
             }
 
+            // Configure aging code
+            let has_age = present_attributes.contains(Attribute::AGE);
+            let has_lifetime = present_attributes.contains(Attribute::LIFETIME);
+            let alive_init_code = if has_age && has_lifetime {
+                format!(
+                    "var is_alive = (*particle).{0} < (*particle).{1};",
+                    Attribute::AGE.name(),
+                    Attribute::LIFETIME.name()
+                )
+            } else {
+                // Since we're using a dead index buffer, all particles that make it to the
+                // update compute shader are guaranteed to be alive (we never
+                // simulate dead particles).
+                "var is_alive = true;".to_string()
+            };
+            let age_code = if has_age {
+                format!(
+                    "(*particle).{0} = (*particle).{0} + sim_params.dt;",
+                    Attribute::AGE.name()
+                )
+            } else {
+                "".to_string()
+            } + "\n    "
+                + &alive_init_code;
+
+            // Configure reaping code
+            let reap_code = if has_age && has_lifetime {
+                format!(
+                    "is_alive = is_alive && ((*particle).{0} < (*particle).{1});",
+                    Attribute::AGE.name(),
+                    Attribute::LIFETIME.name()
+                )
+            } else {
+                "".to_string()
+            };
+
             // Configure the init shader template, and make sure a corresponding shader
             // asset exists
             let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
@@ -811,6 +847,8 @@ fn tick_spawners(
             // asset exists
             let update_shader_source = PARTICLES_UPDATE_SHADER_TEMPLATE
                 .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{AGE_CODE}}", &age_code)
+                .replace("{{REAP_CODE}}", &reap_code)
                 .replace("{{UPDATE_CODE}}", &update_context.update_code)
                 .replace("{{UPDATE_EXTRA}}", &update_context.update_extra)
                 .replace("{{PROPERTIES}}", &properties_code)

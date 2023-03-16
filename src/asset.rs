@@ -160,9 +160,7 @@ impl EffectAsset {
         // For legacy compatibility reasons, and because both the motion integration and
         // the particle aging are currently mandatory, add some default attributes.
         set.insert(Attribute::POSITION);
-        set.insert(Attribute::AGE);
         set.insert(Attribute::VELOCITY);
-        set.insert(Attribute::LIFETIME);
 
         // Build the layout
         let mut layout = ParticleLayout::new();

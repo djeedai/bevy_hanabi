@@ -146,16 +146,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     let particle: ptr<storage, Particle, read_write> = &particle_buffer.particles[index];
 
-    // Age the particle
-    (*particle).age = (*particle).age + sim_params.dt;
-    var is_alive = (*particle).age < (*particle).lifetime;
-
+    {{AGE_CODE}}
     {{UPDATE_CODE}}
+    {{REAP_CODE}}
 
     // Check if alive
-    if (!is_alive || ((*particle).age >= (*particle).lifetime)) {
-        // Write back constant "dead" age
-        (*particle).age = (*particle).lifetime + 1.0;
+    if (!is_alive) {
         // Save dead index
         let dead_index = atomicAdd(&render_indirect.dead_count, 1u);
         indirect_buffer.indices[3u * dead_index + 2u] = index;

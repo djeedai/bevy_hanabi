@@ -3,6 +3,21 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `SetColorModifier` to set a per-particle color on spawning, which doesn't vary during the particle's lifetime.
+- `SetSizeModifier` to set a per-particle size on spawning, which doesn't vary during the particle's lifetime.
+
+### Changed
+
+- The `Attribute::AGE` and `Attribute::LIFETIME` are not mandatory anymore, and are now only added to the particle layout of an effect if a modifier requires them.
+  - Particles without an age are (obviously) not aged anymore.
+  - Particles without a lifetime are not reaped and therefore do not die from aging.
+
+  The documentation for all modifiers has been updated to state which attribute(s) they require, if any.
+
 ## [0.6.1] 2023-03-13
 
 ### Added

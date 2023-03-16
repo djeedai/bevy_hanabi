@@ -44,11 +44,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn base_effect(
-    name: impl Into<String>,
-    color_mod: ColorOverLifetimeModifier,
-    size_mod: SizeOverLifetimeModifier,
-) -> EffectAsset {
+const COLOR: Vec4 = Vec4::new(0.7, 0.7, 1.0, 1.0);
+const SIZE: Vec2 = Vec2::splat(0.1);
+
+fn base_effect(name: impl Into<String>) -> EffectAsset {
     EffectAsset {
         name: name.into(),
         capacity: 32768,
@@ -59,8 +58,10 @@ fn base_effect(
         lifetime: 3600_f32.into(),
     })
     .render(BillboardModifier)
-    .render(color_mod)
-    .render(size_mod)
+    .render(SetColorModifier {
+        color: COLOR.into(),
+    })
+    .render(SetSizeModifier { size: SIZE.into() })
 }
 
 fn spawn_effect(
@@ -116,28 +117,12 @@ fn setup(
     let cube = meshes.add(Mesh::from(Cube { size: 0.1 }));
     let mat = materials.add(Color::PURPLE.into());
 
-    let mut gradient = Gradient::new();
-    gradient.add_key(0.0, Vec4::new(0.7, 0.7, 1.0, 1.0));
-    gradient.add_key(1.0, Vec4::new(0.7, 0.7, 1.0, 1.0));
-    let color_mod = ColorOverLifetimeModifier { gradient };
-
-    const SIZE: f32 = 0.1;
-
-    let mut gradient = Gradient::new();
-    gradient.add_key(0.0, Vec2::splat(SIZE));
-    let size_mod = SizeOverLifetimeModifier { gradient };
-
     spawn_effect(
         &mut commands,
         "InitPositionCircleModifier".to_string(),
         Transform::from_translation(Vec3::new(-20., 0., 0.)),
         effects.add(
-            base_effect(
-                "InitPositionCircleModifier",
-                color_mod.clone(),
-                size_mod.clone(),
-            )
-            .init(InitPositionCircleModifier {
+            base_effect("InitPositionCircleModifier").init(InitPositionCircleModifier {
                 center: Vec3::ZERO,
                 axis: Vec3::Z,
                 radius: 5.,
@@ -153,12 +138,7 @@ fn setup(
         "InitPositionSphereModifier".to_string(),
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         effects.add(
-            base_effect(
-                "InitPositionSphereModifier",
-                color_mod.clone(),
-                size_mod.clone(),
-            )
-            .init(InitPositionSphereModifier {
+            base_effect("InitPositionSphereModifier").init(InitPositionSphereModifier {
                 center: Vec3::ZERO,
                 radius: 5.,
                 dimension: ShapeDimension::Volume,
@@ -174,12 +154,7 @@ fn setup(
         Transform::from_translation(Vec3::new(20., -5., 0.))
             .with_rotation(Quat::from_rotation_z(1.)),
         effects.add(
-            base_effect(
-                "InitPositionCone3dModifier",
-                color_mod.clone(),
-                size_mod.clone(),
-            )
-            .init(InitPositionCone3dModifier {
+            base_effect("InitPositionCone3dModifier").init(InitPositionCone3dModifier {
                 height: 10.,
                 base_radius: 1.,
                 top_radius: 4.,

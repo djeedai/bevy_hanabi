@@ -267,14 +267,13 @@ The image on the left has the `BillboardModifier` enabled.
     - [ ] plane
     - [ ] generic mesh / point cloud (?)
   - [ ] Random position offset
-  - [x] Velocity over shape
+  - [x] Velocity over shape (with random speed)
     - [x] circle
     - [x] sphere
     - [x] tangent
-  - [x] Random velocity (partial; linked to emitter type)
-  - [ ] Constant color
-  - [ ] Random color
-  - [x] Constant/random age and lifetime
+  - [x] Constant/random per-particle color
+  - [x] Constant/random per-particle size
+  - [x] Constant/random par-particle age and lifetime
 - Update
   - [x] Motion integration (Euler)
   - [x] Apply forces
