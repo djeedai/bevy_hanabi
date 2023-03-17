@@ -115,10 +115,15 @@ impl Attribute {
 
     /// The age of the particle.
     ///
-    /// When the age of the particle exceeds its lifetime (either a per-effect
+    /// Each time the particle is updated, the current simualtion delta time is
+    /// added to the particle's age. The age can be used to animate some other
+    /// quantities; see the [`ColorOverLifetimeModifier`] for example.
+    ///
+    /// If the particle also has a lifetime (either a per-effect
     /// constant value, or a per-particle value stored in the
-    /// [`Attribute::LIFETIME`] attribute), the particle dies and is not
-    /// simulated nor rendered anymore.
+    /// [`Attribute::LIFETIME`] attribute), then when the age of the particle
+    /// exceeds its lifetime, the particle dies and is not simulated nor
+    /// rendered anymore.
     ///
     /// # Type
     ///

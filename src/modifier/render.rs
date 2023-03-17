@@ -1,13 +1,18 @@
 //! Modifiers to influence the rendering of each particle.
 
-use bevy::{prelude::*, utils::HashMap};
+use bevy::{
+    prelude::*,
+    utils::{FloatOrd, HashMap},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
 };
 
-use crate::{Attribute, BoxedModifier, Gradient, Modifier, ModifierContext, ShaderCode};
+use crate::{
+    Attribute, BoxedModifier, Gradient, Modifier, ModifierContext, ShaderCode, ToWgslString, Value,
+};
 
 /// Calculate a function ID by hashing the given value representative of the
 /// function.
@@ -104,6 +109,10 @@ macro_rules! impl_mod_render {
 }
 
 /// A modifier modulating each particle's color by sampling a texture.
+///
+/// # Attributes
+///
+/// This modifier does not require any specific particle attribute.
 #[derive(Default, Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ParticleTextureModifier {
     /// The texture image to modulate the particle color with.
@@ -123,8 +132,61 @@ impl RenderModifier for ParticleTextureModifier {
     }
 }
 
+/// A modifier to set each particle's rendering color.
+///
+/// # Attributes
+///
+/// This modifier does not require any specific particle attribute.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct SetColorModifier {
+    /// The particle color.
+    pub color: Value<Vec4>,
+}
+
+// TODO - impl Hash for Value<T>
+// SAFETY: This is consistent with the derive, but we can't derive due to
+// FloatOrd.
+#[allow(clippy::derive_hash_xor_eq)]
+impl Hash for SetColorModifier {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self.color {
+            Value::Single(v) => {
+                FloatOrd(v.x).hash(state);
+                FloatOrd(v.y).hash(state);
+                FloatOrd(v.z).hash(state);
+                FloatOrd(v.w).hash(state);
+            }
+            Value::Uniform((a, b)) => {
+                FloatOrd(a.x).hash(state);
+                FloatOrd(a.y).hash(state);
+                FloatOrd(a.z).hash(state);
+                FloatOrd(a.w).hash(state);
+                FloatOrd(b.x).hash(state);
+                FloatOrd(b.y).hash(state);
+                FloatOrd(b.z).hash(state);
+                FloatOrd(b.w).hash(state);
+            }
+        }
+    }
+}
+
+impl_mod_render!(SetColorModifier, &[]);
+
+#[typetag::serde]
+impl RenderModifier for SetColorModifier {
+    fn apply(&self, context: &mut RenderContext) {
+        context.vertex_code += &format!("color = {0};\n", self.color.to_wgsl_string());
+    }
+}
+
 /// A modifier modulating each particle's color over its lifetime with a
 /// gradient curve.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::AGE`]
+/// - [`Attribute::LIFETIME`]
 #[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ColorOverLifetimeModifier {
     /// The color gradient defining the particle color based on its lifetime.
@@ -151,14 +213,63 @@ impl RenderModifier for ColorOverLifetimeModifier {
         );
 
         context.vertex_code += &format!(
-            "color = {0}(particle.age / particle.lifetime);\n",
-            func_name
+            "color = {0}(particle.{1} / particle.{2});\n",
+            func_name,
+            Attribute::AGE.name(),
+            Attribute::LIFETIME.name()
         );
+    }
+}
+
+/// A modifier to set each particle's size.
+///
+/// # Attributes
+///
+/// This modifier does not require any specific particle attribute.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct SetSizeModifier {
+    /// The particle color.
+    pub size: Value<Vec2>,
+}
+
+// TODO - impl Hash for Value<T>
+// SAFETY: This is consistent with the derive, but we can't derive due to
+// FloatOrd.
+#[allow(clippy::derive_hash_xor_eq)]
+impl Hash for SetSizeModifier {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self.size {
+            Value::Single(v) => {
+                FloatOrd(v.x).hash(state);
+                FloatOrd(v.y).hash(state);
+            }
+            Value::Uniform((a, b)) => {
+                FloatOrd(a.x).hash(state);
+                FloatOrd(a.y).hash(state);
+                FloatOrd(b.x).hash(state);
+                FloatOrd(b.y).hash(state);
+            }
+        }
+    }
+}
+
+impl_mod_render!(SetSizeModifier, &[]);
+
+#[typetag::serde]
+impl RenderModifier for SetSizeModifier {
+    fn apply(&self, context: &mut RenderContext) {
+        context.vertex_code += &format!("size = {0};\n", self.size.to_wgsl_string());
     }
 }
 
 /// A modifier modulating each particle's size over its lifetime with a gradient
 /// curve.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::AGE`]
+/// - [`Attribute::LIFETIME`]
 #[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct SizeOverLifetimeModifier {
     /// The size gradient defining the particle size based on its lifetime.
@@ -184,12 +295,20 @@ impl RenderModifier for SizeOverLifetimeModifier {
             self.gradient.to_shader_code("key")
         );
 
-        context.vertex_code +=
-            &format!("size = {0}(particle.age / particle.lifetime);\n", func_name);
+        context.vertex_code += &format!(
+            "size = {0}(particle.{1} / particle.{2});\n",
+            func_name,
+            Attribute::AGE.name(),
+            Attribute::LIFETIME.name()
+        );
     }
 }
 
 /// Reorients the vertices to always face the camera when rendering.
+///
+/// # Attributes
+///
+/// This modifier does not require any specific particle attribute.
 #[derive(
     Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize,
 )]
@@ -205,6 +324,12 @@ impl RenderModifier for BillboardModifier {
 }
 
 /// A modifier orienting each particle alongside its velocity.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
+/// - [`Attribute::VELOCITY`]
 #[derive(
     Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize,
 )]

@@ -98,6 +98,11 @@ impl ToWgslString for ValueOrProperty {
 /// ```txt
 /// particle.velocity += acceleration * simulation.delta_time;
 /// ```
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::VELOCITY`]
 #[derive(Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AccelModifier {
     /// The acceleration to apply to all particles in the effect each frame.
@@ -221,6 +226,12 @@ impl ForceFieldSource {
 /// field is made up of [`ForceFieldSource`]s.
 ///
 /// The maximum number of sources is [`ForceFieldSource::MAX_SOURCES`].
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
+/// - [`Attribute::VELOCITY`]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ForceFieldModifier {
     /// Array of force field sources.
@@ -291,6 +302,11 @@ impl UpdateModifier for ForceFieldModifier {
 
 /// A modifier to apply a linear drag force to all particles each frame. The
 /// force slows down the particles without changing their direction.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::VELOCITY`]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct LinearDragModifier {
     /// Drag coefficient. Higher values increase the drag force, and
@@ -321,6 +337,11 @@ impl UpdateModifier for LinearDragModifier {
 ///
 /// This enables confining particles to a region in space, or preventing
 /// particles to enter that region.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AabbKillModifier {
     /// Min corner of the AABB.

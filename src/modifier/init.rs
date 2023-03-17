@@ -54,6 +54,11 @@ macro_rules! impl_mod_init {
 }
 
 /// An initialization modifier spawning particles on a circle/disc.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitPositionCircleModifier {
     /// The circle center, relative to the emitter position.
@@ -124,6 +129,11 @@ impl InitModifier for InitPositionCircleModifier {
 }
 
 /// An initialization modifier spawning particles on a sphere.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitPositionSphereModifier {
     /// The sphere center, relative to the emitter position.
@@ -192,6 +202,11 @@ impl InitModifier for InitPositionSphereModifier {
 /// Particles are spawned somewhere inside the volume or on the surface of a
 /// truncated 3D cone defined by its base radius, its top radius, and the height
 /// of the cone section.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitPositionCone3dModifier {
     /// The cone height along its axis, between the base and top radii.
@@ -252,6 +267,12 @@ impl InitModifier for InitPositionCone3dModifier {
 }
 
 /// A modifier to set the initial velocity of particles radially on a circle.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
+/// - [`Attribute::VELOCITY`]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitVelocityCircleModifier {
     /// The circle center, relative to the emitter position.
@@ -292,6 +313,12 @@ impl InitModifier for InitVelocityCircleModifier {
 
 /// A modifier to set the initial velocity of particles to a spherical
 /// distribution.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
+/// - [`Attribute::VELOCITY`]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitVelocitySphereModifier {
     /// Center of the sphere. The radial direction of the velocity is the
@@ -321,6 +348,12 @@ impl InitModifier for InitVelocitySphereModifier {
 
 /// A modifier to set the initial velocity of particles along the tangent to an
 /// axis.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
+/// - [`Attribute::VELOCITY`]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitVelocityTangentModifier {
     /// Origin from which to derive the radial axis based on the particle
@@ -366,6 +399,11 @@ impl InitModifier for InitVelocityTangentModifier {
 /// delta time. Various other modifiers use that age to smoothly vary some
 /// quantities, like [`SizeOverLifetimeModifier`].
 ///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::AGE`]
+///
 /// [`SizeOverLifetimeModifier`]: crate::SizeOverLifetimeModifier
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitAgeModifier {
@@ -392,6 +430,11 @@ impl InitModifier for InitAgeModifier {
 /// equal to their lifetime.
 ///
 /// The default lifetime is 5 seconds.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::LIFETIME`]
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitLifetimeModifier {
     /// The lifetime of all particles when they spawn, in seconds.
@@ -424,6 +467,11 @@ impl InitModifier for InitLifetimeModifier {
 /// The particle is initialized with a fixed or randomly distributed size value,
 /// and will retain that size unless another modifier (like
 /// [`SizeOverLifetimeModifier`]) changes its size after spawning.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::SIZE`] or [`Attribute::SIZE2`]
 ///
 /// [`SizeOverLifetimeModifier`]: crate::SizeOverLifetimeModifier
 #[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
