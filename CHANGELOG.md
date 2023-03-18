@@ -7,19 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `SetColorModifier` to set a per-particle color on spawning, which doesn't vary during the particle's lifetime.
-- `SetSizeModifier` to set a per-particle size on spawning, which doesn't vary during the particle's lifetime.
-- `EffectAsset::motion_integration` to configure the type of motion integration of the particles of a system. Using this field, the user can now completely disable motion integration, or perform it _before_ the modifiers are applied. The default behavior remains to perform the motion integration _after_ all modifiers have been applied (`MotionIntegration::PostUpdate`).
+- Added `SetColorModifier` to set a per-particle color on spawning, which doesn't vary during the particle's lifetime.
+- Added `SetSizeModifier` to set a per-particle size on spawning, which doesn't vary during the particle's lifetime.
+- Added `EffectAsset::motion_integration` to configure the type of motion integration of the particles of a system. Using this field, the user can now completely disable motion integration, or perform it _before_ the modifiers are applied. The default behavior remains to perform the motion integration _after_ all modifiers have been applied (`MotionIntegration::PostUpdate`).
+- Added `InitAttributeModifier` to initialize any attribute of a particle to a given hard-coded value or CPU property value.
+- `Attribute` is now fully reflected (`Reflect` and `FromReflect`) as a struct with a "name" field containing its unique identifier, and a "default_value" field containing its default `Value`. However note that attributes are immutable, so all mutating methods of the `Reflect` and `FromReflect` traits are no-op, and will not produce the expected result. The `FromReflect` implementation expects a `String` value, and uses `Attribute::from_name()` to recover the corresponding built-in instance of the attribute with that name.
+- `Attribute` is now serializable. Attributes are serialized as a string containing their name, since the list of valid attributes is hard-coded and cannot be modified at runtime, and new custom attributes are not supported. The default value is not serialized.
+- Init modifiers now also have access to the effect's properties.
+- Added `InitAttributeModifier` to initialize any attribute to a value or bind it to a property. This is especially useful with properties currently used implicitly like `Attribute::COLOR` and `Attribute::HDR_COLOR`; now you can set the color of particles without the need to (ab)use a `ColorOverLifetimeModifier` with a uniform gradient. The binding with properties also allows dynamically changing the spawning color; see the updated `spawn_on_command.rs` example.
 
 ### Changed
 
+- `Attribute` is now a wrapper around the private type `&'static AttributeInner`, and should be considered a "handle" which references an existing attribute and can be cheaply copied and compared. All mentions of `&'static Attribute` from previous versions should be replaced with `Attribute` (by value) to migrate to the new definition.
 - The `Attribute::AGE` and `Attribute::LIFETIME` are not mandatory anymore, and are now only added to the particle layout of an effect if a modifier requires them.
   - Particles without an age are (obviously) not aged anymore.
-  - Particles without a lifetime are not reaped and therefore do not die from aging.
+  - Particles without a lifetime are not reaped and therefore do not die from aging. They continue to age though (their `Attribute::AGE` is updated each frame).
+- The `Attribute::POSITION` and `Attribute::VELOCITY` are not mandatory anymore. They are required if `EffectAsset::motion_integration` is set to something other than `MotionIntegration::None`, but are not added automatically to all effects like they used to be, and instead require a modifier to explicitly insert them into the particle layout. Effects with a non-`None` motion integration but missing either of those two attributes will emit a warning at runtime. Add a position or velocity initializing modifier to fix it.
+- The documentation for all modifiers has been updated to state which attribute(s) they require, if any. Modifiers insert the attributes they require into the particle layout of the effect the modifier is attached to.
 
-  The documentation for all modifiers has been updated to state which attribute(s) they require, if any.
+### Fixed
 
-- The `Attribute::POSITION` and `Attribute::VELOCITY` are not mandatory anymore. They are required if `EffectAsset::motion_integration` is set to something other than `MotionIntegration::None`, but are not added automatically to all effect, and instead require a modifier to explicitly insert them into the particle layout. Effects with a non-`None` motion integration but missing either of those two attributes will emit a warning at runtime. Add a position or velocity initializing modifier to fix it.
+- Fixed a bug where using `ParticleEffect::with_spawner()` would prevent properties from initializing correctly.
 
 ## [0.6.1] 2023-03-13
 

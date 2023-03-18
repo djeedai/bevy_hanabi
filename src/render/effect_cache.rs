@@ -91,9 +91,7 @@ pub struct EffectBuffer {
     /// Layout of properties of the effect(s), if using properties.
     property_layout: PropertyLayout,
     /// -
-    particles_buffer_layout_init: BindGroupLayout,
-    /// -
-    particles_buffer_layout_update: BindGroupLayout,
+    particles_buffer_layout_simulate: BindGroupLayout,
     /// -
     particles_buffer_layout_with_dispatch: BindGroupLayout,
     /// Total buffer capacity, in number of particles.
@@ -213,38 +211,6 @@ impl EffectBuffer {
         // TODO - Cache particle_layout and associated bind group layout, instead of
         // creating one bind group layout per buffer using that layout...
 
-        let label = "hanabi:init_particles_buffer_layout";
-        trace!(
-            "Creating particle bind group layout '{}' for init pass with 2 entries.",
-            label,
-        );
-        let particles_buffer_layout_init =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: true,
-                            min_binding_size: Some(particle_layout.min_binding_size()),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: true,
-                            min_binding_size: BufferSize::new(12),
-                        },
-                        count: None,
-                    },
-                ],
-                label: Some(label),
-            });
-
         let mut entries = vec![
             BindGroupLayoutEntry {
                 binding: 0,
@@ -279,13 +245,13 @@ impl EffectBuffer {
                 count: None,
             });
         }
-        let label = "hanabi:update_particles_buffer_layout";
+        let label = "hanabi:simualate_particles_buffer_layout";
         trace!(
-            "Creating particle bind group layout '{}' for update pass with {} entries.",
+            "Creating particle bind group layout '{}' for simulate passes (init & update) with {} entries.",
             label,
             entries.len(),
         );
-        let particles_buffer_layout_update =
+        let particles_buffer_layout_simulate =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &entries,
                 label: Some(label),
@@ -334,8 +300,7 @@ impl EffectBuffer {
             properties_buffer,
             particle_layout,
             property_layout,
-            particles_buffer_layout_init,
-            particles_buffer_layout_update,
+            particles_buffer_layout_simulate,
             particles_buffer_layout_with_dispatch,
             capacity,
             used_size: 0,
@@ -357,12 +322,8 @@ impl EffectBuffer {
         &self.property_layout
     }
 
-    pub fn particle_layout_bind_group_init(&self) -> &BindGroupLayout {
-        &self.particles_buffer_layout_init
-    }
-
-    pub fn particle_layout_bind_group_update(&self) -> &BindGroupLayout {
-        &self.particles_buffer_layout_update
+    pub fn particle_layout_bind_group_simulate(&self) -> &BindGroupLayout {
+        &self.particles_buffer_layout_simulate
     }
 
     pub fn particle_layout_bind_group_with_dispatch(&self) -> &BindGroupLayout {
@@ -735,7 +696,7 @@ mod gpu_tests {
 
     use bevy::{asset::HandleId, math::Vec4};
 
-    use crate::{graph::Value, test_utils::MockRenderer, Attribute};
+    use crate::{graph::Value, test_utils::MockRenderer, Attribute, AttributeInner};
 
     use super::*;
 
@@ -768,10 +729,19 @@ mod gpu_tests {
         assert!(slice2 > slice3);
     }
 
-    const F4A: &Attribute = &Attribute::new(Cow::Borrowed("F4A"), Value::Float4(Vec4::ONE));
-    const F4B: &Attribute = &Attribute::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
-    const F4C: &Attribute = &Attribute::new(Cow::Borrowed("F4C"), Value::Float4(Vec4::ONE));
-    const F4D: &Attribute = &Attribute::new(Cow::Borrowed("F4D"), Value::Float4(Vec4::ONE));
+    const F4A_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F4A"), Value::Float4(Vec4::ONE));
+    const F4B_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
+    const F4C_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F4C"), Value::Float4(Vec4::ONE));
+    const F4D_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F4D"), Value::Float4(Vec4::ONE));
+
+    const F4A: Attribute = Attribute(F4A_INNER);
+    const F4B: Attribute = Attribute(F4B_INNER);
+    const F4C: Attribute = Attribute(F4C_INNER);
+    const F4D: Attribute = Attribute(F4D_INNER);
 
     #[test]
     fn slice_ref() {

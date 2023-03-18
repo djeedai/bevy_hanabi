@@ -1,6 +1,13 @@
-use std::{borrow::Cow, num::NonZeroU64};
+use std::{any::Any, borrow::Cow, num::NonZeroU64};
 
-use bevy::math::{Vec2, Vec3, Vec4};
+use bevy::{
+    math::{Vec2, Vec3, Vec4},
+    reflect::{
+        utility::NonGenericTypeInfoCell, DynamicStruct, FieldIter, FromReflect, NamedField,
+        Reflect, ReflectMut, ReflectOwned, ReflectRef, Struct, StructInfo, TypeInfo, Typed,
+    },
+};
+use serde::{Deserialize, Serialize};
 
 use crate::{graph::Value, next_multiple_of, ToWgslString};
 
@@ -63,6 +70,63 @@ impl ToWgslString for ValueType {
     }
 }
 
+#[derive(Debug, Clone, Reflect, FromReflect)]
+pub(crate) struct AttributeInner {
+    name: Cow<'static, str>,
+    default_value: Value,
+}
+
+impl PartialEq for AttributeInner {
+    fn eq(&self, other: &Self) -> bool {
+        // Compare attributes by name since it's unique.
+        self.name == other.name
+    }
+}
+
+impl Eq for AttributeInner {}
+
+impl std::hash::Hash for AttributeInner {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Keep consistent with PartialEq and Eq
+        self.name.hash(state);
+    }
+}
+
+impl AttributeInner {
+    pub const POSITION: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("position"), Value::Float3(Vec3::ZERO));
+    pub const VELOCITY: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("velocity"), Value::Float3(Vec3::ZERO));
+    pub const AGE: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("age"), Value::Float(0.));
+    pub const LIFETIME: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("lifetime"), Value::Float(1.));
+    pub const COLOR: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("color"), Value::Uint(0xFFFFFFFFu32));
+    pub const HDR_COLOR: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("hdr_color"), Value::Float4(Vec4::ONE));
+    pub const ALPHA: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("alpha"), Value::Float(1.));
+    pub const SIZE: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("size"), Value::Float(1.));
+    pub const SIZE2: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("size2"), Value::Float2(Vec2::ONE));
+    pub const AXIS_X: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("axis_x"), Value::Float3(Vec3::X));
+    pub const AXIS_Y: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("axis_y"), Value::Float3(Vec3::Y));
+    pub const AXIS_Z: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("axis_z"), Value::Float3(Vec3::Z));
+
+    #[inline]
+    pub(crate) const fn new(name: Cow<'static, str>, default_value: Value) -> Self {
+        Self {
+            name,
+            default_value,
+        }
+    }
+}
+
 /// An attribute of a particle simulated for an effect.
 ///
 /// Effects are composed of many simulated particles. Each particle is in turn
@@ -70,25 +134,172 @@ impl ToWgslString for ValueType {
 /// Common attributes include the particle's position, its age, or its color.
 /// See [`Attribute::ALL`] for a list of supported attributes. Custom attributes
 /// are not supported.
-#[derive(Debug, Clone)]
-pub struct Attribute {
-    name: Cow<'static, str>,
-    default_value: Value,
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "&str", into = "&'static str")]
+pub struct Attribute(pub(crate) &'static AttributeInner);
 
-impl PartialEq for Attribute {
-    fn eq(&self, other: &Self) -> bool {
-        // Compare attributes by name since it's unique.
-        self.name == other.name
+impl TryFrom<&str> for Attribute {
+    type Error = &'static str;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Attribute::from_name(value).ok_or("Unknown attribute name.")
     }
 }
 
-impl Eq for Attribute {}
+impl From<Attribute> for &'static str {
+    fn from(value: Attribute) -> Self {
+        value.name()
+    }
+}
 
-impl std::hash::Hash for Attribute {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Keep consistent with PartialEq and Eq
-        self.name.hash(state);
+impl Typed for Attribute {
+    fn type_info() -> &'static TypeInfo {
+        static CELL: NonGenericTypeInfoCell = NonGenericTypeInfoCell::new();
+        CELL.get_or_set(|| {
+            let fields = [
+                NamedField::new::<Cow<str>>("name"),
+                NamedField::new::<Value>("default_value"),
+            ];
+            let info = StructInfo::new::<Self>("Attribute", &fields);
+            TypeInfo::Struct(info)
+        })
+    }
+}
+
+impl Struct for Attribute {
+    fn field(&self, name: &str) -> Option<&dyn Reflect> {
+        match name {
+            "name" => Some(&self.0.name),
+            "default_value" => Some(&self.0.default_value),
+            _ => None,
+        }
+    }
+
+    fn field_mut(&mut self, _name: &str) -> Option<&mut dyn Reflect> {
+        // Attributes are immutable
+        None
+    }
+
+    fn field_at(&self, index: usize) -> Option<&dyn Reflect> {
+        match index {
+            0 => Some(&self.0.name),
+            1 => Some(&self.0.default_value),
+            _ => None,
+        }
+    }
+
+    fn field_at_mut(&mut self, _index: usize) -> Option<&mut dyn Reflect> {
+        // Attributes are immutable
+        None
+    }
+
+    fn name_at(&self, index: usize) -> Option<&str> {
+        match index {
+            0 => Some("name"),
+            1 => Some("default_value"),
+            _ => None,
+        }
+    }
+
+    fn field_len(&self) -> usize {
+        2
+    }
+
+    fn iter_fields(&self) -> FieldIter {
+        FieldIter::new(self)
+    }
+
+    fn clone_dynamic(&self) -> DynamicStruct {
+        let mut dynamic = DynamicStruct::default();
+        dynamic.set_name(::std::string::ToString::to_string(Reflect::type_name(self)));
+        dynamic.insert_boxed("name", Reflect::clone_value(&self.0.name));
+        dynamic.insert_boxed("default_value", Reflect::clone_value(&self.0.default_value));
+        dynamic
+    }
+}
+
+impl Reflect for Attribute {
+    #[inline]
+    fn type_name(&self) -> &str {
+        ::core::any::type_name::<Attribute>()
+    }
+
+    #[inline]
+    fn get_type_info(&self) -> &'static TypeInfo {
+        <Attribute as Typed>::type_info()
+    }
+
+    #[inline]
+    fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+    }
+
+    #[inline]
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    #[inline]
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    #[inline]
+    fn into_reflect(self: Box<Self>) -> Box<dyn Reflect> {
+        self
+    }
+
+    #[inline]
+    fn as_reflect(&self) -> &dyn Reflect {
+        self
+    }
+
+    #[inline]
+    fn as_reflect_mut(&mut self) -> &mut dyn Reflect {
+        self
+    }
+
+    #[inline]
+    fn clone_value(&self) -> Box<dyn Reflect> {
+        Box::new(*self)
+    }
+
+    #[inline]
+    fn set(&mut self, value: Box<dyn Reflect>) -> Result<(), Box<dyn Reflect>> {
+        *self = <dyn Reflect>::take(value)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn apply(&mut self, value: &dyn Reflect) {
+        let value = Reflect::as_any(value);
+        if let Some(value) = <dyn Any>::downcast_ref::<Self>(value) {
+            *self = *value;
+        } else {
+            panic!("Value is not {}.", ::core::any::type_name::<Self>());
+        }
+    }
+
+    fn reflect_ref(&self) -> ReflectRef {
+        ReflectRef::Struct(self)
+    }
+
+    fn reflect_mut(&mut self) -> ReflectMut {
+        ReflectMut::Struct(self)
+    }
+
+    fn reflect_owned(self: Box<Self>) -> ReflectOwned {
+        ReflectOwned::Struct(self)
+    }
+}
+
+impl FromReflect for Attribute {
+    fn from_reflect(reflect: &dyn Reflect) -> Option<Self> {
+        if let Some(name) = reflect.as_any().downcast_ref::<String>() {
+            Attribute::from_name(name)
+        } else {
+            None
+        }
     }
 }
 
@@ -100,8 +311,7 @@ impl Attribute {
     /// [`ValueType::Float3`] representing the XYZ coordinates of the position.
     ///
     /// [simulation space]: crate::SimulationSpace
-    pub const POSITION: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("position"), Value::Float3(Vec3::ZERO));
+    pub const POSITION: Attribute = Attribute(AttributeInner::POSITION);
 
     /// The particle velocity in [simulation space].
     ///
@@ -110,8 +320,7 @@ impl Attribute {
     /// [`ValueType::Float3`] representing the XYZ coordinates of the velocity.
     ///
     /// [simulation space]: crate::SimulationSpace
-    pub const VELOCITY: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("velocity"), Value::Float3(Vec3::ZERO));
+    pub const VELOCITY: Attribute = Attribute(AttributeInner::VELOCITY);
 
     /// The age of the particle.
     ///
@@ -128,7 +337,7 @@ impl Attribute {
     /// # Type
     ///
     /// [`ValueType::Float`]
-    pub const AGE: &'static Attribute = &Attribute::new(Cow::Borrowed("age"), Value::Float(0.));
+    pub const AGE: Attribute = Attribute(AttributeInner::AGE);
 
     /// The lifetime of the particle.
     ///
@@ -140,8 +349,7 @@ impl Attribute {
     /// # Type
     ///
     /// [`ValueType::Float`]
-    pub const LIFETIME: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("lifetime"), Value::Float(1.));
+    pub const LIFETIME: Attribute = Attribute(AttributeInner::LIFETIME);
 
     /// The particle's base color.
     ///
@@ -153,8 +361,7 @@ impl Attribute {
     ///
     /// [`ValueType::Uint`] representing the RGBA components of the color
     /// encoded as `0xAABBGGRR`, with a single byte per component.
-    pub const COLOR: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("color"), Value::Uint(0xFFFFFFFFu32));
+    pub const COLOR: Attribute = Attribute(AttributeInner::COLOR);
 
     /// The particle's base color (HDR).
     ///
@@ -167,13 +374,12 @@ impl Attribute {
     /// [`ValueType::Float4`] representing the RGBA components of the color.
     /// Values are not clamped, and can be outside the \[0:1\] range to
     /// represent HDR values.
-    pub const HDR_COLOR: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("hdr_color"), Value::Float4(Vec4::ONE));
+    pub const HDR_COLOR: Attribute = Attribute(AttributeInner::HDR_COLOR);
 
     /// The particle's transparency (alpha).
     ///
     /// Type: [`ValueType::Float`]
-    pub const ALPHA: &'static Attribute = &Attribute::new(Cow::Borrowed("alpha"), Value::Float(1.));
+    pub const ALPHA: Attribute = Attribute(AttributeInner::ALPHA);
 
     /// The particle's uniform size.
     ///
@@ -182,7 +388,7 @@ impl Attribute {
     /// # Type
     ///
     /// [`ValueType::Float`]
-    pub const SIZE: &'static Attribute = &Attribute::new(Cow::Borrowed("size"), Value::Float(1.));
+    pub const SIZE: Attribute = Attribute(AttributeInner::SIZE);
 
     /// The particle's 2D size, for quad rendering.
     ///
@@ -192,8 +398,7 @@ impl Attribute {
     /// # Type
     ///
     /// [`ValueType::Float2`] representing the XY sizes of the particle.
-    pub const SIZE2: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("size2"), Value::Float2(Vec2::ONE));
+    pub const SIZE2: Attribute = Attribute(AttributeInner::SIZE2);
 
     /// The local X axis of the particle.
     ///
@@ -205,8 +410,7 @@ impl Attribute {
     /// # Type
     ///
     /// [`ValueType::Float3`]
-    pub const AXIS_X: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("axis_x"), Value::Float3(Vec3::X));
+    pub const AXIS_X: Attribute = Attribute(AttributeInner::AXIS_X);
 
     /// The local Y axis of the particle.
     ///
@@ -218,8 +422,7 @@ impl Attribute {
     /// # Type
     ///
     /// [`ValueType::Float3`]
-    pub const AXIS_Y: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("axis_y"), Value::Float3(Vec3::Y));
+    pub const AXIS_Y: Attribute = Attribute(AttributeInner::AXIS_Y);
 
     /// The local Z axis of the particle.
     ///
@@ -231,11 +434,10 @@ impl Attribute {
     /// # Type
     ///
     /// [`ValueType::Float3`]
-    pub const AXIS_Z: &'static Attribute =
-        &Attribute::new(Cow::Borrowed("axis_z"), Value::Float3(Vec3::Z));
+    pub const AXIS_Z: Attribute = Attribute(AttributeInner::AXIS_Z);
 
     /// Collection of all the existing particle attributes.
-    pub const ALL: [&'static Attribute; 12] = [
+    pub const ALL: [Attribute; 12] = [
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,
@@ -262,23 +464,11 @@ impl Attribute {
     /// let attr = Attribute::from_name("position").unwrap();
     /// assert_eq!(attr, Attribute::POSITION);
     /// ```
-    pub fn from_name(name: &str) -> Option<&'static Attribute> {
+    pub fn from_name(name: &str) -> Option<Attribute> {
         Attribute::ALL
             .iter()
-            .find(|&&attr| attr.name() == name)
+            .find(|&attr| attr.name() == name)
             .copied()
-    }
-
-    /// Create a new attribute.
-    ///
-    /// The type of the attribute is inferred from the type of its default
-    /// value.
-    #[inline]
-    pub(crate) const fn new(name: Cow<'static, str>, default_value: Value) -> Self {
-        Self {
-            name,
-            default_value,
-        }
     }
 
     /// The attribute's name.
@@ -286,20 +476,22 @@ impl Attribute {
     /// The name of an attribute is unique, and corresponds to the name of the
     /// variable in the generated WGSL code.
     #[inline]
-    pub fn name(&self) -> &str {
-        self.name.as_ref()
+    pub fn name(&self) -> &'static str {
+        self.0.name.as_ref()
     }
 
     /// The attribute's default value.
     #[inline]
     pub fn default_value(&self) -> Value {
-        self.default_value
+        self.0.default_value
     }
 
     /// The attribute's type.
+    ///
+    /// This is a shortcut for `default_value().value_type()`.
     #[inline]
     pub fn value_type(&self) -> ValueType {
-        self.default_value.value_type()
+        self.0.default_value.value_type()
     }
 
     /// Size of this attribute, in bytes.
@@ -322,7 +514,7 @@ impl Attribute {
 /// Layout for a single [`Attribute`] inside a [`ParticleLayout`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct AttributeLayout {
-    pub attribute: &'static Attribute,
+    pub attribute: Attribute,
     pub offset: u32,
 }
 
@@ -356,7 +548,7 @@ impl ParticleLayoutBuilder {
     /// let mut builder = ParticleLayout::new();
     /// builder.append(Attribute::POSITION);
     /// ```
-    pub fn append(mut self, attribute: &'static Attribute) -> Self {
+    pub fn append(mut self, attribute: Attribute) -> Self {
         self.layout.push(AttributeLayout {
             attribute,
             offset: 0, // fixed up by build()
@@ -572,13 +764,13 @@ impl ParticleLayout {
     /// of attributes.
     pub fn merged_with(
         &self,
-        //attributes: impl IntoIterator<Item = &'static Attribute>,
-        attributes: &[&'static Attribute],
+        //attributes: impl IntoIterator<Item = Attribute>,
+        attributes: &[Attribute],
     ) -> ParticleLayout {
         let mut builder = ParticleLayoutBuilder::from(self);
         //for attr in attributes.into_iter() {
         for attr in attributes {
-            builder = builder.append(attr);
+            builder = builder.append(*attr);
         }
         builder.build()
     }
@@ -648,7 +840,7 @@ impl ParticleLayout {
     /// let has_size = layout.contains(Attribute::SIZE);
     /// assert!(has_size);
     /// ```
-    pub fn contains(&self, attribute: &'static Attribute) -> bool {
+    pub fn contains(&self, attribute: Attribute) -> bool {
         self.layout
             .iter()
             .any(|&entry| entry.attribute.name() == attribute.name())
@@ -679,7 +871,10 @@ impl ParticleLayout {
 mod tests {
     use super::*;
 
-    use bevy::math::{Vec2, Vec3, Vec4};
+    use bevy::{
+        math::{Vec2, Vec3, Vec4},
+        reflect::TypeRegistration,
+    };
     use naga::{front::wgsl::Parser, proc::Layouter};
 
     // Ensure the size and alignment of all types conforms to the WGSL spec by
@@ -746,11 +941,14 @@ mod tests {
         }
     }
 
+    const TEST_ATTR_NAME: &str = "test_attr";
+    const TEST_ATTR_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed(TEST_ATTR_NAME), Value::Float3(Vec3::ONE));
+
     #[test]
     fn attr_new() {
-        let name = "test_attr";
-        let attr = Attribute::new(Cow::Borrowed(name), Value::Float3(Vec3::ONE));
-        assert_eq!(attr.name, name);
+        let attr = Attribute(TEST_ATTR_INNER);
+        assert_eq!(attr.name(), TEST_ATTR_NAME);
         assert_eq!(attr.size(), 12);
         assert_eq!(attr.align(), 16);
         assert_eq!(attr.value_type(), ValueType::Float3);
@@ -764,14 +962,124 @@ mod tests {
         }
     }
 
-    const F1: &Attribute = &Attribute::new(Cow::Borrowed("F1"), Value::Float(3.));
-    const F1B: &Attribute = &Attribute::new(Cow::Borrowed("F1B"), Value::Float(5.));
-    const F2: &Attribute = &Attribute::new(Cow::Borrowed("F2"), Value::Float2(Vec2::ZERO));
-    const F2B: &Attribute = &Attribute::new(Cow::Borrowed("F2B"), Value::Float2(Vec2::ONE));
-    const F3: &Attribute = &Attribute::new(Cow::Borrowed("F3"), Value::Float3(Vec3::ZERO));
-    const F3B: &Attribute = &Attribute::new(Cow::Borrowed("F3B"), Value::Float3(Vec3::ONE));
-    const F4: &Attribute = &Attribute::new(Cow::Borrowed("F4"), Value::Float4(Vec4::ZERO));
-    const F4B: &Attribute = &Attribute::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
+    #[test]
+    fn attr_reflect() {
+        let mut attr = Attribute(TEST_ATTR_INNER);
+
+        let r = attr.as_reflect();
+        assert_eq!(
+            TypeRegistration::of::<Attribute>().type_name(),
+            r.type_name()
+        );
+        match r.reflect_ref() {
+            ReflectRef::Struct(s) => {
+                assert_eq!(2, s.field_len());
+
+                assert_eq!(Some("name"), s.name_at(0));
+                assert_eq!(Some("default_value"), s.name_at(1));
+                assert_eq!(None, s.name_at(2));
+                assert_eq!(None, s.name_at(9999));
+
+                assert_eq!(
+                    Some("alloc::borrow::Cow<str>"),
+                    s.field("name").map(|f| f.type_name())
+                );
+                assert_eq!(
+                    Some("bevy_hanabi::graph::Value"),
+                    s.field("default_value").map(|f| f.type_name())
+                );
+                assert!(s.field("DUMMY").is_none());
+                assert!(s.field("").is_none());
+
+                for f in s.iter_fields() {
+                    assert!(
+                        f.type_name().contains("alloc::borrow::Cow<str>")
+                            || f.type_name().contains("bevy_hanabi::graph::Value")
+                    );
+                }
+
+                let d = s.clone_dynamic();
+                assert_eq!(TypeRegistration::of::<Attribute>().type_name(), d.name());
+                assert_eq!(Some(0), d.index_of("name"));
+                assert_eq!(Some(1), d.index_of("default_value"));
+            }
+            _ => panic!("Attribute should be reflected as a Struct"),
+        }
+
+        // Mutating operators are not implemented by design; only hard-coded built-in
+        // attributes are supported. In any case that won't matter because you
+        // cannot call `as_reflect_mut()` since you cannot obtain a mutable reference to
+        // an attribute.
+        let r = attr.as_reflect_mut();
+        match r.reflect_mut() {
+            ReflectMut::Struct(s) => {
+                assert!(s.field_mut("name").is_none());
+                assert!(s.field_mut("default_value").is_none());
+                assert!(s.field_at_mut(0).is_none());
+                assert!(s.field_at_mut(1).is_none());
+            }
+            _ => panic!("Attribute should be reflected as a Struct"),
+        }
+    }
+
+    #[test]
+    fn attr_from_reflect() {
+        for attr in Attribute::ALL {
+            let s: String = attr.name().into();
+            let r = s.as_reflect();
+            let r_attr = Attribute::from_reflect(r).expect("Cannot find attribute by name");
+            assert_eq!(r_attr, attr);
+        }
+
+        assert_eq!(
+            None,
+            Attribute::from_reflect("test".to_string().as_reflect())
+        );
+    }
+
+    #[test]
+    fn attr_serde() {
+        // All existing attributes can round-trip via serialization
+        for attr in Attribute::ALL {
+            // Serialize; this produces just the name of the attribute, which uniquely
+            // identifies it. The default value is never serialized.
+            let ron = ron::to_string(&attr).unwrap();
+            assert_eq!(ron, format!("\"{}\"", attr.name()));
+
+            // Deserialize; this recovers the Attribute from its name using
+            // Attribute::from_name().
+            let s: Attribute = ron::from_str(&ron).unwrap();
+            assert_eq!(s, attr);
+        }
+
+        // Any other attribute name cannot deserialize
+        assert!(ron::from_str::<Attribute>("\"\"").is_err());
+        assert!(ron::from_str::<Attribute>("\"UNKNOWN\"").is_err());
+    }
+
+    const F1_INNER: &AttributeInner = &AttributeInner::new(Cow::Borrowed("F1"), Value::Float(3.));
+    const F1B_INNER: &AttributeInner = &AttributeInner::new(Cow::Borrowed("F1B"), Value::Float(5.));
+    const F2_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F2"), Value::Float2(Vec2::ZERO));
+    const F2B_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F2B"), Value::Float2(Vec2::ONE));
+    const F3_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F3"), Value::Float3(Vec3::ZERO));
+    const F3B_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F3B"), Value::Float3(Vec3::ONE));
+    const F4_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F4"), Value::Float4(Vec4::ZERO));
+    const F4B_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
+
+    const F1: Attribute = Attribute(F1_INNER);
+    const F1B: Attribute = Attribute(F1B_INNER);
+    const F2: Attribute = Attribute(F2_INNER);
+    const F2B: Attribute = Attribute(F2B_INNER);
+    const F3: Attribute = Attribute(F3_INNER);
+    const F3B: Attribute = Attribute(F3B_INNER);
+    const F4: Attribute = Attribute(F4_INNER);
+    const F4B: Attribute = Attribute(F4B_INNER);
 
     #[test]
     fn test_layout_build() {
@@ -827,7 +1135,7 @@ mod tests {
         // [3, 1, 3, 2] -> [3 1 3 2]
         {
             let mut layout = ParticleLayout::new();
-            for attr in &[F1, F3, F2, F3B] {
+            for &attr in &[F1, F3, F2, F3B] {
                 layout = layout.append(attr);
             }
             let layout = layout.build();
@@ -835,14 +1143,14 @@ mod tests {
             for (i, (off, a)) in [(0, F3), (12, F1), (16, F3B), (28, F2)].iter().enumerate() {
                 let attr_i = layout.layout[i];
                 assert_eq!(attr_i.offset, *off);
-                assert_eq!(&attr_i.attribute, a);
+                assert_eq!(attr_i.attribute, *a);
             }
         }
 
         // [1, 4, 3, 2, 2, 3] -> [4 3 1 2 2 3]
         {
             let mut layout = ParticleLayout::new();
-            for attr in &[F1, F4, F3, F2, F2B, F3B] {
+            for &attr in &[F1, F4, F3, F2, F2B, F3B] {
                 layout = layout.append(attr);
             }
             let layout = layout.build();
@@ -853,7 +1161,7 @@ mod tests {
             {
                 let attr_i = layout.layout[i];
                 assert_eq!(attr_i.offset, *off);
-                assert_eq!(&attr_i.attribute, a);
+                assert_eq!(attr_i.attribute, *a);
             }
         }
     }

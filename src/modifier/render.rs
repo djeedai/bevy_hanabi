@@ -97,7 +97,7 @@ macro_rules! impl_mod_render {
                 Some(self)
             }
 
-            fn attributes(&self) -> &[&'static Attribute] {
+            fn attributes(&self) -> &[Attribute] {
                 $attrs
             }
 

@@ -49,7 +49,7 @@ macro_rules! impl_mod_update {
                 Some(self)
             }
 
-            fn attributes(&self) -> &[&'static Attribute] {
+            fn attributes(&self) -> &[Attribute] {
                 $attrs
             }
 
@@ -76,6 +76,12 @@ pub enum ValueOrProperty {
     ///
     /// [`EffectAsset`]: crate::EffectAsset
     ResolvedProperty((usize, String)),
+}
+
+impl From<&str> for ValueOrProperty {
+    fn from(value: &str) -> Self {
+        Self::Property(value.to_string())
+    }
 }
 
 impl ToWgslString for ValueOrProperty {
@@ -139,7 +145,7 @@ impl Modifier for AccelModifier {
         Some(self)
     }
 
-    fn attributes(&self) -> &[&'static Attribute] {
+    fn attributes(&self) -> &[Attribute] {
         &[Attribute::VELOCITY]
     }
 

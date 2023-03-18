@@ -98,7 +98,7 @@ pub trait Modifier: Reflect + Send + Sync + 'static {
 
     /// Get the list of dependent attributes required for this modifier to be
     /// used.
-    fn attributes(&self) -> &[&'static Attribute];
+    fn attributes(&self) -> &[Attribute];
 
     /// Attempt to resolve any property reference to the actual property in the
     /// effect.
