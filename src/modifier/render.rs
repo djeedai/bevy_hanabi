@@ -132,7 +132,11 @@ impl RenderModifier for ParticleTextureModifier {
     }
 }
 
-/// A modifier to set each particle's rendering color.
+/// A modifier to set the rendering color of all particles.
+///
+/// This modifier assigns a _single_ color to all particles. That color can be
+/// determined by the user with [`Value::Single`], or left randomized with
+/// [`Value::Uniform`], but will be the same color for all particles.
 ///
 /// # Attributes
 ///
@@ -221,7 +225,11 @@ impl RenderModifier for ColorOverLifetimeModifier {
     }
 }
 
-/// A modifier to set each particle's size.
+/// A modifier to set the size of all particles.
+///
+/// This modifier assigns a _single_ size to all particles. That size can be
+/// determined by the user with [`Value::Single`], or left randomized with
+/// [`Value::Uniform`], but will be the same size for all particles.
 ///
 /// # Attributes
 ///
