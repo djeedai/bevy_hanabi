@@ -143,7 +143,7 @@ mod test_utils;
 
 use properties::{Property, PropertyInstance};
 
-pub use asset::EffectAsset;
+pub use asset::{EffectAsset, MotionIntegration};
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
@@ -787,10 +787,35 @@ fn tick_spawners(
             for m in asset.modifiers.iter().filter_map(|m| m.as_update()) {
                 m.apply(&mut update_context);
             }
-            // Append Euler integration (TODO - Do we want to make this explicit?)
-            // Note the prepended "\n" to prevent appending to a comment line.
-            update_context.update_code +=
-                "\n(*particle).position += (*particle).velocity * sim_params.dt;\n";
+
+            // Insert Euler motion integration if needed.
+            let has_position = present_attributes.contains(Attribute::POSITION);
+            let has_velocity = present_attributes.contains(Attribute::VELOCITY);
+            if asset.motion_integration != MotionIntegration::None {
+                if has_position && has_velocity {
+                    // Note the prepended "\n" to prevent appending to a comment line.
+                    let code = format!(
+                        "\n(*particle).{0} += (*particle).{1} * sim_params.dt;\n",
+                        Attribute::POSITION.name(),
+                        Attribute::VELOCITY.name()
+                    );
+                    if asset.motion_integration == MotionIntegration::PreUpdate {
+                        update_context.update_code.insert_str(0, &code);
+                    } else {
+                        update_context.update_code += &code;
+                    }
+                } else {
+                    warn!(
+                        "Asset {} specifies motion integration but is missing {}.",
+                        asset.name,
+                        if has_position {
+                            "Attribute::VELOCITY"
+                        } else {
+                            "Attribute::POSITION"
+                        }
+                    )
+                }
+            }
 
             // Generate the shader code for the render shader
             let mut render_context = RenderContext::default();

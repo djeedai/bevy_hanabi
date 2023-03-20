@@ -8,8 +8,33 @@ use serde::{Deserialize, Serialize};
 use crate::{
     graph::Value,
     modifier::{init::InitModifier, render::RenderModifier, update::UpdateModifier},
-    Attribute, BoxedModifier, ParticleLayout, Property, PropertyLayout, SimulationSpace, Spawner,
+    BoxedModifier, ParticleLayout, Property, PropertyLayout, SimulationSpace, Spawner,
 };
+
+/// Type of motion integration applied to the particles of a system.
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize,
+)]
+pub enum MotionIntegration {
+    /// No motion integration. The [`Attribute::POSITION`] of the particles
+    /// needs to be explicitly assigned by a modifier for the particles to move.
+    None,
+
+    /// Apply Euler motion integration each simulation update before all
+    /// modifiers are applied.
+    ///
+    /// Not to be confused with Bevy's `PreUpdate` phase. Here "update" refers
+    /// to the particle update on the GPU via a compute shader.
+    PreUpdate,
+
+    /// Apply Euler motion integration each simulation update after all
+    /// modifiers are applied. This is the default.
+    ///
+    /// Not to be confused with Bevy's `PostUpdate` phase. Here "update" refers
+    /// to the particle update on the GPU via a compute shader.
+    #[default]
+    PostUpdate,
+}
 
 /// Asset describing a visual effect.
 ///
@@ -61,6 +86,8 @@ pub struct EffectAsset {
     /// [`with_property()`]: crate::EffectAsset::with_property
     /// [`add_property()`]: crate::EffectAsset::add_property
     pub properties: Vec<Property>,
+    /// Type of motion integration applied to the particles of a system.
+    pub motion_integration: MotionIntegration,
 }
 
 impl EffectAsset {
@@ -156,11 +183,6 @@ impl EffectAsset {
                 set.insert(attr);
             }
         }
-
-        // For legacy compatibility reasons, and because both the motion integration and
-        // the particle aging are currently mandatory, add some default attributes.
-        set.insert(Attribute::POSITION);
-        set.insert(Attribute::VELOCITY);
 
         // Build the layout
         let mut layout = ParticleLayout::new();

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `SetColorModifier` to set a per-particle color on spawning, which doesn't vary during the particle's lifetime.
 - `SetSizeModifier` to set a per-particle size on spawning, which doesn't vary during the particle's lifetime.
+- `EffectAsset::motion_integration` to configure the type of motion integration of the particles of a system. Using this field, the user can now completely disable motion integration, or perform it _before_ the modifiers are applied. The default behavior remains to perform the motion integration _after_ all modifiers have been applied (`MotionIntegration::PostUpdate`).
 
 ### Changed
 
@@ -17,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Particles without a lifetime are not reaped and therefore do not die from aging.
 
   The documentation for all modifiers has been updated to state which attribute(s) they require, if any.
+
+- The `Attribute::POSITION` and `Attribute::VELOCITY` are not mandatory anymore. They are required if `EffectAsset::motion_integration` is set to something other than `MotionIntegration::None`, but are not added automatically to all effect, and instead require a modifier to explicitly insert them into the particle layout. Effects with a non-`None` motion integration but missing either of those two attributes will emit a warning at runtime. Add a position or velocity initializing modifier to fix it.
 
 ## [0.6.1] 2023-03-13
 
