@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     modifier::ShapeDimension, Attribute, BoxedModifier, DimValue, Modifier, ModifierContext,
-    ToWgslString, Value,
+    ToWgslString, Value, ValueOrProperty,
 };
 
 /// Particle initializing shader code generation context.
@@ -42,7 +42,7 @@ macro_rules! impl_mod_init {
                 Some(self)
             }
 
-            fn attributes(&self) -> &[&'static Attribute] {
+            fn attributes(&self) -> &[Attribute] {
                 $attrs
             }
 
@@ -51,6 +51,63 @@ macro_rules! impl_mod_init {
             }
         }
     };
+}
+
+/// A modifier to set the initial value of any particle attribute.
+///
+/// This modifier initializes any [`Attribute`] of particles to a given value,
+/// either hard-coded or bound to a property whose value was dynamically
+/// uploaded from CPU during the frame the particle initializes.
+///
+/// # Caution
+///
+/// At the minute there is no validation that the type of the value is the same
+/// as the type of the attribute. Users are advised to be careful, until more
+/// safeguards are added.
+///
+/// # Attributes
+///
+/// This modifier requires the attribute specified in the `attribute` field.
+#[derive(Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct InitAttributeModifier {
+    /// The name of the attribute to initialize.
+    pub attribute: Attribute,
+    /// The initial value of the attribute.
+    pub value: ValueOrProperty,
+}
+
+#[typetag::serde]
+impl Modifier for InitAttributeModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Init
+    }
+
+    fn as_init(&self) -> Option<&dyn InitModifier> {
+        Some(self)
+    }
+
+    fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
+        Some(self)
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        std::slice::from_ref(&self.attribute)
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(self.clone())
+    }
+}
+
+#[typetag::serde]
+impl InitModifier for InitAttributeModifier {
+    fn apply(&self, context: &mut InitContext) {
+        context.init_code += &format!(
+            "particle.{0} = {1};\n",
+            self.attribute.name(),
+            self.value.to_wgsl_string()
+        );
+    }
 }
 
 /// An initialization modifier spawning particles on a circle/disc.
@@ -498,7 +555,7 @@ impl Modifier for InitSizeModifier {
         Some(self)
     }
 
-    fn attributes(&self) -> &[&'static Attribute] {
+    fn attributes(&self) -> &[Attribute] {
         match self.size {
             DimValue::D1(_) => &[Attribute::SIZE],
             DimValue::D2(_) => &[Attribute::SIZE2],

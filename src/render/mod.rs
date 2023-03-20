@@ -413,6 +413,8 @@ pub(crate) struct ParticleInitPipelineKey {
     shader: Handle<Shader>,
     /// Particle layout.
     particle_layout: ParticleLayout,
+    /// Property layout.
+    property_layout: PropertyLayout,
 }
 
 impl SpecializedComputePipeline for ParticlesInitPipeline {
@@ -420,35 +422,61 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
 
     fn specialize(&self, key: Self::Key) -> ComputePipelineDescriptor {
         trace!(
-            "Specialize init pipeline: particle_layout.min_binding_size={}",
-            key.particle_layout.min_binding_size()
+            "GpuParticle: attributes.min_binding_size={} properties.min_binding_size={}",
+            key.particle_layout.min_binding_size().get(),
+            if key.property_layout.is_empty() {
+                0
+            } else {
+                key.property_layout.min_binding_size().get()
+            },
+        );
+
+        let mut entries = vec![
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(key.particle_layout.min_binding_size()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: true,
+                    min_binding_size: BufferSize::new(12),
+                },
+                count: None,
+            },
+        ];
+        if !key.property_layout.is_empty() {
+            entries.push(BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false, // TODO
+                    min_binding_size: Some(key.property_layout.min_binding_size()),
+                },
+                count: None,
+            });
+        }
+
+        let label = "hanabi:init_particles_buffer_layout";
+        trace!(
+            "Creating particle bind group layout '{}' for init pass with {} entries.",
+            label,
+            entries.len()
         );
         let particles_buffer_layout =
             self.render_device
                 .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                    entries: &[
-                        BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: ShaderStages::COMPUTE,
-                            ty: BindingType::Buffer {
-                                ty: BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: true,
-                                min_binding_size: Some(key.particle_layout.min_binding_size()),
-                            },
-                            count: None,
-                        },
-                        BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: ShaderStages::COMPUTE,
-                            ty: BindingType::Buffer {
-                                ty: BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: true,
-                                min_binding_size: BufferSize::new(12),
-                            },
-                            count: None,
-                        },
-                    ],
-                    label: Some("hanabi:init_particles_buffer_layout"),
+                    entries: &entries,
+                    label: Some(label),
                 });
 
         ComputePipelineDescriptor {
@@ -1747,6 +1775,7 @@ pub(crate) fn prepare_effects(
             ParticleInitPipelineKey {
                 shader: extracted_effect.init_shader.clone(),
                 particle_layout: extracted_effect.particle_layout.clone(),
+                property_layout: extracted_effect.property_layout.clone(),
             },
         );
         trace!("Init pipeline specialized: id={:?}", init_pipeline_id);
@@ -1951,21 +1980,14 @@ pub(crate) fn prepare_effects(
 
 /// Per-buffer bind groups for the GPU particle buffer.
 pub(crate) struct BufferBindGroups {
-    /// Bind group for the init compute shader.
-    ///
-    /// ```wgsl
-    /// @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
-    /// @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
-    /// ```
-    init: BindGroup,
-    /// Bind group for the update compute shader.
+    /// Bind group for the init and update compute shaders.
     ///
     /// ```wgsl
     /// @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
     /// @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
     /// @binding(2) var<storage, read> properties : Properties; // optional
     /// ```
-    update: BindGroup,
+    simulate: BindGroup,
     /// Bind group for the render graphic shader.
     ///
     /// ```wgsl
@@ -1985,14 +2007,10 @@ pub(crate) struct EffectBindGroups {
 }
 
 impl EffectBindGroups {
-    pub fn particle_init(&self, buffer_index: u32) -> Option<&BindGroup> {
-        self.particle_buffers.get(&buffer_index).map(|bg| &bg.init)
-    }
-
-    pub fn particle_update(&self, buffer_index: u32) -> Option<&BindGroup> {
+    pub fn particle_simulate(&self, buffer_index: u32) -> Option<&BindGroup> {
         self.particle_buffers
             .get(&buffer_index)
-            .map(|bg| &bg.update)
+            .map(|bg| &bg.simulate)
     }
 
     pub fn particle_render(&self, buffer_index: u32) -> Option<&BindGroup> {
@@ -2216,27 +2234,10 @@ pub(crate) fn queue_effects(
                     buffer.property_layout(),
                 );
 
-                let label = format!("hanabi:bind_group_init_vfx{buffer_index}_particles");
-                trace!("=> create init bind group '{}' with 2 entries", label);
-                let init = render_device.create_bind_group(&BindGroupDescriptor {
-                    entries: &[
-                        BindGroupEntry {
-                            binding: 0,
-                            resource: buffer.max_binding(),
-                        },
-                        BindGroupEntry {
-                            binding: 1,
-                            resource: buffer.indirect_max_binding(),
-                        },
-                    ],
-                    label: Some(&label),
-                    layout: buffer.particle_layout_bind_group_init(),
-                });
-
-                // FIXME - If same as init above, reuse?
-                let layout = buffer.particle_layout_bind_group_update();
-                let label = format!("hanabi:bind_group_update_vfx{}_particles", buffer_index);
-                let update = if let Some(property_binding) = buffer.properties_max_binding() {
+                // Bind group shared by the init and update compute shaders to simulate particles.
+                let layout = buffer.particle_layout_bind_group_simulate();
+                let label = format!("hanabi:bind_group_simulate_vfx{}_particles", buffer_index);
+                let simulate = if let Some(property_binding) = buffer.properties_max_binding() {
                     let entries = [
                         BindGroupEntry {
                             binding: 0,
@@ -2302,8 +2303,7 @@ pub(crate) fn queue_effects(
                 });
 
                 BufferBindGroups {
-                    init,
-                    update,
+                    simulate,
                     render,
                 }
             });
@@ -2829,9 +2829,7 @@ impl Node for VfxSimulateNode {
                         //let effect_slice = effects_meta.get(&effect_entity);
                         // let effect_group =
                         //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
-                        let particles_bind_group = effect_bind_groups
-                            .particle_init(batch.buffer_index)
-                            .unwrap();
+                        let Some(particles_bind_group) = effect_bind_groups.particle_simulate(batch.buffer_index) else { continue; };
 
                         let item_size = batch.particle_layout.min_binding_size();
                         let item_count = batch.slice.end - batch.slice.start;
@@ -2959,9 +2957,7 @@ impl Node for VfxSimulateNode {
                     //let effect_slice = effects_meta.get(&effect_entity);
                     // let effect_group =
                     //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
-                    let particles_bind_group = effect_bind_groups
-                        .particle_update(batch.buffer_index)
-                        .unwrap();
+                    let Some(particles_bind_group) = effect_bind_groups.particle_simulate(batch.buffer_index) else { continue; };
 
                     let item_size = batch.particle_layout.size();
                     let item_count = batch.slice.end - batch.slice.start;

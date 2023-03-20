@@ -45,9 +45,12 @@ struct RenderIndirectBuffer {
     ping: u32,
 };
 
+{{PROPERTIES}}
+
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
+{{PROPERTIES_BINDING}}
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as update
 @group(3) @binding(0) var<storage, read_write> render_indirect : RenderIndirectBuffer;
 

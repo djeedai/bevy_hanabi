@@ -445,16 +445,17 @@ impl ParticleEffect {
     /// This is called internally when an instance is created, to initialize it
     /// from its source asset.
     pub(crate) fn init_from_asset(&mut self, asset: &EffectAsset) {
-        self.properties = asset
-            .properties
-            .iter()
-            .map(|def| PropertyInstance {
-                def: def.clone(),
-                value: *def.default_value(),
-            })
-            .collect();
-
-        self.spawner = Some(asset.spawner);
+        // TODO - better check for change than this!!
+        if asset.properties.len() != self.properties.len() {
+            self.properties = asset
+                .properties
+                .iter()
+                .map(|def| PropertyInstance {
+                    def: def.clone(),
+                    value: *def.default_value(),
+                })
+                .collect();
+        }
     }
 
     /// Get the init, update, and render shaders if they're all configured, or
@@ -650,19 +651,21 @@ fn tick_spawners(
             continue;
         }
 
+        // Check if asset is available, otherwise silently ignore
+        let asset = if let Some(asset) = effects.get(&effect.handle) {
+            asset
+        } else {
+            continue;
+        };
+
+        // Initialize properties
+        effect.init_from_asset(asset);
+
         // Assign asset if not already done
         let spawner = if let Some(spawner) = effect.maybe_spawner() {
             spawner
         } else {
-            // Check if asset is available, otherwise silently ignore
-            let asset = if let Some(asset) = effects.get(&effect.handle) {
-                asset
-            } else {
-                continue;
-            };
-
-            effect.init_from_asset(asset);
-
+            effect.set_spawner(asset.spawner);
             effect.spawner.as_mut().unwrap()
         };
 
@@ -789,8 +792,8 @@ fn tick_spawners(
             }
 
             // Insert Euler motion integration if needed.
-            let has_position = present_attributes.contains(Attribute::POSITION);
-            let has_velocity = present_attributes.contains(Attribute::VELOCITY);
+            let has_position = present_attributes.contains(&Attribute::POSITION);
+            let has_velocity = present_attributes.contains(&Attribute::VELOCITY);
             if asset.motion_integration != MotionIntegration::None {
                 if has_position && has_velocity {
                     // Note the prepended "\n" to prevent appending to a comment line.
@@ -824,8 +827,8 @@ fn tick_spawners(
             }
 
             // Configure aging code
-            let has_age = present_attributes.contains(Attribute::AGE);
-            let has_lifetime = present_attributes.contains(Attribute::LIFETIME);
+            let has_age = present_attributes.contains(&Attribute::AGE);
+            let has_lifetime = present_attributes.contains(&Attribute::LIFETIME);
             let alive_init_code = if has_age && has_lifetime {
                 format!(
                     "var is_alive = (*particle).{0} < (*particle).{1};",
@@ -864,7 +867,9 @@ fn tick_spawners(
             let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
                 .replace("{{ATTRIBUTES}}", &attributes_code)
                 .replace("{{INIT_CODE}}", &init_context.init_code)
-                .replace("{{INIT_EXTRA}}", &init_context.init_extra);
+                .replace("{{INIT_EXTRA}}", &init_context.init_extra)
+                .replace("{{PROPERTIES}}", &properties_code)
+                .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
             let init_shader = shader_cache.get_or_insert(&init_shader_source, &mut shaders);
             trace!("Configured init shader:\n{}", init_shader_source);
 

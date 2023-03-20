@@ -97,10 +97,6 @@ fn setup(
         })
         .insert(Name::new("ball"));
 
-    let mut gradient = Gradient::new();
-    gradient.add_key(0.0, Vec4::new(0.0, 1.0, 1.0, 1.0));
-    gradient.add_key(1.0, Vec4::new(0.0, 1.0, 1.0, 0.0));
-
     let spawner = Spawner::once(30.0.into(), false);
     let effect = effects.add(
         EffectAsset {
@@ -109,6 +105,7 @@ fn setup(
             spawner,
             ..Default::default()
         }
+        .with_property("my_color", graph::Value::Uint(0xFFFFFFFF))
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: BALL_RADIUS,
@@ -121,10 +118,13 @@ fn setup(
         .init(InitLifetimeModifier {
             lifetime: 5_f32.into(),
         })
+        .init(InitAttributeModifier {
+            attribute: Attribute::COLOR,
+            value: "my_color".into(),
+        })
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::constant(Vec2::splat(0.05)),
-        })
-        .render(ColorOverLifetimeModifier { gradient }),
+        }),
     );
 
     commands
@@ -163,6 +163,14 @@ fn update(
             // This isn't the most accurate place to spawn the particle effect,
             // but this is just for demonstration, so whatever.
             effect_transform.translation = transform.translation;
+
+            // Pick a random particle color
+            let r = rand::random::<u8>();
+            let g = rand::random::<u8>();
+            let b = rand::random::<u8>();
+            let color = 0xFF000000u32 | (b as u32) << 16 | (g as u32) << 8 | (r as u32);
+            effect.set_property("my_color", color.into());
+
             // Spawn the particles
             effect.maybe_spawner().unwrap().reset();
         }
