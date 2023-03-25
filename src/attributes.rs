@@ -337,6 +337,8 @@ impl Attribute {
     /// # Type
     ///
     /// [`ValueType::Float`]
+    ///
+    /// [`ColorOverLifetimeModifier`]: crate::modifier::render::ColorOverLifetimeModifier
     pub const AGE: Attribute = Attribute(AttributeInner::AGE);
 
     /// The lifetime of the particle.

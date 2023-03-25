@@ -18,6 +18,8 @@ use crate::{
 pub enum MotionIntegration {
     /// No motion integration. The [`Attribute::POSITION`] of the particles
     /// needs to be explicitly assigned by a modifier for the particles to move.
+    ///
+    /// [`Attribute::POSITION`]: crate::Attribute::POSITION
     None,
 
     /// Apply Euler motion integration each simulation update before all

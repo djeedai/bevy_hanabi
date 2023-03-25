@@ -1,4 +1,4 @@
-use crate::{EffectAsset, ParticleEffect, Spawner};
+use crate::{CompiledParticleEffect, EffectAsset, ParticleEffect, Spawner};
 use bevy::prelude::*;
 
 /// A component bundle for a particle effect.
@@ -10,6 +10,12 @@ use bevy::prelude::*;
 pub struct ParticleEffectBundle {
     /// The particle effect instance itself.
     pub effect: ParticleEffect,
+    /// A compiled version of the particle effect, managed automatically.
+    ///
+    /// You generally don't need to interact with this component, except to
+    /// manage the properties of the effect instance via
+    /// [`CompiledParticleEffect::set_property()`].
+    pub compiled_effect: CompiledParticleEffect,
     /// Transform of the entity, representing the frame of reference for the
     /// particle emission.
     ///
@@ -45,6 +51,7 @@ impl ParticleEffectBundle {
     pub fn new(handle: Handle<EffectAsset>) -> Self {
         Self {
             effect: ParticleEffect::new(handle),
+            compiled_effect: CompiledParticleEffect::default(),
             transform: Default::default(),
             global_transform: Default::default(),
             visibility: Default::default(),
@@ -52,9 +59,16 @@ impl ParticleEffectBundle {
         }
     }
 
-    /// Gives the particle effect a spawner.
+    /// Override the particle spawner of this instance.
+    ///
+    /// By default the [`ParticleEffect`] instance will inherit the [`Spawner`]
+    /// configuration of the [`EffectAsset`]. With this method, you can override
+    /// that configuration for the current effect instance alone.
+    ///
+    /// This method is a convenience helper, and is equivalent to assigning the
+    /// [`ParticleEffect::spawner`] field.
     pub fn with_spawner(mut self, spawner: Spawner) -> Self {
-        self.effect.set_spawner(spawner);
+        self.effect.spawner = Some(spawner);
         self
     }
 }
@@ -81,8 +95,8 @@ mod tests {
     #[test]
     fn bundle_with_spawner() {
         let spawner = Spawner::once(5.0.into(), true);
-        let mut bundle = ParticleEffectBundle::default().with_spawner(spawner);
-        assert!(bundle.effect.maybe_spawner().is_some());
-        assert_eq!(*bundle.effect.maybe_spawner().unwrap(), spawner);
+        let bundle = ParticleEffectBundle::default().with_spawner(spawner);
+        assert!(bundle.effect.spawner.is_some());
+        assert_eq!(bundle.effect.spawner.unwrap(), spawner);
     }
 }

@@ -95,7 +95,7 @@ fn setup(
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.5, 0.5, 1.0, 0.0));
 
-    let spawner = Spawner::rate(30.0.into()).with_active(false);
+    let spawner = Spawner::rate(30.0.into()).with_starts_active(false);
     let effect = effects.add(
         EffectAsset {
             name: "Impact".into(),
@@ -128,12 +128,12 @@ fn setup(
 }
 
 fn update(
-    mut balls: Query<(&mut Ball, &mut Transform, &Children)>,
-    mut effect: Query<&mut ParticleEffect>,
+    mut q_balls: Query<(&mut Ball, &mut Transform, &Children)>,
+    mut q_spawner: Query<&mut EffectSpawner>,
     time: Res<Time>,
 ) {
     const ACCELERATION: f32 = 1.0;
-    for (mut ball, mut transform, children) in balls.iter_mut() {
+    for (mut ball, mut transform, children) in q_balls.iter_mut() {
         let accel = if transform.translation.y >= 0.0 {
             -ACCELERATION
         } else {
@@ -142,10 +142,11 @@ fn update(
         ball.velocity_y += accel * time.delta_seconds();
         transform.translation.y += ball.velocity_y * time.delta_seconds();
 
-        let mut effect = effect.get_mut(children[0]).unwrap();
-        effect
-            .maybe_spawner()
-            .unwrap()
-            .set_active(transform.translation.y < 0.0);
+        // Note: On first frame where the effect spawns, EffectSpawner is spawned during
+        // CoreSet::PostUpdate, so will not be available yet. Ignore for a frame
+        // if so.
+        if let Ok(mut spawner) = q_spawner.get_mut(children[0]) {
+            spawner.set_active(transform.translation.y < 0.0);
+        }
     }
 }

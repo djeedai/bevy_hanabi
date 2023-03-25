@@ -134,12 +134,22 @@ fn setup(
 
 fn update(
     mut balls: Query<(&mut Ball, &mut Transform)>,
-    mut effect: Query<(&mut ParticleEffect, &mut Transform), Without<Ball>>,
+    mut effect: Query<
+        (
+            &mut CompiledParticleEffect,
+            &mut EffectSpawner,
+            &mut Transform,
+        ),
+        Without<Ball>,
+    >,
     time: Res<Time>,
 ) {
     const HALF_SIZE: f32 = BOX_SIZE / 2.0 - BALL_RADIUS;
 
-    let (mut effect, mut effect_transform) = effect.single_mut();
+    // Note: On first frame where the effect spawns, EffectSpawner is spawned during
+    // CoreSet::PostUpdate, so will not be available yet. Ignore for a frame if
+    // so.
+    let Ok((mut effect, mut spawner, mut effect_transform)) = effect.get_single_mut() else { return; };
 
     for (mut ball, mut transform) in balls.iter_mut() {
         let mut pos = transform.translation.xy() + ball.velocity * time.delta_seconds();
@@ -172,7 +182,7 @@ fn update(
             effect.set_property("my_color", color.into());
 
             // Spawn the particles
-            effect.maybe_spawner().unwrap().reset();
+            spawner.reset();
         }
     }
 }

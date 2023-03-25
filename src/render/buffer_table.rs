@@ -20,7 +20,7 @@ pub struct BufferTableId(pub(crate) u32); // TEMP: pub(crate)
 
 #[derive(Debug)]
 struct AllocatedBuffer {
-    /// Currently allocated buffer, of size equal to [`size`].
+    /// Currently allocated buffer, of size equal to `size`.
     buffer: Buffer,
     /// Size of the currently allocated buffer, in bytes.
     size: usize,
@@ -354,7 +354,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     /// Returns `true` if a new buffer was (re-)allocated, to indicate any bind
     /// group needs to be re-created.
     ///
-    /// [`insert()]`: BufferTable::insert
+    /// [`insert()]`: crate::render::BufferTable::insert
     pub fn allocate_gpu(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
         // The allocated capacity is the capacity of the currently allocated GPU buffer,
         // which can be different from the expected capacity (self.capacity) for next

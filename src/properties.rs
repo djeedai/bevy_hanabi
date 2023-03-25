@@ -64,6 +64,8 @@ impl ToWgslString for Property {
 }
 
 /// Instance of a [`Property`] owned by a specific [`ParticleEffect`] component.
+///
+/// [`ParticleEffect`]: crate::ParticleEffect
 #[derive(Debug, Clone, Reflect, FromReflect)]
 pub(crate) struct PropertyInstance {
     /// The property definition, including its default value.
