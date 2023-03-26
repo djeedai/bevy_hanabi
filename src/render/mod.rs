@@ -1676,7 +1676,6 @@ pub(crate) fn prepare_effects(
         } else {
             LayoutFlags::NONE
         };
-        image_handle_id = extracted_effect.image_handle_id;
         trace!("Effect: buffer #{} | range {:?}", buffer_index, range);
 
         #[cfg(feature = "2d")]
@@ -1806,6 +1805,9 @@ pub(crate) fn prepare_effects(
 
         render_shader = extracted_effect.render_shader.clone();
         trace!("render_shader = {:?}", render_shader);
+
+        image_handle_id = extracted_effect.image_handle_id;
+        trace!("image_handle_id = {:?}", image_handle_id);
 
         trace!("particle_layout = {:?}", slice.particle_layout);
 
@@ -2398,6 +2400,12 @@ pub(crate) fn queue_effects(
                             trace!("GPU image not yet available; skipping batch for now.");
                             continue;
                         }
+                    } else {
+                        trace!(
+                            "Image {:?} already has bind group {:?}.",
+                            image_handle,
+                            effect_bind_groups.images.get(&image_handle).unwrap()
+                        );
                     }
                 }
 
@@ -2525,6 +2533,12 @@ pub(crate) fn queue_effects(
                             trace!("GPU image not yet available; skipping batch for now.");
                             continue;
                         }
+                    } else {
+                        trace!(
+                            "Image {:?} already has bind group {:?}.",
+                            image_handle,
+                            effect_bind_groups.images.get(&image_handle).unwrap()
+                        );
                     }
                 }
 
