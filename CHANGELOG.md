@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `Attribute::POSITION` and `Attribute::VELOCITY` are not mandatory anymore. They are required if `EffectAsset::motion_integration` is set to something other than `MotionIntegration::None`, but are not added automatically to all effects like they used to be, and instead require a modifier to explicitly insert them into the particle layout. Effects with a non-`None` motion integration but missing either of those two attributes will emit a warning at runtime. Add a position or velocity initializing modifier to fix it.
 - The documentation for all modifiers has been updated to state which attribute(s) they require, if any. Modifiers insert the attributes they require into the particle layout of the effect the modifier is attached to.
 
+### Removed
+
+- Deleted the following unused types: `EffectMaterial`, `EffectMaterialUniformData`, `EffectMaterialPlugin`, `GpuEffectMaterial`.
+
 ### Fixed
 
 - Fixed a bug where using `ParticleEffect::with_spawner()` would prevent properties from initializing correctly.
