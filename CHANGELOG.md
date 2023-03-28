@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed a bug where using `ParticleEffect::with_spawner()` would prevent properties from initializing correctly.
 - Fixed a bug where the effect texture of the previously batched effect was incorrectly selected instead of the texture of the current effect. (#167)
+- Fixed a bug on some GPUs (most notably, on macOS) where incorrect data padding was breaking simulation of all but the first effect. (#165)
 
 ## [0.6.1] 2023-03-13
 

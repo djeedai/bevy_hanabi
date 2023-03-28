@@ -43,6 +43,7 @@ struct Spawner {
     count: atomic<i32>,
     effect_index: u32,
     force_field: array<ForceFieldSource, 16>,
+    {{SPAWNER_PADDING}}
 };
 
 struct SpawnerBuffer {
