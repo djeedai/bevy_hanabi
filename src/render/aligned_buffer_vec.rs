@@ -129,6 +129,8 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
         self.values.len()
     }
 
+    /// Size in bytes of a single item in the buffer, aligned to the item
+    /// alignment.
     #[inline]
     pub fn aligned_size(&self) -> usize {
         self.aligned_size

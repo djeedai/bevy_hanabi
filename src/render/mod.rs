@@ -234,6 +234,18 @@ impl FromWorld for DispatchIndirectPipeline {
         let world = world.cell();
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
+        // The GpuSpawnerParams is bound as an array element or as a standalone struct,
+        // so needs the proper align. Because WGSL removed the @stride attribute, we pad
+        // the WGSL type manually, so need to enforce min_binding_size everywhere.
+        let item_align = render_device.limits().min_storage_buffer_offset_alignment as usize;
+        let spawner_aligned_size =
+            next_multiple_of(GpuSpawnerParams::min_size().get() as usize, item_align);
+        trace!(
+            "Aligning spawner params to {} bytes as device limits requires. Size: {} bytes.",
+            item_align,
+            spawner_aligned_size
+        );
+
         trace!(
             "GpuRenderIndirect: min_size={} | GpuDispatchIndirect: min_size={}",
             GpuRenderIndirect::min_size(),
@@ -268,7 +280,9 @@ impl FromWorld for DispatchIndirectPipeline {
                         ty: BindingType::Buffer {
                             ty: BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
-                            min_binding_size: Some(GpuSpawnerParams::min_size()),
+                            min_binding_size: Some(
+                                NonZeroU64::new(spawner_aligned_size as u64).unwrap(),
+                            ),
                         },
                         count: None,
                     },
@@ -301,9 +315,24 @@ impl FromWorld for DispatchIndirectPipeline {
             push_constant_ranges: &[],
         });
 
+        // We need to pad the Spawner WGSL struct based on the device padding so that we
+        // can use it as an array element but also has a direct struct binding.
+        let spawner_padding_code = if GpuSpawnerParams::min_size().get() as usize
+            != spawner_aligned_size
+        {
+            let padding_size = spawner_aligned_size - GpuSpawnerParams::min_size().get() as usize;
+            assert!(padding_size % 4 == 0);
+            format!("padding: array<u32, {}>", padding_size / 4)
+        } else {
+            "".to_string()
+        };
+        let indirect_code = include_str!("vfx_indirect.wgsl")
+            .to_string()
+            .replace("{{SPAWNER_PADDING}}", &spawner_padding_code);
+        debug!("Create indirect dispatch shader:\n{}", indirect_code);
         let shader_module = render_device.create_shader_module(ShaderModuleDescriptor {
             label: Some("hanabi:vfx_indirect_shader"),
-            source: ShaderSource::Wgsl(Cow::Borrowed(include_str!("vfx_indirect.wgsl"))),
+            source: ShaderSource::Wgsl(Cow::Owned(indirect_code)),
         });
 
         let pipeline = render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
@@ -2116,14 +2145,23 @@ pub(crate) fn queue_effects(
     // Create the bind group for the spawner parameters
     // FIXME - This is shared by init and update; should move
     // "update_pipeline.spawner_buffer_layout" out of "update_pipeline"
+    trace!(
+        "Spawner buffer bind group: size={} aligned_size={}",
+        GpuSpawnerParams::min_size().get(),
+        effects_meta.spawner_buffer.aligned_size()
+    );
+    assert!(
+        effects_meta.spawner_buffer.aligned_size() >= GpuSpawnerParams::min_size().get() as usize
+    );
     effects_meta.spawner_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
         entries: &[BindGroupEntry {
             binding: 0,
             resource: BindingResource::Buffer(BufferBinding {
                 buffer: effects_meta.spawner_buffer.buffer().unwrap(),
                 offset: 0,
-                // TODO - should bind N consecutive structs for batching
-                size: Some(GpuSpawnerParams::min_size()),
+                size: Some(
+                    NonZeroU64::new(effects_meta.spawner_buffer.aligned_size() as u64).unwrap(),
+                ),
             }),
         }],
         label: Some("hanabi:bind_group_spawner_buffer"),
