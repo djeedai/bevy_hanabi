@@ -62,6 +62,40 @@ jobs:
           CARGO_INCREMENTAL: 0
         if: matrix.dimensions == 'all'
 
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Bevy dependencies
+        run: |
+          sudo apt-get update;
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
+            libasound2-dev libudev-dev;
+      - name: Install graphic drivers
+        run: |
+          sudo apt-get update -y -qq
+          sudo add-apt-repository ppa:oibaf/graphics-drivers -y
+          sudo apt-get update
+          sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-build-all-nightly-${{ hashFiles('**/Cargo.toml') }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rustfmt, clippy
+          override: true
+      - name: Build & run examples
+        run: cargo run --example firework --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
+        env:
+          CARGO_INCREMENTAL: 0
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
