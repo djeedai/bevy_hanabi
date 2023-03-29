@@ -62,7 +62,7 @@ jobs:
           CARGO_INCREMENTAL: 0
         if: matrix.dimensions == 'all'
 
-  build:
+  run-examples:
     runs-on: ubuntu-latest
     steps:
       - name: Install Bevy dependencies
