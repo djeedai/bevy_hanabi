@@ -92,7 +92,7 @@ jobs:
           components: rustfmt, clippy
           override: true
       - name: Build & run examples
-        run: cargo run --example firework --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
+        run: xvfb-run cargo run --example firework --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
         env:
           CARGO_INCREMENTAL: 0
 
