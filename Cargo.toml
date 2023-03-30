@@ -35,7 +35,7 @@ typetag = "0.2"
 [dependencies.bevy]
 version = "0.10"
 default-features = false
-features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset" ]
+features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 
 [package.metadata.docs.rs]
 all-features = true

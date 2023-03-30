@@ -109,6 +109,8 @@ commands
 
 See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/ffbf91be7f0780f8830869d14a64a79ca79baebb/examples) folder.
 
+Note for Linux users: The examples build with the `bevy/x11` feature by default to enable support for the X11 display server. If you want to use the Wayland display server instead, add the `bevy/wayland` feature.
+
 ### Firework
 
 Combine the `InitPositionSphereModifier` for spawning and `LinearDragModifier` to slow down particles, to create a firework effect. This example makes use of an HDR camera with Bloom. See the example file for more details about how the effect is designed.

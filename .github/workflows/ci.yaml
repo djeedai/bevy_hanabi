@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         dimensions: [2d, 3d, all]
-        toolchain: [stable, nightly]
+        toolchain: [stable] #, nightly]
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -61,6 +61,58 @@ jobs:
         env:
           CARGO_INCREMENTAL: 0
         if: matrix.dimensions == 'all'
+
+  run-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Bevy dependencies
+        run: |
+          sudo apt-get update;
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
+            libasound2-dev libudev-dev;
+      - name: Install graphic drivers
+        run: |
+          sudo apt-get update -y -qq
+          sudo add-apt-repository ppa:oibaf/graphics-drivers -y
+          sudo apt-get update
+          sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-build-all-stable-${{ hashFiles('**/Cargo.toml') }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+          override: true
+      - name: Build & run examples
+        run: |
+          for example in .github/example-run/3d/*.ron; do
+            example_name=`basename $example .ron`
+            echo "running $example_name - "`date`
+            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/bevy_ci_testing"
+            sleep 10
+          done
+          for example in .github/example-run/3dpng/*.ron; do
+            example_name=`basename $example .ron`
+            echo "running $example_name - "`date`
+            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d bevy/bevy_ci_testing"
+            sleep 10
+          done
+          for example in .github/example-run/2d/*.ron; do
+            example_name=`basename $example .ron`
+            echo "running $example_name - "`date`
+            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite 2d bevy/bevy_ci_testing"
+            sleep 10
+          done
+        env:
+          CARGO_INCREMENTAL: 0
 
   coverage:
     name: Coverage
