@@ -442,6 +442,44 @@ impl EffectSpawner {
         self.active
     }
 
+    /// Set spawner start time.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::Spawner;
+    /// // Ready a spawner that fires 32 particles in a burst over 1 second after [`reset()`].
+    /// let spawner =
+    ///   Spawner::new(32.0.into(), 1.0.into(), std::f32::INFINITY.into()).with_time(1.0);
+    /// ```
+    ///
+    /// [`reset()`]: crate::Spawner::reset
+    pub fn with_time(mut self, time: f32) -> Self {
+        self.time = time;
+        self
+    }
+
+    /// Set current spawner time.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::Spawner;
+    /// // Ready a spawner that fires 32 particles in a burst over 1 second after [`reset()`].
+    /// let mut spawner = Spawner::new(32.0.into(), 1.0.into(), std::f32::INFINITY.into());
+    /// spawner.set_time(1.0);
+    /// ```
+    ///
+    /// [`reset()`]: crate::Spawner::reset
+    pub fn set_time(&mut self, time: f32) {
+        self.time = time;
+    }
+
+    /// Get spawner time.
+    pub fn get_time(&self) -> f32 {
+        self.time
+    }
+
     /// Get the spawner configuration in use.
     ///
     /// The effective [`Spawner`] used is either the override specified in the
