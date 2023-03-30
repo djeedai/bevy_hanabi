@@ -114,6 +114,39 @@ jobs:
         env:
           CARGO_INCREMENTAL: 0
 
+  check-format:
+    name: Check format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Bevy dependencies
+        run: |
+          sudo apt-get update;
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
+            libasound2-dev libudev-dev;
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-build-all-stable-${{ hashFiles('**/Cargo.toml') }}
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+          override: true
+      - name: Check format
+        run: cargo fmt --all -- --check
+        env:
+          CARGO_INCREMENTAL: 0
+      - name: Check lints
+        run: cargo clippy --workspace --all-targets --all-features -- -Dwarnings
+        env:
+          CARGO_INCREMENTAL: 0
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
