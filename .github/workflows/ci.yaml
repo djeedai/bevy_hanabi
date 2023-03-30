@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         dimensions: [2d, 3d, all]
-        toolchain: [stable, nightly]
+        toolchain: [stable] #, nightly]
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
