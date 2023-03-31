@@ -213,7 +213,7 @@ This example demonstrates how to emit a burst of particles over time when an eve
 cargo run --example burst_over_time_on_command --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![burst_over_time_on_command](https://raw.githubusercontent.com/zArubaru/bevy_hanabi/42ae87567d6ec8adac79a3e7f092fd7ff8b62b09/examples/burst_over_time_on_command.gif)
+![burst_over_time_on_command](https://raw.githubusercontent.com/zArubaru/bevy_hanabi/0cd82882cb6fdfe997bb9ba3aad54770deadb2dc/examples/burst_over_time_on_command.gif)
 
 
 ### Circle
