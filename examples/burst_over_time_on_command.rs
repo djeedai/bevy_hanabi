@@ -78,7 +78,7 @@ fn setup(
         })
         .insert(Name::new("box"));
 
-    commands
+    let ball = commands
         .spawn(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::UVSphere {
                 sectors: 32,
@@ -95,10 +95,10 @@ fn setup(
         .insert(Ball {
             velocity: Vec2::new(1.0, 2f32.sqrt()),
         })
-        .insert(Name::new("ball"));
+        .insert(Name::new("ball"))
+        .id();
 
-    let spawner =
-        Spawner::new(30.0.into(), 1.0.into(), std::f32::INFINITY.into()).with_time(1.0);
+    let spawner = Spawner::new(32.0.into(), 0.5.into(), std::f32::INFINITY.into()).with_time(0.5);
     let effect = effects.add(
         EffectAsset {
             name: "Impact".into(),
@@ -114,33 +114,36 @@ fn setup(
         })
         .init(InitVelocitySphereModifier {
             center: Vec3::ZERO,
-            speed: 0.2.into(),
+            speed: 0.1.into(),
         })
         .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
+            lifetime: 2.5_f32.into(),
         })
         .init(InitAttributeModifier {
             attribute: Attribute::COLOR,
             value: "my_color".into(),
         })
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec2::splat(0.05)),
+            gradient: Gradient::constant(Vec2::splat(0.025)),
         }),
     );
 
-    commands
+    let particle_effect = commands
         .spawn(ParticleEffectBundle::new(effect).with_spawner(spawner))
-        .insert(Name::new("effect"));
+        .insert(Name::new("effect"))
+        .id();
+
+    commands.entity(ball).push_children(&[particle_effect]);
 }
 
 fn update(
     mut balls: Query<(&mut Ball, &mut Transform)>,
-    mut effect: Query<(&mut ParticleEffect, &mut Transform), Without<Ball>>,
+    mut effect: Query<&mut ParticleEffect, Without<Ball>>,
     time: Res<Time>,
 ) {
     const HALF_SIZE: f32 = BOX_SIZE / 2.0 - BALL_RADIUS;
 
-    let (mut effect, mut effect_transform) = effect.single_mut();
+    let mut effect = effect.single_mut();
 
     for (mut ball, mut transform) in balls.iter_mut() {
         let mut pos = transform.translation.xy() + ball.velocity * time.delta_seconds();
@@ -161,10 +164,6 @@ fn update(
         transform.translation = pos.extend(transform.translation.z);
 
         if collision {
-            // This isn't the most accurate place to spawn the particle effect,
-            // but this is just for demonstration, so whatever.
-            effect_transform.translation = transform.translation;
-
             // Pick a random particle color
             let r = rand::random::<u8>();
             let g = rand::random::<u8>();
