@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Neither of those systems mutate the `ParticleEffect` component anymore (the change detection mechanism of Bevy components will not be triggered).
 
 - Added `ParticleEffect::with_properties()` to define a set of properties from an iterator. Note however that the `set_property()` method moved to the `CompiledParticleEffect`.
+- Added a `SimulationCondition` enum and an `EffectAsset::simulation_condition` field allowing to control whether the effect is simulated while hidden (`Visibility::Hidden`). (#166)
 
 ### Changed
 
@@ -54,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a bug on some GPUs (most notably, on macOS) where incorrect data padding was breaking simulation of all but the first effect. (#165)
 - Fixed calls to `ParticleEffect::set_property()` being ignored if made before the particle effect has been updated once, due to properties not being resolved into the `EffectAsset` until the effect is effectively compiled. The `set_property()` method has now moved to the new `CompiledParticleEffect`, so cannot by design be made anymore before the effect is first updated.
 - Fixed `ParticleEffect::set_property()` invalidating the shader cache of the particle effect and causing a full shader recompile, which was impacting performance and defeating the point of using properties in the first place. The method has been moved to `CompiledParticleEffect`. (#162)
+- Fixed a bug where hidden (`Visibility::Hidden`) but still active effects were simulated in the background despite the documentation stating they were not. The newly-added `SimulationCondition::Always` allows explicitly opting in to this behavior in case you were relying on it, but this fix otherwise prevent those effects from being simulated. This _possibly_ relates to #67.
 
 ## [0.6.1] 2023-03-13
 

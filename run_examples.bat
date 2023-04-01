@@ -5,6 +5,7 @@ cargo r --example firework --no-default-features --features="bevy/bevy_winit bev
 cargo r --example portal --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 cargo r --example spawn --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 cargo r --example multicam --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
+cargo r --example visibility --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 cargo r --example random --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 cargo r --example spawn_on_command --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 cargo r --example activate --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"

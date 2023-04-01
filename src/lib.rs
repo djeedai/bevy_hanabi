@@ -145,7 +145,7 @@ mod test_utils;
 
 use properties::{Property, PropertyInstance};
 
-pub use asset::{EffectAsset, MotionIntegration};
+pub use asset::{EffectAsset, MotionIntegration, SimulationCondition};
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
@@ -530,6 +530,9 @@ impl ParticleEffect {
 pub struct CompiledParticleEffect {
     /// Weak handle to the underlying asset.
     asset: Handle<EffectAsset>,
+    /// Cached simulation condition, to avoid having to query the asset each
+    /// time we need it.
+    simulation_condition: SimulationCondition,
     /// Handle to the configured init shader for his effect instance, if
     /// configured.
     configured_init_shader: Option<Handle<Shader>>,
@@ -554,6 +557,7 @@ impl Default for CompiledParticleEffect {
     fn default() -> Self {
         Self {
             asset: default(),
+            simulation_condition: SimulationCondition::default(),
             configured_init_shader: None,
             configured_update_shader: None,
             configured_render_shader: None,
@@ -579,6 +583,7 @@ impl CompiledParticleEffect {
         shader_cache: &mut ResMut<ShaderCache>,
     ) {
         self.asset = weak_handle;
+        self.simulation_condition = asset.simulation_condition;
 
         // Check if the instance changed. If so, rebuild some data from this compiled
         // effect based on the new data of the effect instance.
@@ -1023,14 +1028,21 @@ impl ShaderCode for Gradient<Vec4> {
 ///
 /// This system runs in the [`CoreSet::PostUpdate`] stage, after the visibility
 /// system has updated the [`ComputedVisibility`] of each effect instance (see
-/// [`VisibilitySystems::CheckVisibility`]). Hidden instances are not compiled.
+/// [`VisibilitySystems::CheckVisibility`]). Hidden instances are not compiled,
+/// unless their [`EffectAsset::simulation_condition`] is set to
+/// [`SimulationCondition::Always`].
 ///
 /// [`VisibilitySystems::CheckVisibility`]: bevy::render::view::VisibilitySystems::CheckVisibility
+/// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
 fn compile_effects(
     effects: Res<Assets<EffectAsset>>,
     mut shaders: ResMut<Assets<Shader>>,
     mut shader_cache: ResMut<ShaderCache>,
-    mut query: Query<(
+    mut q_always: Query<
+        (Entity, Ref<ParticleEffect>, &mut CompiledParticleEffect),
+        Without<ComputedVisibility>,
+    >,
+    mut q_when_visible: Query<(
         Entity,
         &ComputedVisibility,
         Ref<ParticleEffect>,
@@ -1039,18 +1051,36 @@ fn compile_effects(
 ) {
     trace!("compile_effects");
 
-    // Loop over all existing effects to update them
-    for (entity, computed_visibility, effect, mut compiled_effect) in query.iter_mut() {
-        // Hidden effects are entirely skipped for performance reasons
-        if !computed_visibility.is_visible() {
-            continue;
-        }
+    // Loop over all existing effects to update them:
+    // - Always-simulated effects with an available asset;
+    // - Other effects with and available asset only when visible.
+    for (asset, entity, effect, mut compiled_effect) in q_always
+        .iter_mut()
+        .filter_map(|(entity, effect, compiled_effect)| {
+            // Check if asset is available, otherwise silently ignore as we can't check for
+            // changes, and conceptually it makes no sense to render a particle effect whose
+            // asset was unloaded.
+            let Some(asset) = effects.get(&effect.handle) else { return None; };
 
-        // Check if asset is available, otherwise silently ignore as we can't check for
-        // changes, and conceptually it makes no sense to render a particle effect whose
-        // asset was unloaded.
-        let Some(asset) = effects.get(&effect.handle) else { continue; };
+            Some((asset, entity, effect, compiled_effect))
+        })
+        .chain(q_when_visible.iter_mut().filter_map(
+            |(entity, computed_visibility, effect, compiled_effect)| {
+                // Check if asset is available, otherwise silently ignore as we can't check for
+                // changes, and conceptually it makes no sense to render a particle effect whose
+                // asset was unloaded.
+                let Some(asset) = effects.get(&effect.handle) else { return None; };
 
+                if asset.simulation_condition == SimulationCondition::WhenVisible
+                    && !computed_visibility.is_visible()
+                {
+                    return None;
+                }
+
+                Some((asset, entity, effect, compiled_effect))
+            },
+        ))
+    {
         #[cfg(feature = "2d")]
         let z_layer_2d = effect
             .z_layer_2d
@@ -1104,6 +1134,13 @@ fn gather_removed_effects(
 
 #[cfg(test)]
 mod tests {
+    use bevy::{
+        render::view::{VisibilityPlugin, VisibilitySystems},
+        tasks::IoTaskPool,
+    };
+
+    use crate::{spawn::new_rng, test_utils::DummyAssetIo};
+
     use super::*;
 
     const INTS: &[usize] = &[1, 2, 4, 8, 9, 15, 16, 17, 23, 24, 31, 32, 33];
@@ -1235,5 +1272,167 @@ else { return c1; }
 "#,
             grad.to_shader_code("key")
         );
+    }
+
+    fn make_test_app() -> App {
+        IoTaskPool::init(Default::default);
+        let asset_server = AssetServer::new(DummyAssetIo {});
+
+        let mut app = App::new();
+        app.insert_resource(asset_server);
+        //app.add_plugins(DefaultPlugins);
+        app.add_asset::<Mesh>();
+        app.add_asset::<Shader>();
+        app.add_plugin(VisibilityPlugin);
+        app.init_resource::<ShaderCache>();
+        app.insert_resource(Random(new_rng()));
+        app.add_asset::<EffectAsset>();
+        app.add_system(
+            compile_effects
+                .in_base_set(CoreSet::PostUpdate)
+                .after(VisibilitySystems::CheckVisibility),
+        );
+
+        app
+    }
+
+    /// Test case for `tick_spawners()`.
+    struct TestCase {
+        /// Initial entity visibility on spawn. If `None`, do not add a
+        /// [`Visibility`] component.
+        visibility: Option<Visibility>,
+    }
+
+    impl TestCase {
+        fn new(visibility: Option<Visibility>) -> Self {
+            Self { visibility }
+        }
+    }
+
+    #[test]
+    fn test_compile_effects() {
+        let spawner = Spawner::once(32.0.into(), true);
+
+        for test_case in &[
+            TestCase::new(None),
+            TestCase::new(Some(Visibility::Hidden)),
+            TestCase::new(Some(Visibility::Visible)),
+        ] {
+            let mut app = make_test_app();
+
+            let (effect_entity, handle) = {
+                let world = &mut app.world;
+
+                // Add effect asset
+                let mut assets = world.resource_mut::<Assets<EffectAsset>>();
+                let handle = assets.add(EffectAsset {
+                    capacity: 64,
+                    spawner,
+                    simulation_condition: if test_case.visibility.is_some() {
+                        SimulationCondition::WhenVisible
+                    } else {
+                        SimulationCondition::Always
+                    },
+                    ..default()
+                });
+
+                // Spawn particle effect
+                let entity = if let Some(visibility) = test_case.visibility {
+                    world
+                        .spawn((
+                            visibility,
+                            ComputedVisibility::default(),
+                            ParticleEffect {
+                                handle: handle.clone(),
+                                ..default()
+                            },
+                            CompiledParticleEffect::default(),
+                        ))
+                        .id()
+                } else {
+                    world
+                        .spawn((
+                            ParticleEffect {
+                                handle: handle.clone(),
+                                ..default()
+                            },
+                            CompiledParticleEffect::default(),
+                        ))
+                        .id()
+                };
+
+                // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
+                world.spawn(Camera3dBundle::default());
+
+                (entity, handle)
+            };
+
+            // Tick once
+            app.update();
+
+            // Check the state of the components after `tick_spawners()` ran
+            if let Some(test_visibility) = test_case.visibility {
+                // Simulated-when-visible effect (SimulationCondition::WhenVisible)
+
+                let world = &mut app.world;
+                let (
+                    entity,
+                    visibility,
+                    computed_visibility,
+                    particle_effect,
+                    compiled_particle_effect,
+                ) = world
+                    .query::<(
+                        Entity,
+                        &Visibility,
+                        &ComputedVisibility,
+                        &ParticleEffect,
+                        &CompiledParticleEffect,
+                    )>()
+                    .iter(world)
+                    .next()
+                    .unwrap();
+                assert_eq!(entity, effect_entity);
+                assert_eq!(visibility, test_visibility);
+                assert_eq!(
+                    computed_visibility.is_visible(),
+                    test_visibility == Visibility::Visible
+                );
+                assert_eq!(particle_effect.handle, handle);
+                if computed_visibility.is_visible() {
+                    // If visible, `compile_effects()` updates the CompiledParticleEffect
+                    assert_eq!(compiled_particle_effect.asset, handle);
+                    assert!(compiled_particle_effect.asset.is_weak());
+                    assert!(compiled_particle_effect.configured_init_shader.is_some());
+                    assert!(compiled_particle_effect.configured_update_shader.is_some());
+                    assert!(compiled_particle_effect.configured_render_shader.is_some());
+                } else {
+                    // If not visible, `compile_effects()` skips the effect entirely so won't update
+                    // the CompiledParticleEffect
+                    assert_ne!(compiled_particle_effect.asset, handle);
+                    assert!(compiled_particle_effect.configured_init_shader.is_none());
+                    assert!(compiled_particle_effect.configured_update_shader.is_none());
+                    assert!(compiled_particle_effect.configured_render_shader.is_none());
+                }
+            } else {
+                // Always-simulated effect (SimulationCondition::Always)
+
+                let world = &mut app.world;
+                let (entity, particle_effect, compiled_particle_effect) = world
+                    .query::<(Entity, &ParticleEffect, &CompiledParticleEffect)>()
+                    .iter(world)
+                    .next()
+                    .unwrap();
+                assert_eq!(entity, effect_entity);
+                assert_eq!(particle_effect.handle, handle);
+
+                // `compile_effects()` always updates the CompiledParticleEffect
+                assert_eq!(compiled_particle_effect.asset, handle);
+                assert!(compiled_particle_effect.asset.is_weak());
+                assert!(compiled_particle_effect.configured_init_shader.is_some());
+                assert!(compiled_particle_effect.configured_update_shader.is_some());
+                assert!(compiled_particle_effect.configured_render_shader.is_some());
+            }
+        }
     }
 }

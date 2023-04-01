@@ -10,7 +10,7 @@ use rand::{
 use rand_pcg::Pcg32;
 use serde::{Deserialize, Serialize};
 
-use crate::{EffectAsset, ParticleEffect, ToWgslString};
+use crate::{EffectAsset, ParticleEffect, SimulationCondition, ToWgslString};
 
 /// An RNG to be used in the CPU for the particle system engine
 pub(crate) fn new_rng() -> Pcg32 {
@@ -551,9 +551,12 @@ impl EffectSpawner {
 ///
 /// This system runs in the [`CoreSet::PostUpdate`] stage, after the visibility
 /// system has updated the [`ComputedVisibility`] of each effect instance (see
-/// [`VisibilitySystems::CheckVisibility`]). Hidden instances are not updated.
+/// [`VisibilitySystems::CheckVisibility`]). Hidden instances are not updated,
+/// unless the [`EffectAsset::simulation_condition`] is set to
+/// [`SimulationCondition::Always`].
 ///
 /// [`VisibilitySystems::CheckVisibility`]: bevy::render::view::VisibilitySystems::CheckVisibility
+/// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
 pub fn tick_spawners(
     mut commands: Commands,
     time: Res<Time>,
@@ -561,8 +564,8 @@ pub fn tick_spawners(
     mut rng: ResMut<Random>,
     mut query: Query<(
         Entity,
-        &ComputedVisibility,
         &ParticleEffect,
+        Option<&ComputedVisibility>,
         Option<&mut EffectSpawner>,
     )>,
 ) {
@@ -570,17 +573,22 @@ pub fn tick_spawners(
 
     let dt = time.delta_seconds();
 
-    // Loop over all existing effects to update them
-    for (entity, computed_visibility, effect, maybe_spawner) in query.iter_mut() {
-        // Hidden effects are entirely skipped for performance reasons
-        if !computed_visibility.is_visible() {
-            continue;
+    for (entity, effect, maybe_computed_visibility, maybe_spawner) in query.iter_mut() {
+        // TODO - maybe cache simulation_condition so we don't need to unconditionally
+        // query the asset?
+        let Some(asset) = effects.get(&effect.handle) else { continue; };
+
+        if asset.simulation_condition == SimulationCondition::WhenVisible {
+            if let Some(computed_visibility) = maybe_computed_visibility {
+                if !computed_visibility.is_visible() {
+                    continue;
+                }
+            }
         }
 
         if let Some(mut spawner) = maybe_spawner {
             spawner.tick(dt, &mut rng.0);
         } else {
-            let Some(asset) = effects.get(&effect.handle) else { continue; };
             let mut spawner = EffectSpawner::new(asset, effect);
             spawner.tick(dt, &mut rng.0);
             commands.entity(entity).insert(spawner);
@@ -590,16 +598,14 @@ pub fn tick_spawners(
 
 #[cfg(test)]
 mod test {
-    use std::{
-        path::{Path, PathBuf},
-        time::Duration,
-    };
+    use std::time::Duration;
 
     use bevy::{
-        asset::{AssetIo, AssetIoError, Metadata},
         render::view::{VisibilityPlugin, VisibilitySystems},
         tasks::IoTaskPool,
     };
+
+    use crate::test_utils::DummyAssetIo;
 
     use super::*;
 
@@ -761,46 +767,9 @@ mod test {
         assert_eq!(count, 5);
     }
 
-    struct MemoryAssetIo {}
-
-    impl AssetIo for MemoryAssetIo {
-        fn load_path<'a>(
-            &'a self,
-            _path: &'a Path,
-        ) -> bevy::utils::BoxedFuture<'a, anyhow::Result<Vec<u8>, AssetIoError>> {
-            Box::pin(async move {
-                let bytes = Vec::new();
-                Ok(bytes)
-            })
-        }
-
-        fn read_directory(
-            &self,
-            _path: &Path,
-        ) -> Result<Box<dyn Iterator<Item = PathBuf>>, AssetIoError> {
-            Ok(Box::new(Vec::<PathBuf>::new().into_iter()))
-        }
-
-        fn watch_path_for_changes(
-            &self,
-            _to_watch: &Path,
-            _to_reload: Option<PathBuf>,
-        ) -> Result<(), AssetIoError> {
-            Ok(())
-        }
-
-        fn watch_for_changes(&self) -> Result<(), AssetIoError> {
-            Ok(())
-        }
-
-        fn get_metadata(&self, _path: &Path) -> Result<Metadata, AssetIoError> {
-            Ok(Metadata::new(bevy::asset::FileType::File))
-        }
-    }
-
     fn make_test_app() -> App {
         IoTaskPool::init(Default::default);
-        let asset_server = AssetServer::new(MemoryAssetIo {});
+        let asset_server = AssetServer::new(DummyAssetIo {});
 
         let mut app = App::new();
         app.insert_resource(asset_server);
@@ -821,10 +790,13 @@ mod test {
 
     /// Test case for `tick_spawners()`.
     struct TestCase {
-        /// Initial entity visibility on spawn.
-        visibility: Visibility,
+        /// Initial entity visibility on spawn. If `None`, do not add a
+        /// [`Visibility`] component.
+        visibility: Option<Visibility>,
+
         /// Spawner assigned to the `EffectAsset`.
         asset_spawner: Spawner,
+
         /// Optional spawner assigned to the `ParticleEffect` instance, which
         /// overrides the asset one.
         instance_spawner: Option<Spawner>,
@@ -832,7 +804,7 @@ mod test {
 
     impl TestCase {
         fn new(
-            visibility: Visibility,
+            visibility: Option<Visibility>,
             asset_spawner: Spawner,
             instance_spawner: Option<Spawner>,
         ) -> Self {
@@ -850,9 +822,14 @@ mod test {
         let instance_spawner = Spawner::once(64.0.into(), true);
 
         for test_case in &[
-            TestCase::new(Visibility::Hidden, asset_spawner, None),
-            TestCase::new(Visibility::Visible, asset_spawner, None),
-            TestCase::new(Visibility::Visible, asset_spawner, Some(instance_spawner)),
+            TestCase::new(None, asset_spawner, None),
+            TestCase::new(Some(Visibility::Hidden), asset_spawner, None),
+            TestCase::new(Some(Visibility::Visible), asset_spawner, None),
+            TestCase::new(
+                Some(Visibility::Visible),
+                asset_spawner,
+                Some(instance_spawner),
+            ),
         ] {
             let mut app = make_test_app();
 
@@ -864,21 +841,36 @@ mod test {
                 let handle = assets.add(EffectAsset {
                     capacity: 64,
                     spawner: test_case.asset_spawner,
+                    simulation_condition: if test_case.visibility.is_some() {
+                        SimulationCondition::WhenVisible
+                    } else {
+                        SimulationCondition::Always
+                    },
                     ..default()
                 });
 
                 // Spawn particle effect
-                let entity = world
-                    .spawn((
-                        test_case.visibility,
-                        ComputedVisibility::default(),
-                        ParticleEffect {
+                let entity = if let Some(visibility) = test_case.visibility {
+                    world
+                        .spawn((
+                            visibility,
+                            ComputedVisibility::default(),
+                            ParticleEffect {
+                                handle: handle.clone(),
+                                spawner: test_case.instance_spawner,
+                                ..default()
+                            },
+                        ))
+                        .id()
+                } else {
+                    world
+                        .spawn((ParticleEffect {
                             handle: handle.clone(),
                             spawner: test_case.instance_spawner,
                             ..default()
-                        },
-                    ))
-                    .id();
+                        },))
+                        .id()
+                };
 
                 // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
                 world.spawn(Camera3dBundle::default());
@@ -903,9 +895,11 @@ mod test {
             app.update();
 
             // Check the state of the components after `tick_spawners()` ran
-            {
+            if let Some(test_visibility) = test_case.visibility {
+                // Simulated-when-visible effect (SimulationCondition::WhenVisible)
+
                 let world = &mut app.world;
-                let (entity, _visibility, computed_visibility, particle_effect, effect_spawner) =
+                let (entity, visibility, computed_visibility, particle_effect, effect_spawner) =
                     world
                         .query::<(
                             Entity,
@@ -918,9 +912,10 @@ mod test {
                         .next()
                         .unwrap();
                 assert_eq!(entity, effect_entity);
+                assert_eq!(visibility, test_visibility);
                 assert_eq!(
                     computed_visibility.is_visible(),
-                    test_case.visibility == Visibility::Visible
+                    test_visibility == Visibility::Visible
                 );
                 assert_eq!(particle_effect.handle, handle);
                 if computed_visibility.is_visible() {
@@ -948,6 +943,37 @@ mod test {
                     // If not visible, `tick_spawners()` skips the effect entirely so won't spawn an
                     // `EffectSpawner` for it
                     assert!(effect_spawner.is_none());
+                }
+            } else {
+                // Always-simulated effect (SimulationCondition::Always)
+
+                let world = &mut app.world;
+                let (entity, particle_effect, effect_spawner) = world
+                    .query::<(Entity, &ParticleEffect, Option<&EffectSpawner>)>()
+                    .iter(world)
+                    .next()
+                    .unwrap();
+                assert_eq!(entity, effect_entity);
+                assert_eq!(particle_effect.handle, handle);
+
+                assert!(effect_spawner.is_some());
+                let effect_spawner = effect_spawner.unwrap();
+                let actual_spawner = effect_spawner.spawner();
+
+                // Check the spawner ticked
+                assert!(effect_spawner.active);
+                assert_eq!(effect_spawner.spawn_remainder, 0.);
+                assert_eq!(effect_spawner.time, cur_time.as_secs_f32());
+
+                // Check the spawner is actually the one we expect from the override rule
+                if let Some(instance_spawner) = &test_case.instance_spawner {
+                    // If there's a per-instance spawner override, it should be the one used
+                    assert_eq!(*actual_spawner, *instance_spawner);
+                    assert_eq!(effect_spawner.spawn_count, 64);
+                } else {
+                    // Otherwise the asset spawner should be used
+                    assert_eq!(*actual_spawner, test_case.asset_spawner);
+                    assert_eq!(effect_spawner.spawn_count, 32);
                 }
             }
         }

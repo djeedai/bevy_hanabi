@@ -29,14 +29,30 @@ pub struct ParticleEffectBundle {
     pub global_transform: GlobalTransform,
     /// User indication of whether an entity is visible.
     ///
-    /// Invisible entities do not process any particles, making it efficient to
-    /// temporarily disable an effect instance.
+    /// Invisible entities do not process any particles if their
+    /// [`EffectAsset::simulation_condition`] is set to
+    /// [`SimulationCondition::WhenVisible`], which is the default. This makes
+    /// it efficient to temporarily disable an effect instance.
+    ///
+    /// If your effect uses [`SimulationCondition::Always`] then this component
+    /// is not necessary and you can remove it (spawn components manually
+    /// instead of using this bundle).
+    ///
+    /// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
+    /// [`SimulationCondition::WhenVisible`]: crate::SimulationCondition::WhenVisible
+    /// [`SimulationCondition::Always`]: crate::SimulationCondition::Always
     pub visibility: Visibility,
     /// Algorithmically-computed indication of whether an entity is visible and
     /// should be extracted for rendering.
     ///
+    /// If your effect uses [`SimulationCondition::Always`] then this component
+    /// is not necessary and you can remove it (spawn components manually
+    /// instead of using this bundle).
+    ///
     /// Users should not interact with this component manually, but it is
     /// required by Bevy's built-in visibility system.
+    ///
+    /// [`SimulationCondition::Always`]: crate::SimulationCondition::Always
     pub computed_visibility: ComputedVisibility,
 }
 

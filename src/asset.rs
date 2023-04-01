@@ -38,6 +38,48 @@ pub enum MotionIntegration {
     PostUpdate,
 }
 
+/// Simulation condition for an effect.
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize,
+)]
+pub enum SimulationCondition {
+    /// Simulate the effect only when visible.
+    ///
+    /// The visibility is determined by the [`Visibility`] and
+    /// [`ComputedVisibility`] components.
+    ///
+    /// This is the default for all assets, and is the most performant option,
+    /// allowing to have many effects in the scene without the need to simulate
+    /// all of them if they're not visible.
+    ///
+    /// Note: AABB culling is not currently available. Only boolean ON/OFF
+    /// visibility is used.
+    ///
+    /// [`Visibility`]: bevy::render::view::Visibility
+    /// [`ComputedVisibility`]: bevy::render::view::ComputedVisibility
+    #[default]
+    WhenVisible,
+
+    /// Always simulate the effect, whether visible or not.
+    ///
+    /// For performance reasons, it's recommended to only simulate visible
+    /// particle effects (that is, use [`SimulationCondition::WhenVisible`]).
+    /// However occasionally it may be needed to continue the simulation
+    /// when the effect is not visible, to ensure some temporal continuity when
+    /// the effect is made visible again. This is an uncommon case, and you
+    /// should be aware of the performance implications of using this
+    /// condition, and only use it when strictly necessary.
+    ///
+    /// Any [`Visibility`] or [`ComputedVisibility`] component is ignored. You
+    /// may want to spawn the particle effect components manually instead of
+    /// using the [`ParticleEffectBundle`] to avoid adding those components.
+    ///
+    /// [`Visibility`]: bevy::render::view::Visibility
+    /// [`ComputedVisibility`]: bevy::render::view::ComputedVisibility
+    /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
+    Always,
+}
+
 /// Asset describing a visual effect.
 ///
 /// The effect can be instanciated with a [`ParticleEffect`] component, or a
@@ -74,6 +116,8 @@ pub struct EffectAsset {
     pub z_layer_2d: f32,
     /// Particle simulation space.
     pub simulation_space: SimulationSpace,
+    /// Condition under which the effect is simulated.
+    pub simulation_condition: SimulationCondition,
     /// Modifiers defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet

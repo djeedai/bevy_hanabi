@@ -66,6 +66,10 @@ name = "multicam"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
+name = "visibility"
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+
+[[example]]
 name = "random"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
