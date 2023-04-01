@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added `ParticleEffect::with_properties()` to define a set of properties from an iterator. Note however that the `set_property()` method moved to the `CompiledParticleEffect`.
 - Added a `SimulationCondition` enum and an `EffectAsset::simulation_condition` field allowing to control whether the effect is simulated while hidden (`Visibility::Hidden`). (#166)
+- Added a new `RadialAccelModifier` update modifier applying a per-particle acceleration in the radial direction defined as the direction from the modifier's specified origin to the particle current position.
+- Added a new `TangentAccelModifier` update modifier applying a per-particle acceleration in the tangent direction defined as the cross product of the the modifier's specified rotation plane axis with the radial direction of the particle (calculated like `RadialAccelModifier`).
 
 ### Changed
 

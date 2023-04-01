@@ -24,6 +24,10 @@
 
 use bevy::reflect::{FromReflect, Reflect};
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 pub mod init;
 pub mod render;
@@ -47,6 +51,14 @@ pub enum ShapeDimension {
     Surface,
     /// Consider the entire shape volume.
     Volume,
+}
+
+/// Calculate a function ID by hashing the given value representative of the
+/// function.
+pub(crate) fn calc_func_id<T: Hash>(value: &T) -> u64 {
+    let mut hasher = DefaultHasher::default();
+    value.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Context a modifier applies to.

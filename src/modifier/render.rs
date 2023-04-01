@@ -5,22 +5,12 @@ use bevy::{
     utils::{FloatOrd, HashMap},
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
+use std::hash::{Hash, Hasher};
 
 use crate::{
-    Attribute, BoxedModifier, Gradient, Modifier, ModifierContext, ShaderCode, ToWgslString, Value,
+    calc_func_id, Attribute, BoxedModifier, Gradient, Modifier, ModifierContext, ShaderCode,
+    ToWgslString, Value,
 };
-
-/// Calculate a function ID by hashing the given value representative of the
-/// function.
-fn calc_func_id<T: Hash>(value: &T) -> u64 {
-    let mut hasher = DefaultHasher::default();
-    value.hash(&mut hasher);
-    hasher.finish()
-}
 
 /// Particle rendering shader code generation context.
 #[derive(Debug, Default, Clone, PartialEq)]

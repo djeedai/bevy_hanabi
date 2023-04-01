@@ -73,17 +73,13 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             radius: 4.,
             dimension: ShapeDimension::Surface,
         })
-        .init(InitVelocityTangentModifier {
-            origin: Vec3::ZERO,
-            axis: Vec3::Z,
-            speed: Value::Uniform((30., 50.)),
-        })
         .init(InitLifetimeModifier {
             // Give a bit of variation by randomizing the lifetime per particle
-            lifetime: Value::Uniform((0.6, 1.0)),
+            lifetime: Value::Uniform((0.6, 1.3)),
         })
-        .update(LinearDragModifier { drag: 6. })
-        .update(AccelModifier::constant(Vec3::new(0., -12., 0.)))
+        .update(LinearDragModifier { drag: 2. })
+        .update(RadialAccelModifier::constant(Vec3::ZERO, -6.0))
+        .update(TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 30.))
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient1,
         })

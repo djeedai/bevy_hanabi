@@ -3,11 +3,14 @@
 //! The update modifiers control how particles are updated each frame by the
 //! update compute shader.
 
-use bevy::prelude::*;
+use std::hash::{Hash, Hasher};
+
+use bevy::{prelude::*, utils::FloatOrd};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    graph::Value, Attribute, BoxedModifier, Modifier, ModifierContext, Property, ToWgslString,
+    calc_func_id, graph::Value, Attribute, BoxedModifier, Modifier, ModifierContext, Property,
+    ToWgslString,
 };
 
 /// Particle update shader code generation context.
@@ -65,7 +68,7 @@ macro_rules! impl_mod_update {
 /// This enumeration either directly stores a constant value assigned at
 /// creation time, or a reference to an effect property the value is derived
 /// from.
-#[derive(Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub enum ValueOrProperty {
     /// Constant value.
     Value(Value),
@@ -169,9 +172,263 @@ impl Modifier for AccelModifier {
 impl UpdateModifier for AccelModifier {
     fn apply(&self, context: &mut UpdateContext) {
         context.update_code += &format!(
-            "(*particle).velocity += {} * sim_params.dt;\n",
+            "particle.velocity += {} * sim_params.dt;\n",
             self.accel.to_wgsl_string()
         );
+    }
+}
+
+/// A modifier to apply a radial acceleration to all particles each frame.
+///
+/// The acceleration is the same for all particles of the effect, and is applied
+/// each frame to modify the particle's velocity based on the simulation
+/// timestep.
+///
+/// ```txt
+/// particle.velocity += acceleration * simulation.delta_time;
+/// ```
+///
+/// In the absence of other modifiers, the radial acceleration alone, if
+/// oriented toward the center point, makes particles rotate around that center
+/// point. The radial direction is calculated as the direction from the modifier
+/// origin to the particle position.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
+/// - [`Attribute::VELOCITY`]
+#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct RadialAccelModifier {
+    /// The acceleration to apply to all particles in the effect each frame.
+    accel: ValueOrProperty,
+    /// The center point the tangent direction is calculated from.
+    origin: Vec3,
+}
+
+impl PartialEq for RadialAccelModifier {
+    fn eq(&self, other: &Self) -> bool {
+        self.accel == other.accel
+            && FloatOrd(self.origin.x) == FloatOrd(other.origin.x)
+            && FloatOrd(self.origin.y) == FloatOrd(other.origin.y)
+            && FloatOrd(self.origin.z) == FloatOrd(other.origin.z)
+    }
+}
+
+impl Hash for RadialAccelModifier {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.accel.hash(state);
+        FloatOrd(self.origin.x).hash(state);
+        FloatOrd(self.origin.y).hash(state);
+        FloatOrd(self.origin.z).hash(state);
+    }
+}
+
+impl RadialAccelModifier {
+    /// Create a new modifier with an acceleration derived from a property.
+    pub fn via_property(origin: Vec3, property_name: impl Into<String>) -> Self {
+        Self {
+            accel: ValueOrProperty::Property(property_name.into()),
+            origin,
+        }
+    }
+
+    /// Create a new modifier with a constant acceleration.
+    pub fn constant(origin: Vec3, acceleration: f32) -> Self {
+        Self {
+            accel: ValueOrProperty::Value(acceleration.into()),
+            origin,
+        }
+    }
+}
+
+#[typetag::serde]
+impl Modifier for RadialAccelModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn as_update(&self) -> Option<&dyn UpdateModifier> {
+        Some(self)
+    }
+
+    fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+        Some(self)
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::POSITION, Attribute::VELOCITY]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(self.clone())
+    }
+
+    fn resolve_properties(&mut self, properties: &[Property]) {
+        if let ValueOrProperty::Property(name) = &mut self.accel {
+            if let Some(index) = properties.iter().position(|p| p.name() == name) {
+                let name = std::mem::take(name);
+                self.accel = ValueOrProperty::ResolvedProperty((index, name));
+            } else {
+                panic!("Cannot resolve property '{}' in effect. Ensure you have added a property with `with_property()` or `add_property()` before trying to reference it from a modifier.", name);
+            }
+        }
+    }
+}
+
+#[typetag::serde]
+impl UpdateModifier for RadialAccelModifier {
+    fn apply(&self, context: &mut UpdateContext) {
+        let func_id = calc_func_id(self);
+        let func_name = format!("radial_accel_{0:016X}", func_id);
+
+        context.update_extra += &format!(
+            r##"fn {}(particle: ptr<function, Particle>) {{
+    let radial = normalize((*particle).{} - {});
+    (*particle).{} += radial * (({}) * sim_params.dt);
+}}
+"##,
+            func_name,
+            Attribute::POSITION.name(),
+            self.origin.to_wgsl_string(),
+            Attribute::VELOCITY.name(),
+            self.accel.to_wgsl_string(),
+        );
+
+        context.update_code += &format!("{}(&particle);\n", func_name);
+    }
+}
+
+/// A modifier to apply a tangential acceleration to all particles each frame.
+///
+/// The acceleration is the same for all particles of the effect, and is applied
+/// each frame to modify the particle's velocity based on the simulation
+/// timestep.
+///
+/// ```txt
+/// particle.velocity += acceleration * simulation.delta_time;
+/// ```
+///
+/// In the absence of other modifiers, the tangential acceleration alone makes
+/// particles rotate around a center point. The tangent direction is calculated
+/// as the cross product of the rotation plane axis and the direction from the
+/// modifier origin to the particle position.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
+/// - [`Attribute::VELOCITY`]
+#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct TangentAccelModifier {
+    /// The acceleration to apply to all particles in the effect each frame.
+    accel: ValueOrProperty,
+    /// The center point the tangent direction is calculated from.
+    origin: Vec3,
+    /// The axis defining the rotation plane and orientation.
+    axis: Vec3,
+}
+
+impl PartialEq for TangentAccelModifier {
+    fn eq(&self, other: &Self) -> bool {
+        self.accel == other.accel
+            && FloatOrd(self.origin.x) == FloatOrd(other.origin.x)
+            && FloatOrd(self.origin.y) == FloatOrd(other.origin.y)
+            && FloatOrd(self.origin.z) == FloatOrd(other.origin.z)
+            && FloatOrd(self.axis.x) == FloatOrd(other.axis.x)
+            && FloatOrd(self.axis.y) == FloatOrd(other.axis.y)
+            && FloatOrd(self.axis.z) == FloatOrd(other.axis.z)
+    }
+}
+
+impl Hash for TangentAccelModifier {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.accel.hash(state);
+        FloatOrd(self.origin.x).hash(state);
+        FloatOrd(self.origin.y).hash(state);
+        FloatOrd(self.origin.z).hash(state);
+        FloatOrd(self.axis.x).hash(state);
+        FloatOrd(self.axis.y).hash(state);
+        FloatOrd(self.axis.z).hash(state);
+    }
+}
+
+impl TangentAccelModifier {
+    /// Create a new modifier with an acceleration derived from a property.
+    pub fn via_property(origin: Vec3, axis: Vec3, property_name: impl Into<String>) -> Self {
+        Self {
+            accel: ValueOrProperty::Property(property_name.into()),
+            origin,
+            axis,
+        }
+    }
+
+    /// Create a new modifier with a constant acceleration.
+    pub fn constant(origin: Vec3, axis: Vec3, acceleration: f32) -> Self {
+        Self {
+            accel: ValueOrProperty::Value(acceleration.into()),
+            origin,
+            axis,
+        }
+    }
+}
+
+#[typetag::serde]
+impl Modifier for TangentAccelModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn as_update(&self) -> Option<&dyn UpdateModifier> {
+        Some(self)
+    }
+
+    fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
+        Some(self)
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::POSITION, Attribute::VELOCITY]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(self.clone())
+    }
+
+    fn resolve_properties(&mut self, properties: &[Property]) {
+        if let ValueOrProperty::Property(name) = &mut self.accel {
+            if let Some(index) = properties.iter().position(|p| p.name() == name) {
+                let name = std::mem::take(name);
+                self.accel = ValueOrProperty::ResolvedProperty((index, name));
+            } else {
+                panic!("Cannot resolve property '{}' in effect. Ensure you have added a property with `with_property()` or `add_property()` before trying to reference it from a modifier.", name);
+            }
+        }
+    }
+}
+
+#[typetag::serde]
+impl UpdateModifier for TangentAccelModifier {
+    fn apply(&self, context: &mut UpdateContext) {
+        let func_id = calc_func_id(self);
+        let func_name = format!("tangent_accel_{0:016X}", func_id);
+
+        context.update_extra += &format!(
+            r##"fn {}(particle: ptr<function, Particle>) {{
+    let radial = normalize((*particle).{} - {});
+    let tangent = normalize(cross({}, radial));
+    (*particle).{} += tangent * (({}) * sim_params.dt);
+}}
+"##,
+            func_name,
+            Attribute::POSITION.name(),
+            self.origin.to_wgsl_string(),
+            self.axis.to_wgsl_string(),
+            Attribute::VELOCITY.name(),
+            self.accel.to_wgsl_string(),
+        );
+
+        context.update_code += &format!("{}(&particle);\n", func_name);
     }
 }
 
@@ -181,7 +438,7 @@ impl UpdateModifier for AccelModifier {
 /// position, with a decreasing intensity the further away from the source the
 /// particle is. This force is added to the one(s) of all the other active
 /// sources of a [`ForceFieldModifier`].
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct ForceFieldSource {
     /// Position of the source.
     pub position: Vec3,
@@ -207,6 +464,32 @@ pub struct ForceFieldSource {
     ///
     /// [`min_radius`]: ForceFieldSource::min_radius
     pub conform_to_sphere: bool,
+}
+
+impl PartialEq for ForceFieldSource {
+    fn eq(&self, other: &Self) -> bool {
+        FloatOrd(self.position.x) == FloatOrd(other.position.x)
+            && FloatOrd(self.position.y) == FloatOrd(other.position.y)
+            && FloatOrd(self.position.z) == FloatOrd(other.position.z)
+            && FloatOrd(self.max_radius) == FloatOrd(other.max_radius)
+            && FloatOrd(self.min_radius) == FloatOrd(other.min_radius)
+            && FloatOrd(self.mass) == FloatOrd(other.mass)
+            && FloatOrd(self.force_exponent) == FloatOrd(other.force_exponent)
+            && self.conform_to_sphere == other.conform_to_sphere
+    }
+}
+
+impl Hash for ForceFieldSource {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        FloatOrd(self.position.x).hash(state);
+        FloatOrd(self.position.y).hash(state);
+        FloatOrd(self.position.z).hash(state);
+        FloatOrd(self.max_radius).hash(state);
+        FloatOrd(self.min_radius).hash(state);
+        FloatOrd(self.mass).hash(state);
+        FloatOrd(self.force_exponent).hash(state);
+        self.conform_to_sphere.hash(state);
+    }
 }
 
 impl Default for ForceFieldSource {
@@ -238,7 +521,9 @@ impl ForceFieldSource {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize,
+)]
 pub struct ForceFieldModifier {
     /// Array of force field sources.
     ///
@@ -299,7 +584,19 @@ impl_mod_update!(
 #[typetag::serde]
 impl UpdateModifier for ForceFieldModifier {
     fn apply(&self, context: &mut UpdateContext) {
-        context.update_code += include_str!("../render/force_field_code.wgsl");
+        let func_id = calc_func_id(self);
+        let func_name = format!("force_field_{0:016X}", func_id);
+
+        context.update_extra += &format!(
+            r##"fn {}(particle: ptr<function, Particle>) {{
+    {}
+}}
+"##,
+            func_name,
+            include_str!("../render/force_field_code.wgsl")
+        );
+
+        context.update_code += &format!("{}(&particle);\n", func_name);
 
         //TEMP
         context.force_field = self.sources;
@@ -333,7 +630,7 @@ impl_mod_update!(LinearDragModifier, &[Attribute::VELOCITY]);
 impl UpdateModifier for LinearDragModifier {
     fn apply(&self, context: &mut UpdateContext) {
         context.update_code += &format!(
-            "(*particle).velocity *= max(0., (1. - {} * sim_params.dt));\n",
+            "particle.velocity *= max(0., (1. - {} * sim_params.dt));\n",
             self.drag.to_wgsl_string()
         );
     }
@@ -369,7 +666,7 @@ impl UpdateModifier for AabbKillModifier {
         let cmp = if self.kill_inside { "<" } else { ">" };
         let reduce = if self.kill_inside { "all" } else { "any" };
         context.update_code += &format!(
-            r#"if ({}(abs((*particle).position - {}) {} {})) {{
+            r#"if ({}(abs(particle.position - {}) {} {})) {{
     is_alive = false;
 }}
 "#,
@@ -437,6 +734,8 @@ mod tests {
     fn validate() {
         let modifiers: &[&dyn UpdateModifier] = &[
             &AccelModifier::constant(Vec3::ONE),
+            &RadialAccelModifier::constant(Vec3::ZERO, 1.),
+            &TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 1.),
             &ForceFieldModifier::default(),
             &LinearDragModifier::default(),
             &AabbKillModifier::default(),
