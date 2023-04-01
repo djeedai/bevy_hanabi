@@ -150,7 +150,7 @@ pub struct SetColorModifier {
 // TODO - impl Hash for Value<T>
 // SAFETY: This is consistent with the derive, but we can't derive due to
 // FloatOrd.
-#[allow(clippy::derive_hash_xor_eq)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 impl Hash for SetColorModifier {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self.color {
@@ -243,7 +243,7 @@ pub struct SetSizeModifier {
 // TODO - impl Hash for Value<T>
 // SAFETY: This is consistent with the derive, but we can't derive due to
 // FloatOrd.
-#[allow(clippy::derive_hash_xor_eq)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 impl Hash for SetSizeModifier {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self.size {
