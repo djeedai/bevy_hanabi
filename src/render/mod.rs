@@ -44,6 +44,7 @@ use bevy::core_pipeline::core_3d::Transparent3d;
 use crate::{
     asset::EffectAsset, modifier::update::ForceFieldSource, next_multiple_of, spawn::EffectSpawner,
     CompiledParticleEffect, ParticleLayout, PropertyLayout, RemovedEffectsEvent,
+    SimulationCondition,
 };
 
 mod aligned_buffer_vec;
@@ -1121,7 +1122,7 @@ pub(crate) fn extract_effects(
             // All existing ParticleEffect components
             Query<(
                 Entity,
-                &ComputedVisibility,
+                Option<&ComputedVisibility>,
                 &EffectSpawner,
                 &CompiledParticleEffect,
                 &GlobalTransform,
@@ -1190,16 +1191,21 @@ pub(crate) fn extract_effects(
         .collect();
 
     // Loop over all existing effects to update them
-    for (entity, computed_visibility, spawner, effect, transform) in query.p0().iter_mut() {
-        // Check if visible
-        if !computed_visibility.is_visible() {
-            continue;
-        }
-
+    extracted_effects.effects.clear();
+    for (entity, maybe_computed_visibility, spawner, effect, transform) in query.p0().iter_mut() {
         // Check if shaders are configured
         let Some((init_shader, update_shader, render_shader)) = effect.get_configured_shaders() else {
             continue;
         };
+
+        // Check if hidden, unless always simulated
+        if effect.simulation_condition == SimulationCondition::WhenVisible
+            && !maybe_computed_visibility
+                .map(|cv| cv.is_visible())
+                .unwrap_or(true)
+        {
+            continue;
+        }
 
         // Retrieve other values from the compiled effect
         let spawn_count = spawner.spawn_count();

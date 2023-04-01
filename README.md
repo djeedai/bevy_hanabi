@@ -215,6 +215,14 @@ cargo run --example circle --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d
 
 ![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/ffbf91be7f0780f8830869d14a64a79ca79baebb/examples/circle.gif)
 
+### Visibility
+
+This example demonstrates the difference between the default `SimulationCondition::WhenVisible` which simulates an effect when it's visible only, and `SimulationCondition::Always` which always simulates an effect even if the entity is hidden.
+
+```shell
+cargo run --example visibility --features="bevy/bevy_winit bevy/bevy_pbr 3d"
+```
+
 ### Random
 
 This example spawns particles with randomized parameters.
@@ -277,6 +285,9 @@ The image on the left has the `BillboardModifier` enabled.
   - [x] Constant/random per-particle size
   - [x] Constant/random par-particle age and lifetime
 - Update
+  - [x] Simulation condition
+    - [x] Always, even when hidden
+    - [x] Only when visible
   - [x] Motion integration (Euler)
   - [x] Apply forces
     - [x] Constant (gravity)
