@@ -124,7 +124,7 @@ pub struct Gradient<T: Lerp + FromReflect> {
 
 // SAFETY: This is consistent with the derive, but we can't derive due to trait
 // bounds.
-#[allow(clippy::derived_hash_with_manual_eq)]
+#[allow(clippy::derive_hash_xor_eq)]
 impl<T> Hash for Gradient<T>
 where
     T: Default + Lerp + FromReflect,

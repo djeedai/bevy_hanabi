@@ -35,7 +35,7 @@ pub enum Value {
 
 // SAFETY: This is consistent with the derive, but we can't derive due to
 // FloatOrd.
-#[allow(clippy::derived_hash_with_manual_eq)]
+#[allow(clippy::derive_hash_xor_eq)]
 impl std::hash::Hash for Value {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match *self {

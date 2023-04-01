@@ -404,7 +404,7 @@ impl EffectSpawner {
     /// The spawner data is cloned from the instance if the instance has an
     /// override. Otherwise it's cloned from the asset.
     pub fn new(asset: &EffectAsset, instance: &ParticleEffect) -> Self {
-        let spawner = instance.spawner.as_ref().unwrap_or(&asset.spawner).clone();
+        let spawner = *instance.spawner.as_ref().unwrap_or(&asset.spawner);
         Self {
             spawner,
             time: if spawner.is_once() && !spawner.starts_immediately {
@@ -863,7 +863,7 @@ mod test {
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
                 let handle = assets.add(EffectAsset {
                     capacity: 64,
-                    spawner: test_case.asset_spawner.clone(),
+                    spawner: test_case.asset_spawner,
                     ..default()
                 });
 
@@ -874,7 +874,7 @@ mod test {
                         ComputedVisibility::default(),
                         ParticleEffect {
                             handle: handle.clone(),
-                            spawner: test_case.instance_spawner.clone(),
+                            spawner: test_case.instance_spawner,
                             ..default()
                         },
                     ))
