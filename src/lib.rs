@@ -1370,11 +1370,12 @@ else { return c1; }
             // Tick once
             app.update();
 
+            let world = &mut app.world;
+
             // Check the state of the components after `tick_spawners()` ran
             if let Some(test_visibility) = test_case.visibility {
                 // Simulated-when-visible effect (SimulationCondition::WhenVisible)
 
-                let world = &mut app.world;
                 let (
                     entity,
                     visibility,
@@ -1417,7 +1418,6 @@ else { return c1; }
             } else {
                 // Always-simulated effect (SimulationCondition::Always)
 
-                let world = &mut app.world;
                 let (entity, particle_effect, compiled_particle_effect) = world
                     .query::<(Entity, &ParticleEffect, &CompiledParticleEffect)>()
                     .iter(world)
