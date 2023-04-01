@@ -42,8 +42,8 @@ use bevy::core_pipeline::core_2d::Transparent2d;
 use bevy::core_pipeline::core_3d::Transparent3d;
 
 use crate::{
-    asset::EffectAsset, modifier::update::ForceFieldSource, next_multiple_of, ParticleEffect,
-    ParticleLayout, PropertyLayout, RemovedEffectsEvent,
+    asset::EffectAsset, modifier::update::ForceFieldSource, next_multiple_of, spawn::EffectSpawner,
+    CompiledParticleEffect, ParticleLayout, PropertyLayout, RemovedEffectsEvent,
 };
 
 mod aligned_buffer_vec;
@@ -61,16 +61,27 @@ pub use shader_cache::ShaderCache;
 /// Labels for the Hanabi systems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
 pub enum EffectSystems {
-    /// Tick all effect instances to generate spawner counts, and configure
-    /// shaders based on modifiers. This system runs during the
-    /// [`CoreSet::PostUpdate`] set.
+    /// Tick all effect instances to generate spawner counts.
+    ///
+    /// This system runs during the [`CoreSet::PostUpdate`] set, in parallel of
+    /// [`CompileEffects`].
     ///
     /// [`CoreSet::PostUpdate`]: bevy::app::CoreSet::PostUpdate
+    /// [`CompileEffects`]: EffectSystems::CompileEffects
     TickSpawners,
-    /// Gather all removed [`ParticleEffect`] components during the
-    /// [`CoreSet::PostUpdate`] set, to be able to clean-up GPU
-    /// resources.
+    /// Compile the effect instances, updating the [`CompiledParticleEffect`]
+    /// components.
     ///
+    /// This system runs during the [`CoreSet::PostUpdate`] set, in parallel of
+    /// [`TickSpawners`].
+    ///
+    /// [`CoreSet::PostUpdate`]: bevy::app::CoreSet::PostUpdate
+    /// [`TickSpawners`]: EffectSystems::TickSpawners
+    CompileEffects,
+    /// Gather all removed [`ParticleEffect`] components during the
+    /// [`CoreSet::PostUpdate`] set, to be able to clean-up GPU resources.
+    ///
+    /// [`ParticleEffect`]: crate::ParticleEffect
     /// [`CoreSet::PostUpdate`]: bevy::app::CoreSet::PostUpdate
     GatherRemovedEffects,
     /// Prepare GPU data for the extracted effects.
@@ -971,6 +982,8 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
 
 /// A single effect instance extracted from a [`ParticleEffect`] as a
 /// render world item.
+///
+/// [`ParticleEffect`]: crate::ParticleEffect
 #[derive(Component)]
 pub(crate) struct ExtractedEffect {
     /// Handle to the effect asset this instance is based on.
@@ -983,11 +996,14 @@ pub(crate) struct ExtractedEffect {
     pub property_layout: PropertyLayout,
     /// Values of properties written in a binary blob according to
     /// [`property_layout`].
+    ///
+    /// [`property_layout`]: crate::render::ExtractedEffect::property_layout
     pub property_data: Vec<u8>,
     /// Number of particles to spawn this frame for the effect.
-    /// Obtained from calling [`Spawner::tick()`] on the source effect instance.
+    /// Obtained from calling [`EffectSpawner::tick()`] on the source effect
+    /// instance.
     ///
-    /// [`Spawner::tick()`]: crate::Spawner::tick
+    /// [`EffectSpawner::tick()`]: crate::EffectSpawner::tick
     pub spawn_count: u32,
     /// Global transform of the effect origin, extracted from the
     /// [`GlobalTransform`].
@@ -1015,8 +1031,12 @@ pub(crate) struct ExtractedEffect {
 
 /// Extracted data for newly-added [`ParticleEffect`] component requiring a new
 /// GPU allocation.
+///
+/// [`ParticleEffect`]: crate::ParticleEffect
 pub(crate) struct AddedEffect {
     /// Entity with a newly-added [`ParticleEffect`] component.
+    ///
+    /// [`ParticleEffect`]: crate::ParticleEffect
     pub entity: Entity,
     /// Capacity of the effect (and therefore, the particle buffer), in number
     /// of particles.
@@ -1036,8 +1056,12 @@ pub(crate) struct AddedEffect {
 pub(crate) struct ExtractedEffects {
     /// Map of extracted effects from the entity the source [`ParticleEffect`]
     /// is on.
+    ///
+    /// [`ParticleEffect`]: crate::ParticleEffect
     pub effects: HashMap<Entity, ExtractedEffect>,
     /// Entites which had their [`ParticleEffect`] component removed.
+    ///
+    /// [`ParticleEffect`]: crate::ParticleEffect
     pub removed_effect_entities: Vec<Entity>,
     /// Newly added effects without a GPU allocation yet.
     pub added_effects: Vec<AddedEffect>,
@@ -1086,6 +1110,8 @@ pub(crate) fn extract_effect_events(
 /// [`ExtractedEffects`] resource.
 ///
 /// This system runs in parallel of [`extract_effect_events`].
+///
+/// [`ParticleEffect`]: crate::ParticleEffect
 pub(crate) fn extract_effects(
     time: Extract<Res<Time>>,
     effects: Extract<Res<Assets<EffectAsset>>>,
@@ -1096,16 +1122,15 @@ pub(crate) fn extract_effects(
             Query<(
                 Entity,
                 &ComputedVisibility,
-                &ParticleEffect, /* TODO - Split EffectAsset::Spawner (desc) and
-                                  * ParticleEffect::SpawnerData (runtime data), and init the
-                                  * latter on component add without a need for the former */
+                &EffectSpawner,
+                &CompiledParticleEffect,
                 &GlobalTransform,
             )>,
             // Newly added ParticleEffect components
             Query<
-                (Entity, &ParticleEffect),
+                (Entity, &CompiledParticleEffect),
                 (
-                    Added<ParticleEffect>,
+                    Added<CompiledParticleEffect>,
                     With<ComputedVisibility>,
                     With<GlobalTransform>,
                 ),
@@ -1143,8 +1168,8 @@ pub(crate) fn extract_effects(
         .p1()
         .iter()
         .map(|(entity, effect)| {
-            let handle = effect.handle.clone_weak();
-            let asset = effects.get(&effect.handle).unwrap();
+            let handle = effect.asset.clone_weak();
+            let asset = effects.get(&effect.asset).unwrap();
             let particle_layout = asset.particle_layout();
             assert!(
                 particle_layout.size() > 0,
@@ -1165,7 +1190,7 @@ pub(crate) fn extract_effects(
         .collect();
 
     // Loop over all existing effects to update them
-    for (entity, computed_visibility, effect, transform) in query.p0().iter_mut() {
+    for (entity, computed_visibility, spawner, effect, transform) in query.p0().iter_mut() {
         // Check if visible
         if !computed_visibility.is_visible() {
             continue;
@@ -1176,22 +1201,18 @@ pub(crate) fn extract_effects(
             continue;
         };
 
-        // TEMP - see tick_spawners()
-        let spawn_count = effect.spawn_count;
+        // Retrieve other values from the compiled effect
+        let spawn_count = spawner.spawn_count();
         let force_field = effect.force_field; // TEMP
 
         // Check if asset is available, otherwise silently ignore
-        let Some(asset) = effects.get(&effect.handle) else {
+        let Some(asset) = effects.get(&effect.asset) else {
             trace!("EffectAsset not ready; skipping ParticleEffect instance on entity {:?}.", entity);
             continue;
         };
 
         #[cfg(feature = "2d")]
-        let z_sort_key_2d = effect
-            .z_layer_2d
-            .map_or(FloatOrd(asset.z_layer_2d), |z_layer_2d| {
-                FloatOrd(z_layer_2d)
-            });
+        let z_sort_key_2d = effect.z_layer_2d;
 
         let image_handle_id = effect
             .particle_texture
@@ -1214,7 +1235,7 @@ pub(crate) fn extract_effects(
         extracted_effects.effects.insert(
             entity,
             ExtractedEffect {
-                handle: effect.handle.clone_weak(),
+                handle: effect.asset.clone_weak(),
                 particle_layout: asset.particle_layout().clone(),
                 property_layout,
                 property_data,
@@ -1288,6 +1309,8 @@ impl GpuLimits {
 pub(crate) struct EffectsMeta {
     /// Map from an entity with a [`ParticleEffect`] component attached to it,
     /// to the associated effect slice allocated in an [`EffectCache`].
+    ///
+    /// [`ParticleEffect`]: crate::ParticleEffect
     entity_map: HashMap<Entity, EffectCacheId>,
     /// Global effect cache for all effects in use.
     effect_cache: EffectCache,
@@ -1585,6 +1608,8 @@ pub(crate) struct EffectBatch {
     z_sort_key_2d: FloatOrd,
     /// Entities holding the source [`ParticleEffect`] instances which were
     /// batched into this single batch. Used to determine visibility per view.
+    ///
+    /// [`ParticleEffect`]: crate::ParticleEffect
     entities: Vec<u32>,
 }
 

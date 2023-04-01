@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Attribute` is now serializable. Attributes are serialized as a string containing their name, since the list of valid attributes is hard-coded and cannot be modified at runtime, and new custom attributes are not supported. The default value is not serialized.
 - Init modifiers now also have access to the effect's properties.
 - Added `InitAttributeModifier` to initialize any attribute to a value or bind it to a property. This is especially useful with properties currently used implicitly like `Attribute::COLOR` and `Attribute::HDR_COLOR`; now you can set the color of particles without the need to (ab)use a `ColorOverLifetimeModifier` with a uniform gradient. The binding with properties also allows dynamically changing the spawning color; see the updated `spawn_on_command.rs` example.
+- Added 2 new components:
+  - `CompiledParticleEffect` caches the runtime data for a compiled `ParticleEffect`. This component is automatically managed by the library. Users can interact with it to manage the values of the properties for that particular effect instance.
+  - `EffectSpawner` holds the runtime data for the spawner. Several fields and methods have been transfered from [`EffectAsset::spawner`] and [`ParticleEffect::spawer`] into this new component. The component is automatically spawned by the library. Users can interact with it to _e.g._ spawn a single burst of particle.
+- Added a new system set `EffectSystems::CompileEffects` running the new `compile_effects()` system in parallel of the `tick_spawners()` system, during the `CoreSet::PostUpdate` set.
+  - `compile_effects()` updates the `CompiledParticleEffect` of an `Entity` based on the state of its `ParticleEffect`.
+  - `tick_spawners()` spawns if it doesn't exist then ticks the `EffectSpawner` component located again on that same `Entity`.
+
+  Neither of those systems mutate the `ParticleEffect` component anymore (the change detection mechanism of Bevy components will not be triggered).
+
+- Added `ParticleEffect::with_properties()` to define a set of properties from an iterator. Note however that the `set_property()` method moved to the `CompiledParticleEffect`.
 
 ### Changed
 
@@ -24,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Particles without a lifetime are not reaped and therefore do not die from aging. They continue to age though (their `Attribute::AGE` is updated each frame).
 - The `Attribute::POSITION` and `Attribute::VELOCITY` are not mandatory anymore. They are required if `EffectAsset::motion_integration` is set to something other than `MotionIntegration::None`, but are not added automatically to all effects like they used to be, and instead require a modifier to explicitly insert them into the particle layout. Effects with a non-`None` motion integration but missing either of those two attributes will emit a warning at runtime. Add a position or velocity initializing modifier to fix it.
 - The documentation for all modifiers has been updated to state which attribute(s) they require, if any. Modifiers insert the attributes they require into the particle layout of the effect the modifier is attached to.
+- `Spawner` now contains the user-provided spawner configuration, which is serialized with the `EffectAsset`. All runtime fields and related methods, which are not serialized, have been moved to the new `EffectSpawner` components. Users should replace the following calls previously made on `ParticleEffect::maybe_spawner().unwrap()` to the new `EffectSpawner`: `set_active()`, `with_active()`, `is_active()`, `reset()`. See _e.g._ the `spawn_on_command.rs` example.
+- The former `Spawner::tick()`, now moved to `EffectSpawner::tick()`, is now a public method. The method is still automatically called by the `tick_spawners()` system. It's publicly exposed for testing and in case users want more control.
+- Moved `ParticleEffect::set_property()` to `CompiledParticleEffect` to prevent triggering change detection on `ParticleEffect` which invalidates the cache. (#162)
+- The `Spawner` methods `with_active()`, `set_active()`, and `is_active()`, have been respectively renamed to `with_starts_active()`, `set_starts_active()`, and `starts_active()`. This highlights the fact the "active" state manipulated by those methods only refers to the initial state of the spawner. The current runtime active state is available from the `EffectSpawner` once it's spawned by `tick_spawners()` (after the first udpate).
+
+### Removed
+
+- Removed the unused `EffectMaterial`, `EffectMaterialPlugin`, and `GpuEffectMaterial`.
 
 ### Removed
 
@@ -34,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a bug where using `ParticleEffect::with_spawner()` would prevent properties from initializing correctly.
 - Fixed a bug where the effect texture of the previously batched effect was incorrectly selected instead of the texture of the current effect. (#167)
 - Fixed a bug on some GPUs (most notably, on macOS) where incorrect data padding was breaking simulation of all but the first effect. (#165)
+- Fixed calls to `ParticleEffect::set_property()` being ignored if made before the particle effect has been updated once, due to properties not being resolved into the `EffectAsset` until the effect is effectively compiled. The `set_property()` method has now moved to the new `CompiledParticleEffect`, so cannot by design be made anymore before the effect is first updated.
+- Fixed `ParticleEffect::set_property()` invalidating the shader cache of the particle effect and causing a full shader recompile, which was impacting performance and defeating the point of using properties in the first place. The method has been moved to `CompiledParticleEffect`. (#162)
 
 ## [0.6.1] 2023-03-13
 

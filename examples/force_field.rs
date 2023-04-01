@@ -140,7 +140,11 @@ fn setup(
     gradient.add_key(0.0, Vec4::new(0.0, 1.0, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.0, 1.0, 1.0, 0.0));
 
-    let spawner = Spawner::once(30.0.into(), false);
+    // Prevent the spawner from immediately spawning on activation, and instead
+    // require a manual reset() call.
+    let spawn_immediately = false;
+
+    let spawner = Spawner::once(30.0.into(), spawn_immediately);
 
     // Force field effects
     let effect = effects.add(
@@ -203,12 +207,16 @@ fn setup(
 }
 
 fn update(
-    mut effect: Query<(&mut ParticleEffect, &mut Transform), Without<Projection>>,
+    mut q_effect: Query<(&mut EffectSpawner, &mut Transform), Without<Projection>>,
     mouse_button_input: Res<Input<MouseButton>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Projection>>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
 ) {
-    let (mut effect, mut effect_transform) = effect.single_mut();
+    // Note: On first frame where the effect spawns, EffectSpawner is spawned during
+    // CoreSet::PostUpdate, so will not be available yet. Ignore for a frame if
+    // so.
+    let Ok((mut spawner, mut effect_transform)) = q_effect.get_single_mut() else { return; };
+
     let (camera, camera_transform) = camera_query.single();
 
     if let Ok(window) = window.get_single() {
@@ -221,8 +229,8 @@ fn update(
 
                 effect_transform.translation = spawning_pos;
 
-                // Spawn the particles
-                effect.maybe_spawner().unwrap().reset();
+                // Spawn a single burst of particles
+                spawner.reset();
             }
         }
     }

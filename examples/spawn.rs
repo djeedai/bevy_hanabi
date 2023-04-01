@@ -252,7 +252,10 @@ fn setup(
         });
 }
 
-fn update_accel(time: Res<Time>, mut query: Query<&mut ParticleEffect, With<DynamicRuntimeAccel>>) {
+fn update_accel(
+    time: Res<Time>,
+    mut query: Query<&mut CompiledParticleEffect, With<DynamicRuntimeAccel>>,
+) {
     let mut effect = query.single_mut();
     let accel0 = 10.;
     let (s, c) = (time.elapsed_seconds() * 0.3).sin_cos();

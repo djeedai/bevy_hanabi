@@ -16,7 +16,7 @@ use bevy::{
 
 use crate::{
     asset::{EffectAsset, EffectAssetLoader},
-    gather_removed_effects,
+    compile_effects, gather_removed_effects,
     render::{
         extract_effect_events, extract_effects, prepare_effects, queue_effects,
         DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems,
@@ -74,12 +74,18 @@ impl Plugin for HanabiPlugin {
             .configure_sets((
                 EffectSystems::TickSpawners
                     .in_base_set(CoreSet::PostUpdate)
-                    // This checks the visibility to skip shader work, so needs to run
-                    // after ComputedVisibility was updated.
+                    // This checks the visibility to skip work, so needs to run after
+                    // ComputedVisibility was updated.
+                    .after(VisibilitySystems::CheckVisibility),
+                EffectSystems::CompileEffects
+                    .in_base_set(CoreSet::PostUpdate)
+                    // This checks the visibility to skip work, so needs to run after
+                    // ComputedVisibility was updated.
                     .after(VisibilitySystems::CheckVisibility),
                 EffectSystems::GatherRemovedEffects.in_base_set(CoreSet::PostUpdate),
             ))
             .add_system(tick_spawners.in_set(EffectSystems::TickSpawners))
+            .add_system(compile_effects.in_set(EffectSystems::CompileEffects))
             .add_system(gather_removed_effects.in_set(EffectSystems::GatherRemovedEffects));
 
         // Register the component reflection
