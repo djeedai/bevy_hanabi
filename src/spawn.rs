@@ -273,8 +273,6 @@ impl Spawner {
     /// // Spawn 32 particles in a burst once immediately on creation.
     /// let spawner = Spawner::once(32.0.into(), true);
     /// ```
-    ///
-    /// [`reset()`]: crate::Spawner::reset
     pub fn once(count: Value<f32>, spawn_immediately: bool) -> Self {
         let mut spawner = Self::new(count, 0.0.into(), f32::INFINITY.into());
         spawner.starts_immediately = spawn_immediately;
