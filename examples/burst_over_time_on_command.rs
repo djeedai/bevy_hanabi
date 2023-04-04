@@ -1,5 +1,5 @@
-//! A circle bounces around in a box and spawns particles
-//! when it hits the wall.
+//! A circle bounces around in a box and spawns a trail of
+//! particles when it hits the wall.
 use bevy::{
     log::LogPlugin,
     math::Vec3Swizzles,
@@ -31,8 +31,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
-        .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
+        .add_system(bevy::window::close_on_esc)
         .add_plugin(WorldInspectorPlugin::default())
         .add_startup_system(setup)
         .add_system(update)
@@ -98,7 +98,8 @@ fn setup(
         .insert(Name::new("ball"))
         .id();
 
-    let spawner = Spawner::new(32.0.into(), 0.5.into(), std::f32::INFINITY.into()).with_time(0.5);
+    let spawner = Spawner::new(32.0.into(), 0.5.into(), std::f32::INFINITY.into())
+        .with_starts_immediately(false);
     let effect = effects.add(
         EffectAsset {
             name: "Impact".into(),
@@ -129,7 +130,10 @@ fn setup(
     );
 
     let particle_effect = commands
-        .spawn(ParticleEffectBundle::new(effect).with_spawner(spawner))
+        .spawn(ParticleEffectBundle {
+            effect: ParticleEffect::new(effect),
+            ..Default::default()
+        })
         .insert(Name::new("effect"))
         .id();
 
@@ -137,15 +141,16 @@ fn setup(
 }
 
 fn update(
-    mut balls: Query<(&mut Ball, &mut Transform)>,
-    mut effect: Query<&mut ParticleEffect, Without<Ball>>,
+    mut balls: Query<(&mut Ball, &mut Transform, &Children)>,
+    mut compiled_effects: Query<&mut CompiledParticleEffect>,
+    mut effect_spawners: Query<&mut EffectSpawner>,
     time: Res<Time>,
 ) {
     const HALF_SIZE: f32 = BOX_SIZE / 2.0 - BALL_RADIUS;
 
-    let mut effect = effect.single_mut();
+    let mut effect = compiled_effects.single_mut();
 
-    for (mut ball, mut transform) in balls.iter_mut() {
+    for (mut ball, mut transform, children) in balls.iter_mut() {
         let mut pos = transform.translation.xy() + ball.velocity * time.delta_seconds();
         let mut collision = false;
 
@@ -172,7 +177,11 @@ fn update(
             effect.set_property("my_color", color.into());
 
             // Spawn the particles
-            effect.maybe_spawner().unwrap().reset();
+            children.iter().for_each(|child| {
+                if let Ok(mut spawner) = effect_spawners.get_mut(*child) {
+                    spawner.reset();
+                }
+            });
         }
     }
 }
