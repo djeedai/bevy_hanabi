@@ -144,11 +144,13 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     let index = indirect_buffer.indices[3u * thread_index + pong];
 
-    let particle: ptr<storage, Particle, read_write> = &particle_buffer.particles[index];
+    var particle: Particle = particle_buffer.particles[index];
 
     {{AGE_CODE}}
     {{UPDATE_CODE}}
     {{REAP_CODE}}
+
+    particle_buffer.particles[index] = particle;
 
     // Check if alive
     if (!is_alive) {

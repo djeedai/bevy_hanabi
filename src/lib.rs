@@ -746,7 +746,7 @@ impl CompiledParticleEffect {
             if has_position && has_velocity {
                 // Note the prepended "\n" to prevent appending to a comment line.
                 let code = format!(
-                    "\n(*particle).{0} += (*particle).{1} * sim_params.dt;\n",
+                    "\nparticle.{0} += particle.{1} * sim_params.dt;\n",
                     Attribute::POSITION.name(),
                     Attribute::VELOCITY.name()
                 );
@@ -779,7 +779,7 @@ impl CompiledParticleEffect {
         let has_lifetime = present_attributes.contains(&Attribute::LIFETIME);
         let alive_init_code = if has_age && has_lifetime {
             format!(
-                "var is_alive = (*particle).{0} < (*particle).{1};",
+                "var is_alive = particle.{0} < particle.{1};",
                 Attribute::AGE.name(),
                 Attribute::LIFETIME.name()
             )
@@ -791,7 +791,7 @@ impl CompiledParticleEffect {
         };
         let age_code = if has_age {
             format!(
-                "(*particle).{0} = (*particle).{0} + sim_params.dt;",
+                "particle.{0} = particle.{0} + sim_params.dt;",
                 Attribute::AGE.name()
             )
         } else {
@@ -802,7 +802,7 @@ impl CompiledParticleEffect {
         // Configure reaping code
         let reap_code = if has_age && has_lifetime {
             format!(
-                "is_alive = is_alive && ((*particle).{0} < (*particle).{1});",
+                "is_alive = is_alive && (particle.{0} < particle.{1});",
                 Attribute::AGE.name(),
                 Attribute::LIFETIME.name()
             )

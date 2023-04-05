@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added `ParticleEffect::with_properties()` to define a set of properties from an iterator. Note however that the `set_property()` method moved to the `CompiledParticleEffect`.
 - Added a `SimulationCondition` enum and an `EffectAsset::simulation_condition` field allowing to control whether the effect is simulated while hidden (`Visibility::Hidden`). (#166)
+- Added a new `RadialAccelModifier` update modifier applying a per-particle acceleration in the radial direction defined as the direction from the modifier's specified origin to the particle current position.
+- Added a new `TangentAccelModifier` update modifier applying a per-particle acceleration in the tangent direction defined as the cross product of the the modifier's specified rotation plane axis with the radial direction of the particle (calculated like `RadialAccelModifier`).
 
 ### Changed
 
@@ -39,10 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The former `Spawner::tick()`, now moved to `EffectSpawner::tick()`, is now a public method. The method is still automatically called by the `tick_spawners()` system. It's publicly exposed for testing and in case users want more control.
 - Moved `ParticleEffect::set_property()` to `CompiledParticleEffect` to prevent triggering change detection on `ParticleEffect` which invalidates the cache. (#162)
 - The `Spawner` methods `with_active()`, `set_active()`, and `is_active()`, have been respectively renamed to `with_starts_active()`, `set_starts_active()`, and `starts_active()`. This highlights the fact the "active" state manipulated by those methods only refers to the initial state of the spawner. The current runtime active state is available from the `EffectSpawner` once it's spawned by `tick_spawners()` (after the first udpate).
-
-### Removed
-
-- Removed the unused `EffectMaterial`, `EffectMaterialPlugin`, and `GpuEffectMaterial`.
 
 ### Removed
 

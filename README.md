@@ -289,8 +289,10 @@ The image on the left has the `BillboardModifier` enabled.
     - [x] Always, even when hidden
     - [x] Only when visible
   - [x] Motion integration (Euler)
-  - [x] Apply forces
-    - [x] Constant (gravity)
+  - [x] Apply forces and accelerations
+    - [x] Constant acceleration (gravity)
+    - [x] Radial acceleration
+    - [x] Tangent acceleration
     - [x] Force field
     - [x] Linear drag
   - [ ] Collision
