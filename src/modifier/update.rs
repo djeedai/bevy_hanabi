@@ -803,7 +803,7 @@ fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {{
 
 @compute @workgroup_size(64)
 fn main() {{
-    let particle: ptr<storage, Particle, read_write> = &particle_buffer.particles[0];
+    var particle: Particle = particle_buffer.particles[0];
     var transform: mat4x4<f32> = mat4x4<f32>();
     var is_alive = true;
 {update_code}
