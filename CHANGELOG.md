@@ -44,10 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- Removed the unused `EffectMaterial`, `EffectMaterialPlugin`, and `GpuEffectMaterial`.
-
-### Removed
-
 - Deleted the following unused types: `EffectMaterial`, `EffectMaterialUniformData`, `EffectMaterialPlugin`, `GpuEffectMaterial`.
 
 ### Fixed
