@@ -33,7 +33,7 @@ bitflags = "1.3"
 typetag = "0.2"
 
 [dependencies.bevy]
-version = "0.10"
+git = "https://github.com/bevyengine/bevy"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 
@@ -41,7 +41,7 @@ features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 all-features = true
 
 [dev-dependencies]
-# Same version as Bevy 0.10 (bevy_render)
+# Same version as Bevy 0.11 (bevy_render)
 wgpu = "0.15"
 # For shader snippet validation
 naga = "0.11"

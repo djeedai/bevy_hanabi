@@ -173,12 +173,12 @@ fn main() {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,instancing=trace".to_string(),
         }))
-        .add_system(bevy::window::close_on_esc)
         .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
+        // Have to wait for update.
+        // .add_plugin(WorldInspectorPlugin::default())
         .insert_resource(InstanceManager::new(5, 4))
-        .add_startup_system(setup)
-        .add_system(keyboard_input_system)
+        .add_systems(Startup, setup)
+        .add_systems(Update, (bevy::window::close_on_esc, keyboard_input_system))
         //.add_system(stress_test.after(keyboard_input_system))
         .run();
 }

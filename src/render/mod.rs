@@ -2813,7 +2813,7 @@ impl Node for VfxSimulateDriverNode {
         _render_context: &mut RenderContext,
         _world: &World,
     ) -> Result<(), NodeRunError> {
-        graph.run_sub_graph(crate::plugin::simulate_graph::NAME, vec![])?;
+        graph.run_sub_graph(crate::plugin::simulate_graph::NAME, vec![], None)?;
         Ok(())
     }
 }

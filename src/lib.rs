@@ -1287,10 +1287,9 @@ else { return c1; }
         app.init_resource::<ShaderCache>();
         app.insert_resource(Random(new_rng()));
         app.add_asset::<EffectAsset>();
-        app.add_system(
-            compile_effects
-                .in_base_set(CoreSet::PostUpdate)
-                .after(VisibilitySystems::CheckVisibility),
+        app.add_systems(
+            PostUpdate,
+            compile_effects.after(VisibilitySystems::CheckVisibility),
         );
 
         app

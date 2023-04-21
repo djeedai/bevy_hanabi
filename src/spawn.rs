@@ -779,10 +779,9 @@ mod test {
         app.init_resource::<Time>();
         app.insert_resource(Random(new_rng()));
         app.add_asset::<EffectAsset>();
-        app.add_system(
-            tick_spawners
-                .in_base_set(CoreSet::PostUpdate)
-                .after(VisibilitySystems::CheckVisibility),
+        app.add_systems(
+            PostUpdate,
+            tick_spawners.after(VisibilitySystems::CheckVisibility),
         );
 
         app
