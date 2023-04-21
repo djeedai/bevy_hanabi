@@ -12,7 +12,7 @@ use bevy::{
     },
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 

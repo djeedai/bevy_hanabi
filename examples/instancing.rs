@@ -10,7 +10,7 @@
 #![allow(dead_code)]
 
 use bevy::{log::LogPlugin, prelude::*, render::mesh::shape::Cube};
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use rand::Rng;
 
 use bevy_hanabi::prelude::*;
