@@ -17,6 +17,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ToWgslString, ValueType};
 
+mod expr;
+
+pub use expr::{AddExpr, BoxedExpr, Expr, Literal};
+
+use self::expr::ExprError;
+
 /// Variant storage for a simple value.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -104,9 +110,39 @@ impl From<f32> for Value {
     }
 }
 
+impl TryInto<f32> for Value {
+    type Error = ExprError;
+
+    fn try_into(self) -> Result<f32, Self::Error> {
+        match self {
+            Value::Float(f) => Ok(f),
+            _ => Err(ExprError::TypeError(format!(
+                "Expected {:?} type, found {:?} instead.",
+                ValueType::Float,
+                self.value_type()
+            ))),
+        }
+    }
+}
+
 impl From<Vec2> for Value {
     fn from(v: Vec2) -> Self {
         Self::Float2(v)
+    }
+}
+
+impl TryInto<Vec2> for Value {
+    type Error = ExprError;
+
+    fn try_into(self) -> Result<Vec2, Self::Error> {
+        match self {
+            Value::Float2(v) => Ok(v),
+            _ => Err(ExprError::TypeError(format!(
+                "Expected {:?} type, found {:?} instead.",
+                ValueType::Float2,
+                self.value_type()
+            ))),
+        }
     }
 }
 
@@ -116,15 +152,60 @@ impl From<Vec3> for Value {
     }
 }
 
+impl TryInto<Vec3> for Value {
+    type Error = ExprError;
+
+    fn try_into(self) -> Result<Vec3, Self::Error> {
+        match self {
+            Value::Float3(v) => Ok(v),
+            _ => Err(ExprError::TypeError(format!(
+                "Expected {:?} type, found {:?} instead.",
+                ValueType::Float3,
+                self.value_type()
+            ))),
+        }
+    }
+}
+
 impl From<Vec4> for Value {
     fn from(v: Vec4) -> Self {
         Self::Float4(v)
     }
 }
 
+impl TryInto<Vec4> for Value {
+    type Error = ExprError;
+
+    fn try_into(self) -> Result<Vec4, Self::Error> {
+        match self {
+            Value::Float4(v) => Ok(v),
+            _ => Err(ExprError::TypeError(format!(
+                "Expected {:?} type, found {:?} instead.",
+                ValueType::Float4,
+                self.value_type()
+            ))),
+        }
+    }
+}
+
 impl From<u32> for Value {
     fn from(u: u32) -> Self {
         Self::Uint(u)
+    }
+}
+
+impl TryInto<u32> for Value {
+    type Error = ExprError;
+
+    fn try_into(self) -> Result<u32, Self::Error> {
+        match self {
+            Value::Uint(v) => Ok(v),
+            _ => Err(ExprError::TypeError(format!(
+                "Expected {:?} type, found {:?} instead.",
+                ValueType::Uint,
+                self.value_type()
+            ))),
+        }
     }
 }
 
