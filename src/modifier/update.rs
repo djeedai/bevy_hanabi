@@ -129,7 +129,7 @@ impl AccelModifier {
     /// Create a new modifier with a constant acceleration.
     pub fn constant(acceleration: Vec3) -> Self {
         Self {
-            accel: ValueOrProperty::Value(acceleration.into()),
+            accel: ValueOrProperty::Value(Value::Vector(acceleration.into())),
         }
     }
 }
@@ -236,7 +236,7 @@ impl RadialAccelModifier {
     /// Create a new modifier with a constant acceleration.
     pub fn constant(origin: Vec3, acceleration: f32) -> Self {
         Self {
-            accel: ValueOrProperty::Value(acceleration.into()),
+            accel: ValueOrProperty::Value(Value::Scalar(acceleration.into())),
             origin,
         }
     }
@@ -366,7 +366,7 @@ impl TangentAccelModifier {
     /// Create a new modifier with a constant acceleration.
     pub fn constant(origin: Vec3, axis: Vec3, acceleration: f32) -> Self {
         Self {
-            accel: ValueOrProperty::Value(acceleration.into()),
+            accel: ValueOrProperty::Value(Value::Scalar(acceleration.into())),
             origin,
             axis,
         }

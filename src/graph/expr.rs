@@ -215,30 +215,39 @@ impl Expr for AddExpr {
     }
 
     fn eval(&self) -> Result<Value, ExprError> {
+        let value_type = self.left.value_type();
+        if value_type != self.right.value_type() {
+            return Err(ExprError::TypeError(format!(
+                "Mismatching L/R types: {:?} != {:?}",
+                value_type,
+                self.right.value_type()
+            )));
+        }
+
         let l = self.left.eval()?;
         let r = self.right.eval()?;
-        match l {
-            Value::Float(l) => {
-                let r: f32 = r.try_into()?;
-                Ok(Value::Float(l + r))
-            }
-            Value::Float2(l) => {
-                let r: Vec2 = r.try_into()?;
-                Ok(Value::Float2(l + r))
-            }
-            Value::Float3(l) => {
-                let r: Vec3 = r.try_into()?;
-                Ok(Value::Float3(l + r))
-            }
-            Value::Float4(l) => {
-                let r: Vec4 = r.try_into()?;
-                Ok(Value::Float4(l + r))
-            }
-            Value::Uint(l) => {
-                let r: u32 = r.try_into()?;
-                Ok(Value::Uint(l + r))
-            }
-        }
+
+        todo!();
+        // match value_type {
+        //     ValueType::Scalar(s) => match s {
+        //         ScalarType::Bool => {
+        //             let r: bool = r.try_into()?;
+        //             Ok(Value::Uint(l + r))
+        //         }
+        //         ScalarType::Float => {
+        //             let r: f32 = r.try_into()?;
+        //             Ok(Value::Float(l + r))
+        //         }
+        //         ScalarType::Int => {
+        //             let r: f32 = r.try_into()?;
+        //             Ok(Value::Float(l + r))
+        //         }
+        //         ScalarType::Uint => {
+        //             let r: f32 = r.try_into()?;
+        //             Ok(Value::Float(l + r))
+        //         }
+        //     },
+        // }
     }
 
     fn boxed_clone(&self) -> BoxedExpr {
@@ -271,10 +280,19 @@ impl std::ops::Add for Literal {
 mod tests {
     use super::*;
 
+    // #[test]
+    // fn err() {
+    //     let l = Value::Scalar(3.5_f32.into());
+    //     let r: Result<Vec2, ExprError> = l.try_into();
+    //     assert!(r.is_err());
+    //     assert!(matches!(r, Err(ExprError::TypeError(_))));
+    // }
+
     #[test]
     fn serde() {
-        let l: Literal = Value::Float(3.0).into();
-        assert_eq!(Ok(Value::Float(3.0)), l.eval());
+        let v = Value::Scalar(3.0_f32.into());
+        let l: Literal = v.into();
+        assert_eq!(Ok(v), l.eval());
         let s = ron::to_string(&l).unwrap();
         println!("literal: {:?}", s);
         let l_serde: Literal = ron::from_str(&s).unwrap();
@@ -287,11 +305,13 @@ mod tests {
         assert!(b_serde.is_const());
         assert_eq!(b_serde.to_wgsl_string(), b.to_wgsl_string());
 
-        let l0: Literal = Value::Float(3.0).into();
-        let l1: Literal = Value::Float(2.5).into();
+        let v0 = Value::Scalar(3.0_f32.into());
+        let v1 = Value::Scalar(2.5_f32.into());
+        let l0: Literal = v0.into();
+        let l1: Literal = v1.into();
         let a = l0 + l1;
         assert!(a.is_const());
-        assert_eq!(Ok(Value::Float(5.5)), a.eval());
+        assert_eq!(Ok(Value::Scalar(5.5_f32.into())), a.eval());
         let s = ron::to_string(&a).unwrap();
         println!("add: {:?}", s);
         let a_serde: AddExpr = ron::from_str(&s).unwrap();

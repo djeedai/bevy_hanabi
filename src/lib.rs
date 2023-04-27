@@ -250,6 +250,22 @@ impl ToWgslString for Vec4 {
     }
 }
 
+impl ToWgslString for bool {
+    fn to_wgsl_string(&self) -> String {
+        if *self {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        }
+    }
+}
+
+impl ToWgslString for i32 {
+    fn to_wgsl_string(&self) -> String {
+        format!("{}", self)
+    }
+}
+
 impl ToWgslString for u32 {
     fn to_wgsl_string(&self) -> String {
         format!("{}", self)

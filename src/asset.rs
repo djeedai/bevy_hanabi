@@ -279,11 +279,11 @@ mod tests {
             spawner: Spawner::rate(30.0.into()),
             ..Default::default()
         }
-        .with_property("my_prop", 345_u32.into());
+        .with_property("my_prop", graph::Value::Scalar(345_u32.into()));
 
         effect.add_property(
             "other_prop",
-            graph::Value::Float3(Vec3::new(3., -7.5, 42.42)),
+            graph::Value::Vector(Vec3::new(3., -7.5, 42.42).into()),
         );
 
         assert!(effect.properties().iter().any(|p| p.name() == "my_prop"));
