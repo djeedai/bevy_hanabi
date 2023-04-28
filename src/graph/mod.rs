@@ -36,7 +36,9 @@ pub enum ScalarValue {
 }
 
 impl ScalarValue {
+    /// Convert this value to a `bool` value.
     ///
+    /// Any non-zero value converts to `true`, while a zero value converts to `false`.
     pub fn as_bool(&self) -> bool {
         match *self {
             ScalarValue::Bool(b) => b,
@@ -46,6 +48,9 @@ impl ScalarValue {
         }
     }
 
+    /// Convert this value to a floating-point value.
+    ///
+    /// Boolean values convert to 0 or 1. Numeric values are cast to `f32`.
     pub fn as_f32(&self) -> f32 {
         match *self {
             ScalarValue::Bool(b) => {
@@ -61,6 +66,9 @@ impl ScalarValue {
         }
     }
 
+    /// Convert this value to an `i32` value.
+    ///
+    /// Boolean values convert to 0 or 1. Numeric values are cast to `i32`.
     pub fn as_i32(&self) -> i32 {
         match *self {
             ScalarValue::Bool(b) => {
@@ -76,6 +84,9 @@ impl ScalarValue {
         }
     }
 
+    /// Convert this value to an `u32` value.
+    ///
+    /// Boolean values convert to 0 or 1. Numeric values are cast to `u32`.
     pub fn as_u32(&self) -> u32 {
         match *self {
             ScalarValue::Bool(b) => {
@@ -94,13 +105,14 @@ impl ScalarValue {
     /// Get the value as a binary blob ready for GPU upload.
     pub fn as_bytes(&self) -> &[u8] {
         match self {
-            ScalarValue::Bool(b) => panic!("Cannot convert scalar bool to byte slice."),
+            ScalarValue::Bool(_) => panic!("Cannot convert scalar bool to byte slice."),
             ScalarValue::Float(f) => bytemuck::cast_slice::<f32, u8>(std::slice::from_ref(f)),
             ScalarValue::Int(i) => bytemuck::cast_slice::<i32, u8>(std::slice::from_ref(i)),
             ScalarValue::Uint(u) => bytemuck::cast_slice::<u32, u8>(std::slice::from_ref(u)),
         }
     }
 
+    /// Get the scalar type of this value.
     pub fn scalar_type(&self) -> ScalarType {
         match self {
             ScalarValue::Bool(_) => ScalarType::Bool,
@@ -168,10 +180,20 @@ impl From<u32> for ScalarValue {
     }
 }
 
-trait ElemType {
+/// Trait to convert the elements of a vector.
+pub trait ElemType {
+    /// The zero element of the type.
     const ZERO: Self;
+
+    /// Get the N-th component of the vector given its raw storage.
     fn get_n<const N: usize>(storage: &[u32; 4]) -> Self;
+
+    /// Get the given component of the vector given its raw storage.
     fn get(index: usize, storage: &[u32; 4]) -> Self;
+
+    /// Get a slice of all the components of the vector given its raw storage.
+    ///
+    /// This is only valid for numeric types, and will panic for a boolean type.
     fn get_all(storage: &[u32; 4], count: usize) -> &[Self]
     where
         Self: Sized;
@@ -181,14 +203,14 @@ impl ElemType for bool {
     const ZERO: Self = false;
 
     fn get_n<const N: usize>(storage: &[u32; 4]) -> Self {
-        bytemuck::cast_slice::<u32, u8>(storage)[N] != 0
+        storage[N] != 0
     }
 
     fn get(index: usize, storage: &[u32; 4]) -> Self {
-        bytemuck::cast_slice::<u32, u8>(storage)[index] != 0
+        storage[index] != 0
     }
 
-    fn get_all(storage: &[u32; 4], count: usize) -> &[Self] {
+    fn get_all(_storage: &[u32; 4], _count: usize) -> &[Self] {
         panic!("Cannot get bool element type as slice.");
     }
 }
@@ -244,8 +266,7 @@ impl ElemType for u32 {
 /// Variant storage for a vector value.
 #[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct VectorValue {
-    elem_type: ScalarType,
-    size: u8,
+    vector_type: VectorType,
     storage: [u32; 4],
 }
 
@@ -254,8 +275,7 @@ impl VectorValue {
     #[allow(unsafe_code)]
     pub const fn new_vec2(value: Vec2) -> Self {
         let mut s = Self {
-            elem_type: ScalarType::Float,
-            size: 2,
+            vector_type: VectorType::new(ScalarType::Float, 2),
             storage: [0u32; 4],
         };
         s.storage[0] = unsafe { std::mem::transmute(value.x) };
@@ -269,8 +289,7 @@ impl VectorValue {
     #[allow(unsafe_code)]
     pub const fn new_vec3(value: Vec3) -> Self {
         let mut s = Self {
-            elem_type: ScalarType::Float,
-            size: 3,
+            vector_type: VectorType::new(ScalarType::Float, 3),
             storage: [0u32; 4],
         };
         s.storage[0] = unsafe { std::mem::transmute(value.x) };
@@ -285,8 +304,7 @@ impl VectorValue {
     #[allow(unsafe_code)]
     pub const fn new_vec4(value: Vec4) -> Self {
         let mut s = Self {
-            elem_type: ScalarType::Float,
-            size: 4,
+            vector_type: VectorType::new(ScalarType::Float, 4),
             storage: [0u32; 4],
         };
         s.storage[0] = unsafe { std::mem::transmute(value.to_array()[0]) };
@@ -298,19 +316,21 @@ impl VectorValue {
         s
     }
 
+    /// Get the type of the vector elements.
+    ///
+    /// This is a convenience shortcut for `self.vector_type().elem_type()`.
     pub fn elem_type(&self) -> ScalarType {
-        self.elem_type
+        self.vector_type.elem_type()
     }
 
+    /// Get the vector type itself.
     pub fn vector_type(&self) -> VectorType {
-        VectorType {
-            elem_type: self.elem_type,
-            size: self.size as i32,
-        }
+        self.vector_type
     }
 
+    /// Get the scalar value of the N-th element of the vector.
     pub fn value_n<const N: usize>(&self) -> ScalarValue {
-        match self.elem_type {
+        match self.elem_type() {
             ScalarType::Bool => ScalarValue::Bool(self.get_n::<bool, N>()),
             ScalarType::Float => ScalarValue::Float(self.get_n::<f32, N>()),
             ScalarType::Int => ScalarValue::Int(self.get_n::<i32, N>()),
@@ -318,8 +338,9 @@ impl VectorValue {
         }
     }
 
+    /// Get the scalar value of an element of the vector.
     pub fn value(&self, index: usize) -> ScalarValue {
-        match self.elem_type {
+        match self.elem_type() {
             ScalarType::Bool => ScalarValue::Bool(self.get::<bool>(index)),
             ScalarType::Float => ScalarValue::Float(self.get::<f32>(index)),
             ScalarType::Int => ScalarValue::Int(self.get::<i32>(index)),
@@ -327,46 +348,51 @@ impl VectorValue {
         }
     }
 
+    /// Get the value of the N-th element of the vector.
     pub fn get_n<T: ElemType, const N: usize>(&self) -> T {
-        if (self.size as usize) > N {
+        if self.vector_type.size() > N {
             T::get_n::<N>(&self.storage)
         } else {
             T::ZERO
         }
     }
 
+    /// Get the value of an element of the vector.
     pub fn get<T: ElemType>(&self, index: usize) -> T {
-        if index < (self.size as usize) {
+        if index < self.vector_type.size() {
             T::get(index, &self.storage)
         } else {
             T::ZERO
         }
     }
 
+    /// Get a slice of all the values of the vector.
+    ///
+    /// This is only valid for numeric types, and will panic for a boolean type.
     pub fn get_all<T: ElemType>(&self) -> &[T] {
-        T::get_all(&self.storage, self.size as usize)
+        T::get_all(&self.storage, self.vector_type.size())
     }
 
     /// Get the value as a binary blob ready for GPU upload.
     pub fn as_bytes(&self) -> &[u8] {
-        if self.elem_type == ScalarType::Bool {
+        if self.elem_type() == ScalarType::Bool {
             panic!("Cannot convert bool vector to byte slice.");
         }
-        let size = self.size as usize;
+        let size = self.vector_type.size();
         bytemuck::cast_slice::<u32, u8>(&self.storage[..size])
     }
 }
 
 impl PartialEq for VectorValue {
     fn eq(&self, other: &Self) -> bool {
-        let size = self.size;
-        if size != other.size {
+        let size = self.vector_type.size();
+        if size != other.vector_type.size() {
             return false;
         }
-        let size = size as usize;
-        if self.elem_type == ScalarType::Bool {
+        let elem_type = self.elem_type();
+        if elem_type == ScalarType::Bool {
             &self.storage[..size] == &other.storage[..size]
-        } else if self.elem_type == ScalarType::Float {
+        } else if elem_type == ScalarType::Float {
             let mut eq = true;
             for i in 0..size {
                 eq = eq && (FloatOrd(self.get::<f32>(i)) == FloatOrd(other.get::<f32>(i)));
@@ -381,12 +407,12 @@ impl PartialEq for VectorValue {
 
 impl std::hash::Hash for VectorValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.elem_type.hash(state);
-        self.size.hash(state);
-        let size = self.size as usize;
-        if self.elem_type == ScalarType::Bool {
+        self.vector_type.hash(state);
+        let size = self.vector_type.size();
+        let elem_type = self.elem_type();
+        if elem_type == ScalarType::Bool {
             self.storage[..size].hash(state);
-        } else if self.elem_type == ScalarType::Float {
+        } else if elem_type == ScalarType::Float {
             for i in 0..size {
                 FloatOrd(self.get::<f32>(i)).hash(state);
             }
@@ -405,10 +431,11 @@ impl ToWgslString for VectorValue {
             self.value_n::<0>().to_wgsl_string(),
             self.value_n::<1>().to_wgsl_string()
         );
-        if self.size > 2 {
+        let size = self.vector_type.size();
+        if size > 2 {
             vals.push(',');
             vals.push_str(&self.value_n::<2>().to_wgsl_string());
-            if self.size > 3 {
+            if size > 3 {
                 vals.push(',');
                 vals.push_str(&self.value_n::<3>().to_wgsl_string());
             }
@@ -421,8 +448,7 @@ impl ToWgslString for VectorValue {
 impl From<BVec2> for VectorValue {
     fn from(value: BVec2) -> Self {
         let mut s = Self {
-            elem_type: ScalarType::Bool,
-            size: 2,
+            vector_type: VectorType::new(ScalarType::Bool, 2),
             storage: [0u32; 4],
         };
         let v = bytemuck::cast_slice_mut::<u32, u8>(&mut s.storage);
@@ -435,8 +461,7 @@ impl From<BVec2> for VectorValue {
 impl From<BVec3> for VectorValue {
     fn from(value: BVec3) -> Self {
         let mut s = Self {
-            elem_type: ScalarType::Bool,
-            size: 3,
+            vector_type: VectorType::new(ScalarType::Bool, 3),
             storage: [0u32; 4],
         };
         let v = bytemuck::cast_slice_mut::<u32, u8>(&mut s.storage);
@@ -450,8 +475,7 @@ impl From<BVec3> for VectorValue {
 impl From<BVec4> for VectorValue {
     fn from(value: BVec4) -> Self {
         let mut s = Self {
-            elem_type: ScalarType::Bool,
-            size: 4,
+            vector_type: VectorType::new(ScalarType::Bool, 4),
             storage: [0u32; 4],
         };
         let v = bytemuck::cast_slice_mut::<u32, u8>(&mut s.storage);
@@ -466,8 +490,7 @@ impl From<BVec4> for VectorValue {
 impl From<Vec2> for VectorValue {
     fn from(value: Vec2) -> Self {
         let mut s = Self {
-            elem_type: ScalarType::Float,
-            size: 2,
+            vector_type: VectorType::new(ScalarType::Float, 2),
             storage: [0u32; 4],
         };
         let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
@@ -479,8 +502,7 @@ impl From<Vec2> for VectorValue {
 impl From<Vec3> for VectorValue {
     fn from(value: Vec3) -> Self {
         let mut s = Self {
-            elem_type: ScalarType::Float,
-            size: 3,
+            vector_type: VectorType::new(ScalarType::Float, 3),
             storage: [0u32; 4],
         };
         let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
@@ -492,8 +514,7 @@ impl From<Vec3> for VectorValue {
 impl From<Vec4> for VectorValue {
     fn from(value: Vec4) -> Self {
         let mut s = Self {
-            elem_type: ScalarType::Float,
-            size: 4,
+            vector_type: VectorType::new(ScalarType::Float, 4),
             storage: [0u32; 4],
         };
         let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
@@ -502,41 +523,51 @@ impl From<Vec4> for VectorValue {
     }
 }
 
-/// Variant storage for a matrix value.
+/// Floating-point matrix value.
 #[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct MatrixValue {
-    size: (i16, i16),
+    /// Matrix type.
+    matrix_type: MatrixType,
+    /// Raw storage for up to 16 values. Actual usage depends on matrix size.
     storage: [f32; 16],
 }
 
 impl MatrixValue {
-    pub fn elem_type(&self) -> ScalarType {
+    /// Scalar type of the elements of the matrix.
+    ///
+    /// This always returns [`ScalarType::Float`]. This method is provided for consistency.
+    pub const fn elem_type(&self) -> ScalarType {
         ScalarType::Float
     }
 
+    /// Matrix type.
     pub fn matrix_type(&self) -> MatrixType {
-        MatrixType { size: self.size }
+        self.matrix_type
     }
 
+    /// Get the scalar value of the matrix element in the R-th row and C-th column.
     pub fn value_n<const R: usize, const C: usize>(&self) -> ScalarValue {
         ScalarValue::Float(self.get_n::<R, C>())
     }
 
+    /// Get the scalar value of a matrix element.
     pub fn value(&self, row: usize, col: usize) -> ScalarValue {
         ScalarValue::Float(self.get(row, col))
     }
 
+    /// Get the floating-point value of the matrix element in the R-th row and C-th column.
     pub fn get_n<const R: usize, const C: usize>(&self) -> f32 {
-        if R < (self.size.0 as usize) && C < (self.size.1 as usize) {
-            self.storage[self.size.0 as usize * C + R]
+        if R < self.matrix_type.rows() && C < self.matrix_type.cols() {
+            self.storage[self.matrix_type.rows() * C + R]
         } else {
             0f32
         }
     }
 
+    /// Get the floating-point value of a matrix element.
     pub fn get(&self, row: usize, col: usize) -> f32 {
-        if row < (self.size.0 as usize) && col < (self.size.1 as usize) {
-            self.storage[self.size.0 as usize * col + row]
+        if row < self.matrix_type.rows() && col < self.matrix_type.cols() {
+            self.storage[self.matrix_type.rows() * col + row]
         } else {
             0f32
         }
@@ -544,26 +575,25 @@ impl MatrixValue {
 
     /// Get the value as a binary blob ready for GPU upload.
     pub fn as_bytes(&self) -> &[u8] {
-        let count = self.size.0 as usize * self.size.1 as usize;
+        let count = self.matrix_type.rows() * self.matrix_type.cols();
         bytemuck::cast_slice::<f32, u8>(&self.storage[..count])
     }
 }
 
 impl PartialEq for MatrixValue {
     fn eq(&self, other: &Self) -> bool {
-        let size = self.size;
-        if size != other.size {
+        if self.matrix_type != other.matrix_type {
             return false;
         }
-        let count = size.0 as usize * size.1 as usize;
+        let count = self.matrix_type.rows() * self.matrix_type.cols();
         &self.storage[..count] == &other.storage[..count]
     }
 }
 
 impl std::hash::Hash for MatrixValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.size.hash(state);
-        let count = self.size.0 as usize * self.size.1 as usize;
+        self.matrix_type.hash(state);
+        let count = self.matrix_type.rows() * self.matrix_type.cols();
         for i in 0..count {
             FloatOrd(self.storage[i]).hash(state);
         }
@@ -577,8 +607,8 @@ impl ToWgslString for MatrixValue {
             self.matrix_type().to_wgsl_string(),
             self.value_n::<0, 0>().to_wgsl_string()
         );
-        for i in 0..self.size.0 as usize {
-            for j in 0..self.size.1 as usize {
+        for j in 0..self.matrix_type.cols() {
+            for i in 0..self.matrix_type.rows() {
                 vals.push(',');
                 vals.push_str(&self.value(i, j).to_wgsl_string());
             }
@@ -592,8 +622,11 @@ impl ToWgslString for MatrixValue {
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Value {
+    /// Scalar value.
     Scalar(ScalarValue),
+    /// Vector value with 2 to 4 components.
     Vector(VectorValue),
+    /// Floating-point matrix value of size 2x2 to 4x4.
     Matrix(MatrixValue),
 }
 
@@ -746,10 +779,10 @@ impl From<MatrixValue> for Value {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::hash_map::DefaultHasher,
-        hash::{Hash, Hasher},
-    };
+    // use std::{
+    //     collections::hash_map::DefaultHasher,
+    //     hash::{Hash, Hasher},
+    // };
 
     use super::*;
 
@@ -793,24 +826,15 @@ mod tests {
         );
         assert_eq!(
             Value::Vector(Vec2::ZERO.into()).value_type(),
-            ValueType::Vector(VectorType {
-                elem_type: ScalarType::Float,
-                size: 2
-            })
+            ValueType::Vector(VectorType::FLOAT2)
         );
         assert_eq!(
             Value::Vector(Vec3::ZERO.into()).value_type(),
-            ValueType::Vector(VectorType {
-                elem_type: ScalarType::Float,
-                size: 3
-            })
+            ValueType::Vector(VectorType::FLOAT3)
         );
         assert_eq!(
             Value::Vector(Vec4::ZERO.into()).value_type(),
-            ValueType::Vector(VectorType {
-                elem_type: ScalarType::Float,
-                size: 4
-            })
+            ValueType::Vector(VectorType::FLOAT4)
         );
         assert_eq!(
             Value::Scalar(0u32.into()).value_type(),
@@ -851,19 +875,19 @@ mod tests {
     //     assert_eq!(Value::Uint(0), 0_u32.into());
     // }
 
-    fn scalar_hash<H: Hash>(value: &H) -> u64 {
-        let mut hasher = DefaultHasher::default();
-        value.hash(&mut hasher);
-        hasher.finish()
-    }
+    // fn scalar_hash<H: Hash>(value: &H) -> u64 {
+    //     let mut hasher = DefaultHasher::default();
+    //     value.hash(&mut hasher);
+    //     hasher.finish()
+    // }
 
-    fn vector_hash(values: &[f32]) -> u64 {
-        let mut hasher = DefaultHasher::default();
-        for f in values {
-            FloatOrd(*f).hash(&mut hasher);
-        }
-        hasher.finish()
-    }
+    // fn vector_hash(values: &[f32]) -> u64 {
+    //     let mut hasher = DefaultHasher::default();
+    //     for f in values {
+    //         FloatOrd(*f).hash(&mut hasher);
+    //     }
+    //     hasher.finish()
+    // }
 
     // #[test]
     // fn hash() {

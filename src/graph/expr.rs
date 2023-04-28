@@ -226,10 +226,10 @@ impl Expr for AddExpr {
             )));
         }
 
-        let l = self.left.eval()?;
-        let r = self.right.eval()?;
-
         todo!();
+        // let l = self.left.eval()?;
+        // let r = self.right.eval()?;
+
         // match value_type {
         //     ValueType::Scalar(s) => match s {
         //         ScalarType::Bool => {

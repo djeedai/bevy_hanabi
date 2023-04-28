@@ -40,7 +40,7 @@ impl ScalarType {
     /// Size of a value of this type, in bytes.
     pub const fn size(&self) -> usize {
         match self {
-            ScalarType::Bool => 1, // non-host-shareable, so size is undefined in WGSL
+            ScalarType::Bool => 4, // non-host-shareable, so size is undefined in WGSL
             ScalarType::Float => 4,
             ScalarType::Int => 4,
             ScalarType::Uint => 4,
@@ -53,7 +53,7 @@ impl ScalarType {
     /// of a struct in WGSL.
     pub const fn align(&self) -> usize {
         match self {
-            ScalarType::Bool => 1, // non-host-shareable, so size is undefined in WGSL
+            ScalarType::Bool => 4, // non-host-shareable, so size is undefined in WGSL
             ScalarType::Float => 4,
             ScalarType::Int => 4,
             ScalarType::Uint => 4,
@@ -74,15 +74,37 @@ impl ToWgslString for ScalarType {
 }
 
 /// Vector type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct VectorType {
     elem_type: ScalarType,
-    size: i32,
+    size: i8,
 }
 
 impl VectorType {
+    /// Floating-point vector with 2 components (`vec2<f32>`).
+    pub const FLOAT2: VectorType = VectorType::new(ScalarType::Float, 2);
+    /// Floating-point vector with 3 components (`vec3<f32>`).
+    pub const FLOAT3: VectorType = VectorType::new(ScalarType::Float, 3);
+    /// Floating-point vector with 4 components (`vec4<f32>`).
+    pub const FLOAT4: VectorType = VectorType::new(ScalarType::Float, 4);
+
+    /// Create a new vector type.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the `size` is not 2/3/4.
+    pub const fn new(elem_type: ScalarType, size: i8) -> Self {
+        assert!(size >= 2 && size <= 4);
+        Self { elem_type, size }
+    }
+
+    /// Scalar type of the individual vector elements (components).
+    pub const fn elem_type(&self) -> ScalarType {
+        self.elem_type
+    }
+
     /// Size of a value of this type, in bytes.
-    pub fn size(&self) -> usize {
+    pub const fn size(&self) -> usize {
         self.size as usize * self.elem_type.size()
     }
 
@@ -90,7 +112,7 @@ impl VectorType {
     ///
     /// This corresponds to the alignment of a variable of that type when part
     /// of a struct in WGSL.
-    pub fn align(&self) -> usize {
+    pub const fn align(&self) -> usize {
         self.elem_type.align()
     }
 }
@@ -101,23 +123,47 @@ impl ToWgslString for VectorType {
     }
 }
 
-/// Matrix type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Floating-point (`f32`) matrix type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct MatrixType {
     size: (i16, i16),
 }
 
 impl MatrixType {
+    /// Floating-point matrix of size 4x4 (`mat4x4<f32>`).
+    pub const MAT4X4F: MatrixType = MatrixType::new(4, 4);
+
+    /// Create a new matrix type.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the number of rows or columns is not 2/3/4.
+    pub const fn new(rows: usize, cols: usize) -> Self {
+        Self {
+            size: (rows as i16, cols as i16),
+        }
+    }
+
+    /// Number of rows in the matrix.
+    pub const fn rows(&self) -> usize {
+        self.size.0 as usize
+    }
+
+    /// Number of columns in the matrix.
+    pub const fn cols(&self) -> usize {
+        self.size.1 as usize
+    }
+
     /// Size of a value of this type, in bytes.
-    pub fn size(&self) -> usize {
-        self.size.0 as usize * self.size.1 as usize * ScalarType::Float.size()
+    pub const fn size(&self) -> usize {
+        self.rows() * self.cols() * ScalarType::Float.size()
     }
 
     /// Alignment of a value of this type, in bytes.
     ///
     /// This corresponds to the alignment of a variable of that type when part
     /// of a struct in WGSL.
-    pub fn align(&self) -> usize {
+    pub const fn align(&self) -> usize {
         ScalarType::Float.align()
     }
 }
@@ -137,8 +183,11 @@ impl ToWgslString for MatrixType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ValueType {
+    /// A scalar type (single value).
     Scalar(ScalarType),
+    /// A vector type with 2 to 4 components.
     Vector(VectorType),
+    /// A floating-point matrix type of size between 2x2 and 4x4.
     Matrix(MatrixType),
 }
 
@@ -202,42 +251,53 @@ impl AttributeInner {
         Cow::Borrowed("position"),
         Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
     );
+
     pub const VELOCITY: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("velocity"),
         Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
     );
+
     pub const AGE: &'static AttributeInner =
         &AttributeInner::new(Cow::Borrowed("age"), Value::Scalar(ScalarValue::Float(0.)));
+
     pub const LIFETIME: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("lifetime"),
         Value::Scalar(ScalarValue::Float(1.)),
     );
+
     pub const COLOR: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("color"),
         Value::Scalar(ScalarValue::Uint(0xFFFFFFFFu32)),
     );
+
     pub const HDR_COLOR: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("hdr_color"),
         Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
     );
+
     pub const ALPHA: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("alpha"),
         Value::Scalar(ScalarValue::Float(1.)),
     );
+
     pub const SIZE: &'static AttributeInner =
         &AttributeInner::new(Cow::Borrowed("size"), Value::Scalar(ScalarValue::Float(1.)));
+
     pub const SIZE2: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("size2"),
         Value::Vector(VectorValue::new_vec2(Vec2::ONE)),
     );
+
     pub const AXIS_X: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("axis_x"),
         Value::Vector(VectorValue::new_vec3(Vec3::X)),
     );
+
     pub const AXIS_Y: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("axis_y"),
         Value::Vector(VectorValue::new_vec3(Vec3::Y)),
     );
+
     pub const AXIS_Z: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("axis_z"),
         Value::Vector(VectorValue::new_vec3(Vec3::Z)),
@@ -1054,8 +1114,8 @@ mod tests {
     //             // For non-scalar types, calculate the type layout according
     // to WGSL             let type_handle =
     // cst.inner.resolve_type().handle().unwrap();             let mut
-    // layouter = Layouter::default();             
-    // assert!(layouter.update(&m.types, &m.constants).is_ok());            
+    // layouter = Layouter::default();
+    // assert!(layouter.update(&m.types, &m.constants).is_ok());
     // let layout = layouter[type_handle];             (layout.size,
     // layout.alignment)         };
 
@@ -1123,7 +1183,7 @@ mod tests {
     //                 assert!(
     //                     f.type_name().contains("alloc::borrow::Cow<str>")
     //                         ||
-    // f.type_name().contains("bevy_hanabi::graph::Value")                 
+    // f.type_name().contains("bevy_hanabi::graph::Value")
     // );             }
 
     //             let d = s.clone_dynamic();
