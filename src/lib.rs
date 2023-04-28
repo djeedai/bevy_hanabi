@@ -220,7 +220,7 @@ impl ToWgslString for f64 {
 impl ToWgslString for Vec2 {
     fn to_wgsl_string(&self) -> String {
         format!(
-            "vec2<f32>({0}, {1})",
+            "vec2<f32>({0},{1})",
             self.x.to_wgsl_string(),
             self.y.to_wgsl_string()
         )
@@ -230,7 +230,7 @@ impl ToWgslString for Vec2 {
 impl ToWgslString for Vec3 {
     fn to_wgsl_string(&self) -> String {
         format!(
-            "vec3<f32>({0}, {1}, {2})",
+            "vec3<f32>({0},{1},{2})",
             self.x.to_wgsl_string(),
             self.y.to_wgsl_string(),
             self.z.to_wgsl_string()
@@ -241,7 +241,7 @@ impl ToWgslString for Vec3 {
 impl ToWgslString for Vec4 {
     fn to_wgsl_string(&self) -> String {
         format!(
-            "vec4<f32>({0}, {1}, {2}, {3})",
+            "vec4<f32>({0},{1},{2},{3})",
             self.x.to_wgsl_string(),
             self.y.to_wgsl_string(),
             self.z.to_wgsl_string(),
@@ -1219,11 +1219,11 @@ mod tests {
     #[test]
     fn to_wgsl_vec() {
         let s = Vec2::new(1., 2.).to_wgsl_string();
-        assert_eq!(s, "vec2<f32>(1., 2.)");
+        assert_eq!(s, "vec2<f32>(1.,2.)");
         let s = Vec3::new(1., 2., -1.).to_wgsl_string();
-        assert_eq!(s, "vec3<f32>(1., 2., -1.)");
+        assert_eq!(s, "vec3<f32>(1.,2.,-1.)");
         let s = Vec4::new(1., 2., -1., 2.).to_wgsl_string();
-        assert_eq!(s, "vec4<f32>(1., 2., -1., 2.)");
+        assert_eq!(s, "vec4<f32>(1.,2.,-1.,2.)");
     }
 
     #[test]
@@ -1237,31 +1237,31 @@ mod tests {
     #[test]
     fn to_wgsl_value_vec2() {
         let s = Value::Single(Vec2::ONE).to_wgsl_string();
-        assert_eq!(s, "vec2<f32>(1., 1.)");
+        assert_eq!(s, "vec2<f32>(1.,1.)");
         let s = Value::Uniform((Vec2::ZERO, Vec2::ONE)).to_wgsl_string();
         assert_eq!(
             s,
-            "(rand2() * (vec2<f32>(1., 1.) - vec2<f32>(0., 0.)) + vec2<f32>(0., 0.))"
+            "(rand2() * (vec2<f32>(1.,1.) - vec2<f32>(0.,0.)) + vec2<f32>(0.,0.))"
         );
     }
 
     #[test]
     fn to_wgsl_value_vec3() {
         let s = Value::Single(Vec3::ONE).to_wgsl_string();
-        assert_eq!(s, "vec3<f32>(1., 1., 1.)");
+        assert_eq!(s, "vec3<f32>(1.,1.,1.)");
         let s = Value::Uniform((Vec3::ZERO, Vec3::ONE)).to_wgsl_string();
         assert_eq!(
             s,
-            "(rand3() * (vec3<f32>(1., 1., 1.) - vec3<f32>(0., 0., 0.)) + vec3<f32>(0., 0., 0.))"
+            "(rand3() * (vec3<f32>(1.,1.,1.) - vec3<f32>(0.,0.,0.)) + vec3<f32>(0.,0.,0.))"
         );
     }
 
     #[test]
     fn to_wgsl_value_vec4() {
         let s = Value::Single(Vec4::ONE).to_wgsl_string();
-        assert_eq!(s, "vec4<f32>(1., 1., 1., 1.)");
+        assert_eq!(s, "vec4<f32>(1.,1.,1.,1.)");
         let s = Value::Uniform((Vec4::ZERO, Vec4::ONE)).to_wgsl_string();
-        assert_eq!(s, "(rand4() * (vec4<f32>(1., 1., 1., 1.) - vec4<f32>(0., 0., 0., 0.)) + vec4<f32>(0., 0., 0., 0.))");
+        assert_eq!(s, "(rand4() * (vec4<f32>(1.,1.,1.,1.) - vec4<f32>(0.,0.,0.,0.)) + vec4<f32>(0.,0.,0.,0.))");
     }
 
     #[test]
@@ -1271,7 +1271,7 @@ mod tests {
 
         grad.add_key(0.0, Vec4::splat(0.0));
         assert_eq!(
-            "// Gradient\nlet t0 = 0.;\nlet c0 = vec4<f32>(0., 0., 0., 0.);\nreturn c0;\n",
+            "// Gradient\nlet t0 = 0.;\nlet c0 = vec4<f32>(0.,0.,0.,0.);\nreturn c0;\n",
             grad.to_shader_code("key")
         );
 
@@ -1279,9 +1279,9 @@ mod tests {
         assert_eq!(
             r#"// Gradient
 let t0 = 0.;
-let c0 = vec4<f32>(0., 0., 0., 0.);
+let c0 = vec4<f32>(0.,0.,0.,0.);
 let t1 = 1.;
-let c1 = vec4<f32>(1., 0., 0., 1.);
+let c1 = vec4<f32>(1.,0.,0.,1.);
 if (key <= t0) { return c0; }
 else if (key <= t1) { return mix(c0, c1, (key - t0) / (t1 - t0)); }
 else { return c1; }

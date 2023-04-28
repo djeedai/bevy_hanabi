@@ -19,6 +19,9 @@ use crate::{
 #[non_exhaustive]
 pub enum ScalarType {
     /// Boolean value (`bool`).
+    ///
+    /// The size of a `bool` is undefined in the WGSL specification, but fixed
+    /// at 4 bytes here.
     Bool,
     /// Floating point value (`f32`).
     Float,
@@ -38,13 +41,12 @@ impl ScalarType {
     }
 
     /// Size of a value of this type, in bytes.
+    ///
+    /// This corresponds to the size of a variable of that type when part of a
+    /// struct in WGSL. For `bool`, this is always 4 bytes (undefined in WGSL
+    /// spec).
     pub const fn size(&self) -> usize {
-        match self {
-            ScalarType::Bool => 4, // non-host-shareable, so size is undefined in WGSL
-            ScalarType::Float => 4,
-            ScalarType::Int => 4,
-            ScalarType::Uint => 4,
-        }
+        4
     }
 
     /// Alignment of a value of this type, in bytes.
@@ -52,12 +54,7 @@ impl ScalarType {
     /// This corresponds to the alignment of a variable of that type when part
     /// of a struct in WGSL.
     pub const fn align(&self) -> usize {
-        match self {
-            ScalarType::Bool => 4, // non-host-shareable, so size is undefined in WGSL
-            ScalarType::Float => 4,
-            ScalarType::Int => 4,
-            ScalarType::Uint => 4,
-        }
+        4
     }
 }
 
@@ -73,29 +70,49 @@ impl ToWgslString for ScalarType {
     }
 }
 
-/// Vector type.
+/// Vector type (`vecN<T>`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct VectorType {
+    /// Type of all elements (components) of the vector.
     elem_type: ScalarType,
-    size: i8,
+    /// Number of components. Always 2/3/4.
+    count: u8,
 }
 
 impl VectorType {
+    /// Boolean vector with 2 components (`vec2<bool>`).
+    pub const VEC2B: VectorType = VectorType::new(ScalarType::Bool, 2);
+    /// Boolean vector with 3 components (`vec3<bool>`).
+    pub const VEC3B: VectorType = VectorType::new(ScalarType::Bool, 3);
+    /// Boolean vector with 4 components (`vec4<bool>`).
+    pub const VEC4B: VectorType = VectorType::new(ScalarType::Bool, 4);
     /// Floating-point vector with 2 components (`vec2<f32>`).
-    pub const FLOAT2: VectorType = VectorType::new(ScalarType::Float, 2);
+    pub const VEC2F: VectorType = VectorType::new(ScalarType::Float, 2);
     /// Floating-point vector with 3 components (`vec3<f32>`).
-    pub const FLOAT3: VectorType = VectorType::new(ScalarType::Float, 3);
+    pub const VEC3F: VectorType = VectorType::new(ScalarType::Float, 3);
     /// Floating-point vector with 4 components (`vec4<f32>`).
-    pub const FLOAT4: VectorType = VectorType::new(ScalarType::Float, 4);
+    pub const VEC4F: VectorType = VectorType::new(ScalarType::Float, 4);
+    /// Vector with 2 signed integer components (`vec2<i32>`).
+    pub const VEC2I: VectorType = VectorType::new(ScalarType::Int, 2);
+    /// Vector with 3 signed integer components (`vec3<i32>`).
+    pub const VEC3I: VectorType = VectorType::new(ScalarType::Int, 3);
+    /// Vector with 4 signed integer components (`vec4<i32>`).
+    pub const VEC4I: VectorType = VectorType::new(ScalarType::Int, 4);
+    /// Vector with 2 unsigned integer components (`vec2<u32>`).
+    pub const VEC2U: VectorType = VectorType::new(ScalarType::Uint, 2);
+    /// Vector with 3 unsigned integer components (`vec3<u32>`).
+    pub const VEC3U: VectorType = VectorType::new(ScalarType::Uint, 3);
+    /// Vector with 4 unsigned integer components (`vec4<u32>`).
+    pub const VEC4U: VectorType = VectorType::new(ScalarType::Uint, 4);
 
     /// Create a new vector type.
     ///
     /// # Panic
     ///
     /// Panics if the `size` is not 2/3/4.
-    pub const fn new(elem_type: ScalarType, size: i8) -> Self {
-        assert!(size >= 2 && size <= 4);
-        Self { elem_type, size }
+    pub const fn new(elem_type: ScalarType, count: u8) -> Self {
+        assert!(count >= 2 && count <= 4);
+        Self { elem_type, count }
     }
 
     /// Scalar type of the individual vector elements (components).
@@ -103,9 +120,18 @@ impl VectorType {
         self.elem_type
     }
 
+    /// Number of components.
+    pub const fn count(&self) -> usize {
+        self.count as usize
+    }
+
     /// Size of a value of this type, in bytes.
+    ///
+    /// This corresponds to the size of a variable of that type when part of a
+    /// struct in WGSL.
     pub const fn size(&self) -> usize {
-        self.size as usize * self.elem_type.size()
+        // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
+        self.count() * self.elem_type.size()
     }
 
     /// Alignment of a value of this type, in bytes.
@@ -113,23 +139,47 @@ impl VectorType {
     /// This corresponds to the alignment of a variable of that type when part
     /// of a struct in WGSL.
     pub const fn align(&self) -> usize {
-        self.elem_type.align()
+        // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
+        if self.count >= 3 {
+            4 * self.elem_type.align()
+        } else if self.count == 2 {
+            2 * self.elem_type.align()
+        } else {
+            self.elem_type.align()
+        }
     }
 }
 
 impl ToWgslString for VectorType {
     fn to_wgsl_string(&self) -> String {
-        format!("vec{}<{}>", self.size, self.elem_type.to_wgsl_string())
+        format!("vec{}<{}>", self.count, self.elem_type.to_wgsl_string())
     }
 }
 
-/// Floating-point (`f32`) matrix type.
+/// Floating-point matrix type (`matCxR<f32>`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct MatrixType {
-    size: (i16, i16),
+    rows: u8,
+    cols: u8,
 }
 
 impl MatrixType {
+    /// Floating-point matrix of size 2x2 (`mat2x2<f32>`).
+    pub const MAT2X2F: MatrixType = MatrixType::new(2, 2);
+    /// Floating-point matrix of size 3x2 (`mat3x2<f32>`).
+    pub const MAT3X2F: MatrixType = MatrixType::new(3, 2);
+    /// Floating-point matrix of size 4x2 (`mat4x2<f32>`).
+    pub const MAT4X2F: MatrixType = MatrixType::new(4, 2);
+    /// Floating-point matrix of size 2x3 (`mat2x3<f32>`).
+    pub const MAT2X3F: MatrixType = MatrixType::new(2, 3);
+    /// Floating-point matrix of size 3x3 (`mat3x3<f32>`).
+    pub const MAT3X3F: MatrixType = MatrixType::new(3, 3);
+    /// Floating-point matrix of size 4x3 (`mat4x3<f32>`).
+    pub const MAT4X3F: MatrixType = MatrixType::new(4, 3);
+    /// Floating-point matrix of size 2x4 (`mat2x4<f32>`).
+    pub const MAT2X4F: MatrixType = MatrixType::new(2, 4);
+    /// Floating-point matrix of size 3x4 (`mat3x4<f32>`).
+    pub const MAT3X4F: MatrixType = MatrixType::new(3, 4);
     /// Floating-point matrix of size 4x4 (`mat4x4<f32>`).
     pub const MAT4X4F: MatrixType = MatrixType::new(4, 4);
 
@@ -137,26 +187,33 @@ impl MatrixType {
     ///
     /// # Panic
     ///
-    /// Panics if the number of rows or columns is not 2/3/4.
-    pub const fn new(rows: usize, cols: usize) -> Self {
-        Self {
-            size: (rows as i16, cols as i16),
-        }
-    }
-
-    /// Number of rows in the matrix.
-    pub const fn rows(&self) -> usize {
-        self.size.0 as usize
+    /// Panics if the number of columns or rows is not 2/3/4.
+    pub const fn new(cols: u8, rows: u8) -> Self {
+        Self { cols, rows }
     }
 
     /// Number of columns in the matrix.
     pub const fn cols(&self) -> usize {
-        self.size.1 as usize
+        self.cols as usize
+    }
+
+    /// Number of rows in the matrix.
+    pub const fn rows(&self) -> usize {
+        self.rows as usize
     }
 
     /// Size of a value of this type, in bytes.
+    ///
+    /// This corresponds to the size of a variable of that type when part of a
+    /// struct in WGSL.
     pub const fn size(&self) -> usize {
-        self.rows() * self.cols() * ScalarType::Float.size()
+        // SizeOf(array<vecR, C>), which means matCx3 and matCx4 have same size
+        // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
+        if self.rows >= 3 {
+            self.cols() * 4 * ScalarType::Float.size()
+        } else {
+            self.cols() * self.rows() * ScalarType::Float.size()
+        }
     }
 
     /// Alignment of a value of this type, in bytes.
@@ -164,7 +221,9 @@ impl MatrixType {
     /// This corresponds to the alignment of a variable of that type when part
     /// of a struct in WGSL.
     pub const fn align(&self) -> usize {
-        ScalarType::Float.align()
+        // AlignOf(vecR), which means matCx3 and matCx4 have same align
+        // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
+        VectorType::new(ScalarType::Float, self.rows).align()
     }
 }
 
@@ -172,8 +231,8 @@ impl ToWgslString for MatrixType {
     fn to_wgsl_string(&self) -> String {
         format!(
             "mat{}x{}<{}>",
-            self.size.0,
-            self.size.1,
+            self.cols,
+            self.rows,
             ScalarType::Float.to_wgsl_string()
         )
     }
