@@ -328,20 +328,20 @@ mod tests {
         InitVelocitySphereModifier::default().apply(&mut init_context);
         InitAgeModifier::default().apply(&mut init_context);
         InitLifetimeModifier::default().apply(&mut init_context);
-        //assert_eq!(effect., init_context.init_code);
+        // assert_eq!(effect., init_context.init_code);
 
         let mut update_context = UpdateContext::default();
         AccelModifier::constant(Vec3::ONE).apply(&mut update_context);
         LinearDragModifier::default().apply(&mut update_context);
         ForceFieldModifier::default().apply(&mut update_context);
-        //assert_eq!(effect.update_layout, update_layout);
+        // assert_eq!(effect.update_layout, update_layout);
 
         let mut render_context = RenderContext::default();
         ParticleTextureModifier::default().apply(&mut render_context);
         ColorOverLifetimeModifier::default().apply(&mut render_context);
         SizeOverLifetimeModifier::default().apply(&mut render_context);
         BillboardModifier::default().apply(&mut render_context);
-        //assert_eq!(effect.render_layout, render_layout);
+        // assert_eq!(effect.render_layout, render_layout);
     }
 
     #[test]
@@ -355,6 +355,6 @@ mod tests {
 
         let s = ron::to_string(&effect).unwrap();
         let _effect_serde: EffectAsset = ron::from_str(&s).unwrap();
-        //assert_eq!(effect, effect_serde);
+        // assert_eq!(effect, effect_serde);
     }
 }

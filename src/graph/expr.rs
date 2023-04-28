@@ -25,7 +25,8 @@ pub trait Expr: std::fmt::Debug + ToWgslString + Send + Sync + Reflect + 'static
     /// Get an expression.
     fn as_expr(&self) -> &dyn Expr;
 
-    /// Is the expression resulting in a compile-time constant which can be hard-coded into a shader's code?
+    /// Is the expression resulting in a compile-time constant which can be
+    /// hard-coded into a shader's code?
     fn is_const(&self) -> bool {
         false
     }
@@ -211,7 +212,8 @@ impl Expr for AddExpr {
     }
 
     fn value_type(&self) -> ValueType {
-        self.left.value_type() // TODO: cast left/right? or always gave same as invariant?
+        self.left.value_type() // TODO: cast left/right? or always gave same as
+                               // invariant?
     }
 
     fn eval(&self) -> Result<Value, ExprError> {

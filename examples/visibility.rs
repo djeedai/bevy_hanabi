@@ -165,7 +165,7 @@ fn update(
     //     (time.elapsed() - Duration::from_millis(*last_time)).as_millis()
     // );
     if time.elapsed() - Duration::from_millis(*last_time) >= Duration::from_millis(1500) {
-        //warn!("TOGGLE: ");
+        // warn!("TOGGLE: ");
         *last_time = time.elapsed().as_millis() as u64;
         for mut visibility in query.iter_mut() {
             *visibility = if *visibility == Visibility::Visible {

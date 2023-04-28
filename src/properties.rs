@@ -304,7 +304,7 @@ impl PropertyLayout {
 
     /// Generate the WGSL attribute code corresponding to the layout.
     pub fn generate_code(&self) -> String {
-        //assert!(self.layout.is_sorted_by_key(|entry| entry.offset));
+        // assert!(self.layout.is_sorted_by_key(|entry| entry.offset));
         let content = self
             .layout
             .iter()

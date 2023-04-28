@@ -29,6 +29,14 @@ pub enum ScalarType {
 }
 
 impl ScalarType {
+    /// Check if this type is a numeric type.
+    ///
+    /// A numeric type can be used in various math operators etc. All types are
+    /// numeric, except `ScalarType::Bool`.
+    pub fn is_numeric(&self) -> bool {
+        matches!(self, ScalarType::Bool) == false
+    }
+
     /// Size of a value of this type, in bytes.
     pub const fn size(&self) -> usize {
         match self {
@@ -883,11 +891,11 @@ impl ParticleLayout {
     /// of attributes.
     pub fn merged_with(
         &self,
-        //attributes: impl IntoIterator<Item = Attribute>,
+        // attributes: impl IntoIterator<Item = Attribute>,
         attributes: &[Attribute],
     ) -> ParticleLayout {
         let mut builder = ParticleLayoutBuilder::from(self);
-        //for attr in attributes.into_iter() {
+        // for attr in attributes.into_iter() {
         for attr in attributes {
             builder = builder.append(*attr);
         }
@@ -967,7 +975,7 @@ impl ParticleLayout {
 
     /// Generate the WGSL attribute code corresponding to the layout.
     pub fn generate_code(&self) -> String {
-        //assert!(self.layout.is_sorted_by_key(|entry| entry.offset));
+        // assert!(self.layout.is_sorted_by_key(|entry| entry.offset));
         self.layout
             .iter()
             .map(|entry| {
@@ -1013,8 +1021,8 @@ mod tests {
     //         ),
     //         (
     //             ValueType::Float4,
-    //             crate::graph::Value::Float4(Vec4::new(-0.5, 3.458, 0., -53.)),
-    //         ),
+    //             crate::graph::Value::Float4(Vec4::new(-0.5, 3.458, 0.,
+    // -53.)),         ),
     //         (ValueType::Uint, crate::graph::Value::Uint(42_u32)),
     //     ] {
     //         assert_eq!(value.value_type(), *value_type);
@@ -1035,34 +1043,35 @@ mod tests {
     //             .iter()
     //             .find(|c| c.1.name == Some("x".to_string()))
     //             .unwrap();
-    //         let (size, align) = if let naga::ConstantInner::Scalar { width, value: _ } = &cst.inner
-    //         {
+    //         let (size, align) = if let naga::ConstantInner::Scalar { width,
+    // value: _ } = &cst.inner         {
     //             // Scalar types have the same size and align
     //             (
     //                 *width as u32,
     //                 naga::proc::Alignment::new(*width as u32).unwrap(),
     //             )
     //         } else {
-    //             // For non-scalar types, calculate the type layout according to WGSL
-    //             let type_handle = cst.inner.resolve_type().handle().unwrap();
-    //             let mut layouter = Layouter::default();
-    //             assert!(layouter.update(&m.types, &m.constants).is_ok());
-    //             let layout = layouter[type_handle];
-    //             (layout.size, layout.alignment)
-    //         };
+    //             // For non-scalar types, calculate the type layout according
+    // to WGSL             let type_handle =
+    // cst.inner.resolve_type().handle().unwrap();             let mut
+    // layouter = Layouter::default();             
+    // assert!(layouter.update(&m.types, &m.constants).is_ok());            
+    // let layout = layouter[type_handle];             (layout.size,
+    // layout.alignment)         };
 
     //         // Compare WGSL layout with the one of Value(Type)
     //         assert_eq!(size, value_type.size() as u32);
     //         assert_eq!(
     //             align,
-    //             naga::proc::Alignment::new(value_type.align() as u32).unwrap()
-    //         );
+    //             naga::proc::Alignment::new(value_type.align() as
+    // u32).unwrap()         );
     //     }
     // }
 
     // const TEST_ATTR_NAME: &str = "test_attr";
     // const TEST_ATTR_INNER: &AttributeInner =
-    //     &AttributeInner::new(Cow::Borrowed(TEST_ATTR_NAME), Value::Float3(Vec3::ONE));
+    //     &AttributeInner::new(Cow::Borrowed(TEST_ATTR_NAME),
+    // Value::Float3(Vec3::ONE));
 
     // #[test]
     // fn attr_new() {
@@ -1113,22 +1122,22 @@ mod tests {
     //             for f in s.iter_fields() {
     //                 assert!(
     //                     f.type_name().contains("alloc::borrow::Cow<str>")
-    //                         || f.type_name().contains("bevy_hanabi::graph::Value")
-    //                 );
-    //             }
+    //                         ||
+    // f.type_name().contains("bevy_hanabi::graph::Value")                 
+    // );             }
 
     //             let d = s.clone_dynamic();
-    //             assert_eq!(TypeRegistration::of::<Attribute>().type_name(), d.name());
-    //             assert_eq!(Some(0), d.index_of("name"));
+    //             assert_eq!(TypeRegistration::of::<Attribute>().type_name(),
+    // d.name());             assert_eq!(Some(0), d.index_of("name"));
     //             assert_eq!(Some(1), d.index_of("default_value"));
     //         }
     //         _ => panic!("Attribute should be reflected as a Struct"),
     //     }
 
-    //     // Mutating operators are not implemented by design; only hard-coded built-in
-    //     // attributes are supported. In any case that won't matter because you
-    //     // cannot call `as_reflect_mut()` since you cannot obtain a mutable reference to
-    //     // an attribute.
+    //     // Mutating operators are not implemented by design; only hard-coded
+    // built-in     // attributes are supported. In any case that won't
+    // matter because you     // cannot call `as_reflect_mut()` since you
+    // cannot obtain a mutable reference to     // an attribute.
     //     let r = attr.as_reflect_mut();
     //     match r.reflect_mut() {
     //         ReflectMut::Struct(s) => {
@@ -1146,8 +1155,8 @@ mod tests {
     //     for attr in Attribute::ALL {
     //         let s: String = attr.name().into();
     //         let r = s.as_reflect();
-    //         let r_attr = Attribute::from_reflect(r).expect("Cannot find attribute by name");
-    //         assert_eq!(r_attr, attr);
+    //         let r_attr = Attribute::from_reflect(r).expect("Cannot find
+    // attribute by name");         assert_eq!(r_attr, attr);
     //     }
 
     //     assert_eq!(
@@ -1160,9 +1169,9 @@ mod tests {
     // fn attr_serde() {
     //     // All existing attributes can round-trip via serialization
     //     for attr in Attribute::ALL {
-    //         // Serialize; this produces just the name of the attribute, which uniquely
-    //         // identifies it. The default value is never serialized.
-    //         let ron = ron::to_string(&attr).unwrap();
+    //         // Serialize; this produces just the name of the attribute, which
+    // uniquely         // identifies it. The default value is never
+    // serialized.         let ron = ron::to_string(&attr).unwrap();
     //         assert_eq!(ron, format!("\"{}\"", attr.name()));
 
     //         // Deserialize; this recovers the Attribute from its name using
@@ -1176,8 +1185,10 @@ mod tests {
     //     assert!(ron::from_str::<Attribute>("\"UNKNOWN\"").is_err());
     // }
 
-    // const F1_INNER: &AttributeInner = &AttributeInner::new(Cow::Borrowed("F1"), Value::Float(3.));
-    // const F1B_INNER: &AttributeInner = &AttributeInner::new(Cow::Borrowed("F1B"), Value::Float(5.));
+    // const F1_INNER: &AttributeInner =
+    // &AttributeInner::new(Cow::Borrowed("F1"), Value::Float(3.));
+    // const F1B_INNER: &AttributeInner =
+    // &AttributeInner::new(Cow::Borrowed("F1B"), Value::Float(5.));
     // const F2_INNER: &AttributeInner =
     //     &AttributeInner::new(Cow::Borrowed("F2"), Value::Float2(Vec2::ZERO));
     // const F2B_INNER: &AttributeInner =
@@ -1259,8 +1270,8 @@ mod tests {
     //         }
     //         let layout = layout.build();
     //         assert_eq!(layout.layout.len(), 4);
-    //         for (i, (off, a)) in [(0, F3), (12, F1), (16, F3B), (28, F2)].iter().enumerate() {
-    //             let attr_i = layout.layout[i];
+    //         for (i, (off, a)) in [(0, F3), (12, F1), (16, F3B), (28,
+    // F2)].iter().enumerate() {             let attr_i = layout.layout[i];
     //             assert_eq!(attr_i.offset, *off);
     //             assert_eq!(attr_i.attribute, *a);
     //         }
@@ -1274,8 +1285,8 @@ mod tests {
     //         }
     //         let layout = layout.build();
     //         assert_eq!(layout.layout.len(), 6);
-    //         for (i, (off, a)) in [(0, F4), (16, F3), (28, F1), (32, F2), (40, F2B), (48, F3B)]
-    //             .iter()
+    //         for (i, (off, a)) in [(0, F4), (16, F3), (28, F1), (32, F2), (40,
+    // F2B), (48, F3B)]             .iter()
     //             .enumerate()
     //         {
     //             let attr_i = layout.layout[i];

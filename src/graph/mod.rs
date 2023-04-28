@@ -260,8 +260,8 @@ impl VectorValue {
         };
         s.storage[0] = unsafe { std::mem::transmute(value.x) };
         s.storage[1] = unsafe { std::mem::transmute(value.y) };
-        //let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
-        //value.write_to_slice(v);
+        // let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
+        // value.write_to_slice(v);
         s
     }
 
@@ -276,8 +276,8 @@ impl VectorValue {
         s.storage[0] = unsafe { std::mem::transmute(value.x) };
         s.storage[1] = unsafe { std::mem::transmute(value.y) };
         s.storage[2] = unsafe { std::mem::transmute(value.z) };
-        //let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
-        //value.write_to_slice(v);
+        // let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
+        // value.write_to_slice(v);
         s
     }
 
@@ -293,8 +293,8 @@ impl VectorValue {
         s.storage[1] = unsafe { std::mem::transmute(value.to_array()[1]) };
         s.storage[2] = unsafe { std::mem::transmute(value.to_array()[2]) };
         s.storage[3] = unsafe { std::mem::transmute(value.to_array()[3]) };
-        //let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
-        //value.write_to_slice(v);
+        // let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
+        // value.write_to_slice(v);
         s
     }
 
