@@ -21,6 +21,86 @@ mod expr;
 
 pub use expr::{AddExpr, BoxedExpr, Expr, Literal};
 
+/// Binary arithmetic operator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum BinaryOperator {
+    /// Add operator `+`.
+    Add,
+    /// Subtract operator `-`.
+    Sub,
+    /// Multiply operator `*`.
+    Mul,
+    /// Divide operator `/`.
+    Div,
+}
+
+impl BinaryOperator {
+    /// Apply the operator to a pair of `f32` values.
+    pub fn apply_f32(&self, a: f32, b: f32) -> f32 {
+        match *self {
+            BinaryOperator::Add => a + b,
+            BinaryOperator::Sub => a - b,
+            BinaryOperator::Mul => a * b,
+            BinaryOperator::Div => a / b,
+        }
+    }
+
+    /// Apply the operator to a pair of `i32` values.
+    pub fn apply_i32(&self, a: i32, b: i32) -> i32 {
+        match *self {
+            BinaryOperator::Add => a + b,
+            BinaryOperator::Sub => a - b,
+            BinaryOperator::Mul => a * b,
+            BinaryOperator::Div => a / b,
+        }
+    }
+
+    /// Apply the operator to a pair of `u32` values.
+    pub fn apply_u32(&self, a: u32, b: u32) -> u32 {
+        match *self {
+            BinaryOperator::Add => a + b,
+            BinaryOperator::Sub => a - b,
+            BinaryOperator::Mul => a * b,
+            BinaryOperator::Div => a / b,
+        }
+    }
+}
+
+/// Binary arithmetic operation over self.
+pub trait BinaryOperation {
+    /// Apply a binary arithmetic operator between self and another value.
+    fn apply(&self, other: &Self, op: BinaryOperator) -> Self;
+}
+
+/// Variant storage for a scalar value.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ScalarValueMut<'a> {
+    /// Single `bool` value.
+    Bool(&'a mut bool),
+    /// Single `f32` value.
+    Float(&'a mut f32),
+    /// Single `i32` value.
+    Int(&'a mut i32),
+    /// Single `u32` value.
+    Uint(&'a mut u32),
+}
+
+impl<'a> ScalarValueMut<'a> {
+    /// Apply a binary arithmetic operator between self and another operand.
+    fn binary_op(&mut self, other: &ScalarValue, op: BinaryOperator) {
+        match self {
+            ScalarValueMut::Bool(_) => {
+                panic!("Cannot apply binary arithmetic operator to boolean value.")
+            }
+            ScalarValueMut::Float(f) => **f = op.apply_f32(**f, other.as_f32()),
+            ScalarValueMut::Int(i) => **i = op.apply_i32(**i, other.as_i32()),
+            ScalarValueMut::Uint(u) => **u = op.apply_u32(**u, other.as_u32()),
+        }
+    }
+}
+
 /// Variant storage for a scalar value.
 #[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -122,6 +202,15 @@ impl ScalarValue {
             ScalarValue::Uint(_) => ScalarType::Uint,
         }
     }
+
+    fn binary_op(&self, other: &Self, op: BinaryOperator) -> Self {
+        match *self {
+            ScalarValue::Bool(_) => panic!("Cannot apply binary operation to boolean value."),
+            ScalarValue::Float(f) => ScalarValue::Float(op.apply_f32(f, other.as_f32())),
+            ScalarValue::Int(i) => ScalarValue::Int(op.apply_i32(i, other.as_i32())),
+            ScalarValue::Uint(u) => ScalarValue::Uint(op.apply_u32(u, other.as_u32())),
+        }
+    }
 }
 
 impl PartialEq for ScalarValue {
@@ -153,6 +242,17 @@ impl ToWgslString for ScalarValue {
             ScalarValue::Float(f) => f.to_wgsl_string(),
             ScalarValue::Int(i) => i.to_wgsl_string(),
             ScalarValue::Uint(u) => u.to_wgsl_string(),
+        }
+    }
+}
+
+impl BinaryOperation for ScalarValue {
+    fn apply(&self, other: &Self, op: BinaryOperator) -> Self {
+        match *self {
+            ScalarValue::Bool(_) => panic!("Cannot apply binary operation to boolean value."),
+            ScalarValue::Float(f) => ScalarValue::Float(op.apply_f32(f, other.as_f32())),
+            ScalarValue::Int(i) => ScalarValue::Int(op.apply_i32(i, other.as_i32())),
+            ScalarValue::Uint(u) => ScalarValue::Uint(op.apply_u32(u, other.as_u32())),
         }
     }
 }
@@ -198,6 +298,9 @@ pub trait ElemType {
     fn get_all(storage: &[u32; 4], count: usize) -> &[Self]
     where
         Self: Sized;
+
+    /// Get a mutable reference to the given component of the vector from within its raw storage.
+    fn get_mut<'a>(index: usize, storage: &'a mut [u32; 4]) -> &'a mut Self;
 }
 
 impl ElemType for bool {
@@ -213,6 +316,10 @@ impl ElemType for bool {
 
     fn get_all(_storage: &[u32; 4], _count: usize) -> &[Self] {
         panic!("Cannot get bool element type as slice.");
+    }
+
+    fn get_mut<'a>(_index: usize, _storage: &'a mut [u32; 4]) -> &'a mut Self {
+        panic!("Cannot get bool element type as mutable reference.");
     }
 }
 
@@ -230,6 +337,10 @@ impl ElemType for f32 {
     fn get_all(storage: &[u32; 4], count: usize) -> &[Self] {
         &bytemuck::cast_slice::<u32, f32>(storage)[..count]
     }
+
+    fn get_mut<'a>(index: usize, storage: &'a mut [u32; 4]) -> &'a mut Self {
+        bytemuck::cast_mut::<u32, f32>(&mut storage[index])
+    }
 }
 
 impl ElemType for i32 {
@@ -246,6 +357,10 @@ impl ElemType for i32 {
     fn get_all(storage: &[u32; 4], count: usize) -> &[Self] {
         &bytemuck::cast_slice::<u32, i32>(storage)[..count]
     }
+
+    fn get_mut<'a>(index: usize, storage: &'a mut [u32; 4]) -> &'a mut Self {
+        bytemuck::cast_mut::<u32, i32>(&mut storage[index])
+    }
 }
 
 impl ElemType for u32 {
@@ -261,6 +376,10 @@ impl ElemType for u32 {
 
     fn get_all(storage: &[u32; 4], count: usize) -> &[Self] {
         &storage[..count]
+    }
+
+    fn get_mut<'a>(index: usize, storage: &'a mut [u32; 4]) -> &'a mut Self {
+        &mut storage[index]
     }
 }
 
@@ -341,6 +460,16 @@ impl VectorValue {
         }
     }
 
+    /// Get the scalar value of an element of the vector.
+    pub fn value_mut(&mut self, index: usize) -> ScalarValueMut {
+        match self.elem_type() {
+            ScalarType::Bool => ScalarValueMut::Bool(self.get_mut::<bool>(index)),
+            ScalarType::Float => ScalarValueMut::Float(self.get_mut::<f32>(index)),
+            ScalarType::Int => ScalarValueMut::Int(self.get_mut::<i32>(index)),
+            ScalarType::Uint => ScalarValueMut::Uint(self.get_mut::<u32>(index)),
+        }
+    }
+
     /// Get the value of the N-th element of the vector.
     pub fn get_n<T: ElemType, const N: usize>(&self) -> T {
         if self.vector_type.count() > N {
@@ -359,6 +488,12 @@ impl VectorValue {
         }
     }
 
+    /// Get the value of an element of the vector.
+    fn get_mut<'a, T: ElemType>(&'a mut self, index: usize) -> &'a mut T {
+        assert!(index < self.vector_type.count());
+        T::get_mut(index, &mut self.storage)
+    }
+
     /// Get a slice of all the values of the vector.
     ///
     /// This is only valid for numeric types, and will panic for a boolean type.
@@ -370,6 +505,16 @@ impl VectorValue {
     pub fn as_bytes(&self) -> &[u8] {
         let count = self.vector_type.count();
         bytemuck::cast_slice::<u32, u8>(&self.storage[..count])
+    }
+
+    fn binary_op(&self, other: &Self, op: BinaryOperator) -> Self {
+        let count = self.vector_type.count();
+        let mut v = *self;
+        // component-wise op
+        for i in 0..count {
+            v.value_mut(i).binary_op(&other.value(i), op);
+        }
+        v
     }
 }
 
@@ -541,6 +686,11 @@ impl MatrixValue {
         ScalarValue::Float(self.get(row, col))
     }
 
+    /// Get the scalar value of an element of the matrix.
+    pub fn value_mut(&mut self, row: usize, col: usize) -> &mut f32 {
+        self.get_mut(row, col)
+    }
+
     /// Get the floating-point value of the matrix element in the R-th row and
     /// C-th column.
     pub fn get_n<const R: usize, const C: usize>(&self) -> f32 {
@@ -560,10 +710,31 @@ impl MatrixValue {
         }
     }
 
+    /// Get the value of an element of the matrix.
+    fn get_mut<'a>(&'a mut self, row: usize, col: usize) -> &'a mut f32 {
+        assert!(row < self.matrix_type.rows());
+        assert!(col < self.matrix_type.cols());
+        &mut self.storage[self.matrix_type.rows() * col + row]
+    }
+
     /// Get the value as a binary blob ready for GPU upload.
     pub fn as_bytes(&self) -> &[u8] {
         let count = self.matrix_type.rows() * self.matrix_type.cols();
         bytemuck::cast_slice::<f32, u8>(&self.storage[..count])
+    }
+
+    fn binary_op(&self, other: &Self, op: BinaryOperator) -> Self {
+        let mut m = *self;
+        // component-wise op
+        for j in 0..self.matrix_type.cols() {
+            for i in 0..self.matrix_type.rows() {
+                let dst = m.value_mut(i, j);
+                let a = *dst;
+                let b = other.get(i, j);
+                *dst = op.apply_f32(a, b);
+            }
+        }
+        m
     }
 }
 
@@ -633,6 +804,51 @@ impl Value {
             Value::Scalar(s) => ValueType::Scalar(s.scalar_type()),
             Value::Vector(v) => ValueType::Vector(v.vector_type()),
             Value::Matrix(m) => ValueType::Matrix(m.matrix_type()),
+        }
+    }
+
+    /// Cast this value to a [`ScalarValue`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if this value is not a [`ScalarValue`].
+    pub fn as_scalar(&self) -> &ScalarValue {
+        match self {
+            Value::Scalar(s) => s,
+            _ => panic!("Cannot cast from {:?} to ScalarType.", self.value_type()),
+        }
+    }
+
+    /// Cast this value to a [`VectorValue`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if this value is not a [`VectorValue`].
+    pub fn as_vector(&self) -> &VectorValue {
+        match self {
+            Value::Vector(v) => v,
+            _ => panic!("Cannot cast from {:?} to VectorType.", self.value_type()),
+        }
+    }
+
+    /// Cast this value to a [`MatrixValue`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if this value is not a [`MatrixValue`].
+    pub fn as_matrix(&self) -> &MatrixValue {
+        match self {
+            Value::Matrix(m) => m,
+            _ => panic!("Cannot cast from {:?} to MatrixType.", self.value_type()),
+        }
+    }
+
+    /// Apply a binary arithmetic operator between self and another operand.
+    pub fn binary_op(&self, other: &Value, op: BinaryOperator) -> Value {
+        match self {
+            Value::Scalar(s) => Value::Scalar(s.binary_op(other.as_scalar(), op)),
+            Value::Vector(v) => Value::Vector(v.binary_op(other.as_vector(), op)),
+            Value::Matrix(m) => Value::Matrix(m.binary_op(other.as_matrix(), op)),
         }
     }
 }

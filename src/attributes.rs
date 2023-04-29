@@ -125,6 +125,11 @@ impl VectorType {
         self.count as usize
     }
 
+    /// Is the type a numeric type?
+    pub fn is_numeric(&self) -> bool {
+        self.elem_type.is_numeric()
+    }
+
     /// Size of a value of this type, in bytes.
     ///
     /// This corresponds to the size of a variable of that type when part of a
@@ -251,6 +256,15 @@ pub enum ValueType {
 }
 
 impl ValueType {
+    /// Is the type a numeric type?
+    pub fn is_numeric(&self) -> bool {
+        match self {
+            ValueType::Scalar(s) => s.is_numeric(),
+            ValueType::Vector(v) => v.is_numeric(),
+            ValueType::Matrix(_) => true,
+        }
+    }
+
     /// Size of a value of this type, in bytes.
     pub fn size(&self) -> usize {
         match self {

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ToWgslString, ValueType};
 
-use super::Value;
+use super::{BinaryOperator, Value};
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ExprError {
@@ -226,9 +226,16 @@ impl Expr for AddExpr {
             )));
         }
 
-        todo!();
-        // let l = self.left.eval()?;
-        // let r = self.right.eval()?;
+        if !value_type.is_numeric() {
+            return Err(ExprError::TypeError(format!(
+                "Non-numeric type in Add expression."
+            )));
+        }
+
+        let l = self.left.eval()?;
+        let r = self.right.eval()?;
+
+        Ok(l.binary_op(&r, BinaryOperator::Add))
 
         // match value_type {
         //     ValueType::Scalar(s) => match s {
