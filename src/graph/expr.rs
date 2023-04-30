@@ -7,7 +7,7 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{ToWgslString, ValueType};
+use crate::{Attribute, ToWgslString, ValueType};
 
 use super::{BinaryOperator, Value};
 
@@ -125,11 +125,11 @@ impl FromReflect for BoxedExpr {
 
 /// A literal constant expression like `3.0` or `vec3<f32>(1.0, 2.0, 3.0)`.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct Literal {
+pub struct LiteralExpr {
     value: Value,
 }
 
-impl Literal {
+impl LiteralExpr {
     /// Create a new literal expression from a [`Value`].
     pub fn new<V>(value: V) -> Self
     where
@@ -141,14 +141,14 @@ impl Literal {
     }
 }
 
-impl ToWgslString for Literal {
+impl ToWgslString for LiteralExpr {
     fn to_wgsl_string(&self) -> String {
         self.value.to_wgsl_string()
     }
 }
 
 #[typetag::serde]
-impl Expr for Literal {
+impl Expr for LiteralExpr {
     fn as_expr(&self) -> &dyn Expr {
         self
     }
@@ -166,17 +166,17 @@ impl Expr for Literal {
     }
 
     fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(Literal { value: self.value })
+        Box::new(LiteralExpr { value: self.value })
     }
 }
 
-impl From<Value> for Literal {
+impl From<Value> for LiteralExpr {
     fn from(value: Value) -> Self {
         Self { value }
     }
 }
 
-impl From<&Value> for Literal {
+impl From<&Value> for LiteralExpr {
     fn from(value: &Value) -> Self {
         Self { value: *value }
     }
@@ -277,11 +277,60 @@ impl ToWgslString for AddExpr {
     }
 }
 
-impl std::ops::Add for Literal {
+impl std::ops::Add for LiteralExpr {
     type Output = AddExpr;
 
     fn add(self, rhs: Self) -> Self::Output {
         AddExpr::new(self, rhs)
+    }
+}
+
+/// Attribute expression.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct AttributeExpr {
+    attr: Attribute,
+}
+
+impl AttributeExpr {
+    /// Create a new attribute expression.
+    #[inline]
+    pub fn new(attr: Attribute) -> Self {
+        Self { attr }
+    }
+}
+
+#[typetag::serde]
+impl Expr for AttributeExpr {
+    fn as_expr(&self) -> &dyn Expr {
+        self
+    }
+
+    fn is_const(&self) -> bool {
+        false
+    }
+
+    fn value_type(&self) -> ValueType {
+        self.attr.value_type()
+    }
+
+    fn eval(&self) -> Result<Value, ExprError> {
+        unimplemented!();
+    }
+
+    fn boxed_clone(&self) -> BoxedExpr {
+        Box::new(AttributeExpr { attr: self.attr })
+    }
+}
+
+impl ToWgslString for AttributeExpr {
+    fn to_wgsl_string(&self) -> String {
+        format!("particle.{}", self.attr.name())
+    }
+}
+
+impl From<Attribute> for AttributeExpr {
+    fn from(value: Attribute) -> Self {
+        AttributeExpr::new(value)
     }
 }
 
@@ -298,13 +347,27 @@ mod tests {
     // }
 
     #[test]
+    fn expr() {
+        let x: AttributeExpr = Attribute::POSITION.into();
+        let y = LiteralExpr::new(Vec3::ONE);
+        let a = AddExpr::new(x, y);
+        assert_eq!(
+            a.to_wgsl_string(),
+            format!(
+                "particle.{} + vec3<f32>(1.,1.,1.)",
+                Attribute::POSITION.name()
+            )
+        );
+    }
+
+    #[test]
     fn serde() {
         let v = Value::Scalar(3.0_f32.into());
-        let l: Literal = v.into();
+        let l: LiteralExpr = v.into();
         assert_eq!(Ok(v), l.eval());
         let s = ron::to_string(&l).unwrap();
         println!("literal: {:?}", s);
-        let l_serde: Literal = ron::from_str(&s).unwrap();
+        let l_serde: LiteralExpr = ron::from_str(&s).unwrap();
         assert_eq!(l_serde, l);
 
         let b: BoxedExpr = Box::new(l);
@@ -316,8 +379,8 @@ mod tests {
 
         let v0 = Value::Scalar(3.0_f32.into());
         let v1 = Value::Scalar(2.5_f32.into());
-        let l0: Literal = v0.into();
-        let l1: Literal = v1.into();
+        let l0: LiteralExpr = v0.into();
+        let l1: LiteralExpr = v1.into();
         let a = l0 + l1;
         assert!(a.is_const());
         assert_eq!(Ok(Value::Scalar(5.5_f32.into())), a.eval());

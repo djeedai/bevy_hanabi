@@ -19,7 +19,7 @@ use crate::{MatrixType, ScalarType, ToWgslString, ValueType, VectorType};
 
 mod expr;
 
-pub use expr::{AddExpr, BoxedExpr, Expr, Literal};
+pub use expr::{AddExpr, AttributeExpr, BoxedExpr, Expr, LiteralExpr};
 
 /// Binary arithmetic operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
@@ -878,6 +878,42 @@ impl From<VectorValue> for Value {
 impl From<MatrixValue> for Value {
     fn from(value: MatrixValue) -> Self {
         Self::Matrix(value)
+    }
+}
+
+impl From<f32> for Value {
+    fn from(value: f32) -> Self {
+        Self::Scalar(value.into())
+    }
+}
+
+impl From<u32> for Value {
+    fn from(value: u32) -> Self {
+        Self::Scalar(value.into())
+    }
+}
+
+impl From<i32> for Value {
+    fn from(value: i32) -> Self {
+        Self::Scalar(value.into())
+    }
+}
+
+impl From<Vec2> for Value {
+    fn from(value: Vec2) -> Self {
+        Self::Vector(value.into())
+    }
+}
+
+impl From<Vec3> for Value {
+    fn from(value: Vec3) -> Self {
+        Self::Vector(value.into())
+    }
+}
+
+impl From<Vec4> for Value {
+    fn from(value: Vec4) -> Self {
+        Self::Vector(value.into())
     }
 }
 
