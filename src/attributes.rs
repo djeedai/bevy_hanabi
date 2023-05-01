@@ -109,7 +109,7 @@ impl VectorType {
     ///
     /// # Panic
     ///
-    /// Panics if the `size` is not 2/3/4.
+    /// Panics if the component `count` is not 2/3/4.
     pub const fn new(elem_type: ScalarType, count: u8) -> Self {
         assert!(count >= 2 && count <= 4);
         Self { elem_type, count }
@@ -262,6 +262,30 @@ impl ValueType {
             ValueType::Scalar(s) => s.is_numeric(),
             ValueType::Vector(v) => v.is_numeric(),
             ValueType::Matrix(_) => true,
+        }
+    }
+
+    /// Is the type a scalar type?
+    pub fn is_scalar(&self) -> bool {
+        match self {
+            ValueType::Scalar(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Is the type a vector type?
+    pub fn is_vector(&self) -> bool {
+        match self {
+            ValueType::Vector(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Is the type a matrix type?
+    pub fn is_matrix(&self) -> bool {
+        match self {
+            ValueType::Matrix(_) => true,
+            _ => false,
         }
     }
 

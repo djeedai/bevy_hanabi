@@ -195,6 +195,25 @@ impl ScalarValue {
         }
     }
 
+    /// Get the raw internal storage value representing this scalar value.
+    ///
+    /// Used internally for some conversion operations. The representation is
+    /// not guaranteed to be stable.
+    fn as_storage(&self) -> u32 {
+        match self {
+            ScalarValue::Bool(b) => {
+                if *b {
+                    0xFFFFFFFFu32
+                } else {
+                    0u32
+                }
+            }
+            ScalarValue::Float(f) => bytemuck::cast::<f32, u32>(*f),
+            ScalarValue::Int(i) => bytemuck::cast::<i32, u32>(*i),
+            ScalarValue::Uint(u) => *u,
+        }
+    }
+
     /// Get the scalar type of this value.
     pub fn scalar_type(&self) -> ScalarType {
         match self {
@@ -301,7 +320,8 @@ pub trait ElemType {
     where
         Self: Sized;
 
-    /// Get a mutable reference to the given component of the vector from within its raw storage.
+    /// Get a mutable reference to the given component of the vector from within
+    /// its raw storage.
     fn get_mut<'a>(index: usize, storage: &'a mut [u32; 4]) -> &'a mut Self;
 }
 
@@ -427,6 +447,19 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC4F,
             storage: unsafe { std::mem::transmute(value.to_array()) },
+        }
+    }
+
+    /// Create a new vector by "splatting" a scalar value into all components.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the component `count` is not 2/3/4.
+    pub fn splat(value: &ScalarValue, count: u8) -> Self {
+        let raw_value = value.as_storage();
+        Self {
+            vector_type: VectorType::new(value.scalar_type(), count),
+            storage: [raw_value, raw_value, raw_value, raw_value],
         }
     }
 
@@ -1263,8 +1296,8 @@ mod tests {
     //         vector_hash(&[3.5, -42., 999.99])
     //     );
     //     assert_eq!(
-    //         scalar_hash(&Into::<Value>::into(Vec4::new(3.5, -42., 999.99, -0.01))),
-    //         vector_hash(&[3.5, -42., 999.99, -0.01])
+    //         scalar_hash(&Into::<Value>::into(Vec4::new(3.5, -42., 999.99,
+    // -0.01))),         vector_hash(&[3.5, -42., 999.99, -0.01])
     //     );
     // }
 
