@@ -123,6 +123,12 @@ impl FromReflect for BoxedExpr {
     }
 }
 
+impl<T: Expr> From<T> for BoxedExpr {
+    fn from(value: T) -> Self {
+        Box::new(value)
+    }
+}
+
 /// A literal constant expression like `3.0` or `vec3<f32>(1.0, 2.0, 3.0)`.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct LiteralExpr {
@@ -170,15 +176,26 @@ impl Expr for LiteralExpr {
     }
 }
 
-impl From<Value> for LiteralExpr {
-    fn from(value: Value) -> Self {
-        Self { value }
-    }
-}
-
 impl From<&Value> for LiteralExpr {
     fn from(value: &Value) -> Self {
         Self { value: *value }
+    }
+}
+
+impl<T: Into<Value>> From<T> for LiteralExpr {
+    fn from(value: T) -> Self {
+        Self {
+            value: value.into(),
+        }
+    }
+}
+
+impl<T: Into<BoxedExpr>> std::ops::Add<T> for LiteralExpr {
+    type Output = AddExpr;
+
+    fn add(self, rhs: T) -> Self::Output {
+        let this: BoxedExpr = Box::new(self);
+        AddExpr::new(this, rhs)
     }
 }
 
@@ -192,11 +209,13 @@ pub struct AddExpr {
 impl AddExpr {
     /// Create a new addition expression between two boxed expressions.
     #[inline]
-    pub fn new<L: Expr, R: Expr>(lhs: L, rhs: R) -> Self {
+    pub fn new<L: Into<BoxedExpr>, R: Into<BoxedExpr>>(lhs: L, rhs: R) -> Self {
+        let lhs: BoxedExpr = lhs.into();
+        let rhs: BoxedExpr = rhs.into();
         assert_eq!(lhs.value_type(), rhs.value_type());
         Self {
-            left: Box::new(lhs),
-            right: Box::new(rhs),
+            left: lhs,
+            right: rhs,
         }
     }
 }
@@ -277,11 +296,12 @@ impl ToWgslString for AddExpr {
     }
 }
 
-impl std::ops::Add for LiteralExpr {
+impl<T: Into<BoxedExpr>> std::ops::Add<T> for AddExpr {
     type Output = AddExpr;
 
-    fn add(self, rhs: Self) -> Self::Output {
-        AddExpr::new(self, rhs)
+    fn add(self, rhs: T) -> Self::Output {
+        let this: BoxedExpr = Box::new(self);
+        AddExpr::new(this, rhs)
     }
 }
 
@@ -334,27 +354,46 @@ impl From<Attribute> for AttributeExpr {
     }
 }
 
+impl<T: Into<BoxedExpr>> std::ops::Add<T> for AttributeExpr {
+    type Output = AddExpr;
+
+    fn add(self, rhs: T) -> Self::Output {
+        let this: BoxedExpr = Box::new(self);
+        AddExpr::new(this, rhs)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // #[test]
-    // fn err() {
-    //     let l = Value::Scalar(3.5_f32.into());
-    //     let r: Result<Vec2, ExprError> = l.try_into();
-    //     assert!(r.is_err());
-    //     assert!(matches!(r, Err(ExprError::TypeError(_))));
-    // }
+    #[test]
+    fn err() {
+        let l = Value::Scalar(3.5_f32.into());
+        let r: Result<Vec2, ExprError> = l.try_into();
+        assert!(r.is_err());
+        assert!(matches!(r, Err(ExprError::TypeError(_))));
+    }
 
     #[test]
     fn expr() {
         let x: AttributeExpr = Attribute::POSITION.into();
         let y = LiteralExpr::new(Vec3::ONE);
-        let a = AddExpr::new(x, y);
+
+        let a = x + y;
         assert_eq!(
             a.to_wgsl_string(),
             format!(
                 "particle.{} + vec3<f32>(1.,1.,1.)",
+                Attribute::POSITION.name()
+            )
+        );
+
+        let b = y + x;
+        assert_eq!(
+            b.to_wgsl_string(),
+            format!(
+                "vec3<f32>(1.,1.,1.) + particle.{}",
                 Attribute::POSITION.name()
             )
         );

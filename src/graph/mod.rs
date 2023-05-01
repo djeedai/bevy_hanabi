@@ -9,7 +9,7 @@
 use std::fmt::Debug;
 
 use bevy::{
-    math::{BVec2, BVec3, BVec4, Vec2, Vec3, Vec4},
+    math::{BVec2, BVec3, BVec4, Vec2, Vec3, Vec3A, Vec4},
     reflect::{FromReflect, Reflect},
     utils::FloatOrd,
 };
@@ -20,6 +20,8 @@ use crate::{MatrixType, ScalarType, ToWgslString, ValueType, VectorType};
 mod expr;
 
 pub use expr::{AddExpr, AttributeExpr, BoxedExpr, Expr, LiteralExpr};
+
+use self::expr::ExprError;
 
 /// Binary arithmetic operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
@@ -501,6 +503,85 @@ impl VectorValue {
         T::get_all(&self.storage, self.vector_type.count())
     }
 
+    /// Cast this vector value to a [`Vec2`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the current vector type is not [`VectorType::VEC2F`].
+    pub fn as_vec2(&self) -> Vec2 {
+        assert_eq!(self.vector_type, VectorType::VEC2F);
+        Vec2::from_slice(bytemuck::cast_slice::<u32, f32>(&self.storage))
+    }
+
+    /// Cast this vector value to a [`Vec3`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the current vector type is not [`VectorType::VEC3F`].
+    pub fn as_vec3(&self) -> Vec3 {
+        assert_eq!(self.vector_type, VectorType::VEC3F);
+        Vec3::from_slice(bytemuck::cast_slice::<u32, f32>(&self.storage))
+    }
+
+    /// Cast this vector value to a [`Vec3A`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the current vector type is not [`VectorType::VEC3F`].
+    pub fn as_vec3a(&self) -> Vec3A {
+        assert_eq!(self.vector_type, VectorType::VEC3F);
+        Vec3A::from_slice(bytemuck::cast_slice::<u32, f32>(&self.storage))
+    }
+
+    /// Cast this vector value to a [`Vec4`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the current vector type is not [`VectorType::VEC4F`].
+    pub fn as_vec4(&self) -> Vec4 {
+        assert_eq!(self.vector_type, VectorType::VEC4F);
+        Vec4::from_slice(bytemuck::cast_slice::<u32, f32>(&self.storage))
+    }
+
+    /// Cast this vector value to a [`BVec2`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the current vector type is not [`VectorType::VEC2B`].
+    pub fn as_bvec2(&self) -> BVec2 {
+        assert_eq!(self.vector_type, VectorType::VEC2B);
+        BVec2::new(self.storage[0] != 0, self.storage[1] != 0)
+    }
+
+    /// Cast this vector value to a [`BVec3`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the current vector type is not [`VectorType::VEC3B`].
+    pub fn as_bvec3(&self) -> BVec3 {
+        assert_eq!(self.vector_type, VectorType::VEC3B);
+        BVec3::new(
+            self.storage[0] != 0,
+            self.storage[1] != 0,
+            self.storage[2] != 0,
+        )
+    }
+
+    /// Cast this vector value to a [`BVec4`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the current vector type is not [`VectorType::VEC4B`].
+    pub fn as_bvec4(&self) -> BVec4 {
+        assert_eq!(self.vector_type, VectorType::VEC4B);
+        BVec4::new(
+            self.storage[0] != 0,
+            self.storage[1] != 0,
+            self.storage[2] != 0,
+            self.storage[3] != 0,
+        )
+    }
+
     /// Get the value as a binary blob ready for GPU upload.
     pub fn as_bytes(&self) -> &[u8] {
         let count = self.vector_type.count();
@@ -630,6 +711,18 @@ impl From<Vec2> for VectorValue {
 
 impl From<Vec3> for VectorValue {
     fn from(value: Vec3) -> Self {
+        let mut s = Self {
+            vector_type: VectorType::new(ScalarType::Float, 3),
+            storage: [0u32; 4],
+        };
+        let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
+        value.write_to_slice(v);
+        s
+    }
+}
+
+impl From<Vec3A> for VectorValue {
+    fn from(value: Vec3A) -> Self {
         let mut s = Self {
             vector_type: VectorType::new(ScalarType::Float, 3),
             storage: [0u32; 4],
@@ -881,140 +974,97 @@ impl From<MatrixValue> for Value {
     }
 }
 
-impl From<f32> for Value {
-    fn from(value: f32) -> Self {
-        Self::Scalar(value.into())
-    }
+macro_rules! impl_scalar_value {
+    ($t: ty, $sv: ident) => {
+        impl From<$t> for Value {
+            fn from(value: $t) -> Self {
+                Self::Scalar(value.into())
+            }
+        }
+
+        impl TryInto<$t> for ScalarValue {
+            type Error = ExprError;
+
+            fn try_into(self) -> Result<$t, Self::Error> {
+                match self {
+                    ScalarValue::$sv(b) => Ok(b),
+                    _ => Err(ExprError::TypeError(format!(
+                        "Expected {:?} type, found {:?} instead.",
+                        ScalarType::$sv,
+                        self.scalar_type()
+                    ))),
+                }
+            }
+        }
+
+        impl TryInto<$t> for Value {
+            type Error = ExprError;
+
+            fn try_into(self) -> Result<$t, Self::Error> {
+                match self {
+                    Value::Scalar(s) => s.try_into(),
+                    _ => Err(ExprError::TypeError(format!(
+                        "Expected ValueType::Scalar type, found {:?} instead.",
+                        self.value_type()
+                    ))),
+                }
+            }
+        }
+    };
 }
 
-impl From<u32> for Value {
-    fn from(value: u32) -> Self {
-        Self::Scalar(value.into())
-    }
+impl_scalar_value!(bool, Bool);
+impl_scalar_value!(f32, Float);
+impl_scalar_value!(i32, Int);
+impl_scalar_value!(u32, Uint);
+
+macro_rules! impl_vec_value {
+    ($t: ty, $vt: ident, $cast: tt) => {
+        impl From<$t> for Value {
+            fn from(value: $t) -> Self {
+                Self::Vector(value.into())
+            }
+        }
+
+        impl TryInto<$t> for VectorValue {
+            type Error = ExprError;
+
+            fn try_into(self) -> Result<$t, Self::Error> {
+                if self.vector_type() == VectorType::$vt {
+                    Ok(self.$cast())
+                } else {
+                    Err(ExprError::TypeError(format!(
+                        "Expected {:?} type, found {:?} instead.",
+                        VectorType::$vt,
+                        self.vector_type()
+                    )))
+                }
+            }
+        }
+
+        impl TryInto<$t> for Value {
+            type Error = ExprError;
+
+            fn try_into(self) -> Result<$t, Self::Error> {
+                match self {
+                    Value::Vector(v) => v.try_into(),
+                    _ => Err(ExprError::TypeError(format!(
+                        "Expected ValueType::Scalar type, found {:?} instead.",
+                        self.value_type()
+                    ))),
+                }
+            }
+        }
+    };
 }
 
-impl From<i32> for Value {
-    fn from(value: i32) -> Self {
-        Self::Scalar(value.into())
-    }
-}
-
-impl From<Vec2> for Value {
-    fn from(value: Vec2) -> Self {
-        Self::Vector(value.into())
-    }
-}
-
-impl From<Vec3> for Value {
-    fn from(value: Vec3) -> Self {
-        Self::Vector(value.into())
-    }
-}
-
-impl From<Vec4> for Value {
-    fn from(value: Vec4) -> Self {
-        Self::Vector(value.into())
-    }
-}
-
-// impl TryInto<f32> for Value {
-//     type Error = ExprError;
-
-//     fn try_into(self) -> Result<f32, Self::Error> {
-//         match self {
-//             Value::Float(f) => Ok(f),
-//             _ => Err(ExprError::TypeError(format!(
-//                 "Expected {:?} type, found {:?} instead.",
-//                 ValueType::Float,
-//                 self.value_type()
-//             ))),
-//         }
-//     }
-// }
-
-// impl From<Vec2> for Value {
-//     fn from(v: Vec2) -> Self {
-//         Self::Float2(v)
-//     }
-// }
-
-// impl TryInto<Vec2> for Value {
-//     type Error = ExprError;
-
-//     fn try_into(self) -> Result<Vec2, Self::Error> {
-//         match self {
-//             Value::Float2(v) => Ok(v),
-//             _ => Err(ExprError::TypeError(format!(
-//                 "Expected {:?} type, found {:?} instead.",
-//                 ValueType::Float2,
-//                 self.value_type()
-//             ))),
-//         }
-//     }
-// }
-
-// impl From<Vec3> for Value {
-//     fn from(v: Vec3) -> Self {
-//         Self::Float3(v)
-//     }
-// }
-
-// impl TryInto<Vec3> for Value {
-//     type Error = ExprError;
-
-//     fn try_into(self) -> Result<Vec3, Self::Error> {
-//         match self {
-//             Value::Float3(v) => Ok(v),
-//             _ => Err(ExprError::TypeError(format!(
-//                 "Expected {:?} type, found {:?} instead.",
-//                 ValueType::Float3,
-//                 self.value_type()
-//             ))),
-//         }
-//     }
-// }
-
-// impl From<Vec4> for Value {
-//     fn from(v: Vec4) -> Self {
-//         Self::Float4(v)
-//     }
-// }
-
-// impl TryInto<Vec4> for Value {
-//     type Error = ExprError;
-
-//     fn try_into(self) -> Result<Vec4, Self::Error> {
-//         match self {
-//             Value::Float4(v) => Ok(v),
-//             _ => Err(ExprError::TypeError(format!(
-//                 "Expected {:?} type, found {:?} instead.",
-//                 ValueType::Float4,
-//                 self.value_type()
-//             ))),
-//         }
-//     }
-// }
-
-// impl From<u32> for Value {
-//     fn from(u: u32) -> Self {
-//         Self::Uint(u)
-//     }
-// }
-
-// impl TryInto<u32> for Value {
-//     type Error = ExprError;
-
-//     fn try_into(self) -> Result<u32, Self::Error> {
-//         match self {
-//             Value::Uint(v) => Ok(v),
-//             _ => Err(ExprError::TypeError(format!(
-//                 "Expected {:?} type, found {:?} instead.",
-//                 ValueType::Uint,
-//                 self.value_type()
-//             ))),
-//         }
-//     }
-// }
+impl_vec_value!(Vec2, VEC2F, as_vec2);
+impl_vec_value!(Vec3, VEC3F, as_vec3);
+impl_vec_value!(Vec3A, VEC3F, as_vec3a);
+impl_vec_value!(Vec4, VEC4F, as_vec4);
+impl_vec_value!(BVec2, VEC2B, as_bvec2);
+impl_vec_value!(BVec3, VEC3B, as_bvec3);
+impl_vec_value!(BVec4, VEC4B, as_bvec4);
 
 #[cfg(test)]
 mod tests {
@@ -1027,9 +1077,21 @@ mod tests {
 
     #[test]
     fn as_bytes() {
+        // let v = Value::Scalar(true.into());
+        // let b = v.as_bytes();
+        // assert_eq!(b, &[0xFFu8, 0xFFu8, 0xFFu8, 0xFFu8]);
+
         let v = Value::Scalar(3f32.into());
         let b = v.as_bytes();
         assert_eq!(b, &[0u8, 0u8, 0x40u8, 0x40u8]); // 0x40400000
+
+        let v = Value::Scalar(0x12FF89ACu32.into());
+        let b = v.as_bytes();
+        assert_eq!(b, &[0xACu8, 0x89u8, 0xFFu8, 0x12u8]);
+
+        let v = Value::Scalar(0x12FF89ACi32.into());
+        let b = v.as_bytes();
+        assert_eq!(b, &[0xACu8, 0x89u8, 0xFFu8, 0x12u8]);
 
         let v = Value::Vector(Vec2::new(-2., 3.).into());
         let b = v.as_bytes();
@@ -1051,17 +1113,25 @@ mod tests {
                 0u8, 0xa0u8, 0xc0u8
             ]
         ); // 0xc0000000 0x40400000 0x40800000 0xc0a00000
-
-        let v = Value::Scalar(0x12FF89ACu32.into());
-        let b = v.as_bytes();
-        assert_eq!(b, &[0xACu8, 0x89u8, 0xFFu8, 0x12u8]);
     }
 
     #[test]
     fn value_type() {
         assert_eq!(
+            Value::Scalar(true.into()).value_type(),
+            ValueType::Scalar(ScalarType::Bool)
+        );
+        assert_eq!(
             Value::Scalar(0f32.into()).value_type(),
             ValueType::Scalar(ScalarType::Float)
+        );
+        assert_eq!(
+            Value::Scalar(0i32.into()).value_type(),
+            ValueType::Scalar(ScalarType::Int)
+        );
+        assert_eq!(
+            Value::Scalar(0u32.into()).value_type(),
+            ValueType::Scalar(ScalarType::Uint)
         );
         assert_eq!(
             Value::Vector(Vec2::ZERO.into()).value_type(),
@@ -1076,43 +1146,92 @@ mod tests {
             ValueType::Vector(VectorType::VEC4F)
         );
         assert_eq!(
-            Value::Scalar(0u32.into()).value_type(),
-            ValueType::Scalar(ScalarType::Uint)
+            Value::Vector(BVec2::TRUE.into()).value_type(),
+            ValueType::Vector(VectorType::VEC2B)
+        );
+        assert_eq!(
+            Value::Vector(BVec3::TRUE.into()).value_type(),
+            ValueType::Vector(VectorType::VEC3B)
+        );
+        assert_eq!(
+            Value::Vector(BVec4::TRUE.into()).value_type(),
+            ValueType::Vector(VectorType::VEC4B)
         );
     }
 
     #[test]
     fn to_wgsl_string() {
-        assert_eq!(
-            Value::Scalar(0f32.into()).to_wgsl_string(),
-            0_f32.to_wgsl_string()
-        );
-        assert_eq!(
-            Value::Vector(Vec2::ZERO.into()).to_wgsl_string(),
-            Vec2::ZERO.to_wgsl_string()
-        );
-        assert_eq!(
-            Value::Vector(Vec3::ZERO.into()).to_wgsl_string(),
-            Vec3::ZERO.to_wgsl_string()
-        );
-        assert_eq!(
-            Value::Vector(Vec4::ZERO.into()).to_wgsl_string(),
-            Vec4::ZERO.to_wgsl_string()
-        );
-        assert_eq!(
-            Value::Scalar(0u32.into()).to_wgsl_string(),
-            0_u32.to_wgsl_string()
-        );
+        for b in [true, false] {
+            assert_eq!(Value::Scalar(b.into()).to_wgsl_string(), b.to_wgsl_string());
+        }
+        for f in [0_f32, -1., 1., 1e-5] {
+            assert_eq!(Value::Scalar(f.into()).to_wgsl_string(), f.to_wgsl_string());
+        }
+        for u in [0_u32, 1, 42, 999999] {
+            assert_eq!(Value::Scalar(u.into()).to_wgsl_string(), u.to_wgsl_string());
+        }
+        for i in [0_i32, -1, 1, -42, 42, -100000, 100000] {
+            assert_eq!(Value::Scalar(i.into()).to_wgsl_string(), i.to_wgsl_string());
+        }
+        for v in [
+            Vec2::ZERO,
+            Vec2::ONE,
+            Vec2::NEG_ONE,
+            Vec2::X,
+            Vec2::Y,
+            Vec2::NEG_X,
+            Vec2::NEG_Y,
+            Vec2::new(-42.578, 663.44879),
+        ] {
+            assert_eq!(Value::Vector(v.into()).to_wgsl_string(), v.to_wgsl_string());
+        }
+        for v in [
+            Vec3::ZERO,
+            Vec3::ONE,
+            Vec3::NEG_ONE,
+            Vec3::X,
+            Vec3::Y,
+            Vec3::Z,
+            Vec3::NEG_X,
+            Vec3::NEG_Y,
+            Vec3::NEG_Z,
+            Vec3::new(-42.578, 663.44879, -42558.35),
+        ] {
+            assert_eq!(Value::Vector(v.into()).to_wgsl_string(), v.to_wgsl_string());
+        }
+        for v in [
+            Vec4::ZERO,
+            Vec4::ONE,
+            Vec4::NEG_ONE,
+            Vec4::X,
+            Vec4::Y,
+            Vec4::Z,
+            Vec4::NEG_X,
+            Vec4::NEG_Y,
+            Vec4::NEG_Z,
+            Vec4::new(-42.578, 663.44879, -42558.35, -4.2),
+        ] {
+            assert_eq!(Value::Vector(v.into()).to_wgsl_string(), v.to_wgsl_string());
+        }
     }
 
-    // #[test]
-    // fn from() {
-    //     assert_eq!(Value::Float(0.), 0_f32.into());
-    //     assert_eq!(Value::Float2(Vec2::ZERO), Vec2::ZERO.into());
-    //     assert_eq!(Value::Float3(Vec3::ZERO), Vec3::ZERO.into());
-    //     assert_eq!(Value::Float4(Vec4::ZERO), Vec4::ZERO.into());
-    //     assert_eq!(Value::Uint(0), 0_u32.into());
-    // }
+    #[test]
+    fn from() {
+        assert_eq!(Value::Scalar(ScalarValue::Float(0.)), 0_f32.into());
+        assert_eq!(Value::Scalar(ScalarValue::Uint(0)), 0_u32.into());
+        assert_eq!(
+            Value::Vector(VectorValue::new_vec2(Vec2::ZERO)),
+            Vec2::ZERO.into()
+        );
+        assert_eq!(
+            Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
+            Vec3::ZERO.into()
+        );
+        assert_eq!(
+            Value::Vector(VectorValue::new_vec4(Vec4::ZERO)),
+            Vec4::ZERO.into()
+        );
+    }
 
     // fn scalar_hash<H: Hash>(value: &H) -> u64 {
     //     let mut hasher = DefaultHasher::default();
@@ -1131,21 +1250,88 @@ mod tests {
     // #[test]
     // fn hash() {
     //     assert_eq!(
-    //         scalar_hash(&Value::Float(0.)),
+    //         scalar_hash(&Into::<Value>::into(0_f32)),
     //         scalar_hash(&FloatOrd(0_f32))
     //     );
-    //     assert_eq!(scalar_hash(&Value::Uint(0)), scalar_hash(&0_u32));
+    //     assert_eq!(scalar_hash(&Into::<Value>::into(0_32)), scalar_hash(&0_u32));
     //     assert_eq!(
-    //         scalar_hash(&Value::Float2(Vec2::new(3.5, -42.))),
+    //         scalar_hash(&Into::<Value>::into(Vec2::new(3.5, -42.))),
     //         vector_hash(&[3.5, -42.])
     //     );
     //     assert_eq!(
-    //         scalar_hash(&Value::Float3(Vec3::new(3.5, -42., 999.99))),
+    //         scalar_hash(&Into::<Value>::into(Vec3::new(3.5, -42., 999.99))),
     //         vector_hash(&[3.5, -42., 999.99])
     //     );
     //     assert_eq!(
-    //         scalar_hash(&Value::Float4(Vec4::new(3.5, -42., 999.99, -0.01))),
+    //         scalar_hash(&Into::<Value>::into(Vec4::new(3.5, -42., 999.99, -0.01))),
     //         vector_hash(&[3.5, -42., 999.99, -0.01])
     //     );
     // }
+
+    #[test]
+    fn try_into() {
+        let b: Value = true.into();
+        let ret: Result<bool, _> = b.try_into();
+        assert_eq!(ret, Ok(true));
+        assert!(matches!(
+            TryInto::<f32>::try_into(b),
+            Err(ExprError::TypeError(_))
+        ));
+        assert!(matches!(
+            TryInto::<i32>::try_into(b),
+            Err(ExprError::TypeError(_))
+        ));
+        assert!(matches!(
+            TryInto::<Vec3>::try_into(b),
+            Err(ExprError::TypeError(_))
+        ));
+
+        let f: Value = 3.4_f32.into();
+        let ret: Result<f32, _> = f.try_into();
+        assert_eq!(ret, Ok(3.4_f32));
+        assert!(matches!(
+            TryInto::<bool>::try_into(f),
+            Err(ExprError::TypeError(_))
+        ));
+        assert!(matches!(
+            TryInto::<u32>::try_into(f),
+            Err(ExprError::TypeError(_))
+        ));
+        assert!(matches!(
+            TryInto::<Vec2>::try_into(f),
+            Err(ExprError::TypeError(_))
+        ));
+
+        let u: Value = 42_u32.into();
+        let ret: Result<u32, _> = u.try_into();
+        assert_eq!(ret, Ok(42_u32));
+        assert!(matches!(
+            TryInto::<bool>::try_into(u),
+            Err(ExprError::TypeError(_))
+        ));
+        assert!(matches!(
+            TryInto::<f32>::try_into(u),
+            Err(ExprError::TypeError(_))
+        ));
+        assert!(matches!(
+            TryInto::<Vec4>::try_into(u),
+            Err(ExprError::TypeError(_))
+        ));
+
+        let i: Value = 42_i32.into();
+        let ret: Result<i32, _> = i.try_into();
+        assert_eq!(ret, Ok(42_i32));
+        assert!(matches!(
+            TryInto::<bool>::try_into(i),
+            Err(ExprError::TypeError(_))
+        ));
+        assert!(matches!(
+            TryInto::<f32>::try_into(i),
+            Err(ExprError::TypeError(_))
+        ));
+        assert!(matches!(
+            TryInto::<Vec4>::try_into(i),
+            Err(ExprError::TypeError(_))
+        ));
+    }
 }
