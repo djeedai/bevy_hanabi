@@ -18,10 +18,10 @@ use serde::{Deserialize, Serialize};
 use crate::{MatrixType, ScalarType, ToWgslString, ValueType, VectorType};
 
 mod expr;
+mod node;
 
-pub use expr::{AddExpr, AttributeExpr, BoxedExpr, Expr, LiteralExpr};
-
-use self::expr::ExprError;
+pub use expr::{AddExpr, AttributeExpr, BoxedExpr, Expr, ExprError, LiteralExpr};
+pub use node::{AttributeNode, Graph, Node, Slot, SlotDir, SlotId};
 
 /// Binary arithmetic operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
@@ -459,7 +459,7 @@ impl VectorValue {
         let raw_value = value.as_storage();
         Self {
             vector_type: VectorType::new(value.scalar_type(), count),
-            storage: [raw_value, raw_value, raw_value, raw_value],
+            storage: [raw_value; 4],
         }
     }
 
@@ -1366,5 +1366,21 @@ mod tests {
             TryInto::<Vec4>::try_into(i),
             Err(ExprError::TypeError(_))
         ));
+    }
+
+    #[test]
+    fn splat() {
+        for c in 2..=4 {
+            let x = VectorValue::splat(&3.4_f32.into(), c);
+            assert_eq!(x.elem_type(), ScalarType::Float);
+            assert_eq!(x.vector_type().count(), c as usize);
+            if c == 2 {
+                assert_eq!(TryInto::<Vec2>::try_into(x), Ok(Vec2::splat(3.4)));
+            } else if c == 3 {
+                assert_eq!(TryInto::<Vec3>::try_into(x), Ok(Vec3::splat(3.4)));
+            } else {
+                assert_eq!(TryInto::<Vec4>::try_into(x), Ok(Vec4::splat(3.4)));
+            }
+        }
     }
 }
