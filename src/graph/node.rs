@@ -1,6 +1,8 @@
 use std::num::NonZeroU32;
 
-use crate::{Attribute, ValueType};
+use crate::{graph::AttributeExpr, Attribute, ValueType};
+
+use super::{AddExpr, BoxedExpr, ExprError};
 
 /// Identifier of a node in a graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -60,13 +62,13 @@ pub struct SlotDef {
     name: String,
     /// Slot direaction.
     dir: SlotDir,
-    /// Type of values accepted by the slot.
-    value_type: ValueType,
+    /// Type of values accepted by the slot. This may be `None` for variant slots, if the type depends on the inputs of the node during evaluation.
+    value_type: Option<ValueType>,
 }
 
 impl SlotDef {
     /// Create a new input slot.
-    pub fn input(name: impl Into<String>, value_type: ValueType) -> Self {
+    pub fn input(name: impl Into<String>, value_type: Option<ValueType>) -> Self {
         Self {
             name: name.into(),
             dir: SlotDir::Input,
@@ -75,7 +77,7 @@ impl SlotDef {
     }
 
     /// Create a new output slot.
-    pub fn output(name: impl Into<String>, value_type: ValueType) -> Self {
+    pub fn output(name: impl Into<String>, value_type: Option<ValueType>) -> Self {
         Self {
             name: name.into(),
             dir: SlotDir::Output,
@@ -94,7 +96,7 @@ impl SlotDef {
     }
 
     /// Get the slot value type.
-    pub fn value_type(&self) -> ValueType {
+    pub fn value_type(&self) -> Option<ValueType> {
         self.value_type
     }
 }
@@ -334,25 +336,24 @@ impl Graph {
 
 /// Generic graph node.
 pub trait Node {
-    ///
-    fn parent(&self) -> Option<&dyn Node>;
-
-    ///
-    fn children(&self) -> &[&dyn Node];
-
     /// Get the list of slots of this node.
     ///
     /// The list contains both input and output slots, without any guaranteed order.
     fn slots(&self) -> &[SlotDef];
+
+    /// Evaluate the node from the given input expressions, and optionally produce output expression(s).
+    ///
+    /// The expressions themselves are not evaluated (that is, _e.g._ "3 + 2" is _not_ reduced to "5").
+    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError>;
 }
 
-/// Graph node to get or set any single particle attribute.
+/// Graph node to get any single particle attribute.
 #[derive(Debug, Clone)]
 pub struct AttributeNode {
-    /// The attribute to get/set.
+    /// The attribute to get.
     attr: Attribute,
-    /// The input and output slots corresponding to the set and get values, respectively.
-    slots: [SlotDef; 2],
+    /// The output slot corresponding to the get value.
+    slots: [SlotDef; 1],
 }
 
 impl AttributeNode {
@@ -360,54 +361,128 @@ impl AttributeNode {
     pub fn new(attr: Attribute) -> Self {
         Self {
             attr,
-            slots: [
-                SlotDef::input(attr.name(), attr.value_type()),
-                SlotDef::output(attr.name(), attr.value_type()),
-            ],
+            slots: [SlotDef::output(attr.name(), Some(attr.value_type()))],
         }
     }
 }
 
 impl AttributeNode {
-    /// Get the attribute this node reads/modifies.
+    /// Get the attribute this node reads.
     pub fn attr(&self) -> Attribute {
         self.attr
     }
 
-    /// Set the attribute this node reads/modifies.
+    /// Set the attribute this node reads.
     pub fn set_attr(&mut self, attr: Attribute) {
         self.attr = attr;
     }
 }
 
 impl Node for AttributeNode {
-    fn parent(&self) -> Option<&dyn Node> {
-        None
-    }
-
-    fn children(&self) -> &[&dyn Node] {
-        &[]
-    }
-
     fn slots(&self) -> &[SlotDef] {
         &self.slots
+    }
+
+    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+        if !inputs.is_empty() {
+            return Err(ExprError::GraphEvalError(
+                "Unexpected non-empty input to AttributeNode::eval().".to_string(),
+            ));
+        }
+        Ok(vec![Box::new(AttributeExpr::new(self.attr))])
+    }
+}
+
+/// Graph node to add two values.
+#[derive(Debug, Clone)]
+pub struct AddNode {
+    slots: [SlotDef; 3],
+}
+
+impl AddNode {
+    /// Create a new node.
+    pub fn new() -> Self {
+        Self {
+            slots: [
+                SlotDef::input("lhs", None),
+                SlotDef::input("rhs", None),
+                SlotDef::output("result", None),
+            ],
+        }
+    }
+}
+
+impl Node for AddNode {
+    fn slots(&self) -> &[SlotDef] {
+        &self.slots
+    }
+
+    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+        if inputs.len() != 2 {
+            return Err(ExprError::GraphEvalError(format!(
+                "Unexpected input count to AddNode::eval(): expected 2, got {}",
+                inputs.len()
+            )));
+        }
+        let mut inputs = inputs.into_iter();
+        let lhs = inputs.next().unwrap();
+        let rhs = inputs.next().unwrap();
+        Ok(vec![Box::new(AddExpr::new(lhs, rhs))])
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::graph::LiteralExpr;
+
     use super::*;
 
     #[test]
-    fn graph() {
-        let n1 = AttributeNode::new(Attribute::POSITION);
-        let n2 = AttributeNode::new(Attribute::POSITION);
+    fn add() {
+        let node = AddNode::new();
 
-        let mut g = Graph::new();
-        let nid1 = g.add_node(Box::new(n1));
-        let nid2 = g.add_node(Box::new(n2));
-        let sid1 = g.output_slots(nid1)[0];
-        let sid2 = g.input_slots(nid2)[0];
-        g.link(sid1, sid2);
+        let ret = node.eval(vec![]);
+        assert!(matches!(ret, Err(ExprError::GraphEvalError(_))));
+        let ret = node.eval(vec![Box::new(LiteralExpr::new(3))]);
+        assert!(matches!(ret, Err(ExprError::GraphEvalError(_))));
+
+        let outputs = node
+            .eval(vec![
+                Box::new(LiteralExpr::new(3)),
+                Box::new(LiteralExpr::new(2)),
+            ])
+            .unwrap();
+        assert_eq!(outputs.len(), 1);
+        let out = &outputs[0];
+        assert_eq!(out.to_wgsl_string(), "3 + 2".to_string());
     }
+
+    #[test]
+    fn attr() {
+        let node = AttributeNode::new(Attribute::POSITION);
+
+        let ret = node.eval(vec![Box::new(LiteralExpr::new(3))]);
+        assert!(matches!(ret, Err(ExprError::GraphEvalError(_))));
+
+        let outputs = node.eval(vec![]).unwrap();
+        assert_eq!(outputs.len(), 1);
+        let out = &outputs[0];
+        assert_eq!(
+            out.to_wgsl_string(),
+            format!("particle.{}", Attribute::POSITION.name())
+        );
+    }
+
+    // #[test]
+    // fn graph() {
+    //     let n1 = AttributeNode::new(Attribute::POSITION);
+    //     let n2 = AttributeNode::new(Attribute::POSITION);
+
+    //     let mut g = Graph::new();
+    //     let nid1 = g.add_node(Box::new(n1));
+    //     let nid2 = g.add_node(Box::new(n2));
+    //     let sid1 = g.output_slots(nid1)[0];
+    //     let sid2 = g.input_slots(nid2)[0];
+    //     g.link(sid1, sid2);
+    // }
 }

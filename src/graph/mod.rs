@@ -21,7 +21,7 @@ mod expr;
 mod node;
 
 pub use expr::{AddExpr, AttributeExpr, BoxedExpr, Expr, ExprError, LiteralExpr};
-pub use node::{AttributeNode, Graph, Node, Slot, SlotDir, SlotId};
+pub use node::{AddNode, AttributeNode, Graph, Node, Slot, SlotDir, SlotId};
 
 /// Binary arithmetic operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]

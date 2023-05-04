@@ -11,12 +11,18 @@ use crate::{Attribute, ToWgslString, ValueType};
 
 use super::{BinaryOperator, Value, VectorValue};
 
+///
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ExprError {
+    ///
     #[error("Type error: {0:?}")]
     TypeError(String),
+    ///
     #[error("Syntax error: {0:?}")]
     SyntaxError(String),
+    ///
+    #[error("Graph evaluation error: {0:?}")]
+    GraphEvalError(String),
 }
 
 /// Language expression producing a value.
