@@ -7,7 +7,7 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{Attribute, ToWgslString, ValueType};
+use crate::{Attribute, ScalarType, ToWgslString, ValueType};
 
 use super::{BinaryOperator, Value, VectorValue};
 
@@ -677,6 +677,97 @@ impl ToWgslString for AttributeExpr {
 impl From<Attribute> for AttributeExpr {
     fn from(value: Attribute) -> Self {
         AttributeExpr::new(value)
+    }
+}
+
+/// Built-in operators.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+pub enum BuiltInOperator {
+    /// Current effect system time since startup, in seconds.
+    Time,
+    /// Delta time, in seconds, since last effect system update.
+    DeltaTime,
+}
+
+impl BuiltInOperator {
+    /// Array of all the built-in operators available.
+    pub const ALL: [BuiltInOperator; 2] = [BuiltInOperator::Time, BuiltInOperator::DeltaTime];
+
+    /// Get the operator name.
+    pub fn name(&self) -> &str {
+        match self {
+            BuiltInOperator::Time => "time",
+            BuiltInOperator::DeltaTime => "deltaTime",
+        }
+    }
+
+    /// Get the type of the value of a built-in operator.
+    pub fn value_type(&self) -> ValueType {
+        match self {
+            BuiltInOperator::Time => ValueType::Scalar(ScalarType::Float),
+            BuiltInOperator::DeltaTime => ValueType::Scalar(ScalarType::Float),
+        }
+    }
+
+    // /// Evaluate the result of the operator as an expression.
+    // pub fn eval(&self) -> Result<Value, ExprError> {
+    //     match self {
+    //         BuiltInOperator::Time => Value::Scalar(Scal)
+    //     }
+    // }
+}
+
+impl ToWgslString for BuiltInOperator {
+    fn to_wgsl_string(&self) -> String {
+        match self {
+            BuiltInOperator::Time => "sim_params.time".to_string(),
+            BuiltInOperator::DeltaTime => "sim_params.dt".to_string(),
+        }
+    }
+}
+
+/// Expression for getting built-in quantities related to the effect system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct BuiltInExpr {
+    operator: BuiltInOperator,
+}
+
+impl BuiltInExpr {
+    /// Create a new built-in operator expression.
+    #[inline]
+    pub fn new(operator: BuiltInOperator) -> Self {
+        Self { operator }
+    }
+}
+
+#[typetag::serde]
+impl Expr for BuiltInExpr {
+    fn as_expr(&self) -> &dyn Expr {
+        self
+    }
+
+    fn is_const(&self) -> bool {
+        false
+    }
+
+    fn value_type(&self) -> ValueType {
+        self.operator.value_type()
+    }
+
+    fn eval(&self) -> Result<Value, ExprError> {
+        unimplemented!() //self.operator.eval()
+    }
+
+    fn boxed_clone(&self) -> BoxedExpr {
+        Box::new(BuiltInExpr {
+            operator: self.operator,
+        })
+    }
+}
+
+impl ToWgslString for BuiltInExpr {
+    fn to_wgsl_string(&self) -> String {
+        self.operator.to_wgsl_string()
     }
 }
 

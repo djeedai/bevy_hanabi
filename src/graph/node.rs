@@ -2,7 +2,10 @@ use std::num::NonZeroU32;
 
 use crate::{graph::AttributeExpr, Attribute, ValueType};
 
-use super::{AddExpr, BoxedExpr, DivExpr, ExprError, MulExpr, SubExpr};
+use super::{
+    expr::{BuiltInExpr, BuiltInOperator},
+    AddExpr, BoxedExpr, DivExpr, Expr, ExprError, MulExpr, SubExpr,
+};
 
 /// Identifier of a node in a graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -545,9 +548,46 @@ impl Node for AttributeNode {
     }
 }
 
+/// Graph node to get various time values related to the effect system.
+#[derive(Debug, Clone)]
+pub struct TimeNode {
+    /// Output slots corresponding to the various time-related quantities.
+    slots: [SlotDef; 2],
+}
+
+impl TimeNode {
+    /// Create a new time node.
+    pub fn new() -> Self {
+        Self {
+            slots: [BuiltInOperator::Time, BuiltInOperator::DeltaTime]
+                .map(|op| SlotDef::output(op.name(), Some(op.value_type()))),
+        }
+    }
+}
+
+impl Node for TimeNode {
+    fn slots(&self) -> &[SlotDef] {
+        &self.slots
+    }
+
+    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+        if !inputs.is_empty() {
+            return Err(ExprError::GraphEvalError(
+                "Unexpected non-empty input to TimeNode::eval().".to_string(),
+            ));
+        }
+        Ok([BuiltInOperator::Time, BuiltInOperator::DeltaTime]
+            .map(|op| {
+                let expr: Box<dyn Expr> = Box::new(BuiltInExpr::new(op));
+                expr
+            })
+            .to_vec())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::graph::LiteralExpr;
+    use crate::{graph::LiteralExpr, ToWgslString};
 
     use super::*;
 
@@ -644,6 +684,25 @@ mod tests {
         assert_eq!(
             out.to_wgsl_string(),
             format!("particle.{}", Attribute::POSITION.name())
+        );
+    }
+
+    #[test]
+    fn time() {
+        let node = TimeNode::new();
+
+        let ret = node.eval(vec![Box::new(LiteralExpr::new(3))]);
+        assert!(matches!(ret, Err(ExprError::GraphEvalError(_))));
+
+        let outputs = node.eval(vec![]).unwrap();
+        assert_eq!(outputs.len(), 2);
+        assert_eq!(
+            outputs[0].to_wgsl_string(),
+            BuiltInOperator::Time.to_wgsl_string()
+        );
+        assert_eq!(
+            outputs[1].to_wgsl_string(),
+            BuiltInOperator::DeltaTime.to_wgsl_string()
         );
     }
 
