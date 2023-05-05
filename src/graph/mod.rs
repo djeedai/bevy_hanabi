@@ -20,8 +20,12 @@ use crate::{MatrixType, ScalarType, ToWgslString, ValueType, VectorType};
 mod expr;
 mod node;
 
-pub use expr::{AddExpr, AttributeExpr, BoxedExpr, Expr, ExprError, LiteralExpr};
-pub use node::{AddNode, AttributeNode, Graph, Node, Slot, SlotDir, SlotId};
+pub use expr::{
+    AddExpr, AttributeExpr, BoxedExpr, DivExpr, Expr, ExprError, LiteralExpr, MulExpr, SubExpr,
+};
+pub use node::{
+    AddNode, AttributeNode, DivNode, Graph, MulNode, Node, Slot, SlotDir, SlotId, SubNode,
+};
 
 /// Binary arithmetic operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]

@@ -2,7 +2,7 @@ use std::num::NonZeroU32;
 
 use crate::{graph::AttributeExpr, Attribute, ValueType};
 
-use super::{AddExpr, BoxedExpr, ExprError};
+use super::{AddExpr, BoxedExpr, DivExpr, ExprError, MulExpr, SubExpr};
 
 /// Identifier of a node in a graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -347,6 +347,158 @@ pub trait Node {
     fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError>;
 }
 
+/// Graph node to add two values.
+#[derive(Debug, Clone)]
+pub struct AddNode {
+    slots: [SlotDef; 3],
+}
+
+impl AddNode {
+    /// Create a new node.
+    pub fn new() -> Self {
+        Self {
+            slots: [
+                SlotDef::input("lhs", None),
+                SlotDef::input("rhs", None),
+                SlotDef::output("result", None),
+            ],
+        }
+    }
+}
+
+impl Node for AddNode {
+    fn slots(&self) -> &[SlotDef] {
+        &self.slots
+    }
+
+    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+        if inputs.len() != 2 {
+            return Err(ExprError::GraphEvalError(format!(
+                "Unexpected input count to AddNode::eval(): expected 2, got {}",
+                inputs.len()
+            )));
+        }
+        let mut inputs = inputs.into_iter();
+        let lhs = inputs.next().unwrap();
+        let rhs = inputs.next().unwrap();
+        Ok(vec![Box::new(AddExpr::new(lhs, rhs))])
+    }
+}
+
+/// Graph node to subtract two values.
+#[derive(Debug, Clone)]
+pub struct SubNode {
+    slots: [SlotDef; 3],
+}
+
+impl SubNode {
+    /// Create a new node.
+    pub fn new() -> Self {
+        Self {
+            slots: [
+                SlotDef::input("lhs", None),
+                SlotDef::input("rhs", None),
+                SlotDef::output("result", None),
+            ],
+        }
+    }
+}
+
+impl Node for SubNode {
+    fn slots(&self) -> &[SlotDef] {
+        &self.slots
+    }
+
+    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+        if inputs.len() != 2 {
+            return Err(ExprError::GraphEvalError(format!(
+                "Unexpected input count to SubNode::eval(): expected 2, got {}",
+                inputs.len()
+            )));
+        }
+        let mut inputs = inputs.into_iter();
+        let lhs = inputs.next().unwrap();
+        let rhs = inputs.next().unwrap();
+        Ok(vec![Box::new(SubExpr::new(lhs, rhs))])
+    }
+}
+
+/// Graph node to multiply two values.
+#[derive(Debug, Clone)]
+pub struct MulNode {
+    slots: [SlotDef; 3],
+}
+
+impl MulNode {
+    /// Create a new node.
+    pub fn new() -> Self {
+        Self {
+            slots: [
+                SlotDef::input("lhs", None),
+                SlotDef::input("rhs", None),
+                SlotDef::output("result", None),
+            ],
+        }
+    }
+}
+
+impl Node for MulNode {
+    fn slots(&self) -> &[SlotDef] {
+        &self.slots
+    }
+
+    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+        if inputs.len() != 2 {
+            return Err(ExprError::GraphEvalError(format!(
+                "Unexpected input count to MulNode::eval(): expected 2, got {}",
+                inputs.len()
+            )));
+        }
+        let mut inputs = inputs.into_iter();
+        let lhs = inputs.next().unwrap();
+        let rhs = inputs.next().unwrap();
+        Ok(vec![Box::new(MulExpr::new(lhs, rhs))])
+    }
+}
+
+/// Graph node to divide two values.
+#[derive(Debug, Clone)]
+pub struct DivNode {
+    slots: [SlotDef; 3],
+}
+
+impl DivNode {
+    /// Create a new node.
+    pub fn new() -> Self {
+        Self {
+            slots: [
+                SlotDef::input("lhs", None),
+                SlotDef::input("rhs", None),
+                SlotDef::output("result", None),
+            ],
+        }
+    }
+}
+
+impl Node for DivNode {
+    fn slots(&self) -> &[SlotDef] {
+        &self.slots
+    }
+
+    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+        if inputs.len() != 2 {
+            return Err(ExprError::GraphEvalError(format!(
+                "Unexpected input count to DivNode::eval(): expected 2, got {}",
+                inputs.len()
+            )));
+        }
+        let mut inputs = inputs.into_iter();
+        let lhs = inputs.next().unwrap();
+        let rhs = inputs.next().unwrap();
+        Ok(vec![Box::new(DivExpr::new(lhs, rhs))])
+    }
+}
+
 /// Graph node to get any single particle attribute.
 #[derive(Debug, Clone)]
 pub struct AttributeNode {
@@ -393,44 +545,6 @@ impl Node for AttributeNode {
     }
 }
 
-/// Graph node to add two values.
-#[derive(Debug, Clone)]
-pub struct AddNode {
-    slots: [SlotDef; 3],
-}
-
-impl AddNode {
-    /// Create a new node.
-    pub fn new() -> Self {
-        Self {
-            slots: [
-                SlotDef::input("lhs", None),
-                SlotDef::input("rhs", None),
-                SlotDef::output("result", None),
-            ],
-        }
-    }
-}
-
-impl Node for AddNode {
-    fn slots(&self) -> &[SlotDef] {
-        &self.slots
-    }
-
-    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
-        if inputs.len() != 2 {
-            return Err(ExprError::GraphEvalError(format!(
-                "Unexpected input count to AddNode::eval(): expected 2, got {}",
-                inputs.len()
-            )));
-        }
-        let mut inputs = inputs.into_iter();
-        let lhs = inputs.next().unwrap();
-        let rhs = inputs.next().unwrap();
-        Ok(vec![Box::new(AddExpr::new(lhs, rhs))])
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::graph::LiteralExpr;
@@ -455,6 +569,66 @@ mod tests {
         assert_eq!(outputs.len(), 1);
         let out = &outputs[0];
         assert_eq!(out.to_wgsl_string(), "3 + 2".to_string());
+    }
+
+    #[test]
+    fn sub() {
+        let node = SubNode::new();
+
+        let ret = node.eval(vec![]);
+        assert!(matches!(ret, Err(ExprError::GraphEvalError(_))));
+        let ret = node.eval(vec![Box::new(LiteralExpr::new(3))]);
+        assert!(matches!(ret, Err(ExprError::GraphEvalError(_))));
+
+        let outputs = node
+            .eval(vec![
+                Box::new(LiteralExpr::new(3)),
+                Box::new(LiteralExpr::new(2)),
+            ])
+            .unwrap();
+        assert_eq!(outputs.len(), 1);
+        let out = &outputs[0];
+        assert_eq!(out.to_wgsl_string(), "3 - 2".to_string());
+    }
+
+    #[test]
+    fn mul() {
+        let node = MulNode::new();
+
+        let ret = node.eval(vec![]);
+        assert!(matches!(ret, Err(ExprError::GraphEvalError(_))));
+        let ret = node.eval(vec![Box::new(LiteralExpr::new(3))]);
+        assert!(matches!(ret, Err(ExprError::GraphEvalError(_))));
+
+        let outputs = node
+            .eval(vec![
+                Box::new(LiteralExpr::new(3)),
+                Box::new(LiteralExpr::new(2)),
+            ])
+            .unwrap();
+        assert_eq!(outputs.len(), 1);
+        let out = &outputs[0];
+        assert_eq!(out.to_wgsl_string(), "3 * 2".to_string());
+    }
+
+    #[test]
+    fn div() {
+        let node = DivNode::new();
+
+        let ret = node.eval(vec![]);
+        assert!(matches!(ret, Err(ExprError::GraphEvalError(_))));
+        let ret = node.eval(vec![Box::new(LiteralExpr::new(3))]);
+        assert!(matches!(ret, Err(ExprError::GraphEvalError(_))));
+
+        let outputs = node
+            .eval(vec![
+                Box::new(LiteralExpr::new(3)),
+                Box::new(LiteralExpr::new(2)),
+            ])
+            .unwrap();
+        assert_eq!(outputs.len(), 1);
+        let out = &outputs[0];
+        assert_eq!(out.to_wgsl_string(), "3 / 2".to_string());
     }
 
     #[test]
