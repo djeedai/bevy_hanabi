@@ -22,10 +22,11 @@ mod node;
 
 pub use expr::{
     AddExpr, AttributeExpr, BoxedExpr, BuiltInExpr, BuiltInOperator, DivExpr, Expr, ExprError,
-    LiteralExpr, MulExpr, SubExpr,
+    LiteralExpr, MulExpr, NormalizeExpr, SubExpr,
 };
 pub use node::{
-    AddNode, AttributeNode, DivNode, Graph, MulNode, Node, Slot, SlotDir, SlotId, SubNode, TimeNode,
+    AddNode, AttributeNode, DivNode, Graph, MulNode, Node, NormalizeNode, Slot, SlotDir, SlotId,
+    SubNode, TimeNode,
 };
 
 /// Binary arithmetic operator.

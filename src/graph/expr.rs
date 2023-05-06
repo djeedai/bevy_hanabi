@@ -771,6 +771,51 @@ impl ToWgslString for BuiltInExpr {
     }
 }
 
+/// Expression for normalizing a vector.
+#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct NormalizeExpr {
+    input: BoxedExpr,
+}
+
+impl NormalizeExpr {
+    /// Create a new normalize expression.
+    #[inline]
+    pub fn new(input: BoxedExpr) -> Self {
+        Self { input }
+    }
+}
+
+#[typetag::serde]
+impl Expr for NormalizeExpr {
+    fn as_expr(&self) -> &dyn Expr {
+        self
+    }
+
+    fn is_const(&self) -> bool {
+        self.input.is_const()
+    }
+
+    fn value_type(&self) -> ValueType {
+        self.input.value_type()
+    }
+
+    fn eval(&self) -> Result<Value, ExprError> {
+        unimplemented!() //self.operator.eval()
+    }
+
+    fn boxed_clone(&self) -> BoxedExpr {
+        Box::new(NormalizeExpr {
+            input: self.input.boxed_clone(),
+        })
+    }
+}
+
+impl ToWgslString for NormalizeExpr {
+    fn to_wgsl_string(&self) -> String {
+        format!("normalize({})", self.input.to_wgsl_string())
+    }
+}
+
 /// Implement the binary operators for the given concrete expression type.
 macro_rules! impl_binary_ops {
     ($t: ty) => {
@@ -818,6 +863,7 @@ impl_binary_ops!(SubExpr);
 impl_binary_ops!(MulExpr);
 impl_binary_ops!(DivExpr);
 impl_binary_ops!(AttributeExpr);
+impl_binary_ops!(BuiltInExpr);
 
 #[cfg(test)]
 mod tests {

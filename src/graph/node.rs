@@ -1,10 +1,11 @@
 use std::num::NonZeroU32;
 
-use crate::{graph::AttributeExpr, Attribute, ValueType};
-
-use super::{
-    expr::{BuiltInExpr, BuiltInOperator},
-    AddExpr, BoxedExpr, DivExpr, Expr, ExprError, MulExpr, SubExpr,
+use crate::{
+    graph::{
+        AddExpr, AttributeExpr, BoxedExpr, BuiltInExpr, BuiltInOperator, DivExpr, Expr, ExprError,
+        MulExpr, NormalizeExpr, SubExpr,
+    },
+    Attribute, ValueType,
 };
 
 /// Identifier of a node in a graph.
@@ -585,8 +586,43 @@ impl Node for TimeNode {
     }
 }
 
+/// Graph node to normalize a vector value.
+#[derive(Debug, Clone)]
+pub struct NormalizeNode {
+    /// Input and output vectors.
+    slots: [SlotDef; 2],
+}
+
+impl NormalizeNode {
+    /// Create a new normalize node.
+    pub fn new() -> Self {
+        Self {
+            slots: [SlotDef::output("in", None), SlotDef::output("out", None)],
+        }
+    }
+}
+
+impl Node for NormalizeNode {
+    fn slots(&self) -> &[SlotDef] {
+        &self.slots
+    }
+
+    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+        if inputs.len() != 1 {
+            return Err(ExprError::GraphEvalError(
+                "Unexpected input slot count to NormalizeNode::eval() not equal to one."
+                    .to_string(),
+            ));
+        }
+        let input = inputs.into_iter().next().unwrap();
+        Ok(vec![Box::new(NormalizeExpr::new(input))])
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::Vec3;
+
     use crate::{graph::LiteralExpr, ToWgslString};
 
     use super::*;
@@ -703,6 +739,23 @@ mod tests {
         assert_eq!(
             outputs[1].to_wgsl_string(),
             BuiltInOperator::DeltaTime.to_wgsl_string()
+        );
+    }
+
+    #[test]
+    fn normalize() {
+        let node = NormalizeNode::new();
+
+        let ret = node.eval(vec![]);
+        assert!(matches!(ret, Err(ExprError::GraphEvalError(_))));
+
+        let outputs = node
+            .eval(vec![Box::new(LiteralExpr::new(Vec3::ONE))])
+            .unwrap();
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(
+            outputs[0].to_wgsl_string(),
+            "normalize(vec3<f32>(1.,1.,1.))".to_string()
         );
     }
 
