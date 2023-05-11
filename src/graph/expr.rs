@@ -312,7 +312,7 @@ impl Expr for AddExpr {
 impl ToWgslString for AddExpr {
     fn to_wgsl_string(&self) -> String {
         format!(
-            "{} + {}",
+            "({}) + ({})",
             self.left.to_wgsl_string(),
             self.right.to_wgsl_string()
         )
@@ -416,7 +416,7 @@ impl Expr for SubExpr {
 impl ToWgslString for SubExpr {
     fn to_wgsl_string(&self) -> String {
         format!(
-            "{} - {}",
+            "({}) - ({})",
             self.left.to_wgsl_string(),
             self.right.to_wgsl_string()
         )
@@ -520,7 +520,7 @@ impl Expr for MulExpr {
 impl ToWgslString for MulExpr {
     fn to_wgsl_string(&self) -> String {
         format!(
-            "{} * {}",
+            "({}) * ({})",
             self.left.to_wgsl_string(),
             self.right.to_wgsl_string()
         )
@@ -624,7 +624,7 @@ impl Expr for DivExpr {
 impl ToWgslString for DivExpr {
     fn to_wgsl_string(&self) -> String {
         format!(
-            "{} / {}",
+            "({}) / ({})",
             self.left.to_wgsl_string(),
             self.right.to_wgsl_string()
         )
@@ -910,7 +910,7 @@ mod tests {
     }
 
     #[test]
-    fn expr() {
+    fn math_expr() {
         let x: AttributeExpr = Attribute::POSITION.into();
         let y = LiteralExpr::new(Vec3::ONE);
 
@@ -918,7 +918,7 @@ mod tests {
         assert_eq!(
             a.to_wgsl_string(),
             format!(
-                "particle.{} + vec3<f32>(1.,1.,1.)",
+                "(particle.{}) + (vec3<f32>(1.,1.,1.))",
                 Attribute::POSITION.name()
             )
         );
@@ -927,7 +927,7 @@ mod tests {
         assert_eq!(
             b.to_wgsl_string(),
             format!(
-                "vec3<f32>(1.,1.,1.) + particle.{}",
+                "(vec3<f32>(1.,1.,1.)) + (particle.{})",
                 Attribute::POSITION.name()
             )
         );
@@ -936,7 +936,7 @@ mod tests {
         assert_eq!(
             a.to_wgsl_string(),
             format!(
-                "particle.{} - vec3<f32>(1.,1.,1.)",
+                "(particle.{}) - (vec3<f32>(1.,1.,1.))",
                 Attribute::POSITION.name()
             )
         );
@@ -945,7 +945,7 @@ mod tests {
         assert_eq!(
             b.to_wgsl_string(),
             format!(
-                "vec3<f32>(1.,1.,1.) - particle.{}",
+                "(vec3<f32>(1.,1.,1.)) - (particle.{})",
                 Attribute::POSITION.name()
             )
         );
@@ -954,7 +954,7 @@ mod tests {
         assert_eq!(
             a.to_wgsl_string(),
             format!(
-                "particle.{} * vec3<f32>(1.,1.,1.)",
+                "(particle.{}) * (vec3<f32>(1.,1.,1.))",
                 Attribute::POSITION.name()
             )
         );
@@ -963,7 +963,7 @@ mod tests {
         assert_eq!(
             b.to_wgsl_string(),
             format!(
-                "vec3<f32>(1.,1.,1.) * particle.{}",
+                "(vec3<f32>(1.,1.,1.)) * (particle.{})",
                 Attribute::POSITION.name()
             )
         );
@@ -972,7 +972,7 @@ mod tests {
         assert_eq!(
             a.to_wgsl_string(),
             format!(
-                "particle.{} / vec3<f32>(1.,1.,1.)",
+                "(particle.{}) / (vec3<f32>(1.,1.,1.))",
                 Attribute::POSITION.name()
             )
         );
@@ -981,7 +981,7 @@ mod tests {
         assert_eq!(
             b.to_wgsl_string(),
             format!(
-                "vec3<f32>(1.,1.,1.) / particle.{}",
+                "(vec3<f32>(1.,1.,1.)) / (particle.{})",
                 Attribute::POSITION.name()
             )
         );
