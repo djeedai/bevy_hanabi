@@ -9,18 +9,23 @@ use bevy::{prelude::*, utils::FloatOrd};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    calc_func_id, graph::Value, Attribute, BoxedModifier, Modifier, ModifierContext, Property,
-    ToWgslString,
+    calc_func_id,
+    graph::{
+        AttributeExpr, BoxedExpr, EvalContext, Expr, ExprError, LiteralExpr, PropertyExpr, Value,
+    },
+    Attribute, BoxedModifier, Modifier, ModifierContext, Property, PropertyLayout, ToWgslString,
 };
 
 /// Particle update shader code generation context.
-#[derive(Debug, Default, Clone, PartialEq)] // Eq
-pub struct UpdateContext {
+#[derive(Debug, PartialEq)]
+pub struct UpdateContext<'a> {
     /// Main particle update code, which needs to update the fields of the
     /// `particle` struct instance.
     pub update_code: String,
     /// Extra functions emitted at top level, which `update_code` can call.
     pub update_extra: String,
+    /// Layout of properties for the current effect.
+    pub property_layout: &'a PropertyLayout,
 
     // TEMP
     /// Array of force field components with a maximum number of components
@@ -28,11 +33,29 @@ pub struct UpdateContext {
     pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
 }
 
+impl<'a> UpdateContext<'a> {
+    /// Create a new update context.
+    pub fn new(property_layout: &'a PropertyLayout) -> Self {
+        Self {
+            update_code: String::new(),
+            update_extra: String::new(),
+            property_layout,
+            force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
+        }
+    }
+}
+
+impl<'a> EvalContext for UpdateContext<'a> {
+    fn property_layout(&self) -> &PropertyLayout {
+        self.property_layout
+    }
+}
+
 /// Trait to customize the updating of existing particles each frame.
 #[typetag::serde]
 pub trait UpdateModifier: Modifier {
     /// Append the update code.
-    fn apply(&self, context: &mut UpdateContext);
+    fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError>;
 }
 
 /// Macro to implement the [`Modifier`] trait for an update modifier.
@@ -112,24 +135,24 @@ impl ToWgslString for ValueOrProperty {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AccelModifier {
     /// The acceleration to apply to all particles in the effect each frame.
-    accel: ValueOrProperty,
+    accel: BoxedExpr,
 }
 
 impl AccelModifier {
     /// Create a new modifier with an acceleration derived from a property.
     pub fn via_property(property_name: impl Into<String>) -> Self {
         Self {
-            accel: ValueOrProperty::Property(property_name.into()),
+            accel: Box::new(PropertyExpr::new(property_name)),
         }
     }
 
     /// Create a new modifier with a constant acceleration.
     pub fn constant(acceleration: Vec3) -> Self {
         Self {
-            accel: ValueOrProperty::Value(Value::Vector(acceleration.into())),
+            accel: Box::new(LiteralExpr::new(acceleration)),
         }
     }
 }
@@ -156,25 +179,26 @@ impl Modifier for AccelModifier {
         Box::new(self.clone())
     }
 
-    fn resolve_properties(&mut self, properties: &[Property]) {
-        if let ValueOrProperty::Property(name) = &mut self.accel {
-            if let Some(index) = properties.iter().position(|p| p.name() == name) {
-                let name = std::mem::take(name);
-                self.accel = ValueOrProperty::ResolvedProperty((index, name));
-            } else {
-                panic!("Cannot resolve property '{}' in effect. Ensure you have added a property with `with_property()` or `add_property()` before trying to reference it from a modifier.", name);
-            }
-        }
+    fn resolve_properties(&mut self, _properties: &[Property]) {
+        // if let Some(index) = properties
+        //     .iter()
+        //     .position(|p| p.name() == self.property_name)
+        // {
+        //     let name = std::mem::take(&mut self.property_name);
+        //     self.accel = ValueOrProperty::ResolvedProperty((index, name));
+        // } else {
+        //     panic!("Cannot resolve property '{}' in effect. Ensure you have added a property with `with_property()` or `add_property()` before trying to reference it from a modifier.", name);
+        // }
     }
 }
 
 #[typetag::serde]
 impl UpdateModifier for AccelModifier {
-    fn apply(&self, context: &mut UpdateContext) {
-        context.update_code += &format!(
-            "particle.velocity += {} * sim_params.dt;\n",
-            self.accel.to_wgsl_string()
-        );
+    fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
+        let attr = AttributeExpr::new(Attribute::VELOCITY).eval(context)?;
+        let expr = self.accel.eval(context)?;
+        context.update_code += &format!("{} = {};", attr, expr);
+        Ok(())
     }
 }
 
@@ -278,7 +302,7 @@ impl Modifier for RadialAccelModifier {
 
 #[typetag::serde]
 impl UpdateModifier for RadialAccelModifier {
-    fn apply(&self, context: &mut UpdateContext) {
+    fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);
         let func_name = format!("radial_accel_{0:016X}", func_id);
 
@@ -296,6 +320,8 @@ impl UpdateModifier for RadialAccelModifier {
         );
 
         context.update_code += &format!("{}(&particle);\n", func_name);
+
+        Ok(())
     }
 }
 
@@ -409,7 +435,7 @@ impl Modifier for TangentAccelModifier {
 
 #[typetag::serde]
 impl UpdateModifier for TangentAccelModifier {
-    fn apply(&self, context: &mut UpdateContext) {
+    fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);
         let func_name = format!("tangent_accel_{0:016X}", func_id);
 
@@ -429,6 +455,8 @@ impl UpdateModifier for TangentAccelModifier {
         );
 
         context.update_code += &format!("{}(&particle);\n", func_name);
+
+        Ok(())
     }
 }
 
@@ -583,7 +611,7 @@ impl_mod_update!(
 
 #[typetag::serde]
 impl UpdateModifier for ForceFieldModifier {
-    fn apply(&self, context: &mut UpdateContext) {
+    fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);
         let func_name = format!("force_field_{0:016X}", func_id);
 
@@ -600,6 +628,8 @@ impl UpdateModifier for ForceFieldModifier {
 
         // TEMP
         context.force_field = self.sources;
+
+        Ok(())
     }
 }
 
@@ -628,11 +658,13 @@ impl_mod_update!(LinearDragModifier, &[Attribute::VELOCITY]);
 
 #[typetag::serde]
 impl UpdateModifier for LinearDragModifier {
-    fn apply(&self, context: &mut UpdateContext) {
+    fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         context.update_code += &format!(
             "particle.velocity *= max(0., (1. - {} * sim_params.dt));\n",
             self.drag.to_wgsl_string()
         );
+
+        Ok(())
     }
 }
 
@@ -660,7 +692,7 @@ impl_mod_update!(AabbKillModifier, &[Attribute::POSITION]);
 
 #[typetag::serde]
 impl UpdateModifier for AabbKillModifier {
-    fn apply(&self, context: &mut UpdateContext) {
+    fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let center = (self.min + self.max) / 2.;
         let half_size = (self.max - self.min) / 2.;
         let cmp = if self.kill_inside { "<" } else { ">" };
@@ -675,6 +707,8 @@ impl UpdateModifier for AabbKillModifier {
             cmp,
             half_size.to_wgsl_string()
         );
+
+        Ok(())
     }
 }
 
@@ -691,8 +725,9 @@ mod tests {
         let accel = Vec3::new(1., 2., 3.);
         let modifier = AccelModifier::constant(accel);
 
-        let mut context = UpdateContext::default();
-        modifier.apply(&mut context);
+        let property_layout = PropertyLayout::default();
+        let mut context = UpdateContext::new(&property_layout);
+        assert!(modifier.apply(&mut context).is_ok());
 
         assert!(context.update_code.contains(&accel.to_wgsl_string()));
     }
@@ -705,8 +740,9 @@ mod tests {
         sources[0].mass = 1.;
         let modifier = ForceFieldModifier { sources };
 
-        let mut context = UpdateContext::default();
-        modifier.apply(&mut context);
+        let property_layout = PropertyLayout::default();
+        let mut context = UpdateContext::new(&property_layout);
+        assert!(modifier.apply(&mut context).is_ok());
 
         // force_field_code.wgsl is too big
         // assert!(context.update_code.contains(&include_str!("../render/
@@ -724,8 +760,9 @@ mod tests {
     fn mod_drag() {
         let modifier = LinearDragModifier { drag: 3.5 };
 
-        let mut context = UpdateContext::default();
-        modifier.apply(&mut context);
+        let property_layout = PropertyLayout::default();
+        let mut context = UpdateContext::new(&property_layout);
+        assert!(modifier.apply(&mut context).is_ok());
 
         assert!(context.update_code.contains("3.5")); // TODO - less weak check
     }
@@ -741,8 +778,9 @@ mod tests {
             &AabbKillModifier::default(),
         ];
         for &modifier in modifiers.iter() {
-            let mut context = UpdateContext::default();
-            modifier.apply(&mut context);
+            let property_layout = PropertyLayout::default();
+            let mut context = UpdateContext::new(&property_layout);
+            assert!(modifier.apply(&mut context).is_ok());
             let update_code = context.update_code;
             let update_extra = context.update_extra;
 

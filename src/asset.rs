@@ -330,10 +330,17 @@ mod tests {
         InitLifetimeModifier::default().apply(&mut init_context);
         // assert_eq!(effect., init_context.init_code);
 
-        let mut update_context = UpdateContext::default();
-        AccelModifier::constant(Vec3::ONE).apply(&mut update_context);
-        LinearDragModifier::default().apply(&mut update_context);
-        ForceFieldModifier::default().apply(&mut update_context);
+        let property_layout = PropertyLayout::default();
+        let mut update_context = UpdateContext::new(&property_layout);
+        assert!(AccelModifier::constant(Vec3::ONE)
+            .apply(&mut update_context)
+            .is_ok());
+        assert!(LinearDragModifier::default()
+            .apply(&mut update_context)
+            .is_ok());
+        assert!(ForceFieldModifier::default()
+            .apply(&mut update_context)
+            .is_ok());
         // assert_eq!(effect.update_layout, update_layout);
 
         let mut render_context = RenderContext::default();

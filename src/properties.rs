@@ -302,6 +302,11 @@ impl PropertyLayout {
         NonZeroU64::new(next_multiple_of(size, align) as u64).unwrap()
     }
 
+    /// Check if the layout contains the property with the given name.
+    pub fn contains(&self, name: &str) -> bool {
+        self.layout.iter().any(|entry| entry.property.name == name)
+    }
+
     /// Generate the WGSL attribute code corresponding to the layout.
     pub fn generate_code(&self) -> String {
         // assert!(self.layout.is_sorted_by_key(|entry| entry.offset));

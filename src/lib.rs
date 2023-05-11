@@ -750,9 +750,14 @@ impl CompiledParticleEffect {
         }
 
         // Generate the shader code for the update shader
-        let mut update_context = UpdateContext::default();
+        let mut update_context = UpdateContext::new(&property_layout);
         for m in asset.modifiers.iter().filter_map(|m| m.as_update()) {
-            m.apply(&mut update_context);
+            if let Err(err) = m.apply(&mut update_context) {
+                error!(
+                    "Failed to compile effect, error in udpate context: {:?}",
+                    err
+                );
+            }
         }
 
         // Insert Euler motion integration if needed.

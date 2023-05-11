@@ -644,7 +644,7 @@ mod tests {
             .unwrap();
         assert_eq!(outputs.len(), 1);
         let out = &outputs[0];
-        assert_eq!(out.to_wgsl_string(), "3 + 2".to_string());
+        assert_eq!(out.to_wgsl_string(), "(3) + (2)".to_string());
     }
 
     #[test]
@@ -664,7 +664,7 @@ mod tests {
             .unwrap();
         assert_eq!(outputs.len(), 1);
         let out = &outputs[0];
-        assert_eq!(out.to_wgsl_string(), "3 - 2".to_string());
+        assert_eq!(out.to_wgsl_string(), "(3) - (2)".to_string());
     }
 
     #[test]
@@ -684,7 +684,7 @@ mod tests {
             .unwrap();
         assert_eq!(outputs.len(), 1);
         let out = &outputs[0];
-        assert_eq!(out.to_wgsl_string(), "3 * 2".to_string());
+        assert_eq!(out.to_wgsl_string(), "(3) * (2)".to_string());
     }
 
     #[test]
@@ -704,7 +704,7 @@ mod tests {
             .unwrap();
         assert_eq!(outputs.len(), 1);
         let out = &outputs[0];
-        assert_eq!(out.to_wgsl_string(), "3 / 2".to_string());
+        assert_eq!(out.to_wgsl_string(), "(3) / (2)".to_string());
     }
 
     #[test]
