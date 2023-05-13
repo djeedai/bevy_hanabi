@@ -94,10 +94,10 @@ pub enum EffectSystems {
 /// Simulation parameters.
 #[derive(Debug, Default, Clone, Copy, Resource)]
 pub(crate) struct SimParams {
-    /// Current simulation time.
+    /// Current effect system simulation time since startup, in seconds.
     time: f64,
-    /// Frame timestep.
-    dt: f32,
+    /// Delta time, in seconds, since last effect system update.
+    delta_time: f32,
     /// Number of effects to dispatch, for vfx_dispatch.wgsl.
     num_effects: u32,
     /// Stride of RenderIndirect, for vfx_dispatch.wgsl.
@@ -110,7 +110,7 @@ pub(crate) struct SimParams {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable, ShaderType)]
 struct SimParamsUniform {
-    dt: f32,
+    delta_time: f32,
     time: f32,
     num_effects: u32,
     render_stride: u32,
@@ -120,7 +120,7 @@ struct SimParamsUniform {
 impl Default for SimParamsUniform {
     fn default() -> Self {
         Self {
-            dt: 0.04,
+            delta_time: 0.04,
             time: 0.0,
             num_effects: 0,
             render_stride: 0,   // invalid
@@ -132,7 +132,7 @@ impl Default for SimParamsUniform {
 impl From<SimParams> for SimParamsUniform {
     fn from(src: SimParams) -> Self {
         Self {
-            dt: src.dt,
+            delta_time: src.delta_time,
             time: src.time as f32,
             num_effects: src.num_effects,
             render_stride: src.render_stride,
@@ -1147,7 +1147,7 @@ pub(crate) fn extract_effects(
     // Save simulation params into render world
     let dt = time.delta_seconds();
     sim_params.time = time.elapsed_seconds_f64();
-    sim_params.dt = dt;
+    sim_params.delta_time = dt;
 
     // Collect removed effects for later GPU data purge
     extracted_effects.removed_effect_entities =
@@ -2027,9 +2027,9 @@ pub(crate) fn prepare_effects(
         ) as u32;
 
         trace!(
-                "Simulation parameters: time={} dt={} num_effects={} render_stride={} dispatch_stride={}",
+                "Simulation parameters: time={} delta_time={} num_effects={} render_stride={} dispatch_stride={}",
                 sim_params_uni.time,
-                sim_params_uni.dt,
+                sim_params_uni.delta_time,
                 sim_params_uni.num_effects,
                 sim_params_uni.render_stride,
                 sim_params_uni.dispatch_stride

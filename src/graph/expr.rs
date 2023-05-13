@@ -760,7 +760,7 @@ impl From<String> for PropertyExpr {
 /// Built-in operators.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub enum BuiltInOperator {
-    /// Current effect system time since startup, in seconds.
+    /// Current effect system simulation time since startup, in seconds.
     Time,
     /// Delta time, in seconds, since last effect system update.
     DeltaTime,
@@ -774,7 +774,7 @@ impl BuiltInOperator {
     pub fn name(&self) -> &str {
         match self {
             BuiltInOperator::Time => "time",
-            BuiltInOperator::DeltaTime => "deltaTime",
+            BuiltInOperator::DeltaTime => "delta_time",
         }
     }
 
@@ -796,10 +796,7 @@ impl BuiltInOperator {
 
 impl ToWgslString for BuiltInOperator {
     fn to_wgsl_string(&self) -> String {
-        match self {
-            BuiltInOperator::Time => "sim_params.time".to_string(),
-            BuiltInOperator::DeltaTime => "sim_params.dt".to_string(),
-        }
+        format!("sim_params.{}", self.name())
     }
 }
 

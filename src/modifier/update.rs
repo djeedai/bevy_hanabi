@@ -311,7 +311,7 @@ impl UpdateModifier for RadialAccelModifier {
         context.update_extra += &format!(
             r##"fn {}(particle: ptr<function, Particle>) {{
     let radial = normalize((*particle).{} - {});
-    (*particle).{} += radial * (({}) * sim_params.dt);
+    (*particle).{} += radial * (({}) * sim_params.delta_time);
 }}
 "##,
             func_name,
@@ -445,7 +445,7 @@ impl UpdateModifier for TangentAccelModifier {
             r##"fn {}(particle: ptr<function, Particle>) {{
     let radial = normalize((*particle).{} - {});
     let tangent = normalize(cross({}, radial));
-    (*particle).{} += tangent * (({}) * sim_params.dt);
+    (*particle).{} += tangent * (({}) * sim_params.delta_time);
 }}
 "##,
             func_name,
@@ -662,7 +662,7 @@ impl_mod_update!(LinearDragModifier, &[Attribute::VELOCITY]);
 impl UpdateModifier for LinearDragModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         context.update_code += &format!(
-            "particle.velocity *= max(0., (1. - {} * sim_params.dt));\n",
+            "particle.velocity *= max(0., (1. - {} * sim_params.delta_time));\n",
             self.drag.to_wgsl_string()
         );
 

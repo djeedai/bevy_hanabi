@@ -767,7 +767,7 @@ impl CompiledParticleEffect {
             if has_position && has_velocity {
                 // Note the prepended "\n" to prevent appending to a comment line.
                 let code = format!(
-                    "\nparticle.{0} += particle.{1} * sim_params.dt;\n",
+                    "\nparticle.{0} += particle.{1} * sim_params.delta_time;\n",
                     Attribute::POSITION.name(),
                     Attribute::VELOCITY.name()
                 );
@@ -812,7 +812,7 @@ impl CompiledParticleEffect {
         };
         let age_code = if has_age {
             format!(
-                "particle.{0} = particle.{0} + sim_params.dt;",
+                "particle.{0} = particle.{0} + sim_params.delta_time;",
                 Attribute::AGE.name()
             )
         } else {
