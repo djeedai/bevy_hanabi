@@ -98,7 +98,7 @@ fn setup(
             spawner: Spawner::rate(500.0.into()),
             ..Default::default()
         }
-        .with_property("my_accel", graph::Value::Float3(Vec3::new(0., -3., 0.)))
+        .with_property("my_accel", Vec3::new(0., -3., 0.).into())
         .init(InitPositionCone3dModifier {
             base_radius: 0.,
             top_radius: 10.,
@@ -206,7 +206,7 @@ fn setup(
             spawner: Spawner::burst(400.0.into(), 3.0.into()),
             ..Default::default()
         }
-        .with_property("my_accel", graph::Value::Float3(Vec3::new(0., -3., 0.)))
+        .with_property("my_accel", Vec3::new(0., -3., 0.).into())
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
@@ -260,5 +260,5 @@ fn update_accel(
     let accel0 = 10.;
     let (s, c) = (time.elapsed_seconds() * 0.3).sin_cos();
     let accel = Vec3::new(c * accel0, s * accel0, 0.);
-    effect.set_property("my_accel", graph::Value::Float3(accel));
+    effect.set_property("my_accel", accel.into());
 }

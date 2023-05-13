@@ -747,7 +747,7 @@ impl Expr for PropertyExpr {
 
 impl ToWgslString for PropertyExpr {
     fn to_wgsl_string(&self) -> String {
-        format!("property.{}", self.property_name)
+        format!("properties.{}", self.property_name)
     }
 }
 

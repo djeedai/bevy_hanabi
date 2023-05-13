@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     calc_func_id,
     graph::{
-        AttributeExpr, BoxedExpr, EvalContext, Expr, ExprError, LiteralExpr, PropertyExpr, Value,
+        AttributeExpr, BoxedExpr, BuiltInExpr, EvalContext, Expr, ExprError, LiteralExpr,
+        PropertyExpr, Value,
     },
     Attribute, BoxedModifier, Modifier, ModifierContext, Property, PropertyLayout, ToWgslString,
 };
@@ -197,7 +198,8 @@ impl UpdateModifier for AccelModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let attr = AttributeExpr::new(Attribute::VELOCITY).eval(context)?;
         let expr = self.accel.eval(context)?;
-        context.update_code += &format!("{} = {};", attr, expr);
+        let dt = BuiltInExpr::new(crate::graph::BuiltInOperator::DeltaTime).eval(context)?;
+        context.update_code += &format!("{} += ({}) * {};", attr, expr, dt);
         Ok(())
     }
 }
