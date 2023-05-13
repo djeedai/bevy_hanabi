@@ -246,21 +246,21 @@ impl Expr for AddExpr {
         Ok(format!("({}) + ({})", lhs, rhs))
 
         // let value_type = self.left.value_type();
-        // if !value_type.is_numeric() || !self.right.value_type().is_numeric() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Cannot apply Add binary operator to boolean type: {:?} and {:?}",
-        //         value_type,
+        // if !value_type.is_numeric() || !self.right.value_type().is_numeric()
+        // {     return Err(ExprError::TypeError(format!(
+        //         "Cannot apply Add binary operator to boolean type: {:?} and
+        // {:?}",         value_type,
         //         self.right.value_type()
         //     )));
         // }
         // if value_type != self.right.value_type() {
         //     // Special case: mixed scalar and vector operands
         //     // https://www.w3.org/TR/WGSL/#arithmetic-expr
-        //     if value_type.is_scalar() && self.right.value_type().is_vector() {
-        //         // es + ev => V(es) + ev
-        //     } else if value_type.is_vector() && self.right.value_type().is_scalar() {
-        //         // ev + es => ev + V(es)
-        //     } else {
+        //     if value_type.is_scalar() && self.right.value_type().is_vector()
+        // {         // es + ev => V(es) + ev
+        //     } else if value_type.is_vector() &&
+        // self.right.value_type().is_scalar() {         // ev + es =>
+        // ev + V(es)     } else {
         //         return Err(ExprError::TypeError(format!(
         //             "Mismatching L/R types: {:?} != {:?}",
         //             value_type,
@@ -374,10 +374,10 @@ impl Expr for SubExpr {
         Ok(format!("({}) - ({})", lhs, rhs))
 
         // let value_type = self.left.value_type();
-        // if !value_type.is_numeric() || !self.right.value_type().is_numeric() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Cannot apply Sub binary operator to boolean type: {:?} and {:?}",
-        //         value_type,
+        // if !value_type.is_numeric() || !self.right.value_type().is_numeric()
+        // {     return Err(ExprError::TypeError(format!(
+        //         "Cannot apply Sub binary operator to boolean type: {:?} and
+        // {:?}",         value_type,
         //         self.right.value_type()
         //     )));
         // }
@@ -482,10 +482,10 @@ impl Expr for MulExpr {
         Ok(format!("({}) * ({})", lhs, rhs))
 
         // let value_type = self.left.value_type();
-        // if !value_type.is_numeric() || !self.right.value_type().is_numeric() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Cannot apply Mul binary operator to boolean type: {:?} and {:?}",
-        //         value_type,
+        // if !value_type.is_numeric() || !self.right.value_type().is_numeric()
+        // {     return Err(ExprError::TypeError(format!(
+        //         "Cannot apply Mul binary operator to boolean type: {:?} and
+        // {:?}",         value_type,
         //         self.right.value_type()
         //     )));
         // }
@@ -590,10 +590,10 @@ impl Expr for DivExpr {
         Ok(format!("({}) / ({})", lhs, rhs))
 
         // let value_type = self.left.value_type();
-        // if !value_type.is_numeric() || !self.right.value_type().is_numeric() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Cannot apply Div binary operator to boolean type: {:?} and {:?}",
-        //         value_type,
+        // if !value_type.is_numeric() || !self.right.value_type().is_numeric()
+        // {     return Err(ExprError::TypeError(format!(
+        //         "Cannot apply Div binary operator to boolean type: {:?} and
+        // {:?}",         value_type,
         //         self.right.value_type()
         //     )));
         // }
@@ -732,7 +732,9 @@ impl Expr for PropertyExpr {
     }
 
     fn value_type(&self) -> ValueType {
-        ValueType::Scalar(ScalarType::Bool) // FIXME - This is unknown until properties are resolved with the effect, when code is generated...
+        ValueType::Scalar(ScalarType::Bool) // FIXME - This is unknown until
+                                            // properties are resolved with the
+                                            // effect, when code is generated...
     }
 
     fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
@@ -909,7 +911,8 @@ impl ToWgslString for NormalizeExpr {
 
 /// Binary numeric operator.
 ///
-/// The operator can be used with any numeric type or vector of numeric types (component-wise).
+/// The operator can be used with any numeric type or vector of numeric types
+/// (component-wise).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub enum BinaryNumericOperator {
     /// Minimum operator.
@@ -921,7 +924,9 @@ pub enum BinaryNumericOperator {
 impl BinaryNumericOperator {
     /// Check if a binary operator is called via a functional-style call.
     ///
-    /// Functional-style calls are in the form `op(lhs, rhs)` (like `min(a, b)`), while non-functional ones are in the form `lhs op rhs` (like `a + b`).
+    /// Functional-style calls are in the form `op(lhs, rhs)` (like `min(a,
+    /// b)`), while non-functional ones are in the form `lhs op rhs` (like `a +
+    /// b`).
     pub fn is_functional(&self) -> bool {
         match *self {
             BinaryNumericOperator::Min | BinaryNumericOperator::Max => true,

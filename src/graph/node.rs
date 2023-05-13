@@ -66,7 +66,8 @@ pub struct SlotDef {
     name: String,
     /// Slot direaction.
     dir: SlotDir,
-    /// Type of values accepted by the slot. This may be `None` for variant slots, if the type depends on the inputs of the node during evaluation.
+    /// Type of values accepted by the slot. This may be `None` for variant
+    /// slots, if the type depends on the inputs of the node during evaluation.
     value_type: Option<ValueType>,
 }
 
@@ -342,12 +343,15 @@ impl Graph {
 pub trait Node {
     /// Get the list of slots of this node.
     ///
-    /// The list contains both input and output slots, without any guaranteed order.
+    /// The list contains both input and output slots, without any guaranteed
+    /// order.
     fn slots(&self) -> &[SlotDef];
 
-    /// Evaluate the node from the given input expressions, and optionally produce output expression(s).
+    /// Evaluate the node from the given input expressions, and optionally
+    /// produce output expression(s).
     ///
-    /// The expressions themselves are not evaluated (that is, _e.g._ "3 + 2" is _not_ reduced to "5").
+    /// The expressions themselves are not evaluated (that is, _e.g._ "3 + 2" is
+    /// _not_ reduced to "5").
     fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError>;
 }
 

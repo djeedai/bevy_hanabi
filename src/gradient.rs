@@ -152,7 +152,8 @@ impl<T: Default + Lerp + FromReflect> Gradient<T> {
 
     /// Create a linear gradient between two values.
     ///
-    /// The gradient contains the `start` value at key 0.0 and the `end` value at key 1.0.
+    /// The gradient contains the `start` value at key 0.0 and the `end` value
+    /// at key 1.0.
     pub fn linear(start: T, end: T) -> Self {
         let mut grad = Self::default();
         grad.add_key(0., start);

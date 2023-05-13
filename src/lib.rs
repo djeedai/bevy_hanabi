@@ -89,8 +89,8 @@
 //!     })
 //!     // Also initialize the total lifetime of the particle, that is
 //!     // the time for which it's simulated and rendered. This modifier
-//!     // is mandatory, otherwise the particles won't show up.
-//!     .init(InitLifetimeModifier { lifetime: 10_f32.into() })
+//!     // is almost always required, otherwise the particles won't show up.
+//!     .init(InitAttributeModifier::new(Attribute::LIFETIME, LiteralExpr::new(10.)))
 //!     // Every frame, add a gravity-like acceleration downward
 //!     .update(AccelModifier::constant(Vec3::new(0., -3., 0.)))
 //!     // Render the particles with a color gradient over their
@@ -749,7 +749,7 @@ impl CompiledParticleEffect {
             .init_code
             .contains(&format!("particle.{}", Attribute::LIFETIME.name()))
         {
-            warn!("Effect '{}' does not initialize the particle lifetime; particles will have a default lifetime of zero, and will immediately die after spawning. Add an InitLifetimeModifier to initialize the lifetime to a non-zero value.", asset.name);
+            warn!("Effect '{}' does not initialize the particle lifetime; particles will have a default lifetime of zero, and will immediately die after spawning.", asset.name);
         }
 
         // Generate the shader code for the update shader

@@ -311,8 +311,6 @@ mod tests {
         }
         .init(InitPositionSphereModifier::default())
         .init(InitVelocitySphereModifier::default())
-        .init(InitAgeModifier::default())
-        .init(InitLifetimeModifier::default())
         //.update(AccelModifier::default())
         .update(LinearDragModifier::constant(1.))
         .update(ForceFieldModifier::default())
@@ -331,10 +329,16 @@ mod tests {
         assert!(InitVelocitySphereModifier::default()
             .apply(&mut init_context)
             .is_ok());
-        assert!(InitAgeModifier::default().apply(&mut init_context).is_ok());
-        assert!(InitLifetimeModifier::default()
-            .apply(&mut init_context)
-            .is_ok());
+        assert!(
+            InitAttributeModifier::new(Attribute::AGE, LiteralExpr::new(1.))
+                .apply(&mut init_context)
+                .is_ok()
+        );
+        assert!(
+            InitAttributeModifier::new(Attribute::LIFETIME, LiteralExpr::new(1.))
+                .apply(&mut init_context)
+                .is_ok()
+        );
         // assert_eq!(effect., init_context.init_code);
 
         let property_layout = PropertyLayout::default();

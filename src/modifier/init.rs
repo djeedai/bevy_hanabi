@@ -76,11 +76,15 @@ macro_rules! impl_mod_init {
 
 /// A modifier to set the initial value of any particle attribute.
 ///
-/// This modifier initializes any [`Attribute`] of particles to a given value,
-/// either hard-coded or bound to a property whose value was dynamically
-/// uploaded from CPU during the frame the particle initializes.
+/// This modifier initializes an [`Attribute`] of the particle of a system to a
+/// given graph expression when the particle spawns.
 ///
-/// # Caution
+/// This is a basic building block to create any complex effect. Most other init
+/// modifiers are convenience helpers to achieve a behavior which can otherwise
+/// be produced, more verbosely, by setting the individual attributes of a
+/// particle with instances of this modifier.
+///
+/// # Warning
 ///
 /// At the minute there is no validation that the type of the value is the same
 /// as the type of the attribute. Users are advised to be careful, until more
@@ -487,77 +491,6 @@ impl InitModifier for InitVelocityTangentModifier {
 
         context.init_code += "init_velocity_tangent(transform, &particle);\n";
 
-        Ok(())
-    }
-}
-
-/// A modifier to set the initial age of particles.
-///
-/// Particles with an age attribute are aged each frame based on the frame's
-/// delta time. Various other modifiers use that age to smoothly vary some
-/// quantities, like [`SizeOverLifetimeModifier`].
-///
-/// # Attributes
-///
-/// This modifier requires the following particle attributes:
-/// - [`Attribute::AGE`]
-///
-/// [`SizeOverLifetimeModifier`]: crate::SizeOverLifetimeModifier
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct InitAgeModifier {
-    /// The initial age of a particle when it spawns, in seconds.
-    pub age: Value<f32>,
-}
-
-impl_mod_init!(InitAgeModifier, &[Attribute::AGE]);
-
-#[typetag::serde]
-impl InitModifier for InitAgeModifier {
-    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
-        context.init_code += &format!(
-            "particle.{} = {};\n",
-            Attribute::AGE.name(),
-            self.age.to_wgsl_string()
-        );
-        Ok(())
-    }
-}
-
-/// A modifier to set the lifetime of all particles.
-///
-/// Particles with a lifetime are despawned once their age is greater than or
-/// equal to their lifetime.
-///
-/// The default lifetime is 5 seconds.
-///
-/// # Attributes
-///
-/// This modifier requires the following particle attributes:
-/// - [`Attribute::LIFETIME`]
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct InitLifetimeModifier {
-    /// The lifetime of all particles when they spawn, in seconds.
-    pub lifetime: Value<f32>,
-}
-
-impl Default for InitLifetimeModifier {
-    fn default() -> Self {
-        Self {
-            lifetime: 5_f32.into(),
-        }
-    }
-}
-
-impl_mod_init!(InitLifetimeModifier, &[Attribute::LIFETIME]);
-
-#[typetag::serde]
-impl InitModifier for InitLifetimeModifier {
-    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
-        context.init_code += &format!(
-            "particle.{} = {};\n",
-            Attribute::LIFETIME.name(),
-            self.lifetime.to_wgsl_string()
-        );
         Ok(())
     }
 }

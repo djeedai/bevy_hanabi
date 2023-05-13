@@ -188,8 +188,9 @@ impl Modifier for AccelModifier {
         //     let name = std::mem::take(&mut self.property_name);
         //     self.accel = ValueOrProperty::ResolvedProperty((index, name));
         // } else {
-        //     panic!("Cannot resolve property '{}' in effect. Ensure you have added a property with `with_property()` or `add_property()` before trying to reference it from a modifier.", name);
-        // }
+        //     panic!("Cannot resolve property '{}' in effect. Ensure you have
+        // added a property with `with_property()` or `add_property()` before
+        // trying to reference it from a modifier.", name); }
     }
 }
 

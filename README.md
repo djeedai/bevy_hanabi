@@ -80,8 +80,8 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
         })
         // Also initialize the total lifetime of the particle, that is
         // the time for which it's simulated and rendered. This modifier
-        // is mandatory, otherwise the particles won't show up.
-        .init(InitLifetimeModifier { lifetime: 10_f32.into() })
+        // is almost always required, otherwise the particles won't show up.
+        .init(InitAttributeModifier::new(Attribute::LIFETIME, LiteralExpr::new(10.)))
         // Every frame, add a gravity-like acceleration downward
         .update(AccelModifier::constant(Vec3::new(0., -3., 0.)))
         // Render the particles with a color gradient over their
