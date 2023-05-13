@@ -21,8 +21,9 @@ mod expr;
 mod node;
 
 pub use expr::{
-    AddExpr, AttributeExpr, BoxedExpr, BuiltInExpr, BuiltInOperator, DivExpr, EvalContext, Expr,
-    ExprError, LiteralExpr, MulExpr, NormalizeExpr, PropertyExpr, SubExpr,
+    AddExpr, AttributeExpr, BinaryNumericOpExpr, BinaryNumericOperator, BoxedExpr, BuiltInExpr,
+    BuiltInOperator, DivExpr, EvalContext, Expr, ExprError, LiteralExpr, MulExpr, NormalizeExpr,
+    PropertyExpr, SubExpr,
 };
 pub use node::{
     AddNode, AttributeNode, DivNode, Graph, MulNode, Node, NormalizeNode, Slot, SlotDir, SlotId,

@@ -92,7 +92,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             // starting color and starting size of particles.
             age: Value::Uniform((0.0, 0.2)),
         })
-        .update(LinearDragModifier { drag: 5. })
+        .update(LinearDragModifier::constant(5.))
         .update(AccelModifier::constant(Vec3::new(0., -8., 0.)))
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient1,

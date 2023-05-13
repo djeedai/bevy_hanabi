@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     calc_func_id,
     graph::{
-        AttributeExpr, BoxedExpr, BuiltInExpr, EvalContext, Expr, ExprError, LiteralExpr,
-        PropertyExpr, Value,
+        AttributeExpr, BinaryNumericOpExpr, BinaryNumericOperator, BoxedExpr, BuiltInExpr,
+        BuiltInOperator, EvalContext, Expr, ExprError, LiteralExpr, MulExpr, PropertyExpr, Value,
     },
     Attribute, BoxedModifier, Modifier, ModifierContext, Property, PropertyLayout, ToWgslString,
 };
@@ -81,7 +81,7 @@ macro_rules! impl_mod_update {
             }
 
             fn boxed_clone(&self) -> BoxedModifier {
-                Box::new(*self)
+                Box::new(self.clone())
             }
         }
     };
@@ -642,17 +642,19 @@ impl UpdateModifier for ForceFieldModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct LinearDragModifier {
     /// Drag coefficient. Higher values increase the drag force, and
     /// consequently decrease the particle's speed faster.
-    pub drag: f32,
+    pub drag: BoxedExpr,
 }
 
 impl LinearDragModifier {
-    /// Instantiate a [`LinearDragModifier`].
-    pub fn new(drag: f32) -> Self {
-        Self { drag }
+    /// Instantiate a [`LinearDragModifier`] with a constant drag value.
+    pub fn constant(drag: f32) -> Self {
+        Self {
+            drag: Box::new(LiteralExpr::new(drag)),
+        }
     }
 }
 
@@ -661,11 +663,16 @@ impl_mod_update!(LinearDragModifier, &[Attribute::VELOCITY]);
 #[typetag::serde]
 impl UpdateModifier for LinearDragModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        context.update_code += &format!(
-            "particle.velocity *= max(0., (1. - {} * sim_params.delta_time));\n",
-            self.drag.to_wgsl_string()
+        let attr = AttributeExpr::new(Attribute::VELOCITY).eval(context)?;
+        let expr = MulExpr::new(
+            self.drag.clone(),
+            BuiltInExpr::new(BuiltInOperator::DeltaTime),
         );
-
+        let expr = LiteralExpr::new(1f32) - expr;
+        let expr =
+            BinaryNumericOpExpr::new(LiteralExpr::new(0f32), expr, BinaryNumericOperator::Max);
+        let expr = expr.eval(context)?;
+        context.update_code += &format!("{} *= {};", attr, expr);
         Ok(())
     }
 }
@@ -760,7 +767,7 @@ mod tests {
 
     #[test]
     fn mod_drag() {
-        let modifier = LinearDragModifier { drag: 3.5 };
+        let modifier = LinearDragModifier::constant(3.5);
 
         let property_layout = PropertyLayout::default();
         let mut context = UpdateContext::new(&property_layout);
@@ -776,7 +783,7 @@ mod tests {
             &RadialAccelModifier::constant(Vec3::ZERO, 1.),
             &TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 1.),
             &ForceFieldModifier::default(),
-            &LinearDragModifier::default(),
+            &LinearDragModifier::constant(3.5),
             &AabbKillModifier::default(),
         ];
         for &modifier in modifiers.iter() {

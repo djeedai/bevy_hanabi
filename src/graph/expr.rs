@@ -240,8 +240,10 @@ impl Expr for AddExpr {
                                // invariant?
     }
 
-    fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
-        Ok("TODO".to_string())
+    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
+        let lhs = self.left.eval(context)?;
+        let rhs = self.right.eval(context)?;
+        Ok(format!("({}) + ({})", lhs, rhs))
 
         // let value_type = self.left.value_type();
         // if !value_type.is_numeric() || !self.right.value_type().is_numeric() {
@@ -366,8 +368,10 @@ impl Expr for SubExpr {
                                // invariant?
     }
 
-    fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
-        Ok("TODO".to_string())
+    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
+        let lhs = self.left.eval(context)?;
+        let rhs = self.right.eval(context)?;
+        Ok(format!("({}) - ({})", lhs, rhs))
 
         // let value_type = self.left.value_type();
         // if !value_type.is_numeric() || !self.right.value_type().is_numeric() {
@@ -472,8 +476,10 @@ impl Expr for MulExpr {
                                // invariant?
     }
 
-    fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
-        Ok("TODO".to_string())
+    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
+        let lhs = self.left.eval(context)?;
+        let rhs = self.right.eval(context)?;
+        Ok(format!("({}) * ({})", lhs, rhs))
 
         // let value_type = self.left.value_type();
         // if !value_type.is_numeric() || !self.right.value_type().is_numeric() {
@@ -578,8 +584,10 @@ impl Expr for DivExpr {
                                // invariant?
     }
 
-    fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
-        Ok("TODO".to_string())
+    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
+        let lhs = self.left.eval(context)?;
+        let rhs = self.right.eval(context)?;
+        Ok(format!("({}) / ({})", lhs, rhs))
 
         // let value_type = self.left.value_type();
         // if !value_type.is_numeric() || !self.right.value_type().is_numeric() {
@@ -883,7 +891,7 @@ impl Expr for NormalizeExpr {
             )));
         }
 
-        expr
+        expr.map(|s| format!("normalize({})", s))
     }
 
     fn boxed_clone(&self) -> BoxedExpr {
@@ -896,6 +904,122 @@ impl Expr for NormalizeExpr {
 impl ToWgslString for NormalizeExpr {
     fn to_wgsl_string(&self) -> String {
         format!("normalize({})", self.input.to_wgsl_string())
+    }
+}
+
+/// Binary numeric operator.
+///
+/// The operator can be used with any numeric type or vector of numeric types (component-wise).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+pub enum BinaryNumericOperator {
+    /// Minimum operator.
+    Min,
+    /// Maximum operator.
+    Max,
+}
+
+impl BinaryNumericOperator {
+    /// Check if a binary operator is called via a functional-style call.
+    ///
+    /// Functional-style calls are in the form `op(lhs, rhs)` (like `min(a, b)`), while non-functional ones are in the form `lhs op rhs` (like `a + b`).
+    pub fn is_functional(&self) -> bool {
+        match *self {
+            BinaryNumericOperator::Min | BinaryNumericOperator::Max => true,
+        }
+    }
+}
+
+impl ToWgslString for BinaryNumericOperator {
+    fn to_wgsl_string(&self) -> String {
+        match *self {
+            BinaryNumericOperator::Min => "min".to_string(),
+            BinaryNumericOperator::Max => "max".to_string(),
+        }
+    }
+}
+
+/// Expression for normalizing a vector.
+#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct BinaryNumericOpExpr {
+    lhs: BoxedExpr,
+    rhs: BoxedExpr,
+    op: BinaryNumericOperator,
+}
+
+impl BinaryNumericOpExpr {
+    /// Create a new binary numeric operation expression.
+    #[inline]
+    pub fn new(
+        lhs: impl Into<BoxedExpr>,
+        rhs: impl Into<BoxedExpr>,
+        op: BinaryNumericOperator,
+    ) -> Self {
+        Self {
+            lhs: lhs.into(),
+            rhs: rhs.into(),
+            op,
+        }
+    }
+}
+
+#[typetag::serde]
+impl Expr for BinaryNumericOpExpr {
+    fn as_expr(&self) -> &dyn Expr {
+        self
+    }
+
+    fn is_const(&self) -> bool {
+        self.lhs.is_const() && self.rhs.is_const()
+    }
+
+    fn value_type(&self) -> ValueType {
+        self.lhs.value_type() // FIXME - need to handle casts
+    }
+
+    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
+        let lhs = self.lhs.eval(context)?;
+        let rhs = self.rhs.eval(context)?;
+
+        // if !self.input.value_type().is_vector() {
+        //     return Err(ExprError::TypeError(format!(
+        //         "Cannot apply normalize() function to non-vector expression: {}",
+        //         expr.unwrap_or("(error evaluating expression)".to_string())
+        //     )));
+        // }
+
+        Ok(if self.op.is_functional() {
+            format!("{}({}, {})", self.op.to_wgsl_string(), lhs, rhs)
+        } else {
+            format!("({}) {} ({})", lhs, self.op.to_wgsl_string(), rhs)
+        })
+    }
+
+    fn boxed_clone(&self) -> BoxedExpr {
+        Box::new(BinaryNumericOpExpr {
+            lhs: self.lhs.boxed_clone(),
+            rhs: self.rhs.boxed_clone(),
+            op: self.op,
+        })
+    }
+}
+
+impl ToWgslString for BinaryNumericOpExpr {
+    fn to_wgsl_string(&self) -> String {
+        if self.op.is_functional() {
+            format!(
+                "{}({}, {})",
+                self.op.to_wgsl_string(),
+                self.lhs.to_wgsl_string(),
+                self.rhs.to_wgsl_string()
+            )
+        } else {
+            format!(
+                "({}) {} ({})",
+                self.lhs.to_wgsl_string(),
+                self.op.to_wgsl_string(),
+                self.rhs.to_wgsl_string()
+            )
+        }
     }
 }
 
@@ -947,6 +1071,8 @@ impl_binary_ops!(MulExpr);
 impl_binary_ops!(DivExpr);
 impl_binary_ops!(AttributeExpr);
 impl_binary_ops!(BuiltInExpr);
+impl_binary_ops!(NormalizeExpr);
+impl_binary_ops!(BinaryNumericOpExpr);
 
 #[cfg(test)]
 mod tests {

@@ -314,7 +314,7 @@ mod tests {
         .init(InitAgeModifier::default())
         .init(InitLifetimeModifier::default())
         //.update(AccelModifier::default())
-        .update(LinearDragModifier::default())
+        .update(LinearDragModifier::constant(1.))
         .update(ForceFieldModifier::default())
         .render(ParticleTextureModifier::default())
         .render(ColorOverLifetimeModifier::default())
@@ -335,7 +335,7 @@ mod tests {
         assert!(AccelModifier::constant(Vec3::ONE)
             .apply(&mut update_context)
             .is_ok());
-        assert!(LinearDragModifier::default()
+        assert!(LinearDragModifier::constant(3.5)
             .apply(&mut update_context)
             .is_ok());
         assert!(ForceFieldModifier::default()
