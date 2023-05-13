@@ -142,10 +142,21 @@ impl<T: Default + Lerp + FromReflect> Gradient<T> {
     }
 
     /// Create a constant gradient.
-    /// Inserts the value at 0.0 and nowhere else.
+    ///
+    /// The gradient contains `value` at key 0.0 and nothing else.
     pub fn constant(value: T) -> Self {
         let mut grad = Self::default();
-        grad.add_key(0.0, value);
+        grad.add_key(0., value);
+        grad
+    }
+
+    /// Create a linear gradient between two values.
+    ///
+    /// The gradient contains the `start` value at key 0.0 and the `end` value at key 1.0.
+    pub fn linear(start: T, end: T) -> Self {
+        let mut grad = Self::default();
+        grad.add_key(0., start);
+        grad.add_key(1., end);
         grad
     }
 }

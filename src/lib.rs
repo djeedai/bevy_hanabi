@@ -149,6 +149,7 @@ pub use asset::{EffectAsset, MotionIntegration, SimulationCondition};
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
+pub use graph::*;
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
 pub use properties::PropertyLayout;
@@ -736,9 +737,11 @@ impl CompiledParticleEffect {
         };
 
         // Generate the shader code for the initializing shader
-        let mut init_context = InitContext::default();
+        let mut init_context = InitContext::new(&property_layout);
         for m in asset.modifiers.iter().filter_map(|m| m.as_init()) {
-            m.apply(&mut init_context);
+            if let Err(err) = m.apply(&mut init_context) {
+                error!("Failed to compile effect, error in init context: {:?}", err);
+            }
         }
         // Warn in debug if the shader doesn't initialize the particle lifetime
         #[cfg(debug_assertions)]

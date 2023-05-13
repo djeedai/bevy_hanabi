@@ -323,11 +323,18 @@ mod tests {
 
         assert_eq!(effect.capacity, 4096);
 
-        let mut init_context = InitContext::default();
-        InitPositionSphereModifier::default().apply(&mut init_context);
-        InitVelocitySphereModifier::default().apply(&mut init_context);
-        InitAgeModifier::default().apply(&mut init_context);
-        InitLifetimeModifier::default().apply(&mut init_context);
+        let property_layout = PropertyLayout::default();
+        let mut init_context = InitContext::new(&property_layout);
+        assert!(InitPositionSphereModifier::default()
+            .apply(&mut init_context)
+            .is_ok());
+        assert!(InitVelocitySphereModifier::default()
+            .apply(&mut init_context)
+            .is_ok());
+        assert!(InitAgeModifier::default().apply(&mut init_context).is_ok());
+        assert!(InitLifetimeModifier::default()
+            .apply(&mut init_context)
+            .is_ok());
         // assert_eq!(effect., init_context.init_code);
 
         let property_layout = PropertyLayout::default();

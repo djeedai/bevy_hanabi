@@ -816,7 +816,7 @@ struct ParticleBuffer {{
 }};
 
 struct SimParams {{
-    dt: f32,
+    delta_time: f32,
     time: f32,
 }};
 

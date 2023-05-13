@@ -105,7 +105,7 @@ fn setup(
             spawner,
             ..Default::default()
         }
-        .with_property("my_color", graph::Value::Uint(0xFFFFFFFF))
+        .with_property("my_color", 0xFFFFFFFFu32.into())
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: BALL_RADIUS,
@@ -118,12 +118,13 @@ fn setup(
         .init(InitLifetimeModifier {
             lifetime: 5_f32.into(),
         })
-        .init(InitAttributeModifier {
-            attribute: Attribute::COLOR,
-            value: "my_color".into(),
-        })
+        // Bind the initial particle color to the value of the 'my_color' property.
+        .init(InitAttributeModifier::new(
+            Attribute::COLOR,
+            PropertyExpr::new("my_color"),
+        ))
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec2::splat(0.05)),
+            gradient: Gradient::linear(Vec2::splat(0.02), Vec2::splat(0.04)),
         }),
     );
 

@@ -4,25 +4,46 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    modifier::ShapeDimension, Attribute, BoxedModifier, DimValue, Modifier, ModifierContext,
-    ToWgslString, Value, ValueOrProperty,
+    graph::{AttributeExpr, BoxedExpr, EvalContext, Expr, ExprError},
+    modifier::ShapeDimension,
+    Attribute, BoxedModifier, DimValue, Modifier, ModifierContext, PropertyLayout, ToWgslString,
+    Value,
 };
 
 /// Particle initializing shader code generation context.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct InitContext {
+#[derive(Debug, PartialEq)]
+pub struct InitContext<'a> {
     /// Main particle initializing code, which needs to assign the fields of the
     /// `particle` struct instance.
     pub init_code: String,
     /// Extra functions emitted at top level, which `init_code` can call.
     pub init_extra: String,
+    /// Layout of properties for the current effect.
+    pub property_layout: &'a PropertyLayout,
+}
+
+impl<'a> InitContext<'a> {
+    /// Create a new init context.
+    pub fn new(property_layout: &'a PropertyLayout) -> Self {
+        Self {
+            init_code: String::new(),
+            init_extra: String::new(),
+            property_layout,
+        }
+    }
+}
+
+impl<'a> EvalContext for InitContext<'a> {
+    fn property_layout(&self) -> &PropertyLayout {
+        self.property_layout
+    }
 }
 
 /// Trait to customize the initializing of newly spawned particles.
 #[typetag::serde]
 pub trait InitModifier: Modifier {
     /// Append the initializing code.
-    fn apply(&self, context: &mut InitContext);
+    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError>;
 }
 
 /// Macro to implement the [`Modifier`] trait for an init modifier.
@@ -68,12 +89,22 @@ macro_rules! impl_mod_init {
 /// # Attributes
 ///
 /// This modifier requires the attribute specified in the `attribute` field.
-#[derive(Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitAttributeModifier {
     /// The name of the attribute to initialize.
     pub attribute: Attribute,
     /// The initial value of the attribute.
-    pub value: ValueOrProperty,
+    pub value: BoxedExpr,
+}
+
+impl InitAttributeModifier {
+    /// Create a new instance of a [`InitAttributeModifier`].
+    pub fn new(attribute: Attribute, value: impl Into<BoxedExpr>) -> Self {
+        Self {
+            attribute,
+            value: value.into(),
+        }
+    }
 }
 
 #[typetag::serde]
@@ -101,12 +132,11 @@ impl Modifier for InitAttributeModifier {
 
 #[typetag::serde]
 impl InitModifier for InitAttributeModifier {
-    fn apply(&self, context: &mut InitContext) {
-        context.init_code += &format!(
-            "particle.{0} = {1};\n",
-            self.attribute.name(),
-            self.value.to_wgsl_string()
-        );
+    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
+        let attr = AttributeExpr::new(self.attribute).eval(context)?;
+        let expr = self.value.eval(context)?;
+        context.init_code += &format!("{} = {};\n", attr, expr);
+        Ok(())
     }
 }
 
@@ -144,7 +174,7 @@ impl_mod_init!(InitPositionCircleModifier, &[Attribute::POSITION]);
 
 #[typetag::serde]
 impl InitModifier for InitPositionCircleModifier {
-    fn apply(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
         let (tangent, bitangent) = self.axis.any_orthonormal_pair();
 
         let radius_code = match self.dimension {
@@ -182,6 +212,8 @@ impl InitModifier for InitPositionCircleModifier {
         );
 
         context.init_code += "init_position_circle(&particle);\n";
+
+        Ok(())
     }
 }
 
@@ -205,7 +237,7 @@ impl_mod_init!(InitPositionSphereModifier, &[Attribute::POSITION]);
 
 #[typetag::serde]
 impl InitModifier for InitPositionSphereModifier {
-    fn apply(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
         let radius_code = match self.dimension {
             ShapeDimension::Surface => {
                 // Constant radius
@@ -247,6 +279,8 @@ impl InitModifier for InitPositionSphereModifier {
         );
 
         context.init_code += "init_position_sphere(&particle);\n";
+
+        Ok(())
     }
 }
 
@@ -281,7 +315,7 @@ impl_mod_init!(InitPositionCone3dModifier, &[Attribute::POSITION]);
 
 #[typetag::serde]
 impl InitModifier for InitPositionCone3dModifier {
-    fn apply(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
         context.init_extra += &format!(
             r##"fn init_position_cone3d(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
     // Truncated cone height
@@ -320,6 +354,8 @@ impl InitModifier for InitPositionCone3dModifier {
         );
 
         context.init_code += "init_position_cone3d(transform, &particle);\n";
+
+        Ok(())
     }
 }
 
@@ -348,7 +384,7 @@ impl_mod_init!(
 
 #[typetag::serde]
 impl InitModifier for InitVelocityCircleModifier {
-    fn apply(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
         context.init_extra += &format!(
             r##"fn init_velocity_circle(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
     let delta = (*particle).{0} - {1};
@@ -365,6 +401,8 @@ impl InitModifier for InitVelocityCircleModifier {
         );
 
         context.init_code += "init_velocity_circle(transform, &particle);\n";
+
+        Ok(())
     }
 }
 
@@ -392,7 +430,7 @@ impl_mod_init!(
 
 #[typetag::serde]
 impl InitModifier for InitVelocitySphereModifier {
-    fn apply(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
         context.init_code += &format!(
             "particle.{} = normalize(particle.{} - {}) * ({});\n",
             Attribute::VELOCITY.name(),
@@ -400,6 +438,7 @@ impl InitModifier for InitVelocitySphereModifier {
             self.center.to_wgsl_string(),
             self.speed.to_wgsl_string()
         );
+        Ok(())
     }
 }
 
@@ -430,7 +469,7 @@ impl_mod_init!(
 
 #[typetag::serde]
 impl InitModifier for InitVelocityTangentModifier {
-    fn apply(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
         context.init_extra += &format!(
             r##"fn init_velocity_tangent(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
     let radial = (*particle).{0} - {1};
@@ -447,6 +486,8 @@ impl InitModifier for InitVelocityTangentModifier {
         );
 
         context.init_code += "init_velocity_tangent(transform, &particle);\n";
+
+        Ok(())
     }
 }
 
@@ -472,12 +513,13 @@ impl_mod_init!(InitAgeModifier, &[Attribute::AGE]);
 
 #[typetag::serde]
 impl InitModifier for InitAgeModifier {
-    fn apply(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
         context.init_code += &format!(
             "particle.{} = {};\n",
             Attribute::AGE.name(),
             self.age.to_wgsl_string()
         );
+        Ok(())
     }
 }
 
@@ -510,12 +552,13 @@ impl_mod_init!(InitLifetimeModifier, &[Attribute::LIFETIME]);
 
 #[typetag::serde]
 impl InitModifier for InitLifetimeModifier {
-    fn apply(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
         context.init_code += &format!(
             "particle.{} = {};\n",
             Attribute::LIFETIME.name(),
             self.lifetime.to_wgsl_string()
         );
+        Ok(())
     }
 }
 
@@ -570,12 +613,13 @@ impl Modifier for InitSizeModifier {
 
 #[typetag::serde]
 impl InitModifier for InitSizeModifier {
-    fn apply(&self, context: &mut InitContext) {
+    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
         context.init_code += &format!(
             "particle.{} = {};\n",
             Attribute::SIZE.name(),
             self.size.to_wgsl_string(),
         );
+        Ok(())
     }
 }
 
@@ -600,8 +644,9 @@ mod tests {
             &InitVelocityTangentModifier::default(),
         ];
         for &modifier in modifiers.iter() {
-            let mut context = InitContext::default();
-            modifier.apply(&mut context);
+            let property_layout = PropertyLayout::default();
+            let mut context = InitContext::new(&property_layout);
+            assert!(modifier.apply(&mut context).is_ok());
             let init_code = context.init_code;
             let init_extra = context.init_extra;
 
