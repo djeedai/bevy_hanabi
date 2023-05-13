@@ -77,7 +77,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             // Give a bit of variation by randomizing the lifetime per particle
             lifetime: Value::Uniform((0.6, 1.3)),
         })
-        .update(LinearDragModifier { drag: 2. })
+        .update(LinearDragModifier::constant(2.))
         .update(RadialAccelModifier::constant(Vec3::ZERO, -6.0))
         .update(TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 30.))
         .render(ColorOverLifetimeModifier {

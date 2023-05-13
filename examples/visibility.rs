@@ -98,10 +98,10 @@ fn setup(
         radius: 5.,
         dimension: ShapeDimension::Volume,
     })
-    .init(InitAttributeModifier {
-        attribute: Attribute::VELOCITY,
-        value: ValueOrProperty::Value((Vec3::X * 3.).into()),
-    })
+    .init(InitAttributeModifier::new(
+        Attribute::VELOCITY,
+        LiteralExpr::new(Vec3::X * 3.),
+    ))
     .init(InitLifetimeModifier {
         lifetime: 15_f32.into(),
     })
