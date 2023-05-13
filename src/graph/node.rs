@@ -1,11 +1,8 @@
 use std::num::NonZeroU32;
 
 use crate::{
-    graph::{
-        AddExpr, AttributeExpr, BoxedExpr, BuiltInExpr, BuiltInOperator, DivExpr, Expr, ExprError,
-        MulExpr, NormalizeExpr, SubExpr,
-    },
-    Attribute, ValueType,
+    AddExpr, Attribute, AttributeExpr, BoxedExpr, BuiltInExpr, BuiltInOperator, DivExpr, Expr,
+    ExprError, MulExpr, SubExpr, UnaryNumericOpExpr, UnaryNumericOperator, ValueType,
 };
 
 /// Identifier of a node in a graph.
@@ -619,7 +616,10 @@ impl Node for NormalizeNode {
             ));
         }
         let input = inputs.into_iter().next().unwrap();
-        Ok(vec![Box::new(NormalizeExpr::new(input))])
+        Ok(vec![Box::new(UnaryNumericOpExpr::new(
+            input,
+            UnaryNumericOperator::Normalize,
+        ))])
     }
 }
 

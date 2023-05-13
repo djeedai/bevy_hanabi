@@ -12,7 +12,8 @@ use crate::{
     calc_func_id,
     graph::{
         AttributeExpr, BinaryNumericOpExpr, BinaryNumericOperator, BoxedExpr, BuiltInExpr,
-        BuiltInOperator, EvalContext, Expr, ExprError, LiteralExpr, MulExpr, PropertyExpr, Value,
+        BuiltInOperator, EvalContext, Expr, ExprError, LiteralExpr, MulExpr, PropertyExpr,
+        UnaryNumericOpExpr, UnaryNumericOperator, Value,
     },
     Attribute, BoxedModifier, Modifier, ModifierContext, Property, PropertyLayout, ToWgslString,
 };
@@ -687,15 +688,34 @@ impl UpdateModifier for LinearDragModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AabbKillModifier {
-    /// Min corner of the AABB.
-    pub min: Vec3,
-    /// Max corner of the AABB.
-    pub max: Vec3,
+    /// Center of the AABB.
+    pub center: BoxedExpr,
+    /// Half-size of the AABB.
+    pub half_size: BoxedExpr,
     /// If `true`, invert the kill condition and kill all particles inside the
     /// AABB. If `false` (default), kill all particles outside the AABB.
     pub kill_inside: bool,
+}
+
+impl AabbKillModifier {
+    /// Create a new instance of an [`AabbKillModifier`] from an AABB center and half extents.
+    ///
+    /// The created instance has a default `kill_inside = false` value.
+    pub fn new(center: impl Into<BoxedExpr>, half_size: impl Into<BoxedExpr>) -> Self {
+        Self {
+            center: center.into(),
+            half_size: half_size.into(),
+            kill_inside: false,
+        }
+    }
+
+    /// Set whether particles are killed when inside the AABB or not.
+    pub fn with_kill_inside(mut self, kill_inside: bool) -> Self {
+        self.kill_inside = kill_inside;
+        self
+    }
 }
 
 impl_mod_update!(AabbKillModifier, &[Attribute::POSITION]);
@@ -703,19 +723,29 @@ impl_mod_update!(AabbKillModifier, &[Attribute::POSITION]);
 #[typetag::serde]
 impl UpdateModifier for AabbKillModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let center = (self.min + self.max) / 2.;
-        let half_size = (self.max - self.min) / 2.;
-        let cmp = if self.kill_inside { "<" } else { ">" };
-        let reduce = if self.kill_inside { "all" } else { "any" };
+        let lhs = AttributeExpr::new(Attribute::POSITION) - self.center.clone();
+        let lhs = UnaryNumericOpExpr::new(lhs, UnaryNumericOperator::Abs);
+        let rhs = self.half_size.clone();
+        let cmp = if self.kill_inside {
+            BinaryNumericOperator::LessThan
+        } else {
+            BinaryNumericOperator::GreaterThan
+        };
+        let cmp = BinaryNumericOpExpr::new(lhs, rhs, cmp);
+        let reduce = if self.kill_inside {
+            UnaryNumericOperator::All
+        } else {
+            UnaryNumericOperator::Any
+        };
+        let expr = UnaryNumericOpExpr::new(cmp, reduce);
+        let expr = expr.eval(context)?;
+
         context.update_code += &format!(
-            r#"if ({}(abs(particle.position - {}) {} {})) {{
+            r#"if ({}) {{
     is_alive = false;
 }}
 "#,
-            reduce,
-            center.to_wgsl_string(),
-            cmp,
-            half_size.to_wgsl_string()
+            expr
         );
 
         Ok(())
@@ -785,7 +815,7 @@ mod tests {
             &TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 1.),
             &ForceFieldModifier::default(),
             &LinearDragModifier::constant(3.5),
-            &AabbKillModifier::default(),
+            &AabbKillModifier::new(LiteralExpr::new(Vec3::ZERO), LiteralExpr::new(Vec3::ONE)),
         ];
         for &modifier in modifiers.iter() {
             let property_layout = PropertyLayout::default();

@@ -163,9 +163,10 @@ fn setup(
             center: Vec3::ZERO,
             speed: Value::Uniform((0.1, 0.3)),
         })
-        .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
-        })
+        .init(InitAttributeModifier::new(
+            Attribute::LIFETIME,
+            LiteralExpr::new(5.),
+        ))
         .update(ForceFieldModifier::new(vec![
             ForceFieldSource {
                 position: attractor2_position,
@@ -187,16 +188,17 @@ fn setup(
                 conform_to_sphere: true,
             },
         ]))
-        .update(AabbKillModifier {
-            min: Vec3::new(-3., -2., -3.),
-            max: Vec3::new(3., 2., 3.),
-            kill_inside: false,
-        })
-        .update(AabbKillModifier {
-            min: Vec3::new(-2.4, -1.2, -3.),
-            max: Vec3::new(-1.6, -0.8, 3.),
-            kill_inside: true,
-        })
+        .update(AabbKillModifier::new(
+            LiteralExpr::new(Vec3::ZERO),
+            LiteralExpr::new(Vec3::new(3., 2., 3.)),
+        ))
+        .update(
+            AabbKillModifier::new(
+                LiteralExpr::new(Vec3::new(-2., -1., 0.)),
+                LiteralExpr::new(Vec3::new(0.4, 0.2, 3.)),
+            )
+            .with_kill_inside(true),
+        )
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::constant(Vec2::splat(0.05)),
         })

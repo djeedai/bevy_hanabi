@@ -855,22 +855,54 @@ impl ToWgslString for BuiltInExpr {
     }
 }
 
-/// Expression for normalizing a vector.
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct NormalizeExpr {
-    input: BoxedExpr,
+/// Unary numeric operator.
+///
+/// The operator can be used with any numeric type or vector of numeric types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+pub enum UnaryNumericOperator {
+    /// Absolute value operator.
+    Abs,
+    /// Logical ALL operator for bool vectors.
+    /// FIXME - This is not numeric...
+    All,
+    /// Logical ANY operator for bool vectors.
+    /// FIXME - This is not numeric...
+    Any,
+    /// Vector normalizing operator.
+    Normalize,
 }
 
-impl NormalizeExpr {
-    /// Create a new normalize expression.
+impl ToWgslString for UnaryNumericOperator {
+    fn to_wgsl_string(&self) -> String {
+        match *self {
+            UnaryNumericOperator::Abs => "abs".to_string(),
+            UnaryNumericOperator::All => "all".to_string(),
+            UnaryNumericOperator::Any => "any".to_string(),
+            UnaryNumericOperator::Normalize => "normalize".to_string(),
+        }
+    }
+}
+
+/// Unary numeric operation expression.
+#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct UnaryNumericOpExpr {
+    input: BoxedExpr,
+    op: UnaryNumericOperator,
+}
+
+impl UnaryNumericOpExpr {
+    /// Create a new unary numeric operation expression.
     #[inline]
-    pub fn new(input: BoxedExpr) -> Self {
-        Self { input }
+    pub fn new(input: impl Into<BoxedExpr>, op: UnaryNumericOperator) -> Self {
+        Self {
+            input: input.into(),
+            op,
+        }
     }
 }
 
 #[typetag::serde]
-impl Expr for NormalizeExpr {
+impl Expr for UnaryNumericOpExpr {
     fn as_expr(&self) -> &dyn Expr {
         self
     }
@@ -880,32 +912,43 @@ impl Expr for NormalizeExpr {
     }
 
     fn value_type(&self) -> ValueType {
-        self.input.value_type()
+        match self.op {
+            UnaryNumericOperator::Abs => self.input.value_type(),
+            UnaryNumericOperator::All | UnaryNumericOperator::Any => {
+                ValueType::Scalar(ScalarType::Bool)
+            }
+            UnaryNumericOperator::Normalize => ValueType::Scalar(ScalarType::Float),
+        }
     }
 
     fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
         let expr = self.input.eval(context);
 
-        if !self.input.value_type().is_vector() {
-            return Err(ExprError::TypeError(format!(
-                "Cannot apply normalize() function to non-vector expression: {}",
-                expr.unwrap_or("(error evaluating expression)".to_string())
-            )));
-        }
+        // if self.input.value_type() != self.value_type() {
+        //     return Err(ExprError::TypeError(format!(
+        //         "Cannot apply normalize() function to non-vector expression: {}",
+        //         expr.unwrap_or("(error evaluating expression)".to_string())
+        //     )));
+        // }
 
-        expr.map(|s| format!("normalize({})", s))
+        expr.map(|s| format!("{}({})", self.op.to_wgsl_string(), s))
     }
 
     fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(NormalizeExpr {
+        Box::new(UnaryNumericOpExpr {
             input: self.input.boxed_clone(),
+            op: self.op,
         })
     }
 }
 
-impl ToWgslString for NormalizeExpr {
+impl ToWgslString for UnaryNumericOpExpr {
     fn to_wgsl_string(&self) -> String {
-        format!("normalize({})", self.input.to_wgsl_string())
+        format!(
+            "{}({})",
+            self.op.to_wgsl_string(),
+            self.input.to_wgsl_string()
+        )
     }
 }
 
@@ -919,6 +962,14 @@ pub enum BinaryNumericOperator {
     Min,
     /// Maximum operator.
     Max,
+    /// Less-than operator.
+    LessThan,
+    /// Less-than-or-equal operator.
+    LessThanOrEqual,
+    /// Greater-than operator.
+    GreaterThan,
+    /// Greater-than-or-equal operator.
+    GreaterThanOrEqual,
 }
 
 impl BinaryNumericOperator {
@@ -930,6 +981,10 @@ impl BinaryNumericOperator {
     pub fn is_functional(&self) -> bool {
         match *self {
             BinaryNumericOperator::Min | BinaryNumericOperator::Max => true,
+            BinaryNumericOperator::LessThan
+            | BinaryNumericOperator::LessThanOrEqual
+            | BinaryNumericOperator::GreaterThan
+            | BinaryNumericOperator::GreaterThanOrEqual => false,
         }
     }
 }
@@ -939,11 +994,15 @@ impl ToWgslString for BinaryNumericOperator {
         match *self {
             BinaryNumericOperator::Min => "min".to_string(),
             BinaryNumericOperator::Max => "max".to_string(),
+            BinaryNumericOperator::LessThan => "<".to_string(),
+            BinaryNumericOperator::LessThanOrEqual => "<=".to_string(),
+            BinaryNumericOperator::GreaterThan => ">".to_string(),
+            BinaryNumericOperator::GreaterThanOrEqual => ">=".to_string(),
         }
     }
 }
 
-/// Expression for normalizing a vector.
+/// Binary numeric operation expression.
 #[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct BinaryNumericOpExpr {
     lhs: BoxedExpr,
@@ -1076,7 +1135,7 @@ impl_binary_ops!(MulExpr);
 impl_binary_ops!(DivExpr);
 impl_binary_ops!(AttributeExpr);
 impl_binary_ops!(BuiltInExpr);
-impl_binary_ops!(NormalizeExpr);
+impl_binary_ops!(UnaryNumericOpExpr);
 impl_binary_ops!(BinaryNumericOpExpr);
 
 #[cfg(test)]
