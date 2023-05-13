@@ -958,10 +958,14 @@ impl ToWgslString for UnaryNumericOpExpr {
 /// (component-wise).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub enum BinaryNumericOperator {
-    /// Minimum operator.
-    Min,
-    /// Maximum operator.
-    Max,
+    /// Addition operator.
+    Add,
+    /// Subtraction operator.
+    Sub,
+    /// Multiply operator.
+    Mul,
+    /// Division operator.
+    Div,
     /// Less-than operator.
     LessThan,
     /// Less-than-or-equal operator.
@@ -970,6 +974,10 @@ pub enum BinaryNumericOperator {
     GreaterThan,
     /// Greater-than-or-equal operator.
     GreaterThanOrEqual,
+    /// Minimum operator.
+    Min,
+    /// Maximum operator.
+    Max,
 }
 
 impl BinaryNumericOperator {
@@ -980,11 +988,15 @@ impl BinaryNumericOperator {
     /// b`).
     pub fn is_functional(&self) -> bool {
         match *self {
-            BinaryNumericOperator::Min | BinaryNumericOperator::Max => true,
-            BinaryNumericOperator::LessThan
+            BinaryNumericOperator::Add
+            | BinaryNumericOperator::Sub
+            | BinaryNumericOperator::Mul
+            | BinaryNumericOperator::Div
+            | BinaryNumericOperator::LessThan
             | BinaryNumericOperator::LessThanOrEqual
             | BinaryNumericOperator::GreaterThan
             | BinaryNumericOperator::GreaterThanOrEqual => false,
+            BinaryNumericOperator::Min | BinaryNumericOperator::Max => true,
         }
     }
 }
@@ -992,12 +1004,16 @@ impl BinaryNumericOperator {
 impl ToWgslString for BinaryNumericOperator {
     fn to_wgsl_string(&self) -> String {
         match *self {
-            BinaryNumericOperator::Min => "min".to_string(),
-            BinaryNumericOperator::Max => "max".to_string(),
+            BinaryNumericOperator::Add => "+".to_string(),
+            BinaryNumericOperator::Sub => "-".to_string(),
+            BinaryNumericOperator::Mul => "*".to_string(),
+            BinaryNumericOperator::Div => "/".to_string(),
             BinaryNumericOperator::LessThan => "<".to_string(),
             BinaryNumericOperator::LessThanOrEqual => "<=".to_string(),
             BinaryNumericOperator::GreaterThan => ">".to_string(),
             BinaryNumericOperator::GreaterThanOrEqual => ">=".to_string(),
+            BinaryNumericOperator::Min => "min".to_string(),
+            BinaryNumericOperator::Max => "max".to_string(),
         }
     }
 }
@@ -1138,9 +1154,251 @@ impl_binary_ops!(BuiltInExpr);
 impl_binary_ops!(UnaryNumericOpExpr);
 impl_binary_ops!(BinaryNumericOpExpr);
 
+/// Expression writer.
+///
+/// Utility to write expressions with a simple functional syntax.
+///
+/// # Example
+///
+/// ```
+/// type W = ExprWriter;
+/// let w = (W::lit(5.) + W::attr(Attribute::POSITION)).max(W::prop("my_prop"));
+/// let expr = w.expr();
+/// assert_eq!(expr.to_wgsl_string(), "max((5.) + (particle.position), properties.my_prop)");
+/// ```
+pub struct ExprWriter {
+    inner: BoxedExpr,
+}
+
+#[allow(dead_code)]
+impl ExprWriter {
+    /// Create a new writer starting from any generic expression.
+    pub fn new(inner: impl Into<BoxedExpr>) -> Self {
+        Self {
+            inner: inner.into(),
+        }
+    }
+
+    /// Create a new writer from a literal constant.
+    pub fn lit(value: impl Into<Value>) -> Self {
+        Self {
+            inner: Box::new(LiteralExpr {
+                value: value.into(),
+            }),
+        }
+    }
+
+    /// Create a new writer from an attribute expression.
+    pub fn attr(attr: Attribute) -> Self {
+        Self {
+            inner: Box::new(AttributeExpr::new(attr)),
+        }
+    }
+
+    /// Create a new writer from a property expression.
+    pub fn prop(name: impl Into<String>) -> Self {
+        Self {
+            inner: Box::new(PropertyExpr::new(name)),
+        }
+    }
+
+    /// Take the absolute value of the current expression.
+    pub fn abs(self) -> Self {
+        Self {
+            inner: Box::new(UnaryNumericOpExpr::new(
+                self.inner,
+                UnaryNumericOperator::Abs,
+            )),
+        }
+    }
+
+    /// Take the minimum value of the current expression and another expression.
+    pub fn min(self, other: Self) -> Self {
+        Self {
+            inner: Box::new(BinaryNumericOpExpr::new(
+                self.inner,
+                other.inner,
+                BinaryNumericOperator::Min,
+            )),
+        }
+    }
+
+    /// Take the maximum value of the current expression and another expression.
+    pub fn max(self, other: Self) -> Self {
+        Self {
+            inner: Box::new(BinaryNumericOpExpr::new(
+                self.inner,
+                other.inner,
+                BinaryNumericOperator::Max,
+            )),
+        }
+    }
+
+    /// Add the current expression with another expression.
+    pub fn add(self, other: Self) -> Self {
+        Self {
+            inner: Box::new(BinaryNumericOpExpr::new(
+                self.inner,
+                other.inner,
+                BinaryNumericOperator::Add,
+            )),
+        }
+    }
+
+    /// Subtract another expression from the current expression.
+    pub fn sub(self, other: Self) -> Self {
+        Self {
+            inner: Box::new(BinaryNumericOpExpr::new(
+                self.inner,
+                other.inner,
+                BinaryNumericOperator::Sub,
+            )),
+        }
+    }
+
+    /// Multiply the current expression with another expression.
+    pub fn mul(self, other: Self) -> Self {
+        Self {
+            inner: Box::new(BinaryNumericOpExpr::new(
+                self.inner,
+                other.inner,
+                BinaryNumericOperator::Mul,
+            )),
+        }
+    }
+
+    /// Divide the current expression by another expression.
+    pub fn div(self, other: Self) -> Self {
+        Self {
+            inner: Box::new(BinaryNumericOpExpr::new(
+                self.inner,
+                other.inner,
+                BinaryNumericOperator::Div,
+            )),
+        }
+    }
+
+    /// Apply the logical operator "less than or equal" to this expression and another expression.
+    pub fn le(self, other: Self) -> Self {
+        Self {
+            inner: Box::new(BinaryNumericOpExpr::new(
+                self.inner,
+                other.inner,
+                BinaryNumericOperator::LessThanOrEqual,
+            )),
+        }
+    }
+
+    /// Apply the logical operator "less than" to this expression and another expression.
+    pub fn lt(self, other: Self) -> Self {
+        Self {
+            inner: Box::new(BinaryNumericOpExpr::new(
+                self.inner,
+                other.inner,
+                BinaryNumericOperator::LessThan,
+            )),
+        }
+    }
+
+    /// Apply the logical operator "greater than or equal" to this expression and another expression.
+    pub fn ge(self, other: Self) -> Self {
+        Self {
+            inner: Box::new(BinaryNumericOpExpr::new(
+                self.inner,
+                other.inner,
+                BinaryNumericOperator::GreaterThanOrEqual,
+            )),
+        }
+    }
+
+    /// Apply the logical operator "greater than" to this expression and another expression.
+    pub fn gt(self, other: Self) -> Self {
+        Self {
+            inner: Box::new(BinaryNumericOpExpr::new(
+                self.inner,
+                other.inner,
+                BinaryNumericOperator::GreaterThan,
+            )),
+        }
+    }
+
+    /// Apply the logical operator "all" to the current bool vector expression.
+    pub fn all(self) -> Self {
+        Self {
+            inner: Box::new(UnaryNumericOpExpr::new(
+                self.inner,
+                UnaryNumericOperator::All,
+            )),
+        }
+    }
+
+    /// Apply the logical operator "any" to the current bool vector expression.
+    pub fn any(self) -> Self {
+        Self {
+            inner: Box::new(UnaryNumericOpExpr::new(
+                self.inner,
+                UnaryNumericOperator::Any,
+            )),
+        }
+    }
+
+    /// Finalize the writer and return the accumulated expression.
+    pub fn expr(self) -> BoxedExpr {
+        self.inner
+    }
+}
+
+impl std::ops::Add<ExprWriter> for ExprWriter {
+    type Output = ExprWriter;
+
+    fn add(self, rhs: ExprWriter) -> Self::Output {
+        self.add(rhs)
+    }
+}
+
+impl std::ops::Sub<ExprWriter> for ExprWriter {
+    type Output = ExprWriter;
+
+    fn sub(self, rhs: ExprWriter) -> Self::Output {
+        self.sub(rhs)
+    }
+}
+
+impl std::ops::Mul<ExprWriter> for ExprWriter {
+    type Output = ExprWriter;
+
+    fn mul(self, rhs: ExprWriter) -> Self::Output {
+        self.mul(rhs)
+    }
+}
+
+impl std::ops::Div<ExprWriter> for ExprWriter {
+    type Output = ExprWriter;
+
+    fn div(self, rhs: ExprWriter) -> Self::Output {
+        self.div(rhs)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn writer() {
+        type W = ExprWriter;
+        let w = W::lit(3.)
+            .abs()
+            .max(W::attr(Attribute::POSITION) * W::lit(2.))
+            + W::lit(-4.).min(W::prop("my_prop"));
+        let x = w.expr();
+        let s = x.to_wgsl_string();
+        assert_eq!(
+            "(max(abs(3.), (particle.position) * (2.))) + (min(-4., properties.my_prop))"
+                .to_string(),
+            s
+        );
+    }
 
     #[test]
     fn err() {

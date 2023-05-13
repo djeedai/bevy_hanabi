@@ -12,10 +12,10 @@ use crate::{
     calc_func_id,
     graph::{
         AttributeExpr, BinaryNumericOpExpr, BinaryNumericOperator, BoxedExpr, BuiltInExpr,
-        BuiltInOperator, EvalContext, Expr, ExprError, LiteralExpr, MulExpr, PropertyExpr,
-        UnaryNumericOpExpr, UnaryNumericOperator, Value,
+        BuiltInOperator, EvalContext, Expr, ExprError, LiteralExpr, MulExpr, PropertyExpr, Value,
     },
-    Attribute, BoxedModifier, Modifier, ModifierContext, Property, PropertyLayout, ToWgslString,
+    Attribute, BoxedModifier, ExprWriter, Modifier, ModifierContext, Property, PropertyLayout,
+    ToWgslString,
 };
 
 /// Particle update shader code generation context.
@@ -723,21 +723,21 @@ impl_mod_update!(AabbKillModifier, &[Attribute::POSITION]);
 #[typetag::serde]
 impl UpdateModifier for AabbKillModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let lhs = AttributeExpr::new(Attribute::POSITION) - self.center.clone();
-        let lhs = UnaryNumericOpExpr::new(lhs, UnaryNumericOperator::Abs);
-        let rhs = self.half_size.clone();
+        type W = ExprWriter;
+
+        let lhs = (W::attr(Attribute::POSITION) - W::new(self.center.clone())).abs();
+        let rhs = W::new(self.half_size.clone());
         let cmp = if self.kill_inside {
-            BinaryNumericOperator::LessThan
+            lhs.lt(rhs)
         } else {
-            BinaryNumericOperator::GreaterThan
+            lhs.gt(rhs)
         };
-        let cmp = BinaryNumericOpExpr::new(lhs, rhs, cmp);
         let reduce = if self.kill_inside {
-            UnaryNumericOperator::All
+            cmp.all()
         } else {
-            UnaryNumericOperator::Any
+            cmp.any()
         };
-        let expr = UnaryNumericOpExpr::new(cmp, reduce);
+        let expr = reduce.expr();
         let expr = expr.eval(context)?;
 
         context.update_code += &format!(
