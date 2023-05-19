@@ -1,8 +1,7 @@
-use std::any::Any;
+use std::{cmp::Ordering, fmt, marker::PhantomData, num::NonZeroU32};
 
 use bevy::{
-    prelude::*,
-    reflect::{FromReflect, Reflect, ReflectMut, ReflectOwned, ReflectRef, TypeInfo},
+    reflect::{FromReflect, Reflect},
     utils::thiserror::Error,
 };
 use serde::{Deserialize, Serialize};
@@ -10,6 +9,104 @@ use serde::{Deserialize, Serialize};
 use crate::{Attribute, PropertyLayout, ScalarType, ToWgslString, ValueType};
 
 use super::Value;
+
+type Index = NonZeroU32;
+
+#[derive(Reflect, FromReflect, Serialize, Deserialize)]
+pub struct Handle<T: Send + Sync + 'static> {
+    index: Index,
+    #[serde(skip)]
+    #[reflect(ignore)]
+    marker: PhantomData<T>,
+}
+
+impl<T: Send + Sync + 'static> Clone for Handle<T> {
+    fn clone(&self) -> Self {
+        Handle {
+            index: self.index,
+            marker: self.marker,
+        }
+    }
+}
+
+impl<T: Send + Sync + 'static> Copy for Handle<T> {}
+
+impl<T: Send + Sync + 'static> PartialEq for Handle<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+    }
+}
+
+impl<T: Send + Sync + 'static> Eq for Handle<T> {}
+
+impl<T: Send + Sync + 'static> PartialOrd for Handle<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.index.partial_cmp(&other.index)
+    }
+}
+
+impl<T: Send + Sync + 'static> Ord for Handle<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.index.cmp(&other.index)
+    }
+}
+
+impl<T: Send + Sync + 'static> fmt::Debug for Handle<T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        write!(formatter, "[{}]", self.index)
+    }
+}
+
+impl<T: Send + Sync + 'static> std::hash::Hash for Handle<T> {
+    fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        self.index.hash(hasher)
+    }
+}
+
+impl<T: Send + Sync + 'static> Handle<T> {
+    fn new(index: Index) -> Handle<T> {
+        Handle {
+            index,
+            marker: PhantomData,
+        }
+    }
+
+    fn index(&self) -> usize {
+        (self.index.get() - 1) as usize
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Module {
+    expressions: Vec<Expr>,
+}
+
+impl Module {
+    #[allow(unsafe_code)]
+    pub fn push(&mut self, expr: Expr) -> Handle<Expr> {
+        let index = unsafe { NonZeroU32::new_unchecked(self.expressions.len() as u32 + 1) };
+        self.expressions.push(expr);
+        Handle::new(index)
+    }
+
+    #[inline]
+    pub fn get(&self, expr: Handle<Expr>) -> Option<&Expr> {
+        let index = expr.index();
+        self.expressions.get(index)
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, expr: Handle<Expr>) -> Option<&mut Expr> {
+        let index = expr.index();
+        self.expressions.get_mut(index)
+    }
+
+    #[inline]
+    pub fn is_const(&self, expr: Handle<Expr>) -> bool {
+        let expr = self.get(expr).unwrap();
+        expr.is_const(self)
+    }
+}
 
 ///
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -30,122 +127,111 @@ pub enum ExprError {
 
 /// Evaluation context for [`Expr::eval()`].
 pub trait EvalContext {
+    /// Get the module the evaluation is taking place in.
+    fn module(&self) -> &Module;
+
     /// Get the property layout of the effect.
     fn property_layout(&self) -> &PropertyLayout;
+
+    /// Resolve an expression handle its the underlying expression.
+    fn expr(&self, handle: Handle<Expr>) -> Result<&Expr, ExprError>;
+
+    /// Evaluate an expression.
+    fn eval(&self, handle: Handle<Expr>) -> Result<String, ExprError>;
 }
 
 /// Language expression producing a value.
-#[typetag::serde]
-pub trait Expr: std::fmt::Debug + ToWgslString + Send + Sync + Reflect + 'static {
-    /// Get an expression.
-    fn as_expr(&self) -> &dyn Expr;
+#[derive(Debug, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+pub enum Expr {
+    BuiltIn(BuiltInExpr),
+    Literal(LiteralExpr),
+    Property(PropertyExpr),
+    Attribute(AttributeExpr),
+    Unary {
+        op: UnaryNumericOperator,
+        expr: Handle<Expr>,
+    },
+    Binary {
+        op: BinaryOperator,
+        left: Handle<Expr>,
+        right: Handle<Expr>,
+    },
+}
 
+impl Expr {
     /// Is the expression resulting in a compile-time constant which can be
     /// hard-coded into a shader's code?
-    fn is_const(&self) -> bool {
-        false
+    pub fn is_const(&self, module: &Module) -> bool {
+        match *self {
+            Expr::BuiltIn(expr) => expr.is_const(),
+            Expr::Literal(expr) => expr.is_const(),
+            Expr::Property(expr) => expr.is_const(),
+            Expr::Attribute(expr) => expr.is_const(),
+            Expr::Unary { op, expr } => module.is_const(expr),
+            Expr::Binary { op, left, right } => module.is_const(left) && module.is_const(right),
+        }
     }
 
     /// The type of the value produced by the expression.
-    fn value_type(&self) -> ValueType;
+    pub fn value_type(&self) -> ValueType {
+        unimplemented!()
+    }
 
     /// Evaluate the expression.
-    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError>;
+    pub fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
+        match *self {
+            Expr::BuiltIn(expr) => expr.eval(context),
+            Expr::Literal(expr) => expr.eval(context),
+            Expr::Property(expr) => expr.eval(context),
+            Expr::Attribute(expr) => expr.eval(context),
+            Expr::Unary { op, expr } => {
+                let expr = context.expr(expr)?.eval(context);
 
-    /// Create a boxed clone of self.
-    fn boxed_clone(&self) -> BoxedExpr;
-}
+                // if expr.value_type() != self.value_type() {
+                //     return Err(ExprError::TypeError(format!(
+                //         "Cannot apply normalize() function to non-vector expression: {}",
+                //         expr.unwrap_or("(error evaluating expression)".to_string())
+                //     )));
+                // }
 
-/// Boxed [`Expr`] for storing an expression.
-pub type BoxedExpr = Box<dyn Expr>;
+                expr.map(|s| format!("{}({})", op.to_wgsl_string(), s))
+            }
+            Expr::Binary { op, left, right } => {
+                let left = context.expr(left)?.eval(context)?;
+                let right = context.expr(right)?.eval(context)?;
 
-impl Clone for BoxedExpr {
-    fn clone(&self) -> Self {
-        self.boxed_clone()
+                // if !self.input.value_type().is_vector() {
+                //     return Err(ExprError::TypeError(format!(
+                //         "Cannot apply normalize() function to non-vector expression: {}",
+                //         expr.unwrap_or("(error evaluating expression)".to_string())
+                //     )));
+                // }
+
+                Ok(if op.is_functional() {
+                    format!("{}({}, {})", op.to_wgsl_string(), left, right)
+                } else {
+                    format!("({}) {} ({})", left, op.to_wgsl_string(), right)
+                })
+            }
+        }
     }
 }
 
-impl ToWgslString for BoxedExpr {
+impl ToWgslString for Expr {
     fn to_wgsl_string(&self) -> String {
-        let d: &dyn Expr = self.as_ref();
-        d.to_wgsl_string()
-    }
-}
-
-impl Reflect for BoxedExpr {
-    fn type_name(&self) -> &str {
-        (**self).type_name()
-    }
-
-    fn get_type_info(&self) -> &'static TypeInfo {
-        (**self).get_type_info()
-    }
-
-    fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        unimplemented!(); // TODO -- (**self).into_any()
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        let this: &dyn Expr = &**self;
-        this.as_any()
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        let this: &mut dyn Expr = &mut **self;
-        this.as_any_mut()
-    }
-
-    fn into_reflect(self: Box<Self>) -> Box<dyn Reflect> {
-        unimplemented!(); // TODO -- (**self).into_reflect()
-    }
-
-    fn as_reflect(&self) -> &dyn Reflect {
-        (**self).as_reflect()
-    }
-
-    fn as_reflect_mut(&mut self) -> &mut dyn Reflect {
-        (**self).as_reflect_mut()
-    }
-
-    fn apply(&mut self, value: &dyn Reflect) {
-        (**self).apply(value);
-    }
-
-    fn set(&mut self, value: Box<dyn Reflect>) -> Result<(), Box<dyn Reflect>> {
-        (**self).set(value)
-    }
-
-    fn reflect_ref(&self) -> ReflectRef {
-        (**self).reflect_ref()
-    }
-
-    fn reflect_mut(&mut self) -> ReflectMut {
-        (**self).reflect_mut()
-    }
-
-    fn reflect_owned(self: Box<Self>) -> ReflectOwned {
-        unimplemented!(); // TODO -- (**self).reflect_owned()
-    }
-
-    fn clone_value(&self) -> Box<dyn Reflect> {
-        (**self).clone_value()
-    }
-}
-
-impl FromReflect for BoxedExpr {
-    fn from_reflect(_reflect: &dyn Reflect) -> Option<Self> {
-        unimplemented!(); // TODO
-    }
-}
-
-impl<T: Expr> From<T> for BoxedExpr {
-    fn from(value: T) -> Self {
-        Box::new(value)
+        match *self {
+            Expr::BuiltIn(_) => unimplemented!(),
+            Expr::Literal(lit) => lit.to_wgsl_string(),
+            Expr::Property(prop) => prop.to_wgsl_string(),
+            Expr::Attribute(attr) => attr.to_wgsl_string(),
+            Expr::Unary { op, expr } => unimplemented!(),
+            Expr::Binary { op, left, right } => unimplemented!(),
+        }
     }
 }
 
 /// A literal constant expression like `3.0` or `vec3<f32>(1.0, 2.0, 3.0)`.
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct LiteralExpr {
     value: Value,
 }
@@ -160,34 +246,23 @@ impl LiteralExpr {
             value: value.into(),
         }
     }
+
+    pub fn is_const(&self) -> bool {
+        true
+    }
+
+    pub fn value_type(&self) -> ValueType {
+        self.value.value_type()
+    }
+
+    pub fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
+        Ok(self.value.to_wgsl_string())
+    }
 }
 
 impl ToWgslString for LiteralExpr {
     fn to_wgsl_string(&self) -> String {
         self.value.to_wgsl_string()
-    }
-}
-
-#[typetag::serde]
-impl Expr for LiteralExpr {
-    fn as_expr(&self) -> &dyn Expr {
-        self
-    }
-
-    fn is_const(&self) -> bool {
-        true
-    }
-
-    fn value_type(&self) -> ValueType {
-        self.value.value_type()
-    }
-
-    fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
-        Ok(self.value.to_wgsl_string())
-    }
-
-    fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(LiteralExpr { value: self.value })
     }
 }
 
@@ -205,457 +280,6 @@ impl<T: Into<Value>> From<T> for LiteralExpr {
     }
 }
 
-/// Addition expression between two expressions of the same type.
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct AddExpr {
-    left: BoxedExpr,
-    right: BoxedExpr,
-}
-
-impl AddExpr {
-    /// Create a new addition expression between two boxed expressions.
-    #[inline]
-    pub fn new<L: Into<BoxedExpr>, R: Into<BoxedExpr>>(lhs: L, rhs: R) -> Self {
-        let lhs: BoxedExpr = lhs.into();
-        let rhs: BoxedExpr = rhs.into();
-        Self {
-            left: lhs,
-            right: rhs,
-        }
-    }
-}
-
-#[typetag::serde]
-impl Expr for AddExpr {
-    fn as_expr(&self) -> &dyn Expr {
-        self
-    }
-
-    fn is_const(&self) -> bool {
-        self.left.is_const() && self.right.is_const()
-    }
-
-    fn value_type(&self) -> ValueType {
-        self.left.value_type() // TODO: cast left/right? or always gave same as
-                               // invariant?
-    }
-
-    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
-        let lhs = self.left.eval(context)?;
-        let rhs = self.right.eval(context)?;
-        Ok(format!("({}) + ({})", lhs, rhs))
-
-        // let value_type = self.left.value_type();
-        // if !value_type.is_numeric() || !self.right.value_type().is_numeric()
-        // {     return Err(ExprError::TypeError(format!(
-        //         "Cannot apply Add binary operator to boolean type: {:?} and
-        // {:?}",         value_type,
-        //         self.right.value_type()
-        //     )));
-        // }
-        // if value_type != self.right.value_type() {
-        //     // Special case: mixed scalar and vector operands
-        //     // https://www.w3.org/TR/WGSL/#arithmetic-expr
-        //     if value_type.is_scalar() && self.right.value_type().is_vector()
-        // {         // es + ev => V(es) + ev
-        //     } else if value_type.is_vector() &&
-        // self.right.value_type().is_scalar() {         // ev + es =>
-        // ev + V(es)     } else {
-        //         return Err(ExprError::TypeError(format!(
-        //             "Mismatching L/R types: {:?} != {:?}",
-        //             value_type,
-        //             self.right.value_type()
-        //         )));
-        //     }
-        // }
-
-        // let l = self.left.eval()?;
-        // let r = self.right.eval()?;
-
-        // if value_type != self.right.value_type() {
-        //     if value_type.is_scalar() {
-        //         // es + ev => V(es) + ev
-        //         let l = Value::Vector(VectorValue::splat(
-        //             l.as_scalar(),
-        //             r.as_vector().vector_type().count() as u8,
-        //         ));
-        //         Ok(l.binary_op(&r, BinaryOperator::Add))
-        //     } else {
-        //         // ev + es => ev + V(es)
-        //         let r = Value::Vector(VectorValue::splat(
-        //             r.as_scalar(),
-        //             l.as_vector().vector_type().count() as u8,
-        //         ));
-        //         Ok(l.binary_op(&r, BinaryOperator::Add))
-        //     }
-        // } else {
-        //     Ok(l.binary_op(&r, BinaryOperator::Add))
-        // }
-
-        // match value_type {
-        //     ValueType::Scalar(s) => match s {
-        //         ScalarType::Bool => {
-        //             let r: bool = r.try_into()?;
-        //             Ok(Value::Uint(l + r))
-        //         }
-        //         ScalarType::Float => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //         ScalarType::Int => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //         ScalarType::Uint => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //     },
-        // }
-    }
-
-    fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(AddExpr {
-            left: self.left.boxed_clone(),
-            right: self.right.boxed_clone(),
-        })
-    }
-}
-
-impl ToWgslString for AddExpr {
-    fn to_wgsl_string(&self) -> String {
-        format!(
-            "({}) + ({})",
-            self.left.to_wgsl_string(),
-            self.right.to_wgsl_string()
-        )
-    }
-}
-
-/// Subtraction expression between two expressions of the same type.
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct SubExpr {
-    left: BoxedExpr,
-    right: BoxedExpr,
-}
-
-impl SubExpr {
-    /// Create a new addition expression between two boxed expressions.
-    #[inline]
-    pub fn new<L: Into<BoxedExpr>, R: Into<BoxedExpr>>(lhs: L, rhs: R) -> Self {
-        let lhs: BoxedExpr = lhs.into();
-        let rhs: BoxedExpr = rhs.into();
-        assert_eq!(lhs.value_type(), rhs.value_type());
-        Self {
-            left: lhs,
-            right: rhs,
-        }
-    }
-}
-
-#[typetag::serde]
-impl Expr for SubExpr {
-    fn as_expr(&self) -> &dyn Expr {
-        self
-    }
-
-    fn is_const(&self) -> bool {
-        self.left.is_const() && self.right.is_const()
-    }
-
-    fn value_type(&self) -> ValueType {
-        self.left.value_type() // TODO: cast left/right? or always gave same as
-                               // invariant?
-    }
-
-    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
-        let lhs = self.left.eval(context)?;
-        let rhs = self.right.eval(context)?;
-        Ok(format!("({}) - ({})", lhs, rhs))
-
-        // let value_type = self.left.value_type();
-        // if !value_type.is_numeric() || !self.right.value_type().is_numeric()
-        // {     return Err(ExprError::TypeError(format!(
-        //         "Cannot apply Sub binary operator to boolean type: {:?} and
-        // {:?}",         value_type,
-        //         self.right.value_type()
-        //     )));
-        // }
-        // if value_type != self.right.value_type() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Mismatching L/R types: {:?} != {:?}",
-        //         value_type,
-        //         self.right.value_type()
-        //     )));
-        // }
-
-        // if !value_type.is_numeric() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Non-numeric type in Add expression."
-        //     )));
-        // }
-
-        // let l = self.left.eval()?;
-        // let r = self.right.eval()?;
-
-        // Ok(l.binary_op(&r, BinaryOperator::Sub))
-
-        // match value_type {
-        //     ValueType::Scalar(s) => match s {
-        //         ScalarType::Bool => {
-        //             let r: bool = r.try_into()?;
-        //             Ok(Value::Uint(l + r))
-        //         }
-        //         ScalarType::Float => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //         ScalarType::Int => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //         ScalarType::Uint => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //     },
-        // }
-    }
-
-    fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(SubExpr {
-            left: self.left.boxed_clone(),
-            right: self.right.boxed_clone(),
-        })
-    }
-}
-
-impl ToWgslString for SubExpr {
-    fn to_wgsl_string(&self) -> String {
-        format!(
-            "({}) - ({})",
-            self.left.to_wgsl_string(),
-            self.right.to_wgsl_string()
-        )
-    }
-}
-
-/// Multiply expression between two expressions of the same type.
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct MulExpr {
-    left: BoxedExpr,
-    right: BoxedExpr,
-}
-
-impl MulExpr {
-    /// Create a new addition expression between two boxed expressions.
-    #[inline]
-    pub fn new<L: Into<BoxedExpr>, R: Into<BoxedExpr>>(lhs: L, rhs: R) -> Self {
-        let lhs: BoxedExpr = lhs.into();
-        let rhs: BoxedExpr = rhs.into();
-        assert_eq!(lhs.value_type(), rhs.value_type());
-        Self {
-            left: lhs,
-            right: rhs,
-        }
-    }
-}
-
-#[typetag::serde]
-impl Expr for MulExpr {
-    fn as_expr(&self) -> &dyn Expr {
-        self
-    }
-
-    fn is_const(&self) -> bool {
-        self.left.is_const() && self.right.is_const()
-    }
-
-    fn value_type(&self) -> ValueType {
-        self.left.value_type() // TODO: cast left/right? or always gave same as
-                               // invariant?
-    }
-
-    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
-        let lhs = self.left.eval(context)?;
-        let rhs = self.right.eval(context)?;
-        Ok(format!("({}) * ({})", lhs, rhs))
-
-        // let value_type = self.left.value_type();
-        // if !value_type.is_numeric() || !self.right.value_type().is_numeric()
-        // {     return Err(ExprError::TypeError(format!(
-        //         "Cannot apply Mul binary operator to boolean type: {:?} and
-        // {:?}",         value_type,
-        //         self.right.value_type()
-        //     )));
-        // }
-        // if value_type != self.right.value_type() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Mismatching L/R types: {:?} != {:?}",
-        //         value_type,
-        //         self.right.value_type()
-        //     )));
-        // }
-
-        // if !value_type.is_numeric() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Non-numeric type in Add expression."
-        //     )));
-        // }
-
-        // let l = self.left.eval()?;
-        // let r = self.right.eval()?;
-
-        // Ok(l.binary_op(&r, BinaryOperator::Mul))
-
-        // match value_type {
-        //     ValueType::Scalar(s) => match s {
-        //         ScalarType::Bool => {
-        //             let r: bool = r.try_into()?;
-        //             Ok(Value::Uint(l + r))
-        //         }
-        //         ScalarType::Float => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //         ScalarType::Int => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //         ScalarType::Uint => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //     },
-        // }
-    }
-
-    fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(MulExpr {
-            left: self.left.boxed_clone(),
-            right: self.right.boxed_clone(),
-        })
-    }
-}
-
-impl ToWgslString for MulExpr {
-    fn to_wgsl_string(&self) -> String {
-        format!(
-            "({}) * ({})",
-            self.left.to_wgsl_string(),
-            self.right.to_wgsl_string()
-        )
-    }
-}
-
-/// Divide expression between two expressions of the same type.
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct DivExpr {
-    left: BoxedExpr,
-    right: BoxedExpr,
-}
-
-impl DivExpr {
-    /// Create a new addition expression between two boxed expressions.
-    #[inline]
-    pub fn new<L: Into<BoxedExpr>, R: Into<BoxedExpr>>(lhs: L, rhs: R) -> Self {
-        let lhs: BoxedExpr = lhs.into();
-        let rhs: BoxedExpr = rhs.into();
-        assert_eq!(lhs.value_type(), rhs.value_type());
-        Self {
-            left: lhs,
-            right: rhs,
-        }
-    }
-}
-
-#[typetag::serde]
-impl Expr for DivExpr {
-    fn as_expr(&self) -> &dyn Expr {
-        self
-    }
-
-    fn is_const(&self) -> bool {
-        self.left.is_const() && self.right.is_const()
-    }
-
-    fn value_type(&self) -> ValueType {
-        self.left.value_type() // TODO: cast left/right? or always gave same as
-                               // invariant?
-    }
-
-    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
-        let lhs = self.left.eval(context)?;
-        let rhs = self.right.eval(context)?;
-        Ok(format!("({}) / ({})", lhs, rhs))
-
-        // let value_type = self.left.value_type();
-        // if !value_type.is_numeric() || !self.right.value_type().is_numeric()
-        // {     return Err(ExprError::TypeError(format!(
-        //         "Cannot apply Div binary operator to boolean type: {:?} and
-        // {:?}",         value_type,
-        //         self.right.value_type()
-        //     )));
-        // }
-        // if value_type != self.right.value_type() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Mismatching L/R types: {:?} != {:?}",
-        //         value_type,
-        //         self.right.value_type()
-        //     )));
-        // }
-
-        // if !value_type.is_numeric() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Non-numeric type in Add expression."
-        //     )));
-        // }
-
-        // let l = self.left.eval()?;
-        // let r = self.right.eval()?;
-
-        // Ok(l.binary_op(&r, BinaryOperator::Div))
-
-        // match value_type {
-        //     ValueType::Scalar(s) => match s {
-        //         ScalarType::Bool => {
-        //             let r: bool = r.try_into()?;
-        //             Ok(Value::Uint(l + r))
-        //         }
-        //         ScalarType::Float => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //         ScalarType::Int => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //         ScalarType::Uint => {
-        //             let r: f32 = r.try_into()?;
-        //             Ok(Value::Float(l + r))
-        //         }
-        //     },
-        // }
-    }
-
-    fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(DivExpr {
-            left: self.left.boxed_clone(),
-            right: self.right.boxed_clone(),
-        })
-    }
-}
-
-impl ToWgslString for DivExpr {
-    fn to_wgsl_string(&self) -> String {
-        format!(
-            "({}) / ({})",
-            self.left.to_wgsl_string(),
-            self.right.to_wgsl_string()
-        )
-    }
-}
-
 /// Expression representing the value of an attribute of a particle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AttributeExpr {
@@ -668,28 +292,17 @@ impl AttributeExpr {
     pub fn new(attr: Attribute) -> Self {
         Self { attr }
     }
-}
 
-#[typetag::serde]
-impl Expr for AttributeExpr {
-    fn as_expr(&self) -> &dyn Expr {
-        self
-    }
-
-    fn is_const(&self) -> bool {
+    pub fn is_const(&self) -> bool {
         false
     }
 
-    fn value_type(&self) -> ValueType {
+    pub fn value_type(&self) -> ValueType {
         self.attr.value_type()
     }
 
-    fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
+    pub fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
         Ok(self.to_wgsl_string())
-    }
-
-    fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(AttributeExpr { attr: self.attr })
     }
 }
 
@@ -719,13 +332,6 @@ impl PropertyExpr {
             property_name: property_name.into(),
         }
     }
-}
-
-#[typetag::serde]
-impl Expr for PropertyExpr {
-    fn as_expr(&self) -> &dyn Expr {
-        self
-    }
 
     fn is_const(&self) -> bool {
         false
@@ -746,12 +352,6 @@ impl Expr for PropertyExpr {
         }
 
         Ok(self.to_wgsl_string())
-    }
-
-    fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(PropertyExpr {
-            property_name: self.property_name.clone(),
-        })
     }
 }
 
@@ -822,30 +422,17 @@ impl BuiltInExpr {
     pub fn new(operator: BuiltInOperator) -> Self {
         Self { operator }
     }
-}
 
-#[typetag::serde]
-impl Expr for BuiltInExpr {
-    fn as_expr(&self) -> &dyn Expr {
-        self
-    }
-
-    fn is_const(&self) -> bool {
+    pub fn is_const(&self) -> bool {
         false
     }
 
-    fn value_type(&self) -> ValueType {
+    pub fn value_type(&self) -> ValueType {
         self.operator.value_type()
     }
 
-    fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
+    pub fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
         Ok(self.to_wgsl_string())
-    }
-
-    fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(BuiltInExpr {
-            operator: self.operator,
-        })
     }
 }
 
@@ -883,81 +470,12 @@ impl ToWgslString for UnaryNumericOperator {
     }
 }
 
-/// Unary numeric operation expression.
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct UnaryNumericOpExpr {
-    input: BoxedExpr,
-    op: UnaryNumericOperator,
-}
-
-impl UnaryNumericOpExpr {
-    /// Create a new unary numeric operation expression.
-    #[inline]
-    pub fn new(input: impl Into<BoxedExpr>, op: UnaryNumericOperator) -> Self {
-        Self {
-            input: input.into(),
-            op,
-        }
-    }
-}
-
-#[typetag::serde]
-impl Expr for UnaryNumericOpExpr {
-    fn as_expr(&self) -> &dyn Expr {
-        self
-    }
-
-    fn is_const(&self) -> bool {
-        self.input.is_const()
-    }
-
-    fn value_type(&self) -> ValueType {
-        match self.op {
-            UnaryNumericOperator::Abs => self.input.value_type(),
-            UnaryNumericOperator::All | UnaryNumericOperator::Any => {
-                ValueType::Scalar(ScalarType::Bool)
-            }
-            UnaryNumericOperator::Normalize => ValueType::Scalar(ScalarType::Float),
-        }
-    }
-
-    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
-        let expr = self.input.eval(context);
-
-        // if self.input.value_type() != self.value_type() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Cannot apply normalize() function to non-vector expression: {}",
-        //         expr.unwrap_or("(error evaluating expression)".to_string())
-        //     )));
-        // }
-
-        expr.map(|s| format!("{}({})", self.op.to_wgsl_string(), s))
-    }
-
-    fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(UnaryNumericOpExpr {
-            input: self.input.boxed_clone(),
-            op: self.op,
-        })
-    }
-}
-
-impl ToWgslString for UnaryNumericOpExpr {
-    fn to_wgsl_string(&self) -> String {
-        format!(
-            "{}({})",
-            self.op.to_wgsl_string(),
-            self.input.to_wgsl_string()
-        )
-    }
-}
-
 /// Binary numeric operator.
 ///
 /// The operator can be used with any numeric type or vector of numeric types
 /// (component-wise).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
-pub enum BinaryNumericOperator {
+pub enum BinaryOperator {
     /// Addition operator.
     Add,
     /// Subtraction operator.
@@ -980,7 +498,7 @@ pub enum BinaryNumericOperator {
     Max,
 }
 
-impl BinaryNumericOperator {
+impl BinaryOperator {
     /// Check if a binary operator is called via a functional-style call.
     ///
     /// Functional-style calls are in the form `op(lhs, rhs)` (like `min(a,
@@ -988,171 +506,35 @@ impl BinaryNumericOperator {
     /// b`).
     pub fn is_functional(&self) -> bool {
         match *self {
-            BinaryNumericOperator::Add
-            | BinaryNumericOperator::Sub
-            | BinaryNumericOperator::Mul
-            | BinaryNumericOperator::Div
-            | BinaryNumericOperator::LessThan
-            | BinaryNumericOperator::LessThanOrEqual
-            | BinaryNumericOperator::GreaterThan
-            | BinaryNumericOperator::GreaterThanOrEqual => false,
-            BinaryNumericOperator::Min | BinaryNumericOperator::Max => true,
+            BinaryOperator::Add
+            | BinaryOperator::Sub
+            | BinaryOperator::Mul
+            | BinaryOperator::Div
+            | BinaryOperator::LessThan
+            | BinaryOperator::LessThanOrEqual
+            | BinaryOperator::GreaterThan
+            | BinaryOperator::GreaterThanOrEqual => false,
+            BinaryOperator::Min | BinaryOperator::Max => true,
         }
     }
 }
 
-impl ToWgslString for BinaryNumericOperator {
+impl ToWgslString for BinaryOperator {
     fn to_wgsl_string(&self) -> String {
         match *self {
-            BinaryNumericOperator::Add => "+".to_string(),
-            BinaryNumericOperator::Sub => "-".to_string(),
-            BinaryNumericOperator::Mul => "*".to_string(),
-            BinaryNumericOperator::Div => "/".to_string(),
-            BinaryNumericOperator::LessThan => "<".to_string(),
-            BinaryNumericOperator::LessThanOrEqual => "<=".to_string(),
-            BinaryNumericOperator::GreaterThan => ">".to_string(),
-            BinaryNumericOperator::GreaterThanOrEqual => ">=".to_string(),
-            BinaryNumericOperator::Min => "min".to_string(),
-            BinaryNumericOperator::Max => "max".to_string(),
+            BinaryOperator::Add => "+".to_string(),
+            BinaryOperator::Sub => "-".to_string(),
+            BinaryOperator::Mul => "*".to_string(),
+            BinaryOperator::Div => "/".to_string(),
+            BinaryOperator::LessThan => "<".to_string(),
+            BinaryOperator::LessThanOrEqual => "<=".to_string(),
+            BinaryOperator::GreaterThan => ">".to_string(),
+            BinaryOperator::GreaterThanOrEqual => ">=".to_string(),
+            BinaryOperator::Min => "min".to_string(),
+            BinaryOperator::Max => "max".to_string(),
         }
     }
 }
-
-/// Binary numeric operation expression.
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct BinaryNumericOpExpr {
-    lhs: BoxedExpr,
-    rhs: BoxedExpr,
-    op: BinaryNumericOperator,
-}
-
-impl BinaryNumericOpExpr {
-    /// Create a new binary numeric operation expression.
-    #[inline]
-    pub fn new(
-        lhs: impl Into<BoxedExpr>,
-        rhs: impl Into<BoxedExpr>,
-        op: BinaryNumericOperator,
-    ) -> Self {
-        Self {
-            lhs: lhs.into(),
-            rhs: rhs.into(),
-            op,
-        }
-    }
-}
-
-#[typetag::serde]
-impl Expr for BinaryNumericOpExpr {
-    fn as_expr(&self) -> &dyn Expr {
-        self
-    }
-
-    fn is_const(&self) -> bool {
-        self.lhs.is_const() && self.rhs.is_const()
-    }
-
-    fn value_type(&self) -> ValueType {
-        self.lhs.value_type() // FIXME - need to handle casts
-    }
-
-    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
-        let lhs = self.lhs.eval(context)?;
-        let rhs = self.rhs.eval(context)?;
-
-        // if !self.input.value_type().is_vector() {
-        //     return Err(ExprError::TypeError(format!(
-        //         "Cannot apply normalize() function to non-vector expression: {}",
-        //         expr.unwrap_or("(error evaluating expression)".to_string())
-        //     )));
-        // }
-
-        Ok(if self.op.is_functional() {
-            format!("{}({}, {})", self.op.to_wgsl_string(), lhs, rhs)
-        } else {
-            format!("({}) {} ({})", lhs, self.op.to_wgsl_string(), rhs)
-        })
-    }
-
-    fn boxed_clone(&self) -> BoxedExpr {
-        Box::new(BinaryNumericOpExpr {
-            lhs: self.lhs.boxed_clone(),
-            rhs: self.rhs.boxed_clone(),
-            op: self.op,
-        })
-    }
-}
-
-impl ToWgslString for BinaryNumericOpExpr {
-    fn to_wgsl_string(&self) -> String {
-        if self.op.is_functional() {
-            format!(
-                "{}({}, {})",
-                self.op.to_wgsl_string(),
-                self.lhs.to_wgsl_string(),
-                self.rhs.to_wgsl_string()
-            )
-        } else {
-            format!(
-                "({}) {} ({})",
-                self.lhs.to_wgsl_string(),
-                self.op.to_wgsl_string(),
-                self.rhs.to_wgsl_string()
-            )
-        }
-    }
-}
-
-/// Implement the binary operators for the given concrete expression type.
-macro_rules! impl_binary_ops {
-    ($t: ty) => {
-        impl<T: Into<BoxedExpr>> std::ops::Add<T> for $t {
-            type Output = AddExpr;
-
-            fn add(self, rhs: T) -> Self::Output {
-                let this: BoxedExpr = Box::new(self);
-                AddExpr::new(this, rhs)
-            }
-        }
-
-        impl<T: Into<BoxedExpr>> std::ops::Sub<T> for $t {
-            type Output = SubExpr;
-
-            fn sub(self, rhs: T) -> Self::Output {
-                let this: BoxedExpr = Box::new(self);
-                SubExpr::new(this, rhs)
-            }
-        }
-
-        impl<T: Into<BoxedExpr>> std::ops::Mul<T> for $t {
-            type Output = MulExpr;
-
-            fn mul(self, rhs: T) -> Self::Output {
-                let this: BoxedExpr = Box::new(self);
-                MulExpr::new(this, rhs)
-            }
-        }
-
-        impl<T: Into<BoxedExpr>> std::ops::Div<T> for $t {
-            type Output = DivExpr;
-
-            fn div(self, rhs: T) -> Self::Output {
-                let this: BoxedExpr = Box::new(self);
-                DivExpr::new(this, rhs)
-            }
-        }
-    };
-}
-
-impl_binary_ops!(LiteralExpr);
-impl_binary_ops!(AddExpr);
-impl_binary_ops!(SubExpr);
-impl_binary_ops!(MulExpr);
-impl_binary_ops!(DivExpr);
-impl_binary_ops!(AttributeExpr);
-impl_binary_ops!(BuiltInExpr);
-impl_binary_ops!(UnaryNumericOpExpr);
-impl_binary_ops!(BinaryNumericOpExpr);
 
 /// Expression writer.
 ///
@@ -1166,233 +548,195 @@ impl_binary_ops!(BinaryNumericOpExpr);
 /// let expr = w.expr();
 /// assert_eq!(expr.to_wgsl_string(), "max((5.) + (particle.position), properties.my_prop)");
 /// ```
-pub struct ExprWriter {
-    inner: BoxedExpr,
+#[derive(Debug)]
+pub struct ExprWriter<'m> {
+    module: &'m Module,
+}
+
+#[derive(Debug)]
+pub struct WriterExpr<'m, 'w> {
+    expr: Handle<Expr>,
+    writer: &'w mut ExprWriter<'m>,
 }
 
 #[allow(dead_code)]
-impl ExprWriter {
+impl<'m> ExprWriter<'m> {
     /// Create a new writer starting from any generic expression.
-    pub fn new(inner: impl Into<BoxedExpr>) -> Self {
-        Self {
-            inner: inner.into(),
-        }
+    pub fn new(module: &'m Module) -> Self {
+        Self { module }
     }
 
     /// Create a new writer from a literal constant.
-    pub fn lit(value: impl Into<Value>) -> Self {
-        Self {
-            inner: Box::new(LiteralExpr {
-                value: value.into(),
-            }),
-        }
+    pub fn lit<'w>(&'w mut self, value: impl Into<Value>) -> WriterExpr<'m, 'w> {
+        let expr = self.module.push(Expr::Literal(LiteralExpr {
+            value: value.into(),
+        }));
+        WriterExpr { expr, writer: self }
     }
 
     /// Create a new writer from an attribute expression.
-    pub fn attr(attr: Attribute) -> Self {
-        Self {
-            inner: Box::new(AttributeExpr::new(attr)),
-        }
+    pub fn attr<'w>(&'w mut self, attr: Attribute) -> WriterExpr<'m, 'w> {
+        let expr = self.module.push(Expr::Attribute(AttributeExpr::new(attr)));
+        WriterExpr { expr, writer: self }
     }
 
     /// Create a new writer from a property expression.
-    pub fn prop(name: impl Into<String>) -> Self {
-        Self {
-            inner: Box::new(PropertyExpr::new(name)),
-        }
+    pub fn prop<'w>(&'w mut self, name: impl Into<String>) -> WriterExpr<'m, 'w> {
+        let expr = self.module.push(Expr::Property(PropertyExpr::new(name)));
+        WriterExpr { expr, writer: self }
+    }
+}
+
+impl<'m, 'w> WriterExpr<'m, 'w> {
+    fn unary_op(mut self, op: UnaryNumericOperator) -> Self {
+        let expr = self.writer.module.push(Expr::Unary {
+            op,
+            expr: self.expr,
+        });
+        self
     }
 
     /// Take the absolute value of the current expression.
-    pub fn abs(self) -> Self {
-        Self {
-            inner: Box::new(UnaryNumericOpExpr::new(
-                self.inner,
-                UnaryNumericOperator::Abs,
-            )),
-        }
-    }
-
-    /// Take the minimum value of the current expression and another expression.
-    pub fn min(self, other: Self) -> Self {
-        Self {
-            inner: Box::new(BinaryNumericOpExpr::new(
-                self.inner,
-                other.inner,
-                BinaryNumericOperator::Min,
-            )),
-        }
-    }
-
-    /// Take the maximum value of the current expression and another expression.
-    pub fn max(self, other: Self) -> Self {
-        Self {
-            inner: Box::new(BinaryNumericOpExpr::new(
-                self.inner,
-                other.inner,
-                BinaryNumericOperator::Max,
-            )),
-        }
-    }
-
-    /// Add the current expression with another expression.
-    pub fn add(self, other: Self) -> Self {
-        Self {
-            inner: Box::new(BinaryNumericOpExpr::new(
-                self.inner,
-                other.inner,
-                BinaryNumericOperator::Add,
-            )),
-        }
-    }
-
-    /// Subtract another expression from the current expression.
-    pub fn sub(self, other: Self) -> Self {
-        Self {
-            inner: Box::new(BinaryNumericOpExpr::new(
-                self.inner,
-                other.inner,
-                BinaryNumericOperator::Sub,
-            )),
-        }
-    }
-
-    /// Multiply the current expression with another expression.
-    pub fn mul(self, other: Self) -> Self {
-        Self {
-            inner: Box::new(BinaryNumericOpExpr::new(
-                self.inner,
-                other.inner,
-                BinaryNumericOperator::Mul,
-            )),
-        }
-    }
-
-    /// Divide the current expression by another expression.
-    pub fn div(self, other: Self) -> Self {
-        Self {
-            inner: Box::new(BinaryNumericOpExpr::new(
-                self.inner,
-                other.inner,
-                BinaryNumericOperator::Div,
-            )),
-        }
-    }
-
-    /// Apply the logical operator "less than or equal" to this expression and another expression.
-    pub fn le(self, other: Self) -> Self {
-        Self {
-            inner: Box::new(BinaryNumericOpExpr::new(
-                self.inner,
-                other.inner,
-                BinaryNumericOperator::LessThanOrEqual,
-            )),
-        }
-    }
-
-    /// Apply the logical operator "less than" to this expression and another expression.
-    pub fn lt(self, other: Self) -> Self {
-        Self {
-            inner: Box::new(BinaryNumericOpExpr::new(
-                self.inner,
-                other.inner,
-                BinaryNumericOperator::LessThan,
-            )),
-        }
-    }
-
-    /// Apply the logical operator "greater than or equal" to this expression and another expression.
-    pub fn ge(self, other: Self) -> Self {
-        Self {
-            inner: Box::new(BinaryNumericOpExpr::new(
-                self.inner,
-                other.inner,
-                BinaryNumericOperator::GreaterThanOrEqual,
-            )),
-        }
-    }
-
-    /// Apply the logical operator "greater than" to this expression and another expression.
-    pub fn gt(self, other: Self) -> Self {
-        Self {
-            inner: Box::new(BinaryNumericOpExpr::new(
-                self.inner,
-                other.inner,
-                BinaryNumericOperator::GreaterThan,
-            )),
-        }
+    pub fn abs(mut self) -> Self {
+        self.unary_op(UnaryNumericOperator::Abs)
     }
 
     /// Apply the logical operator "all" to the current bool vector expression.
     pub fn all(self) -> Self {
-        Self {
-            inner: Box::new(UnaryNumericOpExpr::new(
-                self.inner,
-                UnaryNumericOperator::All,
-            )),
-        }
+        self.unary_op(UnaryNumericOperator::All)
     }
 
     /// Apply the logical operator "any" to the current bool vector expression.
     pub fn any(self) -> Self {
-        Self {
-            inner: Box::new(UnaryNumericOpExpr::new(
-                self.inner,
-                UnaryNumericOperator::Any,
-            )),
-        }
+        self.unary_op(UnaryNumericOperator::Any)
+    }
+
+    fn binary_op(mut self, other: &mut Self, op: BinaryOperator) -> Self {
+        assert_eq!(self.writer, other.writer);
+        let left = self.expr;
+        let right = other.expr;
+        let expr = self.writer.module.push(Expr::Binary { op, left, right });
+        self
+    }
+
+    /// Take the minimum value of the current expression and another expression.
+    pub fn min(mut self, other: &mut Self) -> Self {
+        self.binary_op(other, BinaryOperator::Min)
+    }
+
+    /// Take the maximum value of the current expression and another expression.
+    pub fn max(mut self, other: &mut Self) -> Self {
+        self.binary_op(other, BinaryOperator::Max)
+    }
+
+    /// Add the current expression with another expression.
+    pub fn add(mut self, other: &mut Self) -> Self {
+        self.binary_op(other, BinaryOperator::Add)
+    }
+
+    /// Subtract another expression from the current expression.
+    pub fn sub(mut self, other: &mut Self) -> Self {
+        self.binary_op(other, BinaryOperator::Sub)
+    }
+
+    /// Multiply the current expression with another expression.
+    pub fn mul(mut self, other: &mut Self) -> Self {
+        self.binary_op(other, BinaryOperator::Mul)
+    }
+
+    /// Divide the current expression by another expression.
+    pub fn div(mut self, other: &mut Self) -> Self {
+        self.binary_op(other, BinaryOperator::Div)
+    }
+
+    /// Apply the logical operator "less than or equal" to this expression and another expression.
+    pub fn le(mut self, other: &mut Self) -> Self {
+        self.binary_op(other, BinaryOperator::LessThanOrEqual)
+    }
+
+    /// Apply the logical operator "less than" to this expression and another expression.
+    pub fn lt(mut self, other: &mut Self) -> Self {
+        self.binary_op(other, BinaryOperator::LessThan)
+    }
+
+    /// Apply the logical operator "greater than or equal" to this expression and another expression.
+    pub fn ge(mut self, other: &mut Self) -> Self {
+        self.binary_op(other, BinaryOperator::GreaterThanOrEqual)
+    }
+
+    /// Apply the logical operator "greater than" to this expression and another expression.
+    pub fn gt(mut self, other: &mut Self) -> Self {
+        self.binary_op(other, BinaryOperator::GreaterThan)
     }
 
     /// Finalize the writer and return the accumulated expression.
-    pub fn expr(self) -> BoxedExpr {
-        self.inner
+    pub fn expr(mut self) -> Handle<Expr> {
+        assert_eq!(1, self.stack.len());
+        self.stack.pop().unwrap()
     }
 }
 
-impl std::ops::Add<ExprWriter> for ExprWriter {
-    type Output = ExprWriter;
+impl<'m> std::ops::Add<ExprWriter<'m>> for ExprWriter<'m> {
+    type Output = ExprWriter<'m>;
 
-    fn add(self, rhs: ExprWriter) -> Self::Output {
-        self.add(rhs)
+    fn add(self, mut rhs: ExprWriter) -> Self::Output {
+        self.add(&mut rhs)
     }
 }
 
-impl std::ops::Sub<ExprWriter> for ExprWriter {
-    type Output = ExprWriter;
+impl<'m> std::ops::Sub<ExprWriter<'m>> for ExprWriter<'m> {
+    type Output = ExprWriter<'m>;
 
-    fn sub(self, rhs: ExprWriter) -> Self::Output {
-        self.sub(rhs)
+    fn sub(self, mut rhs: ExprWriter) -> Self::Output {
+        self.sub(&mut rhs)
     }
 }
 
-impl std::ops::Mul<ExprWriter> for ExprWriter {
-    type Output = ExprWriter;
+impl<'m> std::ops::Mul<ExprWriter<'m>> for ExprWriter<'m> {
+    type Output = ExprWriter<'m>;
 
-    fn mul(self, rhs: ExprWriter) -> Self::Output {
+    fn mul(self, mut rhs: ExprWriter) -> Self::Output {
+        self.mul(&mut rhs)
+    }
+}
+
+impl<'m> std::ops::Mul<&mut ExprWriter<'m>> for ExprWriter<'m> {
+    type Output = ExprWriter<'m>;
+
+    fn mul(self, rhs: &mut ExprWriter) -> Self::Output {
         self.mul(rhs)
     }
 }
 
-impl std::ops::Div<ExprWriter> for ExprWriter {
-    type Output = ExprWriter;
+impl<'m> std::ops::Mul<&mut ExprWriter<'m>> for &mut ExprWriter<'m> {
+    type Output = ExprWriter<'m>;
 
-    fn div(self, rhs: ExprWriter) -> Self::Output {
-        self.div(rhs)
+    fn mul(self, rhs: &mut ExprWriter) -> Self::Output {
+        self.mul(rhs)
+    }
+}
+
+impl<'m> std::ops::Div<ExprWriter<'m>> for ExprWriter<'m> {
+    type Output = ExprWriter<'m>;
+
+    fn div(self, mut rhs: ExprWriter) -> Self::Output {
+        self.div(&mut rhs)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::math::{Vec2, Vec3};
 
     #[test]
     fn writer() {
-        type W = ExprWriter;
-        let w = W::lit(3.)
-            .abs()
-            .max(W::attr(Attribute::POSITION) * W::lit(2.))
-            + W::lit(-4.).min(W::prop("my_prop"));
+        let mut m = Module::default();
+        let w = ExprWriter::new(&m);
+        let w = w.lit(3.).abs().max(w.attr(Attribute::POSITION) * w.lit(2.))
+            + w.lit(-4.).min(w.prop("my_prop"));
         let x = w.expr();
-        let s = x.to_wgsl_string();
+        let s = m.get(x).unwrap().to_wgsl_string();
         assert_eq!(
             "(max(abs(3.), (particle.position) * (2.))) + (min(-4., properties.my_prop))"
                 .to_string(),
@@ -1528,10 +872,10 @@ mod tests {
     //     let l_serde: LiteralExpr = ron::from_str(&s).unwrap();
     //     assert_eq!(l_serde, l);
 
-    //     let b: BoxedExpr = Box::new(l);
+    //     let b: Handle<Expr> = Box::new(l);
     //     let s = ron::to_string(&b).unwrap();
     //     println!("boxed literal: {:?}", s);
-    //     let b_serde: BoxedExpr = ron::from_str(&s).unwrap();
+    //     let b_serde: Handle<Expr> = ron::from_str(&s).unwrap();
     //     assert!(b_serde.is_const());
     //     assert_eq!(b_serde.to_wgsl_string(), b.to_wgsl_string());
 

@@ -321,8 +321,9 @@ mod tests {
 
         assert_eq!(effect.capacity, 4096);
 
+        let mut module = Module::default();
         let property_layout = PropertyLayout::default();
-        let mut init_context = InitContext::new(&property_layout);
+        let mut init_context = InitContext::new(&mut module, &property_layout);
         assert!(InitPositionSphereModifier::default()
             .apply(&mut init_context)
             .is_ok());
@@ -341,8 +342,9 @@ mod tests {
         );
         // assert_eq!(effect., init_context.init_code);
 
+        let mut module = Module::default();
         let property_layout = PropertyLayout::default();
-        let mut update_context = UpdateContext::new(&property_layout);
+        let mut update_context = UpdateContext::new(&mut module, &property_layout);
         assert!(AccelModifier::constant(Vec3::ONE)
             .apply(&mut update_context)
             .is_ok());

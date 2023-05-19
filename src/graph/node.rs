@@ -1,8 +1,8 @@
 use std::num::NonZeroU32;
 
 use crate::{
-    AddExpr, Attribute, AttributeExpr, BoxedExpr, BuiltInExpr, BuiltInOperator, DivExpr, Expr,
-    ExprError, MulExpr, SubExpr, UnaryNumericOpExpr, UnaryNumericOperator, ValueType,
+    graph::expr::Handle, Attribute, AttributeExpr, BuiltInExpr, BuiltInOperator, Expr, ExprError,
+    UnaryNumericOperator, ValueType,
 };
 
 /// Identifier of a node in a graph.
@@ -349,7 +349,7 @@ pub trait Node {
     ///
     /// The expressions themselves are not evaluated (that is, _e.g._ "3 + 2" is
     /// _not_ reduced to "5").
-    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError>;
+    fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError>;
 }
 
 /// Graph node to add two values.
@@ -376,7 +376,7 @@ impl Node for AddNode {
         &self.slots
     }
 
-    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+    fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
         if inputs.len() != 2 {
             return Err(ExprError::GraphEvalError(format!(
                 "Unexpected input count to AddNode::eval(): expected 2, got {}",
@@ -414,7 +414,7 @@ impl Node for SubNode {
         &self.slots
     }
 
-    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+    fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
         if inputs.len() != 2 {
             return Err(ExprError::GraphEvalError(format!(
                 "Unexpected input count to SubNode::eval(): expected 2, got {}",
@@ -452,7 +452,7 @@ impl Node for MulNode {
         &self.slots
     }
 
-    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+    fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
         if inputs.len() != 2 {
             return Err(ExprError::GraphEvalError(format!(
                 "Unexpected input count to MulNode::eval(): expected 2, got {}",
@@ -490,7 +490,7 @@ impl Node for DivNode {
         &self.slots
     }
 
-    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+    fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
         if inputs.len() != 2 {
             return Err(ExprError::GraphEvalError(format!(
                 "Unexpected input count to DivNode::eval(): expected 2, got {}",
@@ -540,7 +540,7 @@ impl Node for AttributeNode {
         &self.slots
     }
 
-    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+    fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
         if !inputs.is_empty() {
             return Err(ExprError::GraphEvalError(
                 "Unexpected non-empty input to AttributeNode::eval().".to_string(),
@@ -572,17 +572,14 @@ impl Node for TimeNode {
         &self.slots
     }
 
-    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+    fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
         if !inputs.is_empty() {
             return Err(ExprError::GraphEvalError(
                 "Unexpected non-empty input to TimeNode::eval().".to_string(),
             ));
         }
         Ok([BuiltInOperator::Time, BuiltInOperator::DeltaTime]
-            .map(|op| {
-                let expr: Box<dyn Expr> = Box::new(BuiltInExpr::new(op));
-                expr
-            })
+            .map(BuiltInExpr::new)
             .to_vec())
     }
 }
@@ -608,7 +605,7 @@ impl Node for NormalizeNode {
         &self.slots
     }
 
-    fn eval(&self, inputs: Vec<BoxedExpr>) -> Result<Vec<BoxedExpr>, ExprError> {
+    fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
         if inputs.len() != 1 {
             return Err(ExprError::GraphEvalError(
                 "Unexpected input slot count to NormalizeNode::eval() not equal to one."

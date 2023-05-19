@@ -11,16 +11,17 @@ use serde::{Deserialize, Serialize};
 use crate::{
     calc_func_id,
     graph::{
-        AttributeExpr, BinaryNumericOpExpr, BinaryNumericOperator, BoxedExpr, BuiltInExpr,
-        BuiltInOperator, EvalContext, Expr, ExprError, LiteralExpr, MulExpr, PropertyExpr, Value,
+        self, AttributeExpr, BinaryOperator, BuiltInExpr, BuiltInOperator, EvalContext, Expr,
+        ExprError, LiteralExpr, PropertyExpr, Value,
     },
-    Attribute, BoxedModifier, ExprWriter, Modifier, ModifierContext, Property, PropertyLayout,
-    ToWgslString,
+    Attribute, BoxedModifier, ExprWriter, Modifier, ModifierContext, Module, Property,
+    PropertyLayout, ToWgslString,
 };
 
 /// Particle update shader code generation context.
 #[derive(Debug, PartialEq)]
 pub struct UpdateContext<'a> {
+    pub module: &'a mut Module,
     /// Main particle update code, which needs to update the fields of the
     /// `particle` struct instance.
     pub update_code: String,
@@ -37,8 +38,9 @@ pub struct UpdateContext<'a> {
 
 impl<'a> UpdateContext<'a> {
     /// Create a new update context.
-    pub fn new(property_layout: &'a PropertyLayout) -> Self {
+    pub fn new(module: &'a mut Module, property_layout: &'a PropertyLayout) -> Self {
         Self {
+            module,
             update_code: String::new(),
             update_extra: String::new(),
             property_layout,
@@ -48,8 +50,22 @@ impl<'a> UpdateContext<'a> {
 }
 
 impl<'a> EvalContext for UpdateContext<'a> {
+    fn module(&self) -> &Module {
+        self.module
+    }
+
     fn property_layout(&self) -> &PropertyLayout {
         self.property_layout
+    }
+
+    fn expr(&self, expr: graph::Handle<Expr>) -> Result<&Expr, ExprError> {
+        self.module
+            .get(expr)
+            .ok_or(ExprError::GraphEvalError("Unknown expression.".to_string()))
+    }
+
+    fn eval(&self, handle: graph::Handle<Expr>) -> Result<String, ExprError> {
+        self.expr(handle)?.eval(self)
     }
 }
 
@@ -140,14 +156,14 @@ impl ToWgslString for ValueOrProperty {
 #[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AccelModifier {
     /// The acceleration to apply to all particles in the effect each frame.
-    accel: BoxedExpr,
+    accel: graph::Handle<Expr>,
 }
 
 impl AccelModifier {
     /// Create a new modifier with an acceleration derived from a property.
     pub fn via_property(property_name: impl Into<String>) -> Self {
         Self {
-            accel: Box::new(PropertyExpr::new(property_name)),
+            accel: PropertyExpr::new(property_name),
         }
     }
 
@@ -199,7 +215,7 @@ impl Modifier for AccelModifier {
 impl UpdateModifier for AccelModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let attr = AttributeExpr::new(Attribute::VELOCITY).eval(context)?;
-        let expr = self.accel.eval(context)?;
+        let expr = context.eval(self.accel)?;
         let dt = BuiltInExpr::new(crate::graph::BuiltInOperator::DeltaTime).eval(context)?;
         context.update_code += &format!("{} += ({}) * {};", attr, expr, dt);
         Ok(())
@@ -671,8 +687,7 @@ impl UpdateModifier for LinearDragModifier {
             BuiltInExpr::new(BuiltInOperator::DeltaTime),
         );
         let expr = LiteralExpr::new(1f32) - expr;
-        let expr =
-            BinaryNumericOpExpr::new(LiteralExpr::new(0f32), expr, BinaryNumericOperator::Max);
+        let expr = BinaryExpr::new(LiteralExpr::new(0f32), expr, BinaryOperator::Max);
         let expr = expr.eval(context)?;
         context.update_code += &format!("{} *= {};", attr, expr);
         Ok(())

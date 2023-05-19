@@ -4,15 +4,16 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    graph::{AttributeExpr, BoxedExpr, EvalContext, Expr, ExprError},
+    graph::{self, AttributeExpr, EvalContext, ExprError},
     modifier::ShapeDimension,
-    Attribute, BoxedModifier, DimValue, Modifier, ModifierContext, PropertyLayout, ToWgslString,
-    Value,
+    Attribute, BoxedModifier, DimValue, Expr, Modifier, ModifierContext, Module, PropertyLayout,
+    ToWgslString, Value,
 };
 
 /// Particle initializing shader code generation context.
 #[derive(Debug, PartialEq)]
 pub struct InitContext<'a> {
+    pub module: &'a mut Module,
     /// Main particle initializing code, which needs to assign the fields of the
     /// `particle` struct instance.
     pub init_code: String,
@@ -24,8 +25,9 @@ pub struct InitContext<'a> {
 
 impl<'a> InitContext<'a> {
     /// Create a new init context.
-    pub fn new(property_layout: &'a PropertyLayout) -> Self {
+    pub fn new(module: &'a mut Module, property_layout: &'a PropertyLayout) -> Self {
         Self {
+            module,
             init_code: String::new(),
             init_extra: String::new(),
             property_layout,
@@ -34,8 +36,22 @@ impl<'a> InitContext<'a> {
 }
 
 impl<'a> EvalContext for InitContext<'a> {
+    fn module(&self) -> &Module {
+        self.module
+    }
+
     fn property_layout(&self) -> &PropertyLayout {
         self.property_layout
+    }
+
+    fn expr(&self, expr: graph::Handle<Expr>) -> Result<&Expr, ExprError> {
+        self.module
+            .get(expr)
+            .ok_or(ExprError::GraphEvalError("Unknown expression.".to_string()))
+    }
+
+    fn eval(&self, handle: graph::Handle<Expr>) -> Result<String, ExprError> {
+        self.expr(handle)?.eval(self)
     }
 }
 
@@ -98,12 +114,12 @@ pub struct InitAttributeModifier {
     /// The name of the attribute to initialize.
     pub attribute: Attribute,
     /// The initial value of the attribute.
-    pub value: BoxedExpr,
+    pub value: graph::Handle<Expr>,
 }
 
 impl InitAttributeModifier {
     /// Create a new instance of a [`InitAttributeModifier`].
-    pub fn new(attribute: Attribute, value: impl Into<BoxedExpr>) -> Self {
+    pub fn new(attribute: Attribute, value: impl Into<graph::Handle<Expr>>) -> Self {
         Self {
             attribute,
             value: value.into(),
@@ -138,7 +154,7 @@ impl Modifier for InitAttributeModifier {
 impl InitModifier for InitAttributeModifier {
     fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
         let attr = AttributeExpr::new(self.attribute).eval(context)?;
-        let expr = self.value.eval(context)?;
+        let expr = context.eval(self.value)?;
         context.init_code += &format!("{} = {};\n", attr, expr);
         Ok(())
     }
@@ -565,6 +581,7 @@ mod tests {
 
     #[test]
     fn validate() {
+        let mut module = Module::default();
         let modifiers: &[&dyn InitModifier] = &[
             &InitPositionCircleModifier::default(),
             &InitPositionSphereModifier::default(),
@@ -578,7 +595,7 @@ mod tests {
         ];
         for &modifier in modifiers.iter() {
             let property_layout = PropertyLayout::default();
-            let mut context = InitContext::new(&property_layout);
+            let mut context = InitContext::new(&mut module, &property_layout);
             assert!(modifier.apply(&mut context).is_ok());
             let init_code = context.init_code;
             let init_extra = context.init_extra;
