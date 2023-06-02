@@ -737,7 +737,8 @@ impl CompiledParticleEffect {
         };
 
         // Generate the shader code for the initializing shader
-        let mut init_context = InitContext::new(&property_layout);
+        let mut init_module = Module::default();
+        let mut init_context = InitContext::new(&mut init_module, &property_layout);
         for m in asset.modifiers.iter().filter_map(|m| m.as_init()) {
             if let Err(err) = m.apply(&mut init_context) {
                 error!("Failed to compile effect, error in init context: {:?}", err);
@@ -753,7 +754,8 @@ impl CompiledParticleEffect {
         }
 
         // Generate the shader code for the update shader
-        let mut update_context = UpdateContext::new(&property_layout);
+        let mut update_module = Module::default();
+        let mut update_context = UpdateContext::new(&mut update_module, &property_layout);
         for m in asset.modifiers.iter().filter_map(|m| m.as_update()) {
             if let Err(err) = m.apply(&mut update_context) {
                 error!(

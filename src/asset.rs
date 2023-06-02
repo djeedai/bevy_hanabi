@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     graph::Value,
     modifier::{init::InitModifier, render::RenderModifier, update::UpdateModifier},
-    BoxedModifier, ParticleLayout, Property, PropertyLayout, SimulationSpace, Spawner,
+    BoxedModifier, Module, ParticleLayout, Property, PropertyLayout, SimulationSpace, Spawner,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -134,6 +134,8 @@ pub struct EffectAsset {
     pub properties: Vec<Property>,
     /// Type of motion integration applied to the particles of a system.
     pub motion_integration: MotionIntegration,
+    /// Expression module for this effect.
+    pub module: Module,
 }
 
 impl EffectAsset {
@@ -322,6 +324,10 @@ mod tests {
         assert_eq!(effect.capacity, 4096);
 
         let mut module = Module::default();
+        let one = module.lit(1.);
+        let init_age = InitAttributeModifier::new(Attribute::AGE, one);
+        let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, one);
+
         let property_layout = PropertyLayout::default();
         let mut init_context = InitContext::new(&mut module, &property_layout);
         assert!(InitPositionSphereModifier::default()
@@ -330,16 +336,8 @@ mod tests {
         assert!(InitVelocitySphereModifier::default()
             .apply(&mut init_context)
             .is_ok());
-        assert!(
-            InitAttributeModifier::new(Attribute::AGE, LiteralExpr::new(1.))
-                .apply(&mut init_context)
-                .is_ok()
-        );
-        assert!(
-            InitAttributeModifier::new(Attribute::LIFETIME, LiteralExpr::new(1.))
-                .apply(&mut init_context)
-                .is_ok()
-        );
+        assert!(init_age.apply(&mut init_context).is_ok());
+        assert!(init_lifetime.apply(&mut init_context).is_ok());
         // assert_eq!(effect., init_context.init_code);
 
         let mut module = Module::default();

@@ -4,15 +4,16 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    graph::{self, AttributeExpr, EvalContext, ExprError},
+    graph::{EvalContext, ExprError},
     modifier::ShapeDimension,
-    Attribute, BoxedModifier, DimValue, Expr, Modifier, ModifierContext, Module, PropertyLayout,
-    ToWgslString, Value,
+    Attribute, BoxedModifier, DimValue, Expr, ExprHandle, Modifier, ModifierContext, Module,
+    PropertyLayout, ToWgslString, Value,
 };
 
 /// Particle initializing shader code generation context.
 #[derive(Debug, PartialEq)]
 pub struct InitContext<'a> {
+    /// Module being populated with new expressions from modifiers.
     pub module: &'a mut Module,
     /// Main particle initializing code, which needs to assign the fields of the
     /// `particle` struct instance.
@@ -44,13 +45,13 @@ impl<'a> EvalContext for InitContext<'a> {
         self.property_layout
     }
 
-    fn expr(&self, expr: graph::Handle<Expr>) -> Result<&Expr, ExprError> {
+    fn expr(&self, expr: ExprHandle) -> Result<&Expr, ExprError> {
         self.module
             .get(expr)
             .ok_or(ExprError::GraphEvalError("Unknown expression.".to_string()))
     }
 
-    fn eval(&self, handle: graph::Handle<Expr>) -> Result<String, ExprError> {
+    fn eval(&self, handle: ExprHandle) -> Result<String, ExprError> {
         self.expr(handle)?.eval(self)
     }
 }
@@ -109,21 +110,18 @@ macro_rules! impl_mod_init {
 /// # Attributes
 ///
 /// This modifier requires the attribute specified in the `attribute` field.
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct InitAttributeModifier {
     /// The name of the attribute to initialize.
     pub attribute: Attribute,
     /// The initial value of the attribute.
-    pub value: graph::Handle<Expr>,
+    pub value: ExprHandle,
 }
 
 impl InitAttributeModifier {
-    /// Create a new instance of a [`InitAttributeModifier`].
-    pub fn new(attribute: Attribute, value: impl Into<graph::Handle<Expr>>) -> Self {
-        Self {
-            attribute,
-            value: value.into(),
-        }
+    /// Create a new instance of an [`InitAttributeModifier`].
+    pub fn new(attribute: Attribute, value: ExprHandle) -> Self {
+        Self { attribute, value }
     }
 }
 
@@ -153,7 +151,9 @@ impl Modifier for InitAttributeModifier {
 #[typetag::serde]
 impl InitModifier for InitAttributeModifier {
     fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
-        let attr = AttributeExpr::new(self.attribute).eval(context)?;
+        assert!(context.module.get(self.value).is_some());
+        let attr = context.module.attr(self.attribute);
+        let attr = context.eval(attr)?;
         let expr = context.eval(self.value)?;
         context.init_code += &format!("{} = {};\n", attr, expr);
         Ok(())
@@ -639,4 +639,12 @@ fn main() {{
             assert!(res.is_ok());
         }
     }
+
+    // #[test]
+    // fn naga() {
+    //     let mut parser = Parser::new();
+    //     let res = parser.parse(&"let x = sim_params.deltaTime;");
+    //     let module = res.unwrap();
+    //     println!("{:?}", module);
+    // }
 }

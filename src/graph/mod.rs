@@ -22,12 +22,12 @@ mod node;
 
 pub use expr::{
     AttributeExpr, BinaryOperator, BuiltInExpr, BuiltInOperator, EvalContext, Expr, ExprError,
-    ExprWriter, Handle, LiteralExpr, Module, PropertyExpr, UnaryNumericOperator,
+    ExprHandle, ExprWriter, LiteralExpr, Module, PropertyExpr, UnaryNumericOperator, WriterExpr,
 };
-pub use node::{
-    AddNode, AttributeNode, DivNode, Graph, MulNode, Node, NormalizeNode, Slot, SlotDir, SlotId,
-    SubNode, TimeNode,
-};
+// pub use node::{
+//     AddNode, AttributeNode, DivNode, Graph, MulNode, Node, NormalizeNode, Slot, SlotDir, SlotId,
+//     SubNode, TimeNode,
+// };
 
 // /// Binary arithmetic operator.
 // #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]

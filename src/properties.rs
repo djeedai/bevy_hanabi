@@ -125,8 +125,8 @@ impl PropertyLayout {
     }
 
     /// Create a new collection from an iterator.
-    pub(crate) fn new<'a>(iter: impl Iterator<Item = &'a Property>) -> Self {
-        let mut properties = iter.collect::<Vec<_>>();
+    pub(crate) fn new<'a>(iter: impl IntoIterator<Item = &'a Property>) -> Self {
+        let mut properties = iter.into_iter().collect::<Vec<_>>();
 
         // Sort by size
         properties.sort_unstable_by_key(|prop| prop.size());

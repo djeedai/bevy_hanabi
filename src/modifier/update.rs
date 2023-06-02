@@ -11,16 +11,17 @@ use serde::{Deserialize, Serialize};
 use crate::{
     calc_func_id,
     graph::{
-        self, AttributeExpr, BinaryOperator, BuiltInExpr, BuiltInOperator, EvalContext, Expr,
-        ExprError, LiteralExpr, PropertyExpr, Value,
+        BuiltInExpr, BuiltInOperator, EvalContext, Expr, ExprError, LiteralExpr, PropertyExpr,
+        Value,
     },
-    Attribute, BoxedModifier, ExprWriter, Modifier, ModifierContext, Module, Property,
+    Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module, Property,
     PropertyLayout, ToWgslString,
 };
 
 /// Particle update shader code generation context.
 #[derive(Debug, PartialEq)]
 pub struct UpdateContext<'a> {
+    /// Module being populated with new expressions from modifiers.
     pub module: &'a mut Module,
     /// Main particle update code, which needs to update the fields of the
     /// `particle` struct instance.
@@ -58,13 +59,13 @@ impl<'a> EvalContext for UpdateContext<'a> {
         self.property_layout
     }
 
-    fn expr(&self, expr: graph::Handle<Expr>) -> Result<&Expr, ExprError> {
+    fn expr(&self, expr: ExprHandle) -> Result<&Expr, ExprError> {
         self.module
             .get(expr)
             .ok_or(ExprError::GraphEvalError("Unknown expression.".to_string()))
     }
 
-    fn eval(&self, handle: graph::Handle<Expr>) -> Result<String, ExprError> {
+    fn eval(&self, handle: ExprHandle) -> Result<String, ExprError> {
         self.expr(handle)?.eval(self)
     }
 }
@@ -156,21 +157,21 @@ impl ToWgslString for ValueOrProperty {
 #[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AccelModifier {
     /// The acceleration to apply to all particles in the effect each frame.
-    accel: graph::Handle<Expr>,
+    accel: Expr,
 }
 
 impl AccelModifier {
     /// Create a new modifier with an acceleration derived from a property.
     pub fn via_property(property_name: impl Into<String>) -> Self {
         Self {
-            accel: PropertyExpr::new(property_name),
+            accel: Expr::Property(PropertyExpr::new(property_name)),
         }
     }
 
     /// Create a new modifier with a constant acceleration.
     pub fn constant(acceleration: Vec3) -> Self {
         Self {
-            accel: Box::new(LiteralExpr::new(acceleration)),
+            accel: Expr::Literal(LiteralExpr::new(acceleration)),
         }
     }
 }
@@ -214,8 +215,10 @@ impl Modifier for AccelModifier {
 #[typetag::serde]
 impl UpdateModifier for AccelModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let attr = AttributeExpr::new(Attribute::VELOCITY).eval(context)?;
-        let expr = context.eval(self.accel)?;
+        let attr = context.module.attr(Attribute::VELOCITY);
+        let expr = context.module.push(self.accel.clone());
+        let attr = context.eval(attr)?;
+        let expr = context.eval(expr)?;
         let dt = BuiltInExpr::new(crate::graph::BuiltInOperator::DeltaTime).eval(context)?;
         context.update_code += &format!("{} += ({}) * {};", attr, expr, dt);
         Ok(())
@@ -664,14 +667,14 @@ impl UpdateModifier for ForceFieldModifier {
 pub struct LinearDragModifier {
     /// Drag coefficient. Higher values increase the drag force, and
     /// consequently decrease the particle's speed faster.
-    pub drag: BoxedExpr,
+    pub drag: Expr,
 }
 
 impl LinearDragModifier {
     /// Instantiate a [`LinearDragModifier`] with a constant drag value.
     pub fn constant(drag: f32) -> Self {
         Self {
-            drag: Box::new(LiteralExpr::new(drag)),
+            drag: Expr::Literal(LiteralExpr::new(drag)),
         }
     }
 }
@@ -681,14 +684,16 @@ impl_mod_update!(LinearDragModifier, &[Attribute::VELOCITY]);
 #[typetag::serde]
 impl UpdateModifier for LinearDragModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let attr = AttributeExpr::new(Attribute::VELOCITY).eval(context)?;
-        let expr = MulExpr::new(
-            self.drag.clone(),
-            BuiltInExpr::new(BuiltInOperator::DeltaTime),
-        );
-        let expr = LiteralExpr::new(1f32) - expr;
-        let expr = BinaryExpr::new(LiteralExpr::new(0f32), expr, BinaryOperator::Max);
-        let expr = expr.eval(context)?;
+        let attr = context.module.attr(Attribute::VELOCITY);
+        let dt = context.module.builtin(BuiltInOperator::DeltaTime);
+        let drag = context.module.push(self.drag.clone());
+        let drag_dt = context.module.mul(drag, dt);
+        let one = context.module.lit(1.);
+        let one_minus_drag_dt = context.module.sub(one, drag_dt);
+        let zero = context.module.lit(0.);
+        let expr = context.module.max(zero, one_minus_drag_dt);
+        let attr = context.eval(attr)?;
+        let expr = context.eval(expr)?;
         context.update_code += &format!("{} *= {};", attr, expr);
         Ok(())
     }
@@ -706,9 +711,9 @@ impl UpdateModifier for LinearDragModifier {
 #[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AabbKillModifier {
     /// Center of the AABB.
-    pub center: BoxedExpr,
+    pub center: Expr,
     /// Half-size of the AABB.
-    pub half_size: BoxedExpr,
+    pub half_size: Expr,
     /// If `true`, invert the kill condition and kill all particles inside the
     /// AABB. If `false` (default), kill all particles outside the AABB.
     pub kill_inside: bool,
@@ -718,7 +723,7 @@ impl AabbKillModifier {
     /// Create a new instance of an [`AabbKillModifier`] from an AABB center and half extents.
     ///
     /// The created instance has a default `kill_inside = false` value.
-    pub fn new(center: impl Into<BoxedExpr>, half_size: impl Into<BoxedExpr>) -> Self {
+    pub fn new(center: impl Into<Expr>, half_size: impl Into<Expr>) -> Self {
         Self {
             center: center.into(),
             half_size: half_size.into(),
@@ -738,22 +743,22 @@ impl_mod_update!(AabbKillModifier, &[Attribute::POSITION]);
 #[typetag::serde]
 impl UpdateModifier for AabbKillModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        type W = ExprWriter;
-
-        let lhs = (W::attr(Attribute::POSITION) - W::new(self.center.clone())).abs();
-        let rhs = W::new(self.half_size.clone());
+        let pos = context.module.attr(Attribute::POSITION);
+        let center = context.module.push(self.center.clone());
+        let diff = context.module.sub(pos, center);
+        let dist = context.module.abs(diff);
+        let half_size = context.module.push(self.half_size.clone());
         let cmp = if self.kill_inside {
-            lhs.lt(rhs)
+            context.module.lt(dist, half_size)
         } else {
-            lhs.gt(rhs)
+            context.module.gt(dist, half_size)
         };
         let reduce = if self.kill_inside {
-            cmp.all()
+            context.module.all(cmp)
         } else {
-            cmp.any()
+            context.module.any(cmp)
         };
-        let expr = reduce.expr();
-        let expr = expr.eval(context)?;
+        let expr = context.eval(reduce)?;
 
         context.update_code += &format!(
             r#"if ({}) {{
@@ -781,7 +786,8 @@ mod tests {
         let modifier = AccelModifier::constant(accel);
 
         let property_layout = PropertyLayout::default();
-        let mut context = UpdateContext::new(&property_layout);
+        let mut module = Module::default();
+        let mut context = UpdateContext::new(&mut module, &property_layout);
         assert!(modifier.apply(&mut context).is_ok());
 
         assert!(context.update_code.contains(&accel.to_wgsl_string()));
@@ -796,7 +802,8 @@ mod tests {
         let modifier = ForceFieldModifier { sources };
 
         let property_layout = PropertyLayout::default();
-        let mut context = UpdateContext::new(&property_layout);
+        let mut module = Module::default();
+        let mut context = UpdateContext::new(&mut module, &property_layout);
         assert!(modifier.apply(&mut context).is_ok());
 
         // force_field_code.wgsl is too big
@@ -816,7 +823,8 @@ mod tests {
         let modifier = LinearDragModifier::constant(3.5);
 
         let property_layout = PropertyLayout::default();
-        let mut context = UpdateContext::new(&property_layout);
+        let mut module = Module::default();
+        let mut context = UpdateContext::new(&mut module, &property_layout);
         assert!(modifier.apply(&mut context).is_ok());
 
         assert!(context.update_code.contains("3.5")); // TODO - less weak check
@@ -830,11 +838,15 @@ mod tests {
             &TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 1.),
             &ForceFieldModifier::default(),
             &LinearDragModifier::constant(3.5),
-            &AabbKillModifier::new(LiteralExpr::new(Vec3::ZERO), LiteralExpr::new(Vec3::ONE)),
+            &AabbKillModifier::new(
+                Expr::Literal(LiteralExpr::new(Vec3::ZERO)),
+                Expr::Literal(LiteralExpr::new(Vec3::ONE)),
+            ),
         ];
         for &modifier in modifiers.iter() {
             let property_layout = PropertyLayout::default();
-            let mut context = UpdateContext::new(&property_layout);
+            let mut module = Module::default();
+            let mut context = UpdateContext::new(&mut module, &property_layout);
             assert!(modifier.apply(&mut context).is_ok());
             let update_code = context.update_code;
             let update_extra = context.update_extra;

@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, fmt, marker::PhantomData, num::NonZeroU32};
+use std::{cell::RefCell, cmp::Ordering, fmt, marker::PhantomData, num::NonZeroU32, rc::Rc};
 
 use bevy::{
     reflect::{FromReflect, Reflect},
@@ -76,33 +76,172 @@ impl<T: Send + Sync + 'static> Handle<T> {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+/// Handle of an expression inside a [`Module`].
+pub type ExprHandle = Handle<Expr>;
+
+/// Container for expressions.
+#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct Module {
     expressions: Vec<Expr>,
 }
 
 impl Module {
-    #[allow(unsafe_code)]
-    pub fn push(&mut self, expr: Expr) -> Handle<Expr> {
-        let index = unsafe { NonZeroU32::new_unchecked(self.expressions.len() as u32 + 1) };
-        self.expressions.push(expr);
+    /// Create a new module from an existing collection of expressions.
+    pub fn from_raw(expr: Vec<Expr>) -> Self {
+        Self { expressions: expr }
+    }
+
+    /// Append a new expression to the module.
+    pub fn push(&mut self, expr: impl Into<Expr>) -> ExprHandle {
+        #[allow(unsafe_code)]
+        let index: Index = unsafe { NonZeroU32::new_unchecked(self.expressions.len() as u32 + 1) };
+        self.expressions.push(expr.into());
         Handle::new(index)
     }
 
+    /// Build a literal expression and append it to the module.
     #[inline]
-    pub fn get(&self, expr: Handle<Expr>) -> Option<&Expr> {
+    pub fn lit<V>(&mut self, value: V) -> ExprHandle
+    where
+        Value: From<V>,
+    {
+        self.push(Expr::Literal(LiteralExpr::new(value)))
+    }
+
+    /// Build an attribute expression and append it to the module.
+    #[inline]
+    pub fn attr(&mut self, attr: Attribute) -> ExprHandle {
+        self.push(Expr::Attribute(AttributeExpr::new(attr)))
+    }
+
+    /// Build a built-in expression and append it to the module.
+    #[inline]
+    pub fn builtin(&mut self, op: BuiltInOperator) -> ExprHandle {
+        self.push(Expr::BuiltIn(BuiltInExpr::new(op)))
+    }
+
+    /// Build a unary expression and append it to the module.
+    #[inline]
+    pub fn unary(&mut self, op: UnaryNumericOperator, inner: ExprHandle) -> ExprHandle {
+        assert!(inner.index() < self.expressions.len());
+        self.push(Expr::Unary { op, expr: inner })
+    }
+
+    /// Build an `abs()` unary expression and append it to the module.
+    #[inline]
+    pub fn abs(&mut self, inner: ExprHandle) -> ExprHandle {
+        self.unary(UnaryNumericOperator::Abs, inner)
+    }
+
+    /// Build an `all()` unary expression and append it to the module.
+    #[inline]
+    pub fn all(&mut self, inner: ExprHandle) -> ExprHandle {
+        self.unary(UnaryNumericOperator::All, inner)
+    }
+
+    /// Build an `any()` unary expression and append it to the module.
+    #[inline]
+    pub fn any(&mut self, inner: ExprHandle) -> ExprHandle {
+        self.unary(UnaryNumericOperator::Any, inner)
+    }
+
+    /// Build a binary expression and append it to the module.
+    #[inline]
+    pub fn binary(
+        &mut self,
+        op: BinaryOperator,
+        left: ExprHandle,
+        right: ExprHandle,
+    ) -> ExprHandle {
+        assert!(left.index() < self.expressions.len());
+        assert!(right.index() < self.expressions.len());
+        self.push(Expr::Binary { op, left, right })
+    }
+
+    /// Build an `add()` binary expression and append it to the module.
+    #[inline]
+    pub fn add(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+        self.binary(BinaryOperator::Add, left, right)
+    }
+
+    /// Build a `sub()` binary expression and append it to the module.
+    #[inline]
+    pub fn sub(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+        self.binary(BinaryOperator::Sub, left, right)
+    }
+
+    /// Build a `mul()` binary expression and append it to the module.
+    #[inline]
+    pub fn mul(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+        self.binary(BinaryOperator::Mul, left, right)
+    }
+
+    /// Build a `div()` binary expression and append it to the module.
+    #[inline]
+    pub fn div(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+        self.binary(BinaryOperator::Div, left, right)
+    }
+
+    /// Build a `min()` binary expression and append it to the module.
+    #[inline]
+    pub fn min(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+        self.binary(BinaryOperator::Min, left, right)
+    }
+
+    /// Build a `max()` binary expression and append it to the module.
+    #[inline]
+    pub fn max(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+        self.binary(BinaryOperator::Max, left, right)
+    }
+
+    /// Build a less-than binary expression and append it to the module.
+    #[inline]
+    pub fn lt(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+        self.binary(BinaryOperator::LessThan, left, right)
+    }
+
+    /// Build a less-than-or-equal binary expression and append it to the module.
+    #[inline]
+    pub fn le(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+        self.binary(BinaryOperator::LessThanOrEqual, left, right)
+    }
+
+    /// Build a greater-than binary expression and append it to the module.
+    #[inline]
+    pub fn gt(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+        self.binary(BinaryOperator::GreaterThan, left, right)
+    }
+
+    /// Build a greater-than-or-equal binary expression and append it to the module.
+    #[inline]
+    pub fn ge(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+        self.binary(BinaryOperator::GreaterThanOrEqual, left, right)
+    }
+
+    /// Build a `rand()` binary expression and append it to the module.
+    #[inline]
+    pub fn rand(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+        self.binary(BinaryOperator::UniformRand, left, right)
+    }
+
+    /// Get an existing expression.
+    #[inline]
+    pub fn get(&self, expr: ExprHandle) -> Option<&Expr> {
         let index = expr.index();
         self.expressions.get(index)
     }
 
+    /// Get an existing expression.
     #[inline]
-    pub fn get_mut(&mut self, expr: Handle<Expr>) -> Option<&mut Expr> {
+    pub fn get_mut(&mut self, expr: ExprHandle) -> Option<&mut Expr> {
         let index = expr.index();
         self.expressions.get_mut(index)
     }
 
+    /// Is the expression resulting in a compile-time constant which can be
+    /// hard-coded into a shader's code?
     #[inline]
-    pub fn is_const(&self, expr: Handle<Expr>) -> bool {
+    pub fn is_const(&self, expr: ExprHandle) -> bool {
         let expr = self.get(expr).unwrap();
         expr.is_const(self)
     }
@@ -143,17 +282,28 @@ pub trait EvalContext {
 /// Language expression producing a value.
 #[derive(Debug, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub enum Expr {
+    /// Built-in expression (`BuiltInExpr`).
     BuiltIn(BuiltInExpr),
+    /// Literal expression (`LiteralExpr`).
     Literal(LiteralExpr),
+    /// Property expression (`PropertyExpr`).
     Property(PropertyExpr),
+    /// Attribute expression (`AttributeExpr`).
     Attribute(AttributeExpr),
+    /// Unary operation expression.
     Unary {
+        /// Unary operator.
         op: UnaryNumericOperator,
+        /// Operand the unary operation applies to.
         expr: Handle<Expr>,
     },
+    /// Binary operation expression.
     Binary {
+        /// Binary operator.
         op: BinaryOperator,
+        /// Left-hand side operand the binary operation applies to.
         left: Handle<Expr>,
+        /// Right-hand side operand the binary operation applies to.
         right: Handle<Expr>,
     },
 }
@@ -162,13 +312,13 @@ impl Expr {
     /// Is the expression resulting in a compile-time constant which can be
     /// hard-coded into a shader's code?
     pub fn is_const(&self, module: &Module) -> bool {
-        match *self {
+        match self {
             Expr::BuiltIn(expr) => expr.is_const(),
             Expr::Literal(expr) => expr.is_const(),
             Expr::Property(expr) => expr.is_const(),
             Expr::Attribute(expr) => expr.is_const(),
-            Expr::Unary { op, expr } => module.is_const(expr),
-            Expr::Binary { op, left, right } => module.is_const(left) && module.is_const(right),
+            Expr::Unary { expr, .. } => module.is_const(*expr),
+            Expr::Binary { left, right, .. } => module.is_const(*left) && module.is_const(*right),
         }
     }
 
@@ -179,13 +329,13 @@ impl Expr {
 
     /// Evaluate the expression.
     pub fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
-        match *self {
+        match self {
             Expr::BuiltIn(expr) => expr.eval(context),
             Expr::Literal(expr) => expr.eval(context),
             Expr::Property(expr) => expr.eval(context),
             Expr::Attribute(expr) => expr.eval(context),
             Expr::Unary { op, expr } => {
-                let expr = context.expr(expr)?.eval(context);
+                let expr = context.expr(*expr)?.eval(context);
 
                 // if expr.value_type() != self.value_type() {
                 //     return Err(ExprError::TypeError(format!(
@@ -197,8 +347,8 @@ impl Expr {
                 expr.map(|s| format!("{}({})", op.to_wgsl_string(), s))
             }
             Expr::Binary { op, left, right } => {
-                let left = context.expr(left)?.eval(context)?;
-                let right = context.expr(right)?.eval(context)?;
+                let left = context.expr(*left)?.eval(context)?;
+                let right = context.expr(*right)?.eval(context)?;
 
                 // if !self.input.value_type().is_vector() {
                 //     return Err(ExprError::TypeError(format!(
@@ -217,18 +367,18 @@ impl Expr {
     }
 }
 
-impl ToWgslString for Expr {
-    fn to_wgsl_string(&self) -> String {
-        match *self {
-            Expr::BuiltIn(_) => unimplemented!(),
-            Expr::Literal(lit) => lit.to_wgsl_string(),
-            Expr::Property(prop) => prop.to_wgsl_string(),
-            Expr::Attribute(attr) => attr.to_wgsl_string(),
-            Expr::Unary { op, expr } => unimplemented!(),
-            Expr::Binary { op, left, right } => unimplemented!(),
-        }
-    }
-}
+// impl ToWgslString for Expr {
+//     fn to_wgsl_string(&self) -> String {
+//         match self {
+//             Expr::BuiltIn(_) => unimplemented!(),
+//             Expr::Literal(lit) => lit.to_wgsl_string(),
+//             Expr::Property(prop) => prop.to_wgsl_string(),
+//             Expr::Attribute(attr) => attr.to_wgsl_string(),
+//             Expr::Unary { .. } => unimplemented!(),
+//             Expr::Binary { .. } => unimplemented!(),
+//         }
+//     }
+// }
 
 /// A literal constant expression like `3.0` or `vec3<f32>(1.0, 2.0, 3.0)`.
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
@@ -247,14 +397,18 @@ impl LiteralExpr {
         }
     }
 
+    /// Is the expression resulting in a compile-time constant which can be
+    /// hard-coded into a shader's code?
     pub fn is_const(&self) -> bool {
         true
     }
 
+    /// Get the value type of the expression.
     pub fn value_type(&self) -> ValueType {
         self.value.value_type()
     }
 
+    /// Evaluate the expression in the given context.
     pub fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
         Ok(self.value.to_wgsl_string())
     }
@@ -293,14 +447,18 @@ impl AttributeExpr {
         Self { attr }
     }
 
+    /// Is the expression resulting in a compile-time constant which can be
+    /// hard-coded into a shader's code?
     pub fn is_const(&self) -> bool {
         false
     }
 
+    /// Get the value type of the expression.
     pub fn value_type(&self) -> ValueType {
         self.attr.value_type()
     }
 
+    /// Evaluate the expression in the given context.
     pub fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
         Ok(self.to_wgsl_string())
     }
@@ -333,16 +491,21 @@ impl PropertyExpr {
         }
     }
 
+    /// Is the expression resulting in a compile-time constant which can be
+    /// hard-coded into a shader's code?
     fn is_const(&self) -> bool {
         false
     }
 
+    /// Get the value type of the expression.
+    #[allow(dead_code)]
     fn value_type(&self) -> ValueType {
         ValueType::Scalar(ScalarType::Bool) // FIXME - This is unknown until
                                             // properties are resolved with the
                                             // effect, when code is generated...
     }
 
+    /// Evaluate the expression in the given context.
     fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
         if !context.property_layout().contains(&self.property_name) {
             return Err(ExprError::PropertyError(format!(
@@ -423,14 +586,18 @@ impl BuiltInExpr {
         Self { operator }
     }
 
+    /// Is the expression resulting in a compile-time constant which can be
+    /// hard-coded into a shader's code?
     pub fn is_const(&self) -> bool {
         false
     }
 
+    /// Get the value type of the expression.
     pub fn value_type(&self) -> ValueType {
         self.operator.value_type()
     }
 
+    /// Evaluate the expression in the given context.
     pub fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
         Ok(self.to_wgsl_string())
     }
@@ -496,6 +663,8 @@ pub enum BinaryOperator {
     Min,
     /// Maximum operator.
     Max,
+    /// Uniform random number operator.
+    UniformRand,
 }
 
 impl BinaryOperator {
@@ -514,7 +683,7 @@ impl BinaryOperator {
             | BinaryOperator::LessThanOrEqual
             | BinaryOperator::GreaterThan
             | BinaryOperator::GreaterThanOrEqual => false,
-            BinaryOperator::Min | BinaryOperator::Max => true,
+            BinaryOperator::Min | BinaryOperator::Max | BinaryOperator::UniformRand => true,
         }
     }
 }
@@ -532,6 +701,7 @@ impl ToWgslString for BinaryOperator {
             BinaryOperator::GreaterThanOrEqual => ">=".to_string(),
             BinaryOperator::Min => "min".to_string(),
             BinaryOperator::Max => "max".to_string(),
+            BinaryOperator::UniformRand => "rand".to_string(),
         }
     }
 }
@@ -549,55 +719,73 @@ impl ToWgslString for BinaryOperator {
 /// assert_eq!(expr.to_wgsl_string(), "max((5.) + (particle.position), properties.my_prop)");
 /// ```
 #[derive(Debug)]
-pub struct ExprWriter<'m> {
-    module: &'m Module,
-}
-
-#[derive(Debug)]
-pub struct WriterExpr<'m, 'w> {
-    expr: Handle<Expr>,
-    writer: &'w mut ExprWriter<'m>,
+pub struct ExprWriter {
+    module: Rc<RefCell<Module>>,
 }
 
 #[allow(dead_code)]
-impl<'m> ExprWriter<'m> {
+impl ExprWriter {
     /// Create a new writer starting from any generic expression.
-    pub fn new(module: &'m Module) -> Self {
+    pub fn new(module: Rc<RefCell<Module>>) -> Self {
         Self { module }
     }
 
+    /// Push a new expression into the writer.
+    pub fn push(&self, expr: impl Into<Expr>) -> WriterExpr {
+        let expr = {
+            let mut m = self.module.borrow_mut();
+            m.push(expr.into())
+        };
+        WriterExpr {
+            expr,
+            module: Rc::clone(&self.module),
+        }
+    }
+
     /// Create a new writer from a literal constant.
-    pub fn lit<'w>(&'w mut self, value: impl Into<Value>) -> WriterExpr<'m, 'w> {
-        let expr = self.module.push(Expr::Literal(LiteralExpr {
+    pub fn lit(&self, value: impl Into<Value>) -> WriterExpr {
+        self.push(Expr::Literal(LiteralExpr {
             value: value.into(),
-        }));
-        WriterExpr { expr, writer: self }
+        }))
     }
 
     /// Create a new writer from an attribute expression.
-    pub fn attr<'w>(&'w mut self, attr: Attribute) -> WriterExpr<'m, 'w> {
-        let expr = self.module.push(Expr::Attribute(AttributeExpr::new(attr)));
-        WriterExpr { expr, writer: self }
+    pub fn attr(&self, attr: Attribute) -> WriterExpr {
+        self.push(Expr::Attribute(AttributeExpr::new(attr)))
     }
 
     /// Create a new writer from a property expression.
-    pub fn prop<'w>(&'w mut self, name: impl Into<String>) -> WriterExpr<'m, 'w> {
-        let expr = self.module.push(Expr::Property(PropertyExpr::new(name)));
-        WriterExpr { expr, writer: self }
+    pub fn prop(&self, name: impl Into<String>) -> WriterExpr {
+        self.push(Expr::Property(PropertyExpr::new(name)))
+    }
+
+    /// Finish
+    pub fn finish(self) -> Module {
+        self.module.take()
     }
 }
 
-impl<'m, 'w> WriterExpr<'m, 'w> {
-    fn unary_op(mut self, op: UnaryNumericOperator) -> Self {
-        let expr = self.writer.module.push(Expr::Unary {
+/// Intermediate expression from an [`ExprWriter`].
+#[derive(Debug)]
+pub struct WriterExpr {
+    expr: Handle<Expr>,
+    module: Rc<RefCell<Module>>,
+}
+
+impl WriterExpr {
+    fn unary_op(self, op: UnaryNumericOperator) -> Self {
+        let expr = self.module.borrow_mut().push(Expr::Unary {
             op,
             expr: self.expr,
         });
-        self
+        WriterExpr {
+            expr,
+            module: self.module,
+        }
     }
 
     /// Take the absolute value of the current expression.
-    pub fn abs(mut self) -> Self {
+    pub fn abs(self) -> Self {
         self.unary_op(UnaryNumericOperator::Abs)
     }
 
@@ -611,132 +799,192 @@ impl<'m, 'w> WriterExpr<'m, 'w> {
         self.unary_op(UnaryNumericOperator::Any)
     }
 
-    fn binary_op(mut self, other: &mut Self, op: BinaryOperator) -> Self {
-        assert_eq!(self.writer, other.writer);
+    fn binary_op(self, other: Self, op: BinaryOperator) -> Self {
+        assert_eq!(self.module, other.module);
         let left = self.expr;
         let right = other.expr;
-        let expr = self.writer.module.push(Expr::Binary { op, left, right });
-        self
+        let expr = self
+            .module
+            .borrow_mut()
+            .push(Expr::Binary { op, left, right });
+        WriterExpr {
+            expr,
+            module: self.module,
+        }
     }
 
     /// Take the minimum value of the current expression and another expression.
-    pub fn min(mut self, other: &mut Self) -> Self {
+    pub fn min(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Min)
     }
 
     /// Take the maximum value of the current expression and another expression.
-    pub fn max(mut self, other: &mut Self) -> Self {
+    pub fn max(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Max)
     }
 
     /// Add the current expression with another expression.
-    pub fn add(mut self, other: &mut Self) -> Self {
+    pub fn add(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Add)
     }
 
     /// Subtract another expression from the current expression.
-    pub fn sub(mut self, other: &mut Self) -> Self {
+    pub fn sub(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Sub)
     }
 
     /// Multiply the current expression with another expression.
-    pub fn mul(mut self, other: &mut Self) -> Self {
+    pub fn mul(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Mul)
     }
 
     /// Divide the current expression by another expression.
-    pub fn div(mut self, other: &mut Self) -> Self {
+    pub fn div(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Div)
     }
 
     /// Apply the logical operator "less than or equal" to this expression and another expression.
-    pub fn le(mut self, other: &mut Self) -> Self {
+    pub fn le(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::LessThanOrEqual)
     }
 
     /// Apply the logical operator "less than" to this expression and another expression.
-    pub fn lt(mut self, other: &mut Self) -> Self {
+    pub fn lt(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::LessThan)
     }
 
     /// Apply the logical operator "greater than or equal" to this expression and another expression.
-    pub fn ge(mut self, other: &mut Self) -> Self {
+    pub fn ge(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::GreaterThanOrEqual)
     }
 
     /// Apply the logical operator "greater than" to this expression and another expression.
-    pub fn gt(mut self, other: &mut Self) -> Self {
+    pub fn gt(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::GreaterThan)
     }
 
+    /// Apply the logical operator "rand" to this expression and another expression.
+    pub fn rand(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::UniformRand)
+    }
+
     /// Finalize the writer and return the accumulated expression.
-    pub fn expr(mut self) -> Handle<Expr> {
-        assert_eq!(1, self.stack.len());
-        self.stack.pop().unwrap()
+    pub fn expr(self) -> Handle<Expr> {
+        self.expr
     }
 }
 
-impl<'m> std::ops::Add<ExprWriter<'m>> for ExprWriter<'m> {
-    type Output = ExprWriter<'m>;
+// impl std::ops::Add<ExprWriter> for ExprWriter {
+//     type Output = ExprWriter;
 
-    fn add(self, mut rhs: ExprWriter) -> Self::Output {
-        self.add(&mut rhs)
+//     fn add(self, mut rhs: ExprWriter) -> Self::Output {
+//         self.add(&mut rhs)
+//     }
+// }
+
+// impl std::ops::Sub<ExprWriter> for ExprWriter {
+//     type Output = ExprWriter;
+
+//     fn sub(self, mut rhs: ExprWriter) -> Self::Output {
+//         self.sub(&mut rhs)
+//     }
+// }
+
+// impl std::ops::Mul<ExprWriter> for ExprWriter {
+//     type Output = ExprWriter;
+
+//     fn mul(self, mut rhs: ExprWriter) -> Self::Output {
+//         self.mul(&mut rhs)
+//     }
+// }
+
+// impl std::ops::Mul<&mut ExprWriter> for ExprWriter {
+//     type Output = ExprWriter;
+
+//     fn mul(self, rhs: &mut ExprWriter) -> Self::Output {
+//         self.mul(rhs)
+//     }
+// }
+
+// impl std::ops::Mul<&mut ExprWriter> for &mut ExprWriter {
+//     type Output = ExprWriter;
+
+//     fn mul(self, rhs: &mut ExprWriter) -> Self::Output {
+//         self.mul(rhs)
+//     }
+// }
+
+// impl std::ops::Div<ExprWriter> for ExprWriter {
+//     type Output = ExprWriter;
+
+//     fn div(self, mut rhs: ExprWriter) -> Self::Output {
+//         self.div(&mut rhs)
+//     }
+// }
+
+impl std::ops::Add<WriterExpr> for WriterExpr {
+    type Output = WriterExpr;
+
+    fn add(self, rhs: WriterExpr) -> Self::Output {
+        self.add(rhs)
     }
 }
 
-impl<'m> std::ops::Sub<ExprWriter<'m>> for ExprWriter<'m> {
-    type Output = ExprWriter<'m>;
+impl std::ops::Sub<WriterExpr> for WriterExpr {
+    type Output = WriterExpr;
 
-    fn sub(self, mut rhs: ExprWriter) -> Self::Output {
-        self.sub(&mut rhs)
+    fn sub(self, rhs: WriterExpr) -> Self::Output {
+        self.sub(rhs)
     }
 }
 
-impl<'m> std::ops::Mul<ExprWriter<'m>> for ExprWriter<'m> {
-    type Output = ExprWriter<'m>;
+impl std::ops::Mul<WriterExpr> for WriterExpr {
+    type Output = WriterExpr;
 
-    fn mul(self, mut rhs: ExprWriter) -> Self::Output {
-        self.mul(&mut rhs)
-    }
-}
-
-impl<'m> std::ops::Mul<&mut ExprWriter<'m>> for ExprWriter<'m> {
-    type Output = ExprWriter<'m>;
-
-    fn mul(self, rhs: &mut ExprWriter) -> Self::Output {
+    fn mul(self, rhs: WriterExpr) -> Self::Output {
         self.mul(rhs)
     }
 }
 
-impl<'m> std::ops::Mul<&mut ExprWriter<'m>> for &mut ExprWriter<'m> {
-    type Output = ExprWriter<'m>;
+impl std::ops::Div<WriterExpr> for WriterExpr {
+    type Output = WriterExpr;
 
-    fn mul(self, rhs: &mut ExprWriter) -> Self::Output {
-        self.mul(rhs)
-    }
-}
-
-impl<'m> std::ops::Div<ExprWriter<'m>> for ExprWriter<'m> {
-    type Output = ExprWriter<'m>;
-
-    fn div(self, mut rhs: ExprWriter) -> Self::Output {
-        self.div(&mut rhs)
+    fn div(self, rhs: WriterExpr) -> Self::Output {
+        self.div(rhs)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ops::DerefMut;
+
+    use crate::{prelude::Property, InitContext};
+
     use super::*;
-    use bevy::math::{Vec2, Vec3};
+    use bevy::math::Vec2;
 
     #[test]
     fn writer() {
-        let mut m = Module::default();
-        let w = ExprWriter::new(&m);
+        // Get a module and its writer
+        let m = Rc::new(RefCell::new(Module::default()));
+        let w = ExprWriter::new(Rc::clone(&m));
+
+        // Build some expression
         let w = w.lit(3.).abs().max(w.attr(Attribute::POSITION) * w.lit(2.))
             + w.lit(-4.).min(w.prop("my_prop"));
         let x = w.expr();
-        let s = m.get(x).unwrap().to_wgsl_string();
+
+        // Create an evaluation context
+        let property_layout = PropertyLayout::new(&[Property::new(
+            "my_prop",
+            Value::Scalar(crate::ScalarValue::Float(3.)),
+        )]);
+        let mut m = m.borrow_mut();
+        let module = m.deref_mut();
+        let context = InitContext::new(module, &property_layout);
+
+        // Evaluate the expression
+        let s = context.expr(x).unwrap().eval(&context).unwrap();
         assert_eq!(
             "(max(abs(3.), (particle.position) * (2.))) + (min(-4., properties.my_prop))"
                 .to_string(),
@@ -784,83 +1032,83 @@ mod tests {
     //     assert!(matches!(a.unwrap(), Value::Vector(_)));
     // }
 
-    #[test]
-    fn math_expr() {
-        let x: AttributeExpr = Attribute::POSITION.into();
-        let y = LiteralExpr::new(Vec3::ONE);
+    // #[test]
+    // fn math_expr() {
+    //     let x: AttributeExpr = Attribute::POSITION.into();
+    //     let y = LiteralExpr::new(Vec3::ONE);
 
-        let a = x + y;
-        assert_eq!(
-            a.to_wgsl_string(),
-            format!(
-                "(particle.{}) + (vec3<f32>(1.,1.,1.))",
-                Attribute::POSITION.name()
-            )
-        );
+    //     let a = x + y;
+    //     assert_eq!(
+    //         a.to_wgsl_string(),
+    //         format!(
+    //             "(particle.{}) + (vec3<f32>(1.,1.,1.))",
+    //             Attribute::POSITION.name()
+    //         )
+    //     );
 
-        let b = y + x;
-        assert_eq!(
-            b.to_wgsl_string(),
-            format!(
-                "(vec3<f32>(1.,1.,1.)) + (particle.{})",
-                Attribute::POSITION.name()
-            )
-        );
+    //     let b = y + x;
+    //     assert_eq!(
+    //         b.to_wgsl_string(),
+    //         format!(
+    //             "(vec3<f32>(1.,1.,1.)) + (particle.{})",
+    //             Attribute::POSITION.name()
+    //         )
+    //     );
 
-        let a = x - y;
-        assert_eq!(
-            a.to_wgsl_string(),
-            format!(
-                "(particle.{}) - (vec3<f32>(1.,1.,1.))",
-                Attribute::POSITION.name()
-            )
-        );
+    //     let a = x - y;
+    //     assert_eq!(
+    //         a.to_wgsl_string(),
+    //         format!(
+    //             "(particle.{}) - (vec3<f32>(1.,1.,1.))",
+    //             Attribute::POSITION.name()
+    //         )
+    //     );
 
-        let b = y - x;
-        assert_eq!(
-            b.to_wgsl_string(),
-            format!(
-                "(vec3<f32>(1.,1.,1.)) - (particle.{})",
-                Attribute::POSITION.name()
-            )
-        );
+    //     let b = y - x;
+    //     assert_eq!(
+    //         b.to_wgsl_string(),
+    //         format!(
+    //             "(vec3<f32>(1.,1.,1.)) - (particle.{})",
+    //             Attribute::POSITION.name()
+    //         )
+    //     );
 
-        let a = x * y;
-        assert_eq!(
-            a.to_wgsl_string(),
-            format!(
-                "(particle.{}) * (vec3<f32>(1.,1.,1.))",
-                Attribute::POSITION.name()
-            )
-        );
+    //     let a = x * y;
+    //     assert_eq!(
+    //         a.to_wgsl_string(),
+    //         format!(
+    //             "(particle.{}) * (vec3<f32>(1.,1.,1.))",
+    //             Attribute::POSITION.name()
+    //         )
+    //     );
 
-        let b = y * x;
-        assert_eq!(
-            b.to_wgsl_string(),
-            format!(
-                "(vec3<f32>(1.,1.,1.)) * (particle.{})",
-                Attribute::POSITION.name()
-            )
-        );
+    //     let b = y * x;
+    //     assert_eq!(
+    //         b.to_wgsl_string(),
+    //         format!(
+    //             "(vec3<f32>(1.,1.,1.)) * (particle.{})",
+    //             Attribute::POSITION.name()
+    //         )
+    //     );
 
-        let a = x / y;
-        assert_eq!(
-            a.to_wgsl_string(),
-            format!(
-                "(particle.{}) / (vec3<f32>(1.,1.,1.))",
-                Attribute::POSITION.name()
-            )
-        );
+    //     let a = x / y;
+    //     assert_eq!(
+    //         a.to_wgsl_string(),
+    //         format!(
+    //             "(particle.{}) / (vec3<f32>(1.,1.,1.))",
+    //             Attribute::POSITION.name()
+    //         )
+    //     );
 
-        let b = y / x;
-        assert_eq!(
-            b.to_wgsl_string(),
-            format!(
-                "(vec3<f32>(1.,1.,1.)) / (particle.{})",
-                Attribute::POSITION.name()
-            )
-        );
-    }
+    //     let b = y / x;
+    //     assert_eq!(
+    //         b.to_wgsl_string(),
+    //         format!(
+    //             "(vec3<f32>(1.,1.,1.)) / (particle.{})",
+    //             Attribute::POSITION.name()
+    //         )
+    //     );
+    // }
 
     // #[test]
     // fn serde() {
