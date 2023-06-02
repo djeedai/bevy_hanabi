@@ -736,34 +736,43 @@ impl CompiledParticleEffect {
             "@group(1) @binding(2) var<storage, read> properties : Properties;".to_string()
         };
 
+        // Start from the base module containing the expressions actually serialized in the asset.
+        // We will add the ones created on-the-fly by applying the modifiers to the contexts.
+        let mut module = asset.module.clone();
+
         // Generate the shader code for the initializing shader
-        let mut init_module = Module::default();
-        let mut init_context = InitContext::new(&mut init_module, &property_layout);
-        for m in asset.modifiers.iter().filter_map(|m| m.as_init()) {
-            if let Err(err) = m.apply(&mut init_context) {
-                error!("Failed to compile effect, error in init context: {:?}", err);
+        let (init_code, init_extra) = {
+            let mut init_context = InitContext::new(&mut module, &property_layout);
+            for m in asset.modifiers.iter().filter_map(|m| m.as_init()) {
+                if let Err(err) = m.apply(&mut init_context) {
+                    error!("Failed to compile effect, error in init context: {:?}", err);
+                }
             }
-        }
+            (init_context.init_code, init_context.init_extra)
+        };
         // Warn in debug if the shader doesn't initialize the particle lifetime
         #[cfg(debug_assertions)]
-        if !init_context
-            .init_code
-            .contains(&format!("particle.{}", Attribute::LIFETIME.name()))
-        {
+        if !init_code.contains(&format!("particle.{}", Attribute::LIFETIME.name())) {
             warn!("Effect '{}' does not initialize the particle lifetime; particles will have a default lifetime of zero, and will immediately die after spawning.", asset.name);
         }
 
         // Generate the shader code for the update shader
-        let mut update_module = Module::default();
-        let mut update_context = UpdateContext::new(&mut update_module, &property_layout);
-        for m in asset.modifiers.iter().filter_map(|m| m.as_update()) {
-            if let Err(err) = m.apply(&mut update_context) {
-                error!(
-                    "Failed to compile effect, error in udpate context: {:?}",
-                    err
-                );
+        let (mut update_code, update_extra, force_field) = {
+            let mut update_context = UpdateContext::new(&mut module, &property_layout);
+            for m in asset.modifiers.iter().filter_map(|m| m.as_update()) {
+                if let Err(err) = m.apply(&mut update_context) {
+                    error!(
+                        "Failed to compile effect, error in udpate context: {:?}",
+                        err
+                    );
+                }
             }
-        }
+            (
+                update_context.update_code,
+                update_context.update_extra,
+                update_context.force_field,
+            )
+        };
 
         // Insert Euler motion integration if needed.
         let has_position = present_attributes.contains(&Attribute::POSITION);
@@ -777,9 +786,9 @@ impl CompiledParticleEffect {
                     Attribute::VELOCITY.name()
                 );
                 if asset.motion_integration == MotionIntegration::PreUpdate {
-                    update_context.update_code.insert_str(0, &code);
+                    update_code.insert_str(0, &code);
                 } else {
-                    update_context.update_code += &code;
+                    update_code += &code;
                 }
             } else {
                 warn!(
@@ -840,8 +849,8 @@ impl CompiledParticleEffect {
         // asset exists
         let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
             .replace("{{ATTRIBUTES}}", &attributes_code)
-            .replace("{{INIT_CODE}}", &init_context.init_code)
-            .replace("{{INIT_EXTRA}}", &init_context.init_extra)
+            .replace("{{INIT_CODE}}", &init_code)
+            .replace("{{INIT_EXTRA}}", &init_extra)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
         let init_shader = shader_cache.get_or_insert(&init_shader_source, shaders);
@@ -853,8 +862,8 @@ impl CompiledParticleEffect {
             .replace("{{ATTRIBUTES}}", &attributes_code)
             .replace("{{AGE_CODE}}", &age_code)
             .replace("{{REAP_CODE}}", &reap_code)
-            .replace("{{UPDATE_CODE}}", &update_context.update_code)
-            .replace("{{UPDATE_EXTRA}}", &update_context.update_extra)
+            .replace("{{UPDATE_CODE}}", &update_code)
+            .replace("{{UPDATE_EXTRA}}", &update_extra)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
         let update_shader = shader_cache.get_or_insert(&update_shader_source, shaders);
@@ -894,7 +903,7 @@ impl CompiledParticleEffect {
         self.configured_update_shader = Some(update_shader);
         self.configured_render_shader = Some(render_shader);
 
-        self.force_field = update_context.force_field;
+        self.force_field = force_field;
         self.particle_texture = render_context.particle_texture.clone();
     }
 

@@ -68,16 +68,15 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     size_gradient1.add_key(0.3, Vec2::splat(0.1));
     size_gradient1.add_key(1.0, Vec2::splat(0.0));
 
-    let module = Rc::new(RefCell::new(Module::default()));
-    let writer = ExprWriter::new(module);
+    let writer = ExprWriter::new();
 
     // Give a bit of variation by randomizing the age per particle. This will control the
     // starting color and starting size of particles.
-    let age = writer.lit(0.).rand(writer.lit(0.2)).expr();
+    let age = writer.lit(0.).uniform(writer.lit(0.2)).expr();
     let init_age = InitAttributeModifier::new(Attribute::AGE, age);
 
     // Give a bit of variation by randomizing the lifetime per particle
-    let lifetime = writer.lit(0.8).rand(writer.lit(1.2)).expr();
+    let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     let effect = EffectAsset {

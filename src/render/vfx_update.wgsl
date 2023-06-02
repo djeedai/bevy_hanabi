@@ -99,7 +99,7 @@ fn rand3() -> vec3<f32> {
 }
 
 // Random floating-point number in [0:1]^4
-fn rand4(input: u32) -> vec4<f32> {
+fn rand4() -> vec4<f32> {
     // Each rand() produces 32 bits, and we need 24 bits per component,
     // so can get away with only 3 calls.
     var r0 = pcg_hash(seed);
@@ -114,6 +114,10 @@ fn rand4(input: u32) -> vec4<f32> {
     var r22 = r2 >> 8u;
     var w = to_float01(r22);
     return vec4<f32>(x, y, z, w);
+}
+
+fn rand_uniform(a: f32, b: f32) -> f32 {
+    return a + rand() * (b - a);
 }
 
 fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {

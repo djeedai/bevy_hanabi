@@ -91,11 +91,15 @@ fn setup(
     size_gradient1.add_key(0.8, Vec2::splat(0.08));
     size_gradient1.add_key(1.0, Vec2::splat(0.0));
 
+    let writer1 = ExprWriter::new();
+    let lifetime1 = writer1.lit(5.).expr();
+    let init_lifetime1 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime1);
     let effect1 = effects.add(
         EffectAsset {
             name: "emit:rate".to_string(),
             capacity: 32768,
             spawner: Spawner::rate(500.0.into()),
+            module: writer1.finish(),
             ..Default::default()
         }
         .with_property("my_accel", Vec3::new(0., -3., 0.).into())
@@ -110,9 +114,7 @@ fn setup(
             center: Vec3::ZERO,
             speed: 10.0.into(),
         })
-        .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
-        })
+        .init(init_lifetime1)
         .update(AccelModifier::constant(Vec3::Y * -3.))
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient1,
@@ -148,11 +150,15 @@ fn setup(
     gradient2.add_key(0.0, Vec4::new(0.0, 0.7, 0.0, 1.0));
     gradient2.add_key(1.0, Vec4::splat(0.0));
 
+    let writer2 = ExprWriter::new();
+    let lifetime2 = writer2.lit(5.).expr();
+    let init_lifetime2 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime2);
     let effect2 = effects.add(
         EffectAsset {
             name: "emit:once".to_string(),
             capacity: 32768,
             spawner: Spawner::once(1000.0.into(), true),
+            module: writer2.finish(),
             ..Default::default()
         }
         .init(InitPositionSphereModifier {
@@ -164,9 +170,7 @@ fn setup(
             center: Vec3::ZERO,
             speed: 2.0.into(),
         })
-        .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
-        })
+        .init(init_lifetime2)
         .render(ColorOverLifetimeModifier {
             gradient: gradient2,
         }),
@@ -199,11 +203,15 @@ fn setup(
     gradient3.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
     gradient3.add_key(1.0, Vec4::splat(0.0));
 
+    let writer3 = ExprWriter::new();
+    let lifetime3 = writer3.lit(5.).expr();
+    let init_lifetime3 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime3);
     let effect3 = effects.add(
         EffectAsset {
             name: "emit:burst".to_string(),
             capacity: 32768,
             spawner: Spawner::burst(400.0.into(), 3.0.into()),
+            module: writer3.finish(),
             ..Default::default()
         }
         .with_property("my_accel", Vec3::new(0., -3., 0.).into())
@@ -216,9 +224,7 @@ fn setup(
             center: Vec3::ZERO,
             speed: 2.0.into(),
         })
-        .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
-        })
+        .init(init_lifetime3)
         .init(InitSizeModifier {
             // At spawn time, assign each particle a random size between 0.3 and 0.7
             size: Value::<f32>::Uniform((0.3, 0.7)).into(),

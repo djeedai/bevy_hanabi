@@ -60,11 +60,18 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     size_gradient1.add_key(0.3, Vec2::new(0.2, 0.02));
     size_gradient1.add_key(1.0, Vec2::splat(0.0));
 
+    let writer = ExprWriter::new();
+
+    // Give a bit of variation by randomizing the lifetime per particle
+    let lifetime = writer.lit(0.6).uniform(writer.lit(1.3)).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
     let effect1 = effects.add(
         EffectAsset {
             name: "portal".to_string(),
             capacity: 32768,
             spawner: Spawner::rate(5000.0.into()),
+            module: writer.finish(),
             ..Default::default()
         }
         .init(InitPositionCircleModifier {
@@ -73,10 +80,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             radius: 4.,
             dimension: ShapeDimension::Surface,
         })
-        .init(InitLifetimeModifier {
-            // Give a bit of variation by randomizing the lifetime per particle
-            lifetime: Value::Uniform((0.6, 1.3)),
-        })
+        .init(init_lifetime)
         .update(LinearDragModifier::constant(2.))
         .update(RadialAccelModifier::constant(Vec3::ZERO, -6.0))
         .update(TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 30.))

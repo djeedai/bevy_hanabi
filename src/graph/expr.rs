@@ -218,9 +218,9 @@ impl Module {
         self.binary(BinaryOperator::GreaterThanOrEqual, left, right)
     }
 
-    /// Build a `rand()` binary expression and append it to the module.
+    /// Build a `uniform()` binary expression and append it to the module.
     #[inline]
-    pub fn rand(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+    pub fn uniform(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
         self.binary(BinaryOperator::UniformRand, left, right)
     }
 
@@ -701,7 +701,7 @@ impl ToWgslString for BinaryOperator {
             BinaryOperator::GreaterThanOrEqual => ">=".to_string(),
             BinaryOperator::Min => "min".to_string(),
             BinaryOperator::Max => "max".to_string(),
-            BinaryOperator::UniformRand => "rand".to_string(),
+            BinaryOperator::UniformRand => "rand_uniform".to_string(),
         }
     }
 }
@@ -725,8 +725,15 @@ pub struct ExprWriter {
 
 #[allow(dead_code)]
 impl ExprWriter {
-    /// Create a new writer starting from any generic expression.
-    pub fn new(module: Rc<RefCell<Module>>) -> Self {
+    /// Create a new writer.
+    pub fn new() -> Self {
+        Self {
+            module: Rc::new(RefCell::new(Module::default())),
+        }
+    }
+
+    /// Create a new writer from an existing module.
+    pub fn from_module(module: Rc<RefCell<Module>>) -> Self {
         Self { module }
     }
 
@@ -863,8 +870,8 @@ impl WriterExpr {
         self.binary_op(other, BinaryOperator::GreaterThan)
     }
 
-    /// Apply the logical operator "rand" to this expression and another expression.
-    pub fn rand(self, other: Self) -> Self {
+    /// Apply the logical operator "uniform" to this expression and another expression.
+    pub fn uniform(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::UniformRand)
     }
 
@@ -956,8 +963,6 @@ impl std::ops::Div<WriterExpr> for WriterExpr {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::DerefMut;
-
     use crate::{prelude::Property, InitContext};
 
     use super::*;
@@ -966,22 +971,20 @@ mod tests {
     #[test]
     fn writer() {
         // Get a module and its writer
-        let m = Rc::new(RefCell::new(Module::default()));
-        let w = ExprWriter::new(Rc::clone(&m));
+        let w = ExprWriter::new();
 
         // Build some expression
-        let w = w.lit(3.).abs().max(w.attr(Attribute::POSITION) * w.lit(2.))
+        let x = w.lit(3.).abs().max(w.attr(Attribute::POSITION) * w.lit(2.))
             + w.lit(-4.).min(w.prop("my_prop"));
-        let x = w.expr();
+        let x = x.expr();
 
         // Create an evaluation context
         let property_layout = PropertyLayout::new(&[Property::new(
             "my_prop",
             Value::Scalar(crate::ScalarValue::Float(3.)),
         )]);
-        let mut m = m.borrow_mut();
-        let module = m.deref_mut();
-        let context = InitContext::new(module, &property_layout);
+        let mut m = w.finish();
+        let context = InitContext::new(&mut m, &property_layout);
 
         // Evaluate the expression
         let s = context.expr(x).unwrap().eval(&context).unwrap();
