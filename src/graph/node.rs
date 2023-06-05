@@ -1,8 +1,8 @@
 // use std::num::NonZeroU32;
 
 // use crate::{
-//     graph::expr::Handle, Attribute, AttributeExpr, BuiltInExpr, BuiltInOperator, Expr, ExprError,
-//     UnaryNumericOperator, ValueType,
+//     graph::expr::Handle, Attribute, AttributeExpr, BuiltInExpr,
+// BuiltInOperator, Expr, ExprError,     UnaryOperator, ValueType,
 // };
 
 // /// Identifier of a node in a graph.
@@ -20,8 +20,8 @@
 //         self.0
 //     }
 
-//     /// Get the zero-based index of the node in the underlying graph node array.
-//     pub fn index(&self) -> usize {
+//     /// Get the zero-based index of the node in the underlying graph node
+// array.     pub fn index(&self) -> usize {
 //         (self.0.get() - 1) as usize
 //     }
 // }
@@ -41,8 +41,8 @@
 //         self.0
 //     }
 
-//     /// Get the zero-based index of the slot in the underlying graph slot array.
-//     pub fn index(&self) -> usize {
+//     /// Get the zero-based index of the slot in the underlying graph slot
+// array.     pub fn index(&self) -> usize {
 //         (self.0.get() - 1) as usize
 //     }
 // }
@@ -64,14 +64,14 @@
 //     /// Slot direaction.
 //     dir: SlotDir,
 //     /// Type of values accepted by the slot. This may be `None` for variant
-//     /// slots, if the type depends on the inputs of the node during evaluation.
-//     value_type: Option<ValueType>,
+//     /// slots, if the type depends on the inputs of the node during
+// evaluation.     value_type: Option<ValueType>,
 // }
 
 // impl SlotDef {
 //     /// Create a new input slot.
-//     pub fn input(name: impl Into<String>, value_type: Option<ValueType>) -> Self {
-//         Self {
+//     pub fn input(name: impl Into<String>, value_type: Option<ValueType>) ->
+// Self {         Self {
 //             name: name.into(),
 //             dir: SlotDir::Input,
 //             value_type,
@@ -79,8 +79,8 @@
 //     }
 
 //     /// Create a new output slot.
-//     pub fn output(name: impl Into<String>, value_type: Option<ValueType>) -> Self {
-//         Self {
+//     pub fn output(name: impl Into<String>, value_type: Option<ValueType>) ->
+// Self {         Self {
 //             name: name.into(),
 //             dir: SlotDir::Output,
 //             value_type,
@@ -175,8 +175,8 @@
 
 //     fn unlink_from(&mut self, input: SlotId) -> bool {
 //         assert!(self.is_output());
-//         if let Some(index) = self.linked_slots.iter().position(|&s| s == input) {
-//             self.linked_slots.remove(index);
+//         if let Some(index) = self.linked_slots.iter().position(|&s| s ==
+// input) {             self.linked_slots.remove(index);
 //             true
 //         } else {
 //             false
@@ -225,9 +225,9 @@
 //         let node_id = NodeId::new(NonZeroU32::new(index + 1).unwrap());
 
 //         for slot_def in node.slots() {
-//             let slot_id = SlotId::new(NonZeroU32::new(self.slots.len() as u32 + 1).unwrap());
-//             let slot = Slot::new(node_id, slot_id, slot_def.clone());
-//             self.slots.push(slot);
+//             let slot_id = SlotId::new(NonZeroU32::new(self.slots.len() as u32
+// + 1).unwrap());             let slot = Slot::new(node_id, slot_id,
+// slot_def.clone());             self.slots.push(slot);
 //         }
 
 //         self.nodes.push(node);
@@ -314,8 +314,8 @@
 //     }
 
 //     /// Find a slot ID by slot name.
-//     pub fn get_slot_id<'a, 'b: 'a, S: Into<&'b str>>(&'a self, name: S) -> Option<SlotId> {
-//         let name = name.into();
+//     pub fn get_slot_id<'a, 'b: 'a, S: Into<&'b str>>(&'a self, name: S) ->
+// Option<SlotId> {         let name = name.into();
 //         self.slots
 //             .iter()
 //             .find(|&s| s.def().name() == name)
@@ -347,10 +347,10 @@
 //     /// Evaluate the node from the given input expressions, and optionally
 //     /// produce output expression(s).
 //     ///
-//     /// The expressions themselves are not evaluated (that is, _e.g._ "3 + 2" is
-//     /// _not_ reduced to "5").
-//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError>;
-// }
+//     /// The expressions themselves are not evaluated (that is, _e.g._ "3 + 2"
+// is     /// _not_ reduced to "5").
+//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>,
+// ExprError>; }
 
 // /// Graph node to add two values.
 // #[derive(Debug, Clone)]
@@ -376,11 +376,11 @@
 //         &self.slots
 //     }
 
-//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
-//         if inputs.len() != 2 {
+//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>,
+// ExprError> {         if inputs.len() != 2 {
 //             return Err(ExprError::GraphEvalError(format!(
-//                 "Unexpected input count to AddNode::eval(): expected 2, got {}",
-//                 inputs.len()
+//                 "Unexpected input count to AddNode::eval(): expected 2, got
+// {}",                 inputs.len()
 //             )));
 //         }
 //         let mut inputs = inputs.into_iter();
@@ -414,11 +414,11 @@
 //         &self.slots
 //     }
 
-//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
-//         if inputs.len() != 2 {
+//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>,
+// ExprError> {         if inputs.len() != 2 {
 //             return Err(ExprError::GraphEvalError(format!(
-//                 "Unexpected input count to SubNode::eval(): expected 2, got {}",
-//                 inputs.len()
+//                 "Unexpected input count to SubNode::eval(): expected 2, got
+// {}",                 inputs.len()
 //             )));
 //         }
 //         let mut inputs = inputs.into_iter();
@@ -452,11 +452,11 @@
 //         &self.slots
 //     }
 
-//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
-//         if inputs.len() != 2 {
+//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>,
+// ExprError> {         if inputs.len() != 2 {
 //             return Err(ExprError::GraphEvalError(format!(
-//                 "Unexpected input count to MulNode::eval(): expected 2, got {}",
-//                 inputs.len()
+//                 "Unexpected input count to MulNode::eval(): expected 2, got
+// {}",                 inputs.len()
 //             )));
 //         }
 //         let mut inputs = inputs.into_iter();
@@ -490,11 +490,11 @@
 //         &self.slots
 //     }
 
-//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
-//         if inputs.len() != 2 {
+//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>,
+// ExprError> {         if inputs.len() != 2 {
 //             return Err(ExprError::GraphEvalError(format!(
-//                 "Unexpected input count to DivNode::eval(): expected 2, got {}",
-//                 inputs.len()
+//                 "Unexpected input count to DivNode::eval(): expected 2, got
+// {}",                 inputs.len()
 //             )));
 //         }
 //         let mut inputs = inputs.into_iter();
@@ -540,11 +540,11 @@
 //         &self.slots
 //     }
 
-//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
-//         if !inputs.is_empty() {
+//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>,
+// ExprError> {         if !inputs.is_empty() {
 //             return Err(ExprError::GraphEvalError(
-//                 "Unexpected non-empty input to AttributeNode::eval().".to_string(),
-//             ));
+//                 "Unexpected non-empty input to
+// AttributeNode::eval().".to_string(),             ));
 //         }
 //         Ok(vec![Box::new(AttributeExpr::new(self.attr))])
 //     }
@@ -572,11 +572,11 @@
 //         &self.slots
 //     }
 
-//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
-//         if !inputs.is_empty() {
+//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>,
+// ExprError> {         if !inputs.is_empty() {
 //             return Err(ExprError::GraphEvalError(
-//                 "Unexpected non-empty input to TimeNode::eval().".to_string(),
-//             ));
+//                 "Unexpected non-empty input to
+// TimeNode::eval().".to_string(),             ));
 //         }
 //         Ok([BuiltInOperator::Time, BuiltInOperator::DeltaTime]
 //             .map(BuiltInExpr::new)
@@ -595,8 +595,8 @@
 //     /// Create a new normalize node.
 //     pub fn new() -> Self {
 //         Self {
-//             slots: [SlotDef::output("in", None), SlotDef::output("out", None)],
-//         }
+//             slots: [SlotDef::output("in", None), SlotDef::output("out",
+// None)],         }
 //     }
 // }
 
@@ -605,17 +605,17 @@
 //         &self.slots
 //     }
 
-//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>, ExprError> {
-//         if inputs.len() != 1 {
+//     fn eval(&self, inputs: Vec<Handle<Expr>>) -> Result<Vec<Handle<Expr>>,
+// ExprError> {         if inputs.len() != 1 {
 //             return Err(ExprError::GraphEvalError(
-//                 "Unexpected input slot count to NormalizeNode::eval() not equal to one."
-//                     .to_string(),
+//                 "Unexpected input slot count to NormalizeNode::eval() not
+// equal to one."                     .to_string(),
 //             ));
 //         }
 //         let input = inputs.into_iter().next().unwrap();
 //         Ok(vec![Box::new(UnaryNumericOpExpr::new(
 //             input,
-//             UnaryNumericOperator::Normalize,
+//             UnaryOperator::Normalize,
 //         ))])
 //     }
 // }

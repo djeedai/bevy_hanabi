@@ -48,7 +48,10 @@ impl<'a> EvalContext for InitContext<'a> {
     fn expr(&self, expr: ExprHandle) -> Result<&Expr, ExprError> {
         self.module
             .get(expr)
-            .ok_or(ExprError::GraphEvalError("Unknown expression.".to_string()))
+            .ok_or(ExprError::InvalidExprHandleError(format!(
+                "Cannot find expression with handle {:?} in the current module. Check that the Module used to build the expression was the same used in the EvalContext or the original EffectAsset.",
+                expr
+            )))
     }
 
     fn eval(&self, handle: ExprHandle) -> Result<String, ExprError> {

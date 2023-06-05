@@ -736,8 +736,9 @@ impl CompiledParticleEffect {
             "@group(1) @binding(2) var<storage, read> properties : Properties;".to_string()
         };
 
-        // Start from the base module containing the expressions actually serialized in the asset.
-        // We will add the ones created on-the-fly by applying the modifiers to the contexts.
+        // Start from the base module containing the expressions actually serialized in
+        // the asset. We will add the ones created on-the-fly by applying the
+        // modifiers to the contexts.
         let mut module = asset.module.clone();
 
         // Generate the shader code for the initializing shader

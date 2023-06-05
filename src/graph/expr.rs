@@ -12,6 +12,13 @@ use super::Value;
 
 type Index = NonZeroU32;
 
+/// Typed handle uniquely identifying an element into an implicitly-referenced
+/// storage.
+///
+/// The handle is a convenience wrapper around an index into an internal storage
+/// implicitly associated with it. The handle itself is very lightweight, and
+/// doesn't keep a reference to the storage; it's the user responsibility to
+/// ensure the lifetime of the handle is longer than those of the handle itself.
 #[derive(Reflect, FromReflect, Serialize, Deserialize)]
 pub struct Handle<T: Send + Sync + 'static> {
     index: Index,
@@ -76,10 +83,33 @@ impl<T: Send + Sync + 'static> Handle<T> {
     }
 }
 
-/// Handle of an expression inside a [`Module`].
+/// Handle of an expression inside a given [`Module`].
+///
+/// A handle uniquely references an [`Expr`] stored inside a [`Module`]. It's a
+/// lightweight representation, similar to a simple array index. For this
+/// reason, it's easily copyable. However it's also lacking any kind of error
+/// checking, and mixing handles to different modules produces undefined
+/// behaviors (like an index does when indexing the wrong array).
+///
+/// The `ExprHandle` alias should always be preferred over its underlying
+/// `Handle<Expr>` type, to avoid confusion with Bevy's own `Handle` type.
 pub type ExprHandle = Handle<Expr>;
 
 /// Container for expressions.
+///
+/// A module represents a storage for a set of expressions used in a single
+/// [`EffectAsset`]. Modules are not reusable accross effect assets; each effect
+/// asset owns a single module, containing all the expressions used in all the
+/// modifiers attached to that asset. However, for convenience, a module can be
+/// cloned into an unrelated module, and the clone can be assigned to another
+/// effect asset.
+///
+/// Modules are built incrementally. Expressions can be directly written into
+/// the module using methods like [`push()`] or convenience helpers like
+/// [`lit()`] or [`attr()`]. Alternatively, an [`ExprWriter`] can be used to
+/// populate a new or existing module. Either way, once an expression is written
+/// into a module, it cannot be modified or deleted. Modules are not designed to
+/// be used as editing structures, but as storage and serialization ones.
 #[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct Module {
     expressions: Vec<Expr>,
@@ -92,7 +122,7 @@ impl Module {
     }
 
     /// Append a new expression to the module.
-    pub fn push(&mut self, expr: impl Into<Expr>) -> ExprHandle {
+    fn push(&mut self, expr: impl Into<Expr>) -> ExprHandle {
         #[allow(unsafe_code)]
         let index: Index = unsafe { NonZeroU32::new_unchecked(self.expressions.len() as u32 + 1) };
         self.expressions.push(expr.into());
@@ -121,8 +151,22 @@ impl Module {
     }
 
     /// Build a unary expression and append it to the module.
+    ///
+    /// The handle to the expression representing the operand of the unary
+    /// operation must be valid, that is reference an expression
+    /// contained in the current [`Module`].
+    ///
+    /// # Panics
+    ///
+    /// Panics in some cases if the operand handle do
+    /// not reference an existing expression in the current module. Note however
+    /// that this check can miss some invalid handles (false negative), so only
+    /// represents an extra safety net that users shouldn't rely exclusively on
+    /// to ensure the operand handles are valid. Instead, it's the
+    /// responsibility of the user to ensure the operand handle references an
+    /// existing expression in the current [`Module`].
     #[inline]
-    pub fn unary(&mut self, op: UnaryNumericOperator, inner: ExprHandle) -> ExprHandle {
+    pub fn unary(&mut self, op: UnaryOperator, inner: ExprHandle) -> ExprHandle {
         assert!(inner.index() < self.expressions.len());
         self.push(Expr::Unary { op, expr: inner })
     }
@@ -130,22 +174,36 @@ impl Module {
     /// Build an `abs()` unary expression and append it to the module.
     #[inline]
     pub fn abs(&mut self, inner: ExprHandle) -> ExprHandle {
-        self.unary(UnaryNumericOperator::Abs, inner)
+        self.unary(UnaryOperator::Abs, inner)
     }
 
     /// Build an `all()` unary expression and append it to the module.
     #[inline]
     pub fn all(&mut self, inner: ExprHandle) -> ExprHandle {
-        self.unary(UnaryNumericOperator::All, inner)
+        self.unary(UnaryOperator::All, inner)
     }
 
     /// Build an `any()` unary expression and append it to the module.
     #[inline]
     pub fn any(&mut self, inner: ExprHandle) -> ExprHandle {
-        self.unary(UnaryNumericOperator::Any, inner)
+        self.unary(UnaryOperator::Any, inner)
     }
 
     /// Build a binary expression and append it to the module.
+    ///
+    /// The handles to the expressions representing the left and right operands
+    /// of the binary operation must be valid, that is reference expressions
+    /// contained in the current [`Module`].
+    ///
+    /// # Panics
+    ///
+    /// Panics in some cases if either of the left or right operand handles do
+    /// not reference existing expressions in the current module. Note however
+    /// that this check can miss some invalid handles (false negative), so only
+    /// represents an extra safety net that users shouldn't rely exclusively on
+    /// to ensure the operand handles are valid. Instead, it's the
+    /// responsibility of the user to ensure handles reference existing
+    /// expressions in the current [`Module`].
     #[inline]
     pub fn binary(
         &mut self,
@@ -200,7 +258,8 @@ impl Module {
         self.binary(BinaryOperator::LessThan, left, right)
     }
 
-    /// Build a less-than-or-equal binary expression and append it to the module.
+    /// Build a less-than-or-equal binary expression and append it to the
+    /// module.
     #[inline]
     pub fn le(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
         self.binary(BinaryOperator::LessThanOrEqual, left, right)
@@ -212,7 +271,8 @@ impl Module {
         self.binary(BinaryOperator::GreaterThan, left, right)
     }
 
-    /// Build a greater-than-or-equal binary expression and append it to the module.
+    /// Build a greater-than-or-equal binary expression and append it to the
+    /// module.
     #[inline]
     pub fn ge(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
         self.binary(BinaryOperator::GreaterThanOrEqual, left, right)
@@ -224,14 +284,14 @@ impl Module {
         self.binary(BinaryOperator::UniformRand, left, right)
     }
 
-    /// Get an existing expression.
+    /// Get an existing expression from its handle.
     #[inline]
     pub fn get(&self, expr: ExprHandle) -> Option<&Expr> {
         let index = expr.index();
         self.expressions.get(index)
     }
 
-    /// Get an existing expression.
+    /// Get an existing expression from its handle.
     #[inline]
     pub fn get_mut(&mut self, expr: ExprHandle) -> Option<&mut Expr> {
         let index = expr.index();
@@ -247,24 +307,44 @@ impl Module {
     }
 }
 
-///
-#[derive(Debug, Clone, PartialEq, Error)]
+/// Expression-related errors.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ExprError {
-    ///
+    /// Expression type error. Generally used for invalid type conversion.
     #[error("Type error: {0:?}")]
     TypeError(String),
-    ///
+
+    /// Expression syntax error.
     #[error("Syntax error: {0:?}")]
     SyntaxError(String),
-    ///
+
+    /// Generic graph evaluation error.
     #[error("Graph evaluation error: {0:?}")]
     GraphEvalError(String),
-    ///
+
+    /// Error evaluating a property. Generally used for an unknown property not
+    /// defined in the evaluation context, which in turns usually mean it was
+    /// not defined with [`EffectAsset::with_property()`] or
+    /// [`EffectAsset::add_property()`].
     #[error("Property error: {0:?}")]
     PropertyError(String),
+
+    /// Invalid expression handle not referencing any existing [`Expr`] in the
+    /// evaluation [`Module`].
+    #[error("Invalid expression handle: {0:?}")]
+    InvalidExprHandleError(String),
 }
 
-/// Evaluation context for [`Expr::eval()`].
+/// Evaluation context for transforming expressions into WGSL code.
+///
+/// The evaluation context references a [`Module`] storing all [`Expr`] in use,
+/// as well as a [`PropertyLayout`] defining existing properties and their
+/// layout in memory. These together define the context within which expressions
+/// are evaluated.
+///
+/// A same expression can be valid in one context and invalid in another. The
+/// most common example are [`PropertyExpr`] which are only valid if the
+/// property is actually defined in the evaluation context.
 pub trait EvalContext {
     /// Get the module the evaluation is taking place in.
     fn module(&self) -> &Module;
@@ -293,7 +373,7 @@ pub enum Expr {
     /// Unary operation expression.
     Unary {
         /// Unary operator.
-        op: UnaryNumericOperator,
+        op: UnaryOperator,
         /// Operand the unary operation applies to.
         expr: Handle<Expr>,
     },
@@ -311,6 +391,28 @@ pub enum Expr {
 impl Expr {
     /// Is the expression resulting in a compile-time constant which can be
     /// hard-coded into a shader's code?
+    ///
+    /// The [`Module`] passed as argument is the owning module of the
+    /// expression, which is used to recursively evaluate the const-ness of the
+    /// entire expression. For some expressions like literals or attributes or
+    /// properties their const-ness is intrinsic to the expression type, but for
+    /// other expressions like binary operations (addition, ...) their
+    /// const-ness depends in turn on the const-ness of their sub-expressions
+    /// (left and right operands), which requires a [`Module`] to be retrieved
+    /// and evaluated.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # let module = Module::default();
+    /// // Literals are always constant by definition.
+    /// assert!(Expr::Literal(LiteralExpr::new(1.)).is_const(&module));
+    ///
+    /// // Properties and attributes are never constant, again by definition.
+    /// assert!(!Expr::Property(PropertyExpr::new("my_prop")).is_const(&module));
+    /// assert!(!Expr::Attribute(AttributeExpr::new(Attribute::POSITION)).is_const(&module));
+    /// ```
     pub fn is_const(&self, module: &Module) -> bool {
         match self {
             Expr::BuiltIn(expr) => expr.is_const(),
@@ -327,7 +429,21 @@ impl Expr {
         unimplemented!()
     }
 
-    /// Evaluate the expression.
+    /// Evaluate the expression in the given context.
+    ///
+    /// Evaluate the full expression as part of the given evaluation context,
+    /// returning the WGSL string representation of the expression on success.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # let mut module = Module::default();
+    /// # let pl = PropertyLayout::empty();
+    /// # let context = InitContext::new(&mut module, &pl);
+    /// let expr = Expr::Literal(LiteralExpr::new(1.));
+    /// assert_eq!(Ok("1.".to_string()), expr.eval(&context));
+    /// ```
     pub fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
         match self {
             Expr::BuiltIn(expr) => expr.eval(context),
@@ -367,20 +483,11 @@ impl Expr {
     }
 }
 
-// impl ToWgslString for Expr {
-//     fn to_wgsl_string(&self) -> String {
-//         match self {
-//             Expr::BuiltIn(_) => unimplemented!(),
-//             Expr::Literal(lit) => lit.to_wgsl_string(),
-//             Expr::Property(prop) => prop.to_wgsl_string(),
-//             Expr::Attribute(attr) => attr.to_wgsl_string(),
-//             Expr::Unary { .. } => unimplemented!(),
-//             Expr::Binary { .. } => unimplemented!(),
-//         }
-//     }
-// }
-
 /// A literal constant expression like `3.0` or `vec3<f32>(1.0, 2.0, 3.0)`.
+///
+/// Literal expression are compile-time constants. They are always constant
+/// ([`is_const()`] is `true`) and have a value type equal to the type of the
+/// constant itself.
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct LiteralExpr {
     value: Value,
@@ -609,70 +716,146 @@ impl ToWgslString for BuiltInExpr {
     }
 }
 
-/// Unary numeric operator.
+/// Unary operator.
 ///
-/// The operator can be used with any numeric type or vector of numeric types.
+/// Operator applied to a single operand to produce another value. The type of
+/// the operand and the result are not necessarily the same. Valid operand types
+/// depend on the operator itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
-pub enum UnaryNumericOperator {
+pub enum UnaryOperator {
     /// Absolute value operator.
+    ///
+    /// Return the absolute value of the operand, component-wise for vectors.
+    /// Only valid for numeric operands.
     Abs,
+
     /// Logical ALL operator for bool vectors.
-    /// FIXME - This is not numeric...
+    ///
+    /// Return `true` if all the components of the bool vector operand are
+    /// `true`. Invalid for any other type of operand.
     All,
+
     /// Logical ANY operator for bool vectors.
-    /// FIXME - This is not numeric...
+    ///
+    ///
+    /// Return `true` if any component of the bool vector operand is `true`.
+    /// Invalid for any other type of operand.
     Any,
+
     /// Vector normalizing operator.
+    ///
+    /// Normalize the given numeric vector. Only valid for numeric vector
+    /// operands.
     Normalize,
 }
 
-impl ToWgslString for UnaryNumericOperator {
+impl ToWgslString for UnaryOperator {
     fn to_wgsl_string(&self) -> String {
         match *self {
-            UnaryNumericOperator::Abs => "abs".to_string(),
-            UnaryNumericOperator::All => "all".to_string(),
-            UnaryNumericOperator::Any => "any".to_string(),
-            UnaryNumericOperator::Normalize => "normalize".to_string(),
+            UnaryOperator::Abs => "abs".to_string(),
+            UnaryOperator::All => "all".to_string(),
+            UnaryOperator::Any => "any".to_string(),
+            UnaryOperator::Normalize => "normalize".to_string(),
         }
     }
 }
 
-/// Binary numeric operator.
+/// Binary operator.
 ///
-/// The operator can be used with any numeric type or vector of numeric types
-/// (component-wise).
+/// Operator applied between two operands, generally denoted "left" and "right".
+/// The type of the operands and the result are not necessarily the same. Valid
+/// operand types depend on the operator itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub enum BinaryOperator {
     /// Addition operator.
+    ///
+    /// Returns the sum of its operands. Only valid for numeric operands.
     Add,
+
     /// Subtraction operator.
+    ///
+    /// Returns the difference between its left and right operands. Only valid
+    /// for numeric operands.
     Sub,
+
     /// Multiply operator.
+    ///
+    /// Returns the product of its operands. Only valid for numeric operands.
     Mul,
+
     /// Division operator.
+    ///
+    /// Returns the left operand divided by the right operand. Only valid for
+    /// numeric operands.
     Div,
+
     /// Less-than operator.
+    ///
+    /// Returns `true` if the left operand is strictly less than the right
+    /// operand. Only valid for numeric types. If the operands are vectors,
+    /// they must be of the same rank, and the result is a bool vector of
+    /// that rank.
     LessThan,
+
     /// Less-than-or-equal operator.
+    ///
+    /// Returns `true` if the left operand is less than or equal to the right
+    /// operand. Only valid for numeric types. If the operands are vectors,
+    /// they must be of the same rank, and the result is a bool vector of
+    /// that rank.
     LessThanOrEqual,
+
     /// Greater-than operator.
+    ///
+    /// Returns `true` if the left operand is strictly greater than the right
+    /// operand. Only valid for numeric types. If the operands are vectors,
+    /// they must be of the same rank, and the result is a bool vector of
+    /// that rank.
     GreaterThan,
+
     /// Greater-than-or-equal operator.
+    ///
+    /// Returns `true` if the left operand is greater than or equal to the right
+    /// operand. Only valid for numeric types. If the operands are vectors,
+    /// they must be of the same rank, and the result is a bool vector of
+    /// that rank.
     GreaterThanOrEqual,
+
     /// Minimum operator.
+    ///
+    /// Returns the minimum value of its left and right operands. Only valid for
+    /// numeric types. If the operands are vectors, they must be of the same
+    /// rank, and the result is a vector of that rank and same element
+    /// scalar type.
     Min,
+
     /// Maximum operator.
+    ///
+    /// Returns the maximum value of its left and right operands. Only valid for
+    /// numeric types. If the operands are vectors, they must be of the same
+    /// rank, and the result is a vector of that rank and same element
+    /// scalar type.
     Max,
+
     /// Uniform random number operator.
+    ///
+    /// Returns a value generated by a fast non-cryptographically-secure
+    /// pseudo-random number generator (PRNG) whose statistical characteristics
+    /// are undefined and generally focused around speed. The random value is
+    /// uniformly distributed between the left and right operands, which must be
+    /// numeric types. If the operands are vectors, they must be of the same
+    /// rank, and the result is a vector of that rank and same element
+    /// scalar type.
     UniformRand,
 }
 
 impl BinaryOperator {
     /// Check if a binary operator is called via a functional-style call.
     ///
-    /// Functional-style calls are in the form `op(lhs, rhs)` (like `min(a,
-    /// b)`), while non-functional ones are in the form `lhs op rhs` (like `a +
-    /// b`).
+    /// Functional-style calls are in the form `op(lhs, rhs)`, like `min(a,
+    /// b)` for example, while non-functional ones are in the form `lhs op rhs`,
+    /// like `a + b` for example. This check is used for formatting the WGSL
+    /// code emitted during evaluation of a binary operation expression.
     pub fn is_functional(&self) -> bool {
         match *self {
             BinaryOperator::Add
@@ -708,15 +891,33 @@ impl ToWgslString for BinaryOperator {
 
 /// Expression writer.
 ///
-/// Utility to write expressions with a simple functional syntax.
+/// Utility to write expressions with a simple functional syntax. Expressions
+/// created with the writer are gatherned into a [`Module`] which can be
+/// transfered once [`finish()`]ed to initialize an [`EffectAsset`].
+///
+/// Because an [`EffectAsset`] contains a single [`Module`], you generally want
+/// to keep using the same [`ExprWriter`] to write all the expressions used by
+/// all the [`Modifer`]s assigned to a given [`EffectAsset`].
 ///
 /// # Example
 ///
 /// ```
-/// type W = ExprWriter;
-/// let w = (W::lit(5.) + W::attr(Attribute::POSITION)).max(W::prop("my_prop"));
-/// let expr = w.expr();
-/// assert_eq!(expr.to_wgsl_string(), "max((5.) + (particle.position), properties.my_prop)");
+/// # use bevy_hanabi::*;
+/// # let mut module = Module::default();
+/// # let pl = PropertyLayout::empty();
+/// # let context = InitContext::new(&mut module, &pl);
+/// // Create a writer
+/// let w = ExprWriter::new();
+///
+/// // Create a new expression
+/// let expr = (w.lit(5.) + w.attr(Attribute::POSITION)).max(w.prop("my_prop"));
+///
+/// // Finalize the expression and write it down into the `Module` as an `Expr`
+/// let expr = expr.expr();
+///
+/// // Evaluate the expression
+/// let str = context.eval(expr).unwrap();
+/// assert_eq!(str, "max((5.) + (particle.position), properties.my_prop)");
 /// ```
 #[derive(Debug)]
 pub struct ExprWriter {
@@ -726,6 +927,10 @@ pub struct ExprWriter {
 #[allow(dead_code)]
 impl ExprWriter {
     /// Create a new writer.
+    ///
+    /// The writer owns a new [`Module`] internally, and write all expressions
+    /// to it. The module can be released to the user with [`finish()`] once
+    /// done using the writer.
     pub fn new() -> Self {
         Self {
             module: Rc::new(RefCell::new(Module::default())),
@@ -733,6 +938,12 @@ impl ExprWriter {
     }
 
     /// Create a new writer from an existing module.
+    ///
+    /// This is an advanced use entry point to write expressions into an
+    /// existing [`Module`]. In general, users should prefer using
+    /// [`ExprWriter::new()`] to create a new [`Module`], and keep using the
+    /// same [`ExprWriter`] to write all expressions of the same
+    /// [`EffectAsset`].
     pub fn from_module(module: Rc<RefCell<Module>>) -> Self {
         Self { module }
     }
@@ -780,7 +991,7 @@ pub struct WriterExpr {
 }
 
 impl WriterExpr {
-    fn unary_op(self, op: UnaryNumericOperator) -> Self {
+    fn unary_op(self, op: UnaryOperator) -> Self {
         let expr = self.module.borrow_mut().push(Expr::Unary {
             op,
             expr: self.expr,
@@ -793,17 +1004,17 @@ impl WriterExpr {
 
     /// Take the absolute value of the current expression.
     pub fn abs(self) -> Self {
-        self.unary_op(UnaryNumericOperator::Abs)
+        self.unary_op(UnaryOperator::Abs)
     }
 
     /// Apply the logical operator "all" to the current bool vector expression.
     pub fn all(self) -> Self {
-        self.unary_op(UnaryNumericOperator::All)
+        self.unary_op(UnaryOperator::All)
     }
 
     /// Apply the logical operator "any" to the current bool vector expression.
     pub fn any(self) -> Self {
-        self.unary_op(UnaryNumericOperator::Any)
+        self.unary_op(UnaryOperator::Any)
     }
 
     fn binary_op(self, other: Self, op: BinaryOperator) -> Self {
@@ -850,27 +1061,32 @@ impl WriterExpr {
         self.binary_op(other, BinaryOperator::Div)
     }
 
-    /// Apply the logical operator "less than or equal" to this expression and another expression.
+    /// Apply the logical operator "less than or equal" to this expression and
+    /// another expression.
     pub fn le(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::LessThanOrEqual)
     }
 
-    /// Apply the logical operator "less than" to this expression and another expression.
+    /// Apply the logical operator "less than" to this expression and another
+    /// expression.
     pub fn lt(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::LessThan)
     }
 
-    /// Apply the logical operator "greater than or equal" to this expression and another expression.
+    /// Apply the logical operator "greater than or equal" to this expression
+    /// and another expression.
     pub fn ge(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::GreaterThanOrEqual)
     }
 
-    /// Apply the logical operator "greater than" to this expression and another expression.
+    /// Apply the logical operator "greater than" to this expression and another
+    /// expression.
     pub fn gt(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::GreaterThan)
     }
 
-    /// Apply the logical operator "uniform" to this expression and another expression.
+    /// Apply the logical operator "uniform" to this expression and another
+    /// expression.
     pub fn uniform(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::UniformRand)
     }
@@ -1001,6 +1217,22 @@ mod tests {
         let r: Result<Vec2, ExprError> = l.try_into();
         assert!(r.is_err());
         assert!(matches!(r, Err(ExprError::TypeError(_))));
+    }
+
+    #[test]
+    fn aaa() {
+        // Create a writer
+        let w = ExprWriter::new();
+        // Create a new expression
+        let expr = (w.lit(5.) + w.attr(Attribute::POSITION)).max(w.prop("my_prop"));
+        // Finalize the expression and write it down into the `Module` as an `Expr`
+        let expr = expr.expr();
+        // Evaluate the expression
+        let mut module = w.finish();
+        let pl = PropertyLayout::empty();
+        let context = InitContext::new(&mut module, &pl);
+        let str = context.eval(expr).unwrap();
+        assert_eq!(str, "max((5.) + (particle.position), properties.my_prop)");
     }
 
     // #[test]

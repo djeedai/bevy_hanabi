@@ -22,16 +22,16 @@ mod node;
 
 pub use expr::{
     AttributeExpr, BinaryOperator, BuiltInExpr, BuiltInOperator, EvalContext, Expr, ExprError,
-    ExprHandle, ExprWriter, LiteralExpr, Module, PropertyExpr, UnaryNumericOperator, WriterExpr,
+    ExprHandle, ExprWriter, LiteralExpr, Module, PropertyExpr, UnaryOperator, WriterExpr,
 };
 // pub use node::{
-//     AddNode, AttributeNode, DivNode, Graph, MulNode, Node, NormalizeNode, Slot, SlotDir, SlotId,
-//     SubNode, TimeNode,
+//     AddNode, AttributeNode, DivNode, Graph, MulNode, Node, NormalizeNode,
+// Slot, SlotDir, SlotId,     SubNode, TimeNode,
 // };
 
 // /// Binary arithmetic operator.
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
-// #[non_exhaustive]
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect,
+// Serialize, Deserialize)] #[non_exhaustive]
 // pub enum BinaryOperator {
 //     /// Add operator `+`.
 //     Add,
@@ -100,12 +100,12 @@ pub enum ScalarValueMut<'a> {
 //     fn binary_op(&mut self, other: &ScalarValue, op: BinaryOperator) {
 //         match self {
 //             ScalarValueMut::Bool(_) => {
-//                 panic!("Cannot apply binary arithmetic operator to boolean value.")
-//             }
-//             ScalarValueMut::Float(f) => **f = op.apply_f32(**f, other.as_f32()),
-//             ScalarValueMut::Int(i) => **i = op.apply_i32(**i, other.as_i32()),
-//             ScalarValueMut::Uint(u) => **u = op.apply_u32(**u, other.as_u32()),
-//         }
+//                 panic!("Cannot apply binary arithmetic operator to boolean
+// value.")             }
+//             ScalarValueMut::Float(f) => **f = op.apply_f32(**f,
+// other.as_f32()),             ScalarValueMut::Int(i) => **i =
+// op.apply_i32(**i, other.as_i32()),             ScalarValueMut::Uint(u) => **u
+// = op.apply_u32(**u, other.as_u32()),         }
 //     }
 // }
 
@@ -232,11 +232,12 @@ impl ScalarValue {
 
     // fn binary_op(&self, other: &Self, op: BinaryOperator) -> Self {
     //     match *self {
-    //         ScalarValue::Bool(_) => panic!("Cannot apply binary operation to boolean value."),
-    //         ScalarValue::Float(f) => ScalarValue::Float(op.apply_f32(f, other.as_f32())),
-    //         ScalarValue::Int(i) => ScalarValue::Int(op.apply_i32(i, other.as_i32())),
-    //         ScalarValue::Uint(u) => ScalarValue::Uint(op.apply_u32(u, other.as_u32())),
-    //     }
+    //         ScalarValue::Bool(_) => panic!("Cannot apply binary operation to
+    // boolean value."),         ScalarValue::Float(f) =>
+    // ScalarValue::Float(op.apply_f32(f, other.as_f32())),
+    //         ScalarValue::Int(i) => ScalarValue::Int(op.apply_i32(i,
+    // other.as_i32())),         ScalarValue::Uint(u) =>
+    // ScalarValue::Uint(op.apply_u32(u, other.as_u32())),     }
     // }
 }
 
@@ -276,11 +277,12 @@ impl ToWgslString for ScalarValue {
 // impl BinaryOperation for ScalarValue {
 //     fn apply(&self, other: &Self, op: BinaryOperator) -> Self {
 //         match *self {
-//             ScalarValue::Bool(_) => panic!("Cannot apply binary operation to boolean value."),
-//             ScalarValue::Float(f) => ScalarValue::Float(op.apply_f32(f, other.as_f32())),
-//             ScalarValue::Int(i) => ScalarValue::Int(op.apply_i32(i, other.as_i32())),
-//             ScalarValue::Uint(u) => ScalarValue::Uint(op.apply_u32(u, other.as_u32())),
-//         }
+//             ScalarValue::Bool(_) => panic!("Cannot apply binary operation to
+// boolean value."),             ScalarValue::Float(f) =>
+// ScalarValue::Float(op.apply_f32(f, other.as_f32())),
+// ScalarValue::Int(i) => ScalarValue::Int(op.apply_i32(i, other.as_i32())),
+//             ScalarValue::Uint(u) => ScalarValue::Uint(op.apply_u32(u,
+// other.as_u32())),         }
 //     }
 // }
 
@@ -978,10 +980,11 @@ impl Value {
     // /// Apply a binary arithmetic operator between self and another operand.
     // pub fn binary_op(&self, other: &Value, op: BinaryOperator) -> Value {
     //     match self {
-    //         Value::Scalar(s) => Value::Scalar(s.binary_op(other.as_scalar(), op)),
-    //         Value::Vector(v) => Value::Vector(v.binary_op(other.as_vector(), op)),
-    //         Value::Matrix(m) => Value::Matrix(m.binary_op(other.as_matrix(), op)),
-    //     }
+    //         Value::Scalar(s) => Value::Scalar(s.binary_op(other.as_scalar(),
+    // op)),         Value::Vector(v) =>
+    // Value::Vector(v.binary_op(other.as_vector(), op)),
+    //         Value::Matrix(m) => Value::Matrix(m.binary_op(other.as_matrix(),
+    // op)),     }
     // }
 }
 

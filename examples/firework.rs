@@ -68,8 +68,8 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     let writer = ExprWriter::new();
 
-    // Give a bit of variation by randomizing the age per particle. This will control the
-    // starting color and starting size of particles.
+    // Give a bit of variation by randomizing the age per particle. This will
+    // control the starting color and starting size of particles.
     let age = writer.lit(0.).uniform(writer.lit(0.2)).expr();
     let init_age = InitAttributeModifier::new(Attribute::AGE, age);
 
