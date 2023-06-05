@@ -98,11 +98,22 @@ fn setup(
         .insert(Name::new("ball"));
 
     let spawner = Spawner::once(30.0.into(), false);
+
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    // Bind the initial particle color to the value of the 'my_color' property.
+    let color = writer.prop("my_color").expr();
+    let init_color = InitAttributeModifier::new(Attribute::COLOR, color);
+
     let effect = effects.add(
         EffectAsset {
             name: "Impact".into(),
             capacity: 32768,
             spawner,
+            module: writer.finish(),
             ..Default::default()
         }
         .with_property("my_color", 0xFFFFFFFFu32.into())
@@ -115,14 +126,8 @@ fn setup(
             center: Vec3::ZERO,
             speed: 0.2.into(),
         })
-        .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
-        })
-        // Bind the initial particle color to the value of the 'my_color' property.
-        .init(InitAttributeModifier::new(
-            Attribute::COLOR,
-            PropertyExpr::new("my_color"),
-        ))
+        .init(init_lifetime)
+        .init(init_color)
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::linear(Vec2::splat(0.02), Vec2::splat(0.04)),
         }),

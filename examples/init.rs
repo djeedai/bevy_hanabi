@@ -48,15 +48,19 @@ const COLOR: Vec4 = Vec4::new(0.7, 0.7, 1.0, 1.0);
 const SIZE: Vec2 = Vec2::splat(0.1);
 
 fn base_effect(name: impl Into<String>) -> EffectAsset {
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(3600.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
     EffectAsset {
         name: name.into(),
         capacity: 32768,
         spawner: Spawner::once(COUNT.into(), true),
+        module: writer.finish(),
         ..Default::default()
     }
-    .init(InitLifetimeModifier {
-        lifetime: 3600_f32.into(),
-    })
+    .init(init_lifetime)
     .render(BillboardModifier)
     .render(SetColorModifier {
         color: COLOR.into(),

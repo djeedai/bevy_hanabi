@@ -63,12 +63,18 @@ fn setup(
     gradient.add_key(0.5, Vec4::ONE);
     gradient.add_key(1.0, Vec4::new(1.0, 1.0, 1.0, 0.0));
 
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
     let effect = effects.add(
         EffectAsset {
             name: "Gradient".to_string(),
             // TODO: Figure out why no particle spawns if this is 1
             capacity: 32768,
             spawner: Spawner::rate(64.0.into()),
+            module: writer.finish(),
             ..Default::default()
         }
         .init(InitPositionCircleModifier {
@@ -82,9 +88,7 @@ fn setup(
             axis: Vec3::Y,
             speed: Value::Uniform((0.7, 0.5)),
         })
-        .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
-        })
+        .init(init_lifetime)
         .render(ParticleTextureModifier {
             texture: texture_handle,
         })

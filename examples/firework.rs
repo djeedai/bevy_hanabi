@@ -14,8 +14,6 @@
 //! - An [`AccelModifier`] to pull particles down once they slow down, for
 //!   increased realism. This is a subtle effect, but of importance.
 
-use std::{cell::RefCell, rc::Rc};
-
 use bevy::{
     core_pipeline::{bloom::BloomSettings, clear_color::ClearColorConfig},
     log::LogPlugin,

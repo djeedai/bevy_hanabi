@@ -46,10 +46,16 @@ fn make_effect(color: Color) -> EffectAsset {
     color_gradient.add_key(0.4, Vec4::new(color.r(), color.g(), color.b(), 1.0));
     color_gradient.add_key(1.0, Vec4::splat(0.0));
 
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
     EffectAsset {
         name: "effect1".to_string(),
         capacity: 32768,
         spawner: Spawner::rate(5.0.into()),
+        module: writer.finish(),
         ..Default::default()
     }
     .init(InitPositionSphereModifier {
@@ -61,9 +67,7 @@ fn make_effect(color: Color) -> EffectAsset {
         center: Vec3::ZERO,
         speed: 6.0.into(),
     })
-    .init(InitLifetimeModifier {
-        lifetime: 5_f32.into(),
-    })
+    .init(init_lifetime)
     .update(AccelModifier::constant(Vec3::new(0., -3., 0.)))
     .render(ColorOverLifetimeModifier {
         gradient: color_gradient,

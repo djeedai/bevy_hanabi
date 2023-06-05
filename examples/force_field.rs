@@ -146,12 +146,26 @@ fn setup(
 
     let spawner = Spawner::once(30.0.into(), spawn_immediately);
 
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let center = writer.lit(Vec3::ZERO).expr();
+    let half_size = writer.lit(Vec3::new(3., 2., 3.)).expr();
+    let allow_zone = AabbKillModifier::new(center, half_size);
+
+    let center = writer.lit(Vec3::new(-2., -1., 0.)).expr();
+    let half_size = writer.lit(Vec3::new(0.4, 0.2, 3.)).expr();
+    let deny_zone = AabbKillModifier::new(center, half_size).with_kill_inside(true);
+
     // Force field effects
     let effect = effects.add(
         EffectAsset {
             name: "Impact".into(),
             capacity: 32768,
             spawner,
+            module: writer.finish(),
             ..Default::default()
         }
         .init(InitPositionSphereModifier {
@@ -163,10 +177,7 @@ fn setup(
             center: Vec3::ZERO,
             speed: Value::Uniform((0.1, 0.3)),
         })
-        .init(InitAttributeModifier::new(
-            Attribute::LIFETIME,
-            LiteralExpr::new(5.),
-        ))
+        .init(init_lifetime)
         .update(ForceFieldModifier::new(vec![
             ForceFieldSource {
                 position: attractor2_position,
@@ -188,17 +199,8 @@ fn setup(
                 conform_to_sphere: true,
             },
         ]))
-        .update(AabbKillModifier::new(
-            LiteralExpr::new(Vec3::ZERO),
-            LiteralExpr::new(Vec3::new(3., 2., 3.)),
-        ))
-        .update(
-            AabbKillModifier::new(
-                LiteralExpr::new(Vec3::new(-2., -1., 0.)),
-                LiteralExpr::new(Vec3::new(0.4, 0.2, 3.)),
-            )
-            .with_kill_inside(true),
-        )
+        .update(allow_zone)
+        .update(deny_zone)
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::constant(Vec2::splat(0.05)),
         })

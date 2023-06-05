@@ -76,6 +76,11 @@ fn setup(
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.5, 0.5, 1.0, 0.0));
 
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
     // Create a new effect asset spawning 30 particles per second from a circle
     // and slowly fading from blue-ish to transparent over their lifetime.
     // By default the asset spawns the particles at Z=0.
@@ -85,6 +90,7 @@ fn setup(
             name: "Effect".into(),
             capacity: 4096,
             spawner,
+            module: writer.finish(),
             ..Default::default()
         }
         .init(InitPositionCircleModifier {
@@ -98,9 +104,7 @@ fn setup(
             axis: Vec3::Z,
             speed: 0.1.into(),
         })
-        .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
-        })
+        .init(init_lifetime)
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::constant(Vec2::splat(0.02)),
         })

@@ -708,12 +708,12 @@ impl UpdateModifier for LinearDragModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AabbKillModifier {
     /// Center of the AABB.
-    pub center: Expr,
+    pub center: ExprHandle,
     /// Half-size of the AABB.
-    pub half_size: Expr,
+    pub half_size: ExprHandle,
     /// If `true`, invert the kill condition and kill all particles inside the
     /// AABB. If `false` (default), kill all particles outside the AABB.
     pub kill_inside: bool,
@@ -723,7 +723,7 @@ impl AabbKillModifier {
     /// Create a new instance of an [`AabbKillModifier`] from an AABB center and half extents.
     ///
     /// The created instance has a default `kill_inside = false` value.
-    pub fn new(center: impl Into<Expr>, half_size: impl Into<Expr>) -> Self {
+    pub fn new(center: impl Into<ExprHandle>, half_size: impl Into<ExprHandle>) -> Self {
         Self {
             center: center.into(),
             half_size: half_size.into(),
@@ -744,14 +744,12 @@ impl_mod_update!(AabbKillModifier, &[Attribute::POSITION]);
 impl UpdateModifier for AabbKillModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let pos = context.module.attr(Attribute::POSITION);
-        let center = context.module.push(self.center.clone());
-        let diff = context.module.sub(pos, center);
+        let diff = context.module.sub(pos, self.center);
         let dist = context.module.abs(diff);
-        let half_size = context.module.push(self.half_size.clone());
         let cmp = if self.kill_inside {
-            context.module.lt(dist, half_size)
+            context.module.lt(dist, self.half_size)
         } else {
-            context.module.gt(dist, half_size)
+            context.module.gt(dist, self.half_size)
         };
         let reduce = if self.kill_inside {
             context.module.all(cmp)
@@ -774,7 +772,7 @@ impl UpdateModifier for AabbKillModifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::ParticleLayout;
+    use crate::{ExprWriter, ParticleLayout};
 
     use super::*;
 
@@ -832,20 +830,18 @@ mod tests {
 
     #[test]
     fn validate() {
+        let writer = ExprWriter::new();
         let modifiers: &[&dyn UpdateModifier] = &[
             &AccelModifier::constant(Vec3::ONE),
             &RadialAccelModifier::constant(Vec3::ZERO, 1.),
             &TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 1.),
             &ForceFieldModifier::default(),
             &LinearDragModifier::constant(3.5),
-            &AabbKillModifier::new(
-                Expr::Literal(LiteralExpr::new(Vec3::ZERO)),
-                Expr::Literal(LiteralExpr::new(Vec3::ONE)),
-            ),
+            &AabbKillModifier::new(writer.lit(Vec3::ZERO).expr(), writer.lit(Vec3::ONE).expr()),
         ];
+        let mut module = writer.finish();
         for &modifier in modifiers.iter() {
             let property_layout = PropertyLayout::default();
-            let mut module = Module::default();
             let mut context = UpdateContext::new(&mut module, &property_layout);
             assert!(modifier.apply(&mut context).is_ok());
             let update_code = context.update_code;

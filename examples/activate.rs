@@ -96,11 +96,18 @@ fn setup(
     gradient.add_key(1.0, Vec4::new(0.5, 0.5, 1.0, 0.0));
 
     let spawner = Spawner::rate(30.0.into()).with_starts_active(false);
+
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
     let effect = effects.add(
         EffectAsset {
             name: "Impact".into(),
             capacity: 32768,
             spawner,
+            module: writer.finish(),
             ..Default::default()
         }
         .init(InitPositionSphereModifier {
@@ -112,9 +119,7 @@ fn setup(
             center: Vec3::ZERO,
             speed: 0.1.into(),
         })
-        .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
-        })
+        .init(init_lifetime)
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::constant(Vec2::splat(0.02)),
         })
