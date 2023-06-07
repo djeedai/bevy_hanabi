@@ -28,6 +28,10 @@ impl Property {
     /// In general properties are created internally by the [`EffectAsset`]
     /// they're defined on, when calling [`EffectAsset::with_property()`] or
     /// [`EffectAsset::add_property()`].
+    ///
+    /// [`EffectAsset`]: crate::EffectAsset
+    /// [`EffectAsset::with_property()`]: crate::EffectAsset::with_property
+    /// [`EffectAsset::add_property()`]: crate::EffectAsset::add_property
     #[inline]
     pub fn new(name: impl Into<String>, default_value: impl Into<Value>) -> Self {
         Self {
@@ -142,6 +146,8 @@ impl PropertyLayout {
     /// In general a property layout is directly built from an asset via
     /// [`EffectAsset::property_layout()`], so this method is mostly used for
     /// advanced use cases or testing.
+    ///
+    /// [`EffectAsset::property_layout()`]: crate::EffectAsset::property_layout
     pub fn new<'a>(iter: impl IntoIterator<Item = &'a Property>) -> Self {
         let mut properties = iter.into_iter().collect::<Vec<_>>();
 

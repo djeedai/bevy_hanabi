@@ -590,7 +590,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float3`] representing the XYZ coordinates of the position.
+    /// [`VectorType::VEC3F`] representing the XYZ coordinates of the position.
     ///
     /// [simulation space]: crate::SimulationSpace
     pub const POSITION: Attribute = Attribute(AttributeInner::POSITION);
@@ -599,7 +599,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float3`] representing the XYZ coordinates of the velocity.
+    /// [`VectorType::VEC3F`] representing the XYZ coordinates of the velocity.
     ///
     /// [simulation space]: crate::SimulationSpace
     pub const VELOCITY: Attribute = Attribute(AttributeInner::VELOCITY);
@@ -618,7 +618,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float`]
+    /// [`ScalarType::Float`]
     ///
     /// [`ColorOverLifetimeModifier`]: crate::modifier::render::ColorOverLifetimeModifier
     pub const AGE: Attribute = Attribute(AttributeInner::AGE);
@@ -632,7 +632,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float`]
+    /// [`ScalarType::Float`]
     pub const LIFETIME: Attribute = Attribute(AttributeInner::LIFETIME);
 
     /// The particle's base color.
@@ -643,7 +643,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Uint`] representing the RGBA components of the color
+    /// [`ScalarType::Uint`] representing the RGBA components of the color
     /// encoded as `0xAABBGGRR`, with a single byte per component.
     pub const COLOR: Attribute = Attribute(AttributeInner::COLOR);
 
@@ -655,14 +655,14 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float4`] representing the RGBA components of the color.
+    /// [`VectorType::VEC4F`] representing the RGBA components of the color.
     /// Values are not clamped, and can be outside the \[0:1\] range to
     /// represent HDR values.
     pub const HDR_COLOR: Attribute = Attribute(AttributeInner::HDR_COLOR);
 
     /// The particle's transparency (alpha).
     ///
-    /// Type: [`ValueType::Float`]
+    /// Type: [`ScalarType::Float`]
     pub const ALPHA: Attribute = Attribute(AttributeInner::ALPHA);
 
     /// The particle's uniform size.
@@ -671,7 +671,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float`]
+    /// [`ScalarType::Float`]
     pub const SIZE: Attribute = Attribute(AttributeInner::SIZE);
 
     /// The particle's 2D size, for quad rendering.
@@ -681,7 +681,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float2`] representing the XY sizes of the particle.
+    /// [`VectorType::VEC2F`] representing the XY sizes of the particle.
     pub const SIZE2: Attribute = Attribute(AttributeInner::SIZE2);
 
     /// The local X axis of the particle.
@@ -693,7 +693,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float3`]
+    /// [`VectorType::VEC3F`]
     pub const AXIS_X: Attribute = Attribute(AttributeInner::AXIS_X);
 
     /// The local Y axis of the particle.
@@ -705,7 +705,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float3`]
+    /// [`VectorType::VEC3F`]
     pub const AXIS_Y: Attribute = Attribute(AttributeInner::AXIS_Y);
 
     /// The local Z axis of the particle.
@@ -717,7 +717,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float3`]
+    /// [`VectorType::VEC3F`]
     pub const AXIS_Z: Attribute = Attribute(AttributeInner::AXIS_Z);
 
     /// Collection of all the existing particle attributes.

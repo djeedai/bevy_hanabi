@@ -1,3 +1,5 @@
+//! Node API.
+
 // use std::num::NonZeroU32;
 
 // use crate::{

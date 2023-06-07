@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{MatrixType, ScalarType, ToWgslString, ValueType, VectorType};
 
-mod expr;
-mod node;
+pub mod expr;
+pub mod node;
 
 pub use expr::{
     AttributeExpr, BinaryOperator, BuiltInExpr, BuiltInOperator, EvalContext, Expr, ExprError,
@@ -421,7 +421,7 @@ pub struct VectorValue {
 }
 
 impl VectorValue {
-    /// Workaround for "impl const From<Vec2>".
+    /// Workaround for `impl const From<Vec2>`.
     #[allow(unsafe_code)]
     pub const fn new_vec2(value: Vec2) -> Self {
         Self {
@@ -435,7 +435,7 @@ impl VectorValue {
         }
     }
 
-    /// Workaround for "impl const From<Vec3>".
+    /// Workaround for `impl const From<Vec3>`.
     #[allow(unsafe_code)]
     pub const fn new_vec3(value: Vec3) -> Self {
         Self {
@@ -449,7 +449,7 @@ impl VectorValue {
         }
     }
 
-    /// Workaround for "impl const From<Vec4>".
+    /// Workaround for `impl const From<Vec4>`.
     #[allow(unsafe_code)]
     pub const fn new_vec4(value: Vec4) -> Self {
         Self {

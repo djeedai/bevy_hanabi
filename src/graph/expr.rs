@@ -1,3 +1,106 @@
+//! Expression API
+//!
+//! This module contains the low-level _Expression API_, designed to produce
+//! highly customizable modifier behaviors through a code-first API focused on
+//! runtime and serialization. For asset editing, the higher-level [Node API]
+//! offers an easier-to-use abstraction built on top of the Expression API.
+//!
+//! # Modules and expressions
+//!
+//! A particle effect is composed of a series [`Modifier`]s decribing how to
+//! initialize and update (simulate) the particles of the effect. Choosing which
+//! modifier to add to an effect provides the user some limited level of
+//! customizing. However modifiers alone cannot provide enough customizing to
+//! build visual effects. For this reason, modifier inputs can be further
+//! customized with _expressions_. An expression produces a value which is
+//! assigned to the input. That value can be constant, in which case it will be
+//! hard-coded into the generated WGSL shader, for performance reasons.
+//! Alternatively, that value can vary based on other quantities, like an effect
+//! property, a particle attribute, or some built-in simulation variable like
+//! the simulation time.
+//!
+//! An expression is represented by the [`Expr`] enum. Expressions can be
+//! combined together to form more complex expression; for example, the Add
+//! expression computes the sum between two other expressions. [`Expr`]
+//! represents a form of abstraction over the actual WGSL shader code, and is
+//! generally closely related to the actual expressions of the WGSL language
+//! itself.
+//!
+//! An expression often refers to other expressions. However, [`Expr`] as an
+//! enum cannot directly contain other [`Expr`], otherwise the type would become
+//! infinitely recursive. Instead, each expression is stored into a [`Module`]
+//! and indexed by an [`ExprHandle`], a non-zero index referencing the
+//! expression inside the module. This indirection avoids the recursion issue.
+//! This means all expressions are implicitly associated with a unique module,
+//! and care must be taken to not mix exressions from different modules.
+//!
+//! Each [`EffectAsset`] contains a single [`Module`] storing all the [`Expr`]
+//! used in all its modifiers.
+//!
+//! # Kinds of expressions
+//!
+//! Expressions can be grouped into various kinds, for the sake of
+//! comprehension:
+//! - Literal expressions represent a constant, which will be hard-coded into
+//!   the final WGSL shader code. Expressions like `1.42` or `vec3<f32>(0.)` are
+//!   literal expressions in WGSL, and are represented by a [`LiteralExpr`].
+//! - Built-in expressions represent specific built-in values provided by the
+//!   simulation context. For example, the current simulation time is a built-in
+//!   expression accessible from the shader code of any visual effect to animate
+//!   it. A built-in expression is represented by a [`BuiltInExpr`].
+//! - Attribute expressions represent the value of an attribute of a particle. A
+//!   typical example is the particle position, represented by
+//!   [`Attribute::POSITION`], which can be obtained as an expression through an
+//!   [`AttributeExpr`].
+//! - Property expressions represent the value of a visual effect property, a
+//!   quantity assigned by the user on the CPU side and uploaded each frame into
+//!   the GPU for precise per-frame control over an effect. It's represented by
+//!   a [`PropertyExpr`].
+//! - Unary and binary operations are expressions taking one or two operand
+//!   expressions and transforming them. A typical example is the Add operator,
+//!   which takes two operand expressions and produces their sum.
+//!
+//! # Building expressions
+//!
+//! The fundamental way to build expressions is to directly write them into a
+//! [`Module`] itself. The [`Module`] type contains various methods to create
+//! new expressions and immediately write them.
+//!
+//! ```
+//! # use bevy_hanabi::*;
+//! let mut module = Module::default();
+//!
+//! // Build and write a literal expression into the module.
+//! let expr = module.lit(3.42);
+//! ```
+//!
+//! Due to the code-first nature of the Expression API however, that approach
+//! can be very verbose. Instead, users are encouraged to use an [`ExprWriter`],
+//! a simple utility to build expressions with a shortened syntax. Once an
+//! expression is built, it can be written into the underlying [`Module`]. This
+//! approach generally makes the code more readable, and is therefore highly
+//! encouraged, but is not mandatory.
+//!
+//! ```
+//! # use bevy_hanabi::*;
+//! // Create a writer owning a new Module
+//! let mut w = ExprWriter::new();
+//!
+//! // Build a complex expression: max(3.42, properties.my_prop)
+//! let expr = w.lit(3.42).max(w.prop("my_prop"));
+//!
+//! // Finalize the expression and write it into the Module. The returned handle can
+//! // be assign to a modifier input.
+//! let handle = expr.expr();
+//!
+//! // Finish using the writer and recover the Module with all written expressions
+//! let module = w.finish();
+//! ```
+//!
+//! [Node API]: crate::graph::node
+//! [`Modifier`]: crate::Modifier
+//! [`EffectAsset`]: crate::EffectAsset
+
 use std::{cell::RefCell, cmp::Ordering, fmt, marker::PhantomData, num::NonZeroU32, rc::Rc};
 
 use bevy::{
@@ -104,12 +207,16 @@ pub type ExprHandle = Handle<Expr>;
 /// cloned into an unrelated module, and the clone can be assigned to another
 /// effect asset.
 ///
-/// Modules are built incrementally. Expressions can be directly written into
-/// the module using methods like [`push()`] or convenience helpers like
-/// [`lit()`] or [`attr()`]. Alternatively, an [`ExprWriter`] can be used to
-/// populate a new or existing module. Either way, once an expression is written
-/// into a module, it cannot be modified or deleted. Modules are not designed to
-/// be used as editing structures, but as storage and serialization ones.
+/// Modules are built incrementally. Expressions are written into the module
+/// through convenience helpers like [`lit()`] or [`attr()`]. Alternatively, an
+/// [`ExprWriter`] can be used to populate a new or existing module. Either way,
+/// once an expression is written into a module, it cannot be modified or
+/// deleted. Modules are not designed to be used as editing structures, but as
+/// storage and serialization ones.
+///
+/// [`EffectAsset`]: crate::EffectAsset
+/// [`lit()`]: Module::lit
+/// [`attr()`]: Module::attr
 #[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct Module {
     expressions: Vec<Expr>,
@@ -332,6 +439,9 @@ pub enum ExprError {
     /// defined in the evaluation context, which in turns usually mean it was
     /// not defined with [`EffectAsset::with_property()`] or
     /// [`EffectAsset::add_property()`].
+    ///
+    /// [`EffectAsset::with_property()`]: crate::EffectAsset::with_property
+    /// [`EffectAsset::add_property()`]: crate::EffectAsset::add_property
     #[error("Property error: {0:?}")]
     PropertyError(String),
 
@@ -494,6 +604,8 @@ impl Expr {
 /// Literal expression are compile-time constants. They are always constant
 /// ([`is_const()`] is `true`) and have a value type equal to the type of the
 /// constant itself.
+///
+/// [`is_const()`]: LiteralExpr::is_const
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct LiteralExpr {
     value: Value,
@@ -925,6 +1037,10 @@ impl ToWgslString for BinaryOperator {
 /// let str = context.eval(expr).unwrap();
 /// assert_eq!(str, "max((5.) + (particle.position), properties.my_prop)");
 /// ```
+///
+/// [`finish()`]: ExprWriter::finish
+/// [`EffectAsset`]: crate::EffectAsset
+/// [`Modifer`]: crate::Modifier
 #[derive(Debug)]
 pub struct ExprWriter {
     module: Rc<RefCell<Module>>,
@@ -937,6 +1053,8 @@ impl ExprWriter {
     /// The writer owns a new [`Module`] internally, and write all expressions
     /// to it. The module can be released to the user with [`finish()`] once
     /// done using the writer.
+    ///
+    /// [`finish()`]: ExprWriter::finish
     pub fn new() -> Self {
         Self {
             module: Rc::new(RefCell::new(Module::default())),
@@ -950,6 +1068,8 @@ impl ExprWriter {
     /// [`ExprWriter::new()`] to create a new [`Module`], and keep using the
     /// same [`ExprWriter`] to write all expressions of the same
     /// [`EffectAsset`].
+    ///
+    /// [`EffectAsset`]: crate::EffectAsset
     pub fn from_module(module: Rc<RefCell<Module>>) -> Self {
         Self { module }
     }
@@ -990,6 +1110,26 @@ impl ExprWriter {
 }
 
 /// Intermediate expression from an [`ExprWriter`].
+///
+/// This is equivalent to an [`ExprHandle`], but retains a reference to the
+/// underlying [`Module`] and therefore can easily be chained with other
+/// [`WriterExpr`] via a concise syntax, and the expense of being more
+/// heavyweight. [`ExprHandle`] by opposition is a very lightweight type,
+/// similar to a simple index, who like an array index doesn't explicitly
+/// reference its associated storage ([`Module`]) which needs to be remembered
+/// by the user explicitly.
+///
+/// In addition, [`WriterExpr`] implements several numerical operators like the
+/// [`std::ops::Add`] trait, making it simpler to combine it with another
+/// [`WriterExpr`].
+///
+/// ```
+/// # use bevy_hanabi::*;
+/// let mut w = ExprWriter::new();
+/// let x = w.lit(-3.5);
+/// let y = w.lit(78.);
+/// let z = x + y;
+/// ```
 #[derive(Debug)]
 pub struct WriterExpr {
     expr: Handle<Expr>,
@@ -1009,6 +1149,21 @@ impl WriterExpr {
     }
 
     /// Take the absolute value of the current expression.
+    ///
+    /// This is a unary operator, which applies component-wise to vector and
+    /// matrix operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = -3.5;`.
+    /// let x = w.lit(-3.5);
+    ///
+    /// // The absolute value `y = abs(x);`.
+    /// let y = x.abs();
+    /// ```
     pub fn abs(self) -> Self {
         self.unary_op(UnaryOperator::Abs)
     }
@@ -1097,7 +1252,22 @@ impl WriterExpr {
         self.binary_op(other, BinaryOperator::UniformRand)
     }
 
-    /// Finalize the writer and return the accumulated expression.
+    /// Finalize an expression chain and return the accumulated expression.
+    ///
+    /// The returned handle indexes the [`Module`] owned by the [`ExprWriter`]
+    /// this intermediate expression was built from.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = -3.5;`.
+    /// let x = w.lit(-3.5);
+    ///
+    /// // Retrieve the ExprHandle for that expression.
+    /// let handle = x.expr();
+    /// ```
     pub fn expr(self) -> Handle<Expr> {
         self.expr
     }
