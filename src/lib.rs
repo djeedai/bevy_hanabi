@@ -65,6 +65,17 @@
 //!     gradient.add_key(0.0, Vec4::new(1., 0., 0., 1.));
 //!     gradient.add_key(1.0, Vec4::splat(0.));
 //!
+//!     // Create a new expression module
+//!     let mut module = Module::default();
+//!
+//!     // Create a lifetime modifier
+//!     let lifetime = module.lit(10.); // literal "10 sec" value
+//!     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+//!
+//!     // Create an acceleration modifier
+//!     let accel = module.lit(Vec3::new(0., -3., 0.));
+//!     let update_accel = AccelModifier::new(accel);
+//!
 //!     // Create the effect asset
 //!     let effect = effects.add(EffectAsset {
 //!         name: "MyEffect".to_string(),
@@ -72,6 +83,8 @@
 //!         capacity: 32768,
 //!         // Spawn at a rate of 5 particles per second
 //!         spawner: Spawner::rate(5.0.into()),
+//!         // Move the expression module into the asset
+//!         module,
 //!         ..Default::default()
 //!     }
 //!     // On spawn, randomly initialize the position of the particle
@@ -90,9 +103,9 @@
 //!     // Also initialize the total lifetime of the particle, that is
 //!     // the time for which it's simulated and rendered. This modifier
 //!     // is almost always required, otherwise the particles won't show up.
-//!     .init(InitAttributeModifier::new(Attribute::LIFETIME, LiteralExpr::new(10.)))
+//!     .init(init_lifetime)
 //!     // Every frame, add a gravity-like acceleration downward
-//!     .update(AccelModifier::constant(Vec3::new(0., -3., 0.)))
+//!     .update(update_accel)
 //!     // Render the particles with a color gradient over their
 //!     // lifetime. This maps the gradient key 0 to the particle spawn
 //!     // time, and the gradient key 1 to the particle death (here, 10s).
@@ -143,7 +156,7 @@ mod spawn;
 #[cfg(test)]
 mod test_utils;
 
-use properties::{Property, PropertyInstance};
+use properties::PropertyInstance;
 
 pub use asset::{EffectAsset, MotionIntegration, SimulationCondition};
 pub use attributes::*;
@@ -152,7 +165,7 @@ pub use gradient::{Gradient, GradientKey};
 pub use graph::*;
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
-pub use properties::PropertyLayout;
+pub use properties::{Property, PropertyLayout};
 pub use render::{EffectSystems, ShaderCache};
 pub use spawn::{tick_spawners, DimValue, EffectSpawner, Random, Spawner, Value};
 

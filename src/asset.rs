@@ -305,6 +305,7 @@ mod tests {
 
     #[test]
     fn test_apply_modifiers() {
+        let mut module = Module::default();
         let effect = EffectAsset {
             name: "Effect".into(),
             capacity: 4096,
@@ -314,7 +315,7 @@ mod tests {
         .init(InitPositionSphereModifier::default())
         .init(InitVelocitySphereModifier::default())
         //.update(AccelModifier::default())
-        .update(LinearDragModifier::constant(1.))
+        .update(LinearDragModifier::new(module.lit(1.)))
         .update(ForceFieldModifier::default())
         .render(ParticleTextureModifier::default())
         .render(ColorOverLifetimeModifier::default())
@@ -323,7 +324,6 @@ mod tests {
 
         assert_eq!(effect.capacity, 4096);
 
-        let mut module = Module::default();
         let one = module.lit(1.);
         let init_age = InitAttributeModifier::new(Attribute::AGE, one);
         let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, one);
@@ -341,14 +341,12 @@ mod tests {
         // assert_eq!(effect., init_context.init_code);
 
         let mut module = Module::default();
+        let accel_mod = AccelModifier::constant(&mut module, Vec3::ONE);
+        let drag_mod = LinearDragModifier::constant(&mut module, 3.5);
         let property_layout = PropertyLayout::default();
         let mut update_context = UpdateContext::new(&mut module, &property_layout);
-        assert!(AccelModifier::constant(Vec3::ONE)
-            .apply(&mut update_context)
-            .is_ok());
-        assert!(LinearDragModifier::constant(3.5)
-            .apply(&mut update_context)
-            .is_ok());
+        assert!(accel_mod.apply(&mut update_context).is_ok());
+        assert!(drag_mod.apply(&mut update_context).is_ok());
         assert!(ForceFieldModifier::default()
             .apply(&mut update_context)
             .is_ok());

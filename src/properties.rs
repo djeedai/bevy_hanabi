@@ -24,10 +24,15 @@ pub struct Property {
 
 impl Property {
     /// Create a new property.
-    pub(crate) fn new(name: impl Into<String>, default_value: Value) -> Self {
+    ///
+    /// In general properties are created internally by the [`EffectAsset`]
+    /// they're defined on, when calling [`EffectAsset::with_property()`] or
+    /// [`EffectAsset::add_property()`].
+    #[inline]
+    pub fn new(name: impl Into<String>, default_value: impl Into<Value>) -> Self {
         Self {
             name: name.into(),
-            default_value,
+            default_value: default_value.into(),
         }
     }
 
@@ -35,16 +40,19 @@ impl Property {
     ///
     /// The name of a property is unique within a given effect, and corresponds
     /// to the name of the variable in the generated WGSL code.
+    #[inline]
     pub fn name(&self) -> &str {
         self.name.as_ref()
     }
 
-    /// The default value of the property.
+    /// The default value of the property.#
+    #[inline]
     pub fn default_value(&self) -> &Value {
         &self.default_value
     }
 
     /// The property type.
+    #[inline]
     pub fn value_type(&self) -> ValueType {
         self.default_value.value_type()
     }
@@ -52,6 +60,7 @@ impl Property {
     /// The property size, in bytes.
     ///
     /// This is a shortcut for `self.value_type().size()`.
+    #[inline]
     pub fn size(&self) -> usize {
         self.default_value.value_type().size()
     }
@@ -82,7 +91,9 @@ struct PropertyLayoutEntry {
 
 impl PartialEq for PropertyLayoutEntry {
     fn eq(&self, other: &Self) -> bool {
-        // Compare property's name and type, but not default value
+        // Compare property's name and type, and offset inside layout, but not default
+        // value since two properties cannot differ only by default value (the property
+        // name is unique).
         self.property.name() == other.property.name()
             && self.property.value_type() == other.property.value_type()
             && self.offset == other.offset
@@ -93,7 +104,9 @@ impl Eq for PropertyLayoutEntry {}
 
 impl std::hash::Hash for PropertyLayoutEntry {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Hash property's name and type, but not default value
+        // Hash property's name and type, and offset inside layout, but not default
+        // value since two properties cannot differ only by default value (the property
+        // name is unique).
         self.property.name().hash(state);
         self.property.value_type().hash(state);
         self.offset.hash(state);
@@ -113,7 +126,7 @@ impl std::fmt::Debug for PropertyLayoutEntry {
 }
 
 /// Layout of properties for an effect.
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PropertyLayout {
     layout: Vec<PropertyLayoutEntry>,
 }
@@ -125,7 +138,11 @@ impl PropertyLayout {
     }
 
     /// Create a new collection from an iterator.
-    pub(crate) fn new<'a>(iter: impl IntoIterator<Item = &'a Property>) -> Self {
+    ///
+    /// In general a property layout is directly built from an asset via
+    /// [`EffectAsset::property_layout()`], so this method is mostly used for
+    /// advanced use cases or testing.
+    pub fn new<'a>(iter: impl IntoIterator<Item = &'a Property>) -> Self {
         let mut properties = iter.into_iter().collect::<Vec<_>>();
 
         // Sort by size
@@ -269,6 +286,10 @@ impl PropertyLayout {
     }
 
     /// Get the size of the layout in bytes.
+    ///
+    /// The size of a layout is the sum of the offset and size of its last
+    /// property. The last property doesn't have any padding, since padding's
+    /// purpose is to align the next property in the layout.
     pub fn size(&self) -> u32 {
         if self.layout.is_empty() {
             0
@@ -279,6 +300,9 @@ impl PropertyLayout {
     }
 
     /// Get the alignment of the layout in bytes.
+    ///
+    /// This is the largest alignment of all the properties. If the layout is
+    /// empty, this returns zero.
     pub fn align(&self) -> usize {
         if self.layout.is_empty() {
             0
@@ -333,7 +357,7 @@ impl PropertyLayout {
         }
     }
 
-    /// Get the offset for the property with the given name.
+    /// Get the offset in byte of the property with the given name.
     pub(crate) fn offset(&self, name: &str) -> Option<u32> {
         self.layout
             .iter()

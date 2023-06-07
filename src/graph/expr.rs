@@ -144,6 +144,12 @@ impl Module {
         self.push(Expr::Attribute(AttributeExpr::new(attr)))
     }
 
+    /// Build a property expression and append it to the module.
+    #[inline]
+    pub fn prop(&mut self, property_name: impl Into<String>) -> ExprHandle {
+        self.push(Expr::Property(PropertyExpr::new(property_name)))
+    }
+
     /// Build a built-in expression and append it to the module.
     #[inline]
     pub fn builtin(&mut self, op: BuiltInOperator) -> ExprHandle {
@@ -903,9 +909,6 @@ impl ToWgslString for BinaryOperator {
 ///
 /// ```
 /// # use bevy_hanabi::*;
-/// # let mut module = Module::default();
-/// # let pl = PropertyLayout::empty();
-/// # let context = InitContext::new(&mut module, &pl);
 /// // Create a writer
 /// let w = ExprWriter::new();
 ///
@@ -916,6 +919,9 @@ impl ToWgslString for BinaryOperator {
 /// let expr = expr.expr();
 ///
 /// // Evaluate the expression
+/// # let pl = PropertyLayout::new(&[Property::new("my_prop",ScalarValue::Float(3.))]);
+/// # let mut module = w.finish();
+/// # let context = InitContext::new(&mut module, &pl);
 /// let str = context.eval(expr).unwrap();
 /// assert_eq!(str, "max((5.) + (particle.position), properties.my_prop)");
 /// ```
@@ -1179,7 +1185,7 @@ impl std::ops::Div<WriterExpr> for WriterExpr {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::Property, InitContext};
+    use crate::{prelude::Property, InitContext, ScalarValue};
 
     use super::*;
     use bevy::math::Vec2;
@@ -1195,10 +1201,8 @@ mod tests {
         let x = x.expr();
 
         // Create an evaluation context
-        let property_layout = PropertyLayout::new(&[Property::new(
-            "my_prop",
-            Value::Scalar(crate::ScalarValue::Float(3.)),
-        )]);
+        let property_layout =
+            PropertyLayout::new(&[Property::new("my_prop", ScalarValue::Float(3.))]);
         let mut m = w.finish();
         let context = InitContext::new(&mut m, &property_layout);
 
@@ -1212,27 +1216,11 @@ mod tests {
     }
 
     #[test]
-    fn err() {
+    fn type_error() {
         let l = Value::Scalar(3.5_f32.into());
         let r: Result<Vec2, ExprError> = l.try_into();
         assert!(r.is_err());
         assert!(matches!(r, Err(ExprError::TypeError(_))));
-    }
-
-    #[test]
-    fn aaa() {
-        // Create a writer
-        let w = ExprWriter::new();
-        // Create a new expression
-        let expr = (w.lit(5.) + w.attr(Attribute::POSITION)).max(w.prop("my_prop"));
-        // Finalize the expression and write it down into the `Module` as an `Expr`
-        let expr = expr.expr();
-        // Evaluate the expression
-        let mut module = w.finish();
-        let pl = PropertyLayout::empty();
-        let context = InitContext::new(&mut module, &pl);
-        let str = context.eval(expr).unwrap();
-        assert_eq!(str, "max((5.) + (particle.position), properties.my_prop)");
     }
 
     // #[test]

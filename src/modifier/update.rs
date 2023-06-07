@@ -10,10 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     calc_func_id,
-    graph::{
-        BuiltInExpr, BuiltInOperator, EvalContext, Expr, ExprError, LiteralExpr, PropertyExpr,
-        Value,
-    },
+    graph::{BuiltInExpr, BuiltInOperator, EvalContext, Expr, ExprError, Value},
     Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module, Property,
     PropertyLayout, ToWgslString,
 };
@@ -154,24 +151,29 @@ impl ToWgslString for ValueOrProperty {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct AccelModifier {
     /// The acceleration to apply to all particles in the effect each frame.
-    accel: Expr,
+    accel: ExprHandle,
 }
 
 impl AccelModifier {
+    /// Create a new modifier from an acceleration expression.
+    pub fn new(accel: ExprHandle) -> Self {
+        Self { accel }
+    }
+
     /// Create a new modifier with an acceleration derived from a property.
-    pub fn via_property(property_name: impl Into<String>) -> Self {
+    pub fn via_property(module: &mut Module, property_name: impl Into<String>) -> Self {
         Self {
-            accel: Expr::Property(PropertyExpr::new(property_name)),
+            accel: module.prop(property_name),
         }
     }
 
     /// Create a new modifier with a constant acceleration.
-    pub fn constant(acceleration: Vec3) -> Self {
+    pub fn constant(module: &mut Module, acceleration: Vec3) -> Self {
         Self {
-            accel: Expr::Literal(LiteralExpr::new(acceleration)),
+            accel: module.lit(acceleration),
         }
     }
 }
@@ -216,9 +218,8 @@ impl Modifier for AccelModifier {
 impl UpdateModifier for AccelModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let attr = context.module.attr(Attribute::VELOCITY);
-        let expr = context.module.push(self.accel.clone());
         let attr = context.eval(attr)?;
-        let expr = context.eval(expr)?;
+        let expr = context.eval(self.accel)?;
         let dt = BuiltInExpr::new(crate::graph::BuiltInOperator::DeltaTime).eval(context)?;
         context.update_code += &format!("{} += ({}) * {};", attr, expr, dt);
         Ok(())
@@ -663,18 +664,23 @@ impl UpdateModifier for ForceFieldModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
 pub struct LinearDragModifier {
     /// Drag coefficient. Higher values increase the drag force, and
     /// consequently decrease the particle's speed faster.
-    pub drag: Expr,
+    pub drag: ExprHandle,
 }
 
 impl LinearDragModifier {
+    /// Create a new modifier from a drag expression.
+    pub fn new(drag: ExprHandle) -> Self {
+        Self { drag }
+    }
+
     /// Instantiate a [`LinearDragModifier`] with a constant drag value.
-    pub fn constant(drag: f32) -> Self {
+    pub fn constant(module: &mut Module, drag: f32) -> Self {
         Self {
-            drag: Expr::Literal(LiteralExpr::new(drag)),
+            drag: module.lit(drag),
         }
     }
 }
@@ -684,14 +690,14 @@ impl_mod_update!(LinearDragModifier, &[Attribute::VELOCITY]);
 #[typetag::serde]
 impl UpdateModifier for LinearDragModifier {
     fn apply(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let attr = context.module.attr(Attribute::VELOCITY);
-        let dt = context.module.builtin(BuiltInOperator::DeltaTime);
-        let drag = context.module.push(self.drag.clone());
-        let drag_dt = context.module.mul(drag, dt);
-        let one = context.module.lit(1.);
-        let one_minus_drag_dt = context.module.sub(one, drag_dt);
-        let zero = context.module.lit(0.);
-        let expr = context.module.max(zero, one_minus_drag_dt);
+        let m = &mut context.module;
+        let attr = m.attr(Attribute::VELOCITY);
+        let dt = m.builtin(BuiltInOperator::DeltaTime);
+        let drag_dt = m.mul(self.drag, dt);
+        let one = m.lit(1.);
+        let one_minus_drag_dt = m.sub(one, drag_dt);
+        let zero = m.lit(0.);
+        let expr = m.max(zero, one_minus_drag_dt);
         let attr = context.eval(attr)?;
         let expr = context.eval(expr)?;
         context.update_code += &format!("{} *= {};", attr, expr);
@@ -720,7 +726,8 @@ pub struct AabbKillModifier {
 }
 
 impl AabbKillModifier {
-    /// Create a new instance of an [`AabbKillModifier`] from an AABB center and half extents.
+    /// Create a new instance of an [`AabbKillModifier`] from an AABB center and
+    /// half extents.
     ///
     /// The created instance has a default `kill_inside = false` value.
     pub fn new(center: impl Into<ExprHandle>, half_size: impl Into<ExprHandle>) -> Self {
@@ -780,11 +787,11 @@ mod tests {
 
     #[test]
     fn mod_accel() {
+        let mut module = Module::default();
         let accel = Vec3::new(1., 2., 3.);
-        let modifier = AccelModifier::constant(accel);
+        let modifier = AccelModifier::constant(&mut module, accel);
 
         let property_layout = PropertyLayout::default();
-        let mut module = Module::default();
         let mut context = UpdateContext::new(&mut module, &property_layout);
         assert!(modifier.apply(&mut context).is_ok());
 
@@ -818,10 +825,10 @@ mod tests {
 
     #[test]
     fn mod_drag() {
-        let modifier = LinearDragModifier::constant(3.5);
+        let mut module = Module::default();
+        let modifier = LinearDragModifier::constant(&mut module, 3.5);
 
         let property_layout = PropertyLayout::default();
-        let mut module = Module::default();
         let mut context = UpdateContext::new(&mut module, &property_layout);
         assert!(modifier.apply(&mut context).is_ok());
 
@@ -832,11 +839,11 @@ mod tests {
     fn validate() {
         let writer = ExprWriter::new();
         let modifiers: &[&dyn UpdateModifier] = &[
-            &AccelModifier::constant(Vec3::ONE),
+            &AccelModifier::new(writer.lit(Vec3::ONE).expr()),
             &RadialAccelModifier::constant(Vec3::ZERO, 1.),
             &TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 1.),
             &ForceFieldModifier::default(),
-            &LinearDragModifier::constant(3.5),
+            &LinearDragModifier::new(writer.lit(3.5).expr()),
             &AabbKillModifier::new(writer.lit(Vec3::ZERO).expr(), writer.lit(Vec3::ONE).expr()),
         ];
         let mut module = writer.finish();
