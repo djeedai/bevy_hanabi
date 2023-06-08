@@ -911,14 +911,25 @@ impl ToWgslString for MatrixValue {
 }
 
 /// Variant storage for a simple value.
+///
+/// The variant can store a scalar, vector, or matrix value.
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Value {
     /// Scalar value.
     Scalar(ScalarValue),
     /// Vector value with 2 to 4 components.
+    ///
+    /// Note that 1-component vectors are invalid; [`Value::Scalar`] must be
+    /// used instead. Similarly, vectors with more than 4 components are
+    /// invalid.
     Vector(VectorValue),
     /// Floating-point matrix value of size 2x2 to 4x4.
+    ///
+    /// Note that single-row or single-column matrices are invalid;
+    /// [`Value::Vector`] must be used instead, or [`Value::Scalar`] for a
+    /// 1x1 "matrix". Similarly, matrices with more than 4 rows or columns are
+    /// invalid.
     Matrix(MatrixValue),
 }
 
@@ -932,7 +943,15 @@ impl Value {
         }
     }
 
-    /// Type of the value.
+    /// Get the type of the value.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let value = Value::Scalar(3_f32.into());
+    /// assert_eq!(ValueType::Scalar(ScalarType::Float), value.value_type());
+    /// ```
     pub fn value_type(&self) -> ValueType {
         match self {
             Value::Scalar(s) => ValueType::Scalar(s.scalar_type()),

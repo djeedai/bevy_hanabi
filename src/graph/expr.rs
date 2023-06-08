@@ -1015,7 +1015,9 @@ impl ToWgslString for BinaryOperator {
 ///
 /// Because an [`EffectAsset`] contains a single [`Module`], you generally want
 /// to keep using the same [`ExprWriter`] to write all the expressions used by
-/// all the [`Modifer`]s assigned to a given [`EffectAsset`].
+/// all the [`Modifer`]s assigned to a given [`EffectAsset`], and only then once
+/// done call [`finish()`] to recover the [`ExprWriter`]'s underlying [`Module`]
+/// to assign it to the [`EffectAsset`].
 ///
 /// # Example
 ///
@@ -1024,18 +1026,23 @@ impl ToWgslString for BinaryOperator {
 /// // Create a writer
 /// let w = ExprWriter::new();
 ///
-/// // Create a new expression
+/// // Create a new expression: max(5. + particle.position, properties.my_prop)
 /// let expr = (w.lit(5.) + w.attr(Attribute::POSITION)).max(w.prop("my_prop"));
 ///
 /// // Finalize the expression and write it down into the `Module` as an `Expr`
-/// let expr = expr.expr();
+/// let expr: ExprHandle = expr.expr();
 ///
-/// // Evaluate the expression
-/// # let pl = PropertyLayout::new(&[Property::new("my_prop",ScalarValue::Float(3.))]);
-/// # let mut module = w.finish();
-/// # let context = InitContext::new(&mut module, &pl);
-/// let str = context.eval(expr).unwrap();
-/// assert_eq!(str, "max((5.) + (particle.position), properties.my_prop)");
+/// // Finish using the writer, recovering the Module containing all the written Expr
+/// let mut module = w.finish();
+///
+/// // Create a modifier and assign the expression to one of its input(s)
+/// let init_modifier = InitAttributeModifier::new(Attribute::LIFETIME, expr);
+///
+/// // Create an EffectAsset with the modifier and the Module
+/// let effect = EffectAsset {
+///     module,
+///     ..default()
+/// }.init(init_modifier);
 /// ```
 ///
 /// [`finish()`]: ExprWriter::finish
@@ -1086,24 +1093,49 @@ impl ExprWriter {
         }
     }
 
-    /// Create a new writer from a literal constant.
+    /// Create a new writer expression from a literal constant.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut w = ExprWriter::new();
+    /// let x = w.lit(-3.5); // x = -3.5;
+    /// ```
     pub fn lit(&self, value: impl Into<Value>) -> WriterExpr {
         self.push(Expr::Literal(LiteralExpr {
             value: value.into(),
         }))
     }
 
-    /// Create a new writer from an attribute expression.
+    /// Create a new writer expression from an attribute.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut w = ExprWriter::new();
+    /// let x = w.attr(Attribute::POSITION); // x = particle.position;
+    /// ```
     pub fn attr(&self, attr: Attribute) -> WriterExpr {
         self.push(Expr::Attribute(AttributeExpr::new(attr)))
     }
 
-    /// Create a new writer from a property expression.
+    /// Create a new writer expression from a property.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut w = ExprWriter::new();
+    /// let x = w.prop("my_prop"); // x = properties.my_prop;
+    /// ```
     pub fn prop(&self, name: impl Into<String>) -> WriterExpr {
         self.push(Expr::Property(PropertyExpr::new(name)))
     }
 
-    /// Finish
+    /// Finish using the writer, and recover the [`Module`] where all [`Expr`]
+    /// were written by the writer.
     pub fn finish(self) -> Module {
         self.module.take()
     }
@@ -1111,13 +1143,14 @@ impl ExprWriter {
 
 /// Intermediate expression from an [`ExprWriter`].
 ///
-/// This is equivalent to an [`ExprHandle`], but retains a reference to the
-/// underlying [`Module`] and therefore can easily be chained with other
-/// [`WriterExpr`] via a concise syntax, and the expense of being more
-/// heavyweight. [`ExprHandle`] by opposition is a very lightweight type,
-/// similar to a simple index, who like an array index doesn't explicitly
-/// reference its associated storage ([`Module`]) which needs to be remembered
-/// by the user explicitly.
+/// A writer expression [`WriterExpr`] is equivalent to an [`ExprHandle`], but
+/// retains a reference to the underlying [`Module`] and therefore can easily be
+/// chained with other [`WriterExpr`] via a concise syntax, at the expense of
+/// being more heavyweight and locking the underlying [`Module`] under a
+/// ref-counted interior mutability (`Rc<RefCell<Module>>`). [`ExprHandle`] by
+/// opposition is a very lightweight type, similar to a simple index. And like
+/// an array index, [`ExprHandle`] doesn't explicitly reference its associated
+/// storage ([`Module`]) which needs to be remembered by the user explicitly.
 ///
 /// In addition, [`WriterExpr`] implements several numerical operators like the
 /// [`std::ops::Add`] trait, making it simpler to combine it with another
@@ -1128,7 +1161,21 @@ impl ExprWriter {
 /// let mut w = ExprWriter::new();
 /// let x = w.lit(-3.5);
 /// let y = w.lit(78.);
-/// let z = x + y;
+/// let z = x + y; // == 74.5
+/// ```
+///
+/// In general the [`WriterExpr`] type is not used directly, but inferred from
+/// calling [`ExprWriter`] methods and combining [`WriterExpr`] together.
+///
+/// ```
+/// # use bevy_hanabi::*;
+/// let mut w = ExprWriter::new();
+///
+/// // x = max(-3.5 + 1., properties.my_prop) * 0.5 - particle.position;
+/// let x = (w.lit(-3.5) + w.lit(1.)).max(w.prop("my_prop")).mul(w.lit(0.5))
+///     .sub(w.attr(Attribute::POSITION));
+///
+/// let handle: ExprHandle = x.expr();
 /// ```
 #[derive(Debug)]
 pub struct WriterExpr {
@@ -1162,18 +1209,50 @@ impl WriterExpr {
     /// let x = w.lit(-3.5);
     ///
     /// // The absolute value `y = abs(x);`.
-    /// let y = x.abs();
+    /// let y = x.abs(); // == 3.5
     /// ```
     pub fn abs(self) -> Self {
         self.unary_op(UnaryOperator::Abs)
     }
 
     /// Apply the logical operator "all" to the current bool vector expression.
+    ///
+    /// This is a unary operator, which applies to vector operand expressions to
+    /// produce a scalar boolean.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::BVec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<bool>(true, false, true);`.
+    /// let x = w.lit(BVec3::new(true, false, true));
+    ///
+    /// // Check if all components are true `y = all(x);`.
+    /// let y = x.all(); // == false
+    /// ```
     pub fn all(self) -> Self {
         self.unary_op(UnaryOperator::All)
     }
 
     /// Apply the logical operator "any" to the current bool vector expression.
+    ///
+    /// This is a unary operator, which applies to vector operand expressions to
+    /// produce a scalar boolean.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::BVec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<bool>(true, false, true);`.
+    /// let x = w.lit(BVec3::new(true, false, true));
+    ///
+    /// // Check if any components is true `y = any(x);`.
+    /// let y = x.any(); // == true
+    /// ```
     pub fn any(self) -> Self {
         self.unary_op(UnaryOperator::Any)
     }
@@ -1193,61 +1272,292 @@ impl WriterExpr {
     }
 
     /// Take the minimum value of the current expression and another expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(3., -2.);`.
+    /// let x = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
+    /// let y = w.lit(Vec2::new(1., 5.));
+    ///
+    /// // The minimum of both vectors `z = min(x, y);`.
+    /// let z = x.min(y); // == vec2<f32>(1., -2.)
+    /// ```
     pub fn min(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Min)
     }
 
     /// Take the maximum value of the current expression and another expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(3., -2.);`.
+    /// let x = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
+    /// let y = w.lit(Vec2::new(1., 5.));
+    ///
+    /// // The maximum of both vectors `z = max(x, y);`.
+    /// let z = x.max(y); // == vec2<f32>(3., 5.)
+    /// ```
     pub fn max(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Max)
     }
 
     /// Add the current expression with another expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// You can also use the [`std::ops::Add`] trait directly, via the `+`
+    /// symbol, as an alternative to calling this method directly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(3., -2.);`.
+    /// let x = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
+    /// let y = w.lit(Vec2::new(1., 5.));
+    ///
+    /// // The sum of both vectors `z = x + y;`.
+    /// let z = x.add(y); // == vec2<f32>(4., 3.)
+    /// // -OR-
+    /// // let z = x + y;
+    /// ```
     pub fn add(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Add)
     }
 
     /// Subtract another expression from the current expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// You can also use the [`std::ops::Sub`] trait directly, via the `-`
+    /// symbol, as an alternative to calling this method directly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(3., -2.);`.
+    /// let x = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
+    /// let y = w.lit(Vec2::new(1., 5.));
+    ///
+    /// // The difference of both vectors `z = x - y;`.
+    /// let z = x.sub(y); // == vec2<f32>(2., -7.)
+    /// // -OR-
+    /// // let z = x - y;
+    /// ```
     pub fn sub(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Sub)
     }
 
     /// Multiply the current expression with another expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// You can also use the [`std::ops::Mul`] trait directly, via the `*`
+    /// symbol, as an alternative to calling this method directly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(3., -2.);`.
+    /// let x = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
+    /// let y = w.lit(Vec2::new(1., 5.));
+    ///
+    /// // The product of both vectors `z = x * y;`.
+    /// let z = x.mul(y); // == vec2<f32>(3., -10.)
+    /// // -OR-
+    /// // let z = x * y;
+    /// ```
     pub fn mul(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Mul)
     }
 
     /// Divide the current expression by another expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// You can also use the [`std::ops::Div`] trait directly, via the `/`
+    /// symbol, as an alternative to calling this method directly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(3., -2.);`.
+    /// let x = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
+    /// let y = w.lit(Vec2::new(1., 5.));
+    ///
+    /// // The quotient of both vectors `z = x / y;`.
+    /// let z = x.div(y); // == vec2<f32>(3., -0.4)
+    /// // -OR-
+    /// // let z = x / y;
+    /// ```
     pub fn div(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Div)
     }
 
     /// Apply the logical operator "less than or equal" to this expression and
     /// another expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(3., -2., 7.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 7.));
+    ///
+    /// // Another literal expression `y = vec3<f32>(1., 5., 7.);`.
+    /// let y = w.lit(Vec3::new(1., 5., 7.));
+    ///
+    /// // The boolean result of the less than or equal operation `z = (x <= y);`.
+    /// let z = x.le(y); // == vec3<bool>(false, true, true)
+    /// ```
     pub fn le(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::LessThanOrEqual)
     }
 
     /// Apply the logical operator "less than" to this expression and another
     /// expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(3., -2., 7.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 7.));
+    ///
+    /// // Another literal expression `y = vec3<f32>(1., 5., 7.);`.
+    /// let y = w.lit(Vec3::new(1., 5., 7.));
+    ///
+    /// // The boolean result of the less than operation `z = (x < y);`.
+    /// let z = x.lt(y); // == vec3<bool>(false, true, false)
+    /// ```
     pub fn lt(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::LessThan)
     }
 
     /// Apply the logical operator "greater than or equal" to this expression
     /// and another expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(3., -2., 7.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 7.));
+    ///
+    /// // Another literal expression `y = vec3<f32>(1., 5., 7.);`.
+    /// let y = w.lit(Vec3::new(1., 5., 7.));
+    ///
+    /// // The boolean result of the greater than or equal operation `z = (x >= y);`.
+    /// let z = x.ge(y); // == vec3<bool>(true, false, true)
+    /// ```
     pub fn ge(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::GreaterThanOrEqual)
     }
 
     /// Apply the logical operator "greater than" to this expression and another
     /// expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(3., -2., 7.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 7.));
+    ///
+    /// // Another literal expression `y = vec3<f32>(1., 5., 7.);`.
+    /// let y = w.lit(Vec3::new(1., 5., 7.));
+    ///
+    /// // The boolean result of the greater than operation `z = (x > y);`.
+    /// let z = x.gt(y); // == vec3<bool>(true, false, false)
+    /// ```
     pub fn gt(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::GreaterThan)
     }
 
     /// Apply the logical operator "uniform" to this expression and another
     /// expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions. That is, for vectors, this produces a vector of
+    /// random values where each component is uniformly distributed within the
+    /// bounds of the related component of both operands.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(3., -2., 7.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 7.));
+    ///
+    /// // Another literal expression `y = vec3<f32>(1., 5., 7.);`.
+    /// let y = w.lit(Vec3::new(1., 5., 7.));
+    ///
+    /// // A random variable uniformly distributed in [1:3]x[-2:5]x[7:7].
+    /// let z = x.uniform(y);
+    /// ```
     pub fn uniform(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::UniformRand)
     }
@@ -1273,57 +1583,10 @@ impl WriterExpr {
     }
 }
 
-// impl std::ops::Add<ExprWriter> for ExprWriter {
-//     type Output = ExprWriter;
-
-//     fn add(self, mut rhs: ExprWriter) -> Self::Output {
-//         self.add(&mut rhs)
-//     }
-// }
-
-// impl std::ops::Sub<ExprWriter> for ExprWriter {
-//     type Output = ExprWriter;
-
-//     fn sub(self, mut rhs: ExprWriter) -> Self::Output {
-//         self.sub(&mut rhs)
-//     }
-// }
-
-// impl std::ops::Mul<ExprWriter> for ExprWriter {
-//     type Output = ExprWriter;
-
-//     fn mul(self, mut rhs: ExprWriter) -> Self::Output {
-//         self.mul(&mut rhs)
-//     }
-// }
-
-// impl std::ops::Mul<&mut ExprWriter> for ExprWriter {
-//     type Output = ExprWriter;
-
-//     fn mul(self, rhs: &mut ExprWriter) -> Self::Output {
-//         self.mul(rhs)
-//     }
-// }
-
-// impl std::ops::Mul<&mut ExprWriter> for &mut ExprWriter {
-//     type Output = ExprWriter;
-
-//     fn mul(self, rhs: &mut ExprWriter) -> Self::Output {
-//         self.mul(rhs)
-//     }
-// }
-
-// impl std::ops::Div<ExprWriter> for ExprWriter {
-//     type Output = ExprWriter;
-
-//     fn div(self, mut rhs: ExprWriter) -> Self::Output {
-//         self.div(&mut rhs)
-//     }
-// }
-
 impl std::ops::Add<WriterExpr> for WriterExpr {
     type Output = WriterExpr;
 
+    #[inline]
     fn add(self, rhs: WriterExpr) -> Self::Output {
         self.add(rhs)
     }
@@ -1332,6 +1595,7 @@ impl std::ops::Add<WriterExpr> for WriterExpr {
 impl std::ops::Sub<WriterExpr> for WriterExpr {
     type Output = WriterExpr;
 
+    #[inline]
     fn sub(self, rhs: WriterExpr) -> Self::Output {
         self.sub(rhs)
     }
@@ -1340,6 +1604,7 @@ impl std::ops::Sub<WriterExpr> for WriterExpr {
 impl std::ops::Mul<WriterExpr> for WriterExpr {
     type Output = WriterExpr;
 
+    #[inline]
     fn mul(self, rhs: WriterExpr) -> Self::Output {
         self.mul(rhs)
     }
@@ -1348,6 +1613,7 @@ impl std::ops::Mul<WriterExpr> for WriterExpr {
 impl std::ops::Div<WriterExpr> for WriterExpr {
     type Output = WriterExpr;
 
+    #[inline]
     fn div(self, rhs: WriterExpr) -> Self::Output {
         self.div(rhs)
     }
