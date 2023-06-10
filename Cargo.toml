@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 description = "Hanabi GPU particle system for the Bevy game engine"
@@ -10,7 +10,7 @@ documentation = "https://docs.rs/bevy_hanabi"
 keywords = ["bevy", "particle-system", "particles", "vfx"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-exclude = ["examples/*.gif", "examples/*.png", ".github", "release.md", "run_examples.bat"]
+exclude = ["examples/*.gif", "examples/*.png", ".github", "release.md", "run_examples.bat", "run_examples.sh"]
 
 [features]
 default = ["2d", "3d", "gpu_tests"]
