@@ -650,7 +650,7 @@ mod gpu_tests {
             tx.send(result).unwrap();
         });
         device.poll(wgpu::Maintain::Wait);
-        let result = futures::executor::block_on(async { rx.await });
+        let result = futures::executor::block_on(rx);
         assert!(result.is_ok());
         slice.get_mapped_range()
     }
@@ -670,7 +670,7 @@ mod gpu_tests {
         queue.on_submitted_work_done(move || {
             tx.send(()).unwrap();
         });
-        let _ = futures::executor::block_on(async { rx.await });
+        let _ = futures::executor::block_on(rx);
     }
 
     /// Convert a byte slice to a string of hexadecimal values separated by a
