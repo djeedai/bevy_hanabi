@@ -448,7 +448,7 @@ mod tests {
         let g = make_test_gradient();
 
         let s = ron::to_string(&g).unwrap();
-        //println!("gradient: {:?}", s);
+        // println!("gradient: {:?}", s);
         let g_serde: Gradient<Vec4> = ron::from_str(&s).unwrap();
         assert_eq!(g, g_serde);
     }

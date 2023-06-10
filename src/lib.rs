@@ -321,7 +321,7 @@ pub enum SimulationSpace {
     /// influenced anymore by the emitter's [`Transform`] after spawning.
     #[default]
     Global,
-    //Local, // TODO
+    // Local, // TODO
 }
 
 /// Value a user wants to assign to a property with
@@ -1280,7 +1280,7 @@ else { return c1; }
 
         let mut app = App::new();
         app.insert_resource(asset_server);
-        //app.add_plugins(DefaultPlugins);
+        // app.add_plugins(DefaultPlugins);
         app.add_asset::<Mesh>();
         app.add_asset::<Shader>();
         app.add_plugin(VisibilityPlugin);
