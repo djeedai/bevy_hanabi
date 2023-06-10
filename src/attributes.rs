@@ -1153,303 +1153,353 @@ impl ParticleLayout {
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
+    use super::*;
 
-    // use bevy::{
-    //     math::{Vec2, Vec3, Vec4},
-    //     reflect::TypeRegistration,
-    // };
-    // use naga::{front::wgsl::Parser, proc::Layouter};
+    use bevy::{
+        math::{Vec2, Vec3, Vec4},
+        reflect::TypeRegistration,
+    };
+    use naga::{front::wgsl::Parser, proc::Layouter};
 
-    // Ensure the size and alignment of all types conforms to the WGSL spec by
-    // querying naga as a reference.
-    // #[test]
-    // fn value_type_align() {
-    //     let mut parser = Parser::new();
-    //     for (value_type, value) in &[
-    //         (ValueType::Float, crate::graph::Value::Float(0.)),
-    //         (
-    //             ValueType::Float2,
-    //             crate::graph::Value::Float2(Vec2::new(-0.5, 3.458)),
-    //         ),
-    //         (
-    //             ValueType::Float3,
-    //             crate::graph::Value::Float3(Vec3::new(-0.5, 3.458, -53.)),
-    //         ),
-    //         (
-    //             ValueType::Float4,
-    //             crate::graph::Value::Float4(Vec4::new(-0.5, 3.458, 0.,
-    // -53.)),         ),
-    //         (ValueType::Uint, crate::graph::Value::Uint(42_u32)),
-    //     ] {
-    //         assert_eq!(value.value_type(), *value_type);
+    // Ensure the size and alignment of all types conforms to the WGSL spec by querying naga as a reference.
+    #[test]
+    fn value_type_align() {
+        let mut parser = Parser::new();
+        for (value_type, value) in &[
+            (
+                ValueType::Scalar(ScalarType::Float),
+                Value::Scalar(ScalarValue::Float(0.)),
+            ),
+            // FIXME - We use a constant below, which has a size of 1 byte. For a field
+            // inside a struct, the size of bool is undefined in WGSL/naga, and 4 bytes
+            // in Hanabi. We probably can't test bool with naga here anyway.
+            // (
+            //     ValueType::Scalar(ScalarType::Bool),
+            //     Value::Scalar(ScalarValue::Bool(true)),
+            // ),
+            (
+                ValueType::Scalar(ScalarType::Int),
+                Value::Scalar(ScalarValue::Int(-42)),
+            ),
+            (
+                ValueType::Scalar(ScalarType::Uint),
+                Value::Scalar(ScalarValue::Uint(999)),
+            ),
+            (
+                ValueType::Vector(VectorType {
+                    elem_type: ScalarType::Float,
+                    count: 2,
+                }),
+                Value::Vector(VectorValue::new_vec2(Vec2::new(-0.5, 3.458))),
+            ),
+            (
+                ValueType::Vector(VectorType {
+                    elem_type: ScalarType::Float,
+                    count: 3,
+                }),
+                Value::Vector(VectorValue::new_vec3(Vec3::new(-0.5, 3.458, -53.))),
+            ),
+            (
+                ValueType::Vector(VectorType {
+                    elem_type: ScalarType::Float,
+                    count: 4,
+                }),
+                Value::Vector(VectorValue::new_vec4(Vec4::new(-0.5, 3.458, 0., -53.))),
+            ),
+        ] {
+            assert_eq!(value.value_type(), *value_type);
 
-    //         // Create a tiny WGSL snippet with the Value(Type) and parse it
-    //         let src = format!("const x = {};", value.to_wgsl_string());
-    //         let res = parser.parse(&src);
-    //         if let Err(err) = &res {
-    //             println!("Error: {:?}", err);
-    //         }
-    //         assert!(res.is_ok());
-    //         let m = res.unwrap();
-    //         //println!("Module: {:?}", m);
+            // Create a tiny WGSL snippet with the Value(Type) and parse it
+            let src = format!("const x = {};", value.to_wgsl_string());
+            let res = parser.parse(&src);
+            if let Err(err) = &res {
+                println!("Error: {:?}", err);
+            }
+            assert!(res.is_ok());
+            let m = res.unwrap();
+            //println!("Module: {:?}", m);
 
-    //         // Retrieve the "x" constant and the size/align of its type
-    //         let (_cst_handle, cst) = m
-    //             .constants
-    //             .iter()
-    //             .find(|c| c.1.name == Some("x".to_string()))
-    //             .unwrap();
-    //         let (size, align) = if let naga::ConstantInner::Scalar { width,
-    // value: _ } = &cst.inner         {
-    //             // Scalar types have the same size and align
-    //             (
-    //                 *width as u32,
-    //                 naga::proc::Alignment::new(*width as u32).unwrap(),
-    //             )
-    //         } else {
-    //             // For non-scalar types, calculate the type layout according
-    // to WGSL             let type_handle =
-    // cst.inner.resolve_type().handle().unwrap();             let mut
-    // layouter = Layouter::default();
-    // assert!(layouter.update(&m.types, &m.constants).is_ok());
-    // let layout = layouter[type_handle];             (layout.size,
-    // layout.alignment)         };
+            // Retrieve the "x" constant and the size/align of its type
+            let (_cst_handle, cst) = m
+                .constants
+                .iter()
+                .find(|c| c.1.name == Some("x".to_string()))
+                .unwrap();
+            let (size, align) = if let naga::ConstantInner::Scalar { width, value: _ } = &cst.inner
+            {
+                // Scalar types have the same size and align
+                (
+                    *width as u32,
+                    naga::proc::Alignment::new(*width as u32).unwrap(),
+                )
+            } else {
+                // For non-scalar types, calculate the type layout according to WGSL
+                let type_handle = cst.inner.resolve_type().handle().unwrap();
+                let mut layouter = Layouter::default();
+                assert!(layouter.update(&m.types, &m.constants).is_ok());
+                let layout = layouter[type_handle];
+                (layout.size, layout.alignment)
+            };
 
-    //         // Compare WGSL layout with the one of Value(Type)
-    //         assert_eq!(size, value_type.size() as u32);
-    //         assert_eq!(
-    //             align,
-    //             naga::proc::Alignment::new(value_type.align() as
-    // u32).unwrap()         );
-    //     }
-    // }
+            // Compare WGSL layout with the one of Value(Type)
+            assert_eq!(size, value_type.size() as u32);
+            assert_eq!(
+                align,
+                naga::proc::Alignment::new(value_type.align() as u32).unwrap()
+            );
+        }
+    }
 
-    // const TEST_ATTR_NAME: &str = "test_attr";
-    // const TEST_ATTR_INNER: &AttributeInner =
-    //     &AttributeInner::new(Cow::Borrowed(TEST_ATTR_NAME),
-    // Value::Float3(Vec3::ONE));
+    const TEST_ATTR_NAME: &str = "test_attr";
+    const TEST_ATTR_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed(TEST_ATTR_NAME),
+        Value::Vector(VectorValue::new_vec3(Vec3::ONE)),
+    );
 
-    // #[test]
-    // fn attr_new() {
-    //     let attr = Attribute(TEST_ATTR_INNER);
-    //     assert_eq!(attr.name(), TEST_ATTR_NAME);
-    //     assert_eq!(attr.size(), 12);
-    //     assert_eq!(attr.align(), 16);
-    //     assert_eq!(attr.value_type(), ValueType::Float3);
-    //     assert_eq!(attr.default_value(), Value::Float3(Vec3::ONE));
-    // }
+    #[test]
+    fn attr_new() {
+        let attr = Attribute(TEST_ATTR_INNER);
+        assert_eq!(attr.name(), TEST_ATTR_NAME);
+        assert_eq!(attr.size(), 12);
+        assert_eq!(attr.align(), 16);
+        assert_eq!(
+            attr.value_type(),
+            ValueType::Vector(VectorType {
+                elem_type: ScalarType::Float,
+                count: 3
+            })
+        );
+        assert_eq!(
+            attr.default_value(),
+            Value::Vector(VectorValue::new_vec3(Vec3::ONE))
+        );
+    }
 
-    // #[test]
-    // fn attr_from_name() {
-    //     for attr in Attribute::ALL {
-    //         assert_eq!(Attribute::from_name(attr.name()), Some(attr));
-    //     }
-    // }
+    #[test]
+    fn attr_from_name() {
+        for attr in Attribute::ALL {
+            assert_eq!(Attribute::from_name(attr.name()), Some(attr));
+        }
+    }
 
-    // #[test]
-    // fn attr_reflect() {
-    //     let mut attr = Attribute(TEST_ATTR_INNER);
+    #[test]
+    fn attr_reflect() {
+        let mut attr = Attribute(TEST_ATTR_INNER);
 
-    //     let r = attr.as_reflect();
-    //     assert_eq!(
-    //         TypeRegistration::of::<Attribute>().type_name(),
-    //         r.type_name()
-    //     );
-    //     match r.reflect_ref() {
-    //         ReflectRef::Struct(s) => {
-    //             assert_eq!(2, s.field_len());
+        let r = attr.as_reflect();
+        assert_eq!(
+            TypeRegistration::of::<Attribute>().type_name(),
+            r.type_name()
+        );
+        match r.reflect_ref() {
+            ReflectRef::Struct(s) => {
+                assert_eq!(2, s.field_len());
 
-    //             assert_eq!(Some("name"), s.name_at(0));
-    //             assert_eq!(Some("default_value"), s.name_at(1));
-    //             assert_eq!(None, s.name_at(2));
-    //             assert_eq!(None, s.name_at(9999));
+                assert_eq!(Some("name"), s.name_at(0));
+                assert_eq!(Some("default_value"), s.name_at(1));
+                assert_eq!(None, s.name_at(2));
+                assert_eq!(None, s.name_at(9999));
 
-    //             assert_eq!(
-    //                 Some("alloc::borrow::Cow<str>"),
-    //                 s.field("name").map(|f| f.type_name())
-    //             );
-    //             assert_eq!(
-    //                 Some("bevy_hanabi::graph::Value"),
-    //                 s.field("default_value").map(|f| f.type_name())
-    //             );
-    //             assert!(s.field("DUMMY").is_none());
-    //             assert!(s.field("").is_none());
+                assert_eq!(
+                    Some("alloc::borrow::Cow<str>"),
+                    s.field("name").map(|f| f.type_name())
+                );
+                assert_eq!(
+                    Some("bevy_hanabi::graph::Value"),
+                    s.field("default_value").map(|f| f.type_name())
+                );
+                assert!(s.field("DUMMY").is_none());
+                assert!(s.field("").is_none());
 
-    //             for f in s.iter_fields() {
-    //                 assert!(
-    //                     f.type_name().contains("alloc::borrow::Cow<str>")
-    //                         ||
-    // f.type_name().contains("bevy_hanabi::graph::Value")
-    // );             }
+                for f in s.iter_fields() {
+                    assert!(
+                        f.type_name().contains("alloc::borrow::Cow<str>")
+                            || f.type_name().contains("bevy_hanabi::graph::Value")
+                    );
+                }
 
-    //             let d = s.clone_dynamic();
-    //             assert_eq!(TypeRegistration::of::<Attribute>().type_name(),
-    // d.name());             assert_eq!(Some(0), d.index_of("name"));
-    //             assert_eq!(Some(1), d.index_of("default_value"));
-    //         }
-    //         _ => panic!("Attribute should be reflected as a Struct"),
-    //     }
+                let d = s.clone_dynamic();
+                assert_eq!(TypeRegistration::of::<Attribute>().type_name(), d.name());
+                assert_eq!(Some(0), d.index_of("name"));
+                assert_eq!(Some(1), d.index_of("default_value"));
+            }
+            _ => panic!("Attribute should be reflected as a Struct"),
+        }
 
-    //     // Mutating operators are not implemented by design; only hard-coded
-    // built-in     // attributes are supported. In any case that won't
-    // matter because you     // cannot call `as_reflect_mut()` since you
-    // cannot obtain a mutable reference to     // an attribute.
-    //     let r = attr.as_reflect_mut();
-    //     match r.reflect_mut() {
-    //         ReflectMut::Struct(s) => {
-    //             assert!(s.field_mut("name").is_none());
-    //             assert!(s.field_mut("default_value").is_none());
-    //             assert!(s.field_at_mut(0).is_none());
-    //             assert!(s.field_at_mut(1).is_none());
-    //         }
-    //         _ => panic!("Attribute should be reflected as a Struct"),
-    //     }
-    // }
+        // Mutating operators are not implemented by design; only hard-coded built-in
+        // attributes are supported. In any case that won't matter because you
+        // cannot call `as_reflect_mut()` since you cannot obtain a mutable reference to
+        // an attribute.
+        let r = attr.as_reflect_mut();
+        match r.reflect_mut() {
+            ReflectMut::Struct(s) => {
+                assert!(s.field_mut("name").is_none());
+                assert!(s.field_mut("default_value").is_none());
+                assert!(s.field_at_mut(0).is_none());
+                assert!(s.field_at_mut(1).is_none());
+            }
+            _ => panic!("Attribute should be reflected as a Struct"),
+        }
+    }
 
-    // #[test]
-    // fn attr_from_reflect() {
-    //     for attr in Attribute::ALL {
-    //         let s: String = attr.name().into();
-    //         let r = s.as_reflect();
-    //         let r_attr = Attribute::from_reflect(r).expect("Cannot find
-    // attribute by name");         assert_eq!(r_attr, attr);
-    //     }
+    #[test]
+    fn attr_from_reflect() {
+        for attr in Attribute::ALL {
+            let s: String = attr.name().into();
+            let r = s.as_reflect();
+            let r_attr = Attribute::from_reflect(r).expect(
+                "Cannot find
+    attribute by name",
+            );
+            assert_eq!(r_attr, attr);
+        }
 
-    //     assert_eq!(
-    //         None,
-    //         Attribute::from_reflect("test".to_string().as_reflect())
-    //     );
-    // }
+        assert_eq!(
+            None,
+            Attribute::from_reflect("test".to_string().as_reflect())
+        );
+    }
 
-    // #[test]
-    // fn attr_serde() {
-    //     // All existing attributes can round-trip via serialization
-    //     for attr in Attribute::ALL {
-    //         // Serialize; this produces just the name of the attribute, which
-    // uniquely         // identifies it. The default value is never
-    // serialized.         let ron = ron::to_string(&attr).unwrap();
-    //         assert_eq!(ron, format!("\"{}\"", attr.name()));
+    #[test]
+    fn attr_serde() {
+        // All existing attributes can round-trip via serialization
+        for attr in Attribute::ALL {
+            // Serialize; this produces just the name of the attribute, which    uniquely
+            // identifies it. The default value is never serialized.
+            let ron = ron::to_string(&attr).unwrap();
+            assert_eq!(ron, format!("\"{}\"", attr.name()));
 
-    //         // Deserialize; this recovers the Attribute from its name using
-    //         // Attribute::from_name().
-    //         let s: Attribute = ron::from_str(&ron).unwrap();
-    //         assert_eq!(s, attr);
-    //     }
+            // Deserialize; this recovers the Attribute from its name using
+            // Attribute::from_name().
+            let s: Attribute = ron::from_str(&ron).unwrap();
+            assert_eq!(s, attr);
+        }
 
-    //     // Any other attribute name cannot deserialize
-    //     assert!(ron::from_str::<Attribute>("\"\"").is_err());
-    //     assert!(ron::from_str::<Attribute>("\"UNKNOWN\"").is_err());
-    // }
+        // Any other attribute name cannot deserialize
+        assert!(ron::from_str::<Attribute>("\"\"").is_err());
+        assert!(ron::from_str::<Attribute>("\"UNKNOWN\"").is_err());
+    }
 
-    // const F1_INNER: &AttributeInner =
-    // &AttributeInner::new(Cow::Borrowed("F1"), Value::Float(3.));
-    // const F1B_INNER: &AttributeInner =
-    // &AttributeInner::new(Cow::Borrowed("F1B"), Value::Float(5.));
-    // const F2_INNER: &AttributeInner =
-    //     &AttributeInner::new(Cow::Borrowed("F2"), Value::Float2(Vec2::ZERO));
-    // const F2B_INNER: &AttributeInner =
-    //     &AttributeInner::new(Cow::Borrowed("F2B"), Value::Float2(Vec2::ONE));
-    // const F3_INNER: &AttributeInner =
-    //     &AttributeInner::new(Cow::Borrowed("F3"), Value::Float3(Vec3::ZERO));
-    // const F3B_INNER: &AttributeInner =
-    //     &AttributeInner::new(Cow::Borrowed("F3B"), Value::Float3(Vec3::ONE));
-    // const F4_INNER: &AttributeInner =
-    //     &AttributeInner::new(Cow::Borrowed("F4"), Value::Float4(Vec4::ZERO));
-    // const F4B_INNER: &AttributeInner =
-    //     &AttributeInner::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
+    const F1_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F1"), Value::Scalar(ScalarValue::Float(3.)));
+    const F1B_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F1B"), Value::Scalar(ScalarValue::Float(5.)));
+    const F2_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F2"),
+        Value::Vector(VectorValue::new_vec2(Vec2::ZERO)),
+    );
+    const F2B_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F2B"),
+        Value::Vector(VectorValue::new_vec2(Vec2::ONE)),
+    );
+    const F3_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F3"),
+        Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
+    );
+    const F3B_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F3B"),
+        Value::Vector(VectorValue::new_vec3(Vec3::ONE)),
+    );
+    const F4_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ZERO)),
+    );
+    const F4B_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4B"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
+    );
 
-    // const F1: Attribute = Attribute(F1_INNER);
-    // const F1B: Attribute = Attribute(F1B_INNER);
-    // const F2: Attribute = Attribute(F2_INNER);
-    // const F2B: Attribute = Attribute(F2B_INNER);
-    // const F3: Attribute = Attribute(F3_INNER);
-    // const F3B: Attribute = Attribute(F3B_INNER);
-    // const F4: Attribute = Attribute(F4_INNER);
-    // const F4B: Attribute = Attribute(F4B_INNER);
+    const F1: Attribute = Attribute(F1_INNER);
+    const F1B: Attribute = Attribute(F1B_INNER);
+    const F2: Attribute = Attribute(F2_INNER);
+    const F2B: Attribute = Attribute(F2B_INNER);
+    const F3: Attribute = Attribute(F3_INNER);
+    const F3B: Attribute = Attribute(F3B_INNER);
+    const F4: Attribute = Attribute(F4_INNER);
+    const F4B: Attribute = Attribute(F4B_INNER);
 
-    // #[test]
-    // fn test_layout_build() {
-    //     // empty
-    //     let layout = ParticleLayout::new().build();
-    //     assert_eq!(layout.layout.len(), 0);
-    //     assert_eq!(layout.generate_code(), String::new());
+    #[test]
+    fn test_layout_build() {
+        // empty
+        let layout = ParticleLayout::new().build();
+        assert_eq!(layout.layout.len(), 0);
+        assert_eq!(layout.generate_code(), String::new());
 
-    //     // single
-    //     for attr in Attribute::ALL {
-    //         let layout = ParticleLayout::new().append(attr).build();
-    //         assert_eq!(layout.layout.len(), 1);
-    //         let attr0 = &layout.layout[0];
-    //         assert_eq!(attr0.offset, 0);
-    //         assert_eq!(
-    //             layout.generate_code(),
-    //             format!(
-    //                 "    {}: {},\n",
-    //                 attr0.attribute.name(),
-    //                 attr0.attribute.value_type().to_wgsl_string()
-    //             )
-    //         );
-    //     }
+        // single
+        for attr in Attribute::ALL {
+            let layout = ParticleLayout::new().append(attr).build();
+            assert_eq!(layout.layout.len(), 1);
+            let attr0 = &layout.layout[0];
+            assert_eq!(attr0.offset, 0);
+            assert_eq!(
+                layout.generate_code(),
+                format!(
+                    "    {}: {},\n",
+                    attr0.attribute.name(),
+                    attr0.attribute.value_type().to_wgsl_string()
+                )
+            );
+        }
 
-    //     // dedup
-    //     for attr in [F1, F2, F3, F4] {
-    //         let mut layout = ParticleLayout::new();
-    //         for _ in 0..3 {
-    //             layout = layout.append(attr);
-    //         }
-    //         let layout = layout.build();
-    //         assert_eq!(layout.layout.len(), 1); // unique
-    //         let attr = &layout.layout[0];
-    //         assert_eq!(attr.offset, 0);
-    //     }
+        // dedup
+        for attr in [F1, F2, F3, F4] {
+            let mut layout = ParticleLayout::new();
+            for _ in 0..3 {
+                layout = layout.append(attr);
+            }
+            let layout = layout.build();
+            assert_eq!(layout.layout.len(), 1); // unique
+            let attr = &layout.layout[0];
+            assert_eq!(attr.offset, 0);
+        }
 
-    //     // homogenous
-    //     for attrs in [[F1, F1B], [F2, F2B], [F3, F3B], [F4, F4B]] {
-    //         let mut layout = ParticleLayout::new();
-    //         for &attr in &attrs {
-    //             layout = layout.append(attr);
-    //         }
-    //         let layout = layout.build();
-    //         assert_eq!(layout.layout.len(), 2);
-    //         let attr_0 = &layout.layout[0];
-    //         let size = attr_0.attribute.size();
-    //         assert_eq!(attr_0.offset as usize, 0);
-    //         let attr_1 = &layout.layout[1];
-    //         assert_eq!(attr_1.offset as usize, size);
-    //         assert_eq!(attr_1.attribute.size(), size);
-    //     }
+        // homogenous
+        for attrs in [[F1, F1B], [F2, F2B], [F3, F3B], [F4, F4B]] {
+            let mut layout = ParticleLayout::new();
+            for &attr in &attrs {
+                layout = layout.append(attr);
+            }
+            let layout = layout.build();
+            assert_eq!(layout.layout.len(), 2);
+            let attr_0 = &layout.layout[0];
+            let size = attr_0.attribute.size();
+            assert_eq!(attr_0.offset as usize, 0);
+            let attr_1 = &layout.layout[1];
+            assert_eq!(attr_1.offset as usize, size);
+            assert_eq!(attr_1.attribute.size(), size);
+        }
 
-    //     // [3, 1, 3, 2] -> [3 1 3 2]
-    //     {
-    //         let mut layout = ParticleLayout::new();
-    //         for &attr in &[F1, F3, F2, F3B] {
-    //             layout = layout.append(attr);
-    //         }
-    //         let layout = layout.build();
-    //         assert_eq!(layout.layout.len(), 4);
-    //         for (i, (off, a)) in [(0, F3), (12, F1), (16, F3B), (28,
-    // F2)].iter().enumerate() {             let attr_i = layout.layout[i];
-    //             assert_eq!(attr_i.offset, *off);
-    //             assert_eq!(attr_i.attribute, *a);
-    //         }
-    //     }
+        // [3, 1, 3, 2] -> [3 1 3 2]
+        {
+            let mut layout = ParticleLayout::new();
+            for &attr in &[F1, F3, F2, F3B] {
+                layout = layout.append(attr);
+            }
+            let layout = layout.build();
+            assert_eq!(layout.layout.len(), 4);
+            for (i, (off, a)) in [(0, F3), (12, F1), (16, F3B), (28, F2)].iter().enumerate() {
+                let attr_i = layout.layout[i];
+                assert_eq!(attr_i.offset, *off);
+                assert_eq!(attr_i.attribute, *a);
+            }
+        }
 
-    //     // [1, 4, 3, 2, 2, 3] -> [4 3 1 2 2 3]
-    //     {
-    //         let mut layout = ParticleLayout::new();
-    //         for &attr in &[F1, F4, F3, F2, F2B, F3B] {
-    //             layout = layout.append(attr);
-    //         }
-    //         let layout = layout.build();
-    //         assert_eq!(layout.layout.len(), 6);
-    //         for (i, (off, a)) in [(0, F4), (16, F3), (28, F1), (32, F2), (40,
-    // F2B), (48, F3B)]             .iter()
-    //             .enumerate()
-    //         {
-    //             let attr_i = layout.layout[i];
-    //             assert_eq!(attr_i.offset, *off);
-    //             assert_eq!(attr_i.attribute, *a);
-    //         }
-    //     }
-    // }
+        // [1, 4, 3, 2, 2, 3] -> [4 3 1 2 2 3]
+        {
+            let mut layout = ParticleLayout::new();
+            for &attr in &[F1, F4, F3, F2, F2B, F3B] {
+                layout = layout.append(attr);
+            }
+            let layout = layout.build();
+            assert_eq!(layout.layout.len(), 6);
+            for (i, (off, a)) in [(0, F4), (16, F3), (28, F1), (32, F2), (40, F2B), (48, F3B)]
+                .iter()
+                .enumerate()
+            {
+                let attr_i = layout.layout[i];
+                assert_eq!(attr_i.offset, *off);
+                assert_eq!(attr_i.attribute, *a);
+            }
+        }
+    }
 }
