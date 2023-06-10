@@ -766,11 +766,11 @@ impl ParticleLayout {
     /// of attributes.
     pub fn merged_with(
         &self,
-        //attributes: impl IntoIterator<Item = Attribute>,
+        // attributes: impl IntoIterator<Item = Attribute>,
         attributes: &[Attribute],
     ) -> ParticleLayout {
         let mut builder = ParticleLayoutBuilder::from(self);
-        //for attr in attributes.into_iter() {
+        // for attr in attributes.into_iter() {
         for attr in attributes {
             builder = builder.append(*attr);
         }
@@ -850,7 +850,7 @@ impl ParticleLayout {
 
     /// Generate the WGSL attribute code corresponding to the layout.
     pub fn generate_code(&self) -> String {
-        //assert!(self.layout.is_sorted_by_key(|entry| entry.offset));
+        // assert!(self.layout.is_sorted_by_key(|entry| entry.offset));
         self.layout
             .iter()
             .map(|entry| {
@@ -910,7 +910,7 @@ mod tests {
             }
             assert!(res.is_ok());
             let m = res.unwrap();
-            //println!("Module: {:?}", m);
+            // println!("Module: {:?}", m);
 
             // Retrieve the "x" constant and the size/align of its type
             let (_cst_handle, cst) = m

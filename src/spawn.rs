@@ -773,7 +773,7 @@ mod test {
 
         let mut app = App::new();
         app.insert_resource(asset_server);
-        //app.add_plugins(DefaultPlugins);
+        // app.add_plugins(DefaultPlugins);
         app.add_asset::<Mesh>();
         app.add_plugin(VisibilityPlugin);
         app.init_resource::<Time>();

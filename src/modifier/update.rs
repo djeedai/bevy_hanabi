@@ -22,7 +22,7 @@ pub struct UpdateContext {
     /// Extra functions emitted at top level, which `update_code` can call.
     pub update_extra: String,
 
-    //TEMP
+    // TEMP
     /// Array of force field components with a maximum number of components
     /// determined by [`ForceFieldSource::MAX_SOURCES`].
     pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
@@ -598,7 +598,7 @@ impl UpdateModifier for ForceFieldModifier {
 
         context.update_code += &format!("{}(&particle);\n", func_name);
 
-        //TEMP
+        // TEMP
         context.force_field = self.sources;
     }
 }
@@ -709,7 +709,7 @@ mod tests {
         modifier.apply(&mut context);
 
         // force_field_code.wgsl is too big
-        //assert!(context.update_code.contains(&include_str!("../render/
+        // assert!(context.update_code.contains(&include_str!("../render/
         // force_field_code.wgsl")));
     }
 

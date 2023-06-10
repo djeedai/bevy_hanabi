@@ -1014,7 +1014,7 @@ pub(crate) struct ExtractedEffect {
     // until we have a proper graph solution to replace it.
     force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     // Texture to use for the sprites of the particles of this effect.
-    //pub image: Handle<Image>,
+    // pub image: Handle<Image>,
     pub has_image: bool, // TODO -> use flags
     /// Texture to modulate the particle color.
     pub image_handle_id: HandleId,
@@ -1498,7 +1498,7 @@ impl EffectsMeta {
                 added_effect.capacity,
                 &added_effect.particle_layout,
                 &added_effect.property_layout,
-                //update_pipeline.pipeline.clone(),
+                // update_pipeline.pipeline.clone(),
                 render_queue,
             );
 
@@ -1630,7 +1630,7 @@ pub(crate) fn prepare_effects(
     update_pipeline: Res<ParticlesUpdatePipeline>,
     mut specialized_init_pipelines: ResMut<SpecializedComputePipelines<ParticlesInitPipeline>>,
     mut specialized_update_pipelines: ResMut<SpecializedComputePipelines<ParticlesUpdatePipeline>>,
-    //update_pipeline: Res<ParticlesUpdatePipeline>, // TODO move update_pipeline.pipeline to
+    // update_pipeline: Res<ParticlesUpdatePipeline>, // TODO move update_pipeline.pipeline to
     // EffectsMeta
     mut effects_meta: ResMut<EffectsMeta>,
     mut extracted_effects: ResMut<ExtractedEffects>,
@@ -1641,7 +1641,7 @@ pub(crate) fn prepare_effects(
     effects_meta.update_gpu_limits(&render_device);
 
     // Allocate spawner buffer if needed
-    //if effects_meta.spawner_buffer.is_empty() {
+    // if effects_meta.spawner_buffer.is_empty() {
     //    effects_meta.spawner_buffer.push(GpuSpawnerParams::default());
     //}
 
@@ -1789,7 +1789,7 @@ pub(crate) fn prepare_effects(
                         spawn_count,
                         slice: start..end,
                         particle_layout: std::mem::take(&mut particle_layout),
-                        //property_layout: std::mem::take(&mut property_layout),
+                        // property_layout: std::mem::take(&mut property_layout),
                         handle: asset.clone_weak(),
                         layout_flags,
                         image_handle_id,
@@ -2002,7 +2002,7 @@ pub(crate) fn prepare_effects(
         .write_buffer(&render_device, &render_queue);
 
     // Allocate simulation uniform if needed
-    //if effects_meta.sim_params_uniforms.is_empty() {
+    // if effects_meta.sim_params_uniforms.is_empty() {
     effects_meta
         .sim_params_uniforms
         .set(SimParamsUniform::default());
@@ -2734,7 +2734,7 @@ fn draw<'w>(
                 effect_batch.buffer_index,
                 effect_batch.slice
             );
-            return; //continue;
+            return; // continue;
         }
     }
 
@@ -2830,7 +2830,7 @@ pub(crate) struct VfxSimulateNode {
 impl VfxSimulateNode {
     /// Output particle buffer for that view. TODO - how to handle multiple
     /// buffers?! Should use Entity instead??
-    //pub const OUT_PARTICLE_BUFFER: &'static str = "particle_buffer";
+    // pub const OUT_PARTICLE_BUFFER: &'static str = "particle_buffer";
 
     /// Create a new node for simulating the effects of the given world.
     pub fn new(world: &mut World) -> Self {
@@ -2860,12 +2860,12 @@ impl Node for VfxSimulateNode {
 
         // Get the Entity containing the ViewEffectsEntity component used as container
         // for the input data for this node.
-        //let view_entity = graph.get_input_entity(Self::IN_VIEW)?;
+        // let view_entity = graph.get_input_entity(Self::IN_VIEW)?;
         let pipeline_cache = world.resource::<PipelineCache>();
 
         let effects_meta = world.resource::<EffectsMeta>();
         let effect_bind_groups = world.resource::<EffectBindGroups>();
-        //let render_queue = world.resource::<RenderQueue>();
+        // let render_queue = world.resource::<RenderQueue>();
 
         // Make sure to schedule any buffer copy from changed effects before accessing
         // them
@@ -2902,14 +2902,14 @@ impl Node for VfxSimulateNode {
                         const WORKGROUP_SIZE: u32 = 64;
                         let workgroup_count = (spawn_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
 
-                        //for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
+                        // for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
                         // Retrieve the ExtractedEffect from the entity
-                        //trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
+                        // trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
                         // effect_slice); let effect =
                         // self.effect_query.get_manual(world, *effect_entity).unwrap();
 
                         // Get the slice to init
-                        //let effect_slice = effects_meta.get(&effect_entity);
+                        // let effect_slice = effects_meta.get(&effect_entity);
                         // let effect_group =
                         //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
                         let Some(particles_bind_group) = effect_bind_groups.particle_simulate(batch.buffer_index) else { continue; };
@@ -2943,7 +2943,7 @@ impl Node for VfxSimulateNode {
                         );
 
                         // Setup compute pass
-                        //compute_pass.set_pipeline(&effect_group.init_pipeline);
+                        // compute_pass.set_pipeline(&effect_group.init_pipeline);
                         compute_pass.set_pipeline(init_pipeline);
                         compute_pass.set_bind_group(
                             0,
@@ -3030,14 +3030,14 @@ impl Node for VfxSimulateNode {
                 if let Some(update_pipeline) =
                     pipeline_cache.get_compute_pipeline(batch.update_pipeline_id)
                 {
-                    //for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
+                    // for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
                     // Retrieve the ExtractedEffect from the entity
-                    //trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
+                    // trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
                     // effect_slice); let effect =
                     // self.effect_query.get_manual(world, *effect_entity).unwrap();
 
                     // Get the slice to update
-                    //let effect_slice = effects_meta.get(&effect_entity);
+                    // let effect_slice = effects_meta.get(&effect_entity);
                     // let effect_group =
                     //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
                     let Some(particles_bind_group) = effect_bind_groups.particle_simulate(batch.buffer_index) else { continue; };
@@ -3069,7 +3069,7 @@ impl Node for VfxSimulateNode {
                     );
 
                     // Setup compute pass
-                    //compute_pass.set_pipeline(&effect_group.update_pipeline);
+                    // compute_pass.set_pipeline(&effect_group.update_pipeline);
                     compute_pass.set_pipeline(update_pipeline);
                     compute_pass.set_bind_group(
                         0,
