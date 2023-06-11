@@ -3,6 +3,47 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added `Gradient::linear()` helper method to produce a linear gradient between two values at keys `0.` and `1.`.
+- `EffectAsset` now owns a `Module` field containing all the `Expr` used by the effect's modifiers.
+- Added `ScalarType`, `VectorType`, and `MatrixType` to reprensent a scalar, vector, or matrix type, respectively.
+- Added `ValueType::is_numeric()` as well as query methods to determine the kind of value type `is_scalar()` / `is_vector()` / `is_matrix()`.
+- Added new Expression API: `Expr`, `ExprHandle`, `Module`, `ExprWriter`, `WriterExpr`.
+- Added new `EvalContext` trait representing the evaluation context of an expression, and giving access to the underlying expression `Module`
+  and the property layout of the efect. The trait is implemented by `InitContext` and `UpdateContext`.
+- Added convenience method `PropertyLayout::contains()` to determine if a layout contains a property by name.
+
+### Changed
+
+- `ValueType` is now one of `ScalarType` / `VectorType` / `MatrixType`, allowing to represent a wider range of types, including booleans and matrices.
+- `graph::Value` is now one of `ScalarValue` / `VectorValue` / `MatrixValue`, for consistency with `ValueType`.
+- `SimParams::dt` was renamed to `SimParams::delta_time` for readability. Inside shaders, `sim_params.dt` was also renamed to `sim_params.delta_time`.
+- `InitContext` and `UpdateContext` now hold a mutable reference to the underlying `Module` to allow modifiers to create new `Expr`,
+  and a read-only reference to the property layout of the effect.
+- `InitModifier::apply()` and `UpdateModifier::apply()` now return a `Result<(), ExprError>`.
+- The following modifiers changed to leverage the new Expression API:
+  - `InitAttributeModifier`:
+    - `value` field is now an `ExprHandle`.
+    - The modifier is `Copy`-able.
+  - `AccelModifier`:
+    - `accel` field is now an `ExprHandle`.
+    - The modifier is `Copy`-able.
+    - `AccelModifier::constant()` takes a `&mut Module` argument to create the literal expression assigned to the `accel` field.
+    - `AccelModifier::via_property()` takes a `&mut Module` argument to create the property expression assigned to the `accel` field.
+  - `LinearDragModifier`:
+    - `drag` field is now an `ExprHandle`.
+  - `AabbKillModifier`:
+    - `center` and `half_size` fields are now `ExprHandle`.
+- `Property::new()` takes a `default_value` argument as `impl Into<Value>` instead of `Value`. This should make it easier to call, without requiring any change to existing code.
+- `PropertyLayout::new()` takes an `iter` argument as `impl IntoIterator` instead of `impl Iterator`. This should make it easier to call, without requiring any change to existing code.
+
+### Removed
+
+- The `InitAgeModifier` and `InitLifetimeModifier` were deleted. They're replaced with the more generic `InitAttributeModifier` which can initialize any attribute of the particle.
+
 ## [0.6.2] 2023-06-10
 
 ### Added
