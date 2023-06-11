@@ -70,6 +70,9 @@ fn setup(
     let lifetime = writer.lit(5.).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
+    let accel = writer.lit(Vec3::Y * 5.).expr();
+    let update_accel = AccelModifier::new(accel);
+
     let effect = effects.add(
         EffectAsset {
             name: "emit:burst".to_string(),
@@ -88,7 +91,7 @@ fn setup(
             speed: 2.0.into(),
         })
         .init(init_lifetime)
-        .update(AccelModifier::constant(Vec3::new(0., 5., 0.)))
+        .update(update_accel)
         .render(ColorOverLifetimeModifier { gradient }),
     );
 

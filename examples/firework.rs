@@ -77,6 +77,14 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
+    // Add constant downward acceleration to simulate gravity
+    let accel = writer.lit(Vec3::Y * -8.).expr();
+    let update_accel = AccelModifier::new(accel);
+
+    // Add drag to make particles slow down a bit after the initial explosion
+    let drag = writer.lit(5.).expr();
+    let update_drag = LinearDragModifier::new(drag);
+
     let effect = EffectAsset {
         name: "firework".to_string(),
         capacity: 32768,
@@ -96,8 +104,8 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     })
     .init(init_age)
     .init(init_lifetime)
-    .update(LinearDragModifier::constant(5.))
-    .update(AccelModifier::constant(Vec3::new(0., -8., 0.)))
+    .update(update_drag)
+    .update(update_accel)
     .render(ColorOverLifetimeModifier {
         gradient: color_gradient1,
     })

@@ -51,6 +51,9 @@ fn make_effect(color: Color) -> EffectAsset {
     let lifetime = writer.lit(5.).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
+    let accel = writer.lit(Vec3::Y * -3.).expr();
+    let update_accel = AccelModifier::new(accel);
+
     EffectAsset {
         name: "effect1".to_string(),
         capacity: 32768,
@@ -68,7 +71,7 @@ fn make_effect(color: Color) -> EffectAsset {
         speed: 6.0.into(),
     })
     .init(init_lifetime)
-    .update(AccelModifier::constant(Vec3::new(0., -3., 0.)))
+    .update(update_accel)
     .render(ColorOverLifetimeModifier {
         gradient: color_gradient,
     })

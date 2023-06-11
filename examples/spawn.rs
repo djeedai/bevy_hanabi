@@ -92,8 +92,14 @@ fn setup(
     size_gradient1.add_key(1.0, Vec2::splat(0.0));
 
     let writer1 = ExprWriter::new();
+
     let lifetime1 = writer1.lit(5.).expr();
     let init_lifetime1 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime1);
+
+    // Add constant downward acceleration to simulate gravity
+    let accel1 = writer1.lit(Vec3::Y * -3.).expr();
+    let update_accel1 = AccelModifier::new(accel1);
+
     let effect1 = effects.add(
         EffectAsset {
             name: "emit:rate".to_string(),
@@ -115,7 +121,7 @@ fn setup(
             speed: 10.0.into(),
         })
         .init(init_lifetime1)
-        .update(AccelModifier::constant(Vec3::Y * -3.))
+        .update(update_accel1)
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient1,
         })
@@ -204,8 +210,14 @@ fn setup(
     gradient3.add_key(1.0, Vec4::splat(0.0));
 
     let writer3 = ExprWriter::new();
+
     let lifetime3 = writer3.lit(5.).expr();
     let init_lifetime3 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime3);
+
+    // Add property-driven acceleration
+    let accel3 = writer3.prop("my_accel").expr();
+    let update_accel3 = AccelModifier::new(accel3);
+
     let effect3 = effects.add(
         EffectAsset {
             name: "emit:burst".to_string(),
@@ -229,7 +241,7 @@ fn setup(
             // At spawn time, assign each particle a random size between 0.3 and 0.7
             size: Value::<f32>::Uniform((0.3, 0.7)).into(),
         })
-        .update(AccelModifier::via_property("my_accel"))
+        .update(update_accel3)
         .render(ColorOverLifetimeModifier {
             gradient: gradient3,
         }),

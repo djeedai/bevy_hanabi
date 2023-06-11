@@ -66,6 +66,10 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let lifetime = writer.lit(0.6).uniform(writer.lit(1.3)).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
+    // Add drag to make particles slow down a bit after the initial acceleration
+    let drag = writer.lit(2.).expr();
+    let update_drag = LinearDragModifier::new(drag);
+
     let effect1 = effects.add(
         EffectAsset {
             name: "portal".to_string(),
@@ -81,7 +85,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             dimension: ShapeDimension::Surface,
         })
         .init(init_lifetime)
-        .update(LinearDragModifier::constant(2.))
+        .update(update_drag)
         .update(RadialAccelModifier::constant(Vec3::ZERO, -6.0))
         .update(TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 30.))
         .render(ColorOverLifetimeModifier {
