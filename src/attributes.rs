@@ -37,7 +37,7 @@ impl ScalarType {
     /// A numeric type can be used in various math operators etc. All types are
     /// numeric, except `ScalarType::Bool`.
     pub fn is_numeric(&self) -> bool {
-        matches!(self, ScalarType::Bool) == false
+        !(matches!(self, ScalarType::Bool))
     }
 
     /// Size of a value of this type, in bytes.
@@ -267,26 +267,17 @@ impl ValueType {
 
     /// Is the type a scalar type?
     pub fn is_scalar(&self) -> bool {
-        match self {
-            ValueType::Scalar(_) => true,
-            _ => false,
-        }
+        matches!(self, ValueType::Scalar(_))
     }
 
     /// Is the type a vector type?
     pub fn is_vector(&self) -> bool {
-        match self {
-            ValueType::Vector(_) => true,
-            _ => false,
-        }
+        matches!(self, ValueType::Vector(_))
     }
 
     /// Is the type a matrix type?
     pub fn is_matrix(&self) -> bool {
-        match self {
-            ValueType::Matrix(_) => true,
-            _ => false,
-        }
+        matches!(self, ValueType::Matrix(_))
     }
 
     /// Size of a value of this type, in bytes.

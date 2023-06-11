@@ -1041,14 +1041,14 @@ impl ToWgslString for BinaryOperator {
 /// // Create an EffectAsset with the modifier and the Module
 /// let effect = EffectAsset {
 ///     module,
-///     ..default()
+///     ..Default::default()
 /// }.init(init_modifier);
 /// ```
 ///
 /// [`finish()`]: ExprWriter::finish
 /// [`EffectAsset`]: crate::EffectAsset
 /// [`Modifer`]: crate::Modifier
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct ExprWriter {
     module: Rc<RefCell<Module>>,
 }
@@ -1344,6 +1344,7 @@ impl WriterExpr {
     /// // -OR-
     /// // let z = x + y;
     /// ```
+    #[allow(clippy::should_implement_trait)]
     pub fn add(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Add)
     }
@@ -1373,6 +1374,7 @@ impl WriterExpr {
     /// // -OR-
     /// // let z = x - y;
     /// ```
+    #[allow(clippy::should_implement_trait)]
     pub fn sub(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Sub)
     }
@@ -1402,6 +1404,7 @@ impl WriterExpr {
     /// // -OR-
     /// // let z = x * y;
     /// ```
+    #[allow(clippy::should_implement_trait)]
     pub fn mul(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Mul)
     }
@@ -1431,6 +1434,7 @@ impl WriterExpr {
     /// // -OR-
     /// // let z = x / y;
     /// ```
+    #[allow(clippy::should_implement_trait)]
     pub fn div(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Div)
     }

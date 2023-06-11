@@ -147,7 +147,7 @@ impl Modifier for InitAttributeModifier {
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 }
 

@@ -330,7 +330,7 @@ pub trait ElemType {
 
     /// Get a mutable reference to the given component of the vector from within
     /// its raw storage.
-    fn get_mut<'a>(index: usize, storage: &'a mut [u32; 4]) -> &'a mut Self;
+    fn get_mut(index: usize, storage: &mut [u32; 4]) -> &mut Self;
 }
 
 impl ElemType for bool {
@@ -348,7 +348,7 @@ impl ElemType for bool {
         panic!("Cannot get bool element type as slice.");
     }
 
-    fn get_mut<'a>(_index: usize, _storage: &'a mut [u32; 4]) -> &'a mut Self {
+    fn get_mut(_index: usize, _storage: &mut [u32; 4]) -> &mut Self {
         panic!("Cannot get bool element type as mutable reference.");
     }
 }
@@ -368,7 +368,7 @@ impl ElemType for f32 {
         &bytemuck::cast_slice::<u32, f32>(storage)[..count]
     }
 
-    fn get_mut<'a>(index: usize, storage: &'a mut [u32; 4]) -> &'a mut Self {
+    fn get_mut(index: usize, storage: &mut [u32; 4]) -> &mut Self {
         bytemuck::cast_mut::<u32, f32>(&mut storage[index])
     }
 }
@@ -388,7 +388,7 @@ impl ElemType for i32 {
         &bytemuck::cast_slice::<u32, i32>(storage)[..count]
     }
 
-    fn get_mut<'a>(index: usize, storage: &'a mut [u32; 4]) -> &'a mut Self {
+    fn get_mut(index: usize, storage: &mut [u32; 4]) -> &mut Self {
         bytemuck::cast_mut::<u32, i32>(&mut storage[index])
     }
 }
@@ -408,7 +408,7 @@ impl ElemType for u32 {
         &storage[..count]
     }
 
-    fn get_mut<'a>(index: usize, storage: &'a mut [u32; 4]) -> &'a mut Self {
+    fn get_mut(index: usize, storage: &mut [u32; 4]) -> &mut Self {
         &mut storage[index]
     }
 }
@@ -532,7 +532,7 @@ impl VectorValue {
     }
 
     /// Get the value of an element of the vector.
-    fn get_mut<'a, T: ElemType>(&'a mut self, index: usize) -> &'a mut T {
+    fn get_mut<T: ElemType>(&mut self, index: usize) -> &mut T {
         assert!(index < self.vector_type.count());
         T::get_mut(index, &mut self.storage)
     }
@@ -654,7 +654,7 @@ impl PartialEq for VectorValue {
             }
             eq
         } else {
-            &self.storage[..count] == &other.storage[..count]
+            self.storage[..count] == other.storage[..count]
         }
     }
 }
@@ -845,7 +845,7 @@ impl MatrixValue {
     }
 
     /// Get the value of an element of the matrix.
-    fn get_mut<'a>(&'a mut self, row: usize, col: usize) -> &'a mut f32 {
+    fn get_mut(&mut self, row: usize, col: usize) -> &mut f32 {
         assert!(row < self.matrix_type.rows());
         assert!(col < self.matrix_type.cols());
         &mut self.storage[self.matrix_type.rows() * col + row]
@@ -878,7 +878,7 @@ impl PartialEq for MatrixValue {
             return false;
         }
         let count = self.matrix_type.rows() * self.matrix_type.cols();
-        &self.storage[..count] == &other.storage[..count]
+        self.storage[..count] == other.storage[..count]
     }
 }
 
@@ -949,7 +949,7 @@ impl Value {
     ///
     /// ```
     /// # use bevy_hanabi::*;
-    /// let value = Value::Scalar(3_f32.into());
+    /// let value = graph::Value::Scalar(3_f32.into());
     /// assert_eq!(ValueType::Scalar(ScalarType::Float), value.value_type());
     /// ```
     pub fn value_type(&self) -> ValueType {
@@ -1242,7 +1242,7 @@ mod tests {
             Vec2::Y,
             Vec2::NEG_X,
             Vec2::NEG_Y,
-            Vec2::new(-42.578, 663.44879),
+            Vec2::new(-42.578, 663.449),
         ] {
             assert_eq!(Value::Vector(v.into()).to_wgsl_string(), v.to_wgsl_string());
         }
@@ -1256,7 +1256,7 @@ mod tests {
             Vec3::NEG_X,
             Vec3::NEG_Y,
             Vec3::NEG_Z,
-            Vec3::new(-42.578, 663.44879, -42558.35),
+            Vec3::new(-42.578, 663.449, -42558.35),
         ] {
             assert_eq!(Value::Vector(v.into()).to_wgsl_string(), v.to_wgsl_string());
         }
@@ -1270,7 +1270,7 @@ mod tests {
             Vec4::NEG_X,
             Vec4::NEG_Y,
             Vec4::NEG_Z,
-            Vec4::new(-42.578, 663.44879, -42558.35, -4.2),
+            Vec4::new(-42.578, 663.449, -42558.35, -4.2),
         ] {
             assert_eq!(Value::Vector(v.into()).to_wgsl_string(), v.to_wgsl_string());
         }

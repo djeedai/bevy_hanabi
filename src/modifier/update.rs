@@ -197,7 +197,7 @@ impl Modifier for AccelModifier {
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn resolve_properties(&mut self, _properties: &[Property]) {
