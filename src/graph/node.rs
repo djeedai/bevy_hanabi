@@ -40,7 +40,8 @@ impl SlotId {
         self.0
     }
 
-    /// Get the zero-based index of the slot in the underlying graph slot array.  
+    /// Get the zero-based index of the slot in the underlying graph slot array.
+    ///
     pub fn index(&self) -> usize {
         (self.0.get() - 1) as usize
     }
@@ -198,6 +199,7 @@ impl Slot {
 }
 
 /// Effect graph.
+#[derive(Default)]
 pub struct Graph {
     nodes: Vec<Box<dyn Node>>,
     slots: Vec<Slot>,
@@ -210,16 +212,21 @@ impl std::fmt::Debug for Graph {
 }
 
 impl Graph {
-    /// Create a new graph.
+    /// Create a new empty graph.
     pub fn new() -> Self {
-        Self {
-            nodes: vec![],
-            slots: vec![],
-        }
+        Self::default()
     }
 
     /// Add a node to the graph.
-    pub fn add_node(&mut self, node: Box<dyn Node>) -> NodeId {
+    #[inline]
+    pub fn add_node<N>(&mut self, node: N) -> NodeId
+    where
+        N: Node + 'static,
+    {
+        self.add_node_impl(Box::new(node))
+    }
+
+    fn add_node_impl(&mut self, node: Box<dyn Node>) -> NodeId {
         let index = self.nodes.len() as u32;
         let node_id = NodeId::new(NonZeroU32::new(index + 1).unwrap());
 
@@ -235,6 +242,12 @@ impl Graph {
     }
 
     /// Link an output slot of a node to an input slot of another node.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `output` argument doesn't reference an output slot of an
+    /// existing node, or the `input` argument doesn't reference an input slot
+    /// of an existing node.
     pub fn link(&mut self, output: SlotId, input: SlotId) {
         let out_slot = self.get_slot_mut(output);
         assert!(out_slot.is_output());
@@ -246,6 +259,12 @@ impl Graph {
     }
 
     /// Unlink an output slot of a node from an input slot of another node.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `output` argument doesn't reference an output slot of an
+    /// existing node, or the `input` argument doesn't reference an input slot
+    /// of an existing node.
     pub fn unlink(&mut self, output: SlotId, input: SlotId) {
         let out_slot = self.get_slot_mut(output);
         assert!(out_slot.is_output());
@@ -284,6 +303,19 @@ impl Graph {
             .collect()
     }
 
+    /// Get a given input slot of a node by name.
+    pub fn input_slot<'a, 'b: 'a, S: Into<&'b str>>(
+        &'a self,
+        node_id: NodeId,
+        name: S,
+    ) -> Option<SlotId> {
+        let name = name.into();
+        self.slots
+            .iter()
+            .find(|s| s.node_id() == node_id && s.is_input() && s.def().name() == name)
+            .map(|s| s.id)
+    }
+
     /// Get all input slots of a node.
     pub fn input_slots(&self, node_id: NodeId) -> Vec<SlotId> {
         self.slots
@@ -296,6 +328,19 @@ impl Graph {
                 }
             })
             .collect()
+    }
+
+    /// Get a given output slot of a node by name.
+    pub fn output_slot<'a, 'b: 'a, S: Into<&'b str>>(
+        &'a self,
+        node_id: NodeId,
+        name: S,
+    ) -> Option<SlotId> {
+        let name = name.into();
+        self.slots
+            .iter()
+            .find(|s| s.node_id() == node_id && s.is_output() && s.def().name() == name)
+            .map(|s| s.id)
     }
 
     /// Get all output slots of a node.
@@ -346,7 +391,8 @@ pub trait Node {
     /// Evaluate the node from the given input expressions, and optionally
     /// produce output expression(s).
     ///
-    /// The expressions themselves are not evaluated (that is, _e.g._ "3 + 2" is _not_ reduced to "5").
+    /// The expressions themselves are not evaluated (that is, _e.g._ "3 + 2" is
+    /// _not_ reduced to "5").
     fn eval(
         &self,
         module: &mut Module,
@@ -818,16 +864,30 @@ mod tests {
         assert_eq!(str, "normalize(vec3<f32>(1.,1.,1.))".to_string());
     }
 
-    // #[test]
-    // fn graph() {
-    //     let n1 = AttributeNode::new(Attribute::POSITION);
-    //     let n2 = AttributeNode::new(Attribute::POSITION);
+    #[test]
+    fn graph() {
+        let mut g = Graph::new();
 
-    //     let mut g = Graph::new();
-    //     let nid1 = g.add_node(Box::new(n1));
-    //     let nid2 = g.add_node(Box::new(n2));
-    //     let sid1 = g.output_slots(nid1)[0];
-    //     let sid2 = g.input_slots(nid2)[0];
-    //     g.link(sid1, sid2);
-    // }
+        let nid_pos = g.add_node(AttributeNode::new(Attribute::POSITION));
+        let nid_add = g.add_node(AddNode::new());
+        let sid_pos = g.output_slots(nid_pos)[0];
+        let sid_add_lhs = g.input_slots(nid_add)[0];
+        let sid_add_rhs = g.input_slots(nid_add)[1];
+        g.link(sid_pos, sid_add_lhs);
+
+        let nid_vel = g.add_node(AttributeNode::new(Attribute::VELOCITY));
+        let nid_mul = g.add_node(MulNode::new());
+        let nid_dt = g.add_node(TimeNode::new());
+        let sid_vel = g.output_slots(nid_vel)[0];
+        let sid_dt = g
+            .output_slot(nid_dt, BuiltInOperator::DeltaTime.name())
+            .unwrap();
+        let sid_mul_lhs = g.input_slots(nid_mul)[0];
+        let sid_mul_rhs = g.input_slots(nid_mul)[1];
+        g.link(sid_vel, sid_mul_lhs);
+        g.link(sid_dt, sid_mul_rhs);
+
+        let sid_mul_out = g.output_slots(nid_mul)[0];
+        g.link(sid_mul_out, sid_add_rhs);
+    }
 }

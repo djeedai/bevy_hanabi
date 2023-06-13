@@ -24,10 +24,10 @@ pub use expr::{
     AttributeExpr, BinaryOperator, BuiltInExpr, BuiltInOperator, EvalContext, Expr, ExprError,
     ExprHandle, ExprWriter, LiteralExpr, Module, PropertyExpr, UnaryOperator, WriterExpr,
 };
-// pub use node::{
-//     AddNode, AttributeNode, DivNode, Graph, MulNode, Node, NormalizeNode,
-// Slot, SlotDir, SlotId,     SubNode, TimeNode,
-// };
+pub use node::{
+    AddNode, AttributeNode, DivNode, Graph, MulNode, Node, NormalizeNode, Slot, SlotDir, SlotId,
+    SubNode, TimeNode,
+};
 
 // /// Binary arithmetic operator.
 // #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect,

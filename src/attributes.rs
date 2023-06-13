@@ -1152,7 +1152,8 @@ mod tests {
     };
     use naga::{front::wgsl::Parser, proc::Layouter};
 
-    // Ensure the size and alignment of all types conforms to the WGSL spec by querying naga as a reference.
+    // Ensure the size and alignment of all types conforms to the WGSL spec by
+    // querying naga as a reference.
     #[test]
     fn value_type_align() {
         let mut parser = Parser::new();
@@ -1208,7 +1209,7 @@ mod tests {
             }
             assert!(res.is_ok());
             let m = res.unwrap();
-            //println!("Module: {:?}", m);
+            // println!("Module: {:?}", m);
 
             // Retrieve the "x" constant and the size/align of its type
             let (_cst_handle, cst) = m
