@@ -302,6 +302,12 @@ impl Module {
         self.unary(UnaryOperator::Any, inner)
     }
 
+    /// Build a `normalize()` unary expression and append it to the module.
+    #[inline]
+    pub fn normalize(&mut self, inner: ExprHandle) -> ExprHandle {
+        self.unary(UnaryOperator::Normalize, inner)
+    }
+
     /// Build a binary expression and append it to the module.
     ///
     /// The handles to the expressions representing the left and right operands
