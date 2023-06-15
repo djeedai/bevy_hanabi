@@ -209,6 +209,17 @@ cargo run --example spawn_on_command --features="bevy/bevy_winit bevy/bevy_pbr 3
 
 ![spawn_on_command](https://raw.githubusercontent.com/djeedai/bevy_hanabi/3ad8f9e34daf3db3e2d821e2f9bac3023cdf0af4/examples/spawn_on_command.gif)
 
+### Burst Over Time on Command
+
+This example demonstrates how to emit a burst of particles over time when an event occurs. This gives total control of the spawning to the user code.
+
+```shell
+cargo run --example burst_over_time_on_command --features="bevy/bevy_winit bevy/bevy_pbr 3d"
+```
+
+![burst_over_time_on_command](https://raw.githubusercontent.com/zArubaru/bevy_hanabi/0cd82882cb6fdfe997bb9ba3aad54770deadb2dc/examples/burst_over_time_on_command.gif)
+
+
 ### Circle
 
 This example demonstrates the `circle` spawner type, which emits particles along a circle perimeter or a disk surface. This allows for example simulating a dust ring around an object colliding with the ground.

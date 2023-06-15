@@ -273,8 +273,6 @@ impl Spawner {
     /// // Spawn 32 particles in a burst once immediately on creation.
     /// let spawner = Spawner::once(32.0.into(), true);
     /// ```
-    ///
-    /// [`reset()`]: crate::Spawner::reset
     pub fn once(count: Value<f32>, spawn_immediately: bool) -> Self {
         let mut spawner = Self::new(count, 0.0.into(), f32::INFINITY.into());
         spawner.starts_immediately = spawn_immediately;
@@ -362,6 +360,31 @@ impl Spawner {
     pub fn starts_active(&self) -> bool {
         self.starts_active
     }
+
+    /// Sets whether the spawner starts immediately when the effect is instantiated.
+    ///
+    /// If `starts_immediately` is false, the effect will not start until
+    /// [`EffectSpawner::reset()`] is called.
+    pub fn with_starts_immediately(mut self, starts_immediately: bool) -> Self {
+        self.starts_immediately = starts_immediately;
+        self
+    }
+
+    /// Set whether the spawner starts immediately when the effect is instantiated.
+    ///
+    /// If `starts_immediately` is false, the effect will not start until
+    /// [`EffectSpawner::reset()`] is called.
+    pub fn set_starts_immediately(&mut self, starts_immediately: bool) {
+        self.starts_immediately = starts_immediately;
+    }
+
+    /// Get whether the spawner starts immediately when the effect is instantiated.
+    ///
+    /// If `starts_immediately` is false, the effect will not start until
+    /// [`EffectSpawner::reset()`] is called.
+    pub fn starts_immediately(&self) -> bool {
+        self.starts_immediately
+    }
 }
 
 /// Runtime component maintaining the state of the spawner for an effect.
@@ -407,10 +430,10 @@ impl EffectSpawner {
         let spawner = *instance.spawner.as_ref().unwrap_or(&asset.spawner);
         Self {
             spawner,
-            time: if spawner.is_once() && !spawner.starts_immediately {
-                1. // anything > 0
-            } else {
+            time: if spawner.starts_immediately() {
                 0.
+            } else {
+                f32::INFINITY
             },
             curr_spawn_time: 0.,
             limit: 0.,
@@ -440,6 +463,16 @@ impl EffectSpawner {
     /// Inactive spawners do not spawn any particle.
     pub fn is_active(&self) -> bool {
         self.active
+    }
+
+    /// Set accumulated time since last spawn.
+    pub fn set_time(&mut self, time: f32) {
+        self.time = time;
+    }
+
+    /// Get accumulated time since last spawn.
+    pub fn get_time(&self) -> f32 {
+        self.time
     }
 
     /// Get the spawner configuration in use.
@@ -482,7 +515,7 @@ impl EffectSpawner {
     /// The integral number of particles to spawn this frame. Any fractional
     /// remainder is saved for the next call.
     pub fn tick(&mut self, mut dt: f32, rng: &mut Pcg32) -> u32 {
-        if !self.active {
+        if !self.active || self.time.is_infinite() {
             self.spawn_count = 0;
             return 0;
         }
