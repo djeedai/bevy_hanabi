@@ -88,16 +88,31 @@ impl SlotDef {
     }
 
     /// Get the slot name.
+    #[inline]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// Get the slot direction.
+    #[inline]
     pub fn dir(&self) -> SlotDir {
         self.dir
     }
 
+    /// Is the slot an input slot?
+    #[inline]
+    pub fn is_input(&self) -> bool {
+        self.dir == SlotDir::Input
+    }
+
+    /// Is the slot an input slot?
+    #[inline]
+    pub fn is_output(&self) -> bool {
+        self.dir == SlotDir::Output
+    }
+
     /// Get the slot value type.
+    #[inline]
     pub fn value_type(&self) -> Option<ValueType> {
         self.value_type
     }
@@ -406,9 +421,8 @@ pub struct AddNode {
     slots: [SlotDef; 3],
 }
 
-impl AddNode {
-    /// Create a new node.
-    pub fn new() -> Self {
+impl Default for AddNode {
+    fn default() -> Self {
         Self {
             slots: [
                 SlotDef::input("lhs", None),
@@ -449,9 +463,8 @@ pub struct SubNode {
     slots: [SlotDef; 3],
 }
 
-impl SubNode {
-    /// Create a new node.
-    pub fn new() -> Self {
+impl Default for SubNode {
+    fn default() -> Self {
         Self {
             slots: [
                 SlotDef::input("lhs", None),
@@ -493,9 +506,8 @@ pub struct MulNode {
     slots: [SlotDef; 3],
 }
 
-impl MulNode {
-    /// Create a new node.
-    pub fn new() -> Self {
+impl Default for MulNode {
+    fn default() -> Self {
         Self {
             slots: [
                 SlotDef::input("lhs", None),
@@ -537,9 +549,8 @@ pub struct DivNode {
     slots: [SlotDef; 3],
 }
 
-impl DivNode {
-    /// Create a new node.
-    pub fn new() -> Self {
+impl Default for DivNode {
+    fn default() -> Self {
         Self {
             slots: [
                 SlotDef::input("lhs", None),
@@ -582,6 +593,12 @@ pub struct AttributeNode {
     attr: Attribute,
     /// The output slot corresponding to the get value.
     slots: [SlotDef; 1],
+}
+
+impl Default for AttributeNode {
+    fn default() -> Self {
+        Self::new(Attribute::POSITION)
+    }
 }
 
 impl AttributeNode {
@@ -635,9 +652,8 @@ pub struct TimeNode {
     slots: [SlotDef; 2],
 }
 
-impl TimeNode {
-    /// Create a new time node.
-    pub fn new() -> Self {
+impl Default for TimeNode {
+    fn default() -> Self {
         Self {
             slots: [BuiltInOperator::Time, BuiltInOperator::DeltaTime]
                 .map(|op| SlotDef::output(op.name(), Some(op.value_type()))),
@@ -675,9 +691,8 @@ pub struct NormalizeNode {
     slots: [SlotDef; 2],
 }
 
-impl NormalizeNode {
-    /// Create a new normalize node.
-    pub fn new() -> Self {
+impl Default for NormalizeNode {
+    fn default() -> Self {
         Self {
             slots: [SlotDef::output("in", None), SlotDef::output("out", None)],
         }
@@ -717,7 +732,7 @@ mod tests {
 
     #[test]
     fn add() {
-        let node = AddNode::new();
+        let node = AddNode::default();
 
         let mut module = Module::default();
 
@@ -740,7 +755,7 @@ mod tests {
 
     #[test]
     fn sub() {
-        let node = SubNode::new();
+        let node = SubNode::default();
 
         let mut module = Module::default();
 
@@ -762,7 +777,7 @@ mod tests {
 
     #[test]
     fn mul() {
-        let node = MulNode::new();
+        let node = MulNode::default();
 
         let mut module = Module::default();
 
@@ -784,7 +799,7 @@ mod tests {
 
     #[test]
     fn div() {
-        let node = DivNode::new();
+        let node = DivNode::default();
 
         let mut module = Module::default();
 
@@ -825,7 +840,7 @@ mod tests {
 
     #[test]
     fn time() {
-        let node = TimeNode::new();
+        let node = TimeNode::default();
 
         let mut module = Module::default();
 
@@ -848,7 +863,7 @@ mod tests {
 
     #[test]
     fn normalize() {
-        let node = NormalizeNode::new();
+        let node = NormalizeNode::default();
 
         let mut module = Module::default();
 
@@ -869,15 +884,15 @@ mod tests {
         let mut g = Graph::new();
 
         let nid_pos = g.add_node(AttributeNode::new(Attribute::POSITION));
-        let nid_add = g.add_node(AddNode::new());
+        let nid_add = g.add_node(AddNode::default());
         let sid_pos = g.output_slots(nid_pos)[0];
         let sid_add_lhs = g.input_slots(nid_add)[0];
         let sid_add_rhs = g.input_slots(nid_add)[1];
         g.link(sid_pos, sid_add_lhs);
 
         let nid_vel = g.add_node(AttributeNode::new(Attribute::VELOCITY));
-        let nid_mul = g.add_node(MulNode::new());
-        let nid_dt = g.add_node(TimeNode::new());
+        let nid_mul = g.add_node(MulNode::default());
+        let nid_dt = g.add_node(TimeNode::default());
         let sid_vel = g.output_slots(nid_vel)[0];
         let sid_dt = g
             .output_slot(nid_dt, BuiltInOperator::DeltaTime.name())
