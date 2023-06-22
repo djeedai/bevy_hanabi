@@ -50,6 +50,10 @@ futures = "0.3"
 bevy-inspector-egui = "0.18"
 
 [[example]]
+name = "node_editor"
+required-features = [ "bevy/default", "2d", "3d" ]
+
+[[example]]
 name = "firework"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
