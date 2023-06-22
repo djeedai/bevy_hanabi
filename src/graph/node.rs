@@ -1,4 +1,26 @@
 //! Node API.
+//!
+//! ⚠️ This API is under construction and is missing some features. ⚠️
+//!
+//! The Node API is designed for effect editing, and the creation of UI tools.
+//! It builds on top of the [Expression API] and is entirely optional. It
+//! defines a [`Graph`] composed of [`Node`]s. Each node represent either a
+//! [`Modifier`] or an [`Expr`]. A node has some [`Slot`]s associated with it,
+//! representing its inputs and outputs, if any. An _output_ slot of a node can
+//! be linked to an _input_ slot of another node to express that the value
+//! produced by the upstream node must flow through to the input of the
+//! downstream node.
+//!
+//! An effect [`Graph`] can be serialized as is, to retain its editing
+//! capabilities. Alternatively, once the user has finished building an effect,
+//! it can be converted to a runtime [`EffectAsset`] for use as a
+//! [`ParticleEffect`].
+//!
+//! [Expression API]: crate::graph::expr
+//! [`Modifier`]: crate::Modifier
+//! [`Expr`]: crate::graph::expr::Expr
+//! [`EffectAsset`]: crate::EffectAsset
+//! [`ParticleEffect`]: crate::ParticleEffect
 
 use std::num::NonZeroU32;
 
@@ -213,6 +235,16 @@ impl Slot {
 }
 
 /// Effect graph.
+///
+/// An effect graph represents an editable version of an [`EffectAsset`]. The
+/// graph is composed of [`Node`]s, which represent either a [`Modifier`] or an
+/// expression [`Expr`]. Expression nodes are linked together to form more
+/// complex expressions which are then assigned to the modifier inputs. Once the
+/// graph is ready, it can be converted into an [`EffectAsset`].
+///
+/// [`EffectAsset`]: crate::EffectAsset
+/// [`Modifier`]: crate::Modifier
+/// [`Expr`]: crate::graph::Expr
 #[derive(Default)]
 pub struct Graph {
     nodes: Vec<Box<dyn Node>>,
@@ -227,11 +259,27 @@ impl std::fmt::Debug for Graph {
 
 impl Graph {
     /// Create a new empty graph.
+    ///
+    /// An empty graph doesn't represent a valid [`EffectAsset`]. You must add
+    /// some [`Node`]s with [`add_node()`] and [`link()`] them together to form
+    /// a valid graph.
+    ///
+    /// [`EffectAsset`]: crate::EffectAsset
+    /// [`add_node()`]: crate::graph::Graph::add_node
+    /// [`link()`]: crate::graph::Graph::link
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Add a node to the graph.
+    /// Add a node to the graph, without any link.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut graph = Graph::new();
+    /// let time_node = graph.add_node(TimeNode::default());
+    /// ```
     #[inline]
     pub fn add_node<N>(&mut self, node: N) -> NodeId
     where

@@ -1,10 +1,43 @@
 //! Effect graph and language definition.
 //!
-//! This module contains the elements used to build a effect graph, a fully
+//! This module contains the elements used to build an _effect graph_, a fully
 //! customizable description of a visual effect.
 //!
-//! Currently effect graphs are not yet available; only some preview elements
-//! exist. So this module is a bit empty and of little interest.
+//! The effect graph API is composed of two layers:
+//! - The [**Expression API**] provides a micro-language to build shader
+//!   expressions ([`Expr`]) via code. Those expressions are composed together
+//!   into complex behaviors assigned to the input values of some modifiers.
+//!   This enables complete customizing of the modifiers. This API is focused on
+//!   runtime execution and asset serialization. It provides the user with a way
+//!   to _indirectly_ write effect shaders without any knowledge about shaders,
+//!   and with a framework which guarantees the shader code generated is
+//!   correct.
+//! - The [**Node API**] provides a higher-level API built on top of the
+//!   Expression API. Its use is entirely optional. It defines a node graph
+//!   ([`Graph`]), where each node ([`Node`]) represents an expression or a
+//!   modifier. Nodes are linked together to implicitly build expressions. This
+//!   API focuses on asset editing, with the explicit intent to be used to build
+//!   a (visual) effect editor.
+//!
+//! # API status
+//!
+//! Currently effect graphs are not fully available yet; only some preview
+//! elements exist.
+//!
+//! The Expression API already contains a good set of expressions, and some
+//! modifiers have already been converted to accept expressions for their input
+//! fields. Its generally in a reasonable shape for early adoption.
+//!
+//! The Node API contains a basic node and graph definition, which is entirely
+//! experimental at this stage.
+//!
+//! We recommend starting to familiarize yourself with effect graphs, and
+//! starting to port your code to use expressions ([`Expr`]), as the entire
+//! library is moving in the direction of adopting effect graphs across the
+//! board.
+//!
+//! [**Expression API**]: crate::graph::expr
+//! [**Node API**]: crate::graph::node
 
 use std::fmt::Debug;
 

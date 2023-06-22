@@ -426,10 +426,15 @@ impl Module {
     }
 }
 
-/// Expression-related errors.
+/// Errors raised when manipulating expressions [`Expr`] and node graphs
+/// [`Graph`].
+///
+/// [`Graph`]: crate::graph::Graph
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ExprError {
-    /// Expression type error. Generally used for invalid type conversion.
+    /// Expression type error.
+    ///
+    /// Generally used for invalid type conversion (casting).
     #[error("Type error: {0:?}")]
     TypeError(String),
 
@@ -441,9 +446,11 @@ pub enum ExprError {
     #[error("Graph evaluation error: {0:?}")]
     GraphEvalError(String),
 
-    /// Error evaluating a property. Generally used for an unknown property not
-    /// defined in the evaluation context, which in turns usually mean it was
-    /// not defined with [`EffectAsset::with_property()`] or
+    /// Error resolving a property.
+    ///
+    /// An unknown property was not defined in the evaluation context, which
+    /// usually means that the property was not defined
+    /// with [`EffectAsset::with_property()`] or
     /// [`EffectAsset::add_property()`].
     ///
     /// [`EffectAsset::with_property()`]: crate::EffectAsset::with_property
@@ -453,6 +460,12 @@ pub enum ExprError {
 
     /// Invalid expression handle not referencing any existing [`Expr`] in the
     /// evaluation [`Module`].
+    ///
+    /// This error is commonly raised when using an [`ExprWriter`] and
+    /// forgetting to transfer the underlying [`Module`] where the expressions
+    /// are written to the [`EffectAsset`]. See [`ExprWriter`] for details.
+    ///
+    /// [`EffectAsset`]: crate::EffectAsset
     #[error("Invalid expression handle: {0:?}")]
     InvalidExprHandleError(String),
 }
@@ -484,22 +497,28 @@ pub trait EvalContext {
 /// Language expression producing a value.
 #[derive(Debug, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
 pub enum Expr {
-    /// Built-in expression (`BuiltInExpr`).
+    /// Built-in expression ([`BuiltInExpr`]) providing access to some internal
+    /// quantities like the simulation time.
     BuiltIn(BuiltInExpr),
-    /// Literal expression (`LiteralExpr`).
+    /// Literal expression ([`LiteralExpr`]) representing shader constants.
     Literal(LiteralExpr),
-    /// Property expression (`PropertyExpr`).
+    /// Property expression ([`PropertyExpr`]) representing the value of an
+    /// [`EffectAsset`]'s property.
+    ///
+    /// [`EffectAsset`]: crate::EffectAsset
     Property(PropertyExpr),
-    /// Attribute expression (`AttributeExpr`).
+    /// Attribute expression ([`AttributeExpr`]) representing the value of an
+    /// attribute for a particle, like its position or velocity.
     Attribute(AttributeExpr),
-    /// Unary operation expression.
+    /// Unary operation expression, transforming an expression into another
+    /// expression.
     Unary {
         /// Unary operator.
         op: UnaryOperator,
         /// Operand the unary operation applies to.
         expr: Handle<Expr>,
     },
-    /// Binary operation expression.
+    /// Binary operation expression, composing two expressions into a third one.
     Binary {
         /// Binary operator.
         op: BinaryOperator,
@@ -531,7 +550,8 @@ impl Expr {
     /// // Literals are always constant by definition.
     /// assert!(Expr::Literal(LiteralExpr::new(1.)).is_const(&module));
     ///
-    /// // Properties and attributes are never constant, again by definition.
+    /// // Properties and attributes are never constant, since they're by definition used
+    /// // to provide runtime customization.
     /// assert!(!Expr::Property(PropertyExpr::new("my_prop")).is_const(&module));
     /// assert!(!Expr::Attribute(AttributeExpr::new(Attribute::POSITION)).is_const(&module));
     /// ```
@@ -547,14 +567,40 @@ impl Expr {
     }
 
     /// The type of the value produced by the expression.
-    pub fn value_type(&self) -> ValueType {
-        unimplemented!()
+    ///
+    /// If the type is variable and depends on the runtime evaluation context,
+    /// this returns `None`. In that case the type needs to be obtained by
+    /// evaluating the expression with [`eval()`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// // Literal expressions always have a constant, build-time value type.
+    /// let expr = Expr::Literal(LiteralExpr::new(1.));
+    /// assert_eq!(expr.value_type(), Some(ValueType::Scalar(ScalarType::Float)));
+    /// ```
+    ///
+    /// [`eval()`]: crate::graph::Expr::eval
+    pub fn value_type(&self) -> Option<ValueType> {
+        match self {
+            Expr::BuiltIn(expr) => Some(expr.value_type()),
+            Expr::Literal(expr) => Some(expr.value_type()),
+            Expr::Property(_) => None,
+            Expr::Attribute(expr) => Some(expr.value_type()),
+            Expr::Unary { .. } => None,
+            Expr::Binary { .. } => None,
+        }
     }
 
     /// Evaluate the expression in the given context.
     ///
     /// Evaluate the full expression as part of the given evaluation context,
     /// returning the WGSL string representation of the expression on success.
+    ///
+    /// The evaluation context is used to resolve some quantities related to the
+    /// effect asset, like its properties. It also holds the [`Module`] that the
+    /// expression is part of, to allow resolving sub-expressions of operators.
     ///
     /// # Example
     ///
@@ -726,14 +772,6 @@ impl PropertyExpr {
     /// hard-coded into a shader's code?
     fn is_const(&self) -> bool {
         false
-    }
-
-    /// Get the value type of the expression.
-    #[allow(dead_code)]
-    fn value_type(&self) -> ValueType {
-        ValueType::Scalar(ScalarType::Bool) // FIXME - This is unknown until
-                                            // properties are resolved with the
-                                            // effect, when code is generated...
     }
 
     /// Evaluate the expression in the given context.
