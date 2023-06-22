@@ -50,6 +50,65 @@ struct VertexOutput {
 // @group(3) @binding(1) var gradient_sampler: sampler;
 // #endif
 
+var<private> seed : u32 = 0u;
+
+// Rand: PCG
+// https://www.reedbeta.com/blog/hash-functions-for-gpu-rendering/
+fn pcg_hash(input: u32) -> u32 {
+    var state: u32 = input * 747796405u + 2891336453u;
+    var word: u32 = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+fn to_float01(u: u32) -> f32 {
+    // Note: could generate only 24 bits of randomness
+    return bitcast<f32>((u & 0x007fffffu) | 0x3f800000u) - 1.;
+}
+
+// Random floating-point number in [0:1]
+fn rand() -> f32 {
+    seed = pcg_hash(seed);
+    return to_float01(pcg_hash(seed));
+}
+
+// Random floating-point number in [0:1]^2
+fn rand2() -> vec2<f32> {
+    seed = pcg_hash(seed);
+    var x = to_float01(seed);
+    seed = pcg_hash(seed);
+    var y = to_float01(seed);
+    return vec2<f32>(x, y);
+}
+
+// Random floating-point number in [0:1]^3
+fn rand3() -> vec3<f32> {
+    seed = pcg_hash(seed);
+    var x = to_float01(seed);
+    seed = pcg_hash(seed);
+    var y = to_float01(seed);
+    seed = pcg_hash(seed);
+    var z = to_float01(seed);
+    return vec3<f32>(x, y, z);
+}
+
+// Random floating-point number in [0:1]^4
+fn rand4() -> vec4<f32> {
+    // Each rand() produces 32 bits, and we need 24 bits per component,
+    // so can get away with only 3 calls.
+    var r0 = pcg_hash(seed);
+    var r1 = pcg_hash(r0);
+    var r2 = pcg_hash(r1);
+    seed = r2;
+    var x = to_float01(r0);
+    var r01 = (r0 & 0xff000000u) >> 8u | (r1 & 0x0000ffffu);
+    var y = to_float01(r01);
+    var r12 = (r1 & 0xffff0000u) >> 8u | (r2 & 0x000000ffu);
+    var z = to_float01(r12);
+    var r22 = r2 >> 8u;
+    var w = to_float01(r22);
+    return vec4<f32>(x, y, z, w);
+}
+
 {{RENDER_EXTRA}}
 
 @vertex

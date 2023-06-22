@@ -568,7 +568,7 @@ impl InitModifier for InitSizeModifier {
     fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
         context.init_code += &format!(
             "particle.{} = {};\n",
-            Attribute::SIZE.name(),
+            self.attributes()[0].name(),
             self.size.to_wgsl_string(),
         );
         Ok(())

@@ -15,7 +15,7 @@ The Hanabi particle system is a modern GPU-based particle system for the Bevy ga
 
 🚧 _This project is under heavy development, and is currently lacking both features and performance / usability polish. However, for moderate-size effects, it can already be used in your project. Feedback and contributions on both design and features are very much welcome._
 
-🎆 Hanabi makes heavy use of compute shaders to offload work to the GPU in a performant way, and therefore is not available for the `wasm` target (WebAssembly). This is a limitation of how Bevy itself uses `wgpu` as of latest stable release (0.10). The next Bevy release (0.11) will have WebGPU support, making it possible to add WebAssembly support to 🎆 Hanabi. See #41 for details.
+🎆 Hanabi makes heavy use of compute shaders to offload work to the GPU in a performant way, and therefore is not available for the `wasm` target (WebAssembly). This is a limitation of how Bevy itself uses `wgpu` as of latest stable release (0.10). The next Bevy release (0.11) will have WebGPU support, making it possible to add WebAssembly support to 🎆 Hanabi. See [#41](https://github.com/djeedai/bevy_hanabi/issues/41) for details.
 
 ## Usage
 
