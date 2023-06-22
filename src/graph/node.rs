@@ -41,7 +41,6 @@ impl SlotId {
     }
 
     /// Get the zero-based index of the slot in the underlying graph slot array.
-    ///
     pub fn index(&self) -> usize {
         (self.0.get() - 1) as usize
     }
