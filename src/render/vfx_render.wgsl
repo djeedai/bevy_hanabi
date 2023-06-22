@@ -109,6 +109,10 @@ fn rand4() -> vec4<f32> {
     return vec4<f32>(x, y, z, w);
 }
 
+fn rand_uniform(a: f32, b: f32) -> f32 {
+    return a + rand() * (b - a);
+}
+
 {{RENDER_EXTRA}}
 
 @vertex
