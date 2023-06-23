@@ -1672,7 +1672,7 @@ mod tests {
     use crate::{prelude::Property, InitContext, ScalarValue};
 
     use super::*;
-    use bevy::math::Vec2;
+    use bevy::prelude::*;
 
     #[test]
     fn writer() {
@@ -1707,115 +1707,124 @@ mod tests {
         assert!(matches!(r, Err(ExprError::TypeError(_))));
     }
 
-    // #[test]
-    // fn add_expr() {
-    //     // f32 + f32
-    //     let x: LiteralExpr = 3_f32.into();
-    //     let y: LiteralExpr = 42_f32.into();
-    //     let a = (x + y).eval();
-    //     assert!(a.is_ok());
-    //     let b = (y + x).eval();
-    //     assert!(b.is_ok());
-    //     assert_eq!(a, b);
+    #[test]
+    fn math_expr() {
+        let mut m = Module::default();
 
-    //     // Cannot Add bool
-    //     let z: LiteralExpr = true.into();
-    //     assert!((x + z).eval().is_err());
-    //     assert!((z + x).eval().is_err());
+        let x = m.attr(Attribute::POSITION);
+        let y = m.lit(Vec3::ONE);
 
-    //     // Cannot Add a different scalar
-    //     let z: LiteralExpr = 8_u32.into();
-    //     assert!((x + z).eval().is_err());
-    //     assert!((z + x).eval().is_err());
+        let add = m.add(x, y);
+        let sub = m.sub(x, y);
+        let mul = m.mul(x, y);
+        let div = m.div(x, y);
+        let lt = m.lt(x, y);
+        let le = m.le(x, y);
+        let gt = m.gt(x, y);
+        let ge = m.ge(x, y);
 
-    //     // f32 + vec3<f32>
-    //     let x: LiteralExpr = 3_f32.into();
-    //     let y: LiteralExpr = Vec3::ONE.into();
-    //     let a = (x + y).eval();
-    //     assert!(a.is_ok());
-    //     let b = (y + x).eval();
-    //     assert!(b.is_ok());
-    //     assert_eq!(a, b);
-    //     assert!(matches!(a.unwrap(), Value::Vector(_)));
-    // }
+        let pl = PropertyLayout::default();
+        let ctx = InitContext {
+            module: &mut m,
+            init_code: String::new(),
+            init_extra: String::new(),
+            property_layout: &pl,
+        };
 
-    // #[test]
-    // fn math_expr() {
-    //     let x: AttributeExpr = Attribute::POSITION.into();
-    //     let y = LiteralExpr::new(Vec3::ONE);
+        for (expr, op) in [
+            (add, "+"),
+            (sub, "-"),
+            (mul, "*"),
+            (div, "/"),
+            (lt, "<"),
+            (le, "<="),
+            (gt, ">"),
+            (ge, ">="),
+        ] {
+            let expr = ctx.eval(expr);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            assert_eq!(
+                expr,
+                format!(
+                    "(particle.{}) {} (vec3<f32>(1.,1.,1.))",
+                    Attribute::POSITION.name(),
+                    op,
+                )
+            );
+        }
+    }
 
-    //     let a = x + y;
-    //     assert_eq!(
-    //         a.to_wgsl_string(),
-    //         format!(
-    //             "(particle.{}) + (vec3<f32>(1.,1.,1.))",
-    //             Attribute::POSITION.name()
-    //         )
-    //     );
+    #[test]
+    fn unary_expr() {
+        let mut m = Module::default();
 
-    //     let b = y + x;
-    //     assert_eq!(
-    //         b.to_wgsl_string(),
-    //         format!(
-    //             "(vec3<f32>(1.,1.,1.)) + (particle.{})",
-    //             Attribute::POSITION.name()
-    //         )
-    //     );
+        let x = m.attr(Attribute::POSITION);
+        let y = m.lit(Vec3::new(1., -3.1, 6.99));
+        let z = m.lit(BVec3::new(false, true, false));
 
-    //     let a = x - y;
-    //     assert_eq!(
-    //         a.to_wgsl_string(),
-    //         format!(
-    //             "(particle.{}) - (vec3<f32>(1.,1.,1.))",
-    //             Attribute::POSITION.name()
-    //         )
-    //     );
+        let abs = m.abs(x);
+        let norm = m.normalize(y);
+        let any = m.any(z);
+        let all = m.all(z);
 
-    //     let b = y - x;
-    //     assert_eq!(
-    //         b.to_wgsl_string(),
-    //         format!(
-    //             "(vec3<f32>(1.,1.,1.)) - (particle.{})",
-    //             Attribute::POSITION.name()
-    //         )
-    //     );
+        let pl = PropertyLayout::default();
+        let ctx = InitContext {
+            module: &mut m,
+            init_code: String::new(),
+            init_extra: String::new(),
+            property_layout: &pl,
+        };
 
-    //     let a = x * y;
-    //     assert_eq!(
-    //         a.to_wgsl_string(),
-    //         format!(
-    //             "(particle.{}) * (vec3<f32>(1.,1.,1.))",
-    //             Attribute::POSITION.name()
-    //         )
-    //     );
+        for (expr, op, inner) in [
+            (
+                abs,
+                "abs",
+                &format!("particle.{}", Attribute::POSITION.name())[..],
+            ),
+            (norm, "normalize", "vec3<f32>(1.,-3.1,6.99)"),
+            (any, "any", "vec3<bool>(false,true,false)"),
+            (all, "all", "vec3<bool>(false,true,false)"),
+        ] {
+            let expr = ctx.eval(expr);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            assert_eq!(expr, format!("{}({})", op, inner,));
+        }
+    }
 
-    //     let b = y * x;
-    //     assert_eq!(
-    //         b.to_wgsl_string(),
-    //         format!(
-    //             "(vec3<f32>(1.,1.,1.)) * (particle.{})",
-    //             Attribute::POSITION.name()
-    //         )
-    //     );
+    #[test]
+    fn binary_expr() {
+        let mut m = Module::default();
 
-    //     let a = x / y;
-    //     assert_eq!(
-    //         a.to_wgsl_string(),
-    //         format!(
-    //             "(particle.{}) / (vec3<f32>(1.,1.,1.))",
-    //             Attribute::POSITION.name()
-    //         )
-    //     );
+        let x = m.attr(Attribute::POSITION);
+        let y = m.lit(Vec3::ONE);
 
-    //     let b = y / x;
-    //     assert_eq!(
-    //         b.to_wgsl_string(),
-    //         format!(
-    //             "(vec3<f32>(1.,1.,1.)) / (particle.{})",
-    //             Attribute::POSITION.name()
-    //         )
-    //     );
-    // }
+        let min = m.min(x, y);
+        let max = m.max(x, y);
+
+        let pl = PropertyLayout::default();
+        let ctx = InitContext {
+            module: &mut m,
+            init_code: String::new(),
+            init_extra: String::new(),
+            property_layout: &pl,
+        };
+
+        for (expr, op) in [(min, "min"), (max, "max")] {
+            let expr = ctx.eval(expr);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            assert_eq!(
+                expr,
+                format!(
+                    "{}(particle.{}, vec3<f32>(1.,1.,1.))",
+                    op,
+                    Attribute::POSITION.name(),
+                )
+            );
+        }
+    }
 
     // #[test]
     // fn serde() {
