@@ -1565,35 +1565,28 @@ mod tests {
         }
     }
 
-    fn f32_as_u32(f: f32) -> u32 {
-        #[allow(unsafe_code)]
-        unsafe {
-            std::mem::transmute::<f32, u32>(f)
-        }
-    }
-
     #[test]
     fn vector_value() {
         let v = Vec2::new(-3.2, 5.);
         let vv = VectorValue::new_vec2(v);
-        assert_eq!(f32_as_u32(v.x), vv.storage[0]);
-        assert_eq!(f32_as_u32(v.y), vv.storage[1]);
+        assert_eq!(v.x.to_bits(), vv.storage[0]);
+        assert_eq!(v.y.to_bits(), vv.storage[1]);
         assert_eq!(0u32, vv.storage[2]);
         assert_eq!(0u32, vv.storage[3]);
 
         let v = Vec3::new(-3.2, 5., 64.5);
         let vv = VectorValue::new_vec3(v);
-        assert_eq!(f32_as_u32(v.x), vv.storage[0]);
-        assert_eq!(f32_as_u32(v.y), vv.storage[1]);
-        assert_eq!(f32_as_u32(v.z), vv.storage[2]);
+        assert_eq!(v.x.to_bits(), vv.storage[0]);
+        assert_eq!(v.y.to_bits(), vv.storage[1]);
+        assert_eq!(v.z.to_bits(), vv.storage[2]);
         assert_eq!(0u32, vv.storage[3]);
 
         let v = Vec4::new(-3.2, 5., 64.5, -42.);
         let vv = VectorValue::new_vec4(v);
-        assert_eq!(f32_as_u32(v.x), vv.storage[0]);
-        assert_eq!(f32_as_u32(v.y), vv.storage[1]);
-        assert_eq!(f32_as_u32(v.z), vv.storage[2]);
-        assert_eq!(f32_as_u32(v.w), vv.storage[3]);
+        assert_eq!(v.x.to_bits(), vv.storage[0]);
+        assert_eq!(v.y.to_bits(), vv.storage[1]);
+        assert_eq!(v.z.to_bits(), vv.storage[2]);
+        assert_eq!(v.w.to_bits(), vv.storage[3]);
 
         let v = BVec2::new(false, true);
         let vv = VectorValue::new_bvec2(v);
