@@ -10,7 +10,10 @@ use bevy::{
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
-use bevy_hanabi::{node::Node, prelude::*};
+use bevy_hanabi::{
+    node::{Node, SlotDef},
+    prelude::*,
+};
 
 const MENU_BACKGROUND: Color = Color::rgb(0.1, 0.1, 0.1);
 const MENU_BORDERS: Color = Color::rgb(0.15, 0.15, 0.15);
@@ -22,6 +25,42 @@ const NODE_BACKGROUND_HOVERED: Color = Color::rgb(0.2, 0.2, 0.2);
 const NORMAL_BUTTON: Color = Color::NONE;
 const HOVERED_BUTTON: Color = Color::rgb(0.25, 0.25, 0.25);
 const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
+
+const SLOT_BACKGROUND: Color = Color::rgb(0.7, 0.2, 0.2);
+const SLOT_BACKGROUND_HOVERED: Color = Color::rgb(0.9, 0.4, 0.4);
+
+trait SlotEx {
+    fn background_color(&self) -> Color;
+    fn hover_color(&self) -> Color;
+}
+
+impl SlotEx for SlotDef {
+    fn background_color(&self) -> Color {
+        if let Some(value_type) = &self.value_type() {
+            match *value_type {
+                ValueType::Scalar(_) => Color::rgb(0.7, 0.2, 0.2),
+                ValueType::Vector(_) => Color::rgb(0.7, 0.7, 0.2),
+                ValueType::Matrix(_) => Color::rgb(0.7, 0.2, 0.7),
+                _ => Color::rgb(0.7, 0.7, 0.7),
+            }
+        } else {
+            Color::rgb(0.7, 0.7, 0.7)
+        }
+    }
+
+    fn hover_color(&self) -> Color {
+        if let Some(value_type) = &self.value_type() {
+            match *value_type {
+                ValueType::Scalar(_) => Color::rgb(0.9, 0.4, 0.4),
+                ValueType::Vector(_) => Color::rgb(0.9, 0.9, 0.4),
+                ValueType::Matrix(_) => Color::rgb(0.9, 0.4, 0.9),
+                _ => Color::rgb(0.9, 0.9, 0.9),
+            }
+        } else {
+            Color::rgb(0.9, 0.9, 0.9)
+        }
+    }
+}
 
 struct NodeEntry {
     pub node_name: String,
@@ -76,25 +115,6 @@ impl NodeRegistry {
 
 #[derive(Debug, Default, Component)]
 struct CreateNodeMenu;
-
-//#[derive(Event)]
-struct CreateNodeEvent {
-    pub node_name: String,
-    pub initial_pos: Vec2,
-}
-
-#[derive(Component)]
-struct CreateNodeButton {
-    pub node_name: String,
-}
-
-#[derive(Component)]
-struct NodeWidget;
-
-#[derive(Debug, Default, Component)]
-struct NodeWidgetTitle {
-    drag_pos: Option<Vec2>,
-}
 
 impl CreateNodeMenu {
     pub fn spawn(
@@ -188,6 +208,36 @@ impl CreateNodeMenu {
     }
 }
 
+//#[derive(Event)]
+struct CreateNodeEvent {
+    pub node_name: String,
+    pub initial_pos: Vec2,
+}
+
+#[derive(Component)]
+struct CreateNodeButton {
+    pub node_name: String,
+}
+
+#[derive(Component)]
+struct NodeWidget;
+
+#[derive(Debug, Default, Component)]
+struct NodeWidgetTitle {
+    drag_pos: Option<Vec2>,
+}
+
+#[derive(Debug, Component)]
+struct SlotUI {
+    def: SlotDef,
+}
+
+impl SlotUI {
+    pub fn def(&self) -> &SlotDef {
+        &self.def
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     App::default()
         .add_plugins(
@@ -216,8 +266,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_startup_system(setup)
         .add_system(input)
         .add_system(create_node_menu_entry)
-        .add_system(create_node)
+        .add_system(spawn_node_widget)
         .add_system(node_interaction)
+        .add_system(slot_interaction)
         .run();
 
     Ok(())
@@ -388,7 +439,7 @@ fn create_node_menu_entry(
     }
 }
 
-fn ui_node_position(
+fn calc_ui_node_position(
     node: &bevy::ui::Node,
     global_transform: &GlobalTransform,
     calculated_clip: Option<&CalculatedClip>,
@@ -436,8 +487,8 @@ fn node_interaction(
         let mut delta = None;
         match *interaction {
             Interaction::Clicked => {
-                let node_pos = ui_node_position(ui_node, global_transform, calculated_clip);
-                let cursor_pos = get_cursor_pos(q_window.single());
+                let node_pos = calc_ui_node_position(ui_node, global_transform, calculated_clip);
+                let cursor_pos = get_cursor_pos(primary_window);
                 if widget_title.drag_pos.is_none() {
                     // Start dragging
                     widget_title.drag_pos = Some(cursor_pos - node_pos);
@@ -481,7 +532,7 @@ fn node_interaction(
 
 const NODE_TITLE_BAR_HEIGHT: f32 = 30.;
 
-fn create_node(
+fn spawn_node_widget(
     node_registry: Res<NodeRegistry>,
     mut commands: Commands,
     mut ev_create_node: EventReader<CreateNodeEvent>,
@@ -601,10 +652,14 @@ fn create_node(
                                     size: Size::all(Val::Px(10.)),
                                     ..default()
                                 },
-                                background_color: Color::RED.into(),
+                                background_color: SLOT_BACKGROUND.into(),
                                 ..default()
                             },
                             Name::new(format!("slot:{}", slot_def.name())),
+                            Interaction::default(),
+                            SlotUI {
+                                def: slot_def.clone(),
+                            },
                         ));
 
                         let mut position = position;
@@ -635,6 +690,61 @@ fn create_node(
                         });
                     }
                 });
+        }
+    }
+}
+
+fn slot_interaction(
+    mut q_slot: Query<(
+        &bevy::ui::Node,
+        &Style,
+        &Interaction,
+        &mut BackgroundColor,
+        &GlobalTransform,
+        Option<&CalculatedClip>,
+        &SlotUI,
+    )>,
+    q_window: Query<&Window, With<PrimaryWindow>>,
+) {
+    let primary_window = q_window.single();
+
+    for (
+        ui_node,
+        style,
+        interaction,
+        mut background_color,
+        global_transform,
+        calculated_clip,
+        slot_ui,
+    ) in &mut q_slot
+    {
+        //let mut delta = None;
+        match *interaction {
+            Interaction::Clicked => {
+                // let node_pos = calc_ui_node_position(ui_node, global_transform, calculated_clip);
+                // let cursor_pos = get_cursor_pos(primary_window);
+                // if widget_title.drag_pos.is_none() {
+                //     // Start dragging
+                //     widget_title.drag_pos = Some(cursor_pos - node_pos);
+                // } else {
+                //     // Calculate delta since drag started
+                //     delta = Some(cursor_pos - node_pos - widget_title.drag_pos.unwrap());
+                // }
+            }
+            Interaction::Hovered => {
+                *background_color = slot_ui.def().hover_color().into();
+                // if widget_title.drag_pos.is_some() {
+                //     // End drag
+                //     widget_title.drag_pos = None;
+                // }
+            }
+            Interaction::None => {
+                *background_color = slot_ui.def().background_color().into();
+                // if widget_title.drag_pos.is_some() {
+                //     // End drag
+                //     widget_title.drag_pos = None;
+                // }
+            }
         }
     }
 }
