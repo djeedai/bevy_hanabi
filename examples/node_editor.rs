@@ -6,12 +6,13 @@ use bevy::{
     log::LogPlugin,
     prelude::*,
     ui::FocusPolicy,
+    utils::HashMap,
     window::{PresentMode, PrimaryWindow},
 };
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::{
-    node::{Node, SlotDef},
+    node::{Node, NodeId, SlotDef},
     prelude::*,
 };
 
@@ -28,6 +29,8 @@ const PRESSED_BUTTON: Color = Color::rgb(0.35, 0.75, 0.35);
 
 const SLOT_BACKGROUND: Color = Color::rgb(0.7, 0.2, 0.2);
 const SLOT_BACKGROUND_HOVERED: Color = Color::rgb(0.9, 0.4, 0.4);
+
+const LIST_ITEM_HEIGHT: f32 = 24.;
 
 trait SlotEx {
     fn background_color(&self) -> Color;
@@ -64,11 +67,11 @@ impl SlotEx for SlotDef {
 
 struct NodeEntry {
     pub node_name: String,
-    pub create: Box<dyn Fn() -> Box<dyn Node> + Send + Sync + 'static>,
+    pub create: Box<dyn Fn() -> Box<dyn Node + Send + Sync + 'static> + Send + Sync + 'static>,
 }
 
 impl NodeEntry {
-    pub fn new<N: Node + Default + 'static>(name: impl Into<String>) -> Self {
+    pub fn new<N: Node + Default + Send + Sync + 'static>(name: impl Into<String>) -> Self {
         Self {
             node_name: name.into(),
             create: Box::new(|| Box::new(N::default())),
@@ -88,7 +91,7 @@ impl Default for NodeRegistry {
             NodeEntry::new::<SubNode>("Subtract"),
             NodeEntry::new::<MulNode>("Multiply"),
             NodeEntry::new::<DivNode>("Divide"),
-            //NodeEntry::new::<PropertyNode>("Property"), // TODO
+            // NodeEntry::new::<PropertyNode>("Property"), // TODO
             NodeEntry::new::<AttributeNode>("Attribute"),
         ];
         Self { nodes }
@@ -96,7 +99,7 @@ impl Default for NodeRegistry {
 }
 
 impl NodeRegistry {
-    pub fn create(&self, node_name: &str) -> Option<Box<dyn Node>> {
+    pub fn create(&self, node_name: &str) -> Option<Box<dyn Node + Send + Sync + 'static>> {
         if let Some(entry) = self
             .nodes
             .iter()
@@ -119,7 +122,7 @@ struct CreateNodeMenu;
 impl CreateNodeMenu {
     pub fn spawn(
         commands: &mut Commands,
-        asset_server: Res<AssetServer>,
+        asset_server: &AssetServer,
         node_registry: &NodeRegistry,
     ) {
         let text_style = TextStyle {
@@ -208,8 +211,18 @@ impl CreateNodeMenu {
     }
 }
 
+/// Event sent to create a new node into the graph.
 //#[derive(Event)]
 struct CreateNodeEvent {
+    pub node_name: String,
+    pub initial_pos: Vec2,
+}
+
+/// Event sent in response to a new graph node created, to create the widget
+/// (UI) for that node.
+//#[derive(Event)]
+struct CreateNodeWidgetEvent {
+    pub node_id: NodeId,
     pub node_name: String,
     pub initial_pos: Vec2,
 }
@@ -238,6 +251,30 @@ impl SlotUI {
     }
 }
 
+#[derive(Debug, Default)]
+struct LinkSlot {
+    pos: Vec2,
+    value_type: Option<ValueType>,
+}
+
+#[derive(Debug, Default)]
+struct GraphLink {
+    start: LinkSlot,
+    end: LinkSlot,
+}
+
+#[derive(Debug, Default, Component)]
+struct GraphWidget {
+    graph: Option<Graph>,
+    links: HashMap<(NodeId, SlotId), GraphLink>,
+}
+
+#[derive(Debug, Default, Component)]
+struct GraphNodeList;
+
+#[derive(Debug, Default, Component)]
+struct GraphNodeListPlaceholder;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     App::default()
         .add_plugins(
@@ -259,6 +296,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init_resource::<NodeRegistry>()
         .add_event::<CreateNodeEvent>()
+        .add_event::<CreateNodeWidgetEvent>()
         .add_system(bevy::window::close_on_esc)
         .add_plugin(FrameTimeDiagnosticsPlugin)
         .add_plugin(HanabiPlugin)
@@ -269,6 +307,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_system(spawn_node_widget)
         .add_system(node_interaction)
         .add_system(slot_interaction)
+        .add_system(update_graph)
         .run();
 
     Ok(())
@@ -280,6 +319,7 @@ fn setup(
     mut commands: Commands,
     mut effects: ResMut<Assets<EffectAsset>>,
 ) {
+    // 3D camera
     commands.spawn((
         Camera3dBundle {
             transform: Transform::from_translation(Vec3::new(0., 0., 50.)),
@@ -365,7 +405,120 @@ fn setup(
         },
     ));
 
-    CreateNodeMenu::spawn(&mut commands, asset_server, &node_registry);
+    CreateNodeMenu::spawn(&mut commands, &asset_server, &node_registry);
+
+    let text_style = TextStyle {
+        font: asset_server.load("fonts/FiraSans-Regular.ttf"),
+        font_size: 14.,
+        color: Color::rgb(0.9, 0.9, 0.9),
+    };
+    let mut text_style_disable = text_style.clone();
+    text_style_disable.color = Color::rgb(0.4, 0.4, 0.4);
+
+    // Graph panel
+    commands
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    position_type: PositionType::Absolute,
+                    position: UiRect {
+                        right: Val::Px(10.),
+                        top: Val::Px(10.),
+                        ..default()
+                    },
+                    size: Size {
+                        width: Val::Px(0.), // looks like a bug, Auto will ignore max_size
+                        height: Val::Auto,
+                    },
+                    min_size: Size {
+                        width: Val::Px(200.),
+                        height: Val::Auto,
+                    },
+                    max_size: Size {
+                        width: Val::Px(270.),
+                        height: Val::Auto,
+                    },
+                    padding: UiRect::all(Val::Px(2.)),
+                    flex_direction: FlexDirection::Column,
+                    ..default()
+                },
+                background_color: NODE_BORDERS.into(),
+                z_index: ZIndex::Global(5000), // fairly above, yet below create menu
+                ..default()
+            },
+            Name::new("GraphWidget"),
+            GraphWidget::default(),
+        ))
+        .with_children(|p| {
+            // Header
+            p.spawn((
+                NodeBundle {
+                    style: Style {
+                        position_type: PositionType::Relative,
+                        size: Size {
+                            width: Val::Auto,
+                            height: Val::Px(NODE_TITLE_BAR_HEIGHT),
+                        },
+                        padding: UiRect::all(Val::Px(8.)),
+                        ..default()
+                    },
+                    background_color: NODE_BORDERS.into(),
+                    ..default()
+                },
+                Interaction::default(),
+                Name::new("Header"),
+            ))
+            .with_children(|p| {
+                p.spawn(TextBundle {
+                    text: Text::from_section("Effect Graph", text_style.clone()),
+                    ..default()
+                });
+            });
+
+            // Content
+            p.spawn((
+                NodeBundle {
+                    style: Style {
+                        position_type: PositionType::Relative,
+                        size: Size::AUTO,
+                        flex_direction: FlexDirection::Column,
+                        ..default()
+                    },
+                    background_color: NODE_BACKGROUND.into(),
+                    ..default()
+                },
+                GraphNodeList::default(),
+                Name::new("GraphNodeList"),
+            ))
+            .with_children(|p| {
+                // Node list; initially empty
+                p.spawn((
+                    NodeBundle {
+                        style: Style {
+                            position_type: PositionType::Relative,
+                            size: Size {
+                                width: Val::Auto,
+                                height: Val::Px(NODE_TITLE_BAR_HEIGHT),
+                            },
+                            padding: UiRect::all(Val::Px(8.)),
+                            ..default()
+                        },
+                        background_color: Color::NONE.into(),
+                        ..default()
+                    },
+                    GraphNodeListPlaceholder::default(),
+                ))
+                .with_children(|p| {
+                    p.spawn(TextBundle {
+                        text: Text::from_section(
+                            "Create a new node from the popup menu (SPACE / RMB).",
+                            text_style_disable.clone(),
+                        ),
+                        ..default()
+                    });
+                });
+            });
+        });
 }
 
 fn get_cursor_pos(window: &Window) -> Vec2 {
@@ -535,17 +688,17 @@ const NODE_TITLE_BAR_HEIGHT: f32 = 30.;
 fn spawn_node_widget(
     node_registry: Res<NodeRegistry>,
     mut commands: Commands,
-    mut ev_create_node: EventReader<CreateNodeEvent>,
+    mut ev_create_node: EventReader<CreateNodeWidgetEvent>,
     asset_server: Res<AssetServer>, // FIXME - load font once and for all
 ) {
+    let text_style = TextStyle {
+        font: asset_server.load("fonts/FiraSans-Regular.ttf"),
+        font_size: 14.,
+        color: Color::rgb(0.9, 0.9, 0.9),
+    };
+
     for ev in ev_create_node.iter() {
         if let Some(node) = node_registry.create(&ev.node_name) {
-            let text_style = TextStyle {
-                font: asset_server.load("fonts/FiraSans-Regular.ttf"),
-                font_size: 14.,
-                color: Color::rgb(0.9, 0.9, 0.9),
-            };
-
             // Compute node height based on number of input and output slots
             let mut hi = 0_f32;
             let mut ho = 0_f32;
@@ -718,18 +871,19 @@ fn slot_interaction(
         slot_ui,
     ) in &mut q_slot
     {
-        //let mut delta = None;
+        // let mut delta = None;
         match *interaction {
             Interaction::Clicked => {
-                // let node_pos = calc_ui_node_position(ui_node, global_transform, calculated_clip);
+                // let node_pos = calc_ui_node_position(ui_node,
+                // global_transform, calculated_clip);
                 // let cursor_pos = get_cursor_pos(primary_window);
                 // if widget_title.drag_pos.is_none() {
                 //     // Start dragging
                 //     widget_title.drag_pos = Some(cursor_pos - node_pos);
                 // } else {
                 //     // Calculate delta since drag started
-                //     delta = Some(cursor_pos - node_pos - widget_title.drag_pos.unwrap());
-                // }
+                //     delta = Some(cursor_pos - node_pos -
+                // widget_title.drag_pos.unwrap()); }
             }
             Interaction::Hovered => {
                 *background_color = slot_ui.def().hover_color().into();
@@ -746,5 +900,87 @@ fn slot_interaction(
                 // }
             }
         }
+    }
+}
+
+fn update_graph(
+    node_registry: Res<NodeRegistry>,
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    mut q_graph: Query<&mut GraphWidget>,
+    mut q_node_list: Query<Entity, With<GraphNodeList>>,
+    mut q_placeholder: Query<&mut Style, With<GraphNodeListPlaceholder>>,
+    mut ev_create_node: EventReader<CreateNodeEvent>,
+    mut ev_create_node_widget: EventWriter<CreateNodeWidgetEvent>,
+) {
+    // Avoid triggering change detection on graph if there's nothing to do
+    if ev_create_node.is_empty() {
+        return;
+    }
+
+    let text_style = TextStyle {
+        font: asset_server.load("fonts/FiraSans-Regular.ttf"),
+        font_size: 14.,
+        color: Color::rgb(0.9, 0.9, 0.9),
+    };
+
+    // Ensure the graph exists
+    let mut graph_widget = q_graph.single_mut();
+    if graph_widget.graph.is_none() {
+        graph_widget.graph = Some(Graph::new());
+    }
+    let Some(graph) = graph_widget.graph.as_mut() else { return; };
+
+    let list_root = q_node_list.single();
+
+    // Process all the create node events
+    for ev in &mut ev_create_node {
+        // Add the node to the graph.
+        let Some(node) = node_registry.create(&ev.node_name) else { continue; };
+        let node_id = graph.add_boxed_node(node);
+
+        // Update the graph panel
+        commands.entity(list_root).with_children(|p| {
+            p.spawn((
+                NodeBundle {
+                    style: Style {
+                        position_type: PositionType::Relative,
+                        size: Size {
+                            width: Val::Auto,
+                            height: Val::Px(LIST_ITEM_HEIGHT),
+                        },
+                        padding: UiRect {
+                            left: Val::Px(8.),
+                            right: Val::Px(8.),
+                            top: Val::Px(4.),
+                            bottom: Val::Px(4.),
+                        },
+                        ..default()
+                    },
+                    background_color: NODE_BACKGROUND.into(),
+                    ..default()
+                },
+                Name::new(format!("node#{:?}", node_id)),
+            ))
+            .with_children(|p| {
+                p.spawn(TextBundle {
+                    text: Text::from_section(ev.node_name.clone(), text_style.clone()),
+                    ..default()
+                });
+            });
+        });
+
+        // Hide the placeholder since the list is not empty
+        let mut style = q_placeholder.single_mut();
+        if style.display != Display::None {
+            style.display = Display::None;
+        }
+
+        // Create the UI for that node.
+        ev_create_node_widget.send(CreateNodeWidgetEvent {
+            node_id,
+            node_name: ev.node_name.clone(),
+            initial_pos: ev.initial_pos,
+        });
     }
 }

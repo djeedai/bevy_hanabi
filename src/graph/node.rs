@@ -247,7 +247,7 @@ impl Slot {
 /// [`Expr`]: crate::graph::Expr
 #[derive(Default)]
 pub struct Graph {
-    nodes: Vec<Box<dyn Node>>,
+    nodes: Vec<Box<dyn Node + Send + Sync + 'static>>,
     slots: Vec<Slot>,
 }
 
@@ -273,22 +273,44 @@ impl Graph {
 
     /// Add a node to the graph, without any link.
     ///
+    /// See also [`add_boxed_node()`] to add an already-[`Box`]ed node to the
+    /// graph. The current method is a convenience wrapper over
+    /// [`add_boxed_node()`].
+    ///
     /// # Example
     ///
     /// ```
     /// # use bevy_hanabi::*;
     /// let mut graph = Graph::new();
-    /// let time_node = graph.add_node(TimeNode::default());
+    /// let node_id = graph.add_node(TimeNode::default());
     /// ```
+    ///
+    /// [`add_boxed_node()`]: crate::graph::node::Graph::add_boxed_node
     #[inline]
     pub fn add_node<N>(&mut self, node: N) -> NodeId
     where
-        N: Node + 'static,
+        N: Node + Send + Sync + 'static,
     {
-        self.add_node_impl(Box::new(node))
+        self.add_boxed_node(Box::new(node))
     }
 
-    fn add_node_impl(&mut self, node: Box<dyn Node>) -> NodeId {
+    /// Add a node to the graph, without any link.
+    ///
+    /// This variant allows inserting an already-boxed node. For a more direct
+    /// use, consider [`add_node()`] too.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # fn create_some_node() -> Box<dyn Node + Send + Sync + 'static> { unimplemented!(); }
+    /// let mut graph = Graph::new();
+    /// let node: Box<_> = create_some_node();
+    /// let node_id = graph.add_boxed_node(node);
+    /// ```
+    ///
+    /// [`add_node()`]: crate::graph::node::Graph::add_node
+    pub fn add_boxed_node(&mut self, node: Box<dyn Node + Send + Sync + 'static>) -> NodeId {
         let index = self.nodes.len() as u32;
         let node_id = NodeId::new(NonZeroU32::new(index + 1).unwrap());
 
