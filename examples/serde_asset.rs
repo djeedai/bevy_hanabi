@@ -162,7 +162,7 @@ fn load_save_ui(
                 PATH
             ))
             .unwrap();
-            file.write(ron.as_bytes()).unwrap();
+            file.write_all(ron.as_bytes()).unwrap();
         }
     });
 }
