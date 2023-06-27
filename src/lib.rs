@@ -145,7 +145,7 @@ mod test_utils;
 
 use properties::{Property, PropertyInstance};
 
-pub use asset::{EffectAsset, MotionIntegration, SimulationCondition};
+pub use asset::{AssetHandle, EffectAsset, MotionIntegration, SimulationCondition};
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};

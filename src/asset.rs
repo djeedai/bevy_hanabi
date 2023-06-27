@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use bevy::{
-    asset::{AssetLoader, LoadContext, LoadedAsset},
+    asset::{Asset, AssetLoader, AssetPath, LoadContext, LoadedAsset},
+    prelude::*,
     reflect::{FromReflect, Reflect, TypeUuid},
     utils::{BoxedFuture, HashSet},
 };
@@ -8,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     graph::Value,
     modifier::{init::InitModifier, render::RenderModifier, update::UpdateModifier},
-    BoxedModifier, ParticleLayout, Property, PropertyLayout, SimulationSpace, Spawner,
+    BoxedModifier, ParticleLayout, ParticleTextureModifier, Property, PropertyLayout,
+    SimulationSpace, Spawner,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -254,14 +258,116 @@ impl AssetLoader for EffectAssetLoader {
         load_context: &'a mut LoadContext,
     ) -> BoxedFuture<'a, Result<(), anyhow::Error>> {
         Box::pin(async move {
-            let custom_asset = ron::de::from_bytes::<EffectAsset>(bytes)?;
-            load_context.set_default_asset(LoadedAsset::new(custom_asset));
+            let mut effect = ron::de::from_bytes::<EffectAsset>(bytes).map_err(|e| {
+                // Include path in error.
+                anyhow::anyhow!(format!("{}:{}", load_context.path().display(), e))
+            })?;
+
+            // Load particle textures as dependent assets.
+            let mut asset_paths = Vec::new();
+            for modifier in effect.modifiers.iter_mut() {
+                if let Some(ParticleTextureModifier {
+                    texture: AssetHandle { handle, asset_path },
+                }) = modifier
+                    .as_any_mut()
+                    .downcast_mut::<ParticleTextureModifier>()
+                {
+                    // Upgrade the path.
+                    *handle = load_context.get_handle(handle.clone());
+                    asset_paths.push((**asset_path).clone());
+                }
+            }
+
+            load_context.set_default_asset(LoadedAsset::new(effect).with_dependencies(asset_paths));
             Ok(())
         })
     }
 
     fn extensions(&self) -> &[&str] {
         &["effect"]
+    }
+}
+
+/// Stores a handle and its path. Derefs to Handle<T>. Serializes as an AssetPath.
+#[derive(Debug, Reflect, FromReflect)]
+#[reflect_value(Serialize, Deserialize)]
+pub struct AssetHandle<T: Asset> {
+    /// Handle to asset.
+    pub handle: Handle<T>,
+    /// Path to asset.
+    pub asset_path: Arc<AssetPath<'static>>,
+}
+
+impl<T: Asset> AssetHandle<T> {
+    /// Creates a new AssetHandle from a Handle and AssetPath.
+    pub fn new(handle: Handle<T>, asset_path: impl Into<AssetPath<'static>>) -> Self {
+        let asset_path = Arc::new(asset_path.into());
+        Self { handle, asset_path }
+    }
+}
+
+impl<T: Asset> Default for AssetHandle<T> {
+    fn default() -> Self {
+        Self {
+            handle: Default::default(),
+            asset_path: Arc::new("()".into()),
+        }
+    }
+}
+
+impl<T: Asset> Clone for AssetHandle<T> {
+    fn clone(&self) -> Self {
+        Self {
+            handle: self.handle.clone(),
+            asset_path: self.asset_path.clone(),
+        }
+    }
+}
+
+impl<T: Asset> PartialEq for AssetHandle<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.handle == other.handle
+    }
+}
+
+impl<T: Asset> std::ops::Deref for AssetHandle<T> {
+    type Target = Handle<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.handle
+    }
+}
+
+impl<T: Asset> From<Handle<T>> for AssetHandle<T> {
+    fn from(handle: Handle<T>) -> Self {
+        Self {
+            handle,
+            ..default()
+        }
+    }
+}
+
+impl<T: Asset> Serialize for AssetHandle<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.asset_path.serialize(serializer)
+    }
+}
+
+impl<'de, T: Asset> Deserialize<'de> for AssetHandle<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let asset_path = AssetPath::deserialize(deserializer)?;
+        let handle = Handle::<T>::weak(asset_path.get_id().into());
+
+        Ok(Self {
+            handle,
+            asset_path: Arc::new(asset_path),
+        })
     }
 }
 

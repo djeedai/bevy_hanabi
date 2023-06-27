@@ -87,7 +87,7 @@ fn setup(
             lifetime: 5_f32.into(),
         })
         .render(ParticleTextureModifier {
-            texture: texture_handle.clone(),
+            texture: texture_handle.clone().into(),
         })
         .render(ColorOverLifetimeModifier { gradient }),
     );

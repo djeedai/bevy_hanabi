@@ -86,7 +86,7 @@ fn setup(
             lifetime: 5_f32.into(),
         })
         .render(ParticleTextureModifier {
-            texture: texture_handle,
+            texture: texture_handle.into(),
         })
         .render(BillboardModifier {})
         .render(ColorOverLifetimeModifier { gradient })
