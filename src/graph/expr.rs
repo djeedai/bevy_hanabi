@@ -1301,6 +1301,27 @@ impl WriterExpr {
         self.unary_op(UnaryOperator::Any)
     }
 
+    /// Apply the "normalize" opertor to the current float vector expression.
+    ///
+    /// This is a unary operator, which applies to float vector operand expressions to
+    /// produce another float vector with unit length (normalized).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Normalize: `y = normalize(x);`
+    /// let y = x.normalized();
+    /// ```
+    pub fn normalized(self) -> Self {
+        self.unary_op(UnaryOperator::Normalize)
+    }
+
     fn binary_op(self, other: Self, op: BinaryOperator) -> Self {
         assert_eq!(self.module, other.module);
         let left = self.expr;
