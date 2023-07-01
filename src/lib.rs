@@ -68,11 +68,11 @@
 //!     // Create a new expression module
 //!     let mut module = Module::default();
 //!
-//!     // Create a lifetime modifier
-//!     let lifetime = module.lit(10.); // literal "10 sec" value
+//!     // Create a lifetime modifier: "particle.lifetime = 10.;"
+//!     let lifetime = module.lit(10.); // literal "10.0"
 //!     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 //!
-//!     // Create an acceleration modifier
+//!     // Create an acceleration modifier: "accel = vec3<f32>(0.0, -3.0. 0.0);"
 //!     let accel = module.lit(Vec3::new(0., -3., 0.));
 //!     let update_accel = AccelModifier::new(accel);
 //!
