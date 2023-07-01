@@ -1,4 +1,5 @@
 //! Example of using the circle spawner with random velocity.
+//!
 //! A sphere spawns dust in a circle.
 
 use bevy::{

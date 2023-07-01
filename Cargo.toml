@@ -58,6 +58,10 @@ name = "portal"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
+name = "expr"
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+
+[[example]]
 name = "spawn"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 

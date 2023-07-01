@@ -308,6 +308,18 @@ impl Module {
         self.unary(UnaryOperator::Normalize, inner)
     }
 
+    /// Build a `sin()` unary expression and append it to the module.
+    #[inline]
+    pub fn sin(&mut self, inner: ExprHandle) -> ExprHandle {
+        self.unary(UnaryOperator::Sin, inner)
+    }
+
+    /// Build a `cos()` unary expression and append it to the module.
+    #[inline]
+    pub fn cos(&mut self, inner: ExprHandle) -> ExprHandle {
+        self.unary(UnaryOperator::Cos, inner)
+    }
+
     /// Build a binary expression and append it to the module.
     ///
     /// The handles to the expressions representing the left and right operands
@@ -899,7 +911,6 @@ pub enum UnaryOperator {
 
     /// Logical ANY operator for bool vectors.
     ///
-    ///
     /// Return `true` if any component of the bool vector operand is `true`.
     /// Invalid for any other type of operand.
     Any,
@@ -909,6 +920,12 @@ pub enum UnaryOperator {
     /// Normalize the given numeric vector. Only valid for numeric vector
     /// operands.
     Normalize,
+
+    /// Cosine operator.
+    Cos,
+
+    /// Sine operator.
+    Sin,
 }
 
 impl ToWgslString for UnaryOperator {
@@ -918,6 +935,8 @@ impl ToWgslString for UnaryOperator {
             UnaryOperator::All => "all".to_string(),
             UnaryOperator::Any => "any".to_string(),
             UnaryOperator::Normalize => "normalize".to_string(),
+            UnaryOperator::Cos => "cos".to_string(),
+            UnaryOperator::Sin => "sin".to_string(),
         }
     }
 }
@@ -1173,6 +1192,33 @@ impl ExprWriter {
         self.push(Expr::Property(PropertyExpr::new(name)))
     }
 
+    /// Create a new writer expression representing the current simulation time.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut w = ExprWriter::new();
+    /// let x = w.time(); // x = sim_params.time;
+    /// ```
+    pub fn time(&self) -> WriterExpr {
+        self.push(Expr::BuiltIn(BuiltInExpr::new(BuiltInOperator::Time)))
+    }
+
+    /// Create a new writer expression representing the simulation delta time
+    /// since last frame.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut w = ExprWriter::new();
+    /// let x = w.delta_time(); // x = sim_params.delta_time;
+    /// ```
+    pub fn delta_time(&self) -> WriterExpr {
+        self.push(Expr::BuiltIn(BuiltInExpr::new(BuiltInOperator::DeltaTime)))
+    }
+
     /// Finish using the writer, and recover the [`Module`] where all [`Expr`]
     /// were written by the writer.
     ///
@@ -1313,7 +1359,7 @@ impl WriterExpr {
         self.unary_op(UnaryOperator::Any)
     }
 
-    /// Apply the "normalize" opertor to the current float vector expression.
+    /// Apply the "normalize" operator to the current float vector expression.
     ///
     /// This is a unary operator, which applies to float vector operand
     /// expressions to produce another float vector with unit length
@@ -1333,6 +1379,52 @@ impl WriterExpr {
     /// ```
     pub fn normalized(self) -> Self {
         self.unary_op(UnaryOperator::Normalize)
+    }
+
+    /// Apply the "sin" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Sin: `y = sin(x);`
+    /// let y = x.sin();
+    /// ```
+    pub fn sin(self) -> Self {
+        self.unary_op(UnaryOperator::Sin)
+    }
+
+    /// Apply the "cos" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Sin: `y = cos(x);`
+    /// let y = x.cos();
+    /// ```
+    pub fn cos(self) -> Self {
+        self.unary_op(UnaryOperator::Cos)
     }
 
     fn binary_op(self, other: Self, op: BinaryOperator) -> Self {
