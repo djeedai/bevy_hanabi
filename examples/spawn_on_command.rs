@@ -98,33 +98,34 @@ fn setup(
         .insert(Name::new("ball"));
 
     let spawner = Spawner::once(30.0.into(), false);
+
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    // Bind the initial particle color to the value of the 'my_color' property.
+    let color = writer.prop("my_color").expr();
+    let init_color = InitAttributeModifier::new(Attribute::COLOR, color);
+
     let effect = effects.add(
-        EffectAsset {
-            name: "Impact".into(),
-            capacity: 32768,
-            spawner,
-            ..Default::default()
-        }
-        .with_property("my_color", graph::Value::Uint(0xFFFFFFFF))
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: BALL_RADIUS,
-            dimension: ShapeDimension::Surface,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: 0.2.into(),
-        })
-        .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
-        })
-        .init(InitAttributeModifier {
-            attribute: Attribute::COLOR,
-            value: "my_color".into(),
-        })
-        .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec2::splat(0.05)),
-        }),
+        EffectAsset::new(32768, spawner, writer.finish())
+            .with_name("spawn_on_command")
+            .with_property("my_color", 0xFFFFFFFFu32.into())
+            .init(InitPositionSphereModifier {
+                center: Vec3::ZERO,
+                radius: BALL_RADIUS,
+                dimension: ShapeDimension::Surface,
+            })
+            .init(InitVelocitySphereModifier {
+                center: Vec3::ZERO,
+                speed: 0.2.into(),
+            })
+            .init(init_lifetime)
+            .init(init_color)
+            .render(SizeOverLifetimeModifier {
+                gradient: Gradient::linear(Vec2::splat(0.02), Vec2::splat(0.04)),
+            }),
     );
 
     commands

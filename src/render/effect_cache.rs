@@ -696,7 +696,11 @@ mod gpu_tests {
 
     use bevy::{asset::HandleId, math::Vec4};
 
-    use crate::{graph::Value, test_utils::MockRenderer, Attribute, AttributeInner};
+    use crate::{
+        graph::{Value, VectorValue},
+        test_utils::MockRenderer,
+        Attribute, AttributeInner,
+    };
 
     use super::*;
 
@@ -729,14 +733,22 @@ mod gpu_tests {
         assert!(slice2 > slice3);
     }
 
-    const F4A_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F4A"), Value::Float4(Vec4::ONE));
-    const F4B_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
-    const F4C_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F4C"), Value::Float4(Vec4::ONE));
-    const F4D_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F4D"), Value::Float4(Vec4::ONE));
+    const F4A_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4A"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
+    );
+    const F4B_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4B"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
+    );
+    const F4C_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4C"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
+    );
+    const F4D_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4D"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
+    );
 
     const F4A: Attribute = Attribute(F4A_INNER);
     const F4B: Attribute = Attribute(F4B_INNER);

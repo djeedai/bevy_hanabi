@@ -20,7 +20,7 @@
 // };
 
 struct SimParams {
-    dt: f32,
+    delta_time: f32,
     time: f32,
     num_effects: u32,
     render_stride: u32,

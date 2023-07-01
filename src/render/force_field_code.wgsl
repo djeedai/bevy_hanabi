@@ -66,18 +66,18 @@
     let conformed_field = (1.0 - not_conformed_to_sphere) * normalize(projected_on_sphere) * length((*particle).velocity);
 
     // Euler integration
-    //(*particle).velocity = ((*particle).velocity + (spawner.accel  + ff_acceleration) * sim_params.dt) * not_conformed_to_sphere + conformed_field;
-    (*particle).velocity += ff_acceleration * sim_params.dt;
+    //(*particle).velocity = ((*particle).velocity + (spawner.accel  + ff_acceleration) * sim_params.delta_time) * not_conformed_to_sphere + conformed_field;
+    (*particle).velocity += ff_acceleration * sim_params.delta_time;
     (*particle).velocity = (*particle).velocity * not_conformed_to_sphere + conformed_field; // TODO: lerp()
 
     // // let temp_vPos = (*particle).position;
-    // (*particle).position = (*particle).position + (*particle).velocity * sim_params.dt;
+    // (*particle).position = (*particle).position + (*particle).velocity * sim_params.delta_time;
     
     // project on the sphere if within conforming distance
     let pos_to_source = conforming_source - (*particle).position;
     let difference = length(pos_to_source) - conforming_radius;
     (*particle).position = (*particle).position  + difference * normalize(pos_to_source) * (1.0 - not_conformed_to_sphere);
 
-    // // // commented because of the potential bug where dt could be zero, although the simulation
+    // // // commented because of the potential bug where delta_time could be zero, although the simulation
     // // // works anyways, needs investigation
-    // // (*particle).velocity = ((*particle).position - temp_vPos) / sim_params.dt;
+    // // (*particle).velocity = ((*particle).position - temp_vPos) / sim_params.delta_time;

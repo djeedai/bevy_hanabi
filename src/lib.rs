@@ -59,64 +59,79 @@
 //! ```
 //! # use bevy::prelude::*;
 //! # use bevy_hanabi::prelude::*;
-//! fn create_asset(mut effects: ResMut<Assets<EffectAsset>>) {
-//!     // Define a color gradient from red to transparent black
-//!     let mut gradient = Gradient::new();
-//!     gradient.add_key(0.0, Vec4::new(1., 0., 0., 1.));
-//!     gradient.add_key(1.0, Vec4::splat(0.));
+//! fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
+//!   // Define a color gradient from red to transparent black
+//!   let mut gradient = Gradient::new();
+//!   gradient.add_key(0.0, Vec4::new(1., 0., 0., 1.));
+//!   gradient.add_key(1.0, Vec4::splat(0.));
 //!
-//!     // Create the effect asset
-//!     let effect = effects.add(EffectAsset {
-//!         name: "MyEffect".to_string(),
-//!         // Maximum number of particles alive at a time
-//!         capacity: 32768,
-//!         // Spawn at a rate of 5 particles per second
-//!         spawner: Spawner::rate(5.0.into()),
-//!         ..Default::default()
-//!     }
-//!     // On spawn, randomly initialize the position of the particle
-//!     // to be over the surface of a sphere of radius 2 units.
-//!     .init(InitPositionSphereModifier {
-//!         center: Vec3::ZERO,
-//!         radius: 2.,
-//!         dimension: ShapeDimension::Surface,
-//!     })
-//!     // Also initialize a radial initial velocity to 6 units/sec
-//!     // away from the (same) sphere center.
-//!     .init(InitVelocitySphereModifier {
-//!         center: Vec3::ZERO,
-//!         speed: 6.0.into(),
-//!     })
-//!     // Also initialize the total lifetime of the particle, that is
-//!     // the time for which it's simulated and rendered. This modifier
-//!     // is mandatory, otherwise the particles won't show up.
-//!     .init(InitLifetimeModifier { lifetime: 10_f32.into() })
-//!     // Every frame, add a gravity-like acceleration downward
-//!     .update(AccelModifier::constant(Vec3::new(0., -3., 0.)))
-//!     // Render the particles with a color gradient over their
-//!     // lifetime. This maps the gradient key 0 to the particle spawn
-//!     // time, and the gradient key 1 to the particle death (here, 10s).
-//!     .render(ColorOverLifetimeModifier { gradient })
-//!     );
+//!   // Create a new expression module
+//!   let mut module = Module::default();
 //!
-//!     // [...]
+//!   // Create a lifetime modifier
+//!   let lifetime = module.lit(10.); // literal value "10.0"
+//!   let init_lifetime = InitAttributeModifier::new(
+//!       Attribute::LIFETIME, lifetime);
+//!
+//!   // Create an acceleration modifier
+//!   let accel = module.lit(Vec3::new(0., -3., 0.));
+//!   let update_accel = AccelModifier::new(accel);
+//!
+//!   // Create the effect asset
+//!   let effect = EffectAsset::new(
+//!     // Maximum number of particles alive at a time
+//!     32768,
+//!     // Spawn at a rate of 5 particles per second
+//!     Spawner::rate(5.0.into()),
+//!     // Move the expression module into the asset
+//!     module
+//!   )
+//!   .with_name("MyEffect")
+//!   // On spawn, randomly initialize the position of the particle
+//!   // to be over the surface of a sphere of radius 2 units.
+//!   .init(InitPositionSphereModifier {
+//!       center: Vec3::ZERO,
+//!       radius: 2.,
+//!       dimension: ShapeDimension::Surface,
+//!   })
+//!   // Also initialize a radial initial velocity to 6 units/sec
+//!   // away from the (same) sphere center.
+//!   .init(InitVelocitySphereModifier {
+//!       center: Vec3::ZERO,
+//!       speed: 6.0.into(),
+//!   })
+//!   // Also initialize the total lifetime of the particle, that is
+//!   // the time for which it's simulated and rendered. This modifier
+//!   // is almost always required, otherwise the particles won't show.
+//!   .init(init_lifetime)
+//!   // Every frame, add a gravity-like acceleration downward
+//!   .update(update_accel)
+//!   // Render the particles with a color gradient over their
+//!   // lifetime. This maps the gradient key 0 to the particle spawn
+//!   // time, and the gradient key 1 to the particle death (10s).
+//!   .render(ColorOverLifetimeModifier { gradient });
+//!
+//!   // Insert into the asset system
+//!   let effect_handle = effects.add(effect);
 //! }
 //! ```
 //!
 //! Then add an instance of that effect to an entity by spawning a
-//! [`ParticleEffect`] component referencing the asset:
+//! [`ParticleEffect`] component referencing the asset. The simplest way is
+//! to use the [`ParticleEffectBundle`] to ensure all required components are
+//! spawned together.
 //!
 //! ```
 //! # use bevy::{prelude::*, asset::HandleId};
 //! # use bevy_hanabi::prelude::*;
 //! # fn spawn_effect(mut commands: Commands) {
-//! #   let effect = Handle::weak(HandleId::random::<EffectAsset>());
+//! #   let effect_handle = Handle::weak(HandleId::random::<EffectAsset>());
 //! commands
 //!     .spawn((
 //!         Name::new("MyEffectInstance"),
 //!         ParticleEffectBundle {
-//!             effect: ParticleEffect::new(effect),
-//!             transform: Transform::from_translation(Vec3::new(0., 1., 0.)),
+//!             effect: ParticleEffect::new(effect_handle),
+//!             transform: Transform::from_translation(Vec3::Y),
 //!             ..Default::default()
 //!         },
 //!     ));
@@ -143,15 +158,16 @@ mod spawn;
 #[cfg(test)]
 mod test_utils;
 
-use properties::{Property, PropertyInstance};
+use properties::PropertyInstance;
 
 pub use asset::{EffectAsset, MotionIntegration, SimulationCondition};
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
+pub use graph::*;
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
-pub use properties::PropertyLayout;
+pub use properties::{Property, PropertyLayout};
 pub use render::{EffectSystems, ShaderCache};
 pub use spawn::{tick_spawners, DimValue, EffectSpawner, Random, Spawner, Value};
 
@@ -220,7 +236,7 @@ impl ToWgslString for f64 {
 impl ToWgslString for Vec2 {
     fn to_wgsl_string(&self) -> String {
         format!(
-            "vec2<f32>({0}, {1})",
+            "vec2<f32>({0},{1})",
             self.x.to_wgsl_string(),
             self.y.to_wgsl_string()
         )
@@ -230,7 +246,7 @@ impl ToWgslString for Vec2 {
 impl ToWgslString for Vec3 {
     fn to_wgsl_string(&self) -> String {
         format!(
-            "vec3<f32>({0}, {1}, {2})",
+            "vec3<f32>({0},{1},{2})",
             self.x.to_wgsl_string(),
             self.y.to_wgsl_string(),
             self.z.to_wgsl_string()
@@ -241,12 +257,28 @@ impl ToWgslString for Vec3 {
 impl ToWgslString for Vec4 {
     fn to_wgsl_string(&self) -> String {
         format!(
-            "vec4<f32>({0}, {1}, {2}, {3})",
+            "vec4<f32>({0},{1},{2},{3})",
             self.x.to_wgsl_string(),
             self.y.to_wgsl_string(),
             self.z.to_wgsl_string(),
             self.w.to_wgsl_string()
         )
+    }
+}
+
+impl ToWgslString for bool {
+    fn to_wgsl_string(&self) -> String {
+        if *self {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        }
+    }
+}
+
+impl ToWgslString for i32 {
+    fn to_wgsl_string(&self) -> String {
+        format!("{}", self)
     }
 }
 
@@ -599,7 +631,7 @@ impl CompiledParticleEffect {
             // (which are the source of truth) and trying to map a value set by the user,
             // falling back to the property's default value if not found.
             self.properties = asset
-                .properties
+                .properties()
                 .iter()
                 .map(|def| PropertyInstance {
                     def: def.clone(),
@@ -719,25 +751,44 @@ impl CompiledParticleEffect {
             "@group(1) @binding(2) var<storage, read> properties : Properties;".to_string()
         };
 
+        // Start from the base module containing the expressions actually serialized in
+        // the asset. We will add the ones created on-the-fly by applying the
+        // modifiers to the contexts.
+        let mut module = asset.module().clone();
+
         // Generate the shader code for the initializing shader
-        let mut init_context = InitContext::default();
-        for m in asset.modifiers.iter().filter_map(|m| m.as_init()) {
-            m.apply(&mut init_context);
-        }
+        let (init_code, init_extra) = {
+            let mut init_context = InitContext::new(&mut module, &property_layout);
+            for m in asset.init_modifiers() {
+                if let Err(err) = m.apply(&mut init_context) {
+                    error!("Failed to compile effect, error in init context: {:?}", err);
+                }
+            }
+            (init_context.init_code, init_context.init_extra)
+        };
         // Warn in debug if the shader doesn't initialize the particle lifetime
         #[cfg(debug_assertions)]
-        if !init_context
-            .init_code
-            .contains(&format!("particle.{}", Attribute::LIFETIME.name()))
-        {
-            warn!("Effect '{}' does not initialize the particle lifetime; particles will have a default lifetime of zero, and will immediately die after spawning. Add an InitLifetimeModifier to initialize the lifetime to a non-zero value.", asset.name);
+        if !init_code.contains(&format!("particle.{}", Attribute::LIFETIME.name())) {
+            warn!("Effect '{}' does not initialize the particle lifetime; particles will have a default lifetime of zero, and will immediately die after spawning.", asset.name);
         }
 
         // Generate the shader code for the update shader
-        let mut update_context = UpdateContext::default();
-        for m in asset.modifiers.iter().filter_map(|m| m.as_update()) {
-            m.apply(&mut update_context);
-        }
+        let (mut update_code, update_extra, force_field) = {
+            let mut update_context = UpdateContext::new(&mut module, &property_layout);
+            for m in asset.update_modifiers() {
+                if let Err(err) = m.apply(&mut update_context) {
+                    error!(
+                        "Failed to compile effect, error in udpate context: {:?}",
+                        err
+                    );
+                }
+            }
+            (
+                update_context.update_code,
+                update_context.update_extra,
+                update_context.force_field,
+            )
+        };
 
         // Insert Euler motion integration if needed.
         let has_position = present_attributes.contains(&Attribute::POSITION);
@@ -746,14 +797,14 @@ impl CompiledParticleEffect {
             if has_position && has_velocity {
                 // Note the prepended "\n" to prevent appending to a comment line.
                 let code = format!(
-                    "\nparticle.{0} += particle.{1} * sim_params.dt;\n",
+                    "\nparticle.{0} += particle.{1} * sim_params.delta_time;\n",
                     Attribute::POSITION.name(),
                     Attribute::VELOCITY.name()
                 );
                 if asset.motion_integration == MotionIntegration::PreUpdate {
-                    update_context.update_code.insert_str(0, &code);
+                    update_code.insert_str(0, &code);
                 } else {
-                    update_context.update_code += &code;
+                    update_code += &code;
                 }
             } else {
                 warn!(
@@ -770,7 +821,7 @@ impl CompiledParticleEffect {
 
         // Generate the shader code for the render shader
         let mut render_context = RenderContext::default();
-        for m in asset.modifiers.iter().filter_map(|m| m.as_render()) {
+        for m in asset.render_modifiers() {
             m.apply(&mut render_context);
         }
 
@@ -791,7 +842,7 @@ impl CompiledParticleEffect {
         };
         let age_code = if has_age {
             format!(
-                "particle.{0} = particle.{0} + sim_params.dt;",
+                "particle.{0} = particle.{0} + sim_params.delta_time;",
                 Attribute::AGE.name()
             )
         } else {
@@ -814,8 +865,8 @@ impl CompiledParticleEffect {
         // asset exists
         let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
             .replace("{{ATTRIBUTES}}", &attributes_code)
-            .replace("{{INIT_CODE}}", &init_context.init_code)
-            .replace("{{INIT_EXTRA}}", &init_context.init_extra)
+            .replace("{{INIT_CODE}}", &init_code)
+            .replace("{{INIT_EXTRA}}", &init_extra)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
         let init_shader = shader_cache.get_or_insert(&init_shader_source, shaders);
@@ -827,8 +878,8 @@ impl CompiledParticleEffect {
             .replace("{{ATTRIBUTES}}", &attributes_code)
             .replace("{{AGE_CODE}}", &age_code)
             .replace("{{REAP_CODE}}", &reap_code)
-            .replace("{{UPDATE_CODE}}", &update_context.update_code)
-            .replace("{{UPDATE_EXTRA}}", &update_context.update_extra)
+            .replace("{{UPDATE_CODE}}", &update_code)
+            .replace("{{UPDATE_EXTRA}}", &update_extra)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
         let update_shader = shader_cache.get_or_insert(&update_shader_source, shaders);
@@ -868,7 +919,7 @@ impl CompiledParticleEffect {
         self.configured_update_shader = Some(update_shader);
         self.configured_render_shader = Some(render_shader);
 
-        self.force_field = update_context.force_field;
+        self.force_field = force_field;
         self.particle_texture = render_context.particle_texture.clone();
     }
 
@@ -1203,11 +1254,11 @@ mod tests {
     #[test]
     fn to_wgsl_vec() {
         let s = Vec2::new(1., 2.).to_wgsl_string();
-        assert_eq!(s, "vec2<f32>(1., 2.)");
+        assert_eq!(s, "vec2<f32>(1.,2.)");
         let s = Vec3::new(1., 2., -1.).to_wgsl_string();
-        assert_eq!(s, "vec3<f32>(1., 2., -1.)");
+        assert_eq!(s, "vec3<f32>(1.,2.,-1.)");
         let s = Vec4::new(1., 2., -1., 2.).to_wgsl_string();
-        assert_eq!(s, "vec4<f32>(1., 2., -1., 2.)");
+        assert_eq!(s, "vec4<f32>(1.,2.,-1.,2.)");
     }
 
     #[test]
@@ -1221,31 +1272,31 @@ mod tests {
     #[test]
     fn to_wgsl_value_vec2() {
         let s = Value::Single(Vec2::ONE).to_wgsl_string();
-        assert_eq!(s, "vec2<f32>(1., 1.)");
+        assert_eq!(s, "vec2<f32>(1.,1.)");
         let s = Value::Uniform((Vec2::ZERO, Vec2::ONE)).to_wgsl_string();
         assert_eq!(
             s,
-            "(rand2() * (vec2<f32>(1., 1.) - vec2<f32>(0., 0.)) + vec2<f32>(0., 0.))"
+            "(rand2() * (vec2<f32>(1.,1.) - vec2<f32>(0.,0.)) + vec2<f32>(0.,0.))"
         );
     }
 
     #[test]
     fn to_wgsl_value_vec3() {
         let s = Value::Single(Vec3::ONE).to_wgsl_string();
-        assert_eq!(s, "vec3<f32>(1., 1., 1.)");
+        assert_eq!(s, "vec3<f32>(1.,1.,1.)");
         let s = Value::Uniform((Vec3::ZERO, Vec3::ONE)).to_wgsl_string();
         assert_eq!(
             s,
-            "(rand3() * (vec3<f32>(1., 1., 1.) - vec3<f32>(0., 0., 0.)) + vec3<f32>(0., 0., 0.))"
+            "(rand3() * (vec3<f32>(1.,1.,1.) - vec3<f32>(0.,0.,0.)) + vec3<f32>(0.,0.,0.))"
         );
     }
 
     #[test]
     fn to_wgsl_value_vec4() {
         let s = Value::Single(Vec4::ONE).to_wgsl_string();
-        assert_eq!(s, "vec4<f32>(1., 1., 1., 1.)");
+        assert_eq!(s, "vec4<f32>(1.,1.,1.,1.)");
         let s = Value::Uniform((Vec4::ZERO, Vec4::ONE)).to_wgsl_string();
-        assert_eq!(s, "(rand4() * (vec4<f32>(1., 1., 1., 1.) - vec4<f32>(0., 0., 0., 0.)) + vec4<f32>(0., 0., 0., 0.))");
+        assert_eq!(s, "(rand4() * (vec4<f32>(1.,1.,1.,1.) - vec4<f32>(0.,0.,0.,0.)) + vec4<f32>(0.,0.,0.,0.))");
     }
 
     #[test]
@@ -1255,7 +1306,7 @@ mod tests {
 
         grad.add_key(0.0, Vec4::splat(0.0));
         assert_eq!(
-            "// Gradient\nlet t0 = 0.;\nlet c0 = vec4<f32>(0., 0., 0., 0.);\nreturn c0;\n",
+            "// Gradient\nlet t0 = 0.;\nlet c0 = vec4<f32>(0.,0.,0.,0.);\nreturn c0;\n",
             grad.to_shader_code("key")
         );
 
@@ -1263,9 +1314,9 @@ mod tests {
         assert_eq!(
             r#"// Gradient
 let t0 = 0.;
-let c0 = vec4<f32>(0., 0., 0., 0.);
+let c0 = vec4<f32>(0.,0.,0.,0.);
 let t1 = 1.;
-let c1 = vec4<f32>(1., 0., 0., 1.);
+let c1 = vec4<f32>(1.,0.,0.,1.);
 if (key <= t0) { return c0; }
 else if (key <= t1) { return mix(c0, c1, (key - t0) / (t1 - t0)); }
 else { return c1; }
@@ -1325,16 +1376,13 @@ else { return c1; }
 
                 // Add effect asset
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
-                let handle = assets.add(EffectAsset {
-                    capacity: 64,
-                    spawner,
-                    simulation_condition: if test_case.visibility.is_some() {
-                        SimulationCondition::WhenVisible
-                    } else {
-                        SimulationCondition::Always
-                    },
-                    ..default()
-                });
+                let mut asset = EffectAsset::new(64, spawner, Module::default());
+                asset.simulation_condition = if test_case.visibility.is_some() {
+                    SimulationCondition::WhenVisible
+                } else {
+                    SimulationCondition::Always
+                };
+                let handle = assets.add(asset);
 
                 // Spawn particle effect
                 let entity = if let Some(visibility) = test_case.visibility {

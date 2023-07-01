@@ -87,24 +87,27 @@ fn setup(
     gradient.add_key(0.75, Vec4::new(0.0, 1.0, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(1.0, 1.0, 1.0, 1.0));
 
-    let mut asset = EffectAsset {
-        capacity: 4096,
-        spawner: Spawner::burst(50.0.into(), 15.0.into()),
-        simulation_condition: SimulationCondition::WhenVisible,
-        ..Default::default()
-    }
+    let writer = ExprWriter::new();
+
+    let velocity = writer.lit(Vec3::X * 3.).expr();
+    let init_velocity = InitAttributeModifier::new(Attribute::VELOCITY, velocity);
+
+    let lifetime = writer.lit(15.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let mut asset = EffectAsset::new(
+        4096,
+        Spawner::burst(50.0.into(), 15.0.into()),
+        writer.finish(),
+    )
+    .with_simulation_condition(SimulationCondition::WhenVisible)
     .init(InitPositionSphereModifier {
         center: Vec3::ZERO,
         radius: 5.,
         dimension: ShapeDimension::Volume,
     })
-    .init(InitAttributeModifier {
-        attribute: Attribute::VELOCITY,
-        value: ValueOrProperty::Value((Vec3::X * 3.).into()),
-    })
-    .init(InitLifetimeModifier {
-        lifetime: 15_f32.into(),
-    })
+    .init(init_velocity)
+    .init(init_lifetime)
     //.update(AccelModifier::constant(Vec3::new(0., 2., 0.)))
     .render(ColorOverLifetimeModifier { gradient });
     let effect1 = effects.add(asset.clone());
