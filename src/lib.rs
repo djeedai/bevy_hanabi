@@ -59,77 +59,79 @@
 //! ```
 //! # use bevy::prelude::*;
 //! # use bevy_hanabi::prelude::*;
-//! fn create_asset(mut effects: ResMut<Assets<EffectAsset>>) {
-//!     // Define a color gradient from red to transparent black
-//!     let mut gradient = Gradient::new();
-//!     gradient.add_key(0.0, Vec4::new(1., 0., 0., 1.));
-//!     gradient.add_key(1.0, Vec4::splat(0.));
+//! fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
+//!   // Define a color gradient from red to transparent black
+//!   let mut gradient = Gradient::new();
+//!   gradient.add_key(0.0, Vec4::new(1., 0., 0., 1.));
+//!   gradient.add_key(1.0, Vec4::splat(0.));
 //!
-//!     // Create a new expression module
-//!     let mut module = Module::default();
+//!   // Create a new expression module
+//!   let mut module = Module::default();
 //!
-//!     // Create a lifetime modifier: "particle.lifetime = 10.;"
-//!     let lifetime = module.lit(10.); // literal "10.0"
-//!     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+//!   // Create a lifetime modifier
+//!   let lifetime = module.lit(10.); // literal value "10.0"
+//!   let init_lifetime = InitAttributeModifier::new(
+//!       Attribute::LIFETIME, lifetime);
 //!
-//!     // Create an acceleration modifier: "accel = vec3<f32>(0.0, -3.0. 0.0);"
-//!     let accel = module.lit(Vec3::new(0., -3., 0.));
-//!     let update_accel = AccelModifier::new(accel);
+//!   // Create an acceleration modifier
+//!   let accel = module.lit(Vec3::new(0., -3., 0.));
+//!   let update_accel = AccelModifier::new(accel);
 //!
-//!     // Create the effect asset
-//!     let effect = effects.add(EffectAsset {
-//!         name: "MyEffect".to_string(),
-//!         // Maximum number of particles alive at a time
-//!         capacity: 32768,
-//!         // Spawn at a rate of 5 particles per second
-//!         spawner: Spawner::rate(5.0.into()),
-//!         // Move the expression module into the asset
-//!         module,
-//!         ..Default::default()
-//!     }
-//!     // On spawn, randomly initialize the position of the particle
-//!     // to be over the surface of a sphere of radius 2 units.
-//!     .init(InitPositionSphereModifier {
-//!         center: Vec3::ZERO,
-//!         radius: 2.,
-//!         dimension: ShapeDimension::Surface,
-//!     })
-//!     // Also initialize a radial initial velocity to 6 units/sec
-//!     // away from the (same) sphere center.
-//!     .init(InitVelocitySphereModifier {
-//!         center: Vec3::ZERO,
-//!         speed: 6.0.into(),
-//!     })
-//!     // Also initialize the total lifetime of the particle, that is
-//!     // the time for which it's simulated and rendered. This modifier
-//!     // is almost always required, otherwise the particles won't show up.
-//!     .init(init_lifetime)
-//!     // Every frame, add a gravity-like acceleration downward
-//!     .update(update_accel)
-//!     // Render the particles with a color gradient over their
-//!     // lifetime. This maps the gradient key 0 to the particle spawn
-//!     // time, and the gradient key 1 to the particle death (here, 10s).
-//!     .render(ColorOverLifetimeModifier { gradient })
-//!     );
+//!   // Create the effect asset
+//!   let effect = EffectAsset::new(
+//!     // Maximum number of particles alive at a time
+//!     32768,
+//!     // Spawn at a rate of 5 particles per second
+//!     Spawner::rate(5.0.into()),
+//!     // Move the expression module into the asset
+//!     module
+//!   )
+//!   .with_name("MyEffect")
+//!   // On spawn, randomly initialize the position of the particle
+//!   // to be over the surface of a sphere of radius 2 units.
+//!   .init(InitPositionSphereModifier {
+//!       center: Vec3::ZERO,
+//!       radius: 2.,
+//!       dimension: ShapeDimension::Surface,
+//!   })
+//!   // Also initialize a radial initial velocity to 6 units/sec
+//!   // away from the (same) sphere center.
+//!   .init(InitVelocitySphereModifier {
+//!       center: Vec3::ZERO,
+//!       speed: 6.0.into(),
+//!   })
+//!   // Also initialize the total lifetime of the particle, that is
+//!   // the time for which it's simulated and rendered. This modifier
+//!   // is almost always required, otherwise the particles won't show.
+//!   .init(init_lifetime)
+//!   // Every frame, add a gravity-like acceleration downward
+//!   .update(update_accel)
+//!   // Render the particles with a color gradient over their
+//!   // lifetime. This maps the gradient key 0 to the particle spawn
+//!   // time, and the gradient key 1 to the particle death (10s).
+//!   .render(ColorOverLifetimeModifier { gradient });
 //!
-//!     // [...]
+//!   // Insert into the asset system
+//!   let effect_handle = effects.add(effect);
 //! }
 //! ```
 //!
 //! Then add an instance of that effect to an entity by spawning a
-//! [`ParticleEffect`] component referencing the asset:
+//! [`ParticleEffect`] component referencing the asset. The simplest way is
+//! to use the [`ParticleEffectBundle`] to ensure all required components are
+//! spawned together.
 //!
 //! ```
 //! # use bevy::{prelude::*, asset::HandleId};
 //! # use bevy_hanabi::prelude::*;
 //! # fn spawn_effect(mut commands: Commands) {
-//! #   let effect = Handle::weak(HandleId::random::<EffectAsset>());
+//! #   let effect_handle = Handle::weak(HandleId::random::<EffectAsset>());
 //! commands
 //!     .spawn((
 //!         Name::new("MyEffectInstance"),
 //!         ParticleEffectBundle {
-//!             effect: ParticleEffect::new(effect),
-//!             transform: Transform::from_translation(Vec3::new(0., 1., 0.)),
+//!             effect: ParticleEffect::new(effect_handle),
+//!             transform: Transform::from_translation(Vec3::Y),
 //!             ..Default::default()
 //!         },
 //!     ));
@@ -629,7 +631,7 @@ impl CompiledParticleEffect {
             // (which are the source of truth) and trying to map a value set by the user,
             // falling back to the property's default value if not found.
             self.properties = asset
-                .properties
+                .properties()
                 .iter()
                 .map(|def| PropertyInstance {
                     def: def.clone(),
@@ -752,12 +754,12 @@ impl CompiledParticleEffect {
         // Start from the base module containing the expressions actually serialized in
         // the asset. We will add the ones created on-the-fly by applying the
         // modifiers to the contexts.
-        let mut module = asset.module.clone();
+        let mut module = asset.module().clone();
 
         // Generate the shader code for the initializing shader
         let (init_code, init_extra) = {
             let mut init_context = InitContext::new(&mut module, &property_layout);
-            for m in asset.modifiers.iter().filter_map(|m| m.as_init()) {
+            for m in asset.init_modifiers() {
                 if let Err(err) = m.apply(&mut init_context) {
                     error!("Failed to compile effect, error in init context: {:?}", err);
                 }
@@ -773,7 +775,7 @@ impl CompiledParticleEffect {
         // Generate the shader code for the update shader
         let (mut update_code, update_extra, force_field) = {
             let mut update_context = UpdateContext::new(&mut module, &property_layout);
-            for m in asset.modifiers.iter().filter_map(|m| m.as_update()) {
+            for m in asset.update_modifiers() {
                 if let Err(err) = m.apply(&mut update_context) {
                     error!(
                         "Failed to compile effect, error in udpate context: {:?}",
@@ -819,7 +821,7 @@ impl CompiledParticleEffect {
 
         // Generate the shader code for the render shader
         let mut render_context = RenderContext::default();
-        for m in asset.modifiers.iter().filter_map(|m| m.as_render()) {
+        for m in asset.render_modifiers() {
             m.apply(&mut render_context);
         }
 
@@ -1374,16 +1376,13 @@ else { return c1; }
 
                 // Add effect asset
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
-                let handle = assets.add(EffectAsset {
-                    capacity: 64,
-                    spawner,
-                    simulation_condition: if test_case.visibility.is_some() {
-                        SimulationCondition::WhenVisible
-                    } else {
-                        SimulationCondition::Always
-                    },
-                    ..default()
-                });
+                let mut asset = EffectAsset::new(64, spawner, Module::default());
+                asset.simulation_condition = if test_case.visibility.is_some() {
+                    SimulationCondition::WhenVisible
+                } else {
+                    SimulationCondition::Always
+                };
+                let handle = assets.add(asset);
 
                 // Spawn particle effect
                 let entity = if let Some(visibility) = test_case.visibility {

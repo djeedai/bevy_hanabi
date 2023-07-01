@@ -101,33 +101,28 @@ fn setup(
     let update_accel1 = AccelModifier::new(accel1);
 
     let effect1 = effects.add(
-        EffectAsset {
-            name: "emit:rate".to_string(),
-            capacity: 32768,
-            spawner: Spawner::rate(500.0.into()),
-            module: writer1.finish(),
-            ..Default::default()
-        }
-        .with_property("my_accel", Vec3::new(0., -3., 0.).into())
-        .init(InitPositionCone3dModifier {
-            base_radius: 0.,
-            top_radius: 10.,
-            height: 20.,
-            dimension: ShapeDimension::Volume,
-        })
-        // Make spawned particles move away from the emitter origin
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: 10.0.into(),
-        })
-        .init(init_lifetime1)
-        .update(update_accel1)
-        .render(ColorOverLifetimeModifier {
-            gradient: color_gradient1,
-        })
-        .render(SizeOverLifetimeModifier {
-            gradient: size_gradient1,
-        }),
+        EffectAsset::new(32768, Spawner::rate(500.0.into()), writer1.finish())
+            .with_name("emit:rate")
+            .with_property("my_accel", Vec3::new(0., -3., 0.).into())
+            .init(InitPositionCone3dModifier {
+                base_radius: 0.,
+                top_radius: 10.,
+                height: 20.,
+                dimension: ShapeDimension::Volume,
+            })
+            // Make spawned particles move away from the emitter origin
+            .init(InitVelocitySphereModifier {
+                center: Vec3::ZERO,
+                speed: 10.0.into(),
+            })
+            .init(init_lifetime1)
+            .update(update_accel1)
+            .render(ColorOverLifetimeModifier {
+                gradient: color_gradient1,
+            })
+            .render(SizeOverLifetimeModifier {
+                gradient: size_gradient1,
+            }),
     );
 
     commands
@@ -160,26 +155,21 @@ fn setup(
     let lifetime2 = writer2.lit(5.).expr();
     let init_lifetime2 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime2);
     let effect2 = effects.add(
-        EffectAsset {
-            name: "emit:once".to_string(),
-            capacity: 32768,
-            spawner: Spawner::once(1000.0.into(), true),
-            module: writer2.finish(),
-            ..Default::default()
-        }
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 5.,
-            dimension: ShapeDimension::Volume,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: 2.0.into(),
-        })
-        .init(init_lifetime2)
-        .render(ColorOverLifetimeModifier {
-            gradient: gradient2,
-        }),
+        EffectAsset::new(32768, Spawner::once(1000.0.into(), true), writer2.finish())
+            .with_name("emit:once")
+            .init(InitPositionSphereModifier {
+                center: Vec3::ZERO,
+                radius: 5.,
+                dimension: ShapeDimension::Volume,
+            })
+            .init(InitVelocitySphereModifier {
+                center: Vec3::ZERO,
+                speed: 2.0.into(),
+            })
+            .init(init_lifetime2)
+            .render(ColorOverLifetimeModifier {
+                gradient: gradient2,
+            }),
     );
 
     commands
@@ -219,13 +209,12 @@ fn setup(
     let update_accel3 = AccelModifier::new(accel3);
 
     let effect3 = effects.add(
-        EffectAsset {
-            name: "emit:burst".to_string(),
-            capacity: 32768,
-            spawner: Spawner::burst(400.0.into(), 3.0.into()),
-            module: writer3.finish(),
-            ..Default::default()
-        }
+        EffectAsset::new(
+            32768,
+            Spawner::burst(400.0.into(), 3.0.into()),
+            writer3.finish(),
+        )
+        .with_name("emit:burst")
         .with_property("my_accel", Vec3::new(0., -3., 0.).into())
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,

@@ -1076,17 +1076,12 @@ impl ToWgslString for BinaryOperator {
 /// // Finalize the expression and write it down into the `Module` as an `Expr`
 /// let expr: ExprHandle = expr.expr();
 ///
-/// // Finish using the writer, recovering the Module containing all the written Expr
-/// let mut module = w.finish();
-///
 /// // Create a modifier and assign the expression to one of its input(s)
 /// let init_modifier = InitAttributeModifier::new(Attribute::LIFETIME, expr);
 ///
-/// // Create an EffectAsset with the modifier and the Module
-/// let effect = EffectAsset {
-///     module,
-///     ..Default::default()
-/// }.init(init_modifier);
+/// // Create an EffectAsset with the modifier and the Module from the writer
+/// let effect = EffectAsset::new(1024, Spawner::rate(32_f32.into()), w.finish())
+///     .init(init_modifier);
 /// ```
 ///
 /// [`finish()`]: ExprWriter::finish
@@ -1180,6 +1175,23 @@ impl ExprWriter {
 
     /// Finish using the writer, and recover the [`Module`] where all [`Expr`]
     /// were written by the writer.
+    ///
+    /// This module is typically passed to [`EffectAsset::new()`] before adding
+    /// to that effect the modifiers which use the expressions created by this
+    /// writer.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # let spawner = Spawner::default();
+    /// let mut w = ExprWriter::new();
+    /// // [...]
+    /// let module = w.finish();
+    /// let asset = EffectAsset::new(256, spawner, module);
+    /// ```
+    ///
+    /// [`EffectAsset::new()`]: crate::EffectAsset::new()
     pub fn finish(self) -> Module {
         self.module.take()
     }
@@ -1303,8 +1315,9 @@ impl WriterExpr {
 
     /// Apply the "normalize" opertor to the current float vector expression.
     ///
-    /// This is a unary operator, which applies to float vector operand expressions to
-    /// produce another float vector with unit length (normalized).
+    /// This is a unary operator, which applies to float vector operand
+    /// expressions to produce another float vector with unit length
+    /// (normalized).
     ///
     /// # Example
     ///

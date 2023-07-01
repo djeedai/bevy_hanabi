@@ -161,50 +161,45 @@ fn setup(
 
     // Force field effects
     let effect = effects.add(
-        EffectAsset {
-            name: "Impact".into(),
-            capacity: 32768,
-            spawner,
-            module: writer.finish(),
-            ..Default::default()
-        }
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: BALL_RADIUS,
-            dimension: ShapeDimension::Surface,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: Value::Uniform((0.1, 0.3)),
-        })
-        .init(init_lifetime)
-        .update(ForceFieldModifier::new(vec![
-            ForceFieldSource {
-                position: attractor2_position,
-                max_radius: 1000000.0,
-                min_radius: BALL_RADIUS * 6.0,
-                // a negative mass produces a repulsive force instead of an attractive one
-                mass: -1.5,
-                // linear force: proportional to 1 / distance
-                force_exponent: 1.0,
-                conform_to_sphere: true,
-            },
-            ForceFieldSource {
-                position: attractor1_position,
-                max_radius: 1000000.0,
-                min_radius: BALL_RADIUS * 6.0,
-                mass: 3.0,
-                // quadratic force: proportional to 1 / distance^2
-                force_exponent: 2.0,
-                conform_to_sphere: true,
-            },
-        ]))
-        .update(allow_zone)
-        .update(deny_zone)
-        .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec2::splat(0.05)),
-        })
-        .render(ColorOverLifetimeModifier { gradient }),
+        EffectAsset::new(32768, spawner, writer.finish())
+            .with_name("force_field")
+            .init(InitPositionSphereModifier {
+                center: Vec3::ZERO,
+                radius: BALL_RADIUS,
+                dimension: ShapeDimension::Surface,
+            })
+            .init(InitVelocitySphereModifier {
+                center: Vec3::ZERO,
+                speed: Value::Uniform((0.1, 0.3)),
+            })
+            .init(init_lifetime)
+            .update(ForceFieldModifier::new(vec![
+                ForceFieldSource {
+                    position: attractor2_position,
+                    max_radius: 1000000.0,
+                    min_radius: BALL_RADIUS * 6.0,
+                    // a negative mass produces a repulsive force instead of an attractive one
+                    mass: -1.5,
+                    // linear force: proportional to 1 / distance
+                    force_exponent: 1.0,
+                    conform_to_sphere: true,
+                },
+                ForceFieldSource {
+                    position: attractor1_position,
+                    max_radius: 1000000.0,
+                    min_radius: BALL_RADIUS * 6.0,
+                    mass: 3.0,
+                    // quadratic force: proportional to 1 / distance^2
+                    force_exponent: 2.0,
+                    conform_to_sphere: true,
+                },
+            ]))
+            .update(allow_zone)
+            .update(deny_zone)
+            .render(SizeOverLifetimeModifier {
+                gradient: Gradient::constant(Vec2::splat(0.05)),
+            })
+            .render(ColorOverLifetimeModifier { gradient }),
     );
 
     commands.spawn(ParticleEffectBundle::new(effect).with_spawner(spawner));

@@ -95,13 +95,12 @@ fn setup(
     let lifetime = writer.lit(15.).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
-    let mut asset = EffectAsset {
-        capacity: 4096,
-        spawner: Spawner::burst(50.0.into(), 15.0.into()),
-        simulation_condition: SimulationCondition::WhenVisible,
-        module: writer.finish(),
-        ..Default::default()
-    }
+    let mut asset = EffectAsset::new(
+        4096,
+        Spawner::burst(50.0.into(), 15.0.into()),
+        writer.finish(),
+    )
+    .with_simulation_condition(SimulationCondition::WhenVisible)
     .init(InitPositionSphereModifier {
         center: Vec3::ZERO,
         radius: 5.,

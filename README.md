@@ -59,25 +59,25 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
   // Create a new expression module
   let mut module = Module::default();
 
-  // Create a lifetime modifier: "particle.lifetime = 10.;"
-  let lifetime = module.lit(10.); // literal "10.0"
-  let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+  // Create a lifetime modifier
+  let lifetime = module.lit(10.); // literal value "10.0"
+  let init_lifetime = InitAttributeModifier::new(
+      Attribute::LIFETIME, lifetime);
 
-  // Create an acceleration modifier: "accel = vec3<f32>(0.0, -3.0. 0.0);"
+  // Create an acceleration modifier
   let accel = module.lit(Vec3::new(0., -3., 0.));
   let update_accel = AccelModifier::new(accel);
 
   // Create the effect asset
-  let effect = effects.add(EffectAsset {
-      name: "MyEffect".to_string(),
-      // Maximum number of particles alive at a time
-      capacity: 32768,
-      // Spawn at a rate of 5 particles per second
-      spawner: Spawner::rate(5.0.into()),
-      // Move the expression module into the asset
-      module,
-      ..Default::default()
-  }
+  let effect = EffectAsset::new(
+    // Maximum number of particles alive at a time
+    32768,
+    // Spawn at a rate of 5 particles per second
+    Spawner::rate(5.0.into()),
+    // Move the expression module into the asset
+    module
+  )
+  .with_name("MyEffect")
   // On spawn, randomly initialize the position of the particle
   // to be over the surface of a sphere of radius 2 units.
   .init(InitPositionSphereModifier {
@@ -93,27 +93,29 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
   })
   // Also initialize the total lifetime of the particle, that is
   // the time for which it's simulated and rendered. This modifier
-  // is almost always required, otherwise the particles won't show up.
+  // is almost always required, otherwise the particles won't show.
   .init(init_lifetime)
   // Every frame, add a gravity-like acceleration downward
   .update(update_accel)
   // Render the particles with a color gradient over their
   // lifetime. This maps the gradient key 0 to the particle spawn
-  // time, and the gradient key 1 to the particle death (here, 10s).
-  .render(ColorOverLifetimeModifier { gradient })
-  );
+  // time, and the gradient key 1 to the particle death (10s).
+  .render(ColorOverLifetimeModifier { gradient });
+
+  // Insert into the asset system
+  let effect_handle = effects.add(effect);
 }
 ```
 
 ### Add a particle effect
 
-Use a `ParticleEffectBundle` to create an effect instance from an existing asset:
+Use a `ParticleEffectBundle` to create an effect instance from an existing asset. The simplest way is to use the [`ParticleEffectBundle`] to ensure all required components are spawned together.
 
 ```rust
 commands
     .spawn(ParticleEffectBundle {
-        effect: ParticleEffect::new(effect),
-        transform: Transform::from_translation(Vec3::new(0., 1., 0.)),
+        effect: ParticleEffect::new(effect_handle),
+        transform: Transform::from_translation(Vec3::Y),
         ..Default::default()
     });
 ```

@@ -60,33 +60,27 @@ fn setup(
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     let effect = effects.add(
-        EffectAsset {
-            name: "Gradient".to_string(),
-            // TODO: Figure out why no particle spawns if this is 1
-            capacity: 32768,
-            spawner: Spawner::once(32.0.into(), true),
-            module: writer.finish(),
-            ..Default::default()
-        }
-        .init(InitPositionCircleModifier {
-            center: Vec3::Y * 0.1,
-            axis: Vec3::Y,
-            radius: 0.4,
-            dimension: ShapeDimension::Surface,
-        })
-        .init(InitVelocityCircleModifier {
-            center: Vec3::ZERO,
-            axis: Vec3::Y,
-            speed: Value::Uniform((1.0, 1.5)),
-        })
-        .init(init_lifetime)
-        .render(ParticleTextureModifier {
-            texture: texture_handle.clone(),
-        })
-        .render(ColorOverLifetimeModifier { gradient })
-        .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant([0.2; 2].into()),
-        }),
+        EffectAsset::new(32768, Spawner::once(32.0.into(), true), writer.finish())
+            .with_name("circle")
+            .init(InitPositionCircleModifier {
+                center: Vec3::Y * 0.1,
+                axis: Vec3::Y,
+                radius: 0.4,
+                dimension: ShapeDimension::Surface,
+            })
+            .init(InitVelocityCircleModifier {
+                center: Vec3::ZERO,
+                axis: Vec3::Y,
+                speed: Value::Uniform((1.0, 1.5)),
+            })
+            .init(init_lifetime)
+            .render(ParticleTextureModifier {
+                texture: texture_handle.clone(),
+            })
+            .render(ColorOverLifetimeModifier { gradient })
+            .render(SizeOverLifetimeModifier {
+                gradient: Gradient::constant([0.2; 2].into()),
+            }),
     );
 
     // The ground

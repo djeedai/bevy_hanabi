@@ -73,27 +73,22 @@ fn setup(
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     let effect = effects.add(
-        EffectAsset {
-            name: "Gradient".to_string(),
-            capacity: 32768,
-            spawner: Spawner::rate(1000.0.into()),
-            module: writer.finish(),
-            ..Default::default()
-        }
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 1.,
-            dimension: ShapeDimension::Volume,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: 2.0.into(),
-        })
-        .init(init_lifetime)
-        .render(ParticleTextureModifier {
-            texture: texture_handle.clone(),
-        })
-        .render(ColorOverLifetimeModifier { gradient }),
+        EffectAsset::new(32768, Spawner::rate(1000.0.into()), writer.finish())
+            .with_name("gradient")
+            .init(InitPositionSphereModifier {
+                center: Vec3::ZERO,
+                radius: 1.,
+                dimension: ShapeDimension::Volume,
+            })
+            .init(InitVelocitySphereModifier {
+                center: Vec3::ZERO,
+                speed: 2.0.into(),
+            })
+            .init(init_lifetime)
+            .render(ParticleTextureModifier {
+                texture: texture_handle.clone(),
+            })
+            .render(ColorOverLifetimeModifier { gradient }),
     );
 
     commands

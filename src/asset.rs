@@ -93,7 +93,8 @@ pub struct EffectAsset {
     /// Display name of the effect.
     ///
     /// This has no internal use, and is mostly for the user to identify an
-    /// effect or for display in some tool UI.
+    /// effect or for display in some tool UI. It's however used in serializing
+    /// the asset.
     pub name: String,
     /// Maximum number of concurrent particles.
     ///
@@ -102,7 +103,7 @@ pub struct EffectAsset {
     /// the particle buffer itself. To prevent wasting GPU resources, users
     /// should keep this quantity as close as possible to the maximum number of
     /// particles they expect to render.
-    pub capacity: u32,
+    capacity: u32,
     /// Spawner.
     pub spawner: Spawner,
     /// For 2D rendering, the Z coordinate used as the sort key.
@@ -121,7 +122,7 @@ pub struct EffectAsset {
     /// Modifiers defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    pub modifiers: Vec<BoxedModifier>,
+    modifiers: Vec<BoxedModifier>,
     /// Properties of the effect.
     ///
     /// Properties must have a unique name. Manually adding two or more
@@ -131,14 +132,124 @@ pub struct EffectAsset {
     ///
     /// [`with_property()`]: crate::EffectAsset::with_property
     /// [`add_property()`]: crate::EffectAsset::add_property
-    pub properties: Vec<Property>,
+    properties: Vec<Property>,
     /// Type of motion integration applied to the particles of a system.
     pub motion_integration: MotionIntegration,
     /// Expression module for this effect.
-    pub module: Module,
+    module: Module,
 }
 
 impl EffectAsset {
+    /// Create a new effect asset.
+    ///
+    /// The effect assets requires 2 essential pieces:
+    /// - The capacity of the effect, which represents the maximum number of
+    ///   particles which can be stored and simulated at the same time. The
+    ///   capacity must be non-zero, and should be the smallest possible value
+    ///   which allows you to author the effect. This value directly impacts the
+    ///   GPU memory consumption of the effect, which will allocate some buffers
+    ///   to store that many particles for as long as the effect exists. The
+    ///   capacity of an effect is immutable. See also [`capacity()`] for more
+    ///   details.
+    /// - The [`Spawner`], which defines when particles are emitted.
+    ///
+    /// Additionally, if any modifier added to this effect uses some [`Expr`] to
+    /// customize its behavior, then those [`Expr`] are stored into a [`Module`]
+    /// which should be passed to this method. If expressions are not used, just
+    /// pass an empty module [`Module::default()`].
+    ///
+    /// # Examples
+    ///
+    /// Create a new effect asset without any modifier. This effect doesn't
+    /// really do anything because _e.g._ the particles have a zero lifetime.
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let spawner = Spawner::rate(5_f32.into()); // 5 particles per second
+    /// let module = Module::default();
+    /// let effect = EffectAsset::new(32768, spawner, module);
+    /// ```
+    ///
+    /// Create a new effect asset with a modifier holding an expression. The
+    /// expression is stored inside the [`Module`] transfered to the
+    /// [`EffectAsset`].
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let spawner = Spawner::rate(5_f32.into()); // 5 particles per second
+    ///
+    /// let mut module = Module::default();
+    ///
+    /// // Create a modifier that initialized the particle lifetime to 10 seconds.
+    /// let lifetime = module.lit(10.); // literal value "10.0"
+    /// let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+    ///
+    /// let effect = EffectAsset::new(32768, spawner, module);
+    /// ```
+    ///
+    /// [`capacity()`]: crate::EffectAsset::capacity
+    /// [`Expr`]: crate::graph::expr::Expr
+    pub fn new(capacity: u32, spawner: Spawner, module: Module) -> Self {
+        Self {
+            name: String::new(),
+            capacity,
+            spawner,
+            z_layer_2d: 0.,
+            simulation_space: SimulationSpace::default(),
+            simulation_condition: SimulationCondition::default(),
+            modifiers: vec![],
+            properties: vec![],
+            motion_integration: MotionIntegration::default(),
+            module,
+        }
+    }
+
+    /// Get the capacity of the effect, in number of particles.
+    ///
+    /// This represents the number of particles stored in GPU memory at all
+    /// time, even if unused, so you should try to minimize this value. However,
+    /// the [`Spawner`] cannot emit more particles than this capacity. Whatever
+    /// the spanwer settings, if the number of particles reaches the capacity,
+    /// no new particle can be emitted. Setting an appropriate capacity for an
+    /// effect is therefore a compromise between more particles available for
+    /// visuals and more GPU memory usage.
+    ///
+    /// Common values range from 256 or less for smaller effects, to several
+    /// hundreds of thousands for unique effects consuming a large portion of
+    /// the GPU memory budget. Hanabi has been tested with over a million
+    /// particles, however the performance will largely depend on the actual GPU
+    /// hardware and available memory, so authors are encouraged not to go too
+    /// crazy with the capacity.
+    pub fn capacity(&self) -> u32 {
+        self.capacity
+    }
+
+    /// Get the expression module storing all expressions in use by modifiers of
+    /// this effect.
+    pub fn module(&self) -> &Module {
+        &self.module
+    }
+
+    /// Set the effect name.
+    ///
+    /// The effect name is used when serializing the effect.
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
+    /// Set the effect's simulation condition.
+    pub fn with_simulation_condition(mut self, simulation_condition: SimulationCondition) -> Self {
+        self.simulation_condition = simulation_condition;
+        self
+    }
+
+    /// Set the effect's simulation space.
+    pub fn with_simulation_space(mut self, simulation_space: SimulationSpace) -> Self {
+        self.simulation_space = simulation_space;
+        self
+    }
+
     /// Add a new property to the asset.
     ///
     /// # Panics
@@ -222,7 +333,46 @@ impl EffectAsset {
         self
     }
 
+    /// Get a list of all the modifiers of this effect.
+    pub fn modifiers(&self) -> &[BoxedModifier] {
+        &self.modifiers[..]
+    }
+
+    /// Get a list of all the init modifiers of this effect.
+    ///
+    /// This is a filtered list of all modifiers, retaining only modifiers
+    /// executing in the [`ModifierContext::Init`] context.
+    ///
+    /// [`ModifierContext::Init`]: crate::ModifierContext::Init
+    pub fn init_modifiers(&self) -> impl Iterator<Item = &dyn InitModifier> {
+        self.modifiers.iter().filter_map(|m| m.as_init())
+    }
+
+    /// Get a list of all the update modifiers of this effect.
+    ///
+    /// This is a filtered list of all modifiers, retaining only modifiers
+    /// executing in the [`ModifierContext::Update`] context.
+    ///
+    /// [`ModifierContext::Update`]: crate::ModifierContext::Update
+    pub fn update_modifiers(&self) -> impl Iterator<Item = &dyn UpdateModifier> {
+        self.modifiers.iter().filter_map(|m| m.as_update())
+    }
+
+    /// Get a list of all the render modifiers of this effect.
+    ///
+    /// This is a filtered list of all modifiers, retaining only modifiers
+    /// executing in the [`ModifierContext::Render`] context.
+    ///
+    /// [`ModifierContext::Render`]: crate::ModifierContext::Render
+    pub fn render_modifiers(&self) -> impl Iterator<Item = &dyn RenderModifier> {
+        self.modifiers.iter().filter_map(|m| m.as_render())
+    }
+
     /// Build the particle layout of the asset based on its modifiers.
+    ///
+    /// This method calculates the particle layout of the effect based on the
+    /// currently existing particles, and return it as a newly allocated
+    /// [`ParticleLayout`] object.
     pub fn particle_layout(&self) -> ParticleLayout {
         // Build the set of unique attributes required for all modifiers
         let mut set = HashSet::new();
@@ -241,6 +391,10 @@ impl EffectAsset {
     }
 
     /// Build the property layout of the asset based on its properties.
+    ///
+    /// This method calculates the property layout of the effect based on the
+    /// currently existing properties, and return it as a newly allocated
+    /// [`PropertyLayout`] object.
     pub fn property_layout(&self) -> PropertyLayout {
         PropertyLayout::new(self.properties.iter())
     }

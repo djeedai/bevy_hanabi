@@ -109,28 +109,23 @@ fn setup(
     let init_color = InitAttributeModifier::new(Attribute::COLOR, color);
 
     let effect = effects.add(
-        EffectAsset {
-            name: "Impact".into(),
-            capacity: 32768,
-            spawner,
-            module: writer.finish(),
-            ..Default::default()
-        }
-        .with_property("my_color", 0xFFFFFFFFu32.into())
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: BALL_RADIUS,
-            dimension: ShapeDimension::Surface,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: 0.2.into(),
-        })
-        .init(init_lifetime)
-        .init(init_color)
-        .render(SizeOverLifetimeModifier {
-            gradient: Gradient::linear(Vec2::splat(0.02), Vec2::splat(0.04)),
-        }),
+        EffectAsset::new(32768, spawner, writer.finish())
+            .with_name("spawn_on_command")
+            .with_property("my_color", 0xFFFFFFFFu32.into())
+            .init(InitPositionSphereModifier {
+                center: Vec3::ZERO,
+                radius: BALL_RADIUS,
+                dimension: ShapeDimension::Surface,
+            })
+            .init(InitVelocitySphereModifier {
+                center: Vec3::ZERO,
+                speed: 0.2.into(),
+            })
+            .init(init_lifetime)
+            .init(init_color)
+            .render(SizeOverLifetimeModifier {
+                gradient: Gradient::linear(Vec2::splat(0.02), Vec2::splat(0.04)),
+            }),
     );
 
     commands

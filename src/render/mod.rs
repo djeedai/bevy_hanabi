@@ -1179,10 +1179,10 @@ pub(crate) fn extract_effects(
                 entity
             );
             let property_layout = asset.property_layout();
-            trace!("Found new effect: entity {:?} | capacity {} | particle_layout {:?} | property_layout {:?}", entity, asset.capacity, particle_layout, property_layout);
+            trace!("Found new effect: entity {:?} | capacity {} | particle_layout {:?} | property_layout {:?}", entity, asset.capacity(), particle_layout, property_layout);
             AddedEffect {
                 entity,
-                capacity: asset.capacity,
+                capacity: asset.capacity(),
                 particle_layout,
                 property_layout,
                 handle,

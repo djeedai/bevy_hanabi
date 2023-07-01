@@ -74,13 +74,12 @@ fn setup(
     let update_accel = AccelModifier::new(accel);
 
     let effect = effects.add(
-        EffectAsset {
-            name: "emit:burst".to_string(),
-            capacity: 32768,
-            spawner: Spawner::burst(Value::Uniform((1., 100.)), Value::Uniform((1., 4.))),
-            module: writer.finish(),
-            ..Default::default()
-        }
+        EffectAsset::new(
+            32768,
+            Spawner::burst(Value::Uniform((1., 100.)), Value::Uniform((1., 4.))),
+            writer.finish(),
+        )
+        .with_name("emit:burst")
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,

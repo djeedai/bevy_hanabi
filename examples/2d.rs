@@ -86,29 +86,24 @@ fn setup(
     // By default the asset spawns the particles at Z=0.
     let spawner = Spawner::rate(30.0.into());
     let effect = effects.add(
-        EffectAsset {
-            name: "Effect".into(),
-            capacity: 4096,
-            spawner,
-            module: writer.finish(),
-            ..Default::default()
-        }
-        .init(InitPositionCircleModifier {
-            center: Vec3::ZERO,
-            axis: Vec3::Z,
-            radius: 0.05,
-            dimension: ShapeDimension::Surface,
-        })
-        .init(InitVelocityCircleModifier {
-            center: Vec3::ZERO,
-            axis: Vec3::Z,
-            speed: 0.1.into(),
-        })
-        .init(init_lifetime)
-        .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec2::splat(0.02)),
-        })
-        .render(ColorOverLifetimeModifier { gradient }),
+        EffectAsset::new(4096, spawner, writer.finish())
+            .with_name("2d")
+            .init(InitPositionCircleModifier {
+                center: Vec3::ZERO,
+                axis: Vec3::Z,
+                radius: 0.05,
+                dimension: ShapeDimension::Surface,
+            })
+            .init(InitVelocityCircleModifier {
+                center: Vec3::ZERO,
+                axis: Vec3::Z,
+                speed: 0.1.into(),
+            })
+            .init(init_lifetime)
+            .render(SizeOverLifetimeModifier {
+                gradient: Gradient::constant(Vec2::splat(0.02)),
+            })
+            .render(ColorOverLifetimeModifier { gradient }),
     );
 
     // Spawn an instance of the particle effect, and override its Z layer to

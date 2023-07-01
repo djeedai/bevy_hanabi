@@ -103,27 +103,22 @@ fn setup(
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     let effect = effects.add(
-        EffectAsset {
-            name: "Impact".into(),
-            capacity: 32768,
-            spawner,
-            module: writer.finish(),
-            ..Default::default()
-        }
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 0.05,
-            dimension: ShapeDimension::Surface,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: 0.1.into(),
-        })
-        .init(init_lifetime)
-        .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec2::splat(0.02)),
-        })
-        .render(ColorOverLifetimeModifier { gradient }),
+        EffectAsset::new(32768, spawner, writer.finish())
+            .with_name("activate")
+            .init(InitPositionSphereModifier {
+                center: Vec3::ZERO,
+                radius: 0.05,
+                dimension: ShapeDimension::Surface,
+            })
+            .init(InitVelocitySphereModifier {
+                center: Vec3::ZERO,
+                speed: 0.1.into(),
+            })
+            .init(init_lifetime)
+            .render(SizeOverLifetimeModifier {
+                gradient: Gradient::constant(Vec2::splat(0.02)),
+            })
+            .render(ColorOverLifetimeModifier { gradient }),
     );
 
     ball.with_children(|node| {

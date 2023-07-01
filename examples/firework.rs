@@ -85,13 +85,12 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let drag = writer.lit(5.).expr();
     let update_drag = LinearDragModifier::new(drag);
 
-    let effect = EffectAsset {
-        name: "firework".to_string(),
-        capacity: 32768,
-        spawner: Spawner::burst(2500.0.into(), 2.0.into()),
-        module: writer.finish(),
-        ..Default::default()
-    }
+    let effect = EffectAsset::new(
+        32768,
+        Spawner::burst(2500.0.into(), 2.0.into()),
+        writer.finish(),
+    )
+    .with_name("firework")
     .init(InitPositionSphereModifier {
         center: Vec3::ZERO,
         radius: 2.,

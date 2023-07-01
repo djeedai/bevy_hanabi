@@ -53,19 +53,14 @@ fn base_effect(name: impl Into<String>) -> EffectAsset {
     let lifetime = writer.lit(3600.).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
-    EffectAsset {
-        name: name.into(),
-        capacity: 32768,
-        spawner: Spawner::once(COUNT.into(), true),
-        module: writer.finish(),
-        ..Default::default()
-    }
-    .init(init_lifetime)
-    .render(BillboardModifier)
-    .render(SetColorModifier {
-        color: COLOR.into(),
-    })
-    .render(SetSizeModifier { size: SIZE.into() })
+    EffectAsset::new(32768, Spawner::once(COUNT.into(), true), writer.finish())
+        .with_name(name)
+        .init(init_lifetime)
+        .render(BillboardModifier)
+        .render(SetColorModifier {
+            color: COLOR.into(),
+        })
+        .render(SetSizeModifier { size: SIZE.into() })
 }
 
 fn spawn_effect(

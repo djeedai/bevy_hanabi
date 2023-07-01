@@ -71,30 +71,25 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let update_drag = LinearDragModifier::new(drag);
 
     let effect1 = effects.add(
-        EffectAsset {
-            name: "portal".to_string(),
-            capacity: 32768,
-            spawner: Spawner::rate(5000.0.into()),
-            module: writer.finish(),
-            ..Default::default()
-        }
-        .init(InitPositionCircleModifier {
-            center: Vec3::ZERO,
-            axis: Vec3::Z,
-            radius: 4.,
-            dimension: ShapeDimension::Surface,
-        })
-        .init(init_lifetime)
-        .update(update_drag)
-        .update(RadialAccelModifier::constant(Vec3::ZERO, -6.0))
-        .update(TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 30.))
-        .render(ColorOverLifetimeModifier {
-            gradient: color_gradient1,
-        })
-        .render(SizeOverLifetimeModifier {
-            gradient: size_gradient1,
-        })
-        .render(OrientAlongVelocityModifier),
+        EffectAsset::new(32768, Spawner::rate(5000.0.into()), writer.finish())
+            .with_name("portal")
+            .init(InitPositionCircleModifier {
+                center: Vec3::ZERO,
+                axis: Vec3::Z,
+                radius: 4.,
+                dimension: ShapeDimension::Surface,
+            })
+            .init(init_lifetime)
+            .update(update_drag)
+            .update(RadialAccelModifier::constant(Vec3::ZERO, -6.0))
+            .update(TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 30.))
+            .render(ColorOverLifetimeModifier {
+                gradient: color_gradient1,
+            })
+            .render(SizeOverLifetimeModifier {
+                gradient: size_gradient1,
+            })
+            .render(OrientAlongVelocityModifier),
     );
 
     commands.spawn((

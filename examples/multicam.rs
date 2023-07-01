@@ -54,31 +54,26 @@ fn make_effect(color: Color) -> EffectAsset {
     let accel = writer.lit(Vec3::Y * -3.).expr();
     let update_accel = AccelModifier::new(accel);
 
-    EffectAsset {
-        name: "effect1".to_string(),
-        capacity: 32768,
-        spawner: Spawner::rate(5.0.into()),
-        module: writer.finish(),
-        ..Default::default()
-    }
-    .init(InitPositionSphereModifier {
-        center: Vec3::ZERO,
-        radius: 2.,
-        dimension: ShapeDimension::Surface,
-    })
-    .init(InitVelocitySphereModifier {
-        center: Vec3::ZERO,
-        speed: 6.0.into(),
-    })
-    .init(init_lifetime)
-    .update(update_accel)
-    .render(ColorOverLifetimeModifier {
-        gradient: color_gradient,
-    })
-    .render(SizeOverLifetimeModifier {
-        gradient: size_gradient.clone(),
-    })
-    .render(BillboardModifier)
+    EffectAsset::new(32768, Spawner::rate(5.0.into()), writer.finish())
+        .with_name("effect1")
+        .init(InitPositionSphereModifier {
+            center: Vec3::ZERO,
+            radius: 2.,
+            dimension: ShapeDimension::Surface,
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
+            speed: 6.0.into(),
+        })
+        .init(init_lifetime)
+        .update(update_accel)
+        .render(ColorOverLifetimeModifier {
+            gradient: color_gradient,
+        })
+        .render(SizeOverLifetimeModifier {
+            gradient: size_gradient.clone(),
+        })
+        .render(BillboardModifier)
 }
 
 fn setup(

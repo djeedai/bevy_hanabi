@@ -87,13 +87,12 @@ fn setup(
     let lifetime1 = writer1.lit(lifetime1).expr();
     let init_lifetime1 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime1);
     let effect1 = effects.add(
-        EffectAsset {
-            name: "emit:burst".to_string(),
-            capacity: 512,
-            spawner: Spawner::burst(50.0.into(), period.into()),
-            module: writer1.finish(),
-            ..Default::default()
-        }
+        EffectAsset::new(
+            512,
+            Spawner::burst(50.0.into(), period.into()),
+            writer1.finish(),
+        )
+        .with_name("emit:burst")
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
@@ -138,13 +137,12 @@ fn setup(
     let lifetime2 = writer2.lit(lifetime2).expr();
     let init_lifetime2 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime2);
     let effect2 = effects.add(
-        EffectAsset {
-            name: "emit:burst".to_string(),
-            capacity: 512,
-            spawner: Spawner::burst(50.0.into(), period.into()),
-            module: writer2.finish(),
-            ..Default::default()
-        }
+        EffectAsset::new(
+            512,
+            Spawner::burst(50.0.into(), period.into()),
+            writer2.finish(),
+        )
+        .with_name("emit:burst")
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
@@ -189,13 +187,12 @@ fn setup(
     let lifetime3 = writer3.lit(lifetime3).expr();
     let init_lifetime3 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime3);
     let effect3 = effects.add(
-        EffectAsset {
-            name: "emit:burst".to_string(),
-            capacity: 512,
-            spawner: Spawner::burst(50.0.into(), period.into()),
-            module: writer3.finish(),
-            ..Default::default()
-        }
+        EffectAsset::new(
+            512,
+            Spawner::burst(50.0.into(), period.into()),
+            writer3.finish(),
+        )
+        .with_name("emit:burst")
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,

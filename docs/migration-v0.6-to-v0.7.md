@@ -22,9 +22,40 @@ The typical workflow for the end user is as follow:
 1. Create a new modifier and assign the `ExprHandle` to one of its field.
 1. Repeat until all modifiers are ready for a given `EffectAsset`.
 1. Finish using the writer with `ExprWriter::finish()`, recovering the finalized `Module` containing all written `Expr`.
-1. Create a new `EffectAsset` and assign that `Module` to it.
+1. Create a new effect with `EffectAsset::new()`, passing that `Module` as argument.
 
 That last point is critical; expressions are owned by a `Module`, and assigning an `ExprHandle` from a different module produces undefined behaviors.
+
+## Migrating `EffectAsset`
+
+The `EffectAsset` struct has a `new()` associated function serving as the new entry point to create a new `EffectAsset` instance. This function takes the effect capacity, which is immutable after creation, the spawner, and the `Module` storing the effect expressions.
+
+Commonly, the `Module` passed to `EffectAsset::new()` will be the one retrieved from the effect writer with `EffectWriter::finish()`.
+
+// OLD v0.6
+
+```rust
+let asset = EffectAsset {
+    capacity: 256,
+    spawner: Spawner::rate(256.0.into()),
+     ..Default::default()
+};
+```
+
+// NEW v0.7
+
+```rust
+let writer = ExprWriter::new();
+//[...]
+let module = writer.finish();
+let asset = EffectAsset::new(256, Spawner::rate(256.0.into()), module);
+```
+
+More rarely if no `Expr` is used in any modifier, just a default module can be used. Going forward, most modifiers will use expressions, so passing an empty `Module` should become anecdotal.
+
+```rust
+let asset = EffectAsset::new(256, Spawner::rate(256.0.into()), Module::default());
+```
 
 ## Migrating modifiers
 
@@ -34,7 +65,7 @@ First, replace any `InitAgeModifier` and `InitLifetimeModifier` with an `InitAtt
 
 Then, follow the above steps to build expressions for all the modifier fields which were migrated to use `ExprHandle`. For example, an `AccelModifier::accel` field previously initialized with a constant:
 
-// OLD
+// OLD v0.6
 
 ```rust
 let asset = EffectAsset {
@@ -45,7 +76,7 @@ let asset = EffectAsset {
 
 now requires building a literal expression instead:
 
-// NEW
+// NEW v0.7
 
 ```rust
 // Create an ExprWriter for convenience
@@ -64,11 +95,8 @@ let expr = accel.expr();
 let module = w.finish();
 
 // Finally, create the EffectAsset with the modifiers
-let asset = EffectAsset {
-    module,
-    // [...]
-     ..Default::default()
-}.update(AccelModifier { accel: expr });
+let asset = EffectAsset::new(capacity, spawner, module)
+    .update(AccelModifier::new(expr));
 ```
 
 Note that previously a common pattern was to create modifiers inline while building the `EffectAsset`. This is not possible anymore for all modifiers using an `ExprHandle`, because the expression `Module` need to be finalized and assigned to the `EffectAsset` before the modifiers can be added to it. Otherwise the modifiers when they attach to the effect will fail their consistency check and panic.
@@ -81,6 +109,23 @@ Note that previously a common pattern was to create modifiers inline while build
   - _etc._
   
   Some conversions are provided via `From<>` /  `Into<>`, which can make the syntax shorter in some cases.
+
+  // OLD v0.6
+
+  ```rust
+  let x = Value::Float(3.5);
+  let v = Value::Float3(Vec3::ONE);
+  ```
+
+  // NEW v0.7
+
+  ```rust
+  let x = Value::Scalar(3.5.into());
+  let v = Value::Vector(Vec3::ONE.into());
+  // -OR-
+  let x = Value::Scalar(ScalarValue::Float(3.5));
+  let v = Value::Vector(VectorValue::new_vec3(Vec3::ONE));
+  ```
 
 - Same kind of conversions for `graph::ValueType`.
 
