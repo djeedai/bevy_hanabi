@@ -633,4 +633,19 @@ mod tests {
         let _effect_serde: EffectAsset = ron::from_str(&s).unwrap();
         // assert_eq!(effect, effect_serde);
     }
+
+    #[test]
+    fn test_asset_handle() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugin(AssetPlugin::default());
+
+        let asset_server = app.world.get_resource::<AssetServer>().unwrap();
+        let image_handle = asset_server.load("cloud.png");
+        let asset_handle: AssetHandle<Image> = AssetHandle::new(image_handle, "cloud.png");
+        let s = ron::to_string(&asset_handle).unwrap();
+        let asset_handle_de: AssetHandle<Image> = ron::from_str(&s).unwrap();
+
+        assert_eq!(asset_handle, asset_handle_de);
+    }
 }
