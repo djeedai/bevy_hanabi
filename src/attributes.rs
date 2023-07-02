@@ -9,36 +9,283 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{graph::Value, next_multiple_of, ToWgslString};
+use crate::{
+    graph::{ScalarValue, Value, VectorValue},
+    next_multiple_of, ToWgslString,
+};
+
+/// Scalar types.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ScalarType {
+    /// Boolean value (`bool`).
+    ///
+    /// The size of a `bool` is undefined in the WGSL specification, but fixed
+    /// at 4 bytes here.
+    Bool,
+    /// Floating point value (`f32`).
+    Float,
+    /// Signed 32-bit integer value (`i32`).
+    Int,
+    /// Unsigned 32-bit integer value (`u32`).
+    Uint,
+}
+
+impl ScalarType {
+    /// Check if this type is a numeric type.
+    ///
+    /// A numeric type can be used in various math operators etc. All types are
+    /// numeric, except `ScalarType::Bool`.
+    pub fn is_numeric(&self) -> bool {
+        !(matches!(self, ScalarType::Bool))
+    }
+
+    /// Size of a value of this type, in bytes.
+    ///
+    /// This corresponds to the size of a variable of that type when part of a
+    /// struct in WGSL. For `bool`, this is always 4 bytes (undefined in WGSL
+    /// spec).
+    pub const fn size(&self) -> usize {
+        4
+    }
+
+    /// Alignment of a value of this type, in bytes.
+    ///
+    /// This corresponds to the alignment of a variable of that type when part
+    /// of a struct in WGSL.
+    pub const fn align(&self) -> usize {
+        4
+    }
+}
+
+impl ToWgslString for ScalarType {
+    fn to_wgsl_string(&self) -> String {
+        match self {
+            ScalarType::Bool => "bool",
+            ScalarType::Float => "f32",
+            ScalarType::Int => "i32",
+            ScalarType::Uint => "u32",
+        }
+        .to_string()
+    }
+}
+
+/// Vector type (`vecN<T>`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct VectorType {
+    /// Type of all elements (components) of the vector.
+    elem_type: ScalarType,
+    /// Number of components. Always 2/3/4.
+    count: u8,
+}
+
+impl VectorType {
+    /// Boolean vector with 2 components (`vec2<bool>`).
+    pub const VEC2B: VectorType = VectorType::new(ScalarType::Bool, 2);
+    /// Boolean vector with 3 components (`vec3<bool>`).
+    pub const VEC3B: VectorType = VectorType::new(ScalarType::Bool, 3);
+    /// Boolean vector with 4 components (`vec4<bool>`).
+    pub const VEC4B: VectorType = VectorType::new(ScalarType::Bool, 4);
+    /// Floating-point vector with 2 components (`vec2<f32>`).
+    pub const VEC2F: VectorType = VectorType::new(ScalarType::Float, 2);
+    /// Floating-point vector with 3 components (`vec3<f32>`).
+    pub const VEC3F: VectorType = VectorType::new(ScalarType::Float, 3);
+    /// Floating-point vector with 4 components (`vec4<f32>`).
+    pub const VEC4F: VectorType = VectorType::new(ScalarType::Float, 4);
+    /// Vector with 2 signed integer components (`vec2<i32>`).
+    pub const VEC2I: VectorType = VectorType::new(ScalarType::Int, 2);
+    /// Vector with 3 signed integer components (`vec3<i32>`).
+    pub const VEC3I: VectorType = VectorType::new(ScalarType::Int, 3);
+    /// Vector with 4 signed integer components (`vec4<i32>`).
+    pub const VEC4I: VectorType = VectorType::new(ScalarType::Int, 4);
+    /// Vector with 2 unsigned integer components (`vec2<u32>`).
+    pub const VEC2U: VectorType = VectorType::new(ScalarType::Uint, 2);
+    /// Vector with 3 unsigned integer components (`vec3<u32>`).
+    pub const VEC3U: VectorType = VectorType::new(ScalarType::Uint, 3);
+    /// Vector with 4 unsigned integer components (`vec4<u32>`).
+    pub const VEC4U: VectorType = VectorType::new(ScalarType::Uint, 4);
+
+    /// Create a new vector type.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the component `count` is not 2/3/4.
+    pub const fn new(elem_type: ScalarType, count: u8) -> Self {
+        assert!(count >= 2 && count <= 4);
+        Self { elem_type, count }
+    }
+
+    /// Scalar type of the individual vector elements (components).
+    pub const fn elem_type(&self) -> ScalarType {
+        self.elem_type
+    }
+
+    /// Number of components.
+    pub const fn count(&self) -> usize {
+        self.count as usize
+    }
+
+    /// Is the type a numeric type?
+    pub fn is_numeric(&self) -> bool {
+        self.elem_type.is_numeric()
+    }
+
+    /// Size of a value of this type, in bytes.
+    ///
+    /// This corresponds to the size of a variable of that type when part of a
+    /// struct in WGSL.
+    pub const fn size(&self) -> usize {
+        // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
+        self.count() * self.elem_type.size()
+    }
+
+    /// Alignment of a value of this type, in bytes.
+    ///
+    /// This corresponds to the alignment of a variable of that type when part
+    /// of a struct in WGSL.
+    pub const fn align(&self) -> usize {
+        // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
+        if self.count >= 3 {
+            4 * self.elem_type.align()
+        } else if self.count == 2 {
+            2 * self.elem_type.align()
+        } else {
+            self.elem_type.align()
+        }
+    }
+}
+
+impl ToWgslString for VectorType {
+    fn to_wgsl_string(&self) -> String {
+        format!("vec{}<{}>", self.count, self.elem_type.to_wgsl_string())
+    }
+}
+
+/// Floating-point matrix type (`matCxR<f32>`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+pub struct MatrixType {
+    rows: u8,
+    cols: u8,
+}
+
+impl MatrixType {
+    /// Floating-point matrix of size 2x2 (`mat2x2<f32>`).
+    pub const MAT2X2F: MatrixType = MatrixType::new(2, 2);
+    /// Floating-point matrix of size 3x2 (`mat3x2<f32>`).
+    pub const MAT3X2F: MatrixType = MatrixType::new(3, 2);
+    /// Floating-point matrix of size 4x2 (`mat4x2<f32>`).
+    pub const MAT4X2F: MatrixType = MatrixType::new(4, 2);
+    /// Floating-point matrix of size 2x3 (`mat2x3<f32>`).
+    pub const MAT2X3F: MatrixType = MatrixType::new(2, 3);
+    /// Floating-point matrix of size 3x3 (`mat3x3<f32>`).
+    pub const MAT3X3F: MatrixType = MatrixType::new(3, 3);
+    /// Floating-point matrix of size 4x3 (`mat4x3<f32>`).
+    pub const MAT4X3F: MatrixType = MatrixType::new(4, 3);
+    /// Floating-point matrix of size 2x4 (`mat2x4<f32>`).
+    pub const MAT2X4F: MatrixType = MatrixType::new(2, 4);
+    /// Floating-point matrix of size 3x4 (`mat3x4<f32>`).
+    pub const MAT3X4F: MatrixType = MatrixType::new(3, 4);
+    /// Floating-point matrix of size 4x4 (`mat4x4<f32>`).
+    pub const MAT4X4F: MatrixType = MatrixType::new(4, 4);
+
+    /// Create a new matrix type.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the number of columns or rows is not 2/3/4.
+    pub const fn new(cols: u8, rows: u8) -> Self {
+        Self { cols, rows }
+    }
+
+    /// Number of columns in the matrix.
+    pub const fn cols(&self) -> usize {
+        self.cols as usize
+    }
+
+    /// Number of rows in the matrix.
+    pub const fn rows(&self) -> usize {
+        self.rows as usize
+    }
+
+    /// Size of a value of this type, in bytes.
+    ///
+    /// This corresponds to the size of a variable of that type when part of a
+    /// struct in WGSL.
+    pub const fn size(&self) -> usize {
+        // SizeOf(array<vecR, C>), which means matCx3 and matCx4 have same size
+        // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
+        if self.rows >= 3 {
+            self.cols() * 4 * ScalarType::Float.size()
+        } else {
+            self.cols() * self.rows() * ScalarType::Float.size()
+        }
+    }
+
+    /// Alignment of a value of this type, in bytes.
+    ///
+    /// This corresponds to the alignment of a variable of that type when part
+    /// of a struct in WGSL.
+    pub const fn align(&self) -> usize {
+        // AlignOf(vecR), which means matCx3 and matCx4 have same align
+        // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
+        VectorType::new(ScalarType::Float, self.rows).align()
+    }
+}
+
+impl ToWgslString for MatrixType {
+    fn to_wgsl_string(&self) -> String {
+        format!(
+            "mat{}x{}<{}>",
+            self.cols,
+            self.rows,
+            ScalarType::Float.to_wgsl_string()
+        )
+    }
+}
 
 /// Type of an [`Attribute`]'s value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ValueType {
-    /// Single `f32` value.
-    Float,
-    /// Vector of two `f32` values (`vec2<f32>`). Equivalent to `Vec2` on the
-    /// CPU side.
-    Float2,
-    /// Vector of three `f32` values (`vec3<f32>`). Equivalent to `Vec3` on the
-    /// CPU side.
-    Float3,
-    /// Vector of four `f32` values (`vec4<f32>`). Equivalent to `Vec4` on the
-    /// CPU side.
-    Float4,
-    /// Single `u32` value.
-    Uint,
+    /// A scalar type (single value).
+    Scalar(ScalarType),
+    /// A vector type with 2 to 4 components.
+    Vector(VectorType),
+    /// A floating-point matrix type of size between 2x2 and 4x4.
+    Matrix(MatrixType),
 }
 
 impl ValueType {
+    /// Is the type a numeric type?
+    pub fn is_numeric(&self) -> bool {
+        match self {
+            ValueType::Scalar(s) => s.is_numeric(),
+            ValueType::Vector(v) => v.is_numeric(),
+            ValueType::Matrix(_) => true,
+        }
+    }
+
+    /// Is the type a scalar type?
+    pub fn is_scalar(&self) -> bool {
+        matches!(self, ValueType::Scalar(_))
+    }
+
+    /// Is the type a vector type?
+    pub fn is_vector(&self) -> bool {
+        matches!(self, ValueType::Vector(_))
+    }
+
+    /// Is the type a matrix type?
+    pub fn is_matrix(&self) -> bool {
+        matches!(self, ValueType::Matrix(_))
+    }
+
     /// Size of a value of this type, in bytes.
     pub fn size(&self) -> usize {
         match self {
-            ValueType::Float => 4,
-            ValueType::Float2 => 8,
-            ValueType::Float3 => 12,
-            ValueType::Float4 => 16,
-            ValueType::Uint => 4,
+            ValueType::Scalar(s) => s.size(),
+            ValueType::Vector(v) => v.size(),
+            ValueType::Matrix(m) => m.size(),
         }
     }
 
@@ -48,11 +295,9 @@ impl ValueType {
     /// of a struct in WGSL.
     pub fn align(&self) -> usize {
         match self {
-            ValueType::Float => 4,
-            ValueType::Float2 => 8,
-            ValueType::Float3 => 16,
-            ValueType::Float4 => 16,
-            ValueType::Uint => 4,
+            ValueType::Scalar(s) => s.align(),
+            ValueType::Vector(v) => v.align(),
+            ValueType::Matrix(m) => m.align(),
         }
     }
 }
@@ -60,13 +305,10 @@ impl ValueType {
 impl ToWgslString for ValueType {
     fn to_wgsl_string(&self) -> String {
         match self {
-            ValueType::Float => "f32",
-            ValueType::Float2 => "vec2<f32>",
-            ValueType::Float3 => "vec3<f32>",
-            ValueType::Float4 => "vec4<f32>",
-            ValueType::Uint => "u32",
+            ValueType::Scalar(s) => s.to_wgsl_string(),
+            ValueType::Vector(v) => v.to_wgsl_string(),
+            ValueType::Matrix(m) => m.to_wgsl_string(),
         }
-        .to_string()
     }
 }
 
@@ -93,30 +335,61 @@ impl std::hash::Hash for AttributeInner {
 }
 
 impl AttributeInner {
-    pub const POSITION: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("position"), Value::Float3(Vec3::ZERO));
-    pub const VELOCITY: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("velocity"), Value::Float3(Vec3::ZERO));
+    pub const POSITION: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("position"),
+        Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
+    );
+
+    pub const VELOCITY: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("velocity"),
+        Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
+    );
+
     pub const AGE: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("age"), Value::Float(0.));
-    pub const LIFETIME: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("lifetime"), Value::Float(1.));
-    pub const COLOR: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("color"), Value::Uint(0xFFFFFFFFu32));
-    pub const HDR_COLOR: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("hdr_color"), Value::Float4(Vec4::ONE));
-    pub const ALPHA: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("alpha"), Value::Float(1.));
+        &AttributeInner::new(Cow::Borrowed("age"), Value::Scalar(ScalarValue::Float(0.)));
+
+    pub const LIFETIME: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("lifetime"),
+        Value::Scalar(ScalarValue::Float(1.)),
+    );
+
+    pub const COLOR: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("color"),
+        Value::Scalar(ScalarValue::Uint(0xFFFFFFFFu32)),
+    );
+
+    pub const HDR_COLOR: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("hdr_color"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
+    );
+
+    pub const ALPHA: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("alpha"),
+        Value::Scalar(ScalarValue::Float(1.)),
+    );
+
     pub const SIZE: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("size"), Value::Float(1.));
-    pub const SIZE2: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("size2"), Value::Float2(Vec2::ONE));
-    pub const AXIS_X: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("axis_x"), Value::Float3(Vec3::X));
-    pub const AXIS_Y: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("axis_y"), Value::Float3(Vec3::Y));
-    pub const AXIS_Z: &'static AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("axis_z"), Value::Float3(Vec3::Z));
+        &AttributeInner::new(Cow::Borrowed("size"), Value::Scalar(ScalarValue::Float(1.)));
+
+    pub const SIZE2: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("size2"),
+        Value::Vector(VectorValue::new_vec2(Vec2::ONE)),
+    );
+
+    pub const AXIS_X: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("axis_x"),
+        Value::Vector(VectorValue::new_vec3(Vec3::X)),
+    );
+
+    pub const AXIS_Y: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("axis_y"),
+        Value::Vector(VectorValue::new_vec3(Vec3::Y)),
+    );
+
+    pub const AXIS_Z: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("axis_z"),
+        Value::Vector(VectorValue::new_vec3(Vec3::Z)),
+    );
 
     #[inline]
     pub(crate) const fn new(name: Cow<'static, str>, default_value: Value) -> Self {
@@ -308,7 +581,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float3`] representing the XYZ coordinates of the position.
+    /// [`VectorType::VEC3F`] representing the XYZ coordinates of the position.
     ///
     /// [simulation space]: crate::SimulationSpace
     pub const POSITION: Attribute = Attribute(AttributeInner::POSITION);
@@ -317,7 +590,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float3`] representing the XYZ coordinates of the velocity.
+    /// [`VectorType::VEC3F`] representing the XYZ coordinates of the velocity.
     ///
     /// [simulation space]: crate::SimulationSpace
     pub const VELOCITY: Attribute = Attribute(AttributeInner::VELOCITY);
@@ -336,7 +609,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float`]
+    /// [`ScalarType::Float`]
     ///
     /// [`ColorOverLifetimeModifier`]: crate::modifier::render::ColorOverLifetimeModifier
     pub const AGE: Attribute = Attribute(AttributeInner::AGE);
@@ -350,7 +623,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float`]
+    /// [`ScalarType::Float`]
     pub const LIFETIME: Attribute = Attribute(AttributeInner::LIFETIME);
 
     /// The particle's base color.
@@ -361,7 +634,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Uint`] representing the RGBA components of the color
+    /// [`ScalarType::Uint`] representing the RGBA components of the color
     /// encoded as `0xAABBGGRR`, with a single byte per component.
     pub const COLOR: Attribute = Attribute(AttributeInner::COLOR);
 
@@ -373,14 +646,14 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float4`] representing the RGBA components of the color.
+    /// [`VectorType::VEC4F`] representing the RGBA components of the color.
     /// Values are not clamped, and can be outside the \[0:1\] range to
     /// represent HDR values.
     pub const HDR_COLOR: Attribute = Attribute(AttributeInner::HDR_COLOR);
 
     /// The particle's transparency (alpha).
     ///
-    /// Type: [`ValueType::Float`]
+    /// Type: [`ScalarType::Float`]
     pub const ALPHA: Attribute = Attribute(AttributeInner::ALPHA);
 
     /// The particle's uniform size.
@@ -389,7 +662,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float`]
+    /// [`ScalarType::Float`]
     pub const SIZE: Attribute = Attribute(AttributeInner::SIZE);
 
     /// The particle's 2D size, for quad rendering.
@@ -399,7 +672,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float2`] representing the XY sizes of the particle.
+    /// [`VectorType::VEC2F`] representing the XY sizes of the particle.
     pub const SIZE2: Attribute = Attribute(AttributeInner::SIZE2);
 
     /// The local X axis of the particle.
@@ -411,7 +684,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float3`]
+    /// [`VectorType::VEC3F`]
     pub const AXIS_X: Attribute = Attribute(AttributeInner::AXIS_X);
 
     /// The local Y axis of the particle.
@@ -423,7 +696,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float3`]
+    /// [`VectorType::VEC3F`]
     pub const AXIS_Y: Attribute = Attribute(AttributeInner::AXIS_Y);
 
     /// The local Z axis of the particle.
@@ -435,7 +708,7 @@ impl Attribute {
     ///
     /// # Type
     ///
-    /// [`ValueType::Float3`]
+    /// [`VectorType::VEC3F`]
     pub const AXIS_Z: Attribute = Attribute(AttributeInner::AXIS_Z);
 
     /// Collection of all the existing particle attributes.
@@ -885,20 +1158,46 @@ mod tests {
     fn value_type_align() {
         let mut parser = Parser::new();
         for (value_type, value) in &[
-            (ValueType::Float, crate::graph::Value::Float(0.)),
             (
-                ValueType::Float2,
-                crate::graph::Value::Float2(Vec2::new(-0.5, 3.458)),
+                ValueType::Scalar(ScalarType::Float),
+                Value::Scalar(ScalarValue::Float(0.)),
+            ),
+            // FIXME - We use a constant below, which has a size of 1 byte. For a field
+            // inside a struct, the size of bool is undefined in WGSL/naga, and 4 bytes
+            // in Hanabi. We probably can't test bool with naga here anyway.
+            // (
+            //     ValueType::Scalar(ScalarType::Bool),
+            //     Value::Scalar(ScalarValue::Bool(true)),
+            // ),
+            (
+                ValueType::Scalar(ScalarType::Int),
+                Value::Scalar(ScalarValue::Int(-42)),
             ),
             (
-                ValueType::Float3,
-                crate::graph::Value::Float3(Vec3::new(-0.5, 3.458, -53.)),
+                ValueType::Scalar(ScalarType::Uint),
+                Value::Scalar(ScalarValue::Uint(999)),
             ),
             (
-                ValueType::Float4,
-                crate::graph::Value::Float4(Vec4::new(-0.5, 3.458, 0., -53.)),
+                ValueType::Vector(VectorType {
+                    elem_type: ScalarType::Float,
+                    count: 2,
+                }),
+                Value::Vector(VectorValue::new_vec2(Vec2::new(-0.5, 3.458))),
             ),
-            (ValueType::Uint, crate::graph::Value::Uint(42_u32)),
+            (
+                ValueType::Vector(VectorType {
+                    elem_type: ScalarType::Float,
+                    count: 3,
+                }),
+                Value::Vector(VectorValue::new_vec3(Vec3::new(-0.5, 3.458, -53.))),
+            ),
+            (
+                ValueType::Vector(VectorType {
+                    elem_type: ScalarType::Float,
+                    count: 4,
+                }),
+                Value::Vector(VectorValue::new_vec4(Vec4::new(-0.5, 3.458, 0., -53.))),
+            ),
         ] {
             assert_eq!(value.value_type(), *value_type);
 
@@ -944,8 +1243,10 @@ mod tests {
     }
 
     const TEST_ATTR_NAME: &str = "test_attr";
-    const TEST_ATTR_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed(TEST_ATTR_NAME), Value::Float3(Vec3::ONE));
+    const TEST_ATTR_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed(TEST_ATTR_NAME),
+        Value::Vector(VectorValue::new_vec3(Vec3::ONE)),
+    );
 
     #[test]
     fn attr_new() {
@@ -953,8 +1254,17 @@ mod tests {
         assert_eq!(attr.name(), TEST_ATTR_NAME);
         assert_eq!(attr.size(), 12);
         assert_eq!(attr.align(), 16);
-        assert_eq!(attr.value_type(), ValueType::Float3);
-        assert_eq!(attr.default_value(), Value::Float3(Vec3::ONE));
+        assert_eq!(
+            attr.value_type(),
+            ValueType::Vector(VectorType {
+                elem_type: ScalarType::Float,
+                count: 3
+            })
+        );
+        assert_eq!(
+            attr.default_value(),
+            Value::Vector(VectorValue::new_vec3(Vec3::ONE))
+        );
     }
 
     #[test]
@@ -1029,7 +1339,10 @@ mod tests {
         for attr in Attribute::ALL {
             let s: String = attr.name().into();
             let r = s.as_reflect();
-            let r_attr = Attribute::from_reflect(r).expect("Cannot find attribute by name");
+            let r_attr = Attribute::from_reflect(r).expect(
+                "Cannot find
+    attribute by name",
+            );
             assert_eq!(r_attr, attr);
         }
 
@@ -1043,7 +1356,7 @@ mod tests {
     fn attr_serde() {
         // All existing attributes can round-trip via serialization
         for attr in Attribute::ALL {
-            // Serialize; this produces just the name of the attribute, which uniquely
+            // Serialize; this produces just the name of the attribute, which    uniquely
             // identifies it. The default value is never serialized.
             let ron = ron::to_string(&attr).unwrap();
             assert_eq!(ron, format!("\"{}\"", attr.name()));
@@ -1059,20 +1372,34 @@ mod tests {
         assert!(ron::from_str::<Attribute>("\"UNKNOWN\"").is_err());
     }
 
-    const F1_INNER: &AttributeInner = &AttributeInner::new(Cow::Borrowed("F1"), Value::Float(3.));
-    const F1B_INNER: &AttributeInner = &AttributeInner::new(Cow::Borrowed("F1B"), Value::Float(5.));
-    const F2_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F2"), Value::Float2(Vec2::ZERO));
-    const F2B_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F2B"), Value::Float2(Vec2::ONE));
-    const F3_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F3"), Value::Float3(Vec3::ZERO));
-    const F3B_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F3B"), Value::Float3(Vec3::ONE));
-    const F4_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F4"), Value::Float4(Vec4::ZERO));
-    const F4B_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
+    const F1_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F1"), Value::Scalar(ScalarValue::Float(3.)));
+    const F1B_INNER: &AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("F1B"), Value::Scalar(ScalarValue::Float(5.)));
+    const F2_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F2"),
+        Value::Vector(VectorValue::new_vec2(Vec2::ZERO)),
+    );
+    const F2B_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F2B"),
+        Value::Vector(VectorValue::new_vec2(Vec2::ONE)),
+    );
+    const F3_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F3"),
+        Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
+    );
+    const F3B_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F3B"),
+        Value::Vector(VectorValue::new_vec3(Vec3::ONE)),
+    );
+    const F4_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ZERO)),
+    );
+    const F4B_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4B"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
+    );
 
     const F1: Attribute = Attribute(F1_INNER);
     const F1B: Attribute = Attribute(F1B_INNER);

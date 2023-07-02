@@ -65,13 +65,21 @@ fn setup(
     gradient.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.0, 0.0, 1.0, 0.0));
 
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let accel = writer.lit(Vec3::Y * 5.).expr();
+    let update_accel = AccelModifier::new(accel);
+
     let effect = effects.add(
-        EffectAsset {
-            name: "emit:burst".to_string(),
-            capacity: 32768,
-            spawner: Spawner::burst(Value::Uniform((1., 100.)), Value::Uniform((1., 4.))),
-            ..Default::default()
-        }
+        EffectAsset::new(
+            32768,
+            Spawner::burst(Value::Uniform((1., 100.)), Value::Uniform((1., 4.))),
+            writer.finish(),
+        )
+        .with_name("emit:burst")
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
@@ -81,10 +89,8 @@ fn setup(
             center: Vec3::ZERO,
             speed: 2.0.into(),
         })
-        .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
-        })
-        .update(AccelModifier::constant(Vec3::new(0., 5., 0.)))
+        .init(init_lifetime)
+        .update(update_accel)
         .render(ColorOverLifetimeModifier { gradient }),
     );
 

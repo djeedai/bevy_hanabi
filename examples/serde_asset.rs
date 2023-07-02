@@ -59,42 +59,43 @@ fn setup(
             assert!(metadata.is_file());
             asset_server.load(PATH)
         }
-        Err(_) => effects.add(
-            EffectAsset {
-                name: "💾".to_owned(),
-                capacity: 32768,
-                spawner: Spawner::rate(48.0.into()),
-                ..Default::default()
-            }
-            .init(InitPositionSphereModifier {
-                center: Vec3::ZERO,
-                radius: 1.,
-                dimension: ShapeDimension::Volume,
-            })
-            .init(InitAttributeModifier {
-                attribute: Attribute::VELOCITY,
-                value: ValueOrProperty::Value((Vec3::Y * 2.).into()),
-            })
-            .init(InitLifetimeModifier {
-                lifetime: 0.9.into(),
-            })
-            .render(ParticleTextureModifier {
-                // Need to supply a handle and a path in order to save it later.
-                texture: AssetHandle::new(asset_server.load("cloud.png"), "cloud.png"),
-            })
-            .render(SetColorModifier {
-                color: COLOR.into(),
-            })
-            .render(SizeOverLifetimeModifier {
-                gradient: {
-                    let mut gradient = Gradient::new();
-                    gradient.add_key(0.0, Vec2::splat(0.1));
-                    gradient.add_key(0.1, Vec2::splat(1.0));
-                    gradient.add_key(1.0, Vec2::splat(0.01));
-                    gradient
-                },
-            }),
-        ),
+        Err(_) => {
+            let writer = ExprWriter::new();
+
+            let lifetime = writer.lit(0.9).expr();
+            let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+            let velocity = writer.lit(Vec3::Y * 2.).expr();
+            let init_velocity = InitAttributeModifier::new(Attribute::VELOCITY, velocity);
+
+            effects.add(
+                EffectAsset::new(32768, Spawner::rate(48.0.into()), writer.finish())
+                    .with_name("💾")
+                    .init(InitPositionSphereModifier {
+                        center: Vec3::ZERO,
+                        radius: 1.,
+                        dimension: ShapeDimension::Volume,
+                    })
+                    .init(init_velocity)
+                    .init(init_lifetime)
+                    .render(ParticleTextureModifier {
+                        // Need to supply a handle and a path in order to save it later.
+                        texture: AssetHandle::new(asset_server.load("cloud.png"), "cloud.png"),
+                    })
+                    .render(SetColorModifier {
+                        color: COLOR.into(),
+                    })
+                    .render(SizeOverLifetimeModifier {
+                        gradient: {
+                            let mut gradient = Gradient::new();
+                            gradient.add_key(0.0, Vec2::splat(0.1));
+                            gradient.add_key(0.1, Vec2::splat(1.0));
+                            gradient.add_key(1.0, Vec2::splat(0.01));
+                            gradient
+                        },
+                    }),
+            )
+        }
     };
 
     spawn_effect(&mut commands, effect);
