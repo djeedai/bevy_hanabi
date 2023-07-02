@@ -39,10 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `center` and `half_size` fields are now `ExprHandle`.
 - `Property::new()` takes a `default_value` argument as `impl Into<Value>` instead of `Value`. This should make it easier to call, without requiring any change to existing code.
 - `PropertyLayout::new()` takes an `iter` argument as `impl IntoIterator` instead of `impl Iterator`. This should make it easier to call, without requiring any change to existing code.
+- All `ParticleEffect`s are now compiled into a `CompiledParticleEffect` as soon as Hanabi detects they were spawned (generally, same frame), irrespective of whether they are visible or not. Previously only effects with `Visibility::Visible` where compiled, causing inconsistencies and panics when the effect was made visible later.
 
 ### Removed
 
 - The `InitAgeModifier` and `InitLifetimeModifier` were deleted. They're replaced with the more generic `InitAttributeModifier` which can initialize any attribute of the particle.
+
+### Fixed
+
+- Fixed a bug where a `ParticleEffect` spawned hidden (with `Visibility::Hidden`) would make Hanabi panic when made visible. Effects are now always compiled as soon as spawned. (#182)
 
 ## [0.6.2] 2023-06-10
 

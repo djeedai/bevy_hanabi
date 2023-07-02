@@ -542,7 +542,7 @@ impl ParticleEffect {
     }
 }
 
-/// Compiled variant of a [`ParticleEffect`].
+/// Compiled data for a [`ParticleEffect`].
 ///
 /// This component is managed automatically, and generally should not be
 /// accessed manually, with the exception of setting property values via
@@ -556,6 +556,11 @@ impl ParticleEffect {
 /// The component also contains the current values of all properties. Those
 /// values are uploaded to the GPU each frame, to allow controling some
 /// behaviors of the effect.
+///
+/// All [`ParticleEffect`]s are compiled by the system running in the
+/// [`EffectSystems::CompileEffects`] set every frame when they're spawned or
+/// when they change, irrelevant of whether the entity if visible
+/// ([`Visibility::Visible`]).
 ///
 /// [`set_property()`]: crate::CompiledParticleEffect::set_property
 #[derive(Debug, Clone, Component)]
@@ -614,6 +619,15 @@ impl CompiledParticleEffect {
         shaders: &mut ResMut<Assets<Shader>>,
         shader_cache: &mut ResMut<ShaderCache>,
     ) {
+        trace!(
+            "Updating (rebuild:{}) compiled particle effect '{}' ({:?})",
+            rebuild,
+            asset.name,
+            weak_handle
+        );
+
+        debug_assert!(weak_handle.is_weak());
+        debug_assert!(self.asset != weak_handle);
         self.asset = weak_handle;
         self.simulation_condition = asset.simulation_condition;
 
@@ -1089,49 +1103,38 @@ fn compile_effects(
     effects: Res<Assets<EffectAsset>>,
     mut shaders: ResMut<Assets<Shader>>,
     mut shader_cache: ResMut<ShaderCache>,
-    mut q_always: Query<
-        (Entity, Ref<ParticleEffect>, &mut CompiledParticleEffect),
-        Without<ComputedVisibility>,
-    >,
-    mut q_when_visible: Query<(
-        Entity,
-        &ComputedVisibility,
-        Ref<ParticleEffect>,
-        &mut CompiledParticleEffect,
-    )>,
+    mut q_effects: Query<(Entity, Ref<ParticleEffect>, &mut CompiledParticleEffect)>,
 ) {
     trace!("compile_effects");
 
-    // Loop over all existing effects to update them:
-    // - Always-simulated effects with an available asset;
-    // - Other effects with and available asset only when visible.
-    for (asset, entity, effect, mut compiled_effect) in q_always
-        .iter_mut()
-        .filter_map(|(entity, effect, compiled_effect)| {
-            // Check if asset is available, otherwise silently ignore as we can't check for
-            // changes, and conceptually it makes no sense to render a particle effect whose
-            // asset was unloaded.
-            let Some(asset) = effects.get(&effect.handle) else { return None; };
-
-            Some((asset, entity, effect, compiled_effect))
-        })
-        .chain(q_when_visible.iter_mut().filter_map(
-            |(entity, computed_visibility, effect, compiled_effect)| {
+    // Loop over all existing effects to update them, including invisible ones. We
+    // always compile all effects when they change, to allow users to compile "in
+    // the background" by spawning a hidden effect. This also prevent having mixed
+    // state where only some effects are compiled, and effects becoming visible
+    // later need to be special-cased.
+    for (asset, entity, effect, mut compiled_effect) in
+        q_effects
+            .iter_mut()
+            .filter_map(|(entity, effect, compiled_effect)| {
                 // Check if asset is available, otherwise silently ignore as we can't check for
                 // changes, and conceptually it makes no sense to render a particle effect whose
                 // asset was unloaded.
                 let Some(asset) = effects.get(&effect.handle) else { return None; };
 
-                if asset.simulation_condition == SimulationCondition::WhenVisible
-                    && !computed_visibility.is_visible()
-                {
-                    return None;
-                }
-
                 Some((asset, entity, effect, compiled_effect))
-            },
-        ))
+            })
     {
+        // If the ParticleEffect didn't change, and the compiled one is for the correct
+        // asset, then there's nothing to do.
+        let need_rebuild = effect.is_changed();
+        if !need_rebuild && (compiled_effect.asset == effect.handle) {
+            continue;
+        }
+
+        if need_rebuild {
+            debug!("Invalidating the compiled cache for effect on entity {:?} due to changes in the ParticleEffect component. If you see this message too much, then performance might be affected. Find why the change detection of the ParticleEffect is triggered.", entity);
+        }
+
         #[cfg(feature = "2d")]
         let z_layer_2d = effect
             .z_layer_2d
@@ -1139,11 +1142,6 @@ fn compile_effects(
                 FloatOrd(z_layer_2d)
             });
 
-        // Update the compiled effect
-        let need_rebuild = effect.is_changed();
-        if need_rebuild {
-            debug!("Invalidating the compiled cache for effect on entity {:?} due to changes in the ParticleEffect component. If you see this message too much, then performance might be affected. Find why the change detection of the ParticleEffect is triggered.", entity);
-        }
         compiled_effect.update(
             need_rebuild,
             &effect.properties,
@@ -1448,21 +1446,27 @@ else { return c1; }
                     test_visibility == Visibility::Visible
                 );
                 assert_eq!(particle_effect.handle, handle);
-                if computed_visibility.is_visible() {
-                    // If visible, `compile_effects()` updates the CompiledParticleEffect
-                    assert_eq!(compiled_particle_effect.asset, handle);
-                    assert!(compiled_particle_effect.asset.is_weak());
-                    assert!(compiled_particle_effect.configured_init_shader.is_some());
-                    assert!(compiled_particle_effect.configured_update_shader.is_some());
-                    assert!(compiled_particle_effect.configured_render_shader.is_some());
+
+                // `compile_effects()` always updates the CompiledParticleEffect of new effects,
+                // even if hidden
+                assert_eq!(compiled_particle_effect.asset, handle);
+                assert!(compiled_particle_effect.asset.is_weak());
+                assert!(compiled_particle_effect.configured_init_shader.is_some());
+                assert!(compiled_particle_effect.configured_update_shader.is_some());
+                assert!(compiled_particle_effect.configured_render_shader.is_some());
+
+                // Toggle visibility and tick once more; this shouldn't panic (regression; #182)
+                let (mut visibility, _) = world
+                    .query::<(&mut Visibility, &ParticleEffect)>()
+                    .iter_mut(world)
+                    .next()
+                    .unwrap();
+                if *visibility == Visibility::Visible {
+                    *visibility = Visibility::Hidden;
                 } else {
-                    // If not visible, `compile_effects()` skips the effect entirely so won't update
-                    // the CompiledParticleEffect
-                    assert_ne!(compiled_particle_effect.asset, handle);
-                    assert!(compiled_particle_effect.configured_init_shader.is_none());
-                    assert!(compiled_particle_effect.configured_update_shader.is_none());
-                    assert!(compiled_particle_effect.configured_render_shader.is_none());
+                    *visibility = Visibility::Visible;
                 }
+                app.update();
             } else {
                 // Always-simulated effect (SimulationCondition::Always)
 
