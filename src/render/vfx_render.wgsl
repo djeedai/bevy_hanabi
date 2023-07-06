@@ -1,3 +1,11 @@
+
+struct ColorGrading {
+    exposure: f32,
+    gamma: f32,
+    pre_saturation: f32,
+    post_saturation: f32,
+}
+
 struct View {
     view_proj: mat4x4<f32>,
     inverse_view_proj: mat4x4<f32>,
@@ -6,9 +14,10 @@ struct View {
     projection: mat4x4<f32>,
     inverse_projection: mat4x4<f32>,
     world_position: vec3<f32>,
-    width: f32,
-    height: f32,
-};
+    // viewport(x_origin, y_origin, width, height)
+    viewport: vec4<f32>,
+    color_grading: ColorGrading,
+}
 
 struct Particle {
 {{ATTRIBUTES}}
@@ -137,11 +146,18 @@ fn vertex(
 
 {{VERTEX_MODIFIERS}}
 
+#ifdef PARTICLE_SCREEN_SPACE_SIZE
+    let half_screen = view.viewport.zw / 2.;
+    let vpos = vertex_position * vec3<f32>(size.x / half_screen.x, size.y / half_screen.y, 1.0);
+    out.position = view.view_proj * vec4<f32>(particle.position, 1.0) + vec4<f32>(vpos, 0.0);
+#else
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
     let world_position = particle.position
         + axis_x * vpos.x
         + axis_y * vpos.y;
     out.position = view.view_proj * vec4<f32>(world_position, 1.0);
+#endif
+
     out.color = color;
 
     return out;

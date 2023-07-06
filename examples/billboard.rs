@@ -90,6 +90,7 @@ fn setup(
             .render(ColorOverLifetimeModifier { gradient })
             .render(SizeOverLifetimeModifier {
                 gradient: Gradient::constant([0.2; 2].into()),
+                screen_space_size: false,
             }),
     );
 

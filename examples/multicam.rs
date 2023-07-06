@@ -72,6 +72,7 @@ fn make_effect(color: Color) -> EffectAsset {
         })
         .render(SizeOverLifetimeModifier {
             gradient: size_gradient.clone(),
+            screen_space_size: false,
         })
         .render(BillboardModifier)
 }

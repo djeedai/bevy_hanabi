@@ -130,3 +130,5 @@ Note that previously a common pattern was to create modifiers inline while build
 - Same kind of conversions for `graph::ValueType`.
 
 - Rename `SimParams::dt` into `SimParams::delta_time`, and any shader use of `dt` into `delta_time`.
+
+- Add an extra `screen_space_size = false` field to the `SetSizeModifier` and `SizeOverLifetimeModifier`.

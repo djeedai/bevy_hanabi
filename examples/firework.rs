@@ -110,6 +110,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     })
     .render(SizeOverLifetimeModifier {
         gradient: size_gradient1,
+        screen_space_size: false,
     });
 
     let effect1 = effects.add(effect);

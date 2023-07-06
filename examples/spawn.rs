@@ -122,6 +122,7 @@ fn setup(
             })
             .render(SizeOverLifetimeModifier {
                 gradient: size_gradient1,
+                screen_space_size: false,
             }),
     );
 

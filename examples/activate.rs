@@ -117,6 +117,7 @@ fn setup(
             .init(init_lifetime)
             .render(SizeOverLifetimeModifier {
                 gradient: Gradient::constant(Vec2::splat(0.02)),
+                screen_space_size: false,
             })
             .render(ColorOverLifetimeModifier { gradient }),
     );
