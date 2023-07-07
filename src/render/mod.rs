@@ -725,7 +725,7 @@ impl FromWorld for ParticlesRenderPipeline {
         let view_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             entries: &[BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: true,
@@ -784,6 +784,12 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// This key requires the presence of UV coordinates on the particle
     /// vertices.
     has_image: bool,
+    /// Key: PARTICLE_SCREEN_SPACE_SIZE
+    /// The particle size is expressed in screen space. The particle has a
+    /// constant size on screen (in logical pixels) which is not influenced by
+    /// the camera projection (and so, not influenced by the distance to the
+    /// camera).
+    screen_space_size: bool,
     /// For dual-mode configurations only, the actual mode of the current render
     /// pipeline. Otherwise the mode is implicitly determined by the active
     /// feature.
@@ -801,6 +807,7 @@ impl Default for ParticleRenderPipelineKey {
             shader: Handle::weak(HandleId::new(Uuid::nil(), u64::MAX)),
             particle_layout: ParticleLayout::empty(),
             has_image: false,
+            screen_space_size: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
             msaa_samples: Msaa::default().samples(),
@@ -907,6 +914,11 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             //     shader_location: 1,
             // });
             // vertex_buffer_layout.array_stride += 8;
+        }
+
+        // Key: PARTICLE_SCREEN_SPACE_SIZE
+        if key.screen_space_size {
+            shader_defs.push("PARTICLE_SCREEN_SPACE_SIZE".into());
         }
 
         #[cfg(all(feature = "2d", feature = "3d"))]
@@ -1016,6 +1028,7 @@ pub(crate) struct ExtractedEffect {
     // Texture to use for the sprites of the particles of this effect.
     // pub image: Handle<Image>,
     pub has_image: bool, // TODO -> use flags
+    pub screen_space_size: bool,
     /// Texture to modulate the particle color.
     pub image_handle_id: HandleId,
     /// Init shader.
@@ -1226,16 +1239,19 @@ pub(crate) fn extract_effects(
             .unwrap_or(Handle::<Image>::default())
             .id();
 
+        let screen_space_size = effect.screen_space_size;
+
         // TODO - Change detection and diff/caching to minimize CPU->GPU data transfer
         let property_layout = asset.property_layout().clone();
         let property_data = effect.write_properties(&property_layout);
 
         trace!(
-            "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?} has_image={}",
+            "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?} has_image={} screen_space_size={}",
             asset.name,
             entity,
             image_handle_id,
-            effect.particle_texture.is_some()
+            effect.particle_texture.is_some(),
+            screen_space_size
         );
 
         extracted_effects.effects.insert(
@@ -1249,6 +1265,7 @@ pub(crate) fn extract_effects(
                 transform: transform.compute_matrix(),
                 force_field,
                 has_image: effect.particle_texture.is_some(),
+                screen_space_size,
                 image_handle_id,
                 init_shader,
                 update_shader,
@@ -1571,6 +1588,7 @@ bitflags! {
     struct LayoutFlags: u32 {
         const NONE = 0;
         const PARTICLE_TEXTURE = 0b00000001;
+        const SCREEN_SPACE_SIZE = 0b00000010;
     }
 }
 
@@ -1731,31 +1749,35 @@ pub(crate) fn prepare_effects(
     {
         let buffer_index = slice.group_index;
         let range = slice.slice;
-        layout_flags = if extracted_effect.has_image {
-            LayoutFlags::PARTICLE_TEXTURE
-        } else {
-            LayoutFlags::NONE
-        };
+        let mut this_layout_flags = LayoutFlags::NONE;
+        if extracted_effect.has_image {
+            this_layout_flags |= LayoutFlags::PARTICLE_TEXTURE;
+        }
+        if extracted_effect.screen_space_size {
+            this_layout_flags |= LayoutFlags::SCREEN_SPACE_SIZE;
+        }
         trace!("Effect: buffer #{} | range {:?}", buffer_index, range);
 
         #[cfg(feature = "2d")]
-        let is_compatible = current_buffer_index != buffer_index
+        let is_incompatible = current_buffer_index != buffer_index
             || z_sort_key_2d != extracted_effect.z_sort_key_2d
             || particle_layout != extracted_effect.particle_layout
             || property_layout != extracted_effect.property_layout
-            || init_shader != extracted_effect.init_shader;
+            || init_shader != extracted_effect.init_shader
+            || this_layout_flags != layout_flags;
 
         #[cfg(not(feature = "2d"))]
-        let is_compatible = current_buffer_index != buffer_index
+        let is_incompatible = current_buffer_index != buffer_index
             || particle_layout != extracted_effect.particle_layout
             || property_layout != extracted_effect.property_layout
-            || init_shader != extracted_effect.init_shader;
+            || init_shader != extracted_effect.init_shader
+            || this_layout_flags != layout_flags;
 
         // Check the buffer the effect is in
         assert!(buffer_index >= current_buffer_index || current_buffer_index == u32::MAX);
         // FIXME - This breaks batches in 3D even though the Z sort key is only for 2D.
         // Do we need separate batches for 2D and 3D? :'(
-        if is_compatible {
+        if is_incompatible {
             if current_buffer_index != buffer_index {
                 trace!(
                     "+ New buffer! ({} -> {})",
@@ -1868,6 +1890,9 @@ pub(crate) fn prepare_effects(
 
         image_handle_id = extracted_effect.image_handle_id;
         trace!("image_handle_id = {:?}", image_handle_id);
+
+        layout_flags = this_layout_flags;
+        trace!("layout_flags = {:?}", layout_flags);
 
         trace!("particle_layout = {:?}", slice.particle_layout);
 
@@ -2478,11 +2503,14 @@ pub(crate) fn queue_effects(
                     }
                 }
 
+                let screen_space_size = batch.layout_flags.contains(LayoutFlags::SCREEN_SPACE_SIZE);
+
                 // Specialize the render pipeline based on the effect batch
                 trace!(
-                    "Specializing render pipeline: render_shader={:?} has_image={:?} hdr={}",
+                    "Specializing render pipeline: render_shader={:?} has_image={:?} screen_space_size={:?} hdr={}",
                     batch.render_shader,
                     has_image,
+                    screen_space_size,
                     view.hdr
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2492,6 +2520,7 @@ pub(crate) fn queue_effects(
                         shader: batch.render_shader.clone(),
                         particle_layout: batch.particle_layout.clone(),
                         has_image,
+                        screen_space_size,
                         #[cfg(feature = "3d")]
                         pipeline_mode: PipelineMode::Camera2d,
                         msaa_samples: msaa.samples(),
@@ -2611,11 +2640,14 @@ pub(crate) fn queue_effects(
                     }
                 }
 
+                let screen_space_size = batch.layout_flags.contains(LayoutFlags::SCREEN_SPACE_SIZE);
+
                 // Specialize the render pipeline based on the effect batch
                 trace!(
-                    "Specializing render pipeline: render_shader={:?} has_image={:?} hdr={}",
+                    "Specializing render pipeline: render_shader={:?} has_image={} screen_space_size={} hdr={}",
                     batch.render_shader,
                     has_image,
+                    screen_space_size,
                     view.hdr
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2625,6 +2657,7 @@ pub(crate) fn queue_effects(
                         shader: batch.render_shader.clone(),
                         particle_layout: batch.particle_layout.clone(),
                         has_image,
+                        screen_space_size,
                         #[cfg(feature = "2d")]
                         pipeline_mode: PipelineMode::Camera3d,
                         msaa_samples: msaa.samples(),

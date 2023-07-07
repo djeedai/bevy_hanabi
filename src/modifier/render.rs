@@ -28,6 +28,10 @@ pub struct RenderContext {
     pub gradients: HashMap<u64, Gradient<Vec4>>,
     /// Size gradients.
     pub size_gradients: HashMap<u64, Gradient<Vec2>>,
+    /// Are particles using a fixed screen-space size (in logical pixels)? If
+    /// `true` then the particle size is not affected by the camera projection,
+    /// and in particular by the distance to the camera.
+    pub screen_space_size: bool,
 }
 
 impl RenderContext {
@@ -228,6 +232,10 @@ impl RenderModifier for ColorOverLifetimeModifier {
 pub struct SetSizeModifier {
     /// The particle color.
     pub size: Value<Vec2>,
+    /// Is the particle size in screen-space logical pixel? If `true`, the size
+    /// is in screen-space logical pixels, and not affected by the camera
+    /// projection. If `false`, the particle size is in world units.
+    pub screen_space_size: bool,
 }
 
 // TODO - impl Hash for Value<T>
@@ -257,6 +265,7 @@ impl_mod_render!(SetSizeModifier, &[]);
 impl RenderModifier for SetSizeModifier {
     fn apply(&self, context: &mut RenderContext) {
         context.vertex_code += &format!("size = {0};\n", self.size.to_wgsl_string());
+        context.screen_space_size = self.screen_space_size;
     }
 }
 
@@ -272,6 +281,10 @@ impl RenderModifier for SetSizeModifier {
 pub struct SizeOverLifetimeModifier {
     /// The size gradient defining the particle size based on its lifetime.
     pub gradient: Gradient<Vec2>,
+    /// Is the particle size in screen-space logical pixel? If `true`, the size
+    /// is in screen-space logical pixels, and not affected by the camera
+    /// projection. If `false`, the particle size is in world units.
+    pub screen_space_size: bool,
 }
 
 impl_mod_render!(
@@ -299,6 +312,8 @@ impl RenderModifier for SizeOverLifetimeModifier {
             Attribute::AGE.name(),
             Attribute::LIFETIME.name()
         );
+
+        context.screen_space_size = self.screen_space_size;
     }
 }
 
@@ -399,6 +414,7 @@ mod tests {
         gradient.add_key(0.8, y);
         let modifier = SizeOverLifetimeModifier {
             gradient: gradient.clone(),
+            screen_space_size: false,
         };
 
         let mut context = RenderContext::default();

@@ -198,6 +198,7 @@ fn setup(
             .update(deny_zone)
             .render(SizeOverLifetimeModifier {
                 gradient: Gradient::constant(Vec2::splat(0.05)),
+                screen_space_size: false,
             })
             .render(ColorOverLifetimeModifier { gradient }),
     );

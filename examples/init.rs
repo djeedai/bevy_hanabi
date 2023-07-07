@@ -60,7 +60,10 @@ fn base_effect(name: impl Into<String>) -> EffectAsset {
         .render(SetColorModifier {
             color: COLOR.into(),
         })
-        .render(SetSizeModifier { size: SIZE.into() })
+        .render(SetSizeModifier {
+            size: SIZE.into(),
+            screen_space_size: false,
+        })
 }
 
 fn spawn_effect(

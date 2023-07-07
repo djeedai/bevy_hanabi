@@ -96,6 +96,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             })
             .render(SizeOverLifetimeModifier {
                 gradient: size_gradient,
+                screen_space_size: false,
             })
             .render(OrientAlongVelocityModifier),
     );

@@ -588,6 +588,8 @@ pub struct CompiledParticleEffect {
     /// 2D layer for the effect instance.
     #[cfg(feature = "2d")]
     z_layer_2d: FloatOrd,
+    /// Is the particle size in screen-space logical pixels?
+    screen_space_size: bool,
 }
 
 impl Default for CompiledParticleEffect {
@@ -603,6 +605,7 @@ impl Default for CompiledParticleEffect {
             particle_texture: None,
             #[cfg(feature = "2d")]
             z_layer_2d: FloatOrd(0.0),
+            screen_space_size: false,
         }
     }
 }
@@ -839,6 +842,8 @@ impl CompiledParticleEffect {
             m.apply(&mut render_context);
         }
 
+        self.screen_space_size = render_context.screen_space_size;
+
         // Configure aging code
         let has_age = present_attributes.contains(&Attribute::AGE);
         let has_lifetime = present_attributes.contains(&Attribute::LIFETIME);
@@ -911,15 +916,12 @@ impl CompiledParticleEffect {
         trace!("Configured render shader:\n{}", render_shader_source);
 
         trace!(
-            "tick_spawners: init_shader={:?} update_shader={:?} render_shader={:?} has_image={}",
+            "tick_spawners: init_shader={:?} update_shader={:?} render_shader={:?} has_image={} screen_space_size={}",
             init_shader,
             update_shader,
             render_shader,
-            if render_context.particle_texture.is_some() {
-                "Y"
-            } else {
-                "N"
-            },
+            render_context.particle_texture.is_some(),
+            self.screen_space_size
         );
 
         // TODO - Replace with Option<ConfiguredShader { handle: Handle<Shader>, hash:

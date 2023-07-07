@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added new `EvalContext` trait representing the evaluation context of an expression, and giving access to the underlying expression `Module`
   and the property layout of the efect. The trait is implemented by `InitContext` and `UpdateContext`.
 - Added convenience method `PropertyLayout::contains()` to determine if a layout contains a property by name.
+- Added `SetSizeModifier::screen_space_size` and `SizeOverLifetimeModifier::screen_space_size` boolean fields which change the behavior of the particle size to be expressed in screen-space logical pixels, independently of the camera projection. This enables creating particle effect with constant pixel size. Set `screen_space_size = false` to get the previous behavior.
 
 ### Changed
 

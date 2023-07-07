@@ -123,8 +123,11 @@ fn setup(
             })
             .init(init_lifetime)
             .init(init_color)
+            // Set a size of 3->10 (logical) pixels, constant in screen space, independent of
+            // projection, but varying over the lifetime of the particle.
             .render(SizeOverLifetimeModifier {
-                gradient: Gradient::linear(Vec2::splat(0.02), Vec2::splat(0.04)),
+                gradient: Gradient::linear(Vec2::splat(3.), Vec2::splat(10.)),
+                screen_space_size: true,
             }),
     );
 
