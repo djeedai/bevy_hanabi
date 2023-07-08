@@ -76,35 +76,35 @@ fn setup(
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.5, 0.5, 1.0, 0.0));
 
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
     // Create a new effect asset spawning 30 particles per second from a circle
     // and slowly fading from blue-ish to transparent over their lifetime.
     // By default the asset spawns the particles at Z=0.
     let spawner = Spawner::rate(30.0.into());
     let effect = effects.add(
-        EffectAsset {
-            name: "Effect".into(),
-            capacity: 4096,
-            spawner,
-            ..Default::default()
-        }
-        .init(InitPositionCircleModifier {
-            center: Vec3::ZERO,
-            axis: Vec3::Z,
-            radius: 0.05,
-            dimension: ShapeDimension::Surface,
-        })
-        .init(InitVelocityCircleModifier {
-            center: Vec3::ZERO,
-            axis: Vec3::Z,
-            speed: 0.1.into(),
-        })
-        .init(InitLifetimeModifier {
-            lifetime: 5_f32.into(),
-        })
-        .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec2::splat(0.02)),
-        })
-        .render(ColorOverLifetimeModifier { gradient }),
+        EffectAsset::new(4096, spawner, writer.finish())
+            .with_name("2d")
+            .init(InitPositionCircleModifier {
+                center: Vec3::ZERO,
+                axis: Vec3::Z,
+                radius: 0.05,
+                dimension: ShapeDimension::Surface,
+            })
+            .init(InitVelocityCircleModifier {
+                center: Vec3::ZERO,
+                axis: Vec3::Z,
+                speed: 0.1.into(),
+            })
+            .init(init_lifetime)
+            .render(SizeOverLifetimeModifier {
+                gradient: Gradient::constant(Vec2::splat(0.02)),
+                screen_space_size: false,
+            })
+            .render(ColorOverLifetimeModifier { gradient }),
     );
 
     // Spawn an instance of the particle effect, and override its Z layer to

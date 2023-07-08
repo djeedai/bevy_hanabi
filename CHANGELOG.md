@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `Gradient::linear()` helper method to produce a linear gradient between two values at keys `0.` and `1.`.
+- `EffectAsset` now owns a `Module` field containing all the `Expr` used by the effect's modifiers.
+- Added `ScalarType`, `VectorType`, and `MatrixType` to reprensent a scalar, vector, or matrix type, respectively.
+- Added `ValueType::is_numeric()` as well as query methods to determine the kind of value type `is_scalar()` / `is_vector()` / `is_matrix()`.
+- Added new Expression API: `Expr`, `ExprHandle`, `Module`, `ExprWriter`, `WriterExpr`.
+- Added new `EvalContext` trait representing the evaluation context of an expression, and giving access to the underlying expression `Module`
+  and the property layout of the efect. The trait is implemented by `InitContext` and `UpdateContext`.
+- Added convenience method `PropertyLayout::contains()` to determine if a layout contains a property by name.
+- Added `SetSizeModifier::screen_space_size` and `SizeOverLifetimeModifier::screen_space_size` boolean fields which change the behavior of the particle size to be expressed in screen-space logical pixels, independently of the camera projection. This enables creating particle effect with constant pixel size. Set `screen_space_size = false` to get the previous behavior.
+
+### Changed
+
+- `ValueType` is now one of `ScalarType` / `VectorType` / `MatrixType`, allowing to represent a wider range of types, including booleans and matrices.
+- `graph::Value` is now one of `ScalarValue` / `VectorValue` / `MatrixValue`, for consistency with `ValueType`.
+- `SimParams::dt` was renamed to `SimParams::delta_time` for readability. Inside shaders, `sim_params.dt` was also renamed to `sim_params.delta_time`.
+- `InitContext` and `UpdateContext` now hold a mutable reference to the underlying `Module` to allow modifiers to create new `Expr`,
+  and a read-only reference to the property layout of the effect.
+- `InitModifier::apply()` and `UpdateModifier::apply()` now return a `Result<(), ExprError>`.
+- The following modifiers changed to leverage the new Expression API:
+  - `InitAttributeModifier`:
+    - `value` field is now an `ExprHandle`.
+    - The modifier is `Copy`-able.
+  - `AccelModifier`:
+    - `accel` field is now an `ExprHandle`.
+    - The modifier is `Copy`-able.
+    - `AccelModifier::constant()` takes a `&mut Module` argument to create the literal expression assigned to the `accel` field.
+    - `AccelModifier::via_property()` takes a `&mut Module` argument to create the property expression assigned to the `accel` field.
+  - `LinearDragModifier`:
+    - `drag` field is now an `ExprHandle`.
+  - `AabbKillModifier`:
+    - `center` and `half_size` fields are now `ExprHandle`.
+- `Property::new()` takes a `default_value` argument as `impl Into<Value>` instead of `Value`. This should make it easier to call, without requiring any change to existing code.
+- `PropertyLayout::new()` takes an `iter` argument as `impl IntoIterator` instead of `impl Iterator`. This should make it easier to call, without requiring any change to existing code.
+- All `ParticleEffect`s are now compiled into a `CompiledParticleEffect` as soon as Hanabi detects they were spawned (generally, same frame), irrespective of whether they are visible or not. Previously only effects with `Visibility::Visible` where compiled, causing inconsistencies and panics when the effect was made visible later.
+
+### Removed
+
+- The `InitAgeModifier` and `InitLifetimeModifier` were deleted. They're replaced with the more generic `InitAttributeModifier` which can initialize any attribute of the particle.
+
+### Fixed
+
+- Fixed a bug where a `ParticleEffect` spawned hidden (with `Visibility::Hidden`) would make Hanabi panic when made visible. Effects are now always compiled as soon as spawned. (#182)
+
+## [0.6.2] 2023-06-10
+
+### Added
+
 - Added `SetColorModifier` to set a per-particle color on spawning, which doesn't vary during the particle's lifetime.
 - Added `SetSizeModifier` to set a per-particle size on spawning, which doesn't vary during the particle's lifetime.
 - Added `EffectAsset::motion_integration` to configure the type of motion integration of the particles of a system. Using this field, the user can now completely disable motion integration, or perform it _before_ the modifiers are applied. The default behavior remains to perform the motion integration _after_ all modifiers have been applied (`MotionIntegration::PostUpdate`).

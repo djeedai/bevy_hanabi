@@ -49,32 +49,35 @@ fn make_effect(color: Color) -> EffectAsset {
     color_gradient.add_key(0.4, Vec4::new(color.r(), color.g(), color.b(), 1.0));
     color_gradient.add_key(1.0, Vec4::splat(0.0));
 
-    EffectAsset {
-        name: "effect1".to_string(),
-        capacity: 32768,
-        spawner: Spawner::rate(5.0.into()),
-        ..Default::default()
-    }
-    .init(InitPositionSphereModifier {
-        center: Vec3::ZERO,
-        radius: 2.,
-        dimension: ShapeDimension::Surface,
-    })
-    .init(InitVelocitySphereModifier {
-        center: Vec3::ZERO,
-        speed: 6.0.into(),
-    })
-    .init(InitLifetimeModifier {
-        lifetime: 5_f32.into(),
-    })
-    .update(AccelModifier::constant(Vec3::new(0., -3., 0.)))
-    .render(ColorOverLifetimeModifier {
-        gradient: color_gradient,
-    })
-    .render(SizeOverLifetimeModifier {
-        gradient: size_gradient.clone(),
-    })
-    .render(BillboardModifier)
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let accel = writer.lit(Vec3::Y * -3.).expr();
+    let update_accel = AccelModifier::new(accel);
+
+    EffectAsset::new(32768, Spawner::rate(5.0.into()), writer.finish())
+        .with_name("effect1")
+        .init(InitPositionSphereModifier {
+            center: Vec3::ZERO,
+            radius: 2.,
+            dimension: ShapeDimension::Surface,
+        })
+        .init(InitVelocitySphereModifier {
+            center: Vec3::ZERO,
+            speed: 6.0.into(),
+        })
+        .init(init_lifetime)
+        .update(update_accel)
+        .render(ColorOverLifetimeModifier {
+            gradient: color_gradient,
+        })
+        .render(SizeOverLifetimeModifier {
+            gradient: size_gradient.clone(),
+            screen_space_size: false,
+        })
+        .render(BillboardModifier)
 }
 
 fn setup(

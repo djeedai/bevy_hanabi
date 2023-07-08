@@ -383,7 +383,7 @@ mod gpu_tests {
         queue.on_submitted_work_done(move || {
             tx.send(()).unwrap();
         });
-        let _ = futures::executor::block_on(async { rx.await });
+        let _ = futures::executor::block_on(rx);
         println!("Buffer written");
 
         // Read back (GPU -> CPU)
@@ -395,7 +395,7 @@ mod gpu_tests {
             tx.send(result).unwrap();
         });
         device.poll(wgpu::Maintain::Wait);
-        let _result = futures::executor::block_on(async { rx.await });
+        let _result = futures::executor::block_on(rx);
         let view = buffer.get_mapped_range();
 
         // Validate content

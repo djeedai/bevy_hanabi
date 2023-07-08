@@ -3,6 +3,7 @@ echo Run all examples
 REM 3D
 cargo r --example firework --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 cargo r --example portal --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
+cargo r --example expr --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 cargo r --example spawn --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 cargo r --example multicam --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 cargo r --example visibility --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"

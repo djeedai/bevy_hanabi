@@ -67,41 +67,54 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     size_gradient1.add_key(0.3, Vec2::splat(0.1));
     size_gradient1.add_key(1.0, Vec2::splat(0.0));
 
-    let effect1 = effects.add(
-        EffectAsset {
-            name: "firework".to_string(),
-            capacity: 32768,
-            spawner: Spawner::burst(2500.0.into(), 2.0.into()),
-            ..Default::default()
-        }
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 2.,
-            dimension: ShapeDimension::Volume,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            // Give a bit of variation by randomizing the initial speed
-            speed: Value::Uniform((65., 75.)),
-        })
-        .init(InitLifetimeModifier {
-            // Give a bit of variation by randomizing the lifetime per particle
-            lifetime: Value::Uniform((0.8, 1.2)),
-        })
-        .init(InitAgeModifier {
-            // Give a bit of variation by randomizing the age per particle. This will control the
-            // starting color and starting size of particles.
-            age: Value::Uniform((0.0, 0.2)),
-        })
-        .update(LinearDragModifier { drag: 5. })
-        .update(AccelModifier::constant(Vec3::new(0., -8., 0.)))
-        .render(ColorOverLifetimeModifier {
-            gradient: color_gradient1,
-        })
-        .render(SizeOverLifetimeModifier {
-            gradient: size_gradient1,
-        }),
-    );
+    let writer = ExprWriter::new();
+
+    // Give a bit of variation by randomizing the age per particle. This will
+    // control the starting color and starting size of particles.
+    let age = writer.lit(0.).uniform(writer.lit(0.2)).expr();
+    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+
+    // Give a bit of variation by randomizing the lifetime per particle
+    let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    // Add constant downward acceleration to simulate gravity
+    let accel = writer.lit(Vec3::Y * -8.).expr();
+    let update_accel = AccelModifier::new(accel);
+
+    // Add drag to make particles slow down a bit after the initial explosion
+    let drag = writer.lit(5.).expr();
+    let update_drag = LinearDragModifier::new(drag);
+
+    let effect = EffectAsset::new(
+        32768,
+        Spawner::burst(2500.0.into(), 2.0.into()),
+        writer.finish(),
+    )
+    .with_name("firework")
+    .init(InitPositionSphereModifier {
+        center: Vec3::ZERO,
+        radius: 2.,
+        dimension: ShapeDimension::Volume,
+    })
+    .init(InitVelocitySphereModifier {
+        center: Vec3::ZERO,
+        // Give a bit of variation by randomizing the initial speed
+        speed: Value::Uniform((65., 75.)),
+    })
+    .init(init_age)
+    .init(init_lifetime)
+    .update(update_drag)
+    .update(update_accel)
+    .render(ColorOverLifetimeModifier {
+        gradient: color_gradient1,
+    })
+    .render(SizeOverLifetimeModifier {
+        gradient: size_gradient1,
+        screen_space_size: false,
+    });
+
+    let effect1 = effects.add(effect);
 
     commands.spawn((
         Name::new("firework"),

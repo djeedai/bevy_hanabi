@@ -103,7 +103,7 @@ pub struct EffectBuffer {
     /// the buffer.
     free_slices: Vec<Range<u32>>,
     /// Compute pipeline for the effect update pass.
-    //pub compute_pipeline: ComputePipeline, // FIXME - ComputePipelineId, to avoid duplicating per
+    // pub compute_pipeline: ComputePipeline, // FIXME - ComputePipelineId, to avoid duplicating per
     // instance!
     /// Handle of all effects common in this buffer. TODO - replace with
     /// compatible layout.
@@ -122,7 +122,7 @@ impl EffectBuffer {
     // N, and inability for a particle index to tell which Spawner it should
     // use. Setting this to 1 effectively ensures that all new buffers just fit
     // the effect, so batching never occurs.
-    pub const MIN_CAPACITY: u32 = 1; //65536; // at least 64k particles
+    pub const MIN_CAPACITY: u32 = 1; // 65536; // at least 64k particles
 
     /// Create a new group and a GPU buffer to back it up.
     ///
@@ -135,7 +135,7 @@ impl EffectBuffer {
         capacity: u32,
         particle_layout: ParticleLayout,
         property_layout: PropertyLayout,
-        //compute_pipeline: ComputePipeline,
+        // compute_pipeline: ComputePipeline,
         render_device: &RenderDevice,
         label: Option<&str>,
     ) -> Self {
@@ -305,7 +305,7 @@ impl EffectBuffer {
             capacity,
             used_size: 0,
             free_slices: vec![],
-            //compute_pipeline,
+            // compute_pipeline,
             asset,
         }
     }
@@ -576,7 +576,7 @@ impl EffectCache {
         capacity: u32,
         particle_layout: &ParticleLayout,
         property_layout: &PropertyLayout,
-        //pipeline: ComputePipeline,
+        // pipeline: ComputePipeline,
         _queue: &RenderQueue,
     ) -> EffectCacheId {
         let (buffer_index, slice) = self
@@ -696,7 +696,11 @@ mod gpu_tests {
 
     use bevy::{asset::HandleId, math::Vec4};
 
-    use crate::{graph::Value, test_utils::MockRenderer, Attribute, AttributeInner};
+    use crate::{
+        graph::{Value, VectorValue},
+        test_utils::MockRenderer,
+        Attribute, AttributeInner,
+    };
 
     use super::*;
 
@@ -729,14 +733,22 @@ mod gpu_tests {
         assert!(slice2 > slice3);
     }
 
-    const F4A_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F4A"), Value::Float4(Vec4::ONE));
-    const F4B_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F4B"), Value::Float4(Vec4::ONE));
-    const F4C_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F4C"), Value::Float4(Vec4::ONE));
-    const F4D_INNER: &AttributeInner =
-        &AttributeInner::new(Cow::Borrowed("F4D"), Value::Float4(Vec4::ONE));
+    const F4A_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4A"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
+    );
+    const F4B_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4B"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
+    );
+    const F4C_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4C"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
+    );
+    const F4D_INNER: &AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("F4D"),
+        Value::Vector(VectorValue::new_vec4(Vec4::ONE)),
+    );
 
     const F4A: Attribute = Attribute(F4A_INNER);
     const F4B: Attribute = Attribute(F4B_INNER);
@@ -774,7 +786,7 @@ mod gpu_tests {
     fn effect_buffer() {
         let renderer = MockRenderer::new();
         let render_device = renderer.device();
-        //let render_queue = renderer.queue();
+        // let render_queue = renderer.queue();
 
         let l64 = ParticleLayout::new()
             .append(F4A)
@@ -848,7 +860,7 @@ mod gpu_tests {
     fn pop_free_slice() {
         let renderer = MockRenderer::new();
         let render_device = renderer.device();
-        //let render_queue = renderer.queue();
+        // let render_queue = renderer.queue();
 
         let l64 = ParticleLayout::new()
             .append(F4A)
@@ -859,7 +871,7 @@ mod gpu_tests {
         assert_eq!(64, l64.size());
 
         let asset = Handle::weak(HandleId::random::<EffectAsset>());
-        let capacity = 2048; //EffectBuffer::MIN_CAPACITY;
+        let capacity = 2048; // EffectBuffer::MIN_CAPACITY;
         assert!(capacity >= 2048); // otherwise the logic below breaks
         let mut buffer = EffectBuffer::new(
             asset,

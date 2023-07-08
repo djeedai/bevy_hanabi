@@ -605,18 +605,14 @@ mod test {
         tasks::IoTaskPool,
     };
 
-    use crate::test_utils::DummyAssetIo;
+    use crate::{test_utils::DummyAssetIo, Module};
 
     use super::*;
 
     /// Make an `EffectSpawner` wrapping a `Spawner`.
     fn make_effect_spawner(spawner: Spawner) -> EffectSpawner {
         EffectSpawner::new(
-            &EffectAsset {
-                capacity: 256,
-                spawner,
-                ..default()
-            },
+            &EffectAsset::new(256, spawner, Module::default()),
             &ParticleEffect::default(),
         )
     }
@@ -773,7 +769,7 @@ mod test {
 
         let mut app = App::new();
         app.insert_resource(asset_server);
-        //app.add_plugins(DefaultPlugins);
+        // app.add_plugins(DefaultPlugins);
         app.add_asset::<Mesh>();
         app.add_plugin(VisibilityPlugin);
         app.init_resource::<Time>();
@@ -837,16 +833,13 @@ mod test {
 
                 // Add effect asset
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
-                let handle = assets.add(EffectAsset {
-                    capacity: 64,
-                    spawner: test_case.asset_spawner,
-                    simulation_condition: if test_case.visibility.is_some() {
-                        SimulationCondition::WhenVisible
-                    } else {
-                        SimulationCondition::Always
-                    },
-                    ..default()
-                });
+                let mut asset = EffectAsset::new(64, test_case.asset_spawner, Module::default());
+                asset.simulation_condition = if test_case.visibility.is_some() {
+                    SimulationCondition::WhenVisible
+                } else {
+                    SimulationCondition::Always
+                };
+                let handle = assets.add(asset);
 
                 // Spawn particle effect
                 let entity = if let Some(visibility) = test_case.visibility {

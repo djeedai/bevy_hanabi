@@ -94,10 +94,10 @@ pub enum EffectSystems {
 /// Simulation parameters.
 #[derive(Debug, Default, Clone, Copy, Resource)]
 pub(crate) struct SimParams {
-    /// Current simulation time.
+    /// Current effect system simulation time since startup, in seconds.
     time: f64,
-    /// Frame timestep.
-    dt: f32,
+    /// Delta time, in seconds, since last effect system update.
+    delta_time: f32,
     /// Number of effects to dispatch, for vfx_dispatch.wgsl.
     num_effects: u32,
     /// Stride of RenderIndirect, for vfx_dispatch.wgsl.
@@ -110,7 +110,7 @@ pub(crate) struct SimParams {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable, ShaderType)]
 struct SimParamsUniform {
-    dt: f32,
+    delta_time: f32,
     time: f32,
     num_effects: u32,
     render_stride: u32,
@@ -120,7 +120,7 @@ struct SimParamsUniform {
 impl Default for SimParamsUniform {
     fn default() -> Self {
         Self {
-            dt: 0.04,
+            delta_time: 0.04,
             time: 0.0,
             num_effects: 0,
             render_stride: 0,   // invalid
@@ -132,7 +132,7 @@ impl Default for SimParamsUniform {
 impl From<SimParams> for SimParamsUniform {
     fn from(src: SimParams) -> Self {
         Self {
-            dt: src.dt,
+            delta_time: src.delta_time,
             time: src.time as f32,
             num_effects: src.num_effects,
             render_stride: src.render_stride,
@@ -725,7 +725,7 @@ impl FromWorld for ParticlesRenderPipeline {
         let view_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             entries: &[BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: true,
@@ -784,6 +784,12 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// This key requires the presence of UV coordinates on the particle
     /// vertices.
     has_image: bool,
+    /// Key: PARTICLE_SCREEN_SPACE_SIZE
+    /// The particle size is expressed in screen space. The particle has a
+    /// constant size on screen (in logical pixels) which is not influenced by
+    /// the camera projection (and so, not influenced by the distance to the
+    /// camera).
+    screen_space_size: bool,
     /// For dual-mode configurations only, the actual mode of the current render
     /// pipeline. Otherwise the mode is implicitly determined by the active
     /// feature.
@@ -801,6 +807,7 @@ impl Default for ParticleRenderPipelineKey {
             shader: Handle::weak(HandleId::new(Uuid::nil(), u64::MAX)),
             particle_layout: ParticleLayout::empty(),
             has_image: false,
+            screen_space_size: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
             msaa_samples: Msaa::default().samples(),
@@ -909,6 +916,11 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             // vertex_buffer_layout.array_stride += 8;
         }
 
+        // Key: PARTICLE_SCREEN_SPACE_SIZE
+        if key.screen_space_size {
+            shader_defs.push("PARTICLE_SCREEN_SPACE_SIZE".into());
+        }
+
         #[cfg(all(feature = "2d", feature = "3d"))]
         let depth_stencil = match key.pipeline_mode {
             // Bevy's Transparent2d render phase doesn't support a depth-stencil buffer.
@@ -1014,8 +1026,9 @@ pub(crate) struct ExtractedEffect {
     // until we have a proper graph solution to replace it.
     force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     // Texture to use for the sprites of the particles of this effect.
-    //pub image: Handle<Image>,
+    // pub image: Handle<Image>,
     pub has_image: bool, // TODO -> use flags
+    pub screen_space_size: bool,
     /// Texture to modulate the particle color.
     pub image_handle_id: HandleId,
     /// Init shader.
@@ -1147,7 +1160,7 @@ pub(crate) fn extract_effects(
     // Save simulation params into render world
     let dt = time.delta_seconds();
     sim_params.time = time.elapsed_seconds_f64();
-    sim_params.dt = dt;
+    sim_params.delta_time = dt;
 
     // Collect removed effects for later GPU data purge
     extracted_effects.removed_effect_entities =
@@ -1179,10 +1192,10 @@ pub(crate) fn extract_effects(
                 entity
             );
             let property_layout = asset.property_layout();
-            trace!("Found new effect: entity {:?} | capacity {} | particle_layout {:?} | property_layout {:?}", entity, asset.capacity, particle_layout, property_layout);
+            trace!("Found new effect: entity {:?} | capacity {} | particle_layout {:?} | property_layout {:?}", entity, asset.capacity(), particle_layout, property_layout);
             AddedEffect {
                 entity,
-                capacity: asset.capacity,
+                capacity: asset.capacity(),
                 particle_layout,
                 property_layout,
                 handle,
@@ -1226,16 +1239,19 @@ pub(crate) fn extract_effects(
             .unwrap_or(Handle::<Image>::default())
             .id();
 
+        let screen_space_size = effect.screen_space_size;
+
         // TODO - Change detection and diff/caching to minimize CPU->GPU data transfer
         let property_layout = asset.property_layout().clone();
         let property_data = effect.write_properties(&property_layout);
 
         trace!(
-            "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?} has_image={}",
+            "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?} has_image={} screen_space_size={}",
             asset.name,
             entity,
             image_handle_id,
-            effect.particle_texture.is_some()
+            effect.particle_texture.is_some(),
+            screen_space_size
         );
 
         extracted_effects.effects.insert(
@@ -1249,6 +1265,7 @@ pub(crate) fn extract_effects(
                 transform: transform.compute_matrix(),
                 force_field,
                 has_image: effect.particle_texture.is_some(),
+                screen_space_size,
                 image_handle_id,
                 init_shader,
                 update_shader,
@@ -1498,7 +1515,7 @@ impl EffectsMeta {
                 added_effect.capacity,
                 &added_effect.particle_layout,
                 &added_effect.property_layout,
-                //update_pipeline.pipeline.clone(),
+                // update_pipeline.pipeline.clone(),
                 render_queue,
             );
 
@@ -1571,6 +1588,7 @@ bitflags! {
     struct LayoutFlags: u32 {
         const NONE = 0;
         const PARTICLE_TEXTURE = 0b00000001;
+        const SCREEN_SPACE_SIZE = 0b00000010;
     }
 }
 
@@ -1630,7 +1648,7 @@ pub(crate) fn prepare_effects(
     update_pipeline: Res<ParticlesUpdatePipeline>,
     mut specialized_init_pipelines: ResMut<SpecializedComputePipelines<ParticlesInitPipeline>>,
     mut specialized_update_pipelines: ResMut<SpecializedComputePipelines<ParticlesUpdatePipeline>>,
-    //update_pipeline: Res<ParticlesUpdatePipeline>, // TODO move update_pipeline.pipeline to
+    // update_pipeline: Res<ParticlesUpdatePipeline>, // TODO move update_pipeline.pipeline to
     // EffectsMeta
     mut effects_meta: ResMut<EffectsMeta>,
     mut extracted_effects: ResMut<ExtractedEffects>,
@@ -1641,7 +1659,7 @@ pub(crate) fn prepare_effects(
     effects_meta.update_gpu_limits(&render_device);
 
     // Allocate spawner buffer if needed
-    //if effects_meta.spawner_buffer.is_empty() {
+    // if effects_meta.spawner_buffer.is_empty() {
     //    effects_meta.spawner_buffer.push(GpuSpawnerParams::default());
     //}
 
@@ -1731,31 +1749,35 @@ pub(crate) fn prepare_effects(
     {
         let buffer_index = slice.group_index;
         let range = slice.slice;
-        layout_flags = if extracted_effect.has_image {
-            LayoutFlags::PARTICLE_TEXTURE
-        } else {
-            LayoutFlags::NONE
-        };
+        let mut this_layout_flags = LayoutFlags::NONE;
+        if extracted_effect.has_image {
+            this_layout_flags |= LayoutFlags::PARTICLE_TEXTURE;
+        }
+        if extracted_effect.screen_space_size {
+            this_layout_flags |= LayoutFlags::SCREEN_SPACE_SIZE;
+        }
         trace!("Effect: buffer #{} | range {:?}", buffer_index, range);
 
         #[cfg(feature = "2d")]
-        let is_compatible = current_buffer_index != buffer_index
+        let is_incompatible = current_buffer_index != buffer_index
             || z_sort_key_2d != extracted_effect.z_sort_key_2d
             || particle_layout != extracted_effect.particle_layout
             || property_layout != extracted_effect.property_layout
-            || init_shader != extracted_effect.init_shader;
+            || init_shader != extracted_effect.init_shader
+            || this_layout_flags != layout_flags;
 
         #[cfg(not(feature = "2d"))]
-        let is_compatible = current_buffer_index != buffer_index
+        let is_incompatible = current_buffer_index != buffer_index
             || particle_layout != extracted_effect.particle_layout
             || property_layout != extracted_effect.property_layout
-            || init_shader != extracted_effect.init_shader;
+            || init_shader != extracted_effect.init_shader
+            || this_layout_flags != layout_flags;
 
         // Check the buffer the effect is in
         assert!(buffer_index >= current_buffer_index || current_buffer_index == u32::MAX);
         // FIXME - This breaks batches in 3D even though the Z sort key is only for 2D.
         // Do we need separate batches for 2D and 3D? :'(
-        if is_compatible {
+        if is_incompatible {
             if current_buffer_index != buffer_index {
                 trace!(
                     "+ New buffer! ({} -> {})",
@@ -1789,7 +1811,7 @@ pub(crate) fn prepare_effects(
                         spawn_count,
                         slice: start..end,
                         particle_layout: std::mem::take(&mut particle_layout),
-                        //property_layout: std::mem::take(&mut property_layout),
+                        // property_layout: std::mem::take(&mut property_layout),
                         handle: asset.clone_weak(),
                         layout_flags,
                         image_handle_id,
@@ -1868,6 +1890,9 @@ pub(crate) fn prepare_effects(
 
         image_handle_id = extracted_effect.image_handle_id;
         trace!("image_handle_id = {:?}", image_handle_id);
+
+        layout_flags = this_layout_flags;
+        trace!("layout_flags = {:?}", layout_flags);
 
         trace!("particle_layout = {:?}", slice.particle_layout);
 
@@ -2002,7 +2027,7 @@ pub(crate) fn prepare_effects(
         .write_buffer(&render_device, &render_queue);
 
     // Allocate simulation uniform if needed
-    //if effects_meta.sim_params_uniforms.is_empty() {
+    // if effects_meta.sim_params_uniforms.is_empty() {
     effects_meta
         .sim_params_uniforms
         .set(SimParamsUniform::default());
@@ -2027,9 +2052,9 @@ pub(crate) fn prepare_effects(
         ) as u32;
 
         trace!(
-                "Simulation parameters: time={} dt={} num_effects={} render_stride={} dispatch_stride={}",
+                "Simulation parameters: time={} delta_time={} num_effects={} render_stride={} dispatch_stride={}",
                 sim_params_uni.time,
-                sim_params_uni.dt,
+                sim_params_uni.delta_time,
                 sim_params_uni.num_effects,
                 sim_params_uni.render_stride,
                 sim_params_uni.dispatch_stride
@@ -2478,11 +2503,14 @@ pub(crate) fn queue_effects(
                     }
                 }
 
+                let screen_space_size = batch.layout_flags.contains(LayoutFlags::SCREEN_SPACE_SIZE);
+
                 // Specialize the render pipeline based on the effect batch
                 trace!(
-                    "Specializing render pipeline: render_shader={:?} has_image={:?} hdr={}",
+                    "Specializing render pipeline: render_shader={:?} has_image={:?} screen_space_size={:?} hdr={}",
                     batch.render_shader,
                     has_image,
+                    screen_space_size,
                     view.hdr
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2492,6 +2520,7 @@ pub(crate) fn queue_effects(
                         shader: batch.render_shader.clone(),
                         particle_layout: batch.particle_layout.clone(),
                         has_image,
+                        screen_space_size,
                         #[cfg(feature = "3d")]
                         pipeline_mode: PipelineMode::Camera2d,
                         msaa_samples: msaa.samples(),
@@ -2611,11 +2640,14 @@ pub(crate) fn queue_effects(
                     }
                 }
 
+                let screen_space_size = batch.layout_flags.contains(LayoutFlags::SCREEN_SPACE_SIZE);
+
                 // Specialize the render pipeline based on the effect batch
                 trace!(
-                    "Specializing render pipeline: render_shader={:?} has_image={:?} hdr={}",
+                    "Specializing render pipeline: render_shader={:?} has_image={} screen_space_size={} hdr={}",
                     batch.render_shader,
                     has_image,
+                    screen_space_size,
                     view.hdr
                 );
                 let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2625,6 +2657,7 @@ pub(crate) fn queue_effects(
                         shader: batch.render_shader.clone(),
                         particle_layout: batch.particle_layout.clone(),
                         has_image,
+                        screen_space_size,
                         #[cfg(feature = "2d")]
                         pipeline_mode: PipelineMode::Camera3d,
                         msaa_samples: msaa.samples(),
@@ -2734,7 +2767,7 @@ fn draw<'w>(
                 effect_batch.buffer_index,
                 effect_batch.slice
             );
-            return; //continue;
+            return; // continue;
         }
     }
 
@@ -2830,7 +2863,7 @@ pub(crate) struct VfxSimulateNode {
 impl VfxSimulateNode {
     /// Output particle buffer for that view. TODO - how to handle multiple
     /// buffers?! Should use Entity instead??
-    //pub const OUT_PARTICLE_BUFFER: &'static str = "particle_buffer";
+    // pub const OUT_PARTICLE_BUFFER: &'static str = "particle_buffer";
 
     /// Create a new node for simulating the effects of the given world.
     pub fn new(world: &mut World) -> Self {
@@ -2860,12 +2893,12 @@ impl Node for VfxSimulateNode {
 
         // Get the Entity containing the ViewEffectsEntity component used as container
         // for the input data for this node.
-        //let view_entity = graph.get_input_entity(Self::IN_VIEW)?;
+        // let view_entity = graph.get_input_entity(Self::IN_VIEW)?;
         let pipeline_cache = world.resource::<PipelineCache>();
 
         let effects_meta = world.resource::<EffectsMeta>();
         let effect_bind_groups = world.resource::<EffectBindGroups>();
-        //let render_queue = world.resource::<RenderQueue>();
+        // let render_queue = world.resource::<RenderQueue>();
 
         // Make sure to schedule any buffer copy from changed effects before accessing
         // them
@@ -2902,14 +2935,14 @@ impl Node for VfxSimulateNode {
                         const WORKGROUP_SIZE: u32 = 64;
                         let workgroup_count = (spawn_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
 
-                        //for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
+                        // for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
                         // Retrieve the ExtractedEffect from the entity
-                        //trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
+                        // trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
                         // effect_slice); let effect =
                         // self.effect_query.get_manual(world, *effect_entity).unwrap();
 
                         // Get the slice to init
-                        //let effect_slice = effects_meta.get(&effect_entity);
+                        // let effect_slice = effects_meta.get(&effect_entity);
                         // let effect_group =
                         //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
                         let Some(particles_bind_group) = effect_bind_groups.particle_simulate(batch.buffer_index) else { continue; };
@@ -2943,7 +2976,7 @@ impl Node for VfxSimulateNode {
                         );
 
                         // Setup compute pass
-                        //compute_pass.set_pipeline(&effect_group.init_pipeline);
+                        // compute_pass.set_pipeline(&effect_group.init_pipeline);
                         compute_pass.set_pipeline(init_pipeline);
                         compute_pass.set_bind_group(
                             0,
@@ -3030,14 +3063,14 @@ impl Node for VfxSimulateNode {
                 if let Some(update_pipeline) =
                     pipeline_cache.get_compute_pipeline(batch.update_pipeline_id)
                 {
-                    //for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
+                    // for (effect_entity, effect_slice) in effects_meta.entity_map.iter() {
                     // Retrieve the ExtractedEffect from the entity
-                    //trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
+                    // trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
                     // effect_slice); let effect =
                     // self.effect_query.get_manual(world, *effect_entity).unwrap();
 
                     // Get the slice to update
-                    //let effect_slice = effects_meta.get(&effect_entity);
+                    // let effect_slice = effects_meta.get(&effect_entity);
                     // let effect_group =
                     //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
                     let Some(particles_bind_group) = effect_bind_groups.particle_simulate(batch.buffer_index) else { continue; };
@@ -3069,7 +3102,7 @@ impl Node for VfxSimulateNode {
                     );
 
                     // Setup compute pass
-                    //compute_pass.set_pipeline(&effect_group.update_pipeline);
+                    // compute_pass.set_pipeline(&effect_group.update_pipeline);
                     compute_pass.set_pipeline(update_pipeline);
                     compute_pass.set_bind_group(
                         0,

@@ -214,26 +214,25 @@ fn setup(
     gradient.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::splat(0.0));
 
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(12.).expr();
+    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
     let effect = effects.add(
-        EffectAsset {
-            name: "effect".to_string(),
-            capacity: 512,
-            spawner: Spawner::rate(50.0.into()),
-            ..Default::default()
-        }
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 1.,
-            dimension: ShapeDimension::Volume,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: 2.0.into(),
-        })
-        .init(InitLifetimeModifier {
-            lifetime: 12_f32.into(),
-        })
-        .render(ColorOverLifetimeModifier { gradient }),
+        EffectAsset::new(512, Spawner::rate(50.0.into()), writer.finish())
+            .with_name("instancing")
+            .init(InitPositionSphereModifier {
+                center: Vec3::ZERO,
+                radius: 1.,
+                dimension: ShapeDimension::Volume,
+            })
+            .init(InitVelocitySphereModifier {
+                center: Vec3::ZERO,
+                speed: 2.0.into(),
+            })
+            .init(init_lifetime)
+            .render(ColorOverLifetimeModifier { gradient }),
     );
 
     // Store the effect for later reference

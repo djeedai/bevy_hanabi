@@ -84,13 +84,16 @@ fn setup(
     gradient1.add_key(0.75, Vec4::new(0.0, 1.0, 1.0, 1.0));
     gradient1.add_key(1.0, Vec4::ONE);
 
+    let writer1 = ExprWriter::new();
+    let lifetime1 = writer1.lit(lifetime1).expr();
+    let init_lifetime1 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime1);
     let effect1 = effects.add(
-        EffectAsset {
-            name: "emit:burst".to_string(),
-            capacity: 512,
-            spawner: Spawner::burst(50.0.into(), period.into()),
-            ..Default::default()
-        }
+        EffectAsset::new(
+            512,
+            Spawner::burst(50.0.into(), period.into()),
+            writer1.finish(),
+        )
+        .with_name("emit:burst")
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
@@ -100,9 +103,7 @@ fn setup(
             center: Vec3::ZERO,
             speed: 2.0.into(),
         })
-        .init(InitLifetimeModifier {
-            lifetime: lifetime1.into(),
-        })
+        .init(init_lifetime1)
         .render(ColorOverLifetimeModifier {
             gradient: gradient1,
         }),
@@ -133,13 +134,16 @@ fn setup(
     gradient2.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
     gradient2.add_key(1.0, Vec4::new(1.0, 1.0, 0.0, 1.0));
 
+    let writer2 = ExprWriter::new();
+    let lifetime2 = writer2.lit(lifetime2).expr();
+    let init_lifetime2 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime2);
     let effect2 = effects.add(
-        EffectAsset {
-            name: "emit:burst".to_string(),
-            capacity: 512,
-            spawner: Spawner::burst(50.0.into(), period.into()),
-            ..Default::default()
-        }
+        EffectAsset::new(
+            512,
+            Spawner::burst(50.0.into(), period.into()),
+            writer2.finish(),
+        )
+        .with_name("emit:burst")
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
@@ -149,9 +153,7 @@ fn setup(
             center: Vec3::ZERO,
             speed: 2.0.into(),
         })
-        .init(InitLifetimeModifier {
-            lifetime: lifetime2.into(),
-        })
+        .init(init_lifetime2)
         .render(ColorOverLifetimeModifier {
             gradient: gradient2,
         }),
@@ -182,13 +184,16 @@ fn setup(
     gradient3.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
     gradient3.add_key(1.0, Vec4::new(0.75, 0.25, 0.0, 1.0));
 
+    let writer3 = ExprWriter::new();
+    let lifetime3 = writer3.lit(lifetime3).expr();
+    let init_lifetime3 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime3);
     let effect3 = effects.add(
-        EffectAsset {
-            name: "emit:burst".to_string(),
-            capacity: 512,
-            spawner: Spawner::burst(50.0.into(), period.into()),
-            ..Default::default()
-        }
+        EffectAsset::new(
+            512,
+            Spawner::burst(50.0.into(), period.into()),
+            writer3.finish(),
+        )
+        .with_name("emit:burst")
         .init(InitPositionSphereModifier {
             center: Vec3::ZERO,
             radius: 5.,
@@ -198,9 +203,7 @@ fn setup(
             center: Vec3::ZERO,
             speed: 2.0.into(),
         })
-        .init(InitLifetimeModifier {
-            lifetime: lifetime3.into(),
-        })
+        .init(init_lifetime3)
         .render(ColorOverLifetimeModifier {
             gradient: gradient3,
         }),
