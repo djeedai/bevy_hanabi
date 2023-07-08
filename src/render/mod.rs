@@ -3040,7 +3040,7 @@ impl Node for VfxSimulateNode {
                 );
                 compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
                 trace!(
-                    "indirect dispatch compute dispatched: num_batches={} workgroup_count{}",
+                    "indirect dispatch compute dispatched: num_batches={} workgroup_count={}",
                     num_batches,
                     workgroup_count
                 );

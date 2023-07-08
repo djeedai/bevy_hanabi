@@ -51,20 +51,6 @@ pub struct HanabiPlugin;
 
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
-        let render_device = app.world.get_resource::<RenderDevice>().unwrap().clone();
-
-        // Check device limits
-        let limits = render_device.limits();
-        if limits.max_bind_groups < 4 {
-            let adapter_name = app
-                .world
-                .get_resource::<RenderAdapterInfo>()
-                .map(|ai| &ai.name[..])
-                .unwrap_or("<unknown>");
-            error!("Hanabi requires a GPU device supporting at least 4 bind groups (Limits::max_bind_groups).\n  Current adapter: {}\n  Supported bind groups: {}", adapter_name, limits.max_bind_groups);
-            return;
-        }
-
         // Register asset
         app.add_asset::<EffectAsset>()
             .add_event::<RemovedEffectsEvent>()
@@ -98,6 +84,30 @@ impl Plugin for HanabiPlugin {
         app.register_type::<EffectAsset>();
         app.register_type::<ParticleEffect>();
         app.register_type::<Spawner>();
+    }
+
+    fn finish(&self, app: &mut App) {
+        let render_device = app
+            .sub_app(RenderApp)
+            .world
+            .get_resource::<RenderDevice>()
+            .unwrap()
+            .clone();
+
+        let adapter_name = app
+            .world
+            .get_resource::<RenderAdapterInfo>()
+            .map(|ai| &ai.name[..])
+            .unwrap_or("<unknown>");
+
+        // Check device limits
+        let limits = render_device.limits();
+        if limits.max_bind_groups < 4 {
+            error!("Hanabi requires a GPU device supporting at least 4 bind groups (Limits::max_bind_groups).\n  Current adapter: {}\n  Supported bind groups: {}", adapter_name, limits.max_bind_groups);
+            return;
+        } else {
+            info!("Initializing Hanabi for GPU adapter {}", adapter_name);
+        }
 
         let effects_meta = EffectsMeta::new(render_device);
 
