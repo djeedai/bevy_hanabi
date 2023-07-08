@@ -50,7 +50,7 @@
 //!
 //! App::default()
 //!     .add_plugins(DefaultPlugins)
-//!     .add_plugin(HanabiPlugin)
+//!     .add_plugins(HanabiPlugin)
 //!     .run();
 //! ```
 //!

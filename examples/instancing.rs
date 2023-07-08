@@ -173,9 +173,9 @@ fn main() {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,instancing=trace".to_string(),
         }))
-        .add_plugin(HanabiPlugin)
+        .add_plugins(HanabiPlugin)
         // Have to wait for update.
-        // .add_plugin(WorldInspectorPlugin::default())
+        // .add_plugins(WorldInspectorPlugin::default())
         .insert_resource(InstanceManager::new(5, 4))
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, keyboard_input_system))

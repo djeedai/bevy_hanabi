@@ -42,11 +42,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
-        //.add_plugin(LookTransformPlugin)
-        //.add_plugin(OrbitCameraPlugin::default())
-        .add_plugin(HanabiPlugin)
+        //.add_plugins(LookTransformPlugin)
+        //.add_plugins(OrbitCameraPlugin::default())
+        .add_plugins(HanabiPlugin)
         // Have to wait for update.
-        // .add_plugin(WorldInspectorPlugin::default())
+        // .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, update))
         .run();

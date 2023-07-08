@@ -46,9 +46,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..default()
                 }),
         )
-        .add_plugin(HanabiPlugin)
+        .add_plugins(HanabiPlugin)
         // Have to wait for update.
-        // .add_plugin(WorldInspectorPlugin::default())
+        // .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, update))
         .run();

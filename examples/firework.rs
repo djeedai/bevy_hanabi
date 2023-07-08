@@ -30,9 +30,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             filter: "bevy_hanabi=warn,firework=trace".to_string(),
         }))
         .add_systems(Update, bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
+        .add_plugins(HanabiPlugin)
         // Have to wait for update.
-        // .add_plugin(WorldInspectorPlugin::default())
+        // .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .run();
 
