@@ -256,6 +256,7 @@ impl Hash for SetSizeModifier {
                 FloatOrd(b.y).hash(state);
             }
         }
+        self.screen_space_size.hash(state);
     }
 }
 
