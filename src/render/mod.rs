@@ -33,7 +33,6 @@ use std::marker::PhantomData;
 use std::{
     borrow::Cow,
     num::{NonZeroU32, NonZeroU64},
-    ops::Range,
 };
 
 #[cfg(feature = "2d")]
@@ -42,12 +41,17 @@ use bevy::core_pipeline::core_2d::Transparent2d;
 use bevy::core_pipeline::core_3d::Transparent3d;
 
 use crate::{
-    asset::EffectAsset, modifier::ForceFieldSource, next_multiple_of, spawn::EffectSpawner,
+    asset::EffectAsset,
+    modifier::ForceFieldSource,
+    next_multiple_of,
+    render::batch::{BatchInput, BatchState, Batcher, EffectBatch},
+    spawn::EffectSpawner,
     CompiledParticleEffect, ParticleLayout, PropertyLayout, RemovedEffectsEvent,
     SimulationCondition,
 };
 
 mod aligned_buffer_vec;
+mod batch;
 mod buffer_table;
 mod effect_cache;
 mod shader_cache;
@@ -994,13 +998,14 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
 /// render world item.
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
-#[derive(Component)]
+#[derive(Debug, Component)]
 pub(crate) struct ExtractedEffect {
     /// Handle to the effect asset this instance is based on.
     /// The handle is weak to prevent refcount cycles and gracefully handle
     /// assets unloaded or destroyed after a draw call has been submitted.
     pub handle: Handle<EffectAsset>,
     /// Particle layout for the effect.
+    #[allow(dead_code)]
     pub particle_layout: ParticleLayout,
     /// Property layout for the effect.
     pub property_layout: PropertyLayout,
@@ -1583,7 +1588,7 @@ const QUAD_VERTEX_POSITIONS: &[Vec3] = &[
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    struct LayoutFlags: u32 {
+    pub(crate) struct LayoutFlags: u32 {
         const NONE = 0;
         const PARTICLE_TEXTURE = 0b00000001;
         const SCREEN_SPACE_SIZE = 0b00000010;
@@ -1594,45 +1599,6 @@ impl Default for LayoutFlags {
     fn default() -> Self {
         Self::NONE
     }
-}
-
-/// A batch of multiple instances of the same effect, rendered all together to
-/// reduce GPU shader permutations and draw call overhead.
-#[derive(Debug, Component)]
-pub(crate) struct EffectBatch {
-    /// Index of the GPU effect buffer effects in this batch are contained in.
-    buffer_index: u32,
-    /// Index of the first Spawner of the effects in the batch.
-    spawner_base: u32,
-    /// Number of particles to spawn/init this frame.
-    spawn_count: u32,
-    /// Particle layout.
-    particle_layout: ParticleLayout,
-    /// Slice of particles in the GPU effect buffer for the entire batch.
-    slice: Range<u32>,
-    /// Handle of the underlying effect asset describing the effect.
-    handle: Handle<EffectAsset>,
-    /// Flags describing the render layout.
-    layout_flags: LayoutFlags,
-    /// Texture to modulate the particle color.
-    image_handle_id: HandleId,
-    /// Configured shader used for the particle rendering of this batch.
-    /// Note that we don't need to keep the init/update shaders alive because
-    /// their pipeline specialization is doing it via the specialization key.
-    render_shader: Handle<Shader>,
-    /// Init compute pipeline specialized for this batch.
-    init_pipeline_id: CachedComputePipelineId,
-    /// Update compute pipeline specialized for this batch.
-    update_pipeline_id: CachedComputePipelineId,
-    /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
-    /// rendering.
-    #[cfg(feature = "2d")]
-    z_sort_key_2d: FloatOrd,
-    /// Entities holding the source [`ParticleEffect`] instances which were
-    /// batched into this single batch. Used to determine visibility per view.
-    ///
-    /// [`ParticleEffect`]: crate::ParticleEffect
-    entities: Vec<u32>,
 }
 
 pub(crate) fn prepare_effects(
@@ -1706,318 +1672,180 @@ pub(crate) fn prepare_effects(
         .map(|(entity, extracted_effect)| {
             let id = *effects_meta.entity_map.get(entity).unwrap();
             let property_buffer = effects_meta.effect_cache.get_property_buffer(id).cloned(); // clone handle for lifetime
-            let slice = effects_meta.effect_cache.get_slice(id);
-            let effect_index = effects_meta.effect_cache.buffer_index(id).unwrap() as u32;
-            (
-                entity.index(),
-                slice,
-                extracted_effect,
-                effect_index,
+            let effect_slice = effects_meta.effect_cache.get_slice(id);
+
+            let mut layout_flags = LayoutFlags::NONE;
+            if extracted_effect.has_image {
+                layout_flags |= LayoutFlags::PARTICLE_TEXTURE;
+            }
+            if extracted_effect.screen_space_size {
+                layout_flags |= LayoutFlags::SCREEN_SPACE_SIZE;
+            }
+
+            let image_handle_id = extracted_effect.image_handle_id.clone();
+
+            let mut transform: [f32; 12] = [0.; 12];
+            transform
+                .copy_from_slice(&extracted_effect.transform.transpose().to_cols_array()[..12]);
+
+            BatchInput {
+                handle: extracted_effect.handle.clone(),
+                entity_index: entity.index(),
+                effect_slice,
+                property_layout: extracted_effect.property_layout.clone(),
+                init_shader: extracted_effect.init_shader.clone(),
+                update_shader: extracted_effect.update_shader.clone(),
+                render_shader: extracted_effect.render_shader.clone(),
+                layout_flags,
+                image_handle_id,
+                force_field: extracted_effect.force_field,
+                spawn_count: extracted_effect.spawn_count,
+                transform,
                 property_buffer,
-            )
+                property_data: extracted_effect.property_data.clone(),
+                #[cfg(feature = "2d")]
+                z_sort_key_2d: extracted_effect.z_sort_key_2d,
+            }
         })
         .collect::<Vec<_>>();
     trace!("Collected {} extracted effects", effect_entity_list.len());
 
-    // Sort first by effect buffer, then by slice range (see EffectSlice)
-    effect_entity_list.sort_by(|a, b| a.1.cmp(&b.1));
+    // Sort first by effect buffer index, then by slice range (see EffectSlice)
+    // inside that buffer. This is critical for batching to work, because
+    // batching effects is based on compatible items, which implies same GPU
+    // buffer and continuous slice ranges (the next slice start must be equal to
+    // the previous start end, without gap). EffectSlice already contains both
+    // information, and the proper ordering implementation.
+    effect_entity_list.sort_by_key(|a| a.effect_slice.clone());
 
-    // Loop on all extracted effects in order
+    // Loop on all extracted effects in order and try to batch them together to
+    // reduce draw calls
     effects_meta.spawner_buffer.clear();
-    let mut spawner_base = 0;
-    let mut spawn_count = 0;
-    let mut particle_layout = ParticleLayout::empty();
-    let property_layout = PropertyLayout::empty();
-    let mut current_buffer_index = u32::MAX;
-    let mut asset: Handle<EffectAsset> = Default::default();
-    let mut layout_flags = LayoutFlags::NONE;
-    let mut image_handle_id: HandleId = HandleId::default::<Image>();
-    let mut init_shader: Handle<Shader> = Default::default();
-    let mut update_shader: Handle<Shader> = Default::default();
-    let mut render_shader: Handle<Shader> = Default::default();
-    let mut start = 0;
-    let mut end = 0;
     let mut num_emitted = 0;
-    let mut init_pipeline_id = CachedComputePipelineId::INVALID;
-    let mut update_pipeline_id = CachedComputePipelineId::INVALID;
-    #[cfg(feature = "2d")]
-    let mut z_sort_key_2d = FloatOrd(f32::NAN);
-    let mut entities = Vec::<u32>::with_capacity(4);
-    for (entity_index, slice, extracted_effect, effect_index, property_buffer) in effect_entity_list
     {
-        let buffer_index = slice.group_index;
-        let range = slice.slice;
-        let mut this_layout_flags = LayoutFlags::NONE;
-        if extracted_effect.has_image {
-            this_layout_flags |= LayoutFlags::PARTICLE_TEXTURE;
-        }
-        if extracted_effect.screen_space_size {
-            this_layout_flags |= LayoutFlags::SCREEN_SPACE_SIZE;
-        }
-        trace!("Effect: buffer #{} | range {:?}", buffer_index, range);
+        let mut batcher = Batcher::<BatchState, EffectBatch, BatchInput>::new(
+            |mut input: BatchInput| -> (BatchState, EffectBatch) {
+                trace!("Creating new batch from incompatible extracted effect");
 
-        #[cfg(feature = "2d")]
-        let is_incompatible = current_buffer_index != buffer_index
-            || z_sort_key_2d != extracted_effect.z_sort_key_2d
-            || particle_layout != extracted_effect.particle_layout
-            || property_layout != extracted_effect.property_layout
-            || init_shader != extracted_effect.init_shader
-            || this_layout_flags != layout_flags;
-
-        #[cfg(not(feature = "2d"))]
-        let is_incompatible = current_buffer_index != buffer_index
-            || particle_layout != extracted_effect.particle_layout
-            || property_layout != extracted_effect.property_layout
-            || init_shader != extracted_effect.init_shader
-            || this_layout_flags != layout_flags;
-
-        // Check the buffer the effect is in
-        assert!(buffer_index >= current_buffer_index || current_buffer_index == u32::MAX);
-        // FIXME - This breaks batches in 3D even though the Z sort key is only for 2D.
-        // Do we need separate batches for 2D and 3D? :'(
-        if is_incompatible {
-            if current_buffer_index != buffer_index {
+                // Specialize the init pipeline based on the effect
                 trace!(
-                    "+ New buffer! ({} -> {})",
-                    current_buffer_index,
-                    buffer_index
+                    "Specializing compute pipeline: init_shader={:?} particle_layout={:?}",
+                    input.init_shader,
+                    input.effect_slice.particle_layout
                 );
-            }
-            // Commit previous buffer if any
-            if current_buffer_index != u32::MAX {
-                // Record open batch if any
-                trace!("+ Prev: {} - {}", start, end);
-                if end > start {
-                    assert_ne!(asset, Handle::<EffectAsset>::default());
-                    assert!(particle_layout.size() > 0);
-                    trace!(
-                        "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | particle_layout {:?} | property_layout {:?} | init_shader {:?} | update_shader {:?} | render_shader {:?} | entities {}",
-                        current_buffer_index,
-                        spawner_base,
-                        spawn_count,
-                        start..end,
-                        particle_layout,
-                        property_layout,
-                        init_shader,
-                        update_shader,
-                        render_shader,
-                        entities.len(),
-                    );
-                    commands.spawn(EffectBatch {
-                        buffer_index: current_buffer_index,
-                        spawner_base: spawner_base as u32,
-                        spawn_count,
-                        slice: start..end,
-                        particle_layout: std::mem::take(&mut particle_layout),
-                        // property_layout: std::mem::take(&mut property_layout),
-                        handle: asset.clone_weak(),
-                        layout_flags,
-                        image_handle_id,
-                        render_shader: render_shader.clone(),
-                        init_pipeline_id,
-                        update_pipeline_id,
-                        #[cfg(feature = "2d")]
-                        z_sort_key_2d,
-                        entities: std::mem::take(&mut entities),
-                    });
-                    num_emitted += 1;
+                let init_pipeline_id = specialized_init_pipelines.specialize(
+                    &pipeline_cache,
+                    &init_pipeline,
+                    ParticleInitPipelineKey {
+                        shader: input.init_shader.clone(),
+                        particle_layout: input.effect_slice.particle_layout.clone(),
+                        property_layout: input.property_layout.clone(),
+                    },
+                );
+                trace!("Init pipeline specialized: id={:?}", init_pipeline_id);
+
+                // Specialize the update pipeline based on the effect
+                trace!(
+                "Specializing update pipeline: update_shader={:?} particle_layout={:?} property_layout={:?}",
+                input.update_shader,
+                input.effect_slice.particle_layout,
+                input.property_layout,
+            );
+                let update_pipeline_id = specialized_update_pipelines.specialize(
+                    &pipeline_cache,
+                    &update_pipeline,
+                    ParticleUpdatePipelineKey {
+                        shader: input.update_shader.clone(),
+                        particle_layout: input.effect_slice.particle_layout.clone(),
+                        property_layout: input.property_layout.clone(),
+                    },
+                );
+                trace!("Update pipeline specialized: id={:?}", update_pipeline_id);
+
+                let init_shader = input.init_shader.clone();
+                trace!("init_shader = {:?}", init_shader);
+
+                let update_shader = input.update_shader.clone();
+                trace!("update_shader = {:?}", update_shader);
+
+                let render_shader = input.render_shader.clone();
+                trace!("render_shader = {:?}", render_shader);
+
+                let image_handle_id = input.image_handle_id;
+                trace!("image_handle_id = {:?}", image_handle_id);
+
+                let layout_flags = input.layout_flags;
+                trace!("layout_flags = {:?}", layout_flags);
+
+                trace!("particle_layout = {:?}", input.effect_slice.particle_layout);
+
+                #[cfg(feature = "2d")]
+                {
+                    trace!("z_sort_key_2d = {:?}", input.z_sort_key_2d);
                 }
-            }
 
-            // Move to next buffer
-            current_buffer_index = buffer_index;
-            start = 0;
-            end = 0;
-            spawner_base = effects_meta.spawner_buffer.len();
-            trace!("+ New spawner_base = {}", spawner_base);
-            // Each effect buffer contains effect instances with a compatible layout
-            // FIXME - Currently this means same effect asset, so things are easier...
-            asset = extracted_effect.handle.clone_weak();
-            particle_layout = slice.particle_layout.clone();
-            #[cfg(feature = "2d")]
-            {
-                z_sort_key_2d = extracted_effect.z_sort_key_2d;
-            }
-        }
+                // This callback is raised when creating a new batch from a single item, so the
+                // base index for spawners is the current buffer size. Per-effect spawner values
+                // will be pushed in order into the array.
+                let spawner_base = effects_meta.spawner_buffer.len() as u32;
 
-        assert_ne!(asset, Handle::<EffectAsset>::default());
+                // FIXME - This overwrites the value of the previous effect if > 1 are batched
+                // together!
+                let spawn_count = input.spawn_count;
+                trace!("spawn_count = {}", spawn_count);
 
-        // Specialize the init pipeline based on the effect
-        trace!(
-            "Specializing compute pipeline: init_shader={:?} particle_layout={:?}",
-            extracted_effect.init_shader,
-            extracted_effect.particle_layout
-        );
-        init_pipeline_id = specialized_init_pipelines.specialize(
-            &pipeline_cache,
-            &init_pipeline,
-            ParticleInitPipelineKey {
-                shader: extracted_effect.init_shader.clone(),
-                particle_layout: extracted_effect.particle_layout.clone(),
-                property_layout: extracted_effect.property_layout.clone(),
-            },
-        );
-        trace!("Init pipeline specialized: id={:?}", init_pipeline_id);
+                // Prepare the spawner block for the current slice
+                // FIXME - This is once per EFFECT/SLICE, not once per BATCH, so indeed this is
+                // spawner_BASE, and need an array of them in the compute shader!!!!!!!!!!!!!!
+                let spawner_params = GpuSpawnerParams {
+                    transform: input.transform,
+                    spawn: input.spawn_count as i32,
+                    seed: random::<u32>(), /* FIXME - Probably bad to re-seed each time there's a
+                                            * change */
+                    count: 0,
+                    effect_index: input.effect_slice.group_index,
+                    force_field: input.force_field.map(Into::into),
+                };
+                trace!("spawner_params = {:?}", spawner_params);
+                effects_meta.spawner_buffer.push(spawner_params);
 
-        // Specialize the compute pipeline based on the effect
-        trace!(
-            "Specializing compute pipeline: update_shader={:?} particle_layout={:?} property_layout={:?}",
-            extracted_effect.update_shader,
-            extracted_effect.particle_layout,
-            extracted_effect.property_layout,
-        );
-        update_pipeline_id = specialized_update_pipelines.specialize(
-            &pipeline_cache,
-            &update_pipeline,
-            ParticleUpdatePipelineKey {
-                shader: extracted_effect.update_shader.clone(),
-                particle_layout: extracted_effect.particle_layout.clone(),
-                property_layout: extracted_effect.property_layout.clone(),
-            },
-        );
-        trace!("Update pipeline specialized: id={:?}", update_pipeline_id);
+                // Write properties for this effect.
+                // FIXME - This doesn't work with batching!
+                if let Some(property_buffer) = input.property_buffer.as_ref() {
+                    render_queue.write_buffer(property_buffer, 0, &input.property_data);
+                }
 
-        init_shader = extracted_effect.init_shader.clone();
-        trace!("init_shader = {:?}", init_shader);
+                let state = BatchState::from_input(&mut input);
 
-        update_shader = extracted_effect.update_shader.clone();
-        trace!("update_shader = {:?}", update_shader);
-
-        render_shader = extracted_effect.render_shader.clone();
-        trace!("render_shader = {:?}", render_shader);
-
-        image_handle_id = extracted_effect.image_handle_id;
-        trace!("image_handle_id = {:?}", image_handle_id);
-
-        layout_flags = this_layout_flags;
-        trace!("layout_flags = {:?}", layout_flags);
-
-        trace!("particle_layout = {:?}", slice.particle_layout);
-
-        #[cfg(feature = "2d")]
-        {
-            trace!("z_sort_key_2d = {:?}", z_sort_key_2d);
-        }
-
-        // FIXME - This overwrites the value of the previous effect if > 1 are batched
-        // together!
-        spawn_count = extracted_effect.spawn_count;
-        trace!("spawn_count = {}", spawn_count);
-
-        entities.push(entity_index);
-
-        // extract the force field and turn it into a struct that is compliant with
-        // GPU use, namely GpuForceFieldSource
-        let mut extracted_force_field =
-            [GpuForceFieldSource::default(); ForceFieldSource::MAX_SOURCES];
-        for (i, ff) in extracted_effect.force_field.iter().enumerate() {
-            extracted_force_field[i] = (*ff).into();
-        }
-
-        // Prepare the spawner block for the current slice
-        // FIXME - This is once per EFFECT/SLICE, not once per BATCH, so indeed this is
-        // spawner_BASE, and need an array of them in the compute shader!!!!!!!!!!!!!!
-        let tr = extracted_effect.transform.transpose().to_cols_array();
-        let spawner_params = GpuSpawnerParams {
-            spawn: extracted_effect.spawn_count as i32,
-            count: 0,
-            transform: [
-                tr[0], tr[1], tr[2], tr[3], tr[4], tr[5], tr[6], tr[7], tr[8], tr[9], tr[10],
-                tr[11],
-            ],
-            force_field: extracted_force_field,
-            seed: random::<u32>(), // FIXME - Probably bad to re-seed each time there's a change
-            effect_index,
-        };
-        trace!("spawner_params = {:?}", spawner_params);
-        effects_meta.spawner_buffer.push(spawner_params);
-
-        // Write properties for this effect.
-        // FIXME - This doesn't work with batching!
-        if let Some(property_buffer) = property_buffer {
-            render_queue.write_buffer(&property_buffer, 0, &extracted_effect.property_data);
-        }
-
-        trace!("slice = {}-{} | prev end = {}", range.start, range.end, end);
-        if (range.start > end) || (particle_layout != slice.particle_layout) {
-            // Discontinuous slices; create a new batch
-            if end > start {
-                // Record the previous batch
-                assert_ne!(asset, Handle::<EffectAsset>::default());
-                assert!(particle_layout.size() > 0);
-                trace!(
-                    "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | particle_layout {:?} | update_shader {:?} | render_shader {:?} | entities {}",
-                    buffer_index,
+                let batch = EffectBatch::from_input(
+                    input,
                     spawner_base,
-                    spawn_count,
-                    start..end,
-                    particle_layout,
-                    update_shader,
-                    render_shader,
-                    entities.len(),
-                );
-                commands.spawn(EffectBatch {
-                    buffer_index,
-                    spawner_base: spawner_base as u32,
-                    spawn_count,
-                    slice: start..end,
-                    particle_layout: std::mem::take(&mut particle_layout),
-                    handle: asset.clone_weak(),
-                    layout_flags,
-                    image_handle_id,
-                    render_shader: render_shader.clone(),
                     init_pipeline_id,
                     update_pipeline_id,
-                    #[cfg(feature = "2d")]
-                    z_sort_key_2d,
-                    entities: std::mem::take(&mut entities),
-                });
-                num_emitted += 1;
-            }
-            start = range.start;
-            particle_layout = slice.particle_layout.clone();
-        }
-        end = range.end;
-    }
+                );
 
-    // Record last open batch if any
-    if end > start {
-        assert_ne!(asset, Handle::<EffectAsset>::default());
-        assert!(particle_layout.size() > 0);
-        trace!(
-            "Emit LAST batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | particle_layout {:?} | update_shader {:?} | render_shader {:?} | entities {}",
-            current_buffer_index,
-            spawner_base,
-            spawn_count,
-            start..end,
-            particle_layout,
-            update_shader,
-            render_shader,
-            entities.len(),
+                (state, batch)
+            },
+            |batch: EffectBatch| {
+                // assert_ne!(asset, Handle::<EffectAsset>::default());
+                assert!(batch.particle_layout.size() > 0);
+                trace!(
+                        "Emit batch: buffer #{} | spawner_base {} | spawn_count {} | slice {:?} | particle_layout {:?} | render_shader {:?} | entities {}",
+                        batch.buffer_index,
+                        batch.spawner_base,
+                        batch.spawn_count,
+                        batch.slice,
+                        batch.particle_layout,
+                        batch.render_shader,
+                        batch.entities.len(),
+                    );
+                commands.spawn(batch);
+                num_emitted += 1;
+            },
         );
-        commands.spawn(EffectBatch {
-            buffer_index: current_buffer_index,
-            spawner_base: spawner_base as u32,
-            spawn_count,
-            slice: start..end,
-            particle_layout,
-            handle: asset.clone_weak(),
-            layout_flags,
-            image_handle_id,
-            render_shader,
-            init_pipeline_id,
-            update_pipeline_id,
-            #[cfg(feature = "2d")]
-            z_sort_key_2d,
-            entities,
-        });
-        num_emitted += 1;
+
+        batcher.batch(effect_entity_list);
     }
-    trace!(
-        "Emitted {} buffers, spawner_buffer len = {}",
-        num_emitted,
-        effects_meta.spawner_buffer.len()
-    );
 
     // Write the entire spawner buffer for this frame, for all effects combined
     effects_meta

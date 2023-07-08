@@ -1068,7 +1068,7 @@ impl ParticleLayout {
     /// The layout is immutable. This is mostly used as a placeholder while a
     /// valid layout is not available yet. To create a new non-finalized layout
     /// which can be mutated, use [`ParticleLayout::new()`] instead.
-    pub fn empty() -> ParticleLayout {
+    pub const fn empty() -> ParticleLayout {
         Self { layout: vec![] }
     }
 
