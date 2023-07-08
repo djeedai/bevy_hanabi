@@ -1,6 +1,7 @@
 //! A circle bobs up and down in the water,
 //! spawning square bubbles when in the water.
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{
@@ -51,7 +52,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle::default();
+    let mut camera = Camera3dBundle {
+        tonemapping: Tonemapping::None,
+        ..default()
+    };
     let mut projection = OrthographicProjection::default();
     projection.scaling_mode = ScalingMode::FixedVertical(2.);
     projection.scale = 1.0;

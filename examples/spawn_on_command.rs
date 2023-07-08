@@ -1,6 +1,7 @@
 //! A circle bounces around in a box and spawns particles
 //! when it hits the wall.
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     math::Vec3Swizzles,
     prelude::*,
@@ -55,7 +56,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle::default();
+    let mut camera = Camera3dBundle {
+        tonemapping: Tonemapping::None,
+        ..default()
+    };
     let mut projection = OrthographicProjection::default();
     projection.scaling_mode = ScalingMode::FixedVertical(2.);
     projection.scale = 1.2;

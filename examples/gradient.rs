@@ -1,4 +1,5 @@
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{
@@ -51,6 +52,7 @@ fn setup(
             hdr: true,
             ..default()
         },
+        tonemapping: Tonemapping::None,
         ..default()
     };
     camera.transform.translation = Vec3::new(0.0, 0.0, 100.0);

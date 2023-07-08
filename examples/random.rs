@@ -2,6 +2,7 @@
 //! Spawns a random number of particles at random times.
 
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{
@@ -44,7 +45,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle::default();
+    let mut camera = Camera3dBundle {
+        tonemapping: Tonemapping::None,
+        ..default()
+    };
     camera.transform.translation = Vec3::new(0.0, 0.0, 100.0);
     commands.spawn(camera);
 

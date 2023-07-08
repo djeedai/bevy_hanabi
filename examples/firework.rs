@@ -15,7 +15,9 @@
 //!   increased realism. This is a subtle effect, but of importance.
 
 use bevy::{
-    core_pipeline::{bloom::BloomSettings, clear_color::ClearColorConfig},
+    core_pipeline::{
+        bloom::BloomSettings, clear_color::ClearColorConfig, tonemapping::Tonemapping,
+    },
     log::LogPlugin,
     prelude::*,
 };
@@ -51,6 +53,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
                 clear_color: ClearColorConfig::Custom(Color::BLACK),
                 ..default()
             },
+            tonemapping: Tonemapping::None,
             ..default()
         },
         BloomSettings::default(),

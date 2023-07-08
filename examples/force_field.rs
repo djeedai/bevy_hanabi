@@ -11,6 +11,7 @@
 //! killing all particles entering it.
 
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{
@@ -62,7 +63,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle::default();
+    let mut camera = Camera3dBundle {
+        tonemapping: Tonemapping::None,
+        ..default()
+    };
     let mut projection = OrthographicProjection::default();
     projection.scaling_mode = bevy::render::camera::ScalingMode::FixedVertical(5.);
     camera.transform.translation.z = projection.far / 2.0;

@@ -2,6 +2,7 @@
 //! particles to always render facing the camera.
 
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{
@@ -51,6 +52,7 @@ fn setup(
             fov: 120.0,
             ..Default::default()
         }),
+        tonemapping: Tonemapping::None,
         ..Default::default()
     };
 

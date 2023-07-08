@@ -1,5 +1,5 @@
 use bevy::{
-    core_pipeline::clear_color::ClearColorConfig,
+    core_pipeline::{clear_color::ClearColorConfig, tonemapping::Tonemapping},
     log::LogPlugin,
     math::EulerRot,
     prelude::*,
@@ -117,6 +117,7 @@ fn setup(
                 },
                 transform: Transform::from_translation(Vec3::new(x, 100.0, z))
                     .looking_at(Vec3::ZERO, Vec3::Y),
+                tonemapping: Tonemapping::None,
                 ..default()
             },
             SplitCamera {

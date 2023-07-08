@@ -9,7 +9,9 @@
 
 #![allow(dead_code)]
 
-use bevy::{log::LogPlugin, prelude::*, render::mesh::shape::Cube};
+use bevy::{
+    core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*, render::mesh::shape::Cube,
+};
 // use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use rand::Rng;
 
@@ -192,7 +194,10 @@ fn setup(
 ) {
     info!("Usage: Press the SPACE key to spawn more instances, and the DELETE key to remove an existing instance.");
 
-    let mut camera = Camera3dBundle::default();
+    let mut camera = Camera3dBundle {
+        tonemapping: Tonemapping::None,
+        ..default()
+    };
     camera.transform.translation = Vec3::new(0.0, 0.0, 180.0);
     commands.spawn(camera);
 
