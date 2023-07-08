@@ -1,8 +1,4 @@
-use bevy::{
-    ecs::system::Resource,
-    prelude::*,
-    reflect::{FromReflect, Reflect},
-};
+use bevy::{ecs::system::Resource, prelude::*, reflect::Reflect};
 use rand::{
     distributions::{uniform::SampleUniform, Distribution, Uniform},
     SeedableRng,
@@ -28,7 +24,7 @@ pub struct Random(pub Pcg32);
 ///
 /// This enum represents a value which is either constant, or randomly sampled
 /// according to a given probability distribution.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Reflect, FromReflect)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Reflect)]
 #[non_exhaustive]
 pub enum Value<T: Copy + FromReflect> {
     /// Single constant value.
@@ -94,7 +90,7 @@ impl<T: Copy + FromReflect> From<T> for Value<T> {
 ///
 /// [`Attribute::SIZE`]: crate::Attribute::SIZE
 /// [`Attribute::SIZE2`]: crate::Attribute::SIZE2
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub enum DimValue {
     /// Scalar.
     D1(Value<f32>),
@@ -156,7 +152,7 @@ impl ToWgslString for DimValue {
 /// particles and initialize them. The number of particles to spawn is stored as
 /// a floating-point number, and any remainder accumulates for the next
 /// emitting.
-#[derive(Debug, Copy, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Default)]
 pub struct Spawner {
     /// Number of particles to spawn over [`spawn_time`].
@@ -474,7 +470,7 @@ impl EffectSpawner {
     /// the spawner calculates the number of particles to spawn.
     ///
     /// This method is called automatically by [`tick_spawners()`] during the
-    /// [`CoreSet::PostUpdate`], so you normally don't have to call it yourself
+    /// [`PostUpdate`], so you normally don't have to call it yourself
     /// manually.
     ///
     /// # Returns
@@ -549,8 +545,8 @@ impl EffectSpawner {
 
 /// Tick all the spawners of the visible [`ParticleEffect`] components.
 ///
-/// This system runs in the [`CoreSet::PostUpdate`] stage, after the visibility
-/// system has updated the [`ComputedVisibility`] of each effect instance (see
+/// This system runs in the [`PostUpdate`] stage, after the visibility system
+/// has updated the [`ComputedVisibility`] of each effect instance (see
 /// [`VisibilitySystems::CheckVisibility`]). Hidden instances are not updated,
 /// unless the [`EffectAsset::simulation_condition`] is set to
 /// [`SimulationCondition::Always`].
@@ -771,7 +767,7 @@ mod test {
         app.insert_resource(asset_server);
         // app.add_plugins(DefaultPlugins);
         app.add_asset::<Mesh>();
-        app.add_plugin(VisibilityPlugin);
+        app.add_plugins(VisibilityPlugin);
         app.init_resource::<Time>();
         app.insert_resource(Random(new_rng()));
         app.add_asset::<EffectAsset>();

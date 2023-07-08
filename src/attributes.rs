@@ -3,8 +3,9 @@ use std::{any::Any, borrow::Cow, num::NonZeroU64};
 use bevy::{
     math::{Vec2, Vec3, Vec4},
     reflect::{
-        utility::NonGenericTypeInfoCell, DynamicStruct, FieldIter, FromReflect, NamedField,
-        Reflect, ReflectMut, ReflectOwned, ReflectRef, Struct, StructInfo, TypeInfo, Typed,
+        utility::{GenericTypePathCell, NonGenericTypeInfoCell},
+        DynamicStruct, FieldIter, FromReflect, NamedField, Reflect, ReflectMut, ReflectOwned,
+        ReflectRef, Struct, StructInfo, TypeInfo, TypePath, Typed,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,7 @@ use crate::{
 };
 
 /// Scalar types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ScalarType {
     /// Boolean value (`bool`).
@@ -71,7 +72,7 @@ impl ToWgslString for ScalarType {
 }
 
 /// Vector type (`vecN<T>`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct VectorType {
     /// Type of all elements (components) of the vector.
     elem_type: ScalarType,
@@ -162,7 +163,7 @@ impl ToWgslString for VectorType {
 }
 
 /// Floating-point matrix type (`matCxR<f32>`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct MatrixType {
     rows: u8,
     cols: u8,
@@ -312,7 +313,7 @@ impl ToWgslString for ValueType {
     }
 }
 
-#[derive(Debug, Clone, Reflect, FromReflect)]
+#[derive(Debug, Clone, Reflect)]
 pub(crate) struct AttributeInner {
     name: Cow<'static, str>,
     default_value: Value,
@@ -425,6 +426,30 @@ impl From<Attribute> for &'static str {
     }
 }
 
+impl TypePath for Attribute {
+    fn type_path() -> &'static str {
+        static CELL: GenericTypePathCell = GenericTypePathCell::new();
+        CELL.get_or_insert::<Self, _>(|| "bevy_hanabi::attribute::Attribute".to_owned())
+    }
+
+    fn short_type_path() -> &'static str {
+        static CELL: GenericTypePathCell = GenericTypePathCell::new();
+        CELL.get_or_insert::<Self, _>(|| "Attribute".to_owned())
+    }
+
+    fn type_ident() -> Option<&'static str> {
+        Some("Attribute")
+    }
+
+    fn crate_name() -> Option<&'static str> {
+        Some("bevy_hanabi")
+    }
+
+    fn module_path() -> Option<&'static str> {
+        Some("bevy_hanabi::attribute")
+    }
+}
+
 impl Typed for Attribute {
     fn type_info() -> &'static TypeInfo {
         static CELL: NonGenericTypeInfoCell = NonGenericTypeInfoCell::new();
@@ -484,7 +509,7 @@ impl Struct for Attribute {
 
     fn clone_dynamic(&self) -> DynamicStruct {
         let mut dynamic = DynamicStruct::default();
-        dynamic.set_name(::std::string::ToString::to_string(Reflect::type_name(self)));
+        dynamic.set_represented_type(self.get_represented_type_info());
         dynamic.insert_boxed("name", Reflect::clone_value(&self.0.name));
         dynamic.insert_boxed("default_value", Reflect::clone_value(&self.0.default_value));
         dynamic
@@ -497,9 +522,8 @@ impl Reflect for Attribute {
         ::core::any::type_name::<Attribute>()
     }
 
-    #[inline]
-    fn get_type_info(&self) -> &'static TypeInfo {
-        <Attribute as Typed>::type_info()
+    fn get_represented_type_info(&self) -> Option<&'static TypeInfo> {
+        Some(<Self as Typed>::type_info())
     }
 
     #[inline]
@@ -1311,7 +1335,10 @@ mod tests {
                 }
 
                 let d = s.clone_dynamic();
-                assert_eq!(TypeRegistration::of::<Attribute>().type_name(), d.name());
+                assert_eq!(
+                    TypeRegistration::of::<Attribute>().type_name(),
+                    d.get_represented_type_info().unwrap().type_name()
+                );
                 assert_eq!(Some(0), d.index_of("name"));
                 assert_eq!(Some(1), d.index_of("default_value"));
             }

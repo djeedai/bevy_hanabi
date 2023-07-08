@@ -43,7 +43,7 @@ use std::fmt::Debug;
 
 use bevy::{
     math::{BVec2, BVec3, BVec4, IVec2, IVec3, IVec4, Vec2, Vec3, Vec3A, Vec4},
-    reflect::{FromReflect, Reflect},
+    reflect::Reflect,
     utils::FloatOrd,
 };
 use serde::{Deserialize, Serialize};
@@ -62,58 +62,6 @@ pub use node::{
     SubNode, TimeNode,
 };
 
-// /// Binary arithmetic operator.
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect,
-// Serialize, Deserialize)] #[non_exhaustive]
-// pub enum BinaryOperator {
-//     /// Add operator `+`.
-//     Add,
-//     /// Subtract operator `-`.
-//     Sub,
-//     /// Multiply operator `*`.
-//     Mul,
-//     /// Divide operator `/`.
-//     Div,
-// }
-
-// impl BinaryOperator {
-//     /// Apply the operator to a pair of `f32` values.
-//     pub fn apply_f32(&self, a: f32, b: f32) -> f32 {
-//         match *self {
-//             BinaryOperator::Add => a + b,
-//             BinaryOperator::Sub => a - b,
-//             BinaryOperator::Mul => a * b,
-//             BinaryOperator::Div => a / b,
-//         }
-//     }
-
-//     /// Apply the operator to a pair of `i32` values.
-//     pub fn apply_i32(&self, a: i32, b: i32) -> i32 {
-//         match *self {
-//             BinaryOperator::Add => a + b,
-//             BinaryOperator::Sub => a - b,
-//             BinaryOperator::Mul => a * b,
-//             BinaryOperator::Div => a / b,
-//         }
-//     }
-
-//     /// Apply the operator to a pair of `u32` values.
-//     pub fn apply_u32(&self, a: u32, b: u32) -> u32 {
-//         match *self {
-//             BinaryOperator::Add => a + b,
-//             BinaryOperator::Sub => a - b,
-//             BinaryOperator::Mul => a * b,
-//             BinaryOperator::Div => a / b,
-//         }
-//     }
-// }
-
-// /// Binary arithmetic operation over self.
-// pub trait BinaryOperation {
-//     /// Apply a binary arithmetic operator between self and another value.
-//     fn apply(&self, other: &Self, op: BinaryOperator) -> Self;
-// }
-
 /// Variant storage for a scalar value.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -128,22 +76,8 @@ pub enum ScalarValueMut<'a> {
     Uint(&'a mut u32),
 }
 
-// impl<'a> ScalarValueMut<'a> {
-//     /// Apply a binary arithmetic operator between self and another operand.
-//     fn binary_op(&mut self, other: &ScalarValue, op: BinaryOperator) {
-//         match self {
-//             ScalarValueMut::Bool(_) => {
-//                 panic!("Cannot apply binary arithmetic operator to boolean
-// value.")             }
-//             ScalarValueMut::Float(f) => **f = op.apply_f32(**f,
-// other.as_f32()),             ScalarValueMut::Int(i) => **i =
-// op.apply_i32(**i, other.as_i32()),             ScalarValueMut::Uint(u) => **u
-// = op.apply_u32(**u, other.as_u32()),         }
-//     }
-// }
-
 /// Variant storage for a scalar value.
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ScalarValue {
     /// Single `bool` value.
@@ -450,7 +384,7 @@ impl ElemType for u32 {
 }
 
 /// Variant storage for a vector value.
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
 pub struct VectorValue {
     vector_type: VectorType,
     storage: [u32; 4],
@@ -1073,7 +1007,7 @@ impl From<IVec4> for VectorValue {
 }
 
 /// Floating-point matrix value.
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
 pub struct MatrixValue {
     /// Matrix type.
     matrix_type: MatrixType,
@@ -1199,7 +1133,7 @@ impl ToWgslString for MatrixValue {
 /// Variant storage for a simple value.
 ///
 /// The variant can store a scalar, vector, or matrix value.
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Value {
     /// Scalar value.

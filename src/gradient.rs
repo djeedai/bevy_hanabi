@@ -59,7 +59,7 @@ impl Lerp for Quat {
 }
 
 /// A single key point for a [`Gradient`].
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct GradientKey<T: Lerp + FromReflect> {
     /// Ratio in \[0:1\] where the key is located.
     ratio: f32,
@@ -117,7 +117,7 @@ impl Hash for GradientKey<Vec4> {
 /// The gradient can be sampled anywhere, and will return a linear interpolation
 /// of the values of its closest keys. Sampling before 0 or after 1 returns a
 /// constant value equal to the one of the closest bound.
-#[derive(Debug, Default, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct Gradient<T: Lerp + FromReflect> {
     keys: Vec<GradientKey<T>>,
 }

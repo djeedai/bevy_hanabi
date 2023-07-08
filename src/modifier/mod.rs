@@ -22,7 +22,7 @@
 //! [`UpdateModifier`]: crate::modifier::update::UpdateModifier
 //! [`RenderModifier`]: crate::modifier::render::RenderModifier
 
-use bevy::reflect::{FromReflect, Reflect};
+use bevy::reflect::Reflect;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::hash_map::DefaultHasher,
@@ -42,9 +42,7 @@ use crate::{Attribute, Property};
 /// The dimension of a shape to consider.
 ///
 /// The exact meaning depends on the context where this enum is used.
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Reflect, FromReflect, Serialize, Deserialize,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Reflect, Serialize, Deserialize)]
 pub enum ShapeDimension {
     /// Consider the surface of the shape only.
     #[default]
@@ -172,8 +170,8 @@ mod tests {
         let rm: &dyn Reflect = m.as_reflect();
         let rm_serde: &dyn Reflect = m_serde.as_reflect();
         assert_eq!(
-            rm.get_type_info().type_id(),
-            rm_serde.get_type_info().type_id()
+            rm.get_represented_type_info().unwrap().type_id(),
+            rm_serde.get_represented_type_info().unwrap().type_id()
         );
 
         assert!(rm_serde.is::<InitPositionSphereModifier>());

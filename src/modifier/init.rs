@@ -113,7 +113,7 @@ macro_rules! impl_mod_init {
 /// # Attributes
 ///
 /// This modifier requires the attribute specified in the `attribute` field.
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
 pub struct InitAttributeModifier {
     /// The name of the attribute to initialize.
     pub attribute: Attribute,
@@ -169,7 +169,7 @@ impl InitModifier for InitAttributeModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitPositionCircleModifier {
     /// The circle center, relative to the emitter position.
     pub center: Vec3,
@@ -246,7 +246,7 @@ impl InitModifier for InitPositionCircleModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitPositionSphereModifier {
     /// The sphere center, relative to the emitter position.
     pub center: Vec3,
@@ -321,7 +321,7 @@ impl InitModifier for InitPositionSphereModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitPositionCone3dModifier {
     /// The cone height along its axis, between the base and top radii.
     pub height: f32,
@@ -389,7 +389,7 @@ impl InitModifier for InitPositionCone3dModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitVelocityCircleModifier {
     /// The circle center, relative to the emitter position.
     pub center: Vec3,
@@ -437,7 +437,7 @@ impl InitModifier for InitVelocityCircleModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitVelocitySphereModifier {
     /// Center of the sphere. The radial direction of the velocity is the
     /// direction from the sphere center to the particle position.
@@ -473,7 +473,7 @@ impl InitModifier for InitVelocitySphereModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitVelocityTangentModifier {
     /// Origin from which to derive the radial axis based on the particle
     /// position.
@@ -526,7 +526,7 @@ impl InitModifier for InitVelocityTangentModifier {
 /// - [`Attribute::SIZE`] or [`Attribute::SIZE2`]
 ///
 /// [`SizeOverLifetimeModifier`]: crate::SizeOverLifetimeModifier
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitSizeModifier {
     /// The size to initialize each particle with.
     ///
