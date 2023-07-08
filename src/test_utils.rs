@@ -3,7 +3,7 @@
 #[cfg(feature = "gpu_tests")]
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use bevy::{
-    asset::{AssetIo, AssetIoError, Metadata},
+    asset::{AssetIo, AssetIoError, ChangeWatcher, Metadata},
     prelude::{Quat, Vec2, Vec3, Vec4},
 };
 use std::{
@@ -236,7 +236,7 @@ impl AssetIo for DummyAssetIo {
         Ok(())
     }
 
-    fn watch_for_changes(&self) -> Result<(), AssetIoError> {
+    fn watch_for_changes(&self, _watcher: &ChangeWatcher) -> Result<(), AssetIoError> {
         Ok(())
     }
 

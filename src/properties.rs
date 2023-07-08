@@ -10,13 +10,13 @@
 
 use std::num::NonZeroU64;
 
-use bevy::reflect::{FromReflect, Reflect};
+use bevy::reflect::Reflect;
 use serde::{Deserialize, Serialize};
 
 use crate::{graph::Value, next_multiple_of, ToWgslString, ValueType};
 
 /// Effect property.
-#[derive(Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct Property {
     name: String,
     default_value: Value,
@@ -79,7 +79,7 @@ impl ToWgslString for Property {
 /// Instance of a [`Property`] owned by a specific [`ParticleEffect`] component.
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
-#[derive(Debug, Clone, Reflect, FromReflect)]
+#[derive(Debug, Clone, Reflect)]
 pub(crate) struct PropertyInstance {
     /// The property definition, including its default value.
     pub def: Property,

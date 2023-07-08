@@ -1,5 +1,5 @@
 use bevy::{
-    core_pipeline::clear_color::ClearColorConfig,
+    core_pipeline::{clear_color::ClearColorConfig, tonemapping::Tonemapping},
     log::LogPlugin,
     math::EulerRot,
     prelude::*,
@@ -10,7 +10,7 @@ use bevy::{
     },
     window::WindowResized,
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -20,11 +20,14 @@ fn main() {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,multicam=trace".to_string(),
         }))
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
-        .add_system(update_camera_viewports)
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
+        .add_systems(
+            Update,
+            (bevy::window::close_on_esc, update_camera_viewports),
+        )
         .run();
 }
 
@@ -114,6 +117,7 @@ fn setup(
                 },
                 transform: Transform::from_translation(Vec3::new(x, 100.0, z))
                     .looking_at(Vec3::ZERO, Vec3::Y),
+                tonemapping: Tonemapping::None,
                 ..default()
             },
             SplitCamera {

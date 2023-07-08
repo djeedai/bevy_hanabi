@@ -107,7 +107,7 @@ macro_rules! impl_mod_update {
 /// This enumeration either directly stores a constant value assigned at
 /// creation time, or a reference to an effect property the value is derived
 /// from.
-#[derive(Debug, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub enum ValueOrProperty {
     /// Constant value.
     Value(Value),
@@ -151,7 +151,7 @@ impl ToWgslString for ValueOrProperty {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
 pub struct AccelModifier {
     /// The acceleration to apply to all particles in the effect each frame.
     accel: ExprHandle,
@@ -246,7 +246,7 @@ impl UpdateModifier for AccelModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Reflect, Serialize, Deserialize)]
 pub struct RadialAccelModifier {
     /// The acceleration to apply to all particles in the effect each frame.
     accel: ValueOrProperty,
@@ -369,7 +369,7 @@ impl UpdateModifier for RadialAccelModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Reflect, Serialize, Deserialize)]
 pub struct TangentAccelModifier {
     /// The acceleration to apply to all particles in the effect each frame.
     accel: ValueOrProperty,
@@ -490,7 +490,7 @@ impl UpdateModifier for TangentAccelModifier {
 /// position, with a decreasing intensity the further away from the source the
 /// particle is. This force is added to the one(s) of all the other active
 /// sources of a [`ForceFieldModifier`].
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
 pub struct ForceFieldSource {
     /// Position of the source.
     pub position: Vec3,
@@ -573,9 +573,7 @@ impl ForceFieldSource {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct ForceFieldModifier {
     /// Array of force field sources.
     ///
@@ -664,7 +662,7 @@ impl UpdateModifier for ForceFieldModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
 pub struct LinearDragModifier {
     /// Drag coefficient. Higher values increase the drag force, and
     /// consequently decrease the particle's speed faster.
@@ -714,7 +712,7 @@ impl UpdateModifier for LinearDragModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
 pub struct AabbKillModifier {
     /// Center of the AABB.
     pub center: ExprHandle,
@@ -783,7 +781,7 @@ mod tests {
 
     use super::*;
 
-    use naga::front::wgsl::Parser;
+    use naga::front::wgsl::Frontend;
 
     #[test]
     fn mod_accel() {
@@ -918,8 +916,8 @@ fn main() {{
 }}"##
             );
 
-            let mut parser = Parser::new();
-            let res = parser.parse(&code);
+            let mut frontend = Frontend::new();
+            let res = frontend.parse(&code);
             if let Err(err) = &res {
                 println!("Modifier: {:?}", modifier.type_name());
                 println!("Code: {:?}", code);

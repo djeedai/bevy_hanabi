@@ -1,6 +1,6 @@
 use bevy::{
     asset::{AssetLoader, LoadContext, LoadedAsset},
-    reflect::{FromReflect, Reflect, TypeUuid},
+    reflect::{Reflect, TypeUuid},
     utils::{BoxedFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
@@ -12,9 +12,7 @@ use crate::{
 };
 
 /// Type of motion integration applied to the particles of a system.
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum MotionIntegration {
     /// No motion integration. The [`Attribute::POSITION`] of the particles
     /// needs to be explicitly assigned by a modifier for the particles to move.
@@ -39,9 +37,7 @@ pub enum MotionIntegration {
 }
 
 /// Simulation condition for an effect.
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum SimulationCondition {
     /// Simulate the effect only when visible.
     ///
@@ -87,7 +83,8 @@ pub enum SimulationCondition {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Default, Clone, TypeUuid, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Default, Clone, TypeUuid, Reflect, Serialize, Deserialize)]
+#[reflect(from_reflect = false)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.

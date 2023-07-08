@@ -10,11 +10,13 @@
 //! before they disappear, like sparkles fading away.
 
 use bevy::{
-    core_pipeline::{bloom::BloomSettings, clear_color::ClearColorConfig},
+    core_pipeline::{
+        bloom::BloomSettings, clear_color::ClearColorConfig, tonemapping::Tonemapping,
+    },
     log::LogPlugin,
     prelude::*,
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -22,12 +24,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     App::default()
         .add_plugins(DefaultPlugins.set(LogPlugin {
             level: bevy::log::Level::WARN,
-            filter: "bevy_hanabi=warn,portal=trace".to_string(),
+            filter: "bevy_hanabi=trace,portal=trace".to_string(),
         }))
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
+        .add_systems(Update, bevy::window::close_on_esc)
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
         .run();
 
     Ok(())
@@ -45,6 +48,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
                 clear_color: ClearColorConfig::Custom(Color::BLACK),
                 ..default()
             },
+            tonemapping: Tonemapping::None,
             ..default()
         },
         BloomSettings::default(),

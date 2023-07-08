@@ -10,7 +10,7 @@ use bevy::{
         render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
         renderer::{RenderAdapterInfo, RenderDevice},
         view::visibility::VisibilitySystems,
-        RenderApp, RenderSet,
+        Render, RenderApp, RenderSet,
     },
 };
 
@@ -51,47 +51,63 @@ pub struct HanabiPlugin;
 
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
-        let render_device = app.world.get_resource::<RenderDevice>().unwrap().clone();
-
-        // Check device limits
-        let limits = render_device.limits();
-        if limits.max_bind_groups < 4 {
-            let adapter_name = app
-                .world
-                .get_resource::<RenderAdapterInfo>()
-                .map(|ai| &ai.name[..])
-                .unwrap_or("<unknown>");
-            error!("Hanabi requires a GPU device supporting at least 4 bind groups (Limits::max_bind_groups).\n  Current adapter: {}\n  Supported bind groups: {}", adapter_name, limits.max_bind_groups);
-            return;
-        }
-
         // Register asset
         app.add_asset::<EffectAsset>()
             .add_event::<RemovedEffectsEvent>()
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<ShaderCache>()
             .init_asset_loader::<EffectAssetLoader>()
-            .configure_sets((
-                EffectSystems::TickSpawners
-                    .in_base_set(CoreSet::PostUpdate)
-                    // This checks the visibility to skip work, so needs to run after
-                    // ComputedVisibility was updated.
-                    .after(VisibilitySystems::CheckVisibility),
-                EffectSystems::CompileEffects
-                    .in_base_set(CoreSet::PostUpdate)
-                    // This checks the visibility to skip work, so needs to run after
-                    // ComputedVisibility was updated.
-                    .after(VisibilitySystems::CheckVisibility),
-                EffectSystems::GatherRemovedEffects.in_base_set(CoreSet::PostUpdate),
-            ))
-            .add_system(tick_spawners.in_set(EffectSystems::TickSpawners))
-            .add_system(compile_effects.in_set(EffectSystems::CompileEffects))
-            .add_system(gather_removed_effects.in_set(EffectSystems::GatherRemovedEffects));
+            .configure_sets(
+                PostUpdate,
+                (
+                    EffectSystems::TickSpawners
+                        // This checks the visibility to skip work, so needs to run after
+                        // ComputedVisibility was updated.
+                        .after(VisibilitySystems::CheckVisibility),
+                    EffectSystems::CompileEffects
+                        // This checks the visibility to skip work, so needs to run after
+                        // ComputedVisibility was updated.
+                        .after(VisibilitySystems::CheckVisibility),
+                    EffectSystems::GatherRemovedEffects,
+                ),
+            )
+            .add_systems(
+                PostUpdate,
+                (
+                    tick_spawners.in_set(EffectSystems::TickSpawners),
+                    compile_effects.in_set(EffectSystems::CompileEffects),
+                    gather_removed_effects.in_set(EffectSystems::GatherRemovedEffects),
+                ),
+            );
 
         // Register the component reflection
         app.register_type::<EffectAsset>();
         app.register_type::<ParticleEffect>();
         app.register_type::<Spawner>();
+    }
+
+    fn finish(&self, app: &mut App) {
+        let render_device = app
+            .sub_app(RenderApp)
+            .world
+            .get_resource::<RenderDevice>()
+            .unwrap()
+            .clone();
+
+        let adapter_name = app
+            .world
+            .get_resource::<RenderAdapterInfo>()
+            .map(|ai| &ai.name[..])
+            .unwrap_or("<unknown>");
+
+        // Check device limits
+        let limits = render_device.limits();
+        if limits.max_bind_groups < 4 {
+            error!("Hanabi requires a GPU device supporting at least 4 bind groups (Limits::max_bind_groups).\n  Current adapter: {}\n  Supported bind groups: {}", adapter_name, limits.max_bind_groups);
+            return;
+        } else {
+            info!("Initializing Hanabi for GPU adapter {}", adapter_name);
+        }
 
         let effects_meta = EffectsMeta::new(render_device);
 
@@ -110,17 +126,23 @@ impl Plugin for HanabiPlugin {
             .init_resource::<ExtractedEffects>()
             .init_resource::<EffectAssetEvents>()
             .init_resource::<SimParams>()
-            .configure_sets((
-                EffectSystems::PrepareEffects.in_set(RenderSet::Prepare),
-                EffectSystems::QueueEffects.in_set(RenderSet::Queue),
-            ))
+            .configure_sets(
+                Render,
+                (
+                    EffectSystems::PrepareEffects.in_set(RenderSet::Prepare),
+                    EffectSystems::QueueEffects.in_set(RenderSet::Queue),
+                ),
+            )
             .edit_schedule(ExtractSchedule, |schedule| {
-                schedule
-                    .add_system(extract_effects)
-                    .add_system(extract_effect_events);
+                schedule.add_systems((extract_effects, extract_effect_events));
             })
-            .add_system(prepare_effects.in_set(EffectSystems::PrepareEffects))
-            .add_system(queue_effects.in_set(EffectSystems::QueueEffects));
+            .add_systems(
+                Render,
+                (
+                    prepare_effects.in_set(EffectSystems::PrepareEffects),
+                    queue_effects.in_set(EffectSystems::QueueEffects),
+                ),
+            );
 
         // Register the draw function for drawing the particles. This will be called
         // during the main 2D/3D pass, at the Transparent2d/3d phase, after the

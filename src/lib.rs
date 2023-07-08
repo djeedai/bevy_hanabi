@@ -50,7 +50,7 @@
 //!
 //! App::default()
 //!     .add_plugins(DefaultPlugins)
-//!     .add_plugin(HanabiPlugin)
+//!     .add_plugins(HanabiPlugin)
 //!     .run();
 //! ```
 //!
@@ -341,9 +341,7 @@ impl ToWgslString for Value<Vec4> {
 }
 
 /// Simulation space for the particles of an effect.
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Reflect, FromReflect, Serialize, Deserialize,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Reflect, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum SimulationSpace {
     /// Particles are simulated in global space.
@@ -362,7 +360,7 @@ pub enum SimulationSpace {
 ///
 /// A property with this name might not exist, in which case the value will be
 /// discarded silently when the instance is initialized from its asset.
-#[derive(Debug, Clone, PartialEq, Reflect, FromReflect)]
+#[derive(Debug, Clone, PartialEq, Reflect)]
 pub struct PropertyValue {
     /// Name of the property the value should be assigned to.
     name: String,
@@ -1164,6 +1162,7 @@ fn compile_effects(
 /// system, to clean-up unused GPU resources.
 ///
 /// [`extract_effects()`]: crate::render::extract_effects
+#[derive(Event)]
 struct RemovedEffectsEvent {
     entities: Vec<Entity>,
 }
@@ -1334,14 +1333,13 @@ else { return c1; }
         // app.add_plugins(DefaultPlugins);
         app.add_asset::<Mesh>();
         app.add_asset::<Shader>();
-        app.add_plugin(VisibilityPlugin);
+        app.add_plugins(VisibilityPlugin);
         app.init_resource::<ShaderCache>();
         app.insert_resource(Random(new_rng()));
         app.add_asset::<EffectAsset>();
-        app.add_system(
-            compile_effects
-                .in_base_set(CoreSet::PostUpdate)
-                .after(VisibilitySystems::CheckVisibility),
+        app.add_systems(
+            PostUpdate,
+            compile_effects.after(VisibilitySystems::CheckVisibility),
         );
 
         app

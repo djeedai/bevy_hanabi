@@ -64,26 +64,23 @@ pub use shader_cache::ShaderCache;
 pub enum EffectSystems {
     /// Tick all effect instances to generate spawner counts.
     ///
-    /// This system runs during the [`CoreSet::PostUpdate`] set, in parallel of
+    /// This system runs during the [`PostUpdate`] set, in parallel of
     /// [`CompileEffects`].
     ///
-    /// [`CoreSet::PostUpdate`]: bevy::app::CoreSet::PostUpdate
     /// [`CompileEffects`]: EffectSystems::CompileEffects
     TickSpawners,
     /// Compile the effect instances, updating the [`CompiledParticleEffect`]
     /// components.
     ///
-    /// This system runs during the [`CoreSet::PostUpdate`] set, in parallel of
+    /// This system runs during the [`PostUpdate`] set, in parallel of
     /// [`TickSpawners`].
     ///
-    /// [`CoreSet::PostUpdate`]: bevy::app::CoreSet::PostUpdate
     /// [`TickSpawners`]: EffectSystems::TickSpawners
     CompileEffects,
     /// Gather all removed [`ParticleEffect`] components during the
-    /// [`CoreSet::PostUpdate`] set, to be able to clean-up GPU resources.
+    /// [`PostUpdate`] set, to be able to clean-up GPU resources.
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
-    /// [`CoreSet::PostUpdate`]: bevy::app::CoreSet::PostUpdate
     GatherRemovedEffects,
     /// Prepare GPU data for the extracted effects.
     PrepareEffects,
@@ -1585,6 +1582,7 @@ const QUAD_VERTEX_POSITIONS: &[Vec3] = &[
 ];
 
 bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     struct LayoutFlags: u32 {
         const NONE = 0;
         const PARTICLE_TEXTURE = 0b00000001;
@@ -2846,7 +2844,7 @@ impl Node for VfxSimulateDriverNode {
         _render_context: &mut RenderContext,
         _world: &World,
     ) -> Result<(), NodeRunError> {
-        graph.run_sub_graph(crate::plugin::simulate_graph::NAME, vec![])?;
+        graph.run_sub_graph(crate::plugin::simulate_graph::NAME, vec![], None)?;
         Ok(())
     }
 }
@@ -3042,7 +3040,7 @@ impl Node for VfxSimulateNode {
                 );
                 compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
                 trace!(
-                    "indirect dispatch compute dispatched: num_batches={} workgroup_count{}",
+                    "indirect dispatch compute dispatched: num_batches={} workgroup_count={}",
                     num_batches,
                     workgroup_count
                 );

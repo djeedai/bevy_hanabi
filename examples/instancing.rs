@@ -9,8 +9,10 @@
 
 #![allow(dead_code)]
 
-use bevy::{log::LogPlugin, prelude::*, render::mesh::shape::Cube};
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy::{
+    core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*, render::mesh::shape::Cube,
+};
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use rand::Rng;
 
 use bevy_hanabi::prelude::*;
@@ -173,12 +175,12 @@ fn main() {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,instancing=trace".to_string(),
         }))
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
         .insert_resource(InstanceManager::new(5, 4))
-        .add_startup_system(setup)
-        .add_system(keyboard_input_system)
+        .add_systems(Startup, setup)
+        .add_systems(Update, (bevy::window::close_on_esc, keyboard_input_system))
         //.add_system(stress_test.after(keyboard_input_system))
         .run();
 }
@@ -192,7 +194,10 @@ fn setup(
 ) {
     info!("Usage: Press the SPACE key to spawn more instances, and the DELETE key to remove an existing instance.");
 
-    let mut camera = Camera3dBundle::default();
+    let mut camera = Camera3dBundle {
+        tonemapping: Tonemapping::None,
+        ..default()
+    };
     camera.transform.translation = Vec3::new(0.0, 0.0, 180.0);
     commands.spawn(camera);
 

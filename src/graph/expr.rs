@@ -101,12 +101,9 @@
 //! [`Modifier`]: crate::Modifier
 //! [`EffectAsset`]: crate::EffectAsset
 
-use std::{cell::RefCell, cmp::Ordering, fmt, marker::PhantomData, num::NonZeroU32, rc::Rc};
+use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
 
-use bevy::{
-    reflect::{FromReflect, Reflect},
-    utils::thiserror::Error,
-};
+use bevy::{reflect::Reflect, utils::thiserror::Error};
 use serde::{Deserialize, Serialize};
 
 use crate::{Attribute, PropertyLayout, ScalarType, ToWgslString, ValueType};
@@ -115,77 +112,6 @@ use super::Value;
 
 type Index = NonZeroU32;
 
-/// Typed handle uniquely identifying an element into an implicitly-referenced
-/// storage.
-///
-/// The handle is a convenience wrapper around an index into an internal storage
-/// implicitly associated with it. The handle itself is very lightweight, and
-/// doesn't keep a reference to the storage; it's the user responsibility to
-/// ensure the lifetime of the handle is longer than those of the handle itself.
-#[derive(Reflect, FromReflect, Serialize, Deserialize)]
-pub struct Handle<T: Send + Sync + 'static> {
-    index: Index,
-    #[serde(skip)]
-    #[reflect(ignore)]
-    marker: PhantomData<T>,
-}
-
-impl<T: Send + Sync + 'static> Clone for Handle<T> {
-    fn clone(&self) -> Self {
-        Handle {
-            index: self.index,
-            marker: self.marker,
-        }
-    }
-}
-
-impl<T: Send + Sync + 'static> Copy for Handle<T> {}
-
-impl<T: Send + Sync + 'static> PartialEq for Handle<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.index == other.index
-    }
-}
-
-impl<T: Send + Sync + 'static> Eq for Handle<T> {}
-
-impl<T: Send + Sync + 'static> PartialOrd for Handle<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.index.partial_cmp(&other.index)
-    }
-}
-
-impl<T: Send + Sync + 'static> Ord for Handle<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.index.cmp(&other.index)
-    }
-}
-
-impl<T: Send + Sync + 'static> fmt::Debug for Handle<T> {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(formatter, "[{}]", self.index)
-    }
-}
-
-impl<T: Send + Sync + 'static> std::hash::Hash for Handle<T> {
-    fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
-        self.index.hash(hasher)
-    }
-}
-
-impl<T: Send + Sync + 'static> Handle<T> {
-    fn new(index: Index) -> Handle<T> {
-        Handle {
-            index,
-            marker: PhantomData,
-        }
-    }
-
-    fn index(&self) -> usize {
-        (self.index.get() - 1) as usize
-    }
-}
-
 /// Handle of an expression inside a given [`Module`].
 ///
 /// A handle uniquely references an [`Expr`] stored inside a [`Module`]. It's a
@@ -193,10 +119,24 @@ impl<T: Send + Sync + 'static> Handle<T> {
 /// reason, it's easily copyable. However it's also lacking any kind of error
 /// checking, and mixing handles to different modules produces undefined
 /// behaviors (like an index does when indexing the wrong array).
-///
-/// The `ExprHandle` alias should always be preferred over its underlying
-/// `Handle<Expr>` type, to avoid confusion with Bevy's own `Handle` type.
-pub type ExprHandle = Handle<Expr>;
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect, Serialize, Deserialize,
+)]
+pub struct ExprHandle {
+    index: Index,
+}
+
+impl ExprHandle {
+    /// Create a new handle from a 1-based [`Index`].
+    fn new(index: Index) -> Self {
+        Self { index }
+    }
+
+    /// Get the zero-based index into the array of the module.
+    fn index(&self) -> usize {
+        (self.index.get() - 1) as usize
+    }
+}
 
 /// Container for expressions.
 ///
@@ -217,7 +157,7 @@ pub type ExprHandle = Handle<Expr>;
 /// [`EffectAsset`]: crate::EffectAsset
 /// [`lit()`]: Module::lit
 /// [`attr()`]: Module::attr
-#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct Module {
     expressions: Vec<Expr>,
 }
@@ -233,7 +173,7 @@ impl Module {
         #[allow(unsafe_code)]
         let index: Index = unsafe { NonZeroU32::new_unchecked(self.expressions.len() as u32 + 1) };
         self.expressions.push(expr.into());
-        Handle::new(index)
+        ExprHandle::new(index)
     }
 
     /// Build a literal expression and append it to the module.
@@ -500,14 +440,14 @@ pub trait EvalContext {
     fn property_layout(&self) -> &PropertyLayout;
 
     /// Resolve an expression handle its the underlying expression.
-    fn expr(&self, handle: Handle<Expr>) -> Result<&Expr, ExprError>;
+    fn expr(&self, handle: ExprHandle) -> Result<&Expr, ExprError>;
 
     /// Evaluate an expression.
-    fn eval(&self, handle: Handle<Expr>) -> Result<String, ExprError>;
+    fn eval(&self, handle: ExprHandle) -> Result<String, ExprError>;
 }
 
 /// Language expression producing a value.
-#[derive(Debug, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub enum Expr {
     /// Built-in expression ([`BuiltInExpr`]) providing access to some internal
     /// quantities like the simulation time.
@@ -528,16 +468,16 @@ pub enum Expr {
         /// Unary operator.
         op: UnaryOperator,
         /// Operand the unary operation applies to.
-        expr: Handle<Expr>,
+        expr: ExprHandle,
     },
     /// Binary operation expression, composing two expressions into a third one.
     Binary {
         /// Binary operator.
         op: BinaryOperator,
         /// Left-hand side operand the binary operation applies to.
-        left: Handle<Expr>,
+        left: ExprHandle,
         /// Right-hand side operand the binary operation applies to.
-        right: Handle<Expr>,
+        right: ExprHandle,
     },
 }
 
@@ -670,7 +610,7 @@ impl Expr {
 /// constant itself.
 ///
 /// [`is_const()`]: LiteralExpr::is_const
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct LiteralExpr {
     value: Value,
 }
@@ -724,7 +664,7 @@ impl<T: Into<Value>> From<T> for LiteralExpr {
 }
 
 /// Expression representing the value of an attribute of a particle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct AttributeExpr {
     attr: Attribute,
 }
@@ -766,7 +706,7 @@ impl From<Attribute> for AttributeExpr {
 }
 
 /// Expression representing the value of a property of an effect.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct PropertyExpr {
     property_name: String,
 }
@@ -812,7 +752,7 @@ impl From<String> for PropertyExpr {
 }
 
 /// Built-in operators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum BuiltInOperator {
     /// Current effect system simulation time since startup, in seconds.
     Time,
@@ -855,7 +795,7 @@ impl ToWgslString for BuiltInOperator {
 }
 
 /// Expression for getting built-in quantities related to the effect system.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct BuiltInExpr {
     operator: BuiltInOperator,
 }
@@ -895,7 +835,7 @@ impl ToWgslString for BuiltInExpr {
 /// Operator applied to a single operand to produce another value. The type of
 /// the operand and the result are not necessarily the same. Valid operand types
 /// depend on the operator itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum UnaryOperator {
     /// Absolute value operator.
     ///
@@ -946,7 +886,7 @@ impl ToWgslString for UnaryOperator {
 /// Operator applied between two operands, generally denoted "left" and "right".
 /// The type of the operands and the result are not necessarily the same. Valid
 /// operand types depend on the operator itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum BinaryOperator {
     /// Addition operator.
     ///
@@ -1281,7 +1221,7 @@ impl ExprWriter {
 /// ```
 #[derive(Debug)]
 pub struct WriterExpr {
-    expr: Handle<Expr>,
+    expr: ExprHandle,
     module: Rc<RefCell<Module>>,
 }
 
@@ -1752,7 +1692,7 @@ impl WriterExpr {
     /// // Retrieve the ExprHandle for that expression.
     /// let handle = x.expr();
     /// ```
-    pub fn expr(self) -> Handle<Expr> {
+    pub fn expr(self) -> ExprHandle {
         self.expr
     }
 }
@@ -1962,10 +1902,10 @@ mod tests {
     //     let l_serde: LiteralExpr = ron::from_str(&s).unwrap();
     //     assert_eq!(l_serde, l);
 
-    //     let b: Handle<Expr> = Box::new(l);
+    //     let b: ExprHandle = Box::new(l);
     //     let s = ron::to_string(&b).unwrap();
     //     println!("boxed literal: {:?}", s);
-    //     let b_serde: Handle<Expr> = ron::from_str(&s).unwrap();
+    //     let b_serde: ExprHandle = ron::from_str(&s).unwrap();
     //     assert!(b_serde.is_const());
     //     assert_eq!(b_serde.to_wgsl_string(), b.to_wgsl_string());
 

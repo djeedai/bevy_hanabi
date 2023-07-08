@@ -11,13 +11,14 @@
 //! killing all particles entering it.
 
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{
         camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
     },
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -42,13 +43,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
-        .add_system(bevy::window::close_on_esc)
-        //.add_plugin(LookTransformPlugin)
-        //.add_plugin(OrbitCameraPlugin::default())
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
-        .add_system(update)
+        //.add_plugins(LookTransformPlugin)
+        //.add_plugins(OrbitCameraPlugin::default())
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
+        .add_systems(Update, (bevy::window::close_on_esc, update))
         .run();
 
     Ok(())
@@ -62,7 +63,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle::default();
+    let mut camera = Camera3dBundle {
+        tonemapping: Tonemapping::None,
+        ..default()
+    };
     let mut projection = OrthographicProjection::default();
     projection.scaling_mode = bevy::render::camera::ScalingMode::FixedVertical(5.);
     camera.transform.translation.z = projection.far / 2.0;

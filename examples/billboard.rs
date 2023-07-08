@@ -2,13 +2,14 @@
 //! particles to always render facing the camera.
 
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{
         camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
     },
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -28,11 +29,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
-        .add_system(rotate_camera)
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
+        .add_systems(Update, (bevy::window::close_on_esc, rotate_camera))
         .run();
 
     Ok(())
@@ -51,6 +52,7 @@ fn setup(
             fov: 120.0,
             ..Default::default()
         }),
+        tonemapping: Tonemapping::None,
         ..Default::default()
     };
 
