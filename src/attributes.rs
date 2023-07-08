@@ -1150,13 +1150,13 @@ mod tests {
         math::{Vec2, Vec3, Vec4},
         reflect::TypeRegistration,
     };
-    use naga::{front::wgsl::Parser, proc::Layouter};
+    use naga::{front::wgsl::Frontend, proc::Layouter};
 
     // Ensure the size and alignment of all types conforms to the WGSL spec by
     // querying naga as a reference.
     #[test]
     fn value_type_align() {
-        let mut parser = Parser::new();
+        let mut frontend = Frontend::new();
         for (value_type, value) in &[
             (
                 ValueType::Scalar(ScalarType::Float),
@@ -1203,7 +1203,7 @@ mod tests {
 
             // Create a tiny WGSL snippet with the Value(Type) and parse it
             let src = format!("const x = {};", value.to_wgsl_string());
-            let res = parser.parse(&src);
+            let res = frontend.parse(&src);
             if let Err(err) = &res {
                 println!("Error: {:?}", err);
             }
