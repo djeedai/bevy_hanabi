@@ -77,7 +77,7 @@ fn setup(
             .init(InitVelocityCircleModifier {
                 center: Vec3::ZERO,
                 axis: Vec3::Y,
-                speed: Value::Uniform((1.0, 1.5)),
+                speed: CpuValue::Uniform((1.0, 1.5)),
             })
             .init(init_lifetime)
             .render(ParticleTextureModifier {
