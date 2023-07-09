@@ -1,8 +1,14 @@
 use bevy::{
-    asset::{AssetLoader, LoadContext, LoadedAsset},
     reflect::{Reflect, TypeUuid},
-    utils::{default, BoxedFuture, HashSet},
+    utils::{default, HashSet},
 };
+
+//#[cfg(feature = "serde")]
+use bevy::{
+    asset::{AssetLoader, LoadContext, LoadedAsset},
+    utils::BoxedFuture,
+};
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -160,7 +166,8 @@ pub enum AlphaMode {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Default, Clone, TypeUuid, Reflect, Serialize, Deserialize)]
+#[derive(Default, Clone, TypeUuid, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[reflect(from_reflect = false)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
@@ -473,9 +480,11 @@ impl EffectAsset {
     }
 }
 
+#[cfg(feature = "serde")]
 #[derive(Default)]
 pub struct EffectAssetLoader;
 
+#[cfg(feature = "serde")]
 impl AssetLoader for EffectAssetLoader {
     fn load<'a>(
         &'a self,

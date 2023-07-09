@@ -15,7 +15,7 @@ use bevy::{
 };
 
 use crate::{
-    asset::{EffectAsset, EffectAssetLoader},
+    asset::EffectAsset,
     compile_effects, gather_removed_effects,
     render::{
         extract_effect_events, extract_effects, prepare_effects, queue_effects,
@@ -26,6 +26,9 @@ use crate::{
     spawn::{self, Random},
     tick_spawners, ParticleEffect, RemovedEffectsEvent, Spawner,
 };
+
+#[cfg(feature = "serde")]
+use crate::asset::EffectAssetLoader;
 
 pub mod main_graph {
     pub mod node {
@@ -56,7 +59,6 @@ impl Plugin for HanabiPlugin {
             .add_event::<RemovedEffectsEvent>()
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<ShaderCache>()
-            .init_asset_loader::<EffectAssetLoader>()
             .configure_sets(
                 PostUpdate,
                 (
@@ -79,6 +81,9 @@ impl Plugin for HanabiPlugin {
                     gather_removed_effects.in_set(EffectSystems::GatherRemovedEffects),
                 ),
             );
+
+        #[cfg(feature = "serde")]
+        app.init_asset_loader::<EffectAssetLoader>();
 
         // Register the component reflection
         app.register_type::<EffectAsset>();

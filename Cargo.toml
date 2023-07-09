@@ -20,6 +20,7 @@ default = ["2d", "3d", "gpu_tests"]
 
 # Enable support for rendering through a 3D camera (Camera3dBundle)
 3d = []
+serde = ["typetag"]
 
 # Special feature to enable GPU-based tests, which otherwise fail
 # on a CI machine without a graphic adapter or without proper drivers.
@@ -35,7 +36,7 @@ serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 ron = "0.8"
 bitflags = "2.3"
-typetag = "0.2"
+typetag = { version = "0.2", optional = true }
 
 [dependencies.bevy]
 version = "0.11"

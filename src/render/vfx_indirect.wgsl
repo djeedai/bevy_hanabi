@@ -21,7 +21,7 @@ struct Spawner {
     inverse_transform: mat3x4<f32>, // transposed (row-major)
     spawn: i32,
     seed: u32,
-    count: atomic<i32>,
+    count: i32,
     effect_index: u32,
     force_field: array<ForceFieldSource, 16>,
     {{SPAWNER_PADDING}}
