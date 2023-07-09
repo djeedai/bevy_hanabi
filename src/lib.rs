@@ -169,7 +169,7 @@ pub use modifier::*;
 pub use plugin::HanabiPlugin;
 pub use properties::{Property, PropertyLayout};
 pub use render::{EffectSystems, ShaderCache};
-pub use spawn::{tick_spawners, DimValue, EffectSpawner, Random, Spawner, Value};
+pub use spawn::{tick_spawners, CpuValue, DimValue, EffectSpawner, Random, Spawner};
 
 #[allow(missing_docs)]
 pub mod prelude {
@@ -288,7 +288,7 @@ impl ToWgslString for u32 {
     }
 }
 
-impl ToWgslString for Value<f32> {
+impl ToWgslString for CpuValue<f32> {
     fn to_wgsl_string(&self) -> String {
         match self {
             Self::Single(x) => x.to_wgsl_string(),
@@ -301,7 +301,7 @@ impl ToWgslString for Value<f32> {
     }
 }
 
-impl ToWgslString for Value<Vec2> {
+impl ToWgslString for CpuValue<Vec2> {
     fn to_wgsl_string(&self) -> String {
         match self {
             Self::Single(v) => v.to_wgsl_string(),
@@ -314,7 +314,7 @@ impl ToWgslString for Value<Vec2> {
     }
 }
 
-impl ToWgslString for Value<Vec3> {
+impl ToWgslString for CpuValue<Vec3> {
     fn to_wgsl_string(&self) -> String {
         match self {
             Self::Single(v) => v.to_wgsl_string(),
@@ -327,7 +327,7 @@ impl ToWgslString for Value<Vec3> {
     }
 }
 
-impl ToWgslString for Value<Vec4> {
+impl ToWgslString for CpuValue<Vec4> {
     fn to_wgsl_string(&self) -> String {
         match self {
             Self::Single(v) => v.to_wgsl_string(),
@@ -367,7 +367,7 @@ pub struct PropertyValue {
 
     /// The property value to assign, instead of the default value of the
     /// property.
-    value: graph::Value,
+    value: Value,
 }
 
 impl From<PropertyInstance> for PropertyValue {
@@ -526,7 +526,7 @@ impl ParticleEffect {
     /// [`properties`]: crate::ParticleEffect::properties
     pub fn with_properties<P>(
         mut self,
-        properties: impl IntoIterator<Item = (String, graph::Value)>,
+        properties: impl IntoIterator<Item = (String, Value)>,
     ) -> Self {
         let iter = properties.into_iter();
         for (name, value) in iter {
@@ -964,7 +964,7 @@ impl CompiledParticleEffect {
     ///
     /// A property must exist which has been added to the source
     /// [`EffectAsset`].
-    pub fn set_property(&mut self, name: &str, value: graph::Value) {
+    pub fn set_property(&mut self, name: &str, value: Value) {
         if let Some(index) = self
             .properties
             .iter()
@@ -1262,17 +1262,17 @@ mod tests {
 
     #[test]
     fn to_wgsl_value_f32() {
-        let s = Value::Single(1.0_f32).to_wgsl_string();
+        let s = CpuValue::Single(1.0_f32).to_wgsl_string();
         assert_eq!(s, "1.");
-        let s = Value::Uniform((1.0_f32, 2.0_f32)).to_wgsl_string();
+        let s = CpuValue::Uniform((1.0_f32, 2.0_f32)).to_wgsl_string();
         assert_eq!(s, "(rand() * (2. - 1.) + 1.)");
     }
 
     #[test]
     fn to_wgsl_value_vec2() {
-        let s = Value::Single(Vec2::ONE).to_wgsl_string();
+        let s = CpuValue::Single(Vec2::ONE).to_wgsl_string();
         assert_eq!(s, "vec2<f32>(1.,1.)");
-        let s = Value::Uniform((Vec2::ZERO, Vec2::ONE)).to_wgsl_string();
+        let s = CpuValue::Uniform((Vec2::ZERO, Vec2::ONE)).to_wgsl_string();
         assert_eq!(
             s,
             "(rand2() * (vec2<f32>(1.,1.) - vec2<f32>(0.,0.)) + vec2<f32>(0.,0.))"
@@ -1281,9 +1281,9 @@ mod tests {
 
     #[test]
     fn to_wgsl_value_vec3() {
-        let s = Value::Single(Vec3::ONE).to_wgsl_string();
+        let s = CpuValue::Single(Vec3::ONE).to_wgsl_string();
         assert_eq!(s, "vec3<f32>(1.,1.,1.)");
-        let s = Value::Uniform((Vec3::ZERO, Vec3::ONE)).to_wgsl_string();
+        let s = CpuValue::Uniform((Vec3::ZERO, Vec3::ONE)).to_wgsl_string();
         assert_eq!(
             s,
             "(rand3() * (vec3<f32>(1.,1.,1.) - vec3<f32>(0.,0.,0.)) + vec3<f32>(0.,0.,0.))"
@@ -1292,9 +1292,9 @@ mod tests {
 
     #[test]
     fn to_wgsl_value_vec4() {
-        let s = Value::Single(Vec4::ONE).to_wgsl_string();
+        let s = CpuValue::Single(Vec4::ONE).to_wgsl_string();
         assert_eq!(s, "vec4<f32>(1.,1.,1.,1.)");
-        let s = Value::Uniform((Vec4::ZERO, Vec4::ONE)).to_wgsl_string();
+        let s = CpuValue::Uniform((Vec4::ZERO, Vec4::ONE)).to_wgsl_string();
         assert_eq!(s, "(rand4() * (vec4<f32>(1.,1.,1.,1.) - vec4<f32>(0.,0.,0.,0.)) + vec4<f32>(0.,0.,0.,0.))");
     }
 

@@ -233,7 +233,7 @@ fn setup(
         .init(init_lifetime3)
         .init(InitSizeModifier {
             // At spawn time, assign each particle a random size between 0.3 and 0.7
-            size: Value::<f32>::Uniform((0.3, 0.7)).into(),
+            size: CpuValue::<f32>::Uniform((0.3, 0.7)).into(),
         })
         .update(update_accel3)
         .render(ColorOverLifetimeModifier {

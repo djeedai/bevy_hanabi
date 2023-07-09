@@ -103,7 +103,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     .init(InitVelocitySphereModifier {
         center: Vec3::ZERO,
         // Give a bit of variation by randomizing the initial speed
-        speed: Value::Uniform((65., 75.)),
+        speed: CpuValue::Uniform((65., 75.)),
     })
     .init(init_age)
     .init(init_lifetime)

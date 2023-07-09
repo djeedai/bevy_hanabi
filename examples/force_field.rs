@@ -174,7 +174,7 @@ fn setup(
             })
             .init(InitVelocitySphereModifier {
                 center: Vec3::ZERO,
-                speed: Value::Uniform((0.1, 0.3)),
+                speed: CpuValue::Uniform((0.1, 0.3)),
             })
             .init(init_lifetime)
             .update(ForceFieldModifier::new(vec![

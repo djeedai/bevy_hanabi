@@ -81,7 +81,7 @@ fn setup(
     let effect = effects.add(
         EffectAsset::new(
             32768,
-            Spawner::burst(Value::Uniform((1., 100.)), Value::Uniform((1., 4.))),
+            Spawner::burst(CpuValue::Uniform((1., 100.)), CpuValue::Uniform((1., 4.))),
             writer.finish(),
         )
         .with_name("emit:burst")
