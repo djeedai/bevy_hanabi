@@ -96,6 +96,9 @@ fn setup(
     let velocity = writer.lit(Vec3::X * 3.).expr();
     let init_velocity = InitAttributeModifier::new(Attribute::VELOCITY, velocity);
 
+    let age = writer.lit(0.).expr();
+    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+
     let lifetime = writer.lit(15.).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
@@ -111,6 +114,7 @@ fn setup(
         dimension: ShapeDimension::Volume,
     })
     .init(init_velocity)
+    .init(init_age)
     .init(init_lifetime)
     //.update(AccelModifier::constant(Vec3::new(0., 2., 0.)))
     .render(ColorOverLifetimeModifier { gradient });

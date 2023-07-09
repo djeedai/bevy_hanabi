@@ -63,6 +63,9 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     let writer = ExprWriter::new();
 
+    let age = writer.lit(0.).expr();
+    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+
     // Give a bit of variation by randomizing the lifetime per particle
     let lifetime = writer.lit(2.5).uniform(writer.lit(3.5)).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
@@ -87,6 +90,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
                 radius: 4.,
                 dimension: ShapeDimension::Surface,
             })
+            .init(init_age)
             .init(init_lifetime)
             .init(InitVelocityTangentModifier {
                 origin: Vec3::ZERO,

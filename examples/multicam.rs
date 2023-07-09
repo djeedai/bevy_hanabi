@@ -51,6 +51,9 @@ fn make_effect(color: Color) -> EffectAsset {
 
     let writer = ExprWriter::new();
 
+    let age = writer.lit(0.).expr();
+    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+
     let lifetime = writer.lit(5.).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
@@ -68,6 +71,7 @@ fn make_effect(color: Color) -> EffectAsset {
             center: Vec3::ZERO,
             speed: 6.0.into(),
         })
+        .init(init_age)
         .init(init_lifetime)
         .update(update_accel)
         .render(ColorOverLifetimeModifier {

@@ -97,6 +97,9 @@ fn setup(
 
     let writer1 = ExprWriter::new();
 
+    let age1 = writer1.lit(0.).expr();
+    let init_age1 = InitAttributeModifier::new(Attribute::AGE, age1);
+
     let lifetime1 = writer1.lit(5.).expr();
     let init_lifetime1 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime1);
 
@@ -119,6 +122,7 @@ fn setup(
                 center: Vec3::ZERO,
                 speed: 10.0.into(),
             })
+            .init(init_age1)
             .init(init_lifetime1)
             .update(update_accel1)
             .render(ColorOverLifetimeModifier {
@@ -157,6 +161,8 @@ fn setup(
     gradient2.add_key(1.0, Vec4::splat(0.0));
 
     let writer2 = ExprWriter::new();
+    let age2 = writer2.lit(0.).expr();
+    let init_age2 = InitAttributeModifier::new(Attribute::AGE, age2);
     let lifetime2 = writer2.lit(5.).expr();
     let init_lifetime2 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime2);
     let effect2 = effects.add(
@@ -171,6 +177,7 @@ fn setup(
                 center: Vec3::ZERO,
                 speed: 2.0.into(),
             })
+            .init(init_age2)
             .init(init_lifetime2)
             .render(ColorOverLifetimeModifier {
                 gradient: gradient2,
@@ -206,6 +213,9 @@ fn setup(
 
     let writer3 = ExprWriter::new();
 
+    let age3 = writer3.lit(0.).expr();
+    let init_age3 = InitAttributeModifier::new(Attribute::AGE, age3);
+
     let lifetime3 = writer3.lit(5.).expr();
     let init_lifetime3 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime3);
 
@@ -235,6 +245,7 @@ fn setup(
             center: Vec3::ZERO,
             speed: 2.0.into(),
         })
+        .init(init_age3)
         .init(init_lifetime3)
         .init(init_size3)
         .update(update_accel3)
