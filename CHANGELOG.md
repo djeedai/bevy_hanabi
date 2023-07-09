@@ -16,9 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the property layout of the efect. The trait is implemented by `InitContext` and `UpdateContext`.
 - Added convenience method `PropertyLayout::contains()` to determine if a layout contains a property by name.
 - Added `SetSizeModifier::screen_space_size` and `SizeOverLifetimeModifier::screen_space_size` boolean fields which change the behavior of the particle size to be expressed in screen-space logical pixels, independently of the camera projection. This enables creating particle effect with constant pixel size. Set `screen_space_size = false` to get the previous behavior.
+- Added a new utility trait `FloatHash` to allow implementing `std::cmp::Eq` and `std::hash::Hash` on floating-point variants of `CpuValue` (ex-`spawn::Value`), making it possible to derive `std::hash::Hash` for any type using `CpuValue`.
+- `SetColorModifier` and `SetSizeModifier` now implement `std::cmp::Eq`, thanks to `CpuValue` itself implementing that trait for all floating point types (see `FloatHash`).
 
 ### Changed
 
+- Renamed `spawn::Value` to `spawn::CpuValue` to prevent confusion with `graph::Value`. The former is a legacy construct which should eventually be replaced by the latter (but cannot be yet).
 - `ValueType` is now one of `ScalarType` / `VectorType` / `MatrixType`, allowing to represent a wider range of types, including booleans and matrices.
 - `graph::Value` is now one of `ScalarValue` / `VectorValue` / `MatrixValue`, for consistency with `ValueType`.
 - `SimParams::dt` was renamed to `SimParams::delta_time` for readability. Inside shaders, `sim_params.dt` was also renamed to `sim_params.delta_time`.
@@ -49,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed a bug where a `ParticleEffect` spawned hidden (with `Visibility::Hidden`) would make Hanabi panic when made visible. Effects are now always compiled as soon as spawned. (#182)
+- Fixed the implementation of `std::hash::Hash` for `SetColorModifier` and `SetSizeModifier`, which were manually implemented and were not hashing the variant type of the value. This increased the risk of hash collision. The new implementation is derived thanks to `CpuValue` itself now implementing `std::hash::Hash`, and therefore likely hashes to a different value than in the previous release.
 
 ## [0.6.2] 2023-06-10
 

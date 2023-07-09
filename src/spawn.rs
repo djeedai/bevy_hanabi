@@ -1,4 +1,6 @@
-use bevy::{ecs::system::Resource, prelude::*, reflect::Reflect};
+use std::hash::{Hash, Hasher};
+
+use bevy::{ecs::system::Resource, prelude::*, reflect::Reflect, utils::FloatOrd};
 use rand::{
     distributions::{uniform::SampleUniform, Distribution, Uniform},
     SeedableRng,
@@ -20,13 +22,56 @@ pub(crate) fn new_rng() -> Pcg32 {
 #[derive(Resource)]
 pub struct Random(pub Pcg32);
 
-/// A constant or random value.
+/// Utility trait to help implementing [`std::hash::Hash`] for [`CpuValue`] of
+/// floating-point type.
+pub trait FloatHash: PartialEq {
+    fn hash_f32<H: Hasher>(&self, state: &mut H);
+}
+
+impl FloatHash for f32 {
+    fn hash_f32<H: Hasher>(&self, state: &mut H) {
+        FloatOrd(*self).hash(state);
+    }
+}
+
+impl FloatHash for Vec2 {
+    fn hash_f32<H: Hasher>(&self, state: &mut H) {
+        FloatOrd(self.x).hash(state);
+        FloatOrd(self.y).hash(state);
+    }
+}
+
+impl FloatHash for Vec3 {
+    fn hash_f32<H: Hasher>(&self, state: &mut H) {
+        FloatOrd(self.x).hash(state);
+        FloatOrd(self.y).hash(state);
+        FloatOrd(self.z).hash(state);
+    }
+}
+
+impl FloatHash for Vec4 {
+    fn hash_f32<H: Hasher>(&self, state: &mut H) {
+        FloatOrd(self.x).hash(state);
+        FloatOrd(self.y).hash(state);
+        FloatOrd(self.z).hash(state);
+        FloatOrd(self.w).hash(state);
+    }
+}
+
+/// A constant or random value evaluated on CPU.
 ///
 /// This enum represents a value which is either constant, or randomly sampled
 /// according to a given probability distribution.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Reflect)]
+///
+/// Not to be confused with [`graph::Value`]. This [`CpuValue`] is a legacy type
+/// that will be eventually replaced with a [`graph::Value`] once evaluation of
+/// the latter can be emulated on CPU, which is required for use
+/// with the [`Spawner`].
+///
+/// [`graph::Value`]: crate::graph::Value
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Reflect)]
 #[non_exhaustive]
-pub enum Value<T: Copy + FromReflect> {
+pub enum CpuValue<T: Copy + FromReflect> {
     /// Single constant value.
     Single(T),
     /// Random value distributed uniformly between two inclusive bounds.
@@ -34,21 +79,21 @@ pub enum Value<T: Copy + FromReflect> {
     /// The minimum bound must be less than or equal to the maximum one,
     /// otherwise some methods like [`sample()`] will panic.
     ///
-    /// [`sample()`]: crate::Value::sample
+    /// [`sample()`]: crate::CpuValue::sample
     Uniform((T, T)),
 }
 
-impl<T: Copy + FromReflect + Default> Default for Value<T> {
+impl<T: Copy + FromReflect + Default> Default for CpuValue<T> {
     fn default() -> Self {
         Self::Single(T::default())
     }
 }
 
-impl<T: Copy + FromReflect + SampleUniform> Value<T> {
+impl<T: Copy + FromReflect + SampleUniform> CpuValue<T> {
     /// Sample the value.
-    /// - For [`Value::Single`], always return the same single value.
-    /// - For [`Value::Uniform`], use the given pseudo-random number generator
-    ///   to generate a random sample.
+    /// - For [`CpuValue::Single`], always return the same single value.
+    /// - For [`CpuValue::Uniform`], use the given pseudo-random number
+    ///   generator to generate a random sample.
     pub fn sample(&self, rng: &mut Pcg32) -> T {
         match self {
             Self::Single(x) => *x,
@@ -57,9 +102,9 @@ impl<T: Copy + FromReflect + SampleUniform> Value<T> {
     }
 }
 
-impl<T: Copy + FromReflect + PartialOrd> Value<T> {
+impl<T: Copy + FromReflect + PartialOrd> CpuValue<T> {
     /// Returns the range of allowable values in the form `[minimum, maximum]`.
-    /// For [`Value::Single`], both values are the same.
+    /// For [`CpuValue::Single`], both values are the same.
     pub fn range(&self) -> [T; 2] {
         match self {
             Self::Single(x) => [*x; 2],
@@ -74,60 +119,78 @@ impl<T: Copy + FromReflect + PartialOrd> Value<T> {
     }
 }
 
-impl<T: Copy + FromReflect> From<T> for Value<T> {
+impl<T: Copy + FromReflect> From<T> for CpuValue<T> {
     fn from(t: T) -> Self {
         Self::Single(t)
     }
 }
 
-/// Dimension-variable floating-point [`Value`].
+impl<T: Copy + FromReflect + FloatHash> Eq for CpuValue<T> {}
+
+impl<T: Copy + FromReflect + FloatHash> Hash for CpuValue<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            CpuValue::Single(f) => {
+                1_u8.hash(state);
+                f.hash_f32(state);
+            }
+            CpuValue::Uniform((a, b)) => {
+                2_u8.hash(state);
+                a.hash_f32(state);
+                b.hash_f32(state);
+            }
+        }
+    }
+}
+
+/// Dimension-variable floating-point [`CpuValue`].
 ///
-/// This enum represents a floating-point [`Value`] whose dimension (number of
-/// components) is variable. This is mainly used where a modifier can work with
-/// multiple attribute variants like [`Attribute::SIZE`] and
+/// This enum represents a floating-point [`CpuValue`] whose dimension (number
+/// of components) is variable. This is mainly used where a modifier can work
+/// with multiple attribute variants like [`Attribute::SIZE`] and
 /// [`Attribute::SIZE2`] which conceptually both represent the particle size,
 /// but with different representations.
 ///
 /// [`Attribute::SIZE`]: crate::Attribute::SIZE
 /// [`Attribute::SIZE2`]: crate::Attribute::SIZE2
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Hash, Serialize, Deserialize)]
 pub enum DimValue {
     /// Scalar.
-    D1(Value<f32>),
+    D1(CpuValue<f32>),
     /// 2D vector.
-    D2(Value<Vec2>),
+    D2(CpuValue<Vec2>),
     /// 3D vector.
-    D3(Value<Vec3>),
+    D3(CpuValue<Vec3>),
     /// 4D vector.
-    D4(Value<Vec4>),
+    D4(CpuValue<Vec4>),
 }
 
 impl Default for DimValue {
     fn default() -> Self {
-        DimValue::D1(Value::<f32>::default())
+        DimValue::D1(CpuValue::<f32>::default())
     }
 }
 
-impl From<Value<f32>> for DimValue {
-    fn from(value: Value<f32>) -> Self {
+impl From<CpuValue<f32>> for DimValue {
+    fn from(value: CpuValue<f32>) -> Self {
         DimValue::D1(value)
     }
 }
 
-impl From<Value<Vec2>> for DimValue {
-    fn from(value: Value<Vec2>) -> Self {
+impl From<CpuValue<Vec2>> for DimValue {
+    fn from(value: CpuValue<Vec2>) -> Self {
         DimValue::D2(value)
     }
 }
 
-impl From<Value<Vec3>> for DimValue {
-    fn from(value: Value<Vec3>) -> Self {
+impl From<CpuValue<Vec3>> for DimValue {
+    fn from(value: CpuValue<Vec3>) -> Self {
         DimValue::D3(value)
     }
 }
 
-impl From<Value<Vec4>> for DimValue {
-    fn from(value: Value<Vec4>) -> Self {
+impl From<CpuValue<Vec4>> for DimValue {
+    fn from(value: CpuValue<Vec4>) -> Self {
         DimValue::D4(value)
     }
 }
@@ -158,15 +221,15 @@ pub struct Spawner {
     /// Number of particles to spawn over [`spawn_time`].
     ///
     /// [`spawn_time`]: Spawner::spawn_time
-    num_particles: Value<f32>,
+    num_particles: CpuValue<f32>,
 
     /// Time over which to spawn `num_particles`, in seconds.
-    spawn_time: Value<f32>,
+    spawn_time: CpuValue<f32>,
 
     /// Time between bursts of the particle system, in seconds.
     /// If this is infinity, there's only one burst.
     /// If this is `spawn_time`, the system spawns a steady stream of particles.
-    period: Value<f32>,
+    period: CpuValue<f32>,
 
     /// Whether the system is active at startup. The value is used to initialize
     /// [`EffectSpawner::active`].
@@ -228,7 +291,7 @@ impl Spawner {
     /// [`once()`]: crate::Spawner::once
     /// [`burst()`]: crate::Spawner::burst
     /// [`rate()`]: crate::Spawner::rate
-    pub fn new(count: Value<f32>, time: Value<f32>, period: Value<f32>) -> Self {
+    pub fn new(count: CpuValue<f32>, time: CpuValue<f32>, period: CpuValue<f32>) -> Self {
         assert!(
             period.range()[0] >= 0.,
             "`period` must not generate negative numbers (period.min was {}, expected >= 0).",
@@ -257,8 +320,8 @@ impl Spawner {
     /// When `spawn_immediately == true`, this is a convenience for:
     ///
     /// ```
-    /// # use bevy_hanabi::{Spawner, Value};
-    /// # let count = Value::Single(1.);
+    /// # use bevy_hanabi::{Spawner, CpuValue};
+    /// # let count = CpuValue::Single(1.);
     /// Spawner::new(count, 0.0.into(), f32::INFINITY.into());
     /// ```
     ///
@@ -271,7 +334,7 @@ impl Spawner {
     /// ```
     ///
     /// [`reset()`]: crate::Spawner::reset
-    pub fn once(count: Value<f32>, spawn_immediately: bool) -> Self {
+    pub fn once(count: CpuValue<f32>, spawn_immediately: bool) -> Self {
         let mut spawner = Self::new(count, 0.0.into(), f32::INFINITY.into());
         spawner.starts_immediately = spawn_immediately;
         spawner
@@ -279,7 +342,7 @@ impl Spawner {
 
     /// Get whether this spawner emits a single burst.
     pub fn is_once(&self) -> bool {
-        if let Value::Single(f) = self.period {
+        if let CpuValue::Single(f) = self.period {
             f.is_infinite()
         } else {
             false
@@ -292,8 +355,8 @@ impl Spawner {
     /// This is a convenience for:
     ///
     /// ```
-    /// # use bevy_hanabi::{Spawner, Value};
-    /// # let rate = Value::Single(1.);
+    /// # use bevy_hanabi::{Spawner, CpuValue};
+    /// # let rate = CpuValue::Single(1.);
     /// Spawner::new(rate, 1.0.into(), 1.0.into());
     /// ```
     ///
@@ -304,7 +367,7 @@ impl Spawner {
     /// // Spawn 10 particles per second, indefinitely.
     /// let spawner = Spawner::rate(10.0.into());
     /// ```
-    pub fn rate(rate: Value<f32>) -> Self {
+    pub fn rate(rate: CpuValue<f32>) -> Self {
         Self::new(rate, 1.0.into(), 1.0.into())
     }
 
@@ -314,9 +377,9 @@ impl Spawner {
     /// This is a convenience for:
     ///
     /// ```
-    /// # use bevy_hanabi::{Spawner, Value};
-    /// # let count = Value::Single(1.);
-    /// # let period = Value::Single(1.);
+    /// # use bevy_hanabi::{Spawner, CpuValue};
+    /// # let count = CpuValue::Single(1.);
+    /// # let period = CpuValue::Single(1.);
     /// Spawner::new(count, 0.0.into(), period);
     /// ```
     ///
@@ -327,7 +390,7 @@ impl Spawner {
     /// // Spawn a burst of 5 particles every 3 seconds, indefinitely.
     /// let spawner = Spawner::burst(5.0.into(), 3.0.into());
     /// ```
-    pub fn burst(count: Value<f32>, period: Value<f32>) -> Self {
+    pub fn burst(count: CpuValue<f32>, period: CpuValue<f32>) -> Self {
         Self::new(count, 0.0.into(), period)
     }
 
@@ -615,19 +678,19 @@ mod test {
 
     #[test]
     fn test_range_single() {
-        let value = Value::Single(1.0);
+        let value = CpuValue::Single(1.0);
         assert_eq!(value.range(), [1.0, 1.0]);
     }
 
     #[test]
     fn test_range_uniform() {
-        let value = Value::Uniform((1.0, 3.0));
+        let value = CpuValue::Uniform((1.0, 3.0));
         assert_eq!(value.range(), [1.0, 3.0]);
     }
 
     #[test]
     fn test_range_uniform_reverse() {
-        let value = Value::Uniform((3.0, 1.0));
+        let value = CpuValue::Uniform((3.0, 1.0));
         assert_eq!(value.range(), [1.0, 3.0]);
     }
 
@@ -648,13 +711,13 @@ mod test {
     #[test]
     #[should_panic]
     fn test_new_panic_negative_period() {
-        let _ = Spawner::new(3.0.into(), 1.0.into(), Value::Uniform((-1., 1.)));
+        let _ = Spawner::new(3.0.into(), 1.0.into(), CpuValue::Uniform((-1., 1.)));
     }
 
     #[test]
     #[should_panic]
     fn test_new_panic_zero_period() {
-        let _ = Spawner::new(3.0.into(), 1.0.into(), Value::Uniform((0., 0.)));
+        let _ = Spawner::new(3.0.into(), 1.0.into(), CpuValue::Uniform((0., 0.)));
     }
 
     #[test]

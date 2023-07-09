@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     graph::{EvalContext, ExprError},
     modifier::ShapeDimension,
-    Attribute, BoxedModifier, DimValue, Expr, ExprHandle, Modifier, ModifierContext, Module,
-    PropertyLayout, ToWgslString, Value,
+    Attribute, BoxedModifier, CpuValue, DimValue, Expr, ExprHandle, Modifier, ModifierContext,
+    Module, PropertyLayout, ToWgslString,
 };
 
 /// Particle initializing shader code generation context.
@@ -397,7 +397,7 @@ pub struct InitVelocityCircleModifier {
     /// Set this to `Vec3::Z` for a 2D game.
     pub axis: Vec3,
     /// The initial speed distribution of a particle when it spawns.
-    pub speed: Value<f32>,
+    pub speed: CpuValue<f32>,
 }
 
 impl_mod_init!(
@@ -443,7 +443,7 @@ pub struct InitVelocitySphereModifier {
     /// direction from the sphere center to the particle position.
     pub center: Vec3,
     /// The initial speed distribution of a particle when it spawns.
-    pub speed: Value<f32>,
+    pub speed: CpuValue<f32>,
 }
 
 impl_mod_init!(
@@ -482,7 +482,7 @@ pub struct InitVelocityTangentModifier {
     /// axes.
     pub axis: Vec3,
     /// The initial speed distribution of a particle when it spawns.
-    pub speed: Value<f32>,
+    pub speed: CpuValue<f32>,
 }
 
 impl_mod_init!(

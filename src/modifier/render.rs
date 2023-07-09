@@ -1,15 +1,12 @@
 //! Modifiers to influence the rendering of each particle.
 
-use bevy::{
-    prelude::*,
-    utils::{FloatOrd, HashMap},
-};
+use bevy::{prelude::*, utils::HashMap};
 use serde::{Deserialize, Serialize};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 use crate::{
-    calc_func_id, Attribute, BoxedModifier, Gradient, Modifier, ModifierContext, ShaderCode,
-    ToWgslString, Value,
+    calc_func_id, Attribute, BoxedModifier, CpuValue, Gradient, Modifier, ModifierContext,
+    ShaderCode, ToWgslString,
 };
 
 /// Particle rendering shader code generation context.
@@ -129,43 +126,16 @@ impl RenderModifier for ParticleTextureModifier {
 /// A modifier to set the rendering color of all particles.
 ///
 /// This modifier assigns a _single_ color to all particles. That color can be
-/// determined by the user with [`Value::Single`], or left randomized with
-/// [`Value::Uniform`], but will be the same color for all particles.
+/// determined by the user with [`CpuValue::Single`], or left randomized with
+/// [`CpuValue::Uniform`], but will be the same color for all particles.
 ///
 /// # Attributes
 ///
 /// This modifier does not require any specific particle attribute.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct SetColorModifier {
     /// The particle color.
-    pub color: Value<Vec4>,
-}
-
-// TODO - impl Hash for Value<T>
-// SAFETY: This is consistent with the derive, but we can't derive due to
-// FloatOrd.
-#[allow(clippy::derived_hash_with_manual_eq)]
-impl Hash for SetColorModifier {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self.color {
-            Value::Single(v) => {
-                FloatOrd(v.x).hash(state);
-                FloatOrd(v.y).hash(state);
-                FloatOrd(v.z).hash(state);
-                FloatOrd(v.w).hash(state);
-            }
-            Value::Uniform((a, b)) => {
-                FloatOrd(a.x).hash(state);
-                FloatOrd(a.y).hash(state);
-                FloatOrd(a.z).hash(state);
-                FloatOrd(a.w).hash(state);
-                FloatOrd(b.x).hash(state);
-                FloatOrd(b.y).hash(state);
-                FloatOrd(b.z).hash(state);
-                FloatOrd(b.w).hash(state);
-            }
-        }
-    }
+    pub color: CpuValue<Vec4>,
 }
 
 impl_mod_render!(SetColorModifier, &[]);
@@ -222,42 +192,20 @@ impl RenderModifier for ColorOverLifetimeModifier {
 /// A modifier to set the size of all particles.
 ///
 /// This modifier assigns a _single_ size to all particles. That size can be
-/// determined by the user with [`Value::Single`], or left randomized with
-/// [`Value::Uniform`], but will be the same size for all particles.
+/// determined by the user with [`CpuValue::Single`], or left randomized with
+/// [`CpuValue::Uniform`], but will be the same size for all particles.
 ///
 /// # Attributes
 ///
 /// This modifier does not require any specific particle attribute.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct SetSizeModifier {
     /// The particle color.
-    pub size: Value<Vec2>,
+    pub size: CpuValue<Vec2>,
     /// Is the particle size in screen-space logical pixel? If `true`, the size
     /// is in screen-space logical pixels, and not affected by the camera
     /// projection. If `false`, the particle size is in world units.
     pub screen_space_size: bool,
-}
-
-// TODO - impl Hash for Value<T>
-// SAFETY: This is consistent with the derive, but we can't derive due to
-// FloatOrd.
-#[allow(clippy::derived_hash_with_manual_eq)]
-impl Hash for SetSizeModifier {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self.size {
-            Value::Single(v) => {
-                FloatOrd(v.x).hash(state);
-                FloatOrd(v.y).hash(state);
-            }
-            Value::Uniform((a, b)) => {
-                FloatOrd(a.x).hash(state);
-                FloatOrd(a.y).hash(state);
-                FloatOrd(b.x).hash(state);
-                FloatOrd(b.y).hash(state);
-            }
-        }
-        self.screen_space_size.hash(state);
-    }
 }
 
 impl_mod_render!(SetSizeModifier, &[]);
