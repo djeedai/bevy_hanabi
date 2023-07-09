@@ -209,6 +209,11 @@ fn setup(
     let lifetime3 = writer3.lit(5.).expr();
     let init_lifetime3 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime3);
 
+    // Initialize size with a random value between 0.3 and 0.7: size = frand() * 0.4
+    // + 0.3
+    let size3 = (writer3.rand(ScalarType::Float) * writer3.lit(0.4) + writer3.lit(0.3)).expr();
+    let init_size3 = InitAttributeModifier::new(Attribute::SIZE, size3);
+
     // Add property-driven acceleration
     let accel3 = writer3.prop("my_accel").expr();
     let update_accel3 = AccelModifier::new(accel3);
@@ -231,10 +236,7 @@ fn setup(
             speed: 2.0.into(),
         })
         .init(init_lifetime3)
-        .init(InitSizeModifier {
-            // At spawn time, assign each particle a random size between 0.3 and 0.7
-            size: CpuValue::<f32>::Uniform((0.3, 0.7)).into(),
-        })
+        .init(init_size3)
         .update(update_accel3)
         .render(ColorOverLifetimeModifier {
             gradient: gradient3,

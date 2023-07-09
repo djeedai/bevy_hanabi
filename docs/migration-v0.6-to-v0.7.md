@@ -136,3 +136,7 @@ Note that previously a common pattern was to create modifiers inline while build
 - Rename `SimParams::dt` into `SimParams::delta_time`, and any shader use of `dt` into `delta_time`.
 
 - Add an extra `screen_space_size = false` field to the `SetSizeModifier` and `SizeOverLifetimeModifier`.
+
+- Replace the removed `InitSizeModifier` with the more generic `InitAttributeModifier`.
+
+- `DimValue` was deleted. It was only used in the now deleted `InitSizeModifier`. There's no direct equivalent if you were using this in your code.
