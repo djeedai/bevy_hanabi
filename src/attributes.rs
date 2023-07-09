@@ -245,7 +245,7 @@ impl ToWgslString for MatrixType {
 }
 
 /// Type of an [`Attribute`]'s value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ValueType {
     /// A scalar type (single value).
@@ -300,6 +300,24 @@ impl ValueType {
             ValueType::Vector(v) => v.align(),
             ValueType::Matrix(m) => m.align(),
         }
+    }
+}
+
+impl From<ScalarType> for ValueType {
+    fn from(value: ScalarType) -> Self {
+        ValueType::Scalar(value)
+    }
+}
+
+impl From<VectorType> for ValueType {
+    fn from(value: VectorType) -> Self {
+        ValueType::Vector(value)
+    }
+}
+
+impl From<MatrixType> for ValueType {
+    fn from(value: MatrixType) -> Self {
+        ValueType::Matrix(value)
     }
 }
 

@@ -758,17 +758,53 @@ pub enum BuiltInOperator {
     Time,
     /// Delta time, in seconds, since last effect system update.
     DeltaTime,
+    /// Random unit value of the given type.
+    ///
+    /// The type can be any scalar or vector type. Matrix types are not
+    /// supported. The random values generated are uniformly distributed in
+    /// `[0:1]`. For vectors, each component is sampled separately.
+    ///
+    /// The random number generator is from [the PCG family] of PRNGs, and is
+    /// implemented directly inside the shader, and running on the GPU
+    /// exclusively. It's seeded by the [`Spawner`].
+    ///
+    /// [the PCG family]: https://www.pcg-random.org/
+    /// [`Spawner`]: crate::Spawner
+    Rand(ValueType),
 }
 
 impl BuiltInOperator {
-    /// Array of all the built-in operators available.
-    pub const ALL: [BuiltInOperator; 2] = [BuiltInOperator::Time, BuiltInOperator::DeltaTime];
-
     /// Get the operator name.
     pub fn name(&self) -> &str {
         match self {
             BuiltInOperator::Time => "time",
             BuiltInOperator::DeltaTime => "delta_time",
+            BuiltInOperator::Rand(value_type) => match value_type {
+                ValueType::Scalar(s) => match s {
+                    ScalarType::Bool => "brand",
+                    ScalarType::Float => "frand",
+                    ScalarType::Int => "irand",
+                    ScalarType::Uint => "urand",
+                },
+                ValueType::Vector(vector_type) => {
+                    match (vector_type.elem_type(), vector_type.count()) {
+                        (ScalarType::Bool, 2) => "brand2",
+                        (ScalarType::Bool, 3) => "brand3",
+                        (ScalarType::Bool, 4) => "brand4",
+                        (ScalarType::Float, 2) => "frand2",
+                        (ScalarType::Float, 3) => "frand3",
+                        (ScalarType::Float, 4) => "frand4",
+                        (ScalarType::Int, 2) => "irand2",
+                        (ScalarType::Int, 3) => "irand3",
+                        (ScalarType::Int, 4) => "irand4",
+                        (ScalarType::Uint, 2) => "urand2",
+                        (ScalarType::Uint, 3) => "urand3",
+                        (ScalarType::Uint, 4) => "urand4",
+                        _ => panic!("Invalid vector type {:?}", vector_type),
+                    }
+                }
+                ValueType::Matrix(_) => panic!("Invalid BuiltInOperator::Rand(ValueType::Matrix)."),
+            },
         }
     }
 
@@ -777,6 +813,7 @@ impl BuiltInOperator {
         match self {
             BuiltInOperator::Time => ValueType::Scalar(ScalarType::Float),
             BuiltInOperator::DeltaTime => ValueType::Scalar(ScalarType::Float),
+            BuiltInOperator::Rand(value_type) => *value_type,
         }
     }
 
@@ -790,7 +827,10 @@ impl BuiltInOperator {
 
 impl ToWgslString for BuiltInOperator {
     fn to_wgsl_string(&self) -> String {
-        format!("sim_params.{}", self.name())
+        match self {
+            BuiltInOperator::Rand(_) => format!("{}()", self.name()),
+            _ => format!("sim_params.{}", self.name()),
+        }
     }
 }
 
@@ -802,18 +842,31 @@ pub struct BuiltInExpr {
 
 impl BuiltInExpr {
     /// Create a new built-in operator expression.
+    ///
+    /// # Panics
+    ///
+    /// Panics on invalid [`BuiltInOperator`], like `Rand(MatrixType)`. See
+    /// each [`BuiltInOperator`] variant for more details.
     #[inline]
     pub fn new(operator: BuiltInOperator) -> Self {
+        if let BuiltInOperator::Rand(value_type) = operator {
+            assert!(!matches!(value_type, ValueType::Matrix(_)));
+        }
         Self { operator }
     }
 
-    /// Is the expression resulting in a compile-time constant which can be
-    /// hard-coded into a shader's code?
+    /// Is the expression resulting in a compile-time constant?
+    ///
+    /// Constant expressions can be hard-coded into a shader's code, making them
+    /// more efficient and open to shader compiler optimizing.
     pub fn is_const(&self) -> bool {
         false
     }
 
     /// Get the value type of the expression.
+    ///
+    /// The value type of the expression is the type of the value(s) that an
+    /// expression produces.
     pub fn value_type(&self) -> ValueType {
         self.operator.value_type()
     }
@@ -1157,6 +1210,30 @@ impl ExprWriter {
     /// ```
     pub fn delta_time(&self) -> WriterExpr {
         self.push(Expr::BuiltIn(BuiltInExpr::new(BuiltInOperator::DeltaTime)))
+    }
+
+    /// Create a new writer expression representing a random value of the given
+    /// type.
+    ///
+    /// The type can be any scalar or vector type. Matrix types are not
+    /// supported. The random values generated are uniformly distributed in
+    /// `[0:1]`. For vectors, each component is sampled separately.
+    ///
+    /// # Panics
+    ///
+    /// Panics in the same cases as [`BuiltInExpr::new()`] does.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut w = ExprWriter::new();
+    /// let x = w.rand(VectorType::VEC3F); // x = frand3();
+    /// ```
+    pub fn rand(&self, value_type: impl Into<ValueType>) -> WriterExpr {
+        self.push(Expr::BuiltIn(BuiltInExpr::new(BuiltInOperator::Rand(
+            value_type.into(),
+        ))))
     }
 
     /// Finish using the writer, and recover the [`Module`] where all [`Expr`]
@@ -1735,7 +1812,7 @@ impl std::ops::Div<WriterExpr> for WriterExpr {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::Property, InitContext, ScalarValue};
+    use crate::{prelude::Property, InitContext, ScalarValue, VectorType};
 
     use super::*;
     use bevy::prelude::*;
@@ -1818,6 +1895,69 @@ mod tests {
                     op,
                 )
             );
+        }
+    }
+
+    #[test]
+    fn builtin_expr() {
+        let mut m = Module::default();
+
+        for op in [BuiltInOperator::Time, BuiltInOperator::DeltaTime] {
+            let value = m.builtin(op);
+
+            let pl = PropertyLayout::default();
+            let ctx = InitContext {
+                module: &mut m,
+                init_code: String::new(),
+                init_extra: String::new(),
+                property_layout: &pl,
+            };
+
+            let expr = ctx.eval(value);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            assert_eq!(expr, format!("sim_params.{}", op.name()));
+        }
+
+        for (scalar_type, prefix) in [
+            (ScalarType::Bool, "b"),
+            (ScalarType::Float, "f"),
+            (ScalarType::Int, "i"),
+            (ScalarType::Uint, "u"),
+        ] {
+            let value = m.builtin(BuiltInOperator::Rand(scalar_type.into()));
+
+            let pl = PropertyLayout::default();
+            let ctx = InitContext {
+                module: &mut m,
+                init_code: String::new(),
+                init_extra: String::new(),
+                property_layout: &pl,
+            };
+
+            let expr = ctx.eval(value);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            assert_eq!(expr, format!("{}rand()", prefix));
+
+            for count in 2..=4 {
+                let vec = m.builtin(BuiltInOperator::Rand(
+                    VectorType::new(scalar_type, count).into(),
+                ));
+
+                let pl = PropertyLayout::default();
+                let ctx = InitContext {
+                    module: &mut m,
+                    init_code: String::new(),
+                    init_extra: String::new(),
+                    property_layout: &pl,
+                };
+
+                let expr = ctx.eval(vec);
+                assert!(expr.is_ok());
+                let expr = expr.unwrap();
+                assert_eq!(expr, format!("{}rand{}()", prefix, count));
+            }
         }
     }
 

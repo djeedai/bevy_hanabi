@@ -415,7 +415,7 @@ struct View {{
     height: f32,
 }};
 
-fn rand() -> f32 {{
+fn frand() -> f32 {{
     return 0.0;
 }}
 

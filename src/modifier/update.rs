@@ -860,7 +860,7 @@ mod tests {
             let attributes_code = particle_layout.generate_code();
 
             let code = format!(
-                r##"fn rand() -> f32 {{
+                r##"fn frand() -> f32 {{
     return 0.0;
 }}
 
