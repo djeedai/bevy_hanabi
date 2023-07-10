@@ -169,7 +169,7 @@ pub use modifier::*;
 pub use plugin::HanabiPlugin;
 pub use properties::{Property, PropertyLayout};
 pub use render::{EffectSystems, ShaderCache};
-pub use spawn::{tick_spawners, CpuValue, DimValue, EffectSpawner, Random, Spawner};
+pub use spawn::{tick_spawners, CpuValue, EffectSpawner, Random, Spawner};
 
 #[allow(missing_docs)]
 pub mod prelude {

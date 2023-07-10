@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     graph::{EvalContext, ExprError},
     modifier::ShapeDimension,
-    Attribute, BoxedModifier, CpuValue, DimValue, Expr, ExprHandle, Modifier, ModifierContext,
-    Module, PropertyLayout, ToWgslString,
+    Attribute, BoxedModifier, CpuValue, Expr, ExprHandle, Modifier, ModifierContext, Module,
+    PropertyLayout, ToWgslString,
 };
 
 /// Particle initializing shader code generation context.
@@ -510,67 +510,6 @@ impl InitModifier for InitVelocityTangentModifier {
 
         context.init_code += "init_velocity_tangent(transform, &particle);\n";
 
-        Ok(())
-    }
-}
-
-/// Modifier to initialize the per-particle size attribute.
-///
-/// The particle is initialized with a fixed or randomly distributed size value,
-/// and will retain that size unless another modifier (like
-/// [`SizeOverLifetimeModifier`]) changes its size after spawning.
-///
-/// # Attributes
-///
-/// This modifier requires the following particle attributes:
-/// - [`Attribute::SIZE`] or [`Attribute::SIZE2`]
-///
-/// [`SizeOverLifetimeModifier`]: crate::SizeOverLifetimeModifier
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
-pub struct InitSizeModifier {
-    /// The size to initialize each particle with.
-    ///
-    /// Only [`DimValue::D1`] and [`DimValue::D2`] are valid. The former
-    /// requires the [`Attribute::SIZE`] attribute in the particle layout, while
-    /// the latter requires the [`Attribute::SIZE2`] attribute.
-    pub size: DimValue,
-}
-
-#[typetag::serde]
-impl Modifier for InitSizeModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Init
-    }
-
-    fn as_init(&self) -> Option<&dyn InitModifier> {
-        Some(self)
-    }
-
-    fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[Attribute] {
-        match self.size {
-            DimValue::D1(_) => &[Attribute::SIZE],
-            DimValue::D2(_) => &[Attribute::SIZE2],
-            _ => panic!("Invalid dimension for InitSizeModifier; only 1D and 2D values are valid."),
-        }
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(*self)
-    }
-}
-
-#[typetag::serde]
-impl InitModifier for InitSizeModifier {
-    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
-        context.init_code += &format!(
-            "particle.{} = {};\n",
-            self.attributes()[0].name(),
-            self.size.to_wgsl_string(),
-        );
         Ok(())
     }
 }

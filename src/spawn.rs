@@ -8,7 +8,7 @@ use rand::{
 use rand_pcg::Pcg32;
 use serde::{Deserialize, Serialize};
 
-use crate::{EffectAsset, ParticleEffect, SimulationCondition, ToWgslString};
+use crate::{EffectAsset, ParticleEffect, SimulationCondition};
 
 /// An RNG to be used in the CPU for the particle system engine
 pub(crate) fn new_rng() -> Pcg32 {
@@ -139,69 +139,6 @@ impl<T: Copy + FromReflect + FloatHash> Hash for CpuValue<T> {
                 a.hash_f32(state);
                 b.hash_f32(state);
             }
-        }
-    }
-}
-
-/// Dimension-variable floating-point [`CpuValue`].
-///
-/// This enum represents a floating-point [`CpuValue`] whose dimension (number
-/// of components) is variable. This is mainly used where a modifier can work
-/// with multiple attribute variants like [`Attribute::SIZE`] and
-/// [`Attribute::SIZE2`] which conceptually both represent the particle size,
-/// but with different representations.
-///
-/// [`Attribute::SIZE`]: crate::Attribute::SIZE
-/// [`Attribute::SIZE2`]: crate::Attribute::SIZE2
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, Hash, Serialize, Deserialize)]
-pub enum DimValue {
-    /// Scalar.
-    D1(CpuValue<f32>),
-    /// 2D vector.
-    D2(CpuValue<Vec2>),
-    /// 3D vector.
-    D3(CpuValue<Vec3>),
-    /// 4D vector.
-    D4(CpuValue<Vec4>),
-}
-
-impl Default for DimValue {
-    fn default() -> Self {
-        DimValue::D1(CpuValue::<f32>::default())
-    }
-}
-
-impl From<CpuValue<f32>> for DimValue {
-    fn from(value: CpuValue<f32>) -> Self {
-        DimValue::D1(value)
-    }
-}
-
-impl From<CpuValue<Vec2>> for DimValue {
-    fn from(value: CpuValue<Vec2>) -> Self {
-        DimValue::D2(value)
-    }
-}
-
-impl From<CpuValue<Vec3>> for DimValue {
-    fn from(value: CpuValue<Vec3>) -> Self {
-        DimValue::D3(value)
-    }
-}
-
-impl From<CpuValue<Vec4>> for DimValue {
-    fn from(value: CpuValue<Vec4>) -> Self {
-        DimValue::D4(value)
-    }
-}
-
-impl ToWgslString for DimValue {
-    fn to_wgsl_string(&self) -> String {
-        match self {
-            DimValue::D1(s) => s.to_wgsl_string(),
-            DimValue::D2(v) => v.to_wgsl_string(),
-            DimValue::D3(v) => v.to_wgsl_string(),
-            DimValue::D4(v) => v.to_wgsl_string(),
         }
     }
 }

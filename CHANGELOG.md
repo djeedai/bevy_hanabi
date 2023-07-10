@@ -48,6 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - The `InitAgeModifier` and `InitLifetimeModifier` were deleted. They're replaced with the more generic `InitAttributeModifier` which can initialize any attribute of the particle.
+- Deleted `InitSizeModifier`; it can be replaced with the more generic `InitAttributeModifier`.
+- Deleted `DimValue` which was only used by `InitSizeModifier`, and is more generally covered by the Expression API.
 
 ### Fixed
 
