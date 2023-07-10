@@ -67,6 +67,9 @@ fn setup(
 
     let writer = ExprWriter::new();
 
+    let age = writer.lit(0.).expr();
+    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+
     let lifetime = writer.lit(5.).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
@@ -84,6 +87,7 @@ fn setup(
                 axis: Vec3::Y,
                 speed: CpuValue::Uniform((0.7, 0.5)),
             })
+            .init(init_age)
             .init(init_lifetime)
             .render(ParticleTextureModifier {
                 texture: texture_handle,

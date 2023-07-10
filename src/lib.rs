@@ -781,11 +781,6 @@ impl CompiledParticleEffect {
             }
             (init_context.init_code, init_context.init_extra)
         };
-        // Warn in debug if the shader doesn't initialize the particle lifetime
-        #[cfg(debug_assertions)]
-        if !init_code.contains(&format!("particle.{}", Attribute::LIFETIME.name())) {
-            warn!("Effect '{}' does not initialize the particle lifetime; particles will have a default lifetime of zero, and will immediately die after spawning.", asset.name);
-        }
 
         // Generate the shader code for the update shader
         let (mut update_code, update_extra, force_field) = {

@@ -72,6 +72,9 @@ fn setup(
 
     let writer = ExprWriter::new();
 
+    let age = writer.lit(0.).expr();
+    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+
     let lifetime = writer.lit(5.).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
@@ -94,6 +97,7 @@ fn setup(
             center: Vec3::ZERO,
             speed: 2.0.into(),
         })
+        .init(init_age)
         .init(init_lifetime)
         .update(update_accel)
         .render(ColorOverLifetimeModifier { gradient }),

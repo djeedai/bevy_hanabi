@@ -1,8 +1,8 @@
 //! This example demonstrates the various position initializing modifiers.
 //!
 //! The example spawns a single burst of particles according to several position
-//! modifiers, with a near-infinite lifetime (1 hour) and without any velocity
-//! nor acceleration. This allows visualizing the distribution of particles on
+//! modifiers, with an infinite lifetime, and without any velocity nor
+//! acceleration. This allows visualizing the distribution of particles on
 //! spawn.
 
 use std::f32::consts::PI;
@@ -51,12 +51,8 @@ const SIZE: Vec2 = Vec2::splat(0.1);
 fn base_effect(name: impl Into<String>) -> EffectAsset {
     let writer = ExprWriter::new();
 
-    let lifetime = writer.lit(3600.).expr();
-    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
-
     EffectAsset::new(32768, Spawner::once(COUNT.into(), true), writer.finish())
         .with_name(name)
-        .init(init_lifetime)
         .render(BillboardModifier)
         .render(SetColorModifier {
             color: COLOR.into(),
