@@ -208,7 +208,7 @@ impl InitModifier for InitPositionCircleModifier {
             ShapeDimension::Volume => {
                 // Radius uniformly distributed in [0:1], then square-rooted
                 // to account for the increased perimeter covered by increased radii.
-                format!("let r = sqrt(rand()) * {};", self.radius.to_wgsl_string())
+                format!("let r = sqrt(frand()) * {};", self.radius.to_wgsl_string())
             }
         };
 
@@ -222,7 +222,7 @@ impl InitModifier for InitPositionCircleModifier {
     // Circle radius
     {}
     // Spawn random point on/in circle
-    let theta = rand() * tau;
+    let theta = frand() * tau;
     let dir = tangent * cos(theta) + bitangent * sin(theta);
     (*particle).{} = c + r * dir;
 }}
@@ -271,7 +271,7 @@ impl InitModifier for InitPositionSphereModifier {
                 // to account for the increased surface covered by increased radii.
                 // https://stackoverflow.com/questions/54544971/how-to-generate-uniform-random-points-inside-d-dimension-ball-sphere
                 format!(
-                    "let r = pow(rand(), 1./3.) * {};",
+                    "let r = pow(frand(), 1./3.) * {};",
                     self.radius.to_wgsl_string()
                 )
             }
@@ -286,8 +286,8 @@ impl InitModifier for InitPositionSphereModifier {
     {}
 
     // Spawn randomly along the sphere surface using Archimedes's theorem
-    let theta = rand() * tau;
-    let z = rand() * 2. - 1.;
+    let theta = frand() * tau;
+    let z = frand() * 2. - 1.;
     let phi = acos(z);
     let sinphi = sin(phi);
     let x = sinphi * cos(theta);
@@ -344,7 +344,7 @@ impl InitModifier for InitPositionCone3dModifier {
     // Truncated cone height
     let h0 = {0};
     // Random height ratio
-    let alpha_h = pow(rand(), 1.0 / 3.0);
+    let alpha_h = pow(frand(), 1.0 / 3.0);
     // Random delta height from top
     let h = h0 * alpha_h;
     // Top radius
@@ -354,11 +354,11 @@ impl InitModifier for InitPositionCone3dModifier {
     // Radius at height h
     let r0 = rb + (rt - rb) * alpha_h;
     // Random delta radius
-    let alpha_r = sqrt(rand());
+    let alpha_r = sqrt(frand());
     // Random radius at height h
     let r = r0 * alpha_r;
     // Random base angle
-    let theta = rand() * tau;
+    let theta = frand() * tau;
     let cost = cos(theta);
     let sint = sin(theta);
     // Random position relative to truncated cone origin (not apex)
@@ -611,7 +611,7 @@ mod tests {
             let attributes_code = particle_layout.generate_code();
 
             let code = format!(
-                r##"fn rand() -> f32 {{
+                r##"fn frand() -> f32 {{
     return 0.0;
 }}
 
