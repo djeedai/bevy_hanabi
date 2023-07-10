@@ -33,7 +33,7 @@ bitflags = "2.3"
 typetag = "0.2"
 
 [dependencies.bevy]
-git = "https://github.com/bevyengine/bevy"
+version = "0.11"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 
