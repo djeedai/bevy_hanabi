@@ -1,33 +1,46 @@
+
+// FIXME - Use imports to get exact types from Bevy directly
+
+struct ColorGrading {
+    exposure: f32,
+    gamma: f32,
+    pre_saturation: f32,
+    post_saturation: f32,
+}
+
 struct View {
     view_proj: mat4x4<f32>,
+    unjittered_view_proj: mat4x4<f32>,
     inverse_view_proj: mat4x4<f32>,
     view: mat4x4<f32>,
     inverse_view: mat4x4<f32>,
     projection: mat4x4<f32>,
     inverse_projection: mat4x4<f32>,
     world_position: vec3<f32>,
-    width: f32,
-    height: f32,
-};
+    // viewport(x_origin, y_origin, width, height)
+    viewport: vec4<f32>,
+    color_grading: ColorGrading,
+    mip_bias: f32,
+}
 
 struct Particle {
 {{ATTRIBUTES}}
-};
+}
 
 struct ParticlesBuffer {
     particles: array<Particle>,
-};
+}
 
 struct IndirectBuffer {
     indices: array<u32>,
-};
+}
 
 struct DispatchIndirect {
     x: u32,
     y: u32,
     z: u32,
     pong: u32,
-};
+}
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -35,7 +48,7 @@ struct VertexOutput {
 #ifdef PARTICLE_TEXTURE
     @location(1) uv: vec2<f32>,
 #endif
-};
+}
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(1) @binding(0) var<storage, read> particle_buffer : ParticlesBuffer;
@@ -66,13 +79,13 @@ fn to_float01(u: u32) -> f32 {
 }
 
 // Random floating-point number in [0:1]
-fn rand() -> f32 {
+fn frand() -> f32 {
     seed = pcg_hash(seed);
     return to_float01(pcg_hash(seed));
 }
 
 // Random floating-point number in [0:1]^2
-fn rand2() -> vec2<f32> {
+fn frand2() -> vec2<f32> {
     seed = pcg_hash(seed);
     var x = to_float01(seed);
     seed = pcg_hash(seed);
@@ -81,7 +94,7 @@ fn rand2() -> vec2<f32> {
 }
 
 // Random floating-point number in [0:1]^3
-fn rand3() -> vec3<f32> {
+fn frand3() -> vec3<f32> {
     seed = pcg_hash(seed);
     var x = to_float01(seed);
     seed = pcg_hash(seed);
@@ -92,7 +105,7 @@ fn rand3() -> vec3<f32> {
 }
 
 // Random floating-point number in [0:1]^4
-fn rand4() -> vec4<f32> {
+fn frand4() -> vec4<f32> {
     // Each rand() produces 32 bits, and we need 24 bits per component,
     // so can get away with only 3 calls.
     var r0 = pcg_hash(seed);
@@ -110,7 +123,7 @@ fn rand4() -> vec4<f32> {
 }
 
 fn rand_uniform(a: f32, b: f32) -> f32 {
-    return a + rand() * (b - a);
+    return a + frand() * (b - a);
 }
 
 {{RENDER_EXTRA}}
@@ -137,11 +150,18 @@ fn vertex(
 
 {{VERTEX_MODIFIERS}}
 
+#ifdef PARTICLE_SCREEN_SPACE_SIZE
+    let half_screen = view.viewport.zw / 2.;
+    let vpos = vertex_position * vec3<f32>(size.x / half_screen.x, size.y / half_screen.y, 1.0);
+    out.position = view.view_proj * vec4<f32>(particle.position, 1.0) + vec4<f32>(vpos, 0.0);
+#else
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
     let world_position = particle.position
         + axis_x * vpos.x
         + axis_y * vpos.y;
     out.position = view.view_proj * vec4<f32>(world_position, 1.0);
+#endif
+
     out.color = color;
 
     return out;

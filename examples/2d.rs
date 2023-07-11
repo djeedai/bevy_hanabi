@@ -12,7 +12,7 @@ use bevy::{
     },
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -32,11 +32,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
-        .add_system(update_plane)
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
+        .add_systems(Update, (bevy::window::close_on_esc, update_plane))
         .run();
 
     Ok(())
@@ -78,6 +78,9 @@ fn setup(
 
     let writer = ExprWriter::new();
 
+    let age = writer.lit(0.).expr();
+    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+
     let lifetime = writer.lit(5.).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
@@ -99,9 +102,11 @@ fn setup(
                 axis: Vec3::Z,
                 speed: 0.1.into(),
             })
+            .init(init_age)
             .init(init_lifetime)
             .render(SizeOverLifetimeModifier {
                 gradient: Gradient::constant(Vec2::splat(0.02)),
+                screen_space_size: false,
             })
             .render(ColorOverLifetimeModifier { gradient }),
     );

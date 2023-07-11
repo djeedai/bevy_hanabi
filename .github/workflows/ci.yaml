@@ -1,10 +1,23 @@
 name: CI
 
 on:
+  # Run on pull requests (PR)
   pull_request:
+    types:
+    # New PR
+    - opened
+    # Change pushed to source branch
+    - synchronize
+    # PR reopened
+    - reopened
+    # PR converted from Draft to Ready For Review
+    - ready_for_review
+  # Run on any new change on the main branch (CI)
   push:
     branches:
       - main
+  # Enable manual trigger via GitHub UI
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always

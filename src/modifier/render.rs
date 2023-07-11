@@ -1,15 +1,12 @@
 //! Modifiers to influence the rendering of each particle.
 
-use bevy::{
-    prelude::*,
-    utils::{FloatOrd, HashMap},
-};
+use bevy::{prelude::*, utils::HashMap};
 use serde::{Deserialize, Serialize};
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
 
 use crate::{
-    calc_func_id, AssetHandle, Attribute, BoxedModifier, Gradient, Modifier, ModifierContext,
-    ShaderCode, ToWgslString, Value,
+    calc_func_id, Attribute, BoxedModifier, CpuValue, Gradient, Modifier, ModifierContext,
+    ShaderCode, ToWgslString, AssetHandle,
 };
 
 /// Particle rendering shader code generation context.
@@ -28,6 +25,10 @@ pub struct RenderContext {
     pub gradients: HashMap<u64, Gradient<Vec4>>,
     /// Size gradients.
     pub size_gradients: HashMap<u64, Gradient<Vec2>>,
+    /// Are particles using a fixed screen-space size (in logical pixels)? If
+    /// `true` then the particle size is not affected by the camera projection,
+    /// and in particular by the distance to the camera.
+    pub screen_space_size: bool,
 }
 
 impl RenderContext {
@@ -103,7 +104,7 @@ macro_rules! impl_mod_render {
 /// # Attributes
 ///
 /// This modifier does not require any specific particle attribute.
-#[derive(Default, Debug, Clone, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct ParticleTextureModifier {
     /// The texture image to modulate the particle color with.
     // NOTE - Need to keep a strong handle here, nothing else will keep that texture loaded currently.
@@ -122,43 +123,16 @@ impl RenderModifier for ParticleTextureModifier {
 /// A modifier to set the rendering color of all particles.
 ///
 /// This modifier assigns a _single_ color to all particles. That color can be
-/// determined by the user with [`Value::Single`], or left randomized with
-/// [`Value::Uniform`], but will be the same color for all particles.
+/// determined by the user with [`CpuValue::Single`], or left randomized with
+/// [`CpuValue::Uniform`], but will be the same color for all particles.
 ///
 /// # Attributes
 ///
 /// This modifier does not require any specific particle attribute.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct SetColorModifier {
     /// The particle color.
-    pub color: Value<Vec4>,
-}
-
-// TODO - impl Hash for Value<T>
-// SAFETY: This is consistent with the derive, but we can't derive due to
-// FloatOrd.
-#[allow(clippy::derived_hash_with_manual_eq)]
-impl Hash for SetColorModifier {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self.color {
-            Value::Single(v) => {
-                FloatOrd(v.x).hash(state);
-                FloatOrd(v.y).hash(state);
-                FloatOrd(v.z).hash(state);
-                FloatOrd(v.w).hash(state);
-            }
-            Value::Uniform((a, b)) => {
-                FloatOrd(a.x).hash(state);
-                FloatOrd(a.y).hash(state);
-                FloatOrd(a.z).hash(state);
-                FloatOrd(a.w).hash(state);
-                FloatOrd(b.x).hash(state);
-                FloatOrd(b.y).hash(state);
-                FloatOrd(b.z).hash(state);
-                FloatOrd(b.w).hash(state);
-            }
-        }
-    }
+    pub color: CpuValue<Vec4>,
 }
 
 impl_mod_render!(SetColorModifier, &[]);
@@ -178,7 +152,7 @@ impl RenderModifier for SetColorModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::AGE`]
 /// - [`Attribute::LIFETIME`]
-#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct ColorOverLifetimeModifier {
     /// The color gradient defining the particle color based on its lifetime.
     pub gradient: Gradient<Vec4>,
@@ -215,37 +189,20 @@ impl RenderModifier for ColorOverLifetimeModifier {
 /// A modifier to set the size of all particles.
 ///
 /// This modifier assigns a _single_ size to all particles. That size can be
-/// determined by the user with [`Value::Single`], or left randomized with
-/// [`Value::Uniform`], but will be the same size for all particles.
+/// determined by the user with [`CpuValue::Single`], or left randomized with
+/// [`CpuValue::Uniform`], but will be the same size for all particles.
 ///
 /// # Attributes
 ///
 /// This modifier does not require any specific particle attribute.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct SetSizeModifier {
     /// The particle color.
-    pub size: Value<Vec2>,
-}
-
-// TODO - impl Hash for Value<T>
-// SAFETY: This is consistent with the derive, but we can't derive due to
-// FloatOrd.
-#[allow(clippy::derived_hash_with_manual_eq)]
-impl Hash for SetSizeModifier {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self.size {
-            Value::Single(v) => {
-                FloatOrd(v.x).hash(state);
-                FloatOrd(v.y).hash(state);
-            }
-            Value::Uniform((a, b)) => {
-                FloatOrd(a.x).hash(state);
-                FloatOrd(a.y).hash(state);
-                FloatOrd(b.x).hash(state);
-                FloatOrd(b.y).hash(state);
-            }
-        }
-    }
+    pub size: CpuValue<Vec2>,
+    /// Is the particle size in screen-space logical pixel? If `true`, the size
+    /// is in screen-space logical pixels, and not affected by the camera
+    /// projection. If `false`, the particle size is in world units.
+    pub screen_space_size: bool,
 }
 
 impl_mod_render!(SetSizeModifier, &[]);
@@ -254,6 +211,7 @@ impl_mod_render!(SetSizeModifier, &[]);
 impl RenderModifier for SetSizeModifier {
     fn apply(&self, context: &mut RenderContext) {
         context.vertex_code += &format!("size = {0};\n", self.size.to_wgsl_string());
+        context.screen_space_size = self.screen_space_size;
     }
 }
 
@@ -265,10 +223,14 @@ impl RenderModifier for SetSizeModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::AGE`]
 /// - [`Attribute::LIFETIME`]
-#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct SizeOverLifetimeModifier {
     /// The size gradient defining the particle size based on its lifetime.
     pub gradient: Gradient<Vec2>,
+    /// Is the particle size in screen-space logical pixel? If `true`, the size
+    /// is in screen-space logical pixels, and not affected by the camera
+    /// projection. If `false`, the particle size is in world units.
+    pub screen_space_size: bool,
 }
 
 impl_mod_render!(
@@ -296,6 +258,8 @@ impl RenderModifier for SizeOverLifetimeModifier {
             Attribute::AGE.name(),
             Attribute::LIFETIME.name()
         );
+
+        context.screen_space_size = self.screen_space_size;
     }
 }
 
@@ -304,9 +268,7 @@ impl RenderModifier for SizeOverLifetimeModifier {
 /// # Attributes
 ///
 /// This modifier does not require any specific particle attribute.
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct BillboardModifier;
 
 impl_mod_render!(BillboardModifier, &[]);
@@ -325,9 +287,7 @@ impl RenderModifier for BillboardModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct OrientAlongVelocityModifier;
 
 impl_mod_render!(
@@ -352,7 +312,7 @@ mod tests {
 
     use super::*;
 
-    use naga::front::wgsl::Parser;
+    use naga::front::wgsl::Frontend;
 
     #[test]
     fn mod_particle_texture() {
@@ -396,6 +356,7 @@ mod tests {
         gradient.add_key(0.8, y);
         let modifier = SizeOverLifetimeModifier {
             gradient: gradient.clone(),
+            screen_space_size: false,
         };
 
         let mut context = RenderContext::default();
@@ -451,7 +412,7 @@ struct View {{
     height: f32,
 }};
 
-fn rand() -> f32 {{
+fn frand() -> f32 {{
     return 0.0;
 }}
 
@@ -491,8 +452,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {{
 }}"##
             );
 
-            let mut parser = Parser::new();
-            let res = parser.parse(&code);
+            let mut frontend = Frontend::new();
+            let res = frontend.parse(&code);
             if let Err(err) = &res {
                 println!("Modifier: {:?}", modifier.type_name());
                 println!("Code: {:?}", code);

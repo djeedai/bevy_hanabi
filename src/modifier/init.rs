@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     graph::{EvalContext, ExprError},
     modifier::ShapeDimension,
-    Attribute, BoxedModifier, DimValue, Expr, ExprHandle, Modifier, ModifierContext, Module,
-    PropertyLayout, ToWgslString, Value,
+    Attribute, BoxedModifier, CpuValue, Expr, ExprHandle, Modifier, ModifierContext, Module,
+    PropertyLayout, ToWgslString,
 };
 
 /// Particle initializing shader code generation context.
@@ -113,7 +113,7 @@ macro_rules! impl_mod_init {
 /// # Attributes
 ///
 /// This modifier requires the attribute specified in the `attribute` field.
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
 pub struct InitAttributeModifier {
     /// The name of the attribute to initialize.
     pub attribute: Attribute,
@@ -169,7 +169,7 @@ impl InitModifier for InitAttributeModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitPositionCircleModifier {
     /// The circle center, relative to the emitter position.
     pub center: Vec3,
@@ -208,7 +208,7 @@ impl InitModifier for InitPositionCircleModifier {
             ShapeDimension::Volume => {
                 // Radius uniformly distributed in [0:1], then square-rooted
                 // to account for the increased perimeter covered by increased radii.
-                format!("let r = sqrt(rand()) * {};", self.radius.to_wgsl_string())
+                format!("let r = sqrt(frand()) * {};", self.radius.to_wgsl_string())
             }
         };
 
@@ -222,7 +222,7 @@ impl InitModifier for InitPositionCircleModifier {
     // Circle radius
     {}
     // Spawn random point on/in circle
-    let theta = rand() * tau;
+    let theta = frand() * tau;
     let dir = tangent * cos(theta) + bitangent * sin(theta);
     (*particle).{} = c + r * dir;
 }}
@@ -246,7 +246,7 @@ impl InitModifier for InitPositionCircleModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitPositionSphereModifier {
     /// The sphere center, relative to the emitter position.
     pub center: Vec3,
@@ -271,7 +271,7 @@ impl InitModifier for InitPositionSphereModifier {
                 // to account for the increased surface covered by increased radii.
                 // https://stackoverflow.com/questions/54544971/how-to-generate-uniform-random-points-inside-d-dimension-ball-sphere
                 format!(
-                    "let r = pow(rand(), 1./3.) * {};",
+                    "let r = pow(frand(), 1./3.) * {};",
                     self.radius.to_wgsl_string()
                 )
             }
@@ -286,8 +286,8 @@ impl InitModifier for InitPositionSphereModifier {
     {}
 
     // Spawn randomly along the sphere surface using Archimedes's theorem
-    let theta = rand() * tau;
-    let z = rand() * 2. - 1.;
+    let theta = frand() * tau;
+    let z = frand() * 2. - 1.;
     let phi = acos(z);
     let sinphi = sin(phi);
     let x = sinphi * cos(theta);
@@ -321,7 +321,7 @@ impl InitModifier for InitPositionSphereModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitPositionCone3dModifier {
     /// The cone height along its axis, between the base and top radii.
     pub height: f32,
@@ -344,7 +344,7 @@ impl InitModifier for InitPositionCone3dModifier {
     // Truncated cone height
     let h0 = {0};
     // Random height ratio
-    let alpha_h = pow(rand(), 1.0 / 3.0);
+    let alpha_h = pow(frand(), 1.0 / 3.0);
     // Random delta height from top
     let h = h0 * alpha_h;
     // Top radius
@@ -354,11 +354,11 @@ impl InitModifier for InitPositionCone3dModifier {
     // Radius at height h
     let r0 = rb + (rt - rb) * alpha_h;
     // Random delta radius
-    let alpha_r = sqrt(rand());
+    let alpha_r = sqrt(frand());
     // Random radius at height h
     let r = r0 * alpha_r;
     // Random base angle
-    let theta = rand() * tau;
+    let theta = frand() * tau;
     let cost = cos(theta);
     let sint = sin(theta);
     // Random position relative to truncated cone origin (not apex)
@@ -389,7 +389,7 @@ impl InitModifier for InitPositionCone3dModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitVelocityCircleModifier {
     /// The circle center, relative to the emitter position.
     pub center: Vec3,
@@ -397,7 +397,7 @@ pub struct InitVelocityCircleModifier {
     /// Set this to `Vec3::Z` for a 2D game.
     pub axis: Vec3,
     /// The initial speed distribution of a particle when it spawns.
-    pub speed: Value<f32>,
+    pub speed: CpuValue<f32>,
 }
 
 impl_mod_init!(
@@ -437,13 +437,13 @@ impl InitModifier for InitVelocityCircleModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitVelocitySphereModifier {
     /// Center of the sphere. The radial direction of the velocity is the
     /// direction from the sphere center to the particle position.
     pub center: Vec3,
     /// The initial speed distribution of a particle when it spawns.
-    pub speed: Value<f32>,
+    pub speed: CpuValue<f32>,
 }
 
 impl_mod_init!(
@@ -473,7 +473,7 @@ impl InitModifier for InitVelocitySphereModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct InitVelocityTangentModifier {
     /// Origin from which to derive the radial axis based on the particle
     /// position.
@@ -482,7 +482,7 @@ pub struct InitVelocityTangentModifier {
     /// axes.
     pub axis: Vec3,
     /// The initial speed distribution of a particle when it spawns.
-    pub speed: Value<f32>,
+    pub speed: CpuValue<f32>,
 }
 
 impl_mod_init!(
@@ -514,73 +514,12 @@ impl InitModifier for InitVelocityTangentModifier {
     }
 }
 
-/// Modifier to initialize the per-particle size attribute.
-///
-/// The particle is initialized with a fixed or randomly distributed size value,
-/// and will retain that size unless another modifier (like
-/// [`SizeOverLifetimeModifier`]) changes its size after spawning.
-///
-/// # Attributes
-///
-/// This modifier requires the following particle attributes:
-/// - [`Attribute::SIZE`] or [`Attribute::SIZE2`]
-///
-/// [`SizeOverLifetimeModifier`]: crate::SizeOverLifetimeModifier
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, FromReflect, Serialize, Deserialize)]
-pub struct InitSizeModifier {
-    /// The size to initialize each particle with.
-    ///
-    /// Only [`DimValue::D1`] and [`DimValue::D2`] are valid. The former
-    /// requires the [`Attribute::SIZE`] attribute in the particle layout, while
-    /// the latter requires the [`Attribute::SIZE2`] attribute.
-    pub size: DimValue,
-}
-
-#[typetag::serde]
-impl Modifier for InitSizeModifier {
-    fn context(&self) -> ModifierContext {
-        ModifierContext::Init
-    }
-
-    fn as_init(&self) -> Option<&dyn InitModifier> {
-        Some(self)
-    }
-
-    fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
-        Some(self)
-    }
-
-    fn attributes(&self) -> &[Attribute] {
-        match self.size {
-            DimValue::D1(_) => &[Attribute::SIZE],
-            DimValue::D2(_) => &[Attribute::SIZE2],
-            _ => panic!("Invalid dimension for InitSizeModifier; only 1D and 2D values are valid."),
-        }
-    }
-
-    fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(*self)
-    }
-}
-
-#[typetag::serde]
-impl InitModifier for InitSizeModifier {
-    fn apply(&self, context: &mut InitContext) -> Result<(), ExprError> {
-        context.init_code += &format!(
-            "particle.{} = {};\n",
-            self.attributes()[0].name(),
-            self.size.to_wgsl_string(),
-        );
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ParticleLayout;
 
-    use naga::front::wgsl::Parser;
+    use naga::front::wgsl::Frontend;
 
     #[test]
     fn validate() {
@@ -611,7 +550,7 @@ mod tests {
             let attributes_code = particle_layout.generate_code();
 
             let code = format!(
-                r##"fn rand() -> f32 {{
+                r##"fn frand() -> f32 {{
     return 0.0;
 }}
 
@@ -632,8 +571,8 @@ fn main() {{
             );
             // println!("code: {:?}", code);
 
-            let mut parser = Parser::new();
-            let res = parser.parse(&code);
+            let mut frontend = Frontend::new();
+            let res = frontend.parse(&code);
             if let Err(err) = &res {
                 println!("Modifier: {:?}", modifier.type_name());
                 println!("Code: {:?}", code);

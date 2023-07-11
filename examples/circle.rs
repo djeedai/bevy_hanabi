@@ -3,11 +3,12 @@
 //! A sphere spawns dust in a circle.
 
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin},
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -27,10 +28,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
+        .add_systems(Update, bevy::window::close_on_esc)
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
         .run();
 
     Ok(())
@@ -43,7 +45,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle::default();
+    let mut camera = Camera3dBundle {
+        tonemapping: Tonemapping::None,
+        ..default()
+    };
     camera.transform =
         Transform::from_xyz(3.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
     commands.spawn(camera);
@@ -56,6 +61,9 @@ fn setup(
     gradient.add_key(1.0, Vec4::new(1.0, 1.0, 1.0, 0.0));
 
     let writer = ExprWriter::new();
+
+    let age = writer.lit(0.).expr();
+    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
 
     let lifetime = writer.lit(5.).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
@@ -72,8 +80,9 @@ fn setup(
             .init(InitVelocityCircleModifier {
                 center: Vec3::ZERO,
                 axis: Vec3::Y,
-                speed: Value::Uniform((1.0, 1.5)),
+                speed: CpuValue::Uniform((1.0, 1.5)),
             })
+            .init(init_age)
             .init(init_lifetime)
             .render(ParticleTextureModifier {
                 texture: texture_handle.clone().into(),
@@ -81,6 +90,7 @@ fn setup(
             .render(ColorOverLifetimeModifier { gradient })
             .render(SizeOverLifetimeModifier {
                 gradient: Gradient::constant([0.2; 2].into()),
+                screen_space_size: false,
             }),
     );
 

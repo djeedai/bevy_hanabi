@@ -50,7 +50,7 @@
 //!
 //! App::default()
 //!     .add_plugins(DefaultPlugins)
-//!     .add_plugin(HanabiPlugin)
+//!     .add_plugins(HanabiPlugin)
 //!     .run();
 //! ```
 //!
@@ -169,7 +169,7 @@ pub use modifier::*;
 pub use plugin::HanabiPlugin;
 pub use properties::{Property, PropertyLayout};
 pub use render::{EffectSystems, ShaderCache};
-pub use spawn::{tick_spawners, DimValue, EffectSpawner, Random, Spawner, Value};
+pub use spawn::{tick_spawners, CpuValue, EffectSpawner, Random, Spawner};
 
 #[allow(missing_docs)]
 pub mod prelude {
@@ -288,12 +288,12 @@ impl ToWgslString for u32 {
     }
 }
 
-impl ToWgslString for Value<f32> {
+impl ToWgslString for CpuValue<f32> {
     fn to_wgsl_string(&self) -> String {
         match self {
             Self::Single(x) => x.to_wgsl_string(),
             Self::Uniform((a, b)) => format!(
-                "(rand() * ({1} - {0}) + {0})",
+                "(frand() * ({1} - {0}) + {0})",
                 a.to_wgsl_string(),
                 b.to_wgsl_string(),
             ),
@@ -301,12 +301,12 @@ impl ToWgslString for Value<f32> {
     }
 }
 
-impl ToWgslString for Value<Vec2> {
+impl ToWgslString for CpuValue<Vec2> {
     fn to_wgsl_string(&self) -> String {
         match self {
             Self::Single(v) => v.to_wgsl_string(),
             Self::Uniform((a, b)) => format!(
-                "(rand2() * ({1} - {0}) + {0})",
+                "(frand2() * ({1} - {0}) + {0})",
                 a.to_wgsl_string(),
                 b.to_wgsl_string(),
             ),
@@ -314,12 +314,12 @@ impl ToWgslString for Value<Vec2> {
     }
 }
 
-impl ToWgslString for Value<Vec3> {
+impl ToWgslString for CpuValue<Vec3> {
     fn to_wgsl_string(&self) -> String {
         match self {
             Self::Single(v) => v.to_wgsl_string(),
             Self::Uniform((a, b)) => format!(
-                "(rand3() * ({1} - {0}) + {0})",
+                "(frand3() * ({1} - {0}) + {0})",
                 a.to_wgsl_string(),
                 b.to_wgsl_string(),
             ),
@@ -327,12 +327,12 @@ impl ToWgslString for Value<Vec3> {
     }
 }
 
-impl ToWgslString for Value<Vec4> {
+impl ToWgslString for CpuValue<Vec4> {
     fn to_wgsl_string(&self) -> String {
         match self {
             Self::Single(v) => v.to_wgsl_string(),
             Self::Uniform((a, b)) => format!(
-                "(rand4() * ({1} - {0}) + {0})",
+                "(frand4() * ({1} - {0}) + {0})",
                 a.to_wgsl_string(),
                 b.to_wgsl_string(),
             ),
@@ -341,9 +341,7 @@ impl ToWgslString for Value<Vec4> {
 }
 
 /// Simulation space for the particles of an effect.
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Reflect, FromReflect, Serialize, Deserialize,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Reflect, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum SimulationSpace {
     /// Particles are simulated in global space.
@@ -362,14 +360,14 @@ pub enum SimulationSpace {
 ///
 /// A property with this name might not exist, in which case the value will be
 /// discarded silently when the instance is initialized from its asset.
-#[derive(Debug, Clone, PartialEq, Reflect, FromReflect)]
+#[derive(Debug, Clone, PartialEq, Reflect)]
 pub struct PropertyValue {
     /// Name of the property the value should be assigned to.
     name: String,
 
     /// The property value to assign, instead of the default value of the
     /// property.
-    value: graph::Value,
+    value: Value,
 }
 
 impl From<PropertyInstance> for PropertyValue {
@@ -528,7 +526,7 @@ impl ParticleEffect {
     /// [`properties`]: crate::ParticleEffect::properties
     pub fn with_properties<P>(
         mut self,
-        properties: impl IntoIterator<Item = (String, graph::Value)>,
+        properties: impl IntoIterator<Item = (String, Value)>,
     ) -> Self {
         let iter = properties.into_iter();
         for (name, value) in iter {
@@ -588,6 +586,8 @@ pub struct CompiledParticleEffect {
     /// 2D layer for the effect instance.
     #[cfg(feature = "2d")]
     z_layer_2d: FloatOrd,
+    /// Is the particle size in screen-space logical pixels?
+    screen_space_size: bool,
 }
 
 impl Default for CompiledParticleEffect {
@@ -603,6 +603,7 @@ impl Default for CompiledParticleEffect {
             particle_texture: None,
             #[cfg(feature = "2d")]
             z_layer_2d: FloatOrd(0.0),
+            screen_space_size: false,
         }
     }
 }
@@ -780,11 +781,6 @@ impl CompiledParticleEffect {
             }
             (init_context.init_code, init_context.init_extra)
         };
-        // Warn in debug if the shader doesn't initialize the particle lifetime
-        #[cfg(debug_assertions)]
-        if !init_code.contains(&format!("particle.{}", Attribute::LIFETIME.name())) {
-            warn!("Effect '{}' does not initialize the particle lifetime; particles will have a default lifetime of zero, and will immediately die after spawning.", asset.name);
-        }
 
         // Generate the shader code for the update shader
         let (mut update_code, update_extra, force_field) = {
@@ -838,6 +834,8 @@ impl CompiledParticleEffect {
         for m in asset.render_modifiers() {
             m.apply(&mut render_context);
         }
+
+        self.screen_space_size = render_context.screen_space_size;
 
         // Configure aging code
         let has_age = present_attributes.contains(&Attribute::AGE);
@@ -911,15 +909,12 @@ impl CompiledParticleEffect {
         trace!("Configured render shader:\n{}", render_shader_source);
 
         trace!(
-            "tick_spawners: init_shader={:?} update_shader={:?} render_shader={:?} has_image={}",
+            "tick_spawners: init_shader={:?} update_shader={:?} render_shader={:?} has_image={} screen_space_size={}",
             init_shader,
             update_shader,
             render_shader,
-            if render_context.particle_texture.is_some() {
-                "Y"
-            } else {
-                "N"
-            },
+            render_context.particle_texture.is_some(),
+            self.screen_space_size
         );
 
         // TODO - Replace with Option<ConfiguredShader { handle: Handle<Shader>, hash:
@@ -964,7 +959,7 @@ impl CompiledParticleEffect {
     ///
     /// A property must exist which has been added to the source
     /// [`EffectAsset`].
-    pub fn set_property(&mut self, name: &str, value: graph::Value) {
+    pub fn set_property(&mut self, name: &str, value: Value) {
         if let Some(index) = self
             .properties
             .iter()
@@ -1162,6 +1157,7 @@ fn compile_effects(
 /// system, to clean-up unused GPU resources.
 ///
 /// [`extract_effects()`]: crate::render::extract_effects
+#[derive(Event)]
 struct RemovedEffectsEvent {
     entities: Vec<Entity>,
 }
@@ -1261,40 +1257,40 @@ mod tests {
 
     #[test]
     fn to_wgsl_value_f32() {
-        let s = Value::Single(1.0_f32).to_wgsl_string();
+        let s = CpuValue::Single(1.0_f32).to_wgsl_string();
         assert_eq!(s, "1.");
-        let s = Value::Uniform((1.0_f32, 2.0_f32)).to_wgsl_string();
-        assert_eq!(s, "(rand() * (2. - 1.) + 1.)");
+        let s = CpuValue::Uniform((1.0_f32, 2.0_f32)).to_wgsl_string();
+        assert_eq!(s, "(frand() * (2. - 1.) + 1.)");
     }
 
     #[test]
     fn to_wgsl_value_vec2() {
-        let s = Value::Single(Vec2::ONE).to_wgsl_string();
+        let s = CpuValue::Single(Vec2::ONE).to_wgsl_string();
         assert_eq!(s, "vec2<f32>(1.,1.)");
-        let s = Value::Uniform((Vec2::ZERO, Vec2::ONE)).to_wgsl_string();
+        let s = CpuValue::Uniform((Vec2::ZERO, Vec2::ONE)).to_wgsl_string();
         assert_eq!(
             s,
-            "(rand2() * (vec2<f32>(1.,1.) - vec2<f32>(0.,0.)) + vec2<f32>(0.,0.))"
+            "(frand2() * (vec2<f32>(1.,1.) - vec2<f32>(0.,0.)) + vec2<f32>(0.,0.))"
         );
     }
 
     #[test]
     fn to_wgsl_value_vec3() {
-        let s = Value::Single(Vec3::ONE).to_wgsl_string();
+        let s = CpuValue::Single(Vec3::ONE).to_wgsl_string();
         assert_eq!(s, "vec3<f32>(1.,1.,1.)");
-        let s = Value::Uniform((Vec3::ZERO, Vec3::ONE)).to_wgsl_string();
+        let s = CpuValue::Uniform((Vec3::ZERO, Vec3::ONE)).to_wgsl_string();
         assert_eq!(
             s,
-            "(rand3() * (vec3<f32>(1.,1.,1.) - vec3<f32>(0.,0.,0.)) + vec3<f32>(0.,0.,0.))"
+            "(frand3() * (vec3<f32>(1.,1.,1.) - vec3<f32>(0.,0.,0.)) + vec3<f32>(0.,0.,0.))"
         );
     }
 
     #[test]
     fn to_wgsl_value_vec4() {
-        let s = Value::Single(Vec4::ONE).to_wgsl_string();
+        let s = CpuValue::Single(Vec4::ONE).to_wgsl_string();
         assert_eq!(s, "vec4<f32>(1.,1.,1.,1.)");
-        let s = Value::Uniform((Vec4::ZERO, Vec4::ONE)).to_wgsl_string();
-        assert_eq!(s, "(rand4() * (vec4<f32>(1.,1.,1.,1.) - vec4<f32>(0.,0.,0.,0.)) + vec4<f32>(0.,0.,0.,0.))");
+        let s = CpuValue::Uniform((Vec4::ZERO, Vec4::ONE)).to_wgsl_string();
+        assert_eq!(s, "(frand4() * (vec4<f32>(1.,1.,1.,1.) - vec4<f32>(0.,0.,0.,0.)) + vec4<f32>(0.,0.,0.,0.))");
     }
 
     #[test]
@@ -1332,14 +1328,13 @@ else { return c1; }
         // app.add_plugins(DefaultPlugins);
         app.add_asset::<Mesh>();
         app.add_asset::<Shader>();
-        app.add_plugin(VisibilityPlugin);
+        app.add_plugins(VisibilityPlugin);
         app.init_resource::<ShaderCache>();
         app.insert_resource(Random(new_rng()));
         app.add_asset::<EffectAsset>();
-        app.add_system(
-            compile_effects
-                .in_base_set(CoreSet::PostUpdate)
-                .after(VisibilitySystems::CheckVisibility),
+        app.add_systems(
+            PostUpdate,
+            compile_effects.after(VisibilitySystems::CheckVisibility),
         );
 
         app

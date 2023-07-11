@@ -103,6 +103,10 @@ Note that previously a common pattern was to create modifiers inline while build
 
 ## Other migration items
 
+- Rename `spawn::Value` to `spawn::CpuValue`. This prevents confusion with `graph::Value` and allow importing both types at once.
+
+- The `std::hash::Hash` implementation for `SetColorModifier` and `SetSizeModifier` changed. If you previously stored some hash values, they likely will be different between v0.6 and v0.7. You can check the old manual implementation in v0.6 if you need to write some conversion code.
+
 - All typed values like `graph::Value::Float3` need to be replaced by their scalar/vector counterpart:
   - `graph::Value::Float(f)` becomes `graph::Value::Scalar(ScalarValue::Float(f)))`
   - `graph::Value::Float3(v)` becomes `graph::Value::Vector(VectorValue::new_vec3(v))`
@@ -130,3 +134,9 @@ Note that previously a common pattern was to create modifiers inline while build
 - Same kind of conversions for `graph::ValueType`.
 
 - Rename `SimParams::dt` into `SimParams::delta_time`, and any shader use of `dt` into `delta_time`.
+
+- Add an extra `screen_space_size = false` field to the `SetSizeModifier` and `SizeOverLifetimeModifier`.
+
+- Replace the removed `InitSizeModifier` with the more generic `InitAttributeModifier`.
+
+- `DimValue` was deleted. It was only used in the now deleted `InitSizeModifier`. There's no direct equivalent if you were using this in your code.

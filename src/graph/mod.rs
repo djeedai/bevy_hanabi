@@ -43,7 +43,7 @@ use std::fmt::Debug;
 
 use bevy::{
     math::{BVec2, BVec3, BVec4, IVec2, IVec3, IVec4, Vec2, Vec3, Vec3A, Vec4},
-    reflect::{FromReflect, Reflect},
+    reflect::Reflect,
     utils::FloatOrd,
 };
 use serde::{Deserialize, Serialize};
@@ -62,58 +62,6 @@ pub use node::{
     SubNode, TimeNode,
 };
 
-// /// Binary arithmetic operator.
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect,
-// Serialize, Deserialize)] #[non_exhaustive]
-// pub enum BinaryOperator {
-//     /// Add operator `+`.
-//     Add,
-//     /// Subtract operator `-`.
-//     Sub,
-//     /// Multiply operator `*`.
-//     Mul,
-//     /// Divide operator `/`.
-//     Div,
-// }
-
-// impl BinaryOperator {
-//     /// Apply the operator to a pair of `f32` values.
-//     pub fn apply_f32(&self, a: f32, b: f32) -> f32 {
-//         match *self {
-//             BinaryOperator::Add => a + b,
-//             BinaryOperator::Sub => a - b,
-//             BinaryOperator::Mul => a * b,
-//             BinaryOperator::Div => a / b,
-//         }
-//     }
-
-//     /// Apply the operator to a pair of `i32` values.
-//     pub fn apply_i32(&self, a: i32, b: i32) -> i32 {
-//         match *self {
-//             BinaryOperator::Add => a + b,
-//             BinaryOperator::Sub => a - b,
-//             BinaryOperator::Mul => a * b,
-//             BinaryOperator::Div => a / b,
-//         }
-//     }
-
-//     /// Apply the operator to a pair of `u32` values.
-//     pub fn apply_u32(&self, a: u32, b: u32) -> u32 {
-//         match *self {
-//             BinaryOperator::Add => a + b,
-//             BinaryOperator::Sub => a - b,
-//             BinaryOperator::Mul => a * b,
-//             BinaryOperator::Div => a / b,
-//         }
-//     }
-// }
-
-// /// Binary arithmetic operation over self.
-// pub trait BinaryOperation {
-//     /// Apply a binary arithmetic operator between self and another value.
-//     fn apply(&self, other: &Self, op: BinaryOperator) -> Self;
-// }
-
 /// Variant storage for a scalar value.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -128,23 +76,17 @@ pub enum ScalarValueMut<'a> {
     Uint(&'a mut u32),
 }
 
-// impl<'a> ScalarValueMut<'a> {
-//     /// Apply a binary arithmetic operator between self and another operand.
-//     fn binary_op(&mut self, other: &ScalarValue, op: BinaryOperator) {
-//         match self {
-//             ScalarValueMut::Bool(_) => {
-//                 panic!("Cannot apply binary arithmetic operator to boolean
-// value.")             }
-//             ScalarValueMut::Float(f) => **f = op.apply_f32(**f,
-// other.as_f32()),             ScalarValueMut::Int(i) => **i =
-// op.apply_i32(**i, other.as_i32()),             ScalarValueMut::Uint(u) => **u
-// = op.apply_u32(**u, other.as_u32()),         }
-//     }
-// }
-
-/// Variant storage for a scalar value.
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
-#[non_exhaustive]
+/// Variant storage for a single (scalar) value.
+///
+/// The value implements total equality and hashing. For [`ScalarValue::Float`],
+/// the total equality is based on [`FloatOrd`]. Values of different types
+/// compare inequally to each other, even if the values would be equal after
+/// casting, and hash differently. To compare two [`ScalarValue`] taking into
+/// account casting, use [`cast_eq()`].
+///
+/// [`cast_eq()`]: crate::graph::ScalarValue::cast_eq
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
+#[non_exhaustive] // f16 not supported yet
 pub enum ScalarValue {
     /// Single `bool` value.
     Bool(bool),
@@ -157,8 +99,14 @@ pub enum ScalarValue {
 }
 
 impl ScalarValue {
+    /// The value `false` when a boolean value is stored internally.
+    pub(crate) const BOOL_FALSE_STORAGE: u32 = 0u32;
+
     /// The value `true` when a boolean value is stored internally.
     pub(crate) const BOOL_TRUE_STORAGE: u32 = 0xFF_FF_FF_FFu32;
+
+    /// The value `false` and `true` when a boolean value is stored internally.
+    pub(crate) const BOOL_STORAGE: [u32; 2] = [Self::BOOL_FALSE_STORAGE, Self::BOOL_TRUE_STORAGE];
 
     /// Convert this value to a `bool` value.
     ///
@@ -266,6 +214,20 @@ impl ScalarValue {
         }
     }
 
+    /// Check equality with another value by casting the other value to this
+    /// value's type.
+    ///
+    /// Floating point values ([`ScalarValue::Float`]) use [`FloatOrd`] for
+    /// total equality.
+    pub fn cast_eq(&self, other: &Self) -> bool {
+        match *self {
+            ScalarValue::Bool(b) => b == other.as_bool(),
+            ScalarValue::Float(f) => FloatOrd(f) == FloatOrd(other.as_f32()),
+            ScalarValue::Int(i) => i == other.as_i32(),
+            ScalarValue::Uint(u) => u == other.as_u32(),
+        }
+    }
+
     // fn binary_op(&self, other: &Self, op: BinaryOperator) -> Self {
     //     match *self {
     //         ScalarValue::Bool(_) => panic!("Cannot apply binary operation to
@@ -280,21 +242,48 @@ impl ScalarValue {
 impl PartialEq for ScalarValue {
     fn eq(&self, other: &Self) -> bool {
         match *self {
-            ScalarValue::Bool(b) => b == other.as_bool(),
-            ScalarValue::Float(f) => FloatOrd(f) == FloatOrd(other.as_f32()),
-            ScalarValue::Int(i) => i == other.as_i32(),
-            ScalarValue::Uint(u) => u == other.as_u32(),
+            ScalarValue::Bool(b) => match *other {
+                ScalarValue::Bool(b2) => b == b2,
+                _ => false,
+            },
+            ScalarValue::Float(f) => match *other {
+                ScalarValue::Float(f2) => FloatOrd(f) == FloatOrd(f2),
+                _ => false,
+            },
+            ScalarValue::Int(i) => match *other {
+                ScalarValue::Int(i2) => i == i2,
+                _ => false,
+            },
+            ScalarValue::Uint(u) => match *other {
+                ScalarValue::Uint(u2) => u == u2,
+                _ => false,
+            },
         }
     }
 }
 
+impl Eq for ScalarValue {}
+
 impl std::hash::Hash for ScalarValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Hash some u8 to encode the enum variant, then the actual value
         match *self {
-            ScalarValue::Bool(b) => b.hash(state),
-            ScalarValue::Float(f) => FloatOrd(f).hash(state),
-            ScalarValue::Int(i) => i.hash(state),
-            ScalarValue::Uint(u) => u.hash(state),
+            ScalarValue::Bool(b) => {
+                1_u8.hash(state);
+                b.hash(state)
+            }
+            ScalarValue::Float(f) => {
+                2_u8.hash(state);
+                FloatOrd(f).hash(state);
+            }
+            ScalarValue::Int(i) => {
+                3_u8.hash(state);
+                i.hash(state);
+            }
+            ScalarValue::Uint(u) => {
+                4_u8.hash(state);
+                u.hash(state);
+            }
         }
     }
 }
@@ -450,7 +439,7 @@ impl ElemType for u32 {
 }
 
 /// Variant storage for a vector value.
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
 pub struct VectorValue {
     vector_type: VectorType,
     storage: [u32; 4],
@@ -843,6 +832,165 @@ impl VectorValue {
         bytemuck::cast_slice::<u32, u8>(&self.storage[..count])
     }
 
+    /// Check equality with another value by casting the other value to this
+    /// value's type.
+    ///
+    /// Floating point values ([`ScalarValue::Float`]) use [`FloatOrd`] for
+    /// total equality.
+    ///
+    /// Vectors of different size always compare inequal (returns `false`).
+    pub fn cast_eq(&self, other: &Self) -> bool {
+        let count = self.vector_type().count();
+        if count != other.vector_type().count() {
+            return false;
+        }
+        match self.elem_type() {
+            ScalarType::Bool => {
+                let s = self.cast_bool();
+                let o = other.cast_bool();
+                s[..count] == o[..count]
+            }
+            ScalarType::Float => {
+                let s = self.cast_f32();
+                let o = other.cast_f32();
+                s[..count] == o[..count]
+            }
+            ScalarType::Int => {
+                let s = self.cast_i32();
+                let o = other.cast_i32();
+                s[..count] == o[..count]
+            }
+            ScalarType::Uint => {
+                let s = self.cast_u32();
+                let o = other.cast_u32();
+                s[..count] == o[..count]
+            }
+        }
+    }
+
+    fn cast_bool(&self) -> [u32; 4] {
+        match self.elem_type() {
+            ScalarType::Bool => self.storage,
+            ScalarType::Float => [
+                ScalarValue::BOOL_STORAGE
+                    [(bytemuck::cast::<u32, f32>(self.storage[0]) != 0.) as usize],
+                ScalarValue::BOOL_STORAGE
+                    [(bytemuck::cast::<u32, f32>(self.storage[1]) != 0.) as usize],
+                ScalarValue::BOOL_STORAGE
+                    [(bytemuck::cast::<u32, f32>(self.storage[2]) != 0.) as usize],
+                ScalarValue::BOOL_STORAGE
+                    [(bytemuck::cast::<u32, f32>(self.storage[3]) != 0.) as usize],
+            ],
+            ScalarType::Int => [
+                ScalarValue::BOOL_STORAGE
+                    [(bytemuck::cast::<u32, i32>(self.storage[0]) != 0) as usize],
+                ScalarValue::BOOL_STORAGE
+                    [(bytemuck::cast::<u32, i32>(self.storage[1]) != 0) as usize],
+                ScalarValue::BOOL_STORAGE
+                    [(bytemuck::cast::<u32, i32>(self.storage[2]) != 0) as usize],
+                ScalarValue::BOOL_STORAGE
+                    [(bytemuck::cast::<u32, i32>(self.storage[3]) != 0) as usize],
+            ],
+            ScalarType::Uint => [
+                ScalarValue::BOOL_STORAGE[(self.storage[0] != 0) as usize],
+                ScalarValue::BOOL_STORAGE[(self.storage[1] != 0) as usize],
+                ScalarValue::BOOL_STORAGE[(self.storage[2] != 0) as usize],
+                ScalarValue::BOOL_STORAGE[(self.storage[3] != 0) as usize],
+            ],
+        }
+    }
+
+    fn cast_f32(&self) -> [FloatOrd; 4] {
+        match self.elem_type() {
+            ScalarType::Bool => {
+                let ft = [FloatOrd(0.), FloatOrd(1.)];
+                [
+                    ft[(self.storage[0] != 0) as usize],
+                    ft[(self.storage[1] != 0) as usize],
+                    ft[(self.storage[2] != 0) as usize],
+                    ft[(self.storage[3] != 0) as usize],
+                ]
+            }
+            ScalarType::Float => [
+                FloatOrd(bytemuck::cast::<u32, f32>(self.storage[0])),
+                FloatOrd(bytemuck::cast::<u32, f32>(self.storage[1])),
+                FloatOrd(bytemuck::cast::<u32, f32>(self.storage[2])),
+                FloatOrd(bytemuck::cast::<u32, f32>(self.storage[3])),
+            ],
+            ScalarType::Int => [
+                FloatOrd(bytemuck::cast::<u32, i32>(self.storage[0]) as f32),
+                FloatOrd(bytemuck::cast::<u32, i32>(self.storage[1]) as f32),
+                FloatOrd(bytemuck::cast::<u32, i32>(self.storage[2]) as f32),
+                FloatOrd(bytemuck::cast::<u32, i32>(self.storage[3]) as f32),
+            ],
+            ScalarType::Uint => [
+                FloatOrd(self.storage[0] as f32),
+                FloatOrd(self.storage[1] as f32),
+                FloatOrd(self.storage[2] as f32),
+                FloatOrd(self.storage[3] as f32),
+            ],
+        }
+    }
+
+    fn cast_i32(&self) -> [i32; 4] {
+        match self.elem_type() {
+            ScalarType::Bool => {
+                let ft = [0, 1];
+                [
+                    ft[(self.storage[0] != 0) as usize],
+                    ft[(self.storage[1] != 0) as usize],
+                    ft[(self.storage[2] != 0) as usize],
+                    ft[(self.storage[3] != 0) as usize],
+                ]
+            }
+            ScalarType::Float => [
+                bytemuck::cast::<u32, f32>(self.storage[0]) as i32,
+                bytemuck::cast::<u32, f32>(self.storage[1]) as i32,
+                bytemuck::cast::<u32, f32>(self.storage[2]) as i32,
+                bytemuck::cast::<u32, f32>(self.storage[3]) as i32,
+            ],
+            ScalarType::Int => [
+                bytemuck::cast::<u32, i32>(self.storage[0]),
+                bytemuck::cast::<u32, i32>(self.storage[1]),
+                bytemuck::cast::<u32, i32>(self.storage[2]),
+                bytemuck::cast::<u32, i32>(self.storage[3]),
+            ],
+            ScalarType::Uint => [
+                self.storage[0] as i32,
+                self.storage[1] as i32,
+                self.storage[2] as i32,
+                self.storage[3] as i32,
+            ],
+        }
+    }
+
+    fn cast_u32(&self) -> [u32; 4] {
+        match self.elem_type() {
+            ScalarType::Bool => {
+                let ft = [0, 1];
+                [
+                    ft[(self.storage[0] != 0) as usize],
+                    ft[(self.storage[1] != 0) as usize],
+                    ft[(self.storage[2] != 0) as usize],
+                    ft[(self.storage[3] != 0) as usize],
+                ]
+            }
+            ScalarType::Float => [
+                bytemuck::cast::<u32, f32>(self.storage[0]) as u32,
+                bytemuck::cast::<u32, f32>(self.storage[1]) as u32,
+                bytemuck::cast::<u32, f32>(self.storage[2]) as u32,
+                bytemuck::cast::<u32, f32>(self.storage[3]) as u32,
+            ],
+            ScalarType::Int => [
+                bytemuck::cast::<u32, i32>(self.storage[0]) as u32,
+                bytemuck::cast::<u32, i32>(self.storage[1]) as u32,
+                bytemuck::cast::<u32, i32>(self.storage[2]) as u32,
+                bytemuck::cast::<u32, i32>(self.storage[3]) as u32,
+            ],
+            ScalarType::Uint => self.storage,
+        }
+    }
+
     // fn binary_op(&self, other: &Self, op: BinaryOperator) -> Self {
     //     let count = self.vector_type.count();
     //     let mut v = *self;
@@ -856,26 +1004,27 @@ impl VectorValue {
 
 impl PartialEq for VectorValue {
     fn eq(&self, other: &Self) -> bool {
-        let count = self.vector_type.count();
-        if count != other.vector_type.count() {
+        if self.vector_type() != other.vector_type() {
             return false;
         }
-        let elem_type = self.elem_type();
-        if elem_type == ScalarType::Float {
-            let mut eq = true;
-            for i in 0..count {
-                eq = eq && (FloatOrd(self.get::<f32>(i)) == FloatOrd(other.get::<f32>(i)));
+        let count = self.vector_type().count();
+        match self.elem_type() {
+            ScalarType::Float => {
+                let s = self.cast_f32();
+                let o = other.cast_f32();
+                s[..count] == o[..count]
             }
-            eq
-        } else {
-            self.storage[..count] == other.storage[..count]
+            _ => self.storage[..count] == other.storage[..count],
         }
     }
 }
 
+impl Eq for VectorValue {}
+
 impl std::hash::Hash for VectorValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.vector_type.hash(state);
+        // Only compare the subset of storage actually in use
         let count = self.vector_type.count();
         let elem_type = self.elem_type();
         if elem_type == ScalarType::Float {
@@ -1073,7 +1222,7 @@ impl From<IVec4> for VectorValue {
 }
 
 /// Floating-point matrix value.
-#[derive(Debug, Clone, Copy, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
 pub struct MatrixValue {
     /// Matrix type.
     matrix_type: MatrixType,
@@ -1199,7 +1348,7 @@ impl ToWgslString for MatrixValue {
 /// Variant storage for a simple value.
 ///
 /// The variant can store a scalar, vector, or matrix value.
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum Value {
     /// Scalar value.
@@ -1689,21 +1838,72 @@ mod tests {
 
     #[test]
     fn hash() {
-        assert_eq!(
-            calc_hash(&Into::<ScalarValue>::into(true)),
-            calc_hash(&true)
+        // Different types must not be equal
+        let zeros = [
+            Into::<ScalarValue>::into(false),
+            Into::<ScalarValue>::into(0_f32),
+            Into::<ScalarValue>::into(0_u32),
+            Into::<ScalarValue>::into(0_i32),
+        ];
+        let ones = [
+            Into::<ScalarValue>::into(true),
+            Into::<ScalarValue>::into(1_f32),
+            Into::<ScalarValue>::into(1_u32),
+            Into::<ScalarValue>::into(1_i32),
+        ];
+        for arr in [zeros, ones] {
+            for i in 0..=3 {
+                for j in 0..=3 {
+                    if i == j {
+                        // Equal to self
+                        assert_eq!(arr[i], arr[j]);
+                        assert_eq!(calc_hash(&arr[i]), calc_hash(&arr[j]));
+                    } else {
+                        // Different types must be different and hash to different values
+                        assert_ne!(arr[i], arr[j]);
+                        assert_ne!(calc_hash(&arr[i]), calc_hash(&arr[j]));
+                    }
+                    // With casting however, values can be equal
+                    assert!(arr[i].cast_eq(&arr[j]));
+                }
+            }
+        }
+
+        // Different types must not be equal
+        let vecs = [
+            VectorValue::new_vec2(Vec2::new(1., 0.)),
+            VectorValue::new_ivec2(IVec2::new(1, 0)),
+            VectorValue::new_uvec2(1, 0),
+            VectorValue::new_bvec2(BVec2::new(true, false)),
+        ];
+        for i in 0..=3 {
+            for j in 0..=3 {
+                if i == j {
+                    // Equal to self
+                    assert_eq!(vecs[i], vecs[j]);
+                    assert_eq!(calc_hash(&vecs[i]), calc_hash(&vecs[j]));
+                } else {
+                    // Different types must be different and hash to different values
+                    assert_ne!(vecs[i], vecs[j]);
+                    assert_ne!(calc_hash(&vecs[i]), calc_hash(&vecs[j]));
+                }
+                // With casting however, values can be equal
+                assert!(vecs[i].cast_eq(&vecs[j]));
+            }
+        }
+
+        // Vectors with different sizes are always inequal
+        assert_ne!(
+            VectorValue::new_vec2(Vec2::ZERO),
+            VectorValue::new_vec3(Vec3::ZERO)
         );
-        assert_eq!(
-            calc_hash(&Into::<ScalarValue>::into(0_f32)),
-            calc_hash(&FloatOrd(0_f32))
+        assert_ne!(
+            VectorValue::new_vec2(Vec2::ZERO),
+            VectorValue::new_vec4(Vec4::ZERO)
         );
-        assert_eq!(
-            calc_hash(&Into::<ScalarValue>::into(-453_i32)),
-            calc_hash(&-453_i32)
-        );
-        assert_eq!(
-            calc_hash(&Into::<ScalarValue>::into(45284_u32)),
-            calc_hash(&45284_u32)
+        assert_ne!(
+            VectorValue::new_vec3(Vec3::ZERO),
+            VectorValue::new_vec4(Vec4::ZERO)
         );
 
         assert_eq!(

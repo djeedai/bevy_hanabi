@@ -5,7 +5,7 @@ use bevy::{
     prelude::*,
     render::{render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin},
 };
-use bevy_inspector_egui::{bevy_egui, egui, quick::WorldInspectorPlugin};
+//use bevy_inspector_egui::{bevy_egui, egui, quick::WorldInspectorPlugin};
 
 use bevy_hanabi::prelude::*;
 
@@ -25,12 +25,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
-        .add_system(respawn)
-        .add_system(load_save_ui)
+        .add_systems(Update, bevy::window::close_on_esc)
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
+        .add_systems(Update, respawn)
+        //.add_systems(Update, load_save_ui)
         .run();
 
     Ok(())
@@ -93,6 +94,7 @@ fn setup(
                             gradient.add_key(1.0, Vec2::splat(0.01));
                             gradient
                         },
+                        screen_space_size: false,
                     }),
             )
         }
@@ -136,34 +138,34 @@ fn respawn(
     }
 }
 
-fn load_save_ui(
-    asset_server: Res<AssetServer>,
-    mut contexts: bevy_egui::EguiContexts,
-    effects: ResMut<Assets<EffectAsset>>,
-) {
-    use std::io::Write;
+// fn load_save_ui(
+//     asset_server: Res<AssetServer>,
+//     mut contexts: bevy_egui::EguiContexts,
+//     effects: ResMut<Assets<EffectAsset>>,
+// ) {
+//     use std::io::Write;
 
-    egui::Window::new("💾").show(contexts.ctx_mut(), |ui| {
-        // You can edit the asset on disk and click load to see changes.
-        let load = ui.button("Load");
-        if load.clicked() {
-            // Reload the asset.
-            asset_server.reload_asset(PATH);
-        }
+//     egui::Window::new("💾").show(contexts.ctx_mut(), |ui| {
+//         // You can edit the asset on disk and click load to see changes.
+//         let load = ui.button("Load");
+//         if load.clicked() {
+//             // Reload the asset.
+//             asset_server.reload_asset(PATH);
+//         }
 
-        // Save effect to PATH.
-        let save = ui.button("Save");
-        if save.clicked() {
-            let (_handle, effect) = effects.iter().next().unwrap();
-            let ron = ron::ser::to_string_pretty(&effect, Default::default()).unwrap();
-            let mut file = std::fs::File::create(format!(
-                "{}/{}/{}",
-                std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_owned()),
-                "assets",
-                PATH
-            ))
-            .unwrap();
-            file.write_all(ron.as_bytes()).unwrap();
-        }
-    });
-}
+//         // Save effect to PATH.
+//         let save = ui.button("Save");
+//         if save.clicked() {
+//             let (_handle, effect) = effects.iter().next().unwrap();
+//             let ron = ron::ser::to_string_pretty(&effect, Default::default()).unwrap();
+//             let mut file = std::fs::File::create(format!(
+//                 "{}/{}/{}",
+//                 std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_owned()),
+//                 "assets",
+//                 PATH
+//             ))
+//             .unwrap();
+//             file.write_all(ron.as_bytes()).unwrap();
+//         }
+//     });
+// }

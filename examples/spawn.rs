@@ -1,4 +1,5 @@
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{
@@ -7,7 +8,7 @@ use bevy::{
         RenderPlugin,
     },
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -39,11 +40,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
-        .add_system(update_accel)
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
+        .add_systems(Update, (bevy::window::close_on_esc, update_accel))
         .run();
 
     Ok(())
@@ -61,7 +62,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle::default();
+    let mut camera = Camera3dBundle {
+        tonemapping: Tonemapping::None,
+        ..default()
+    };
     camera.transform.translation = Vec3::new(0.0, 0.0, 100.0);
     commands.spawn(camera);
 
@@ -93,6 +97,9 @@ fn setup(
 
     let writer1 = ExprWriter::new();
 
+    let age1 = writer1.lit(0.).expr();
+    let init_age1 = InitAttributeModifier::new(Attribute::AGE, age1);
+
     let lifetime1 = writer1.lit(5.).expr();
     let init_lifetime1 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime1);
 
@@ -115,6 +122,7 @@ fn setup(
                 center: Vec3::ZERO,
                 speed: 10.0.into(),
             })
+            .init(init_age1)
             .init(init_lifetime1)
             .update(update_accel1)
             .render(ColorOverLifetimeModifier {
@@ -122,6 +130,7 @@ fn setup(
             })
             .render(SizeOverLifetimeModifier {
                 gradient: size_gradient1,
+                screen_space_size: false,
             }),
     );
 
@@ -152,6 +161,8 @@ fn setup(
     gradient2.add_key(1.0, Vec4::splat(0.0));
 
     let writer2 = ExprWriter::new();
+    let age2 = writer2.lit(0.).expr();
+    let init_age2 = InitAttributeModifier::new(Attribute::AGE, age2);
     let lifetime2 = writer2.lit(5.).expr();
     let init_lifetime2 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime2);
     let effect2 = effects.add(
@@ -166,6 +177,7 @@ fn setup(
                 center: Vec3::ZERO,
                 speed: 2.0.into(),
             })
+            .init(init_age2)
             .init(init_lifetime2)
             .render(ColorOverLifetimeModifier {
                 gradient: gradient2,
@@ -201,8 +213,16 @@ fn setup(
 
     let writer3 = ExprWriter::new();
 
+    let age3 = writer3.lit(0.).expr();
+    let init_age3 = InitAttributeModifier::new(Attribute::AGE, age3);
+
     let lifetime3 = writer3.lit(5.).expr();
     let init_lifetime3 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime3);
+
+    // Initialize size with a random value between 0.3 and 0.7: size = frand() * 0.4
+    // + 0.3
+    let size3 = (writer3.rand(ScalarType::Float) * writer3.lit(0.4) + writer3.lit(0.3)).expr();
+    let init_size3 = InitAttributeModifier::new(Attribute::SIZE, size3);
 
     // Add property-driven acceleration
     let accel3 = writer3.prop("my_accel").expr();
@@ -225,11 +245,9 @@ fn setup(
             center: Vec3::ZERO,
             speed: 2.0.into(),
         })
+        .init(init_age3)
         .init(init_lifetime3)
-        .init(InitSizeModifier {
-            // At spawn time, assign each particle a random size between 0.3 and 0.7
-            size: Value::<f32>::Uniform((0.3, 0.7)).into(),
-        })
+        .init(init_size3)
         .update(update_accel3)
         .render(ColorOverLifetimeModifier {
             gradient: gradient3,

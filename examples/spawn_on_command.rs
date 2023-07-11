@@ -1,6 +1,7 @@
 //! A circle bounces around in a box and spawns particles
 //! when it hits the wall.
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     math::Vec3Swizzles,
     prelude::*,
@@ -11,7 +12,7 @@ use bevy::{
         RenderPlugin,
     },
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -31,11 +32,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
-        .add_system(update)
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
+        .add_systems(Update, (bevy::window::close_on_esc, update))
         .run();
 
     Ok(())
@@ -55,7 +56,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle::default();
+    let mut camera = Camera3dBundle {
+        tonemapping: Tonemapping::None,
+        ..default()
+    };
     let mut projection = OrthographicProjection::default();
     projection.scaling_mode = ScalingMode::FixedVertical(2.);
     projection.scale = 1.2;
@@ -97,14 +101,27 @@ fn setup(
         })
         .insert(Name::new("ball"));
 
-    let spawner = Spawner::once(30.0.into(), false);
+    // Set `spawn_immediately` to false to spawn on command with Spawner::reset()
+    let spawner = Spawner::once(100.0.into(), false);
 
     let writer = ExprWriter::new();
 
-    let lifetime = writer.lit(5.).expr();
+    // Init the age of particles to 0, and their lifetime to 1.5 second.
+    let age = writer.lit(0.).expr();
+    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+    let lifetime = writer.lit(1.5).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
-    // Bind the initial particle color to the value of the 'my_color' property.
+    // Add a bit of linear drag to slow down particles after the inital spawning.
+    // This keeps the particle around the spawn point, making it easier to visualize
+    // the different groups of particles.
+    let drag = writer.lit(2.).expr();
+    let update_drag = LinearDragModifier::new(drag);
+
+    // Bind the initial particle color to the value of the 'my_color' property when
+    // the particle spawns. The particle will keep that color afterward, even if the
+    // property changes, because the color will be saved per-particle (due to the
+    // Attribute::COLOR).
     let color = writer.prop("my_color").expr();
     let init_color = InitAttributeModifier::new(Attribute::COLOR, color);
 
@@ -121,10 +138,14 @@ fn setup(
                 center: Vec3::ZERO,
                 speed: 0.2.into(),
             })
+            .init(init_age)
             .init(init_lifetime)
             .init(init_color)
-            .render(SizeOverLifetimeModifier {
-                gradient: Gradient::linear(Vec2::splat(0.02), Vec2::splat(0.04)),
+            .update(update_drag)
+            // Set a size of 3 (logical) pixels, constant in screen space, independent of projection
+            .render(SetSizeModifier {
+                size: Vec2::splat(3.).into(),
+                screen_space_size: true,
             }),
     );
 

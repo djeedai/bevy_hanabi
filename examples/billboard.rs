@@ -2,13 +2,14 @@
 //! particles to always render facing the camera.
 
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{
         camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
     },
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -28,11 +29,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
-        .add_system(rotate_camera)
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
+        .add_systems(Update, (bevy::window::close_on_esc, rotate_camera))
         .run();
 
     Ok(())
@@ -51,6 +52,7 @@ fn setup(
             fov: 120.0,
             ..Default::default()
         }),
+        tonemapping: Tonemapping::None,
         ..Default::default()
     };
 
@@ -64,6 +66,9 @@ fn setup(
     gradient.add_key(1.0, Vec4::new(1.0, 1.0, 1.0, 0.0));
 
     let writer = ExprWriter::new();
+
+    let age = writer.lit(0.).expr();
+    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
 
     let lifetime = writer.lit(5.).expr();
     let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
@@ -80,8 +85,9 @@ fn setup(
             .init(InitVelocityCircleModifier {
                 center: Vec3::ZERO,
                 axis: Vec3::Y,
-                speed: Value::Uniform((0.7, 0.5)),
+                speed: CpuValue::Uniform((0.7, 0.5)),
             })
+            .init(init_age)
             .init(init_lifetime)
             .render(ParticleTextureModifier {
                 texture: texture_handle.into(),
@@ -90,6 +96,7 @@ fn setup(
             .render(ColorOverLifetimeModifier { gradient })
             .render(SizeOverLifetimeModifier {
                 gradient: Gradient::constant([0.2; 2].into()),
+                screen_space_size: false,
             }),
     );
 

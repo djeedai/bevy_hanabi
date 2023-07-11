@@ -15,11 +15,13 @@
 //!   increased realism. This is a subtle effect, but of importance.
 
 use bevy::{
-    core_pipeline::{bloom::BloomSettings, clear_color::ClearColorConfig},
+    core_pipeline::{
+        bloom::BloomSettings, clear_color::ClearColorConfig, tonemapping::Tonemapping,
+    },
     log::LogPlugin,
     prelude::*,
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -29,10 +31,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             level: bevy::log::Level::WARN,
             filter: "bevy_hanabi=warn,firework=trace".to_string(),
         }))
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
+        .add_systems(Update, bevy::window::close_on_esc)
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
         .run();
 
     Ok(())
@@ -50,6 +53,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
                 clear_color: ClearColorConfig::Custom(Color::BLACK),
                 ..default()
             },
+            tonemapping: Tonemapping::None,
             ..default()
         },
         BloomSettings::default(),
@@ -99,7 +103,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     .init(InitVelocitySphereModifier {
         center: Vec3::ZERO,
         // Give a bit of variation by randomizing the initial speed
-        speed: Value::Uniform((65., 75.)),
+        speed: CpuValue::Uniform((65., 75.)),
     })
     .init(init_age)
     .init(init_lifetime)
@@ -110,6 +114,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     })
     .render(SizeOverLifetimeModifier {
         gradient: size_gradient1,
+        screen_space_size: false,
     });
 
     let effect1 = effects.add(effect);

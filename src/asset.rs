@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use bevy::{
-    asset::{Asset, AssetLoader, AssetPath, LoadContext, LoadedAsset},
-    prelude::*,
-    reflect::{FromReflect, Reflect, TypeUuid},
-    utils::{BoxedFuture, HashSet},
+    asset::{Asset, AssetLoader, AssetPath, Handle, LoadContext, LoadedAsset},
+    reflect::{Reflect, ReflectDeserialize, ReflectSerialize, TypeUuid},
+    utils::{BoxedFuture, HashSet, default},
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,9 +15,7 @@ use crate::{
 };
 
 /// Type of motion integration applied to the particles of a system.
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum MotionIntegration {
     /// No motion integration. The [`Attribute::POSITION`] of the particles
     /// needs to be explicitly assigned by a modifier for the particles to move.
@@ -43,9 +40,7 @@ pub enum MotionIntegration {
 }
 
 /// Simulation condition for an effect.
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, FromReflect, Serialize, Deserialize,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum SimulationCondition {
     /// Simulate the effect only when visible.
     ///
@@ -91,7 +86,8 @@ pub enum SimulationCondition {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Default, Clone, TypeUuid, Reflect, FromReflect, Serialize, Deserialize)]
+#[derive(Default, Clone, TypeUuid, Reflect, Serialize, Deserialize)]
+#[reflect(from_reflect = false)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.
@@ -444,18 +440,20 @@ impl AssetLoader for EffectAssetLoader {
     }
 }
 
-/// Stores a handle and its path. Derefs to Handle<T>. Serializes as an AssetPath.
-#[derive(Debug, Reflect, FromReflect)]
+/// Stores a handle and its path to enable serialization.
+///
+/// This type derefs to [`Handle<T>`] for convenience, and serializes as an [`AssetPath`].
+#[derive(Debug, Reflect)]
 #[reflect_value(Serialize, Deserialize)]
 pub struct AssetHandle<T: Asset> {
-    /// Handle to asset.
+    /// Handle to asset at runtime.
     pub handle: Handle<T>,
-    /// Path to asset.
+    /// Path to the actual asset, for serialization.
     pub asset_path: Arc<AssetPath<'static>>,
 }
 
 impl<T: Asset> AssetHandle<T> {
-    /// Creates a new AssetHandle from a Handle and AssetPath.
+    /// Create a new [`AssetHandle`] from a runtime [`Handle`] and an [`AssetPath`].
     pub fn new(handle: Handle<T>, asset_path: impl Into<AssetPath<'static>>) -> Self {
         let asset_path = Arc::new(asset_path.into());
         Self { handle, asset_path }
@@ -466,7 +464,7 @@ impl<T: Asset> Default for AssetHandle<T> {
     fn default() -> Self {
         Self {
             handle: Default::default(),
-            asset_path: Arc::new("()".into()),
+            asset_path: Arc::new("".into()),
         }
     }
 }
@@ -638,7 +636,7 @@ mod tests {
     fn test_asset_handle() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins);
-        app.add_plugin(AssetPlugin::default());
+        app.add_plugins(AssetPlugin::default());
 
         let asset_server = app.world.get_resource::<AssetServer>().unwrap();
         let image_handle = asset_server.load("cloud.png");

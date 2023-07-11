@@ -1,20 +1,21 @@
 //! This example demonstrates the various position initializing modifiers.
 //!
 //! The example spawns a single burst of particles according to several position
-//! modifiers, with a near-infinite lifetime (1 hour) and without any velocity
-//! nor acceleration. This allows visualizing the distribution of particles on
+//! modifiers, with an infinite lifetime, and without any velocity nor
+//! acceleration. This allows visualizing the distribution of particles on
 //! spawn.
 
 use std::f32::consts::PI;
 
 use bevy::{
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{
         mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
     },
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -34,11 +35,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
-        .add_system(bevy::window::close_on_esc)
-        .add_plugin(HanabiPlugin)
-        .add_plugin(WorldInspectorPlugin::default())
-        .add_startup_system(setup)
-        .add_system(rotate_camera)
+        .add_plugins(HanabiPlugin)
+        // Have to wait for update.
+        // .add_plugins(WorldInspectorPlugin::default())
+        .add_systems(Startup, setup)
+        .add_systems(Update, (bevy::window::close_on_esc, rotate_camera))
         .run();
 
     Ok(())
@@ -50,17 +51,16 @@ const SIZE: Vec2 = Vec2::splat(0.1);
 fn base_effect(name: impl Into<String>) -> EffectAsset {
     let writer = ExprWriter::new();
 
-    let lifetime = writer.lit(3600.).expr();
-    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
-
     EffectAsset::new(32768, Spawner::once(COUNT.into(), true), writer.finish())
         .with_name(name)
-        .init(init_lifetime)
         .render(BillboardModifier)
         .render(SetColorModifier {
             color: COLOR.into(),
         })
-        .render(SetSizeModifier { size: SIZE.into() })
+        .render(SetSizeModifier {
+            size: SIZE.into(),
+            screen_space_size: false,
+        })
 }
 
 fn spawn_effect(
@@ -98,7 +98,10 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle::default();
+    let mut camera = Camera3dBundle {
+        tonemapping: Tonemapping::None,
+        ..default()
+    };
     camera.transform.translation = Vec3::new(0.0, 0.0, 50.0);
     commands.spawn(camera);
 
