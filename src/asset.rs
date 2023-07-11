@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bevy::{
     asset::{Asset, AssetLoader, AssetPath, Handle, LoadContext, LoadedAsset},
     reflect::{Reflect, ReflectDeserialize, ReflectSerialize, TypeUuid},
-    utils::{BoxedFuture, HashSet, default},
+    utils::{default, BoxedFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
 
@@ -442,7 +442,8 @@ impl AssetLoader for EffectAssetLoader {
 
 /// Stores a handle and its path to enable serialization.
 ///
-/// This type derefs to [`Handle<T>`] for convenience, and serializes as an [`AssetPath`].
+/// This type derefs to [`Handle<T>`] for convenience, and serializes as an
+/// [`AssetPath`].
 #[derive(Debug, Reflect)]
 #[reflect_value(Serialize, Deserialize)]
 pub struct AssetHandle<T: Asset> {
@@ -453,7 +454,8 @@ pub struct AssetHandle<T: Asset> {
 }
 
 impl<T: Asset> AssetHandle<T> {
-    /// Create a new [`AssetHandle`] from a runtime [`Handle`] and an [`AssetPath`].
+    /// Create a new [`AssetHandle`] from a runtime [`Handle`] and an
+    /// [`AssetPath`].
     pub fn new(handle: Handle<T>, asset_path: impl Into<AssetPath<'static>>) -> Self {
         let asset_path = Arc::new(asset_path.into());
         Self { handle, asset_path }

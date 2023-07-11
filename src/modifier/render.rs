@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
 use crate::{
-    calc_func_id, Attribute, BoxedModifier, CpuValue, Gradient, Modifier, ModifierContext,
-    ShaderCode, ToWgslString, AssetHandle,
+    calc_func_id, AssetHandle, Attribute, BoxedModifier, CpuValue, Gradient, Modifier,
+    ModifierContext, ShaderCode, ToWgslString,
 };
 
 /// Particle rendering shader code generation context.
@@ -107,7 +107,8 @@ macro_rules! impl_mod_render {
 #[derive(Default, Debug, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct ParticleTextureModifier {
     /// The texture image to modulate the particle color with.
-    // NOTE - Need to keep a strong handle here, nothing else will keep that texture loaded currently.
+    // NOTE - Need to keep a strong handle here, nothing else will keep that texture loaded
+    // currently.
     pub texture: AssetHandle<Image>,
 }
 
