@@ -10,7 +10,7 @@ use bevy::{
     },
     window::WindowResized,
 };
-// use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -21,8 +21,7 @@ fn main() {
             filter: "bevy_hanabi=warn,multicam=trace".to_string(),
         }))
         .add_plugins(HanabiPlugin)
-        // Have to wait for update.
-        // .add_plugins(WorldInspectorPlugin::default())
+        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(
             Update,

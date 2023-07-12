@@ -47,7 +47,7 @@ wgpu = "0.16"
 naga = "0.12"
 
 futures = "0.3"
-#bevy-inspector-egui = "0.18"
+bevy-inspector-egui = "0.19"
 
 [[example]]
 name = "firework"
