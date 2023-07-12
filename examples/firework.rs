@@ -21,7 +21,7 @@ use bevy::{
     log::LogPlugin,
     prelude::*,
 };
-// use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -33,8 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }))
         .add_systems(Update, bevy::window::close_on_esc)
         .add_plugins(HanabiPlugin)
-        // Have to wait for update.
-        // .add_plugins(WorldInspectorPlugin::default())
+        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .run();
 
