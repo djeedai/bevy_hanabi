@@ -89,7 +89,7 @@ fn setup(
             .init(init_age)
             .init(init_lifetime)
             .render(ParticleTextureModifier {
-                texture: texture_handle,
+                texture: texture_handle.into(),
             })
             .render(BillboardModifier {})
             .render(ColorOverLifetimeModifier { gradient })

@@ -91,7 +91,7 @@ fn setup(
             .init(init_age)
             .init(init_lifetime)
             .render(ParticleTextureModifier {
-                texture: texture_handle.clone(),
+                texture: texture_handle.clone().into(),
             })
             .render(ColorOverLifetimeModifier { gradient }),
     );

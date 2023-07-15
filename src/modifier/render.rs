@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
 use crate::{
-    calc_func_id, Attribute, BoxedModifier, CpuValue, Gradient, Modifier, ModifierContext,
-    ShaderCode, ToWgslString,
+    calc_func_id, AssetHandle, Attribute, BoxedModifier, CpuValue, Gradient, Modifier,
+    ModifierContext, ShaderCode, ToWgslString,
 };
 
 /// Particle rendering shader code generation context.
@@ -107,11 +107,9 @@ macro_rules! impl_mod_render {
 #[derive(Default, Debug, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct ParticleTextureModifier {
     /// The texture image to modulate the particle color with.
-    #[serde(skip)]
-    // TODO - Clarify if Modifier needs to be serializable, or we need another on-disk
-    // representation... NOTE - Need to keep a strong handle here, nothing else will keep that
-    // texture loaded currently.
-    pub texture: Handle<Image>,
+    // NOTE - Need to keep a strong handle here, nothing else will keep that texture loaded
+    // currently.
+    pub texture: AssetHandle<Image>,
 }
 
 impl_mod_render!(ParticleTextureModifier, &[]); // TODO - should require some UV maybe?
@@ -119,7 +117,7 @@ impl_mod_render!(ParticleTextureModifier, &[]); // TODO - should require some UV
 #[typetag::serde]
 impl RenderModifier for ParticleTextureModifier {
     fn apply(&self, context: &mut RenderContext) {
-        context.set_particle_texture(self.texture.clone());
+        context.set_particle_texture(self.texture.handle.clone());
     }
 }
 
@@ -321,7 +319,7 @@ mod tests {
     fn mod_particle_texture() {
         let texture = Handle::<Image>::default();
         let modifier = ParticleTextureModifier {
-            texture: texture.clone(),
+            texture: texture.clone().into(),
         };
 
         let mut context = RenderContext::default();
