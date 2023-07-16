@@ -27,7 +27,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,random=trace".to_string(),
                 })
-                .set(RenderPlugin { wgpu_settings }),
+                .set(RenderPlugin { wgpu_settings })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "🎆 Hanabi — random".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                }),
         )
         .add_systems(Update, bevy::window::close_on_esc)
         .add_plugins(HanabiPlugin)
