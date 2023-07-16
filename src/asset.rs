@@ -497,7 +497,7 @@ mod tests {
         .render(ParticleTextureModifier::default())
         .render(ColorOverLifetimeModifier::default())
         .render(SizeOverLifetimeModifier::default())
-        .render(BillboardModifier::default());
+        .render(BillboardModifier);
 
         assert_eq!(effect.capacity, 4096);
 
@@ -525,7 +525,7 @@ mod tests {
         ParticleTextureModifier::default().apply_render(&mut render_context);
         ColorOverLifetimeModifier::default().apply_render(&mut render_context);
         SizeOverLifetimeModifier::default().apply_render(&mut render_context);
-        BillboardModifier::default().apply_render(&mut render_context);
+        BillboardModifier.apply_render(&mut render_context);
         // assert_eq!(effect.render_layout, render_layout);
     }
 

@@ -674,11 +674,11 @@ fn main() {{
     fn validate_update() {
         let writer = ExprWriter::new();
         let origin = writer.lit(Vec3::ZERO).expr();
-        let center = origin.clone();
-        let axis = origin.clone();
+        let center = origin;
+        let axis = origin;
         let y_axis = writer.lit(Vec3::Y).expr();
         let one = writer.lit(1.).expr();
-        let radius = one.clone();
+        let radius = one;
         let modifiers: &[&dyn UpdateModifier] = &[
             &AccelModifier::new(origin),
             &RadialAccelModifier::new(origin, one),
@@ -807,8 +807,8 @@ fn main() {{
             &ParticleTextureModifier::default(),
             &ColorOverLifetimeModifier::default(),
             &SizeOverLifetimeModifier::default(),
-            &BillboardModifier::default(),
-            &OrientAlongVelocityModifier::default(),
+            &BillboardModifier,
+            &OrientAlongVelocityModifier,
         ];
         for &modifier in modifiers.iter() {
             let mut context = RenderContext::default();
