@@ -1,9 +1,11 @@
 //! Portal
 //!
-//! An example demonstrating the use of the `InitVelocityTangentModifier` to
-//! create a kind of portal effect where particles turn around a circle and
-//! appear to be ejected from it. The `OrientAlongVelocityModifier` paired with
-//! an elongated particle size gives the appearance of sparks.
+//! An example demonstrating the use of the `TangentAccelModifier` to create a
+//! kind of portal effect where particles turn around a circle and appear to be
+//! ejected from it.
+//!
+//! The `OrientAlongVelocityModifier` paired with an elongated particle size
+//! gives the appearance of sparks.
 //!
 //! The addition of some gravity and drag, combined with a careful choice of
 //! lifetime, give a subtle effect of particles appearing to fall down right
@@ -65,31 +67,36 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     let writer = ExprWriter::new();
 
+    let init_pos = SetPositionCircleModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Z).expr(),
+        radius: writer.lit(4.).expr(),
+        dimension: ShapeDimension::Surface,
+    };
+
     let age = writer.lit(0.).expr();
-    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     // Give a bit of variation by randomizing the lifetime per particle
     let lifetime = writer.lit(0.6).uniform(writer.lit(1.3)).expr();
-    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     // Add drag to make particles slow down a bit after the initial acceleration
     let drag = writer.lit(2.).expr();
     let update_drag = LinearDragModifier::new(drag);
 
+    let mut module = writer.finish();
+
+    let tangent_accel = TangentAccelModifier::constant(&mut module, Vec3::ZERO, Vec3::Z, 30.);
+
     let effect1 = effects.add(
-        EffectAsset::new(32768, Spawner::rate(5000.0.into()), writer.finish())
+        EffectAsset::new(32768, Spawner::rate(5000.0.into()), module)
             .with_name("portal")
-            .init(InitPositionCircleModifier {
-                center: Vec3::ZERO,
-                axis: Vec3::Z,
-                radius: 4.,
-                dimension: ShapeDimension::Surface,
-            })
+            .init(init_pos)
             .init(init_age)
             .init(init_lifetime)
             .update(update_drag)
-            .update(RadialAccelModifier::constant(Vec3::ZERO, -6.0))
-            .update(TangentAccelModifier::constant(Vec3::ZERO, Vec3::Z, 30.))
+            .update(tangent_accel)
             .render(ColorOverLifetimeModifier {
                 gradient: color_gradient1,
             })

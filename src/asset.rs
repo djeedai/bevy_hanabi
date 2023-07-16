@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::Value,
-    modifier::{init::InitModifier, render::RenderModifier, update::UpdateModifier},
+    modifier::{InitModifier, RenderModifier, UpdateModifier},
     BoxedModifier, Module, ParticleLayout, Property, PropertyLayout, SimulationSpace, Spawner,
 };
 
@@ -116,10 +116,18 @@ pub struct EffectAsset {
     pub simulation_space: SimulationSpace,
     /// Condition under which the effect is simulated.
     pub simulation_condition: SimulationCondition,
-    /// Modifiers defining the effect.
+    /// Init modifier defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    modifiers: Vec<BoxedModifier>,
+    init_modifiers: Vec<BoxedModifier>,
+    /// update modifiers defining the effect.
+    #[reflect(ignore)]
+    // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
+    update_modifiers: Vec<BoxedModifier>,
+    /// Render modifiers defining the effect.
+    #[reflect(ignore)]
+    // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
+    render_modifiers: Vec<BoxedModifier>,
     /// Properties of the effect.
     ///
     /// Properties must have a unique name. Manually adding two or more
@@ -179,7 +187,7 @@ impl EffectAsset {
     ///
     /// // Create a modifier that initialized the particle lifetime to 10 seconds.
     /// let lifetime = module.lit(10.); // literal value "10.0"
-    /// let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+    /// let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
     ///
     /// let effect = EffectAsset::new(32768, spawner, module);
     /// ```
@@ -194,7 +202,9 @@ impl EffectAsset {
             z_layer_2d: 0.,
             simulation_space: SimulationSpace::default(),
             simulation_condition: SimulationCondition::default(),
-            modifiers: vec![],
+            init_modifiers: vec![],
+            update_modifiers: vec![],
+            render_modifiers: vec![],
             properties: vec![],
             motion_integration: MotionIntegration::default(),
             module,
@@ -283,12 +293,12 @@ impl EffectAsset {
     ///
     /// [`with_property()`]: crate::EffectAsset::with_property
     /// [`add_property()`]: crate::EffectAsset::add_property
-    pub fn init<M>(mut self, mut modifier: M) -> Self
+    #[inline]
+    pub fn init<M>(mut self, modifier: M) -> Self
     where
         M: InitModifier + Send + Sync + 'static,
     {
-        modifier.resolve_properties(&self.properties);
-        self.modifiers.push(Box::new(modifier));
+        self.init_modifiers.push(Box::new(modifier));
         self
     }
 
@@ -302,12 +312,12 @@ impl EffectAsset {
     ///
     /// [`with_property()`]: crate::EffectAsset::with_property
     /// [`add_property()`]: crate::EffectAsset::add_property
-    pub fn update<M>(mut self, mut modifier: M) -> Self
+    #[inline]
+    pub fn update<M>(mut self, modifier: M) -> Self
     where
         M: UpdateModifier + Send + Sync + 'static,
     {
-        modifier.resolve_properties(&self.properties);
-        self.modifiers.push(Box::new(modifier));
+        self.update_modifiers.push(Box::new(modifier));
         self
     }
 
@@ -321,18 +331,21 @@ impl EffectAsset {
     ///
     /// [`with_property()`]: crate::EffectAsset::with_property
     /// [`add_property()`]: crate::EffectAsset::add_property
-    pub fn render<M>(mut self, mut modifier: M) -> Self
+    #[inline]
+    pub fn render<M>(mut self, modifier: M) -> Self
     where
         M: RenderModifier + Send + Sync + 'static,
     {
-        modifier.resolve_properties(&self.properties);
-        self.modifiers.push(Box::new(modifier));
+        self.render_modifiers.push(Box::new(modifier));
         self
     }
 
     /// Get a list of all the modifiers of this effect.
-    pub fn modifiers(&self) -> &[BoxedModifier] {
-        &self.modifiers[..]
+    pub fn modifiers(&self) -> impl Iterator<Item = &BoxedModifier> {
+        self.init_modifiers
+            .iter()
+            .chain(self.update_modifiers.iter())
+            .chain(self.render_modifiers.iter())
     }
 
     /// Get a list of all the init modifiers of this effect.
@@ -342,7 +355,7 @@ impl EffectAsset {
     ///
     /// [`ModifierContext::Init`]: crate::ModifierContext::Init
     pub fn init_modifiers(&self) -> impl Iterator<Item = &dyn InitModifier> {
-        self.modifiers.iter().filter_map(|m| m.as_init())
+        self.init_modifiers.iter().filter_map(|m| m.as_init())
     }
 
     /// Get a list of all the update modifiers of this effect.
@@ -352,7 +365,7 @@ impl EffectAsset {
     ///
     /// [`ModifierContext::Update`]: crate::ModifierContext::Update
     pub fn update_modifiers(&self) -> impl Iterator<Item = &dyn UpdateModifier> {
-        self.modifiers.iter().filter_map(|m| m.as_update())
+        self.update_modifiers.iter().filter_map(|m| m.as_update())
     }
 
     /// Get a list of all the render modifiers of this effect.
@@ -362,7 +375,7 @@ impl EffectAsset {
     ///
     /// [`ModifierContext::Render`]: crate::ModifierContext::Render
     pub fn render_modifiers(&self) -> impl Iterator<Item = &dyn RenderModifier> {
-        self.modifiers.iter().filter_map(|m| m.as_render())
+        self.render_modifiers.iter().filter_map(|m| m.as_render())
     }
 
     /// Build the particle layout of the asset based on its modifiers.
@@ -373,7 +386,7 @@ impl EffectAsset {
     pub fn particle_layout(&self) -> ParticleLayout {
         // Build the set of unique attributes required for all modifiers
         let mut set = HashSet::new();
-        for modifier in &self.modifiers {
+        for modifier in self.modifiers() {
             for &attr in modifier.attributes() {
                 set.insert(attr);
             }
@@ -457,38 +470,43 @@ mod tests {
     #[test]
     fn test_apply_modifiers() {
         let mut module = Module::default();
+        let one = module.lit(1.);
+        let init_age = SetAttributeModifier::new(Attribute::AGE, one);
+        let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, one);
+        let init_pos_sphere = SetPositionSphereModifier {
+            center: module.lit(Vec3::ZERO),
+            radius: module.lit(1.),
+            dimension: ShapeDimension::Volume,
+        };
+        let init_vel_sphere = SetVelocitySphereModifier {
+            center: module.lit(Vec3::ZERO),
+            speed: module.lit(1.),
+        };
+
         let effect = EffectAsset {
             name: "Effect".into(),
             capacity: 4096,
             spawner: Spawner::rate(30.0.into()),
             ..Default::default()
         }
-        .init(InitPositionSphereModifier::default())
-        .init(InitVelocitySphereModifier::default())
+        .init(init_pos_sphere)
+        .init(init_vel_sphere)
         //.update(AccelModifier::default())
         .update(LinearDragModifier::new(module.lit(1.)))
         .update(ForceFieldModifier::default())
         .render(ParticleTextureModifier::default())
         .render(ColorOverLifetimeModifier::default())
         .render(SizeOverLifetimeModifier::default())
-        .render(BillboardModifier::default());
+        .render(BillboardModifier);
 
         assert_eq!(effect.capacity, 4096);
 
-        let one = module.lit(1.);
-        let init_age = InitAttributeModifier::new(Attribute::AGE, one);
-        let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, one);
-
         let property_layout = PropertyLayout::default();
         let mut init_context = InitContext::new(&mut module, &property_layout);
-        assert!(InitPositionSphereModifier::default()
-            .apply(&mut init_context)
-            .is_ok());
-        assert!(InitVelocitySphereModifier::default()
-            .apply(&mut init_context)
-            .is_ok());
-        assert!(init_age.apply(&mut init_context).is_ok());
-        assert!(init_lifetime.apply(&mut init_context).is_ok());
+        assert!(init_pos_sphere.apply_init(&mut init_context).is_ok());
+        assert!(init_vel_sphere.apply_init(&mut init_context).is_ok());
+        assert!(init_age.apply_init(&mut init_context).is_ok());
+        assert!(init_lifetime.apply_init(&mut init_context).is_ok());
         // assert_eq!(effect., init_context.init_code);
 
         let mut module = Module::default();
@@ -496,18 +514,18 @@ mod tests {
         let drag_mod = LinearDragModifier::constant(&mut module, 3.5);
         let property_layout = PropertyLayout::default();
         let mut update_context = UpdateContext::new(&mut module, &property_layout);
-        assert!(accel_mod.apply(&mut update_context).is_ok());
-        assert!(drag_mod.apply(&mut update_context).is_ok());
+        assert!(accel_mod.apply_update(&mut update_context).is_ok());
+        assert!(drag_mod.apply_update(&mut update_context).is_ok());
         assert!(ForceFieldModifier::default()
-            .apply(&mut update_context)
+            .apply_update(&mut update_context)
             .is_ok());
         // assert_eq!(effect.update_layout, update_layout);
 
         let mut render_context = RenderContext::default();
-        ParticleTextureModifier::default().apply(&mut render_context);
-        ColorOverLifetimeModifier::default().apply(&mut render_context);
-        SizeOverLifetimeModifier::default().apply(&mut render_context);
-        BillboardModifier::default().apply(&mut render_context);
+        ParticleTextureModifier::default().apply_render(&mut render_context);
+        ColorOverLifetimeModifier::default().apply_render(&mut render_context);
+        SizeOverLifetimeModifier::default().apply_render(&mut render_context);
+        BillboardModifier.apply_render(&mut render_context);
         // assert_eq!(effect.render_layout, render_layout);
     }
 

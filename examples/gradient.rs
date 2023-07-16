@@ -71,23 +71,27 @@ fn setup(
     let writer = ExprWriter::new();
 
     let age = writer.lit(0.).expr();
-    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     let lifetime = writer.lit(5.).expr();
-    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let init_pos = SetPositionSphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        radius: writer.lit(1.).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+
+    let init_vel = SetVelocitySphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        speed: writer.lit(2.).expr(),
+    };
 
     let effect = effects.add(
         EffectAsset::new(32768, Spawner::rate(1000.0.into()), writer.finish())
             .with_name("gradient")
-            .init(InitPositionSphereModifier {
-                center: Vec3::ZERO,
-                radius: 1.,
-                dimension: ShapeDimension::Volume,
-            })
-            .init(InitVelocitySphereModifier {
-                center: Vec3::ZERO,
-                speed: 2.0.into(),
-            })
+            .init(init_pos)
+            .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
             .render(ParticleTextureModifier {

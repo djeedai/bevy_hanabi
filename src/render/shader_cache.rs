@@ -30,6 +30,7 @@ impl ShaderCache {
     /// Returns the [`Shader`] resource associated with `source`.
     pub fn get_or_insert(
         &mut self,
+        filename: &str,
         source: &str,
         shaders: &mut ResMut<Assets<Shader>>,
     ) -> Handle<Shader> {
@@ -41,7 +42,7 @@ impl ShaderCache {
             let hash = hasher.finish();
             let handle = shaders.add(Shader::from_wgsl(
                 source.to_string(),
-                format!("hanabi/shader_{}.wgsl", hash),
+                format!("hanabi/{}_{}.wgsl", filename, hash),
             ));
             debug!("Inserted new configured shader: {:?}\n{}", handle, source);
             self.cache.insert(source.to_string(), handle.clone());

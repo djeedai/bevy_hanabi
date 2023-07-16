@@ -67,25 +67,29 @@ fn setup(
     let writer = ExprWriter::new();
 
     let age = writer.lit(0.).expr();
-    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     let lifetime = writer.lit(5.).expr();
-    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let init_pos = SetPositionCircleModifier {
+        center: writer.lit(Vec3::Y * 0.1).expr(),
+        axis: writer.lit(Vec3::Y).expr(),
+        radius: writer.lit(1.).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+
+    let init_vel = SetVelocityCircleModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Y).expr(),
+        speed: (writer.lit(0.5) + writer.lit(0.2) * writer.rand(ScalarType::Float)).expr(),
+    };
 
     let effect = effects.add(
         EffectAsset::new(32768, Spawner::rate(64.0.into()), writer.finish())
             .with_name("billboard")
-            .init(InitPositionCircleModifier {
-                center: Vec3::Y * 0.1,
-                axis: Vec3::Y,
-                radius: 1.0,
-                dimension: ShapeDimension::Volume,
-            })
-            .init(InitVelocityCircleModifier {
-                center: Vec3::ZERO,
-                axis: Vec3::Y,
-                speed: CpuValue::Uniform((0.7, 0.5)),
-            })
+            .init(init_pos)
+            .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
             .render(ParticleTextureModifier {

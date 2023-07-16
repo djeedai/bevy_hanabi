@@ -3,6 +3,7 @@
 - Update `CHANGELOG` with date and version
 - Update `Cargo.toml` with version
 - Update `README.md` and other images to point to github raw content at commit SHA1 of current HEAD
+- Update Bevy tracking version at top of `README.md` if needed
 
 - `cargo fmt --all`
 

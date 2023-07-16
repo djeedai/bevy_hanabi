@@ -14,11 +14,16 @@ exclude = ["examples/*.gif", "examples/*.png", ".github", "release.md", "run_exa
 
 [features]
 default = ["2d", "3d", "gpu_tests"]
+
+# Enable support for rendering through a 2D camera (Camera2dBundle)
 2d = []
+
+# Enable support for rendering through a 3D camera (Camera3dBundle)
 3d = []
 
 # Special feature to enable GPU-based tests, which otherwise fail
 # on a CI machine without a graphic adapter or without proper drivers.
+# This is a testing-only feature, which has no effect on the build.
 gpu_tests = []
 
 [dependencies]

@@ -92,14 +92,23 @@ fn setup(
 
     let writer = ExprWriter::new();
 
+    // Set the same constant velocity to all particles so they stay grouped
+    // together. This is not really representative of a real world visual effect,
+    // but is useful for the purpose of this example.
     let velocity = writer.lit(Vec3::X * 3.).expr();
-    let init_velocity = InitAttributeModifier::new(Attribute::VELOCITY, velocity);
+    let init_velocity = SetAttributeModifier::new(Attribute::VELOCITY, velocity);
 
     let age = writer.lit(0.).expr();
-    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     let lifetime = writer.lit(15.).expr();
-    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let init_pos = SetPositionSphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        radius: writer.lit(5.).expr(),
+        dimension: ShapeDimension::Volume,
+    };
 
     let mut asset = EffectAsset::new(
         4096,
@@ -107,11 +116,7 @@ fn setup(
         writer.finish(),
     )
     .with_simulation_condition(SimulationCondition::WhenVisible)
-    .init(InitPositionSphereModifier {
-        center: Vec3::ZERO,
-        radius: 5.,
-        dimension: ShapeDimension::Volume,
-    })
+    .init(init_pos)
     .init(init_velocity)
     .init(init_age)
     .init(init_lifetime)

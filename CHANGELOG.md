@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `SetSizeModifier::screen_space_size` and `SizeOverLifetimeModifier::screen_space_size` boolean fields which change the behavior of the particle size to be expressed in screen-space logical pixels, independently of the camera projection. This enables creating particle effect with constant pixel size. Set `screen_space_size = false` to get the previous behavior.
 - Added a new utility trait `FloatHash` to allow implementing `std::cmp::Eq` and `std::hash::Hash` on floating-point variants of `CpuValue` (ex-`spawn::Value`), making it possible to derive `std::hash::Hash` for any type using `CpuValue`.
 - `SetColorModifier` and `SetSizeModifier` now implement `std::cmp::Eq`, thanks to `CpuValue` itself implementing that trait for all floating point types (see `FloatHash`).
+- Added a new `KillSphereModifier`, similar to `KillAabbModifier` but with a sphere shape.
 
 ### Changed
 
@@ -27,29 +28,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SimParams::dt` was renamed to `SimParams::delta_time` for readability. Inside shaders, `sim_params.dt` was also renamed to `sim_params.delta_time`.
 - `InitContext` and `UpdateContext` now hold a mutable reference to the underlying `Module` to allow modifiers to create new `Expr`,
   and a read-only reference to the property layout of the effect.
-- `InitModifier::apply()` and `UpdateModifier::apply()` now return a `Result<(), ExprError>`.
-- The following modifiers changed to leverage the new Expression API:
-  - `InitAttributeModifier`:
-    - `value` field is now an `ExprHandle`.
-    - The modifier is `Copy`-able.
-  - `AccelModifier`:
-    - `accel` field is now an `ExprHandle`.
-    - The modifier is `Copy`-able.
-    - `AccelModifier::constant()` takes a `&mut Module` argument to create the literal expression assigned to the `accel` field.
-    - `AccelModifier::via_property()` takes a `&mut Module` argument to create the property expression assigned to the `accel` field.
-  - `LinearDragModifier`:
-    - `drag` field is now an `ExprHandle`.
-  - `AabbKillModifier`:
-    - `center` and `half_size` fields are now `ExprHandle`.
+- `ModifierContext` is now a bitfield (flags), allowing modifiers to be used in multiple contexts. A prime example is the renamed `SetAttributeModifier` which can be used both to initialize a particle attribute on spawn (if used in the `Init` context), or update it during the simulation (if used in the `Update` context). Adding the modifier to the `EffectAsset` with `init()` or `update()` determines in which context it's used.
+- `InitModifier::apply()` was renamed to `InitModifier::apply_init()` to avoid a conflict with the other modifier traits in case a modifier implements multiple of them.
+- `UpdateModifier::apply()` was renamed to `UpdateModifier::apply_update()` to avoid a conflict with the other modifier traits in case a modifier implements multiple of them.
+- `RenderModifier::apply()` was renamed to `RenderModifier::apply_render()` to avoid a conflict with the other modifier traits in case a modifier implements multiple of them.
+- `InitModifier::apply_init()` and `UpdateModifier::apply_update()` now return a `Result<(), ExprError>`.
+- The following modifiers have been renamed, changing their `Init` prefix into `Set` to reflect the fact they can now be used both for particle init and update:
+  - `InitAttributeModifier` -> `SetAttributeModifier`
+  - `InitPositionCircleModifier` -> `SetPositionCircleModifier`
+  - `InitPositionSphereModifier` -> `SetPositionSphereModifier`
+  - `InitPositionCone3dModifier` -> `SetPositionCone3dModifier`
+  - `InitVelocityCircleModifier` -> `SetVelocityCircleModifier`
+  - `InitVelocitySphereModifier` -> `SetVelocitySphereModifier`
+  - `InitVelocityTangentModifier` -> `SetVelocityTangentModifier`
+- All modifiers were changed to leverage the new Expression API. This means most fields are now of type `ExprHandle` instead of their previous numeric type (like `Vec3` or `f32`). Refer to the various examples and the migration guide to understand how to migrate those modifiers.
 - `Property::new()` takes a `default_value` argument as `impl Into<Value>` instead of `Value`. This should make it easier to call, without requiring any change to existing code.
 - `PropertyLayout::new()` takes an `iter` argument as `impl IntoIterator` instead of `impl Iterator`. This should make it easier to call, without requiring any change to existing code.
 - All `ParticleEffect`s are now compiled into a `CompiledParticleEffect` as soon as Hanabi detects they were spawned (generally, same frame), irrespective of whether they are visible or not. Previously only effects with `Visibility::Visible` where compiled, causing inconsistencies and panics when the effect was made visible later.
+- Shaders are now named (as required by Bevy 0.11), allowing better error reporting. Because Hanabi shaders are generated, the naming pattern used is `hanabi/<effect_name>_<hash>.wgsl`, where `<effect_name>` is the value of `EffectAsset::name`, and `<hash>` a unique hash depending on the content of the effect (modifiers and their values).
+- The content of the `modifier` module has been re-organized to group modifiers into submodules based on the part they modify. This means the `init`, `update`, and `render`, sub-modules are gone, replaced with others. Because all modifiers are re-exported (flattened hierarchy), this generally should not cause any breaking change, but can occasionally create a breakage if some old code was qualifying them with their full module path.
 
 ### Removed
 
-- The `InitAgeModifier` and `InitLifetimeModifier` were deleted. They're replaced with the more generic `InitAttributeModifier` which can initialize any attribute of the particle.
-- Deleted `InitSizeModifier`; it can be replaced with the more generic `InitAttributeModifier`.
+- The `InitAgeModifier`, `InitLifetimeModifier`, and `InitSizeModifier`, were deleted. They're replaced with the more generic `SetAttributeModifier` (ex-`InitAttributeModifier`) which can set any attribute of a particle.
+- `Modifier::resolve_properties()` was a temporary workaround which has now been entirely made obsolete, and as a result has been deleted.
 - Deleted `DimValue` which was only used by `InitSizeModifier`, and is more generally covered by the Expression API.
+- Deleted `ValueOrProperty` which is now unused, and is more generally covered by the Expression API.
 
 ### Fixed
 

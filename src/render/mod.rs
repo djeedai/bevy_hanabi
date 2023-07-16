@@ -42,7 +42,7 @@ use bevy::core_pipeline::core_2d::Transparent2d;
 use bevy::core_pipeline::core_3d::Transparent3d;
 
 use crate::{
-    asset::EffectAsset, modifier::update::ForceFieldSource, next_multiple_of, spawn::EffectSpawner,
+    asset::EffectAsset, modifier::ForceFieldSource, next_multiple_of, spawn::EffectSpawner,
     CompiledParticleEffect, ParticleLayout, PropertyLayout, RemovedEffectsEvent,
     SimulationCondition,
 };

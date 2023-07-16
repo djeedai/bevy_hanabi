@@ -8,7 +8,7 @@
 //! - An HDR camera with [`BloomSettings`] to ensure the particles "glow".
 //! - Use of a [`ColorOverLifetimeModifier`] with a [`Gradient`] made of colors
 //!   outside the \[0:1\] range, to ensure bloom has an effect.
-//! - [`InitVelocitySphereModifier`] with a reasonably large initial speed for
+//! - [`SetVelocitySphereModifier`] with a reasonably large initial speed for
 //!   particles, and [`LinearDragModifier`] to quickly slow them down. This is
 //!   the core of the "explosion" effect.
 //! - An [`AccelModifier`] to pull particles down once they slow down, for
@@ -74,11 +74,11 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     // Give a bit of variation by randomizing the age per particle. This will
     // control the starting color and starting size of particles.
     let age = writer.lit(0.).uniform(writer.lit(0.2)).expr();
-    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     // Give a bit of variation by randomizing the lifetime per particle
     let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
-    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     // Add constant downward acceleration to simulate gravity
     let accel = writer.lit(Vec3::Y * -8.).expr();
@@ -88,22 +88,26 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let drag = writer.lit(5.).expr();
     let update_drag = LinearDragModifier::new(drag);
 
+    let init_pos = SetPositionSphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        radius: writer.lit(2.).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+
+    // Give a bit of variation by randomizing the initial speed
+    let init_vel = SetVelocitySphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        speed: (writer.rand(ScalarType::Float) * writer.lit(20.) + writer.lit(60.)).expr(),
+    };
+
     let effect = EffectAsset::new(
         32768,
         Spawner::burst(2500.0.into(), 2.0.into()),
         writer.finish(),
     )
     .with_name("firework")
-    .init(InitPositionSphereModifier {
-        center: Vec3::ZERO,
-        radius: 2.,
-        dimension: ShapeDimension::Volume,
-    })
-    .init(InitVelocitySphereModifier {
-        center: Vec3::ZERO,
-        // Give a bit of variation by randomizing the initial speed
-        speed: CpuValue::Uniform((65., 75.)),
-    })
+    .init(init_pos)
+    .init(init_vel)
     .init(init_age)
     .init(init_lifetime)
     .update(update_drag)

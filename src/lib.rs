@@ -68,12 +68,29 @@
 //!   // Create a new expression module
 //!   let mut module = Module::default();
 //!
-//!   // Create a lifetime modifier
+//!   // On spawn, randomly initialize the position of the particle
+//!   // to be over the surface of a sphere of radius 2 units.
+//!   let init_pos = SetPositionSphereModifier {
+//!       center: module.lit(Vec3::ZERO),
+//!       radius: module.lit(0.05),
+//!       dimension: ShapeDimension::Surface,
+//!   };
+//!
+//!   // Also initialize a radial initial velocity to 6 units/sec
+//!   // away from the (same) sphere center.
+//!   let init_vel = SetVelocitySphereModifier {
+//!       center: module.lit(Vec3::ZERO),
+//!       speed: module.lit(0.1),
+//!   };
+//!
+//!   // Also initialize the total lifetime of the particle, that is
+//!   // the time for which it's simulated and rendered. This modifier
+//!   // is almost always required, otherwise the particles won't show.
 //!   let lifetime = module.lit(10.); // literal value "10.0"
-//!   let init_lifetime = InitAttributeModifier::new(
+//!   let init_lifetime = SetAttributeModifier::new(
 //!       Attribute::LIFETIME, lifetime);
 //!
-//!   // Create an acceleration modifier
+//!   // Every frame, add a gravity-like acceleration downward
 //!   let accel = module.lit(Vec3::new(0., -3., 0.));
 //!   let update_accel = AccelModifier::new(accel);
 //!
@@ -87,24 +104,9 @@
 //!     module
 //!   )
 //!   .with_name("MyEffect")
-//!   // On spawn, randomly initialize the position of the particle
-//!   // to be over the surface of a sphere of radius 2 units.
-//!   .init(InitPositionSphereModifier {
-//!       center: Vec3::ZERO,
-//!       radius: 2.,
-//!       dimension: ShapeDimension::Surface,
-//!   })
-//!   // Also initialize a radial initial velocity to 6 units/sec
-//!   // away from the (same) sphere center.
-//!   .init(InitVelocitySphereModifier {
-//!       center: Vec3::ZERO,
-//!       speed: 6.0.into(),
-//!   })
-//!   // Also initialize the total lifetime of the particle, that is
-//!   // the time for which it's simulated and rendered. This modifier
-//!   // is almost always required, otherwise the particles won't show.
+//!   .init(init_pos)
+//!   .init(init_vel)
 //!   .init(init_lifetime)
-//!   // Every frame, add a gravity-like acceleration downward
 //!   .update(update_accel)
 //!   // Render the particles with a color gradient over their
 //!   // lifetime. This maps the gradient key 0 to the particle spawn
@@ -775,7 +777,7 @@ impl CompiledParticleEffect {
         let (init_code, init_extra) = {
             let mut init_context = InitContext::new(&mut module, &property_layout);
             for m in asset.init_modifiers() {
-                if let Err(err) = m.apply(&mut init_context) {
+                if let Err(err) = m.apply_init(&mut init_context) {
                     error!("Failed to compile effect, error in init context: {:?}", err);
                 }
             }
@@ -786,7 +788,7 @@ impl CompiledParticleEffect {
         let (mut update_code, update_extra, force_field) = {
             let mut update_context = UpdateContext::new(&mut module, &property_layout);
             for m in asset.update_modifiers() {
-                if let Err(err) = m.apply(&mut update_context) {
+                if let Err(err) = m.apply_update(&mut update_context) {
                     error!(
                         "Failed to compile effect, error in udpate context: {:?}",
                         err
@@ -832,7 +834,7 @@ impl CompiledParticleEffect {
         // Generate the shader code for the render shader
         let mut render_context = RenderContext::default();
         for m in asset.render_modifiers() {
-            m.apply(&mut render_context);
+            m.apply_render(&mut render_context);
         }
 
         self.screen_space_size = render_context.screen_space_size;
@@ -881,7 +883,7 @@ impl CompiledParticleEffect {
             .replace("{{INIT_EXTRA}}", &init_extra)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
-        let init_shader = shader_cache.get_or_insert(&init_shader_source, shaders);
+        let init_shader = shader_cache.get_or_insert(&asset.name, &init_shader_source, shaders);
         trace!("Configured init shader:\n{}", init_shader_source);
 
         // Configure the update shader template, and make sure a corresponding shader
@@ -894,7 +896,7 @@ impl CompiledParticleEffect {
             .replace("{{UPDATE_EXTRA}}", &update_extra)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
-        let update_shader = shader_cache.get_or_insert(&update_shader_source, shaders);
+        let update_shader = shader_cache.get_or_insert(&asset.name, &update_shader_source, shaders);
         trace!("Configured update shader:\n{}", update_shader_source);
 
         // Configure the render shader template, and make sure a corresponding shader
@@ -905,7 +907,7 @@ impl CompiledParticleEffect {
             .replace("{{VERTEX_MODIFIERS}}", &render_context.vertex_code)
             .replace("{{FRAGMENT_MODIFIERS}}", &render_context.fragment_code)
             .replace("{{RENDER_EXTRA}}", &render_context.render_extra);
-        let render_shader = shader_cache.get_or_insert(&render_shader_source, shaders);
+        let render_shader = shader_cache.get_or_insert(&asset.name, &render_shader_source, shaders);
         trace!("Configured render shader:\n{}", render_shader_source);
 
         trace!(
@@ -958,14 +960,29 @@ impl CompiledParticleEffect {
     /// Set the value of a property associated with this effect.
     ///
     /// A property must exist which has been added to the source
-    /// [`EffectAsset`].
+    /// [`EffectAsset`]. The behavior is undefined if no property with this name
+    /// exists.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the type of `value` is not the same as the type of the
+    /// property named `name`.
     pub fn set_property(&mut self, name: &str, value: Value) {
         if let Some(index) = self
             .properties
             .iter()
             .position(|prop| prop.def.name() == name)
         {
-            self.properties[index].value = value;
+            let prop = &mut self.properties[index];
+            assert_eq!(
+                prop.def.value_type(),
+                value.value_type(),
+                "Cannot assign value of type {:?} to property '{}' of type {:?}",
+                value.value_type(),
+                prop.def.name(),
+                prop.def.value_type()
+            );
+            prop.value = value;
         }
     }
 
