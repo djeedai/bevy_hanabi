@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,spawn=trace".to_string(),
+                    filter: "bevy_hanabi=debug,2d=trace".to_string(),
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
@@ -78,10 +78,23 @@ fn setup(
     let writer = ExprWriter::new();
 
     let age = writer.lit(0.).expr();
-    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     let lifetime = writer.lit(5.).expr();
-    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let init_pos = SetPositionCircleModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Z).expr(),
+        radius: writer.lit(0.05).expr(),
+        dimension: ShapeDimension::Surface,
+    };
+
+    let init_vel = SetVelocityCircleModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Z).expr(),
+        speed: writer.lit(0.1).expr(),
+    };
 
     // Create a new effect asset spawning 30 particles per second from a circle
     // and slowly fading from blue-ish to transparent over their lifetime.
@@ -90,17 +103,8 @@ fn setup(
     let effect = effects.add(
         EffectAsset::new(4096, spawner, writer.finish())
             .with_name("2d")
-            .init(InitPositionCircleModifier {
-                center: Vec3::ZERO,
-                axis: Vec3::Z,
-                radius: 0.05,
-                dimension: ShapeDimension::Surface,
-            })
-            .init(InitVelocityCircleModifier {
-                center: Vec3::ZERO,
-                axis: Vec3::Z,
-                speed: 0.1.into(),
-            })
+            .init(init_pos)
+            .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
             .render(SizeOverLifetimeModifier {

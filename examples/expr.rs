@@ -22,11 +22,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     App::default()
         .add_plugins(DefaultPlugins.set(LogPlugin {
             level: bevy::log::Level::WARN,
-            filter: "bevy_hanabi=warn,expr=trace".to_string(),
+            filter: "bevy_hanabi=debug,expr=trace".to_string(),
         }))
         .add_systems(Update, bevy::window::close_on_esc)
         .add_plugins(HanabiPlugin)
-        //.add_plugins(WorldInspectorPlugin::default())
+        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .run();
 
@@ -64,11 +64,11 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let writer = ExprWriter::new();
 
     let age = writer.lit(0.).expr();
-    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     // Give a bit of variation by randomizing the lifetime per particle
     let lifetime = writer.lit(2.5).uniform(writer.lit(3.5)).expr();
-    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     // Create some whirlwind effect by adding some radial acceleration pointing at
     // the origin (0,0,0) and some upward acceleration (alongside Y). The proportion
@@ -81,22 +81,26 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let accel = radial * anim + vertical;
     let update_accel = AccelModifier::new(accel.expr());
 
+    let init_pos = SetPositionCircleModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Y).expr(),
+        radius: writer.lit(4.).expr(),
+        dimension: ShapeDimension::Surface,
+    };
+
+    let init_vel = SetVelocityTangentModifier {
+        origin: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Y).expr(),
+        speed: writer.lit(3.).expr(),
+    };
+
     let effect = effects.add(
         EffectAsset::new(32768, Spawner::rate(500.0.into()), writer.finish())
             .with_name("whirlwind")
-            .init(InitPositionCircleModifier {
-                center: Vec3::ZERO,
-                axis: Vec3::Y,
-                radius: 4.,
-                dimension: ShapeDimension::Surface,
-            })
+            .init(init_pos)
             .init(init_age)
             .init(init_lifetime)
-            .init(InitVelocityTangentModifier {
-                origin: Vec3::ZERO,
-                axis: Vec3::Y,
-                speed: 3.0.into(),
-            })
+            .init(init_vel)
             .update(update_accel)
             .render(ColorOverLifetimeModifier {
                 gradient: color_gradient,

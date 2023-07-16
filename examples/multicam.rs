@@ -51,25 +51,29 @@ fn make_effect(color: Color) -> EffectAsset {
     let writer = ExprWriter::new();
 
     let age = writer.lit(0.).expr();
-    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     let lifetime = writer.lit(5.).expr();
-    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     let accel = writer.lit(Vec3::Y * -3.).expr();
     let update_accel = AccelModifier::new(accel);
 
+    let init_pos = SetPositionSphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        radius: writer.lit(2.).expr(),
+        dimension: ShapeDimension::Surface,
+    };
+
+    let init_vel = SetVelocitySphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        speed: writer.lit(6.).expr(),
+    };
+
     EffectAsset::new(32768, Spawner::rate(5.0.into()), writer.finish())
-        .with_name("effect1")
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 2.,
-            dimension: ShapeDimension::Surface,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: 6.0.into(),
-        })
+        .with_name("effect")
+        .init(init_pos)
+        .init(init_vel)
         .init(init_age)
         .init(init_lifetime)
         .update(update_accel)

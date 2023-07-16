@@ -46,12 +46,12 @@ let asset = EffectAsset {
 
 ```rust
 let writer = ExprWriter::new();
-//[...]
+// [...] (use writer to setup modifiers)
 let module = writer.finish();
 let asset = EffectAsset::new(256, Spawner::rate(256.0.into()), module);
 ```
 
-More rarely if no `Expr` is used in any modifier, just a default module can be used. Going forward, most modifiers will use expressions, so passing an empty `Module` should become anecdotal.
+More rarely if no `Expr` is used in any modifier, just a default module can be used. As most modifiers use expressions, passing an empty `Module` is really anecdotal.
 
 ```rust
 let asset = EffectAsset::new(256, Spawner::rate(256.0.into()), Module::default());
@@ -61,7 +61,20 @@ let asset = EffectAsset::new(256, Spawner::rate(256.0.into()), Module::default()
 
 To migrate your modifiers from v0.6 to v0.7, you need to follow the steps above to prepare a `Module` with all the `Expr` describing the modifier inputs, then assign that module to the `EffectAsset` when you create it. Most examples have been migrated this way, and can be referenced for further details.
 
-First, replace any `InitAgeModifier` and `InitLifetimeModifier` with an `InitAttributeModifer` built with the `Attribute::AGE` and `Attribute::LIFETIME`, respectively.
+First, replace the following modifiers:
+
+| Old (v0.6) | New (v0.7) | Comment |
+|---|---|---|
+| `InitAttributeModifier` | `SetAttributeModifier` | Modifier now useable in both `Init` and `Update` contexts. |
+| `InitAgeModifier` | `SetAttributeModifer(Attribute::AGE)` | Old modifier deleted. |
+| `InitLifetimeModifier` | `SetAttributeModifer(Attribute::LIFETIME)` | Old modifier deleted. |
+| `InitSizeModifier` | `SetAttributeModifer(Attribute::SIZE)` | Old modifier deleted. |
+| `InitPositionCircleModifier` | `SetPositionCircleModifier` | Modifier now useable in both `Init` and `Update` contexts. |
+| `InitPositionSphereModifier` | `SetPositionSphereModifier` | Modifier now useable in both `Init` and `Update` contexts. |
+| `InitPositionCone3dModifier` | `SetPositionCone3dModifier` | Modifier now useable in both `Init` and `Update` contexts. |
+| `InitVelocityCircleModifier` | `SetVelocityCircleModifier` | Modifier now useable in both `Init` and `Update` contexts. |
+| `InitVelocitySphereModifier` | `SetVelocitySphereModifier` | Modifier now useable in both `Init` and `Update` contexts. |
+| `InitVelocityTangentModifier` | `SetVelocityTangentModifier` | Modifier now useable in both `Init` and `Update` contexts. |
 
 Then, follow the above steps to build expressions for all the modifier fields which were migrated to use `ExprHandle`. For example, an `AccelModifier::accel` field previously initialized with a constant:
 
@@ -70,8 +83,9 @@ Then, follow the above steps to build expressions for all the modifier fields wh
 ```rust
 let asset = EffectAsset {
     // [...]
-     ..Default::default()
-}.update(AccelModifier::constant(Vec3::Y * -3.));
+    ..Default::default()
+}
+.update(AccelModifier::constant(Vec3::Y * -3.));
 ```
 
 now requires building a literal expression instead:
@@ -86,7 +100,7 @@ let w = ExprWriter::new();
 let accel = w.lit(Vec3::Y * -3.);
 
 // Write it down into the Module, and get back the ExprHandle
-let expr = accel.expr();
+let accel_expr = accel.expr();
 
 // Repeat for other modifiers...
 // [...]
@@ -96,14 +110,14 @@ let module = w.finish();
 
 // Finally, create the EffectAsset with the modifiers
 let asset = EffectAsset::new(capacity, spawner, module)
-    .update(AccelModifier::new(expr));
+    .update(AccelModifier::new(accel_expr));
 ```
 
-Note that previously a common pattern was to create modifiers inline while building the `EffectAsset`. This is not possible anymore for all modifiers using an `ExprHandle`, because the expression `Module` need to be finalized and assigned to the `EffectAsset` before the modifiers can be added to it. Otherwise the modifiers when they attach to the effect will fail their consistency check and panic.
+Note that previously a common pattern was to create modifiers inline while building the `EffectAsset`. This is not possible anymore for all modifiers using an `ExprHandle` (almost all of them), because the expression `Module` need to be finalized and assigned to the `EffectAsset` before the modifiers can be added to it. Otherwise the modifiers when they attach to the effect will fail their consistency check and panic.
 
 ## Other migration items
 
-- Rename `spawn::Value` to `spawn::CpuValue`. This prevents confusion with `graph::Value` and allow importing both types at once.
+- Rename `spawn::Value` to `spawn::CpuValue`. This prevents confusion with `graph::Value` and allow importing both types at once. Going forward `CpuValue` is only used with the `Spawner`; all modifiers use `ExprHandle` instead.
 
 - The `std::hash::Hash` implementation for `SetColorModifier` and `SetSizeModifier` changed. If you previously stored some hash values, they likely will be different between v0.6 and v0.7. You can check the old manual implementation in v0.6 if you need to write some conversion code.
 
@@ -136,7 +150,5 @@ Note that previously a common pattern was to create modifiers inline while build
 - Rename `SimParams::dt` into `SimParams::delta_time`, and any shader use of `dt` into `delta_time`.
 
 - Add an extra `screen_space_size = false` field to the `SetSizeModifier` and `SizeOverLifetimeModifier`.
-
-- Replace the removed `InitSizeModifier` with the more generic `InitAttributeModifier`.
 
 - `DimValue` was deleted. It was only used in the now deleted `InitSizeModifier`. There's no direct equivalent if you were using this in your code.

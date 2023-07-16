@@ -47,11 +47,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 const COLOR: Vec4 = Vec4::new(0.7, 0.7, 1.0, 1.0);
 const SIZE: Vec2 = Vec2::splat(0.1);
 
-fn base_effect(name: impl Into<String>) -> EffectAsset {
+fn base_effect<M, F>(name: impl Into<String>, mut make_modifier: F) -> EffectAsset
+where
+    M: InitModifier + Send + Sync + 'static,
+    F: FnMut(&ExprWriter) -> M,
+{
     let writer = ExprWriter::new();
+
+    let init = make_modifier(&writer);
 
     EffectAsset::new(32768, Spawner::once(COUNT.into(), true), writer.finish())
         .with_name(name)
+        .init(init)
         .render(BillboardModifier)
         .render(SetColorModifier {
             color: COLOR.into(),
@@ -120,48 +127,48 @@ fn setup(
 
     spawn_effect(
         &mut commands,
-        "InitPositionCircleModifier".to_string(),
+        "SetPositionCircleModifier".to_string(),
         Transform::from_translation(Vec3::new(-20., 0., 0.)),
-        effects.add(
-            base_effect("InitPositionCircleModifier").init(InitPositionCircleModifier {
-                center: Vec3::ZERO,
-                axis: Vec3::Z,
-                radius: 5.,
+        effects.add(base_effect("SetPositionCircleModifier", |writer| {
+            SetPositionCircleModifier {
+                center: writer.lit(Vec3::ZERO).expr(),
+                axis: writer.lit(Vec3::Z).expr(),
+                radius: writer.lit(5.).expr(),
                 dimension: ShapeDimension::Volume,
-            }),
-        ),
+            }
+        })),
         cube.clone(),
         mat.clone(),
     );
 
     spawn_effect(
         &mut commands,
-        "InitPositionSphereModifier".to_string(),
+        "SetPositionSphereModifier".to_string(),
         Transform::from_translation(Vec3::new(0., 0., 0.)),
-        effects.add(
-            base_effect("InitPositionSphereModifier").init(InitPositionSphereModifier {
-                center: Vec3::ZERO,
-                radius: 5.,
+        effects.add(base_effect("SetPositionSphereModifier", |writer| {
+            SetPositionSphereModifier {
+                center: writer.lit(Vec3::ZERO).expr(),
+                radius: writer.lit(5.).expr(),
                 dimension: ShapeDimension::Volume,
-            }),
-        ),
+            }
+        })),
         cube.clone(),
         mat.clone(),
     );
 
     spawn_effect(
         &mut commands,
-        "InitPositionCone3dModifier".to_string(),
+        "SetPositionCone3dModifier".to_string(),
         Transform::from_translation(Vec3::new(20., -5., 0.))
             .with_rotation(Quat::from_rotation_z(1.)),
-        effects.add(
-            base_effect("InitPositionCone3dModifier").init(InitPositionCone3dModifier {
-                height: 10.,
-                base_radius: 1.,
-                top_radius: 4.,
+        effects.add(base_effect("SetPositionCone3dModifier", |writer| {
+            SetPositionCone3dModifier {
+                height: writer.lit(10.).expr(),
+                base_radius: writer.lit(1.).expr(),
+                top_radius: writer.lit(4.).expr(),
                 dimension: ShapeDimension::Volume,
-            }),
-        ),
+            }
+        })),
         cube.clone(),
         mat.clone(),
     );

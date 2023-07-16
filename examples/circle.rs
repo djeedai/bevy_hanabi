@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,spawn=trace".to_string(),
+                    filter: "bevy_hanabi=warn,circle=trace".to_string(),
                 })
                 .set(RenderPlugin { wgpu_settings }),
         )
@@ -62,25 +62,29 @@ fn setup(
     let writer = ExprWriter::new();
 
     let age = writer.lit(0.).expr();
-    let init_age = InitAttributeModifier::new(Attribute::AGE, age);
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     let lifetime = writer.lit(5.).expr();
-    let init_lifetime = InitAttributeModifier::new(Attribute::LIFETIME, lifetime);
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let init_pos = SetPositionCircleModifier {
+        center: writer.lit(Vec3::Y * 0.1).expr(),
+        axis: writer.lit(Vec3::Y).expr(),
+        radius: writer.lit(0.4).expr(),
+        dimension: ShapeDimension::Surface,
+    };
+
+    let init_vel = SetVelocityCircleModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Y).expr(),
+        speed: (writer.lit(1.) + writer.lit(0.5) * writer.rand(ScalarType::Float)).expr(),
+    };
 
     let effect = effects.add(
         EffectAsset::new(32768, Spawner::once(32.0.into(), true), writer.finish())
             .with_name("circle")
-            .init(InitPositionCircleModifier {
-                center: Vec3::Y * 0.1,
-                axis: Vec3::Y,
-                radius: 0.4,
-                dimension: ShapeDimension::Surface,
-            })
-            .init(InitVelocityCircleModifier {
-                center: Vec3::ZERO,
-                axis: Vec3::Y,
-                speed: CpuValue::Uniform((1.0, 1.5)),
-            })
+            .init(init_pos)
+            .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
             .render(ParticleTextureModifier {

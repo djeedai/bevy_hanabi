@@ -376,7 +376,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 usage: self.buffer_usage,
                 mapped_at_creation: false,
             });
-            if let Some(mut ab) = self.buffer.as_mut() {
+            if let Some(ab) = self.buffer.as_mut() {
                 // If there's any data currently in the GPU buffer, we need to copy it on next
                 // update to preserve it, but only if there's no pending copy already.
                 if self.active_size > 0 && ab.old_buffer.is_none() {

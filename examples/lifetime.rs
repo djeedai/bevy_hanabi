@@ -89,9 +89,18 @@ fn setup(
 
     let writer1 = ExprWriter::new();
     let age1 = writer1.lit(0.).expr();
-    let init_age1 = InitAttributeModifier::new(Attribute::AGE, age1);
+    let init_age1 = SetAttributeModifier::new(Attribute::AGE, age1);
     let lifetime1 = writer1.lit(lifetime1).expr();
-    let init_lifetime1 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime1);
+    let init_lifetime1 = SetAttributeModifier::new(Attribute::LIFETIME, lifetime1);
+    let init_pos1 = SetPositionSphereModifier {
+        center: writer1.lit(Vec3::ZERO).expr(),
+        radius: writer1.lit(5.).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+    let init_vel1 = SetVelocitySphereModifier {
+        center: writer1.lit(Vec3::ZERO).expr(),
+        speed: writer1.lit(2.).expr(),
+    };
     let effect1 = effects.add(
         EffectAsset::new(
             512,
@@ -99,15 +108,8 @@ fn setup(
             writer1.finish(),
         )
         .with_name("emit:burst")
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 5.,
-            dimension: ShapeDimension::Volume,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: 2.0.into(),
-        })
+        .init(init_pos1)
+        .init(init_vel1)
         .init(init_age1)
         .init(init_lifetime1)
         .render(ColorOverLifetimeModifier {
@@ -142,9 +144,18 @@ fn setup(
 
     let writer2 = ExprWriter::new();
     let age2 = writer2.lit(0.).expr();
-    let init_age2 = InitAttributeModifier::new(Attribute::AGE, age2);
+    let init_age2 = SetAttributeModifier::new(Attribute::AGE, age2);
     let lifetime2 = writer2.lit(lifetime2).expr();
-    let init_lifetime2 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime2);
+    let init_lifetime2 = SetAttributeModifier::new(Attribute::LIFETIME, lifetime2);
+    let init_pos2 = SetPositionSphereModifier {
+        center: writer2.lit(Vec3::ZERO).expr(),
+        radius: writer2.lit(5.).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+    let init_vel2 = SetVelocitySphereModifier {
+        center: writer2.lit(Vec3::ZERO).expr(),
+        speed: writer2.lit(2.).expr(),
+    };
     let effect2 = effects.add(
         EffectAsset::new(
             512,
@@ -152,15 +163,8 @@ fn setup(
             writer2.finish(),
         )
         .with_name("emit:burst")
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 5.,
-            dimension: ShapeDimension::Volume,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: 2.0.into(),
-        })
+        .init(init_pos2)
+        .init(init_vel2)
         .init(init_age2)
         .init(init_lifetime2)
         .render(ColorOverLifetimeModifier {
@@ -195,9 +199,18 @@ fn setup(
 
     let writer3 = ExprWriter::new();
     let age3 = writer3.lit(0.).expr();
-    let init_age3 = InitAttributeModifier::new(Attribute::AGE, age3);
+    let init_age3 = SetAttributeModifier::new(Attribute::AGE, age3);
     let lifetime3 = writer3.lit(lifetime3).expr();
-    let init_lifetime3 = InitAttributeModifier::new(Attribute::LIFETIME, lifetime3);
+    let init_lifetime3 = SetAttributeModifier::new(Attribute::LIFETIME, lifetime3);
+    let init_pos3 = SetPositionSphereModifier {
+        center: writer3.lit(Vec3::ZERO).expr(),
+        radius: writer3.lit(5.).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+    let init_vel3 = SetVelocitySphereModifier {
+        center: writer3.lit(Vec3::ZERO).expr(),
+        speed: writer3.lit(2.).expr(),
+    };
     let effect3 = effects.add(
         EffectAsset::new(
             512,
@@ -205,15 +218,8 @@ fn setup(
             writer3.finish(),
         )
         .with_name("emit:burst")
-        .init(InitPositionSphereModifier {
-            center: Vec3::ZERO,
-            radius: 5.,
-            dimension: ShapeDimension::Volume,
-        })
-        .init(InitVelocitySphereModifier {
-            center: Vec3::ZERO,
-            speed: 2.0.into(),
-        })
+        .init(init_pos3)
+        .init(init_vel3)
         .init(init_age3)
         .init(init_lifetime3)
         .render(ColorOverLifetimeModifier {
