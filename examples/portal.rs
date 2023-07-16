@@ -24,10 +24,20 @@ use bevy_hanabi::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     App::default()
-        .add_plugins(DefaultPlugins.set(LogPlugin {
-            level: bevy::log::Level::WARN,
-            filter: "bevy_hanabi=warn,portal=trace".to_string(),
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(LogPlugin {
+                    level: bevy::log::Level::WARN,
+                    filter: "bevy_hanabi=warn,portal=trace".to_string(),
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "🎆 Hanabi — portal".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                }),
+        )
         .add_systems(Update, bevy::window::close_on_esc)
         .add_plugins(HanabiPlugin)
         .add_plugins(WorldInspectorPlugin::default())

@@ -35,7 +35,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,spawn_on_command=trace".to_string(),
                 })
-                .set(RenderPlugin { wgpu_settings }),
+                .set(RenderPlugin { wgpu_settings })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "🎆 Hanabi — spawn on command".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                }),
         )
         .add_plugins(HanabiPlugin)
         .add_plugins(WorldInspectorPlugin::default())

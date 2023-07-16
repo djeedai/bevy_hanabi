@@ -35,9 +35,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,spawn=trace".to_string(),
+                    filter: "bevy_hanabi=warn,lifetime=trace".to_string(),
                 })
-                .set(RenderPlugin { wgpu_settings }),
+                .set(RenderPlugin { wgpu_settings })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "🎆 Hanabi — lifetime".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                }),
         )
         .add_systems(Update, bevy::window::close_on_esc)
         .add_plugins(HanabiPlugin)

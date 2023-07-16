@@ -45,7 +45,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,force_field=trace".to_string(),
                 })
-                .set(RenderPlugin { wgpu_settings }),
+                .set(RenderPlugin { wgpu_settings })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "🎆 Hanabi — force field".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                }),
         )
         //.add_plugins(LookTransformPlugin)
         //.add_plugins(OrbitCameraPlugin::default())

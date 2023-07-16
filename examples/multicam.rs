@@ -16,10 +16,20 @@ use bevy_hanabi::prelude::*;
 
 fn main() {
     App::default()
-        .add_plugins(DefaultPlugins.set(LogPlugin {
-            level: bevy::log::Level::WARN,
-            filter: "bevy_hanabi=warn,multicam=trace".to_string(),
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(LogPlugin {
+                    level: bevy::log::Level::WARN,
+                    filter: "bevy_hanabi=warn,multicam=trace".to_string(),
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "🎆 Hanabi — multicam".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                }),
+        )
         .add_plugins(HanabiPlugin)
         .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)

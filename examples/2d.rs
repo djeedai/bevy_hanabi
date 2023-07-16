@@ -28,9 +28,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=debug,2d=trace".to_string(),
+                    filter: "bevy_hanabi=warn,2d=trace".to_string(),
                 })
-                .set(RenderPlugin { wgpu_settings }),
+                .set(RenderPlugin { wgpu_settings })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "🎆 Hanabi — 2d".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                }),
         )
         .add_plugins(HanabiPlugin)
         .add_plugins(WorldInspectorPlugin::default())

@@ -171,10 +171,20 @@ impl InstanceManager {
 
 fn main() {
     App::default()
-        .add_plugins(DefaultPlugins.set(LogPlugin {
-            level: bevy::log::Level::WARN,
-            filter: "bevy_hanabi=warn,instancing=trace".to_string(),
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(LogPlugin {
+                    level: bevy::log::Level::WARN,
+                    filter: "bevy_hanabi=warn,instancing=trace".to_string(),
+                })
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "🎆 Hanabi — instancing".to_string(),
+                        ..default()
+                    }),
+                    ..default()
+                }),
+        )
         .add_plugins(HanabiPlugin)
         .add_plugins(WorldInspectorPlugin::default())
         .insert_resource(InstanceManager::new(5, 4))
