@@ -7,16 +7,18 @@
 //!
 //! - **Init modifiers** influence the initializing of particles when they
 //!   spawn. They typically configure the initial position and/or velocity of
-//!   particles. Init modifiers are grouped under the [`init`] module, and
-//!   implement the [`InitModifier`] trait.
+//!   particles. Init modifiers implement the [`InitModifier`] trait.
 //! - **Update modifiers** influence the particle update loop each frame. For
 //!   example, an update modifier can apply a gravity force to all particles.
-//!   Update modifiers are grouped under the [`update`] module, and implement
-//!   the [`UpdateModifier`] trait.
+//!   Update modifiers implement the [`UpdateModifier`] trait.
 //! - **Render modifiers** influence the rendering of each particle. They can
 //!   change the particle's color, or orient it to face the camera. Render
-//!   modifiers are grouped under the [`render`] module, and implement the
-//!   [`RenderModifier`] trait.
+//!   modifiers implement the [`RenderModifier`] trait.
+//!
+//! A single modifier can be part of multiple categories. For example, the
+//! [`SetAttributeModifier`] can be used either to initialize a particle's
+//! attribute on spawning, or to assign a value to that attribute each frame
+//! during simulation (update).
 //!
 //! [`InitModifier`]: crate::modifier::InitModifier
 //! [`UpdateModifier`]: crate::modifier::UpdateModifier
@@ -81,10 +83,19 @@ bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct ModifierContext : u8 {
         /// Particle initializing on spawning.
+        ///
+        /// Modifiers in the init context are executed for each newly spawned
+        /// particle, to initialize that particle.
         const Init = 0b001;
         /// Particle simulation (update).
+        ///
+        /// Modifiers in the update context are executed each frame to simulate
+        /// the particle behavior.
         const Update = 0b010;
         /// Particle rendering.
+        ///
+        /// Modifiers in the render context are executed for each view (camera)
+        /// where a particle is visible, each frame.
         const Render = 0b100;
     }
 }

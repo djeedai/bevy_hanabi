@@ -24,8 +24,12 @@
 //! compute shaders and offloading most of the work of particle simulating to
 //! the GPU.
 //!
-//! _Note: Because it uses compute shaders, this library is incompatible with
-//! wasm. This is a limitation of webgpu/wasm._
+//! _Note: This library makes heavy use of compute shaders to offload work to
+//! the GPU in a performant way. Support for compute shaders on the `wasm`
+//! target (WebAssembly) via WebGPU is only available in Bevy in general since
+//! the newly-released Bevy v0.11, and is not yet available in this library.
+//! See [#41](https://github.com/djeedai/bevy_hanabi/issues/41) for details on
+//! progress._
 //!
 //! # 2D vs. 3D
 //!
@@ -37,7 +41,7 @@
 //!
 //! ```toml
 //! # Example: enable only 3D integration
-//! bevy_hanabi = { version = "0.5", default-features = false, features = ["3d"] }
+//! bevy_hanabi = { version = "0.6", default-features = false, features = ["3d"] }
 //! ```
 //!
 //! # Example
@@ -80,10 +84,10 @@
 //!   // away from the (same) sphere center.
 //!   let init_vel = SetVelocitySphereModifier {
 //!       center: module.lit(Vec3::ZERO),
-//!       speed: module.lit(0.1),
+//!       speed: module.lit(6.),
 //!   };
 //!
-//!   // Also initialize the total lifetime of the particle, that is
+//!   // Initialize the total lifetime of the particle, that is
 //!   // the time for which it's simulated and rendered. This modifier
 //!   // is almost always required, otherwise the particles won't show.
 //!   let lifetime = module.lit(10.); // literal value "10.0"
@@ -128,11 +132,15 @@
 //! # use bevy_hanabi::prelude::*;
 //! # fn spawn_effect(mut commands: Commands) {
 //! #   let effect_handle = Handle::weak(HandleId::random::<EffectAsset>());
+//! // Configure the emitter to spawn 100 particles / second
+//! let spawner = Spawner::rate(100_f32.into());
+//!
 //! commands
 //!     .spawn((
 //!         Name::new("MyEffectInstance"),
 //!         ParticleEffectBundle {
-//!             effect: ParticleEffect::new(effect_handle),
+//!             effect: ParticleEffect::new(effect_handle)
+//!                 .with_spawner(spawner),
 //!             transform: Transform::from_translation(Vec3::Y),
 //!             ..Default::default()
 //!         },
@@ -198,13 +206,13 @@ pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
     count * align
 }
 
-/// Extension trait to write a floating point scalar or vector constant in a
-/// format matching the WGSL grammar.
+/// Extension trait to convert an object to WGSL code.
 ///
-/// This is required because WGSL doesn't support a floating point constant
-/// without a decimal separator (_e.g._ `0.` instead of `0`), which would be
-/// what a regular string formatting function like [`format!()`] would produce,
-/// but which is interpreted as an integral type by WGSL instead.
+/// This is mainly used for floating-point constants. This is required because
+/// WGSL doesn't support a floating point constant without a decimal separator
+/// (_e.g._ `0.` instead of `0`), which would be what a regular string
+/// formatting function like [`format!()`] would produce, but which is
+/// interpreted as an integral type by WGSL instead.
 ///
 /// # Example
 ///
@@ -214,10 +222,18 @@ pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
 /// assert_eq!("let x = 2.;", format!("let x = {};", x.to_wgsl_string()));
 /// ```
 ///
+/// # Remark
+///
+/// This trait is soft-deprecated. It serves the same purpose as
+/// [`EvalContext::eval()`], however it lacks any context for the evaluation of
+/// an expression producing WGSL code, so its use is limited. It's still useful
+/// for constant (literal) expressions, which do not require any context to
+/// evaluate.
+///
 /// [`format!()`]: std::format
+/// [`EvalContext::eval()`]: crate::graph::expr::EvalContext::eval
 pub trait ToWgslString {
-    /// Convert a floating point scalar or vector to a string representing a
-    /// WGSL constant.
+    /// Convert an object to a string representing its WGSL code.
     fn to_wgsl_string(&self) -> String;
 }
 

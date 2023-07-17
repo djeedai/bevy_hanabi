@@ -259,6 +259,8 @@ impl EffectAsset {
 
     /// Add a new property to the asset.
     ///
+    /// See [`Property`] for more details on what effect properties are.
+    ///
     /// # Panics
     ///
     /// Panics if a property with the same name already exists.
@@ -268,6 +270,8 @@ impl EffectAsset {
     }
 
     /// Add a new property to the asset.
+    ///
+    /// See [`Property`] for more details on what effect properties are.
     ///
     /// # Panics
     ///
@@ -285,12 +289,6 @@ impl EffectAsset {
 
     /// Add an initialization modifier to the effect.
     ///
-    /// # Panics
-    ///
-    /// Panics if the modifier references a property which doesn't exist.
-    /// You should declare an effect property first with [`with_property()`]
-    /// or [`add_property()`], before adding any modifier referencing it.
-    ///
     /// [`with_property()`]: crate::EffectAsset::with_property
     /// [`add_property()`]: crate::EffectAsset::add_property
     #[inline]
@@ -304,12 +302,6 @@ impl EffectAsset {
 
     /// Add an update modifier to the effect.
     ///
-    /// # Panics
-    ///
-    /// Panics if the modifier references a property which doesn't exist.
-    /// You should declare an effect property first with [`with_property()`]
-    /// or [`add_property()`], before adding any modifier referencing it.
-    ///
     /// [`with_property()`]: crate::EffectAsset::with_property
     /// [`add_property()`]: crate::EffectAsset::add_property
     #[inline]
@@ -322,12 +314,6 @@ impl EffectAsset {
     }
 
     /// Add a render modifier to the effect.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the modifier references a property which doesn't exist.
-    /// You should declare an effect property first with [`with_property()`]
-    /// or [`add_property()`], before adding any modifier referencing it.
     ///
     /// [`with_property()`]: crate::EffectAsset::with_property
     /// [`add_property()`]: crate::EffectAsset::add_property
