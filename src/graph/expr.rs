@@ -448,7 +448,7 @@ pub trait EvalContext {
     /// Resolve an expression handle its the underlying expression.
     fn expr(&self, handle: ExprHandle) -> Result<&Expr, ExprError>;
 
-    /// Evaluate an expression.
+    /// Evaluate an expression, returning its WGSL shader code.
     fn eval(&self, handle: ExprHandle) -> Result<String, ExprError>;
 }
 

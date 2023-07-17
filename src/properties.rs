@@ -1,13 +1,3 @@
-//! Effect properties.
-//!
-//! Properties are named variables mutable at runtime. Use properties to ensure
-//! a value from a modifier can be dynamically mutated while the effect is
-//! instantiated, without having to destroy and re-create a new effect. Using
-//! properties is a bit more costly than using a hard-coded constant, so avoid
-//! using properties if a value doesn't need to change dynamically at runtime,
-//! or changes very infrequently. In general any value accepting a property
-//! reference also alternatively accepts a constant.
-
 use std::num::NonZeroU64;
 
 use bevy::reflect::Reflect;
@@ -16,6 +6,15 @@ use serde::{Deserialize, Serialize};
 use crate::{graph::Value, next_multiple_of, ToWgslString, ValueType};
 
 /// Effect property.
+///
+/// Properties are named variables mutable at runtime from the application
+/// (CPU). Their value is uploaded to the GPU each frame.
+///
+/// Use properties to ensure a value from a modifier can be dynamically mutated
+/// while the effect is instantiated, without having to destroy and re-create a
+/// new effect. Using properties is a bit more costly than using a hard-coded
+/// constant, so avoid using properties if a value doesn't need to change
+/// dynamically at runtime, or changes very infrequently.
 #[derive(Debug, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct Property {
     name: String,
@@ -49,13 +48,17 @@ impl Property {
         self.name.as_ref()
     }
 
-    /// The default value of the property.#
+    /// The default value of the property.
+    ///
+    /// The default value is used to initialize the property.
     #[inline]
     pub fn default_value(&self) -> &Value {
         &self.default_value
     }
 
     /// The property type.
+    ///
+    /// This is the type of the value stored in the property.
     #[inline]
     pub fn value_type(&self) -> ValueType {
         self.default_value.value_type()

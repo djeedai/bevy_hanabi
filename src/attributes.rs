@@ -35,8 +35,8 @@ pub enum ScalarType {
 impl ScalarType {
     /// Check if this type is a numeric type.
     ///
-    /// A numeric type can be used in various math operators etc. All types are
-    /// numeric, except `ScalarType::Bool`.
+    /// A numeric type can be used in various math operators etc. All scalar
+    /// types are numeric, except `ScalarType::Bool`.
     pub fn is_numeric(&self) -> bool {
         !(matches!(self, ScalarType::Bool))
     }
@@ -53,7 +53,8 @@ impl ScalarType {
     /// Alignment of a value of this type, in bytes.
     ///
     /// This corresponds to the alignment of a variable of that type when part
-    /// of a struct in WGSL.
+    /// of a struct in WGSL. For `bool`, this is always 4 bytes (undefined in
+    /// WGSL spec).
     pub const fn align(&self) -> usize {
         4
     }
@@ -72,6 +73,10 @@ impl ToWgslString for ScalarType {
 }
 
 /// Vector type (`vecN<T>`).
+///
+/// Describes the type of a vector, which is composed of 2 to 4 components of a
+/// same scalar type. This type corresponds to one of the valid vector types in
+/// the WGSL specification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct VectorType {
     /// Type of all elements (components) of the vector.
@@ -127,6 +132,10 @@ impl VectorType {
     }
 
     /// Is the type a numeric type?
+    ///
+    /// See [`ScalarType::is_numeric()`] for a definition of a numeric type.
+    ///
+    /// [`ScalarType::is_numeric()`]: crate::ScalarType::is_numeric
     pub fn is_numeric(&self) -> bool {
         self.elem_type.is_numeric()
     }
@@ -426,6 +435,13 @@ impl AttributeInner {
 /// Common attributes include the particle's position, its age, or its color.
 /// See [`Attribute::ALL`] for a list of supported attributes. Custom attributes
 /// are not supported.
+///
+/// Attributes are indirectly added to an effect by adding [modifiers] requiring
+/// them. Each modifier documents its required attributes. You can force a
+/// single attribute by adding the [`SetAttributeModifier`].
+///
+/// [modifiers]: crate::modifier
+/// [`SetAttributeModifier`]: crate::modifier::SetAttributeModifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "&str", into = "&'static str")]
 pub struct Attribute(pub(crate) &'static AttributeInner);
@@ -653,7 +669,7 @@ impl Attribute {
     ///
     /// [`ScalarType::Float`]
     ///
-    /// [`ColorOverLifetimeModifier`]: crate::modifier::render::ColorOverLifetimeModifier
+    /// [`ColorOverLifetimeModifier`]: crate::modifier::output::ColorOverLifetimeModifier
     pub const AGE: Attribute = Attribute(AttributeInner::AGE);
 
     /// The lifetime of the particle.
