@@ -23,7 +23,7 @@ pub struct EffectSlice {
     pub slice: Range<u32>,
     /// Index of the group containing the BufferVec.
     pub group_index: u32,
-    /// Particle layout the slice.
+    /// Particle layout of the slice.
     pub particle_layout: ParticleLayout,
 }
 
@@ -40,6 +40,15 @@ impl PartialOrd for EffectSlice {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
+}
+
+impl EffectSlice {
+    #[allow(dead_code)]
+    pub const EMPTY: EffectSlice = EffectSlice {
+        slice: 0..0,
+        group_index: 0,
+        particle_layout: ParticleLayout::empty(),
+    };
 }
 
 /// A reference to a slice allocated inside an [`EffectBuffer`].
