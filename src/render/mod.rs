@@ -1682,7 +1682,7 @@ pub(crate) fn prepare_effects(
                 layout_flags |= LayoutFlags::SCREEN_SPACE_SIZE;
             }
 
-            let image_handle_id = extracted_effect.image_handle_id.clone();
+            let image_handle_id = extracted_effect.image_handle_id;
 
             let mut transform: [f32; 12] = [0.; 12];
             transform

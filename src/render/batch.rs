@@ -129,7 +129,9 @@ pub(crate) struct BatchState {
     /// The original update shader. The batch contains the cached pipeline ID
     /// instead of the shader handle, so doesn't need this.
     pub update_shader: Handle<Shader>,
-    /// Did the batch already emit property data? Batching currently doesn't handle multiple property values, so forces a batch split if more than one effect has properties.
+    /// Did the batch already emit property data? Batching currently doesn't
+    /// handle multiple property values, so forces a batch split if more than
+    /// one effect has properties.
     pub has_property_data: bool,
 }
 
@@ -251,32 +253,32 @@ impl<'a, S, B, I: Batchable<S, B>> Batcher<'a, S, B, I> {
                     Err(item) => {
                         // Emit current batch, which is now completed since the new item cannot be
                         // merged.
-                        self.emit(batch);
+                        self.do_emit(batch);
 
                         // Create a new batch from the incompatible item. That batch becomes the new
                         // current batch.
-                        current = Some(self.into_batch(item));
+                        current = Some(self.do_into_batch(item));
                     }
                 }
             } else {
                 // First item, create a new batch
-                current = Some(self.into_batch(item));
+                current = Some(self.do_into_batch(item));
             }
         }
 
         // Emit the last batch if any
         if let Some((_, batch)) = current {
-            self.emit(batch);
+            self.do_emit(batch);
         }
     }
 
     #[inline]
-    fn emit(&mut self, batch: B) {
+    fn do_emit(&mut self, batch: B) {
         (self.emit)(batch);
     }
 
     #[inline]
-    fn into_batch(&mut self, item: I) -> (S, B) {
+    fn do_into_batch(&mut self, item: I) -> (S, B) {
         (self.into_batch)(item)
     }
 }
@@ -528,19 +530,19 @@ mod tests {
         let property_layout = PropertyLayout::empty();
 
         BatchInput {
-            handle: handle.clone(),
+            handle,
             entity_index: 0,
             effect_slice: EffectSlice {
                 slice: 0..100,
                 group_index: 0,
-                particle_layout: particle_layout.clone(),
+                particle_layout,
             },
-            property_layout: property_layout.clone(),
-            init_shader: init_shader.clone(),
-            update_shader: update_shader.clone(),
-            render_shader: render_shader.clone(),
+            property_layout,
+            init_shader,
+            update_shader,
+            render_shader,
             layout_flags: LayoutFlags::NONE,
-            image_handle_id: image_handle_id.clone(),
+            image_handle_id,
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
             spawn_count: 32,
             transform: [0.; 12],
@@ -585,7 +587,8 @@ mod tests {
         assert_eq!(0..200, batches[0].slice);
     }
 
-    // FIXME - Currently we don't support per-effect property block in a batch, so two effects with property blocks cannot be batched together.
+    // FIXME - Currently we don't support per-effect property block in a batch, so
+    // two effects with property blocks cannot be batched together.
     #[test]
     fn effect_batch_single_property_block() {
         let mut batches = vec![];
@@ -609,7 +612,8 @@ mod tests {
             );
 
             let mut item1 = make_test_item();
-            // Has property data, and so will item2 after cloning, so can't batch them together
+            // Has property data, and so will item2 after cloning, so can't batch them
+            // together
             item1.property_data = vec![1, 2];
 
             let mut item2 = item1.clone();
@@ -697,7 +701,8 @@ mod tests {
         assert_eq!(100..200, batches[1].slice);
     }
 
-    // Regression test - #181 Spawning effects with and without textures causes problems
+    // Regression test - #181 Spawning effects with and without textures causes
+    // problems
     #[test]
     fn effect_batch_texture_mixed() {
         let mut batches = vec![];
