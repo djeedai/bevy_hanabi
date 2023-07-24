@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
 use crate::{
-    impl_mod_render, Attribute, CpuValue, Gradient, RenderContext, RenderModifier, ShaderCode,
-    ToWgslString,
+    impl_mod_render, Attribute, BoxedModifier, CpuValue, Gradient, Modifier, ModifierContext,
+    RenderContext, RenderModifier, ShaderCode, ToWgslString,
 };
 
 /// A modifier modulating each particle's color by sampling a texture.
@@ -176,46 +176,128 @@ impl RenderModifier for SizeOverLifetimeModifier {
     }
 }
 
-/// Reorients the vertices to always face the camera when rendering.
+/// Mode of orientation of a particle's local frame.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub enum OrientMode {
+    /// Orient a particle such that its local XY plane is parallel to the
+    /// camera's near and far planes (depth planes).
+    ///
+    /// The local X axis is (1,0,0) in camera space, and the local Y axis is
+    /// (0,1,0). The local Z axis is (0,0,1), perpendicular to the camera depth
+    /// planes, pointing toward the camera.
+    ///
+    /// This mode is a bit cheaper to calculate than [`FaceCameraPosition`], and
+    /// should be preferred to it unless the particle absolutely needs to have
+    /// its Z axis pointing to the camera position.
+    ///
+    /// This is the default variant.
+    ///
+    /// [`FaceCameraPosition`]: crate::modifier::output::OrientMode::FaceCameraPosition
+    #[default]
+    ParallelCameraDepthPlane,
+
+    /// Orient a particle to face the camera's position.
+    ///
+    /// The local Z axis of the particle points directly at the camera position.
+    /// The X and Y axes form an orthonormal frame with it, where Y is roughly
+    /// upward.
+    ///
+    /// This mode is a bit more costly to calculate than
+    /// [`ParallelCameraDepthPlane`], and should be used only when the
+    /// particle absolutely needs to have its Z axis pointing to the camera
+    /// position.
+    ///
+    /// [`ParallelCameraDepthPlane`]: crate::modifier::output::OrientMode::ParallelCameraDepthPlane
+    FaceCameraPosition,
+
+    /// Orient a particle alongside its velocity.
+    ///
+    /// The local X axis points alongside the velocity. The local Y axis is
+    /// derived as the cross product of the camera direction with that local X
+    /// axis. The Z axis completes the orthonormal basis. This allows flat
+    /// particles (quads) to roughly face the camera position (as long as
+    /// velocity is not perpendicular to the camera depth plane), while having
+    /// their X axis always pointing alongside the velocity.
+    AlongVelocity,
+}
+
+/// Orients the particle's local frame.
+///
+/// The orientation is calculated during the rendering of each particle.
 ///
 /// # Attributes
 ///
-/// This modifier does not require any specific particle attribute.
+/// The required attribute(s) depend on the orientation [`mode`]:
+/// - [`OrientMode::ParallelCameraDepthPlane`]: This modifier does not require
+///   any specific particle attribute.
+/// - [`OrientMode::FaceCameraPosition`]: This modifier requires the
+///   [`Attribute::POSITION`] attribute.
+/// - [`OrientMode::AlongVelocity`]: This modifier requires the
+///   [`Attribute::POSITION`] and [`Attribute::VELOCITY`] attributes.
+///
+/// [`mode`]: crate::modifier::output::OrientModifier::mode
+/// [`Attribute::POSITION`]: crate::attributes::Attribute::POSITION
 #[derive(Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
-pub struct BillboardModifier;
-
-impl_mod_render!(BillboardModifier, &[]);
+pub struct OrientModifier {
+    /// Orientation mode for the particles.
+    pub mode: OrientMode,
+}
 
 #[typetag::serde]
-impl RenderModifier for BillboardModifier {
-    fn apply_render(&self, context: &mut RenderContext) {
-        context.vertex_code += "axis_x = view.view[0].xyz;\naxis_y = view.view[1].xyz;\n";
+impl Modifier for OrientModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Render
+    }
+
+    fn as_render(&self) -> Option<&dyn RenderModifier> {
+        Some(self)
+    }
+
+    fn as_render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+        Some(self)
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        // Note: don't required AXIS_X/Y/Z, they're written at the last minute in the
+        // render shader alone, so don't need to be stored as part of the particle's
+        // layout for simulation.
+        match self.mode {
+            OrientMode::ParallelCameraDepthPlane => &[],
+            OrientMode::FaceCameraPosition => &[Attribute::POSITION],
+            OrientMode::AlongVelocity => &[Attribute::POSITION, Attribute::VELOCITY],
+        }
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
     }
 }
 
-/// A modifier orienting each particle alongside its velocity.
-///
-/// # Attributes
-///
-/// This modifier requires the following particle attributes:
-/// - [`Attribute::POSITION`]
-/// - [`Attribute::VELOCITY`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
-pub struct OrientAlongVelocityModifier;
-
-impl_mod_render!(
-    OrientAlongVelocityModifier,
-    &[Attribute::POSITION, Attribute::VELOCITY]
-);
-
 #[typetag::serde]
-impl RenderModifier for OrientAlongVelocityModifier {
+impl RenderModifier for OrientModifier {
     fn apply_render(&self, context: &mut RenderContext) {
-        context.vertex_code += r#"let dir = normalize(particle.position - view.view[3].xyz);
-    axis_x = normalize(particle.velocity);
-    axis_y = cross(dir, axis_x);
-    axis_z = cross(axis_x, axis_y);
+        match self.mode {
+            OrientMode::ParallelCameraDepthPlane => {
+                context.vertex_code += r#"let cam_rot = get_camera_rotation_effect_space();
+axis_x = cam_rot[0].xyz;
+axis_y = cam_rot[1].xyz;
+axis_z = cam_rot[2].xyz;
 "#;
+            }
+            OrientMode::FaceCameraPosition => {
+                context.vertex_code += r#"axis_z = normalize(get_camera_position_effect_space() - position);
+axis_x = normalize(cross(view.view[1].xyz, axis_z));
+axis_y = cross(axis_z, axis_x);
+"#;
+            }
+            OrientMode::AlongVelocity => {
+                context.vertex_code += r#"let dir = normalize(position - get_camera_position_effect_space());
+axis_x = normalize(particle.velocity);
+axis_y = cross(dir, axis_x);
+axis_z = cross(axis_x, axis_y);
+"#;
+            }
+        }
     }
 }
 
@@ -278,9 +360,12 @@ mod tests {
 
     #[test]
     fn mod_billboard() {
-        let modifier = BillboardModifier;
+        let modifier = OrientModifier::default();
         let mut context = RenderContext::default();
         modifier.apply_render(&mut context);
-        assert!(context.vertex_code.contains("view.view"));
+        // TODO - less weak test...
+        assert!(context
+            .vertex_code
+            .contains("get_camera_rotation_effect_space"));
     }
 }

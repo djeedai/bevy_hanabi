@@ -19,6 +19,9 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
+#[derive(Component)]
+struct RotateSpeed(pub f32);
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut wgpu_settings = WgpuSettings::default();
     wgpu_settings
@@ -45,7 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugins(HanabiPlugin)
         .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
-        .add_systems(Update, (bevy::window::close_on_esc, rotate_camera))
+        .add_systems(Update, (bevy::window::close_on_esc, rotate_effect))
         .run();
 
     Ok(())
@@ -65,8 +68,11 @@ where
 
     EffectAsset::new(32768, Spawner::once(COUNT.into(), true), writer.finish())
         .with_name(name)
+        .with_simulation_space(SimulationSpace::Local)
         .init(init)
-        .render(BillboardModifier)
+        .render(OrientModifier {
+            mode: OrientMode::FaceCameraPosition,
+        })
         .render(SetColorModifier {
             color: COLOR.into(),
         })
@@ -79,6 +85,7 @@ where
 fn spawn_effect(
     commands: &mut Commands,
     name: String,
+    speed: f32,
     transform: Transform,
     effect: Handle<EffectAsset>,
     mesh: Handle<Mesh>,
@@ -86,19 +93,30 @@ fn spawn_effect(
 ) {
     commands
         .spawn((
-            Name::new(name),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect),
+            Name::new(format!("{}_parent", name)),
+            PbrBundle {
+                mesh: mesh.clone(),
+                material: material.clone(),
                 transform,
                 ..Default::default()
             },
         ))
         .with_children(|p| {
-            // Reference cube to visualize the emit origin
-            p.spawn(PbrBundle {
-                mesh,
-                material,
-                ..Default::default()
+            p.spawn((
+                Name::new(name),
+                ParticleEffectBundle {
+                    effect: ParticleEffect::new(effect),
+                    ..Default::default()
+                },
+                RotateSpeed(speed),
+            ))
+            .with_children(|p| {
+                // Reference cube to visualize the emit origin
+                p.spawn(PbrBundle {
+                    mesh,
+                    material,
+                    ..Default::default()
+                });
             });
         });
 }
@@ -135,6 +153,7 @@ fn setup(
     spawn_effect(
         &mut commands,
         "SetPositionCircleModifier".to_string(),
+        3.,
         Transform::from_translation(Vec3::new(-20., 0., 0.)),
         effects.add(base_effect("SetPositionCircleModifier", |writer| {
             SetPositionCircleModifier {
@@ -151,6 +170,7 @@ fn setup(
     spawn_effect(
         &mut commands,
         "SetPositionSphereModifier".to_string(),
+        1.,
         Transform::from_translation(Vec3::new(0., 0., 0.)),
         effects.add(base_effect("SetPositionSphereModifier", |writer| {
             SetPositionSphereModifier {
@@ -166,8 +186,8 @@ fn setup(
     spawn_effect(
         &mut commands,
         "SetPositionCone3dModifier".to_string(),
-        Transform::from_translation(Vec3::new(20., -5., 0.))
-            .with_rotation(Quat::from_rotation_z(1.)),
+        -5.,
+        Transform::from_translation(Vec3::new(20., 0., 0.)),
         effects.add(base_effect("SetPositionCone3dModifier", |writer| {
             SetPositionCone3dModifier {
                 height: writer.lit(10.).expr(),
@@ -181,11 +201,9 @@ fn setup(
     );
 }
 
-fn rotate_camera(time: Res<Time>, mut query: Query<&mut Transform, With<Camera>>) {
-    let mut transform = query.single_mut();
-    let radius_xz = 50.;
-    let a = ((time.elapsed_seconds() * 0.3).sin() + 1.) * PI / 2.;
-    let (s, c) = a.sin_cos();
-    *transform =
-        Transform::from_xyz(c * radius_xz, 3.0, s * radius_xz).looking_at(Vec3::ZERO, Vec3::Y)
+fn rotate_effect(time: Res<Time>, mut query: Query<(&RotateSpeed, &mut Transform)>) {
+    for (speed, mut transform) in &mut query {
+        let a = (time.elapsed_seconds() * 0.1 * speed.0) * PI;
+        *transform = Transform::from_rotation(Quat::from_rotation_y(a));
+    }
 }

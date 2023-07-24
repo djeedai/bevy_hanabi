@@ -1,4 +1,4 @@
-//! An example using the [`BillboardModifier`] to force
+//! An example using the [`OrientModifier`] to force
 //! particles to always render facing the camera.
 
 use bevy::{
@@ -102,7 +102,9 @@ fn setup(
             .render(ParticleTextureModifier {
                 texture: texture_handle,
             })
-            .render(BillboardModifier {})
+            .render(OrientModifier {
+                mode: OrientMode::ParallelCameraDepthPlane,
+            })
             .render(ColorOverLifetimeModifier { gradient })
             .render(SizeOverLifetimeModifier {
                 gradient: Gradient::constant([0.2; 2].into()),

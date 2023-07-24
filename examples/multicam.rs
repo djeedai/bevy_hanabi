@@ -94,7 +94,9 @@ fn make_effect(color: Color) -> EffectAsset {
             gradient: size_gradient.clone(),
             screen_space_size: false,
         })
-        .render(BillboardModifier)
+        .render(OrientModifier {
+            mode: OrientMode::FaceCameraPosition,
+        })
 }
 
 fn setup(

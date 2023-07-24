@@ -47,7 +47,7 @@ use crate::{
     render::batch::{BatchInput, BatchState, Batcher, EffectBatch},
     spawn::EffectSpawner,
     CompiledParticleEffect, ParticleLayout, PropertyLayout, RemovedEffectsEvent,
-    SimulationCondition,
+    SimulationCondition, SimulationSpace,
 };
 
 mod aligned_buffer_vec;
@@ -181,6 +181,10 @@ struct GpuSpawnerParams {
     /// spawn time, if the effect simulated in world space, or to all
     /// simulated particles if the effect is simulated in local space.
     transform: [f32; 12],
+    /// Inverse of [`transform`], stored with the same convention.
+    ///
+    /// [`transform`]: crate::render::GpuSpawnerParams::transform
+    inverse_transform: [f32; 12],
     /// Number of particles to spawn this frame.
     spawn: i32,
     /// Spawn seed, for randomized modifiers.
@@ -774,7 +778,7 @@ enum PipelineMode {
     Camera3d,
 }
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct ParticleRenderPipelineKey {
     /// Render shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
@@ -791,6 +795,10 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// the camera projection (and so, not influenced by the distance to the
     /// camera).
     screen_space_size: bool,
+    /// Key: LOCAL_SPACE_SIMULATION
+    /// The effect is simulated in local space, and during rendering all
+    /// particles are transformed by the effect's [`GlobalTransform`].
+    local_space_simulation: bool,
     /// For dual-mode configurations only, the actual mode of the current render
     /// pipeline. Otherwise the mode is implicitly determined by the active
     /// feature.
@@ -809,6 +817,7 @@ impl Default for ParticleRenderPipelineKey {
             particle_layout: ParticleLayout::empty(),
             has_image: false,
             screen_space_size: false,
+            local_space_simulation: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
             msaa_samples: Msaa::default().samples(),
@@ -821,6 +830,8 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
     type Key = ParticleRenderPipelineKey;
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
+        trace!("Specializing render pipeline for key: {:?}", key);
+
         // Base mandatory part of vertex buffer layout
         let vertex_buffer_layout = VertexBufferLayout {
             array_stride: 20,
@@ -859,47 +870,65 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             ],
         };
 
+        let mut entries = vec![
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(key.particle_layout.min_binding_size()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(GpuDispatchIndirect::min_size()),
+                },
+                count: None,
+            },
+        ];
+        if key.local_space_simulation {
+            entries.push(BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(GpuSpawnerParams::min_size()),
+                },
+                count: None,
+            });
+        }
+
         trace!(
             "GpuParticle: layout.min_binding_size={}",
             key.particle_layout.min_binding_size()
         );
-        let particles_buffer_layout = self.render_device.create_bind_group_layout(
-            &BindGroupLayoutDescriptor {
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: Some(key.particle_layout.min_binding_size()),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: true,
-                            min_binding_size: Some(GpuDispatchIndirect::min_size()),
-                        },
-                        count: None,
-                    },
-                ],
-                label: Some("hanabi:buffer_layout_render"),
-            },
+        trace!(
+            "Creating render bind group layout with {} entries",
+            entries.len()
         );
+        let particles_buffer_layout =
+            self.render_device
+                .create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    entries: &entries,
+                    label: Some("hanabi:buffer_layout_render"),
+                });
 
         let mut layout = vec![self.view_layout.clone(), particles_buffer_layout];
         let mut shader_defs = vec![];
@@ -920,6 +949,11 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         // Key: PARTICLE_SCREEN_SPACE_SIZE
         if key.screen_space_size {
             shader_defs.push("PARTICLE_SCREEN_SPACE_SIZE".into());
+        }
+
+        // Key: LOCAL_SPACE_SIMULATION
+        if key.local_space_simulation {
+            shader_defs.push("LOCAL_SPACE_SIMULATION".into());
         }
 
         #[cfg(all(feature = "2d", feature = "3d"))]
@@ -1023,6 +1057,9 @@ pub(crate) struct ExtractedEffect {
     /// Global transform of the effect origin, extracted from the
     /// [`GlobalTransform`].
     pub transform: Mat4,
+    /// Inverse global transform of the effect origin, extracted from the
+    /// [`GlobalTransform`].
+    pub inverse_transform: Mat4,
     /// Force field applied to all particles in the "update" phase.
     // FIXME - Remove from here, this should be using properties. Only left here for back-compat
     // until we have a proper graph solution to replace it.
@@ -1030,7 +1067,10 @@ pub(crate) struct ExtractedEffect {
     // Texture to use for the sprites of the particles of this effect.
     // pub image: Handle<Image>,
     pub has_image: bool, // TODO -> use flags
+    /// Is the particle size in screen-space logical pixels?
     pub screen_space_size: bool,
+    /// Is the effect simulated in local space?
+    pub local_space_simulation: bool,
     /// Texture to modulate the particle color.
     pub image_handle_id: HandleId,
     /// Init shader.
@@ -1062,6 +1102,7 @@ pub(crate) struct AddedEffect {
     /// Layout of properties for the effect, if properties are used at all, or
     /// an empty layout.
     pub property_layout: PropertyLayout,
+    pub layout_flags: LayoutFlags,
     /// Handle of the effect asset.
     pub handle: Handle<EffectAsset>,
 }
@@ -1194,12 +1235,20 @@ pub(crate) fn extract_effects(
                 entity
             );
             let property_layout = asset.property_layout();
+
+            let mut layout_flags = LayoutFlags::NONE;
+            if asset.simulation_space == SimulationSpace::Local {
+                layout_flags |= LayoutFlags::LOCAL_SPACE_SIMULATION;
+            }
+            // TODO - should we init the other flags here? (they're currently not used)
+
             trace!("Found new effect: entity {:?} | capacity {} | particle_layout {:?} | property_layout {:?}", entity, asset.capacity(), particle_layout, property_layout);
             AddedEffect {
                 entity,
                 capacity: asset.capacity(),
                 particle_layout,
                 property_layout,
+                layout_flags,
                 handle,
             }
         })
@@ -1242,18 +1291,20 @@ pub(crate) fn extract_effects(
             .id();
 
         let screen_space_size = effect.screen_space_size;
+        let local_space_simulation = effect.local_space_simulation;
 
         // TODO - Change detection and diff/caching to minimize CPU->GPU data transfer
         let property_layout = asset.property_layout().clone();
         let property_data = effect.write_properties(&property_layout);
 
         trace!(
-            "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?} has_image={} screen_space_size={}",
+            "Extracted instance of effect '{}' on entity {:?}: image_handle_id={:?} has_image={} screen_space_size={} local_space_simulation={}",
             asset.name,
             entity,
             image_handle_id,
             effect.particle_texture.is_some(),
-            screen_space_size
+            screen_space_size,
+            local_space_simulation
         );
 
         extracted_effects.effects.insert(
@@ -1265,9 +1316,12 @@ pub(crate) fn extract_effects(
                 property_data,
                 spawn_count,
                 transform: transform.compute_matrix(),
+                // TODO - more efficient/correct way than inverse()?
+                inverse_transform: transform.compute_matrix().inverse(),
                 force_field,
                 has_image: effect.particle_texture.is_some(),
                 screen_space_size,
+                local_space_simulation,
                 image_handle_id,
                 init_shader,
                 update_shader,
@@ -1517,6 +1571,7 @@ impl EffectsMeta {
                 added_effect.capacity,
                 &added_effect.particle_layout,
                 &added_effect.property_layout,
+                added_effect.layout_flags,
                 // update_pipeline.pipeline.clone(),
                 render_queue,
             );
@@ -1588,10 +1643,11 @@ const QUAD_VERTEX_POSITIONS: &[Vec3] = &[
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub(crate) struct LayoutFlags: u32 {
+    pub struct LayoutFlags: u32 {
         const NONE = 0;
         const PARTICLE_TEXTURE = 0b00000001;
         const SCREEN_SPACE_SIZE = 0b00000010;
+        const LOCAL_SPACE_SIMULATION = 0b00000100;
     }
 }
 
@@ -1681,12 +1737,22 @@ pub(crate) fn prepare_effects(
             if extracted_effect.screen_space_size {
                 layout_flags |= LayoutFlags::SCREEN_SPACE_SIZE;
             }
+            if extracted_effect.local_space_simulation {
+                layout_flags |= LayoutFlags::LOCAL_SPACE_SIMULATION;
+            }
 
             let image_handle_id = extracted_effect.image_handle_id;
 
             let mut transform: [f32; 12] = [0.; 12];
             transform
                 .copy_from_slice(&extracted_effect.transform.transpose().to_cols_array()[..12]);
+            let mut inverse_transform: [f32; 12] = [0.; 12];
+            inverse_transform.copy_from_slice(
+                &extracted_effect
+                    .inverse_transform
+                    .transpose()
+                    .to_cols_array()[..12],
+            );
 
             BatchInput {
                 handle: extracted_effect.handle.clone(),
@@ -1701,6 +1767,7 @@ pub(crate) fn prepare_effects(
                 force_field: extracted_effect.force_field,
                 spawn_count: extracted_effect.spawn_count,
                 transform,
+                inverse_transform,
                 property_buffer,
                 property_data: extracted_effect.property_data.clone(),
                 #[cfg(feature = "2d")]
@@ -1799,6 +1866,7 @@ pub(crate) fn prepare_effects(
                 // spawner_BASE, and need an array of them in the compute shader!!!!!!!!!!!!!!
                 let spawner_params = GpuSpawnerParams {
                     transform: input.transform,
+                    inverse_transform: input.inverse_transform,
                     spawn: input.spawn_count as i32,
                     seed: random::<u32>(), /* FIXME - Probably bad to re-seed each time there's a
                                             * change */
@@ -2122,8 +2190,9 @@ pub(crate) fn queue_effects(
     let indirect_buffer = effects_meta
         .dispatch_indirect_buffer
         .buffer()
-        .unwrap()
-        .clone();
+        .cloned()
+        .unwrap();
+    let spawner_buffer = effects_meta.spawner_buffer.buffer().cloned().unwrap();
 
     // Create the per-effect bind groups
     trace!("Create per-effect bind groups...");
@@ -2199,25 +2268,36 @@ pub(crate) fn queue_effects(
                     })
                 };
 
+                // 
+                let mut entries = vec![BindGroupEntry {
+                    binding: 0,
+                    resource: buffer.max_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: buffer.indirect_max_binding(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: BindingResource::Buffer(BufferBinding {
+                        buffer: &indirect_buffer,
+                        offset: 0,
+                        size: Some(GpuDispatchIndirect::min_size()),
+                    }),
+                },];
+                if buffer.layout_flags().contains(LayoutFlags::LOCAL_SPACE_SIMULATION) {
+                    entries.push(BindGroupEntry {
+                        binding: 3,
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &spawner_buffer,
+                            offset: 0,
+                            size: Some(GpuSpawnerParams::min_size()),
+                        }),
+                    });
+                }
+                trace!("Creating render bind group with {} entries", entries.len());
                 let render = render_device.create_bind_group(&BindGroupDescriptor {
-                    entries: &[
-                        BindGroupEntry {
-                            binding: 0,
-                            resource: buffer.max_binding(),
-                        },
-                        BindGroupEntry {
-                            binding: 1,
-                            resource: buffer.indirect_max_binding(),
-                        },
-                        BindGroupEntry {
-                            binding: 2,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: &indirect_buffer,
-                                offset: 0,
-                                size: Some(GpuDispatchIndirect::min_size()),
-                            }),
-                        },
-                    ],
+                    entries: &entries,
                     label: Some(&format!(
                         "hanabi:bind_group_render_vfx{buffer_index}_particles",
                     )),
@@ -2330,6 +2410,9 @@ pub(crate) fn queue_effects(
                 }
 
                 let screen_space_size = batch.layout_flags.contains(LayoutFlags::SCREEN_SPACE_SIZE);
+                let local_space_simulation = batch
+                    .layout_flags
+                    .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
 
                 // Specialize the render pipeline based on the effect batch
                 trace!(
@@ -2347,6 +2430,7 @@ pub(crate) fn queue_effects(
                         particle_layout: batch.particle_layout.clone(),
                         has_image,
                         screen_space_size,
+                        local_space_simulation,
                         #[cfg(feature = "3d")]
                         pipeline_mode: PipelineMode::Camera2d,
                         msaa_samples: msaa.samples(),
@@ -2467,6 +2551,9 @@ pub(crate) fn queue_effects(
                 }
 
                 let screen_space_size = batch.layout_flags.contains(LayoutFlags::SCREEN_SPACE_SIZE);
+                let local_space_simulation = batch
+                    .layout_flags
+                    .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
 
                 // Specialize the render pipeline based on the effect batch
                 trace!(
@@ -2484,6 +2571,7 @@ pub(crate) fn queue_effects(
                         particle_layout: batch.particle_layout.clone(),
                         has_image,
                         screen_space_size,
+                        local_space_simulation,
                         #[cfg(feature = "2d")]
                         pipeline_mode: PipelineMode::Camera3d,
                         msaa_samples: msaa.samples(),
@@ -2570,12 +2658,25 @@ fn draw<'w>(
         "set_bind_group(1): dispatch_indirect_offset={}",
         dispatch_indirect_offset
     );
+    let spawner_base = effect_batch.spawner_base;
+    let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
+    assert!(spawner_buffer_aligned >= GpuSpawnerParams::min_size().get() as usize);
+    let spawner_offset = spawner_base * spawner_buffer_aligned as u32;
+    let dyn_uniform_indices: [u32; 2] = [dispatch_indirect_offset, spawner_offset];
+    let dyn_uniform_indices = if effect_batch
+        .layout_flags
+        .contains(LayoutFlags::LOCAL_SPACE_SIMULATION)
+    {
+        &dyn_uniform_indices
+    } else {
+        &dyn_uniform_indices[..1]
+    };
     pass.set_bind_group(
         1,
         effect_bind_groups
             .particle_render(effect_batch.buffer_index)
             .unwrap(),
-        &[dispatch_indirect_offset],
+        dyn_uniform_indices,
     );
 
     // Particle texture

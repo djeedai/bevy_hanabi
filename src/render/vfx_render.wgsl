@@ -42,6 +42,25 @@ struct DispatchIndirect {
     pong: u32,
 }
 
+struct ForceFieldSource {
+    position: vec3<f32>,
+    max_radius: f32,
+    min_radius: f32,
+    mass: f32,
+    force_exponent: f32,
+    conform_to_sphere: f32,
+}
+
+struct Spawner {
+    transform: mat3x4<f32>, // transposed (row-major)
+    inverse_transform: mat3x4<f32>, // transposed (row-major)
+    spawn: i32,
+    seed: u32,
+    count: i32,
+    effect_index: u32,
+    force_field: array<ForceFieldSource, 16>,
+}
+
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
@@ -54,6 +73,9 @@ struct VertexOutput {
 @group(1) @binding(0) var<storage, read> particle_buffer : ParticlesBuffer;
 @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
+#ifdef LOCAL_SPACE_SIMULATION
+@group(1) @binding(3) var<storage, read> spawner : Spawner; // NOTE - same group as update
+#endif
 #ifdef PARTICLE_TEXTURE
 @group(2) @binding(0) var particle_texture: texture_2d<f32>;
 @group(2) @binding(1) var particle_sampler: sampler;
@@ -126,6 +148,38 @@ fn rand_uniform(a: f32, b: f32) -> f32 {
     return a + frand() * (b - a);
 }
 
+fn get_camera_position_effect_space() -> vec3<f32> {
+    let view_pos = view.view[3].xyz;
+#ifdef LOCAL_SPACE_SIMULATION
+    let inverse_transform = transpose(
+        mat3x3(
+            spawner.inverse_transform[0].xyz,
+            spawner.inverse_transform[1].xyz,
+            spawner.inverse_transform[2].xyz,
+        )
+    );
+    return inverse_transform * view_pos;
+#else
+    return view_pos;
+#endif
+}
+
+fn get_camera_rotation_effect_space() -> mat3x3<f32> {
+    let view_rot = mat3x3(view.view[0].xyz, view.view[1].xyz, view.view[2].xyz);
+#ifdef LOCAL_SPACE_SIMULATION
+    let inverse_transform = transpose(
+        mat3x3(
+            spawner.inverse_transform[0].xyz,
+            spawner.inverse_transform[1].xyz,
+            spawner.inverse_transform[2].xyz,
+        )
+    );
+    return inverse_transform * view_rot;
+#else
+    return view_rot;
+#endif
+}
+
 {{RENDER_EXTRA}}
 
 @vertex
@@ -150,16 +204,30 @@ fn vertex(
 
 {{VERTEX_MODIFIERS}}
 
+#ifdef LOCAL_SPACE_SIMULATION
+    let transform = transpose(
+        mat4x4(
+            spawner.transform[0],
+            spawner.transform[1],
+            spawner.transform[2],
+            vec4<f32>(0.0, 0.0, 0.0, 1.0)
+        )
+    );
+#endif
+
 #ifdef PARTICLE_SCREEN_SPACE_SIZE
     let half_screen = view.viewport.zw / 2.;
     let vpos = vertex_position * vec3<f32>(size.x / half_screen.x, size.y / half_screen.y, 1.0);
-    out.position = view.view_proj * vec4<f32>(particle.position, 1.0) + vec4<f32>(vpos, 0.0);
+    let local_position = particle.position;
+    let world_position = {{SIMULATION_SPACE_TRANSFORM_PARTICLE}};
+    out.position = view.view_proj * world_position + vec4<f32>(vpos, 0.0);
 #else
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
-    let world_position = particle.position
+    let local_position = particle.position
         + axis_x * vpos.x
         + axis_y * vpos.y;
-    out.position = view.view_proj * vec4<f32>(world_position, 1.0);
+    let world_position = {{SIMULATION_SPACE_TRANSFORM_PARTICLE}};
+    out.position = view.view_proj * world_position;
 #endif
 
     out.color = color;

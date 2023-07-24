@@ -4,8 +4,8 @@
 //! kind of portal effect where particles turn around a circle and appear to be
 //! ejected from it.
 //!
-//! The `OrientAlongVelocityModifier` paired with an elongated particle size
-//! gives the appearance of sparks.
+//! The `OrientMode::AlongVelocity` of the `OrientModifier` paired with an
+//! elongated particle size gives the appearance of sparks.
 //!
 //! The addition of some gravity and drag, combined with a careful choice of
 //! lifetime, give a subtle effect of particles appearing to fall down right
@@ -114,7 +114,9 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
                 gradient: size_gradient1,
                 screen_space_size: false,
             })
-            .render(OrientAlongVelocityModifier),
+            .render(OrientModifier {
+                mode: OrientMode::AlongVelocity,
+            }),
     );
 
     commands.spawn((

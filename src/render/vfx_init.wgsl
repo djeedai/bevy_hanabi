@@ -1,15 +1,15 @@
 struct Particle {
 {{ATTRIBUTES}}
-};
+}
 
 struct ParticleBuffer {
     particles: array<Particle>,
-};
+}
 
 struct SimParams {
     delta_time: f32,
     time: f32,
-};
+}
 
 struct ForceFieldSource {
     position: vec3<f32>,
@@ -22,16 +22,17 @@ struct ForceFieldSource {
 
 struct Spawner {
     transform: mat3x4<f32>, // transposed (row-major)
+    inverse_transform: mat3x4<f32>, // transposed (row-major)
     spawn: i32,
     seed: u32,
     count: atomic<i32>,
     effect_index: u32,
     force_field: array<ForceFieldSource, 16>,
-};
+}
 
 struct IndirectBuffer {
     indices: array<u32>,
-};
+}
 
 struct RenderIndirectBuffer {
     vertex_count: u32,
@@ -43,7 +44,7 @@ struct RenderIndirectBuffer {
     dead_count: atomic<u32>,
     max_spawn: u32,
     ping: u32,
-};
+}
 
 {{PROPERTIES}}
 
@@ -163,8 +164,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     var particle = Particle();
     {{INIT_CODE}}
 
-    // Global-space simulation
-    particle.position += transform[3].xyz;
+    {{SIMULATION_SPACE_TRANSFORM_PARTICLE}}
 
     // Count as alive
     atomicAdd(&render_indirect.alive_count, 1u);

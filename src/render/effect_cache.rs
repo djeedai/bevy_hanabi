@@ -15,7 +15,12 @@ use std::{
     sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
 };
 
-use crate::{asset::EffectAsset, render::GpuDispatchIndirect, ParticleLayout, PropertyLayout};
+use crate::{
+    asset::EffectAsset,
+    render::GpuDispatchIndirect,
+    render::{GpuSpawnerParams, LayoutFlags},
+    ParticleLayout, PropertyLayout,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSlice {
@@ -99,6 +104,8 @@ pub struct EffectBuffer {
     particle_layout: ParticleLayout,
     /// Layout of properties of the effect(s), if using properties.
     property_layout: PropertyLayout,
+    /// Flags
+    layout_flags: LayoutFlags,
     /// -
     particles_buffer_layout_simulate: BindGroupLayout,
     /// -
@@ -144,15 +151,17 @@ impl EffectBuffer {
         capacity: u32,
         particle_layout: ParticleLayout,
         property_layout: PropertyLayout,
+        layout_flags: LayoutFlags,
         // compute_pipeline: ComputePipeline,
         render_device: &RenderDevice,
         label: Option<&str>,
     ) -> Self {
         trace!(
-            "EffectBuffer::new(capacity={}, particle_layout={:?}, property_layout={:?}, item_size={}B, properties_size={}B)",
+            "EffectBuffer::new(capacity={}, particle_layout={:?}, property_layout={:?}, layout_flags={:?}, item_size={}B, properties_size={}B)",
             capacity,
             particle_layout,
             property_layout,
+            layout_flags,
             particle_layout.min_binding_size().get(),
             if property_layout.is_empty() { 0 } else { property_layout.min_binding_size().get() },
         );
@@ -266,40 +275,54 @@ impl EffectBuffer {
                 label: Some(label),
             });
 
+        let mut entries = vec![
+            BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(particle_layout.min_binding_size()),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 2,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(GpuDispatchIndirect::min_size()),
+                },
+                count: None,
+            },
+        ];
+        if layout_flags.contains(LayoutFlags::LOCAL_SPACE_SIMULATION) {
+            entries.push(BindGroupLayoutEntry {
+                binding: 3,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(GpuSpawnerParams::min_size()), // TODO - array
+                },
+                count: None,
+            });
+        }
+        trace!("Creating render layout with {} entries", entries.len());
         let particles_buffer_layout_with_dispatch =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: Some(particle_layout.min_binding_size()),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: true,
-                            min_binding_size: Some(GpuDispatchIndirect::min_size()),
-                        },
-                        count: None,
-                    },
-                ],
+                entries: &entries,
                 label: Some("hanabi:buffer_layout_render"),
             });
 
@@ -309,6 +332,7 @@ impl EffectBuffer {
             properties_buffer,
             particle_layout,
             property_layout,
+            layout_flags,
             particles_buffer_layout_simulate,
             particles_buffer_layout_with_dispatch,
             capacity,
@@ -329,6 +353,10 @@ impl EffectBuffer {
 
     pub fn property_layout(&self) -> &PropertyLayout {
         &self.property_layout
+    }
+
+    pub fn layout_flags(&self) -> LayoutFlags {
+        self.layout_flags
     }
 
     pub fn particle_layout_bind_group_simulate(&self) -> &BindGroupLayout {
@@ -585,6 +613,7 @@ impl EffectCache {
         capacity: u32,
         particle_layout: &ParticleLayout,
         property_layout: &PropertyLayout,
+        layout_flags: LayoutFlags,
         // pipeline: ComputePipeline,
         _queue: &RenderQueue,
     ) -> EffectCacheId {
@@ -629,6 +658,7 @@ impl EffectCache {
                     capacity,
                     particle_layout.clone(),
                     property_layout.clone(),
+                    layout_flags,
                     //pipeline,
                     &self.device,
                     Some(&format!("hanabi:buffer:effect{buffer_index}_particles")),
@@ -812,6 +842,7 @@ mod gpu_tests {
             capacity,
             l64.clone(),
             PropertyLayout::empty(), // not using properties
+            LayoutFlags::NONE,
             &render_device,
             Some("my_buffer"),
         );
@@ -887,6 +918,7 @@ mod gpu_tests {
             capacity,
             l64.clone(),
             PropertyLayout::empty(), // not using properties
+            LayoutFlags::NONE,
             &render_device,
             Some("my_buffer"),
         );
@@ -958,6 +990,7 @@ mod gpu_tests {
             capacity,
             &l32,
             &empty_property_layout,
+            LayoutFlags::NONE,
             &render_queue,
         );
         assert!(id1.is_valid());
@@ -974,6 +1007,7 @@ mod gpu_tests {
             capacity,
             &l32,
             &empty_property_layout,
+            LayoutFlags::NONE,
             &render_queue,
         );
         assert!(id2.is_valid());
@@ -996,7 +1030,14 @@ mod gpu_tests {
         }
 
         // Regression #60
-        let id3 = effect_cache.insert(asset, capacity, &l32, &empty_property_layout, &render_queue);
+        let id3 = effect_cache.insert(
+            asset,
+            capacity,
+            &l32,
+            &empty_property_layout,
+            LayoutFlags::NONE,
+            &render_queue,
+        );
         assert!(id3.is_valid());
         let slice3 = effect_cache.get_slice(id3);
         assert_eq!(
