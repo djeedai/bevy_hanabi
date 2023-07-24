@@ -269,7 +269,7 @@ impl Modifier for OrientModifier {
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 }
 

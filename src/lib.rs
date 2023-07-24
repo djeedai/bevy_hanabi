@@ -919,7 +919,7 @@ impl CompiledParticleEffect {
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
             .replace(
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
-                &sim_space_transform_code,
+                sim_space_transform_code,
             );
         let init_shader = shader_cache.get_or_insert(&asset.name, &init_shader_source, shaders);
         trace!("Configured init shader:\n{}", init_shader_source);
@@ -953,7 +953,7 @@ impl CompiledParticleEffect {
             .replace("{{RENDER_EXTRA}}", &render_context.render_extra)
             .replace(
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
-                &sim_space_transform_code,
+                sim_space_transform_code,
             );
         let render_shader = shader_cache.get_or_insert(&asset.name, &render_shader_source, shaders);
         trace!("Configured render shader:\n{}", render_shader_source);
