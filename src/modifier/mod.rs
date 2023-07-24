@@ -818,8 +818,15 @@ fn main() {{
             &ParticleTextureModifier::default(),
             &ColorOverLifetimeModifier::default(),
             &SizeOverLifetimeModifier::default(),
-            &BillboardModifier,
-            &OrientAlongVelocityModifier,
+            &OrientModifier {
+                mode: OrientMode::ParallelCameraDepthPlane,
+            },
+            &OrientModifier {
+                mode: OrientMode::FaceCameraPosition,
+            },
+            &OrientModifier {
+                mode: OrientMode::AlongVelocity,
+            },
         ];
         for &modifier in modifiers.iter() {
             let mut context = RenderContext::default();
@@ -849,9 +856,9 @@ struct View {{
     height: f32,
 }};
 
-fn frand() -> f32 {{
-    return 0.0;
-}}
+fn frand() -> f32 {{ return 0.0; }}
+fn get_camera_position_effect_space() -> vec3<f32> {{ return vec3<f32>(); }}
+fn get_camera_rotation_effect_space() -> mat3x3<f32> {{ return mat3x3<f32>(); }}
 
 const tau: f32 = 6.283185307179586476925286766559;
 
@@ -871,6 +878,8 @@ struct VertexOutput {{
 @compute @workgroup_size(64)
 fn main() {{
     var particle = Particle();
+    var position = vec3<f32>(0.0, 0.0, 0.0);
+    var velocity = vec3<f32>(0.0, 0.0, 0.0);
     var size = vec2<f32>(1.0, 1.0);
     var axis_x = vec3<f32>(1.0, 0.0, 0.0);
     var axis_y = vec3<f32>(0.0, 1.0, 0.0);

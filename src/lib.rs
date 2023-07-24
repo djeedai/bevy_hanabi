@@ -369,7 +369,14 @@ pub enum SimulationSpace {
     /// influenced anymore by the emitter's [`Transform`] after spawning.
     #[default]
     Global,
-    // Local, // TODO
+
+    /// Particles are simulated in local effect space.
+    ///
+    /// The local space is the space associated with the [`Transform`] of the
+    /// [`ParticleEffect`] component being simulated. Particles simulated in
+    /// local effect space are "attached" to the effect, and will be affected by
+    /// its [`Transform`].
+    Local,
 }
 
 /// Value a user wants to assign to a property with
@@ -606,6 +613,8 @@ pub struct CompiledParticleEffect {
     z_layer_2d: FloatOrd,
     /// Is the particle size in screen-space logical pixels?
     screen_space_size: bool,
+    /// Is the effect simulated in local space?
+    local_space_simulation: bool,
 }
 
 impl Default for CompiledParticleEffect {
@@ -622,6 +631,7 @@ impl Default for CompiledParticleEffect {
             #[cfg(feature = "2d")]
             z_layer_2d: FloatOrd(0.0),
             screen_space_size: false,
+            local_space_simulation: false,
         }
     }
 }
@@ -847,6 +857,8 @@ impl CompiledParticleEffect {
             }
         }
 
+        self.local_space_simulation = asset.simulation_space == SimulationSpace::Local;
+
         // Generate the shader code for the render shader
         let mut render_context = RenderContext::default();
         for m in asset.render_modifiers() {
@@ -893,12 +905,22 @@ impl CompiledParticleEffect {
 
         // Configure the init shader template, and make sure a corresponding shader
         // asset exists
+        let sim_space_transform_code = if asset.simulation_space == SimulationSpace::Global {
+            "particle.position += transform[3].xyz;"
+        } else {
+            assert_eq!(asset.simulation_space, SimulationSpace::Local);
+            ""
+        };
         let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
             .replace("{{ATTRIBUTES}}", &attributes_code)
             .replace("{{INIT_CODE}}", &init_code)
             .replace("{{INIT_EXTRA}}", &init_extra)
             .replace("{{PROPERTIES}}", &properties_code)
-            .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
+            .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
+            .replace(
+                "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
+                &sim_space_transform_code,
+            );
         let init_shader = shader_cache.get_or_insert(&asset.name, &init_shader_source, shaders);
         trace!("Configured init shader:\n{}", init_shader_source);
 
@@ -917,22 +939,33 @@ impl CompiledParticleEffect {
 
         // Configure the render shader template, and make sure a corresponding shader
         // asset exists
+        let sim_space_transform_code = if asset.simulation_space == SimulationSpace::Global {
+            "vec4<f32>(local_position, 1.0)"
+        } else {
+            assert_eq!(asset.simulation_space, SimulationSpace::Local);
+            "transform * vec4<f32>(local_position, 1.0)"
+        };
         let render_shader_source = PARTICLES_RENDER_SHADER_TEMPLATE
             .replace("{{ATTRIBUTES}}", &attributes_code)
             .replace("{{INPUTS}}", &inputs_code)
             .replace("{{VERTEX_MODIFIERS}}", &render_context.vertex_code)
             .replace("{{FRAGMENT_MODIFIERS}}", &render_context.fragment_code)
-            .replace("{{RENDER_EXTRA}}", &render_context.render_extra);
+            .replace("{{RENDER_EXTRA}}", &render_context.render_extra)
+            .replace(
+                "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
+                &sim_space_transform_code,
+            );
         let render_shader = shader_cache.get_or_insert(&asset.name, &render_shader_source, shaders);
         trace!("Configured render shader:\n{}", render_shader_source);
 
         trace!(
-            "tick_spawners: init_shader={:?} update_shader={:?} render_shader={:?} has_image={} screen_space_size={}",
+            "tick_spawners: init_shader={:?} update_shader={:?} render_shader={:?} has_image={} screen_space_size={} local_space_simulation={}",
             init_shader,
             update_shader,
             render_shader,
             render_context.particle_texture.is_some(),
-            self.screen_space_size
+            self.screen_space_size,
+            self.local_space_simulation
         );
 
         // TODO - Replace with Option<ConfiguredShader { handle: Handle<Shader>, hash:

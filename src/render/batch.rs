@@ -107,6 +107,8 @@ pub(crate) struct BatchInput {
     pub spawn_count: u32,
     /// Emitter transform.
     pub transform: [f32; 12],
+    /// Emitter inverse transform.
+    pub inverse_transform: [f32; 12],
     /// GPU buffer where properties for this batch need to be written.
     pub property_buffer: Option<Buffer>,
     /// Serialized property data.
@@ -546,6 +548,7 @@ mod tests {
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
             spawn_count: 32,
             transform: [0.; 12],
+            inverse_transform: [0.; 12],
             property_buffer: None,
             property_data: vec![],
             #[cfg(feature = "2d")]
