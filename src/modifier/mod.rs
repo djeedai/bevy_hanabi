@@ -348,8 +348,12 @@ pub trait UpdateModifier: Modifier {
 }
 
 /// Particle rendering shader code generation context.
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct RenderContext {
+#[derive(Debug, PartialEq)]
+pub struct RenderContext<'a> {
+    /// Module being populated with new expressions from modifiers.
+    pub module: &'a mut Module,
+    /// Layout of properties for the current effect.
+    pub property_layout: &'a PropertyLayout,
     /// Main particle rendering code for the vertex shader.
     pub vertex_code: String,
     /// Main particle rendering code for the fragment shader.
@@ -369,7 +373,22 @@ pub struct RenderContext {
     pub screen_space_size: bool,
 }
 
-impl RenderContext {
+impl<'a> RenderContext<'a> {
+    /// Create a new render context.
+    pub fn new(module: &'a mut Module, property_layout: &'a PropertyLayout) -> Self {
+        Self {
+            module,
+            property_layout,
+            vertex_code: String::new(),
+            fragment_code: String::new(),
+            render_extra: String::new(),
+            particle_texture: None,
+            gradients: HashMap::new(),
+            size_gradients: HashMap::new(),
+            screen_space_size: false,
+        }
+    }
+
     /// Set the main texture used to color particles.
     fn set_particle_texture(&mut self, handle: Handle<Image>) {
         self.particle_texture = Some(handle);
@@ -399,6 +418,26 @@ impl RenderContext {
         self.size_gradients.insert(func_id, gradient);
         let func_name = format!("size_gradient_{0:016X}", func_id);
         func_name
+    }
+}
+
+impl<'a> EvalContext for RenderContext<'a> {
+    fn module(&self) -> &Module {
+        self.module
+    }
+
+    fn property_layout(&self) -> &PropertyLayout {
+        self.property_layout
+    }
+
+    fn expr(&self, expr: ExprHandle) -> Result<&Expr, ExprError> {
+        self.module
+            .get(expr)
+            .ok_or(ExprError::GraphEvalError("Unknown expression.".to_string()))
+    }
+
+    fn eval(&self, handle: ExprHandle) -> Result<String, ExprError> {
+        self.expr(handle)?.eval(self)
     }
 }
 
@@ -828,8 +867,10 @@ fn main() {{
                 mode: OrientMode::AlongVelocity,
             },
         ];
+        let mut module = Module::default();
         for &modifier in modifiers.iter() {
-            let mut context = RenderContext::default();
+            let property_layout = PropertyLayout::default();
+            let mut context = RenderContext::new(&mut module, &property_layout);
             modifier.apply_render(&mut context);
             let vertex_code = context.vertex_code;
             let fragment_code = context.fragment_code;

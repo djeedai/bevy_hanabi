@@ -1,14 +1,15 @@
 use bevy::{
     asset::{AssetLoader, LoadContext, LoadedAsset},
     reflect::{Reflect, TypeUuid},
-    utils::{BoxedFuture, HashSet},
+    utils::{default, BoxedFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::Value,
     modifier::{InitModifier, RenderModifier, UpdateModifier},
-    BoxedModifier, Module, ParticleLayout, Property, PropertyLayout, SimulationSpace, Spawner,
+    BoxedModifier, ExprHandle, Module, ParticleLayout, Property, PropertyLayout, SimulationSpace,
+    Spawner,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -74,6 +75,82 @@ pub enum SimulationCondition {
     /// [`ComputedVisibility`]: bevy::render::view::ComputedVisibility
     /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
     Always,
+}
+
+/// Alpha mode for rendering an effect.
+///
+/// The alpha mode determines how the alpha value of a particle is used to
+/// render it. In general effects use semi-transparent particles. However, there
+/// are multiple alpha blending techniques available, producing different
+/// results.
+///
+/// This is very similar to the [`bevy::pbr::AlphaMode`] of the `bevy_pbr`
+/// crate, except that a different set of values is supported which reflects
+/// what this library currently supports.
+///
+/// The alpha mode only affects the render phase that particles are rendered
+/// into when rendering 3D views. For 2D views, all particle effects are
+/// rendered during the [`Transparent2d`] render phase.
+///
+/// [`Transparent2d`]: bevy::core_pipeline::core_2d::Transparent2d
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum AlphaMode {
+    /// Render the effect with alpha blending.
+    ///
+    /// This is the most common mode for handling transparency. It uses the
+    /// "blend" or "over" formula, where the color of each particle fragment is
+    /// accumulated into the destination render target after being modulated by
+    /// its alpha value.
+    ///
+    /// ```txt
+    /// dst_color = src_color * (1 - particle_alpha) + particle_color * particle_alpha;
+    /// dst_alpha = src_alpha * (1 - particle_alpha) + particle_alpha
+    /// ```
+    ///
+    /// This is the default blending mode.
+    ///
+    /// For 3D views, effects with this mode are rendered during the
+    /// [`Transparent3d`] render phase.
+    ///
+    /// [`Transparent3d`]: bevy::core_pipeline::core_3d::Transparent3d
+    #[default]
+    Blend,
+
+    /// Render the effect with alpha masking.
+    ///
+    /// With this mode, the final alpha value computed per particle fragment is
+    /// compared against the cutoff value stored in this enum. Any fragment
+    /// with a value under the cutoff is discarded, while any fragment with
+    /// a value equal or over the cutoff becomes fully opaque. The end result is
+    /// an opaque particle with a cutout shape.
+    ///
+    /// ```txt
+    /// if src_alpha >= cutoff {
+    ///     dst_color = particle_color;
+    ///     dst_alpha = 1;
+    /// } else {
+    ///     discard;
+    /// }
+    /// ```
+    ///
+    /// The assigned expression must yield a scalar floating-point value,
+    /// typically in the \[0:1\] range. This expression is assigned at the
+    /// beginning of the fragment shader to the special built-in `alpha_cutoff`
+    /// variable, which can be further accessed and modified by render
+    /// modifiers.
+    ///
+    /// The cutoff threshold comparison of the fragment's alpha value against
+    /// `alpha_cutoff` is performed as the last operation in the fragment
+    /// shader. This allows modifiers to affect the alpha value of the
+    /// particle before it's tested against the cutoff value stored in
+    /// `alpha_cutoff`.
+    ///
+    /// For 3D views, effects with this mode are rendered during the
+    /// [`AlphaMask3d`] render phase.
+    ///
+    /// [`AlphaMask3d`]: bevy::core_pipeline::core_3d::AlphaMask3d
+    Mask(ExprHandle),
 }
 
 /// Asset describing a visual effect.
@@ -142,6 +219,8 @@ pub struct EffectAsset {
     pub motion_integration: MotionIntegration,
     /// Expression module for this effect.
     module: Module,
+    /// Alpha mode.
+    pub alpha_mode: AlphaMode,
 }
 
 impl EffectAsset {
@@ -196,18 +275,10 @@ impl EffectAsset {
     /// [`Expr`]: crate::graph::expr::Expr
     pub fn new(capacity: u32, spawner: Spawner, module: Module) -> Self {
         Self {
-            name: String::new(),
             capacity,
             spawner,
-            z_layer_2d: 0.,
-            simulation_space: SimulationSpace::default(),
-            simulation_condition: SimulationCondition::default(),
-            init_modifiers: vec![],
-            update_modifiers: vec![],
-            render_modifiers: vec![],
-            properties: vec![],
-            motion_integration: MotionIntegration::default(),
             module,
+            ..default()
         }
     }
 
@@ -254,6 +325,12 @@ impl EffectAsset {
     /// Set the effect's simulation space.
     pub fn with_simulation_space(mut self, simulation_space: SimulationSpace) -> Self {
         self.simulation_space = simulation_space;
+        self
+    }
+
+    /// Set the alpha mode.
+    pub fn with_alpha_mode(mut self, alpha_mode: AlphaMode) -> Self {
+        self.alpha_mode = alpha_mode;
         self
     }
 
@@ -515,7 +592,9 @@ mod tests {
             .is_ok());
         // assert_eq!(effect.update_layout, update_layout);
 
-        let mut render_context = RenderContext::default();
+        let mut module = Module::default();
+        let property_layout = PropertyLayout::default();
+        let mut render_context = RenderContext::new(&mut module, &property_layout);
         ParticleTextureModifier::default().apply_render(&mut render_context);
         ColorOverLifetimeModifier::default().apply_render(&mut render_context);
         SizeOverLifetimeModifier::default().apply_render(&mut render_context);

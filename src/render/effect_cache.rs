@@ -603,6 +603,7 @@ impl EffectCache {
         &self.buffers
     }
 
+    #[allow(dead_code)]
     pub fn buffers_mut(&mut self) -> &mut [Option<EffectBuffer>] {
         &mut self.buffers
     }

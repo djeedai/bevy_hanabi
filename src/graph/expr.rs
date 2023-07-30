@@ -777,6 +777,17 @@ pub enum BuiltInOperator {
     /// [the PCG family]: https://www.pcg-random.org/
     /// [`Spawner`]: crate::Spawner
     Rand(ValueType),
+    /// Value of the alpha cutoff for alpha masking.
+    ///
+    /// This value is only available in the render context. It represents the
+    /// current threshold, generally in \[0:1\], which the particle's fragment
+    /// alpha value will be compared against to determine alpha masking.
+    ///
+    /// The value is initalized at the beginning of the fragment shader to the
+    /// expression stored in [`AlphaMode::Mask`].
+    ///
+    /// [`AlphaMode::Mask`]: crate::AlphaMode::Mask
+    AlphaCutoff,
 }
 
 impl BuiltInOperator {
@@ -811,6 +822,7 @@ impl BuiltInOperator {
                 }
                 ValueType::Matrix(_) => panic!("Invalid BuiltInOperator::Rand(ValueType::Matrix)."),
             },
+            BuiltInOperator::AlphaCutoff => "alpha_cutoff",
         }
     }
 
@@ -820,6 +832,7 @@ impl BuiltInOperator {
             BuiltInOperator::Time => ValueType::Scalar(ScalarType::Float),
             BuiltInOperator::DeltaTime => ValueType::Scalar(ScalarType::Float),
             BuiltInOperator::Rand(value_type) => *value_type,
+            BuiltInOperator::AlphaCutoff => ValueType::Scalar(ScalarType::Float),
         }
     }
 
@@ -1259,6 +1272,25 @@ impl ExprWriter {
         self.push(Expr::BuiltIn(BuiltInExpr::new(BuiltInOperator::Rand(
             value_type.into(),
         ))))
+    }
+
+    /// Create a new writer expression representing the alpha cutoff value used
+    /// for alpha masking.
+    ///
+    /// This expression is only valid when used in the context of the fragment
+    /// shader, in the render context.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut w = ExprWriter::new();
+    /// let x = w.alpha_cutoff(); // x = alpha_cutoff;
+    /// ```
+    pub fn alpha_cutoff(&self) -> WriterExpr {
+        self.push(Expr::BuiltIn(BuiltInExpr::new(
+            BuiltInOperator::AlphaCutoff,
+        )))
     }
 
     /// Finish using the writer, and recover the [`Module`] where all [`Expr`]
