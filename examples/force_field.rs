@@ -131,7 +131,7 @@ fn setup(
         material: materials.add(StandardMaterial {
             base_color: Color::rgba(0., 0.7, 0., 0.3),
             unlit: true,
-            alpha_mode: AlphaMode::Blend,
+            alpha_mode: bevy::pbr::AlphaMode::Blend,
             ..Default::default()
         }),
         ..Default::default()
@@ -147,7 +147,7 @@ fn setup(
         material: materials.add(StandardMaterial {
             base_color: Color::rgba(0.7, 0., 0., 0.3),
             unlit: true,
-            alpha_mode: AlphaMode::Blend,
+            alpha_mode: bevy::pbr::AlphaMode::Blend,
             ..Default::default()
         }),
         transform: Transform::from_translation(Vec3::new(-2., -1., 0.1)),

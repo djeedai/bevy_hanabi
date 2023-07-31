@@ -2065,7 +2065,7 @@ pub(crate) struct QueueEffectsReadOnlyParams<'w, 's> {
     marker: PhantomData<&'s usize>,
 }
 
-fn emit_draw<'a, T, F>(
+fn emit_draw<T, F>(
     views: &mut Query<(&mut RenderPhase<T>, &VisibleEntities, &ExtractedView)>,
     effect_batches: &Query<(Entity, &mut EffectBatch)>,
     mut effect_bind_groups: Mut<EffectBindGroups>,
@@ -2183,7 +2183,7 @@ fn emit_draw<'a, T, F>(
                 view.hdr
             );
             let render_pipeline_id = specialized_render_pipelines.specialize(
-                &pipeline_cache,
+                pipeline_cache,
                 &read_params.render_pipeline,
                 ParticleRenderPipelineKey {
                     shader: batch.render_shader.clone(),
