@@ -379,6 +379,41 @@ pub enum SimulationSpace {
     Local,
 }
 
+impl SimulationSpace {
+    /// Evaluate the simulation space expression.
+    ///
+    /// - In the init and udpate contexts, this expression transforms the
+    ///   particle's position from simulation space to storage space.
+    /// - In the render context, this expression transforms the particle's
+    ///   position from simulation space to view space.
+    pub fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
+        match context.modifier_context() {
+            ModifierContext::Init | ModifierContext::Update => match *self {
+                SimulationSpace::Global => {
+                    if !context.particle_layout().contains(Attribute::POSITION) {
+                        return Err(ExprError::GraphEvalError(format!("Global-space simulation requires that the particel have a {} attribute.", Attribute::POSITION.name())));
+                    }
+                    Ok(format!(
+                        "particle.{} += transform[3].xyz;", // TODO: get_view_position()
+                        Attribute::POSITION.name()
+                    ))
+                }
+                SimulationSpace::Local => Ok("".to_string()),
+            },
+            ModifierContext::Render => Ok(match *self {
+                // TODO: cast vec3 -> vec4 auomatically
+                SimulationSpace::Global => "vec4<f32>(local_position, 1.0)",
+                // TODO: transform_world_to_view(...)
+                SimulationSpace::Local => "transform * vec4<f32>(local_position, 1.0)",
+            }
+            .to_string()),
+            _ => Err(ExprError::GraphEvalError(
+                "Invalid modifier context value.".to_string(),
+            )),
+        }
+    }
+}
+
 /// Value a user wants to assign to a property with
 /// [`CompiledParticleEffect::set_property()`] before the instance had a chance
 /// to inspect its underlying asset and check the asset's defined properties.
@@ -800,25 +835,40 @@ impl CompiledParticleEffect {
         let mut module = asset.module().clone();
 
         // Generate the shader code for the initializing shader
-        let (init_code, init_extra) = {
-            let mut init_context = InitContext::new(&mut module, &property_layout);
+        let (init_code, init_extra, init_sim_space_transform_code) = {
+            let mut init_context =
+                InitContext::new(&mut module, &property_layout, &particle_layout);
             for m in asset.init_modifiers() {
                 if let Err(err) = m.apply_init(&mut init_context) {
                     error!("Failed to compile effect, error in init context: {:?}", err);
+                    return;
                 }
             }
-            (init_context.init_code, init_context.init_extra)
+            let sim_space_transform_code = match asset.simulation_space.eval(&init_context) {
+                Ok(s) => s,
+                Err(err) => {
+                    error!("Failed to compile effect's simulation space: {:?}", err);
+                    return;
+                }
+            };
+            (
+                init_context.init_code,
+                init_context.init_extra,
+                sim_space_transform_code,
+            )
         };
 
         // Generate the shader code for the update shader
         let (mut update_code, update_extra, force_field) = {
-            let mut update_context = UpdateContext::new(&mut module, &property_layout);
+            let mut update_context =
+                UpdateContext::new(&mut module, &property_layout, &particle_layout);
             for m in asset.update_modifiers() {
                 if let Err(err) = m.apply_update(&mut update_context) {
                     error!(
                         "Failed to compile effect, error in udpate context: {:?}",
                         err
                     );
+                    return;
                 }
             }
             (
@@ -860,12 +910,30 @@ impl CompiledParticleEffect {
         self.local_space_simulation = asset.simulation_space == SimulationSpace::Local;
 
         // Generate the shader code for the render shader
-        let mut render_context = RenderContext::default();
-        for m in asset.render_modifiers() {
-            m.apply_render(&mut render_context);
-        }
+        let (
+            vertex_code,
+            fragment_code,
+            render_extra,
+            render_sim_space_transform_code,
+            particle_texture,
+        ) = {
+            let mut render_context =
+                RenderContext::new(&mut module, &property_layout, &particle_layout);
+            for m in asset.render_modifiers() {
+                m.apply_render(&mut render_context);
+            }
+            let Ok(render_sim_space_transform_code) = asset.simulation_space.eval(&render_context) else { return; };
 
-        self.screen_space_size = render_context.screen_space_size;
+            self.screen_space_size = render_context.screen_space_size;
+
+            (
+                render_context.vertex_code,
+                render_context.fragment_code,
+                render_context.render_extra,
+                render_sim_space_transform_code,
+                render_context.particle_texture,
+            )
+        };
 
         // Configure aging code
         let has_age = present_attributes.contains(&Attribute::AGE);
@@ -905,12 +973,6 @@ impl CompiledParticleEffect {
 
         // Configure the init shader template, and make sure a corresponding shader
         // asset exists
-        let sim_space_transform_code = if asset.simulation_space == SimulationSpace::Global {
-            "particle.position += transform[3].xyz;"
-        } else {
-            assert_eq!(asset.simulation_space, SimulationSpace::Local);
-            ""
-        };
         let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
             .replace("{{ATTRIBUTES}}", &attributes_code)
             .replace("{{INIT_CODE}}", &init_code)
@@ -919,7 +981,7 @@ impl CompiledParticleEffect {
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
             .replace(
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
-                sim_space_transform_code,
+                &init_sim_space_transform_code,
             );
         let init_shader = shader_cache.get_or_insert(&asset.name, &init_shader_source, shaders);
         trace!("Configured init shader:\n{}", init_shader_source);
@@ -939,21 +1001,15 @@ impl CompiledParticleEffect {
 
         // Configure the render shader template, and make sure a corresponding shader
         // asset exists
-        let sim_space_transform_code = if asset.simulation_space == SimulationSpace::Global {
-            "vec4<f32>(local_position, 1.0)"
-        } else {
-            assert_eq!(asset.simulation_space, SimulationSpace::Local);
-            "transform * vec4<f32>(local_position, 1.0)"
-        };
         let render_shader_source = PARTICLES_RENDER_SHADER_TEMPLATE
             .replace("{{ATTRIBUTES}}", &attributes_code)
             .replace("{{INPUTS}}", &inputs_code)
-            .replace("{{VERTEX_MODIFIERS}}", &render_context.vertex_code)
-            .replace("{{FRAGMENT_MODIFIERS}}", &render_context.fragment_code)
-            .replace("{{RENDER_EXTRA}}", &render_context.render_extra)
+            .replace("{{VERTEX_MODIFIERS}}", &vertex_code)
+            .replace("{{FRAGMENT_MODIFIERS}}", &fragment_code)
+            .replace("{{RENDER_EXTRA}}", &render_extra)
             .replace(
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
-                sim_space_transform_code,
+                &render_sim_space_transform_code,
             );
         let render_shader = shader_cache.get_or_insert(&asset.name, &render_shader_source, shaders);
         trace!("Configured render shader:\n{}", render_shader_source);
@@ -963,7 +1019,7 @@ impl CompiledParticleEffect {
             init_shader,
             update_shader,
             render_shader,
-            render_context.particle_texture.is_some(),
+            particle_texture.is_some(),
             self.screen_space_size,
             self.local_space_simulation
         );
@@ -980,7 +1036,7 @@ impl CompiledParticleEffect {
         self.configured_render_shader = Some(render_shader);
 
         self.force_field = force_field;
-        self.particle_texture = render_context.particle_texture.clone();
+        self.particle_texture = particle_texture;
     }
 
     /// Get the init, update, and render shaders if they're all configured, or
@@ -1385,6 +1441,44 @@ else { return c1; }
         );
     }
 
+    #[test]
+    fn test_simulation_space_eval() {
+        let mut module = Module::default();
+        let particle_layout = ParticleLayout::empty();
+        let property_layout = PropertyLayout::default();
+        {
+            // Local is always available
+            let ctx = InitContext::new(&mut module, &property_layout, &particle_layout);
+            assert!(SimulationSpace::Local.eval(&ctx).is_ok());
+            assert!(SimulationSpace::Global.eval(&ctx).is_err());
+
+            // Global requires storing the particle's position
+            let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
+            let ctx = InitContext::new(&mut module, &property_layout, &particle_layout);
+            assert!(SimulationSpace::Local.eval(&ctx).is_ok());
+            assert!(SimulationSpace::Global.eval(&ctx).is_ok());
+        }
+        {
+            // Local is always available
+            let ctx = UpdateContext::new(&mut module, &property_layout, &particle_layout);
+            assert!(SimulationSpace::Local.eval(&ctx).is_ok());
+            assert!(SimulationSpace::Global.eval(&ctx).is_err());
+
+            // Global requires storing the particle's position
+            let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
+            let ctx = UpdateContext::new(&mut module, &property_layout, &particle_layout);
+            assert!(SimulationSpace::Local.eval(&ctx).is_ok());
+            assert!(SimulationSpace::Global.eval(&ctx).is_ok());
+        }
+        {
+            // In the render context, the particle position is always available (either
+            // stored or not), so the simulation space can always be evaluated.
+            let ctx = RenderContext::new(&mut module, &property_layout, &particle_layout);
+            assert!(SimulationSpace::Local.eval(&ctx).is_ok());
+            assert!(SimulationSpace::Global.eval(&ctx).is_ok());
+        }
+    }
+
     fn make_test_app() -> App {
         IoTaskPool::init(Default::default);
         let asset_server = AssetServer::new(DummyAssetIo {});
@@ -1441,6 +1535,9 @@ else { return c1; }
                 } else {
                     SimulationCondition::Always
                 };
+                // Use local simulation space so we don't need to store Attribute::POSITION for
+                // particles
+                asset.simulation_space = SimulationSpace::Local;
                 let handle = assets.add(asset);
 
                 // Spawn particle effect

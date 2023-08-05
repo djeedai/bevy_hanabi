@@ -160,7 +160,7 @@ impl UpdateModifier for LinearDragModifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::{PropertyLayout, UpdateContext};
+    use crate::{ParticleLayout, PropertyLayout, UpdateContext};
 
     use super::*;
 
@@ -173,8 +173,9 @@ mod tests {
         let modifier = ForceFieldModifier { sources };
 
         let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
         let mut module = Module::default();
-        let mut context = UpdateContext::new(&mut module, &property_layout);
+        let mut context = UpdateContext::new(&mut module, &property_layout, &particle_layout);
         assert!(modifier.apply_update(&mut context).is_ok());
 
         // force_field_code.wgsl is too big
@@ -195,7 +196,8 @@ mod tests {
         let modifier = LinearDragModifier::constant(&mut module, 3.5);
 
         let property_layout = PropertyLayout::default();
-        let mut context = UpdateContext::new(&mut module, &property_layout);
+        let particle_layout = ParticleLayout::default();
+        let mut context = UpdateContext::new(&mut module, &property_layout, &particle_layout);
         assert!(modifier.apply_update(&mut context).is_ok());
 
         assert!(context.update_code.contains("3.5")); // TODO - less weak check
