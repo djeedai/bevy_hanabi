@@ -303,6 +303,8 @@ axis_z = cross(axis_x, axis_y);
 
 #[cfg(test)]
 mod tests {
+    use crate::*;
+
     use super::*;
 
     #[test]
@@ -312,7 +314,10 @@ mod tests {
             texture: texture.clone(),
         };
 
-        let mut context = RenderContext::default();
+        let mut module = Module::default();
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
         modifier.apply_render(&mut context);
 
         assert!(context.particle_texture.is_some());
@@ -330,7 +335,10 @@ mod tests {
             gradient: gradient.clone(),
         };
 
-        let mut context = RenderContext::default();
+        let mut module = Module::default();
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
         modifier.apply_render(&mut context);
 
         assert!(context
@@ -350,7 +358,10 @@ mod tests {
             screen_space_size: false,
         };
 
-        let mut context = RenderContext::default();
+        let mut module = Module::default();
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
         modifier.apply_render(&mut context);
 
         assert!(context
@@ -361,7 +372,10 @@ mod tests {
     #[test]
     fn mod_billboard() {
         let modifier = OrientModifier::default();
-        let mut context = RenderContext::default();
+        let mut module = Module::default();
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
         modifier.apply_render(&mut context);
         // TODO - less weak test...
         assert!(context

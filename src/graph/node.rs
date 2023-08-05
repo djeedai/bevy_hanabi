@@ -773,7 +773,7 @@ equal to one."
 mod tests {
     use bevy::prelude::*;
 
-    use crate::{EvalContext, InitContext, PropertyLayout};
+    use crate::{EvalContext, InitContext, ParticleLayout, PropertyLayout};
 
     use super::*;
 
@@ -794,8 +794,9 @@ mod tests {
         assert_eq!(outputs.len(), 1);
         let out = outputs[0];
 
-        let pl = PropertyLayout::empty();
-        let context = InitContext::new(&mut module, &pl);
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let context = InitContext::new(&mut module, &property_layout, &particle_layout);
         let str = context.eval(out).unwrap();
         assert_eq!(str, "(3.) + (2.)".to_string());
     }
@@ -816,8 +817,9 @@ mod tests {
         let outputs = node.eval(&mut module, vec![three, two]).unwrap();
         assert_eq!(outputs.len(), 1);
         let out = outputs[0];
-        let pl = PropertyLayout::empty();
-        let context = InitContext::new(&mut module, &pl);
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let context = InitContext::new(&mut module, &property_layout, &particle_layout);
         let str = context.eval(out).unwrap();
         assert_eq!(str, "(3.) - (2.)".to_string());
     }
@@ -838,8 +840,9 @@ mod tests {
         let outputs = node.eval(&mut module, vec![three, two]).unwrap();
         assert_eq!(outputs.len(), 1);
         let out = outputs[0];
-        let pl = PropertyLayout::empty();
-        let context = InitContext::new(&mut module, &pl);
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let context = InitContext::new(&mut module, &property_layout, &particle_layout);
         let str = context.eval(out).unwrap();
         assert_eq!(str, "(3.) * (2.)".to_string());
     }
@@ -860,8 +863,9 @@ mod tests {
         let outputs = node.eval(&mut module, vec![three, two]).unwrap();
         assert_eq!(outputs.len(), 1);
         let out = outputs[0];
-        let pl = PropertyLayout::empty();
-        let context = InitContext::new(&mut module, &pl);
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let context = InitContext::new(&mut module, &property_layout, &particle_layout);
         let str = context.eval(out).unwrap();
         assert_eq!(str, "(3.) / (2.)".to_string());
     }
@@ -879,8 +883,9 @@ mod tests {
         let outputs = node.eval(&mut module, vec![]).unwrap();
         assert_eq!(outputs.len(), 1);
         let out = outputs[0];
-        let pl = PropertyLayout::empty();
-        let context = InitContext::new(&mut module, &pl);
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let context = InitContext::new(&mut module, &property_layout, &particle_layout);
         let str = context.eval(out).unwrap();
         assert_eq!(str, format!("particle.{}", Attribute::POSITION.name()));
     }
@@ -897,8 +902,9 @@ mod tests {
 
         let outputs = node.eval(&mut module, vec![]).unwrap();
         assert_eq!(outputs.len(), 2);
-        let pl = PropertyLayout::empty();
-        let context = InitContext::new(&mut module, &pl);
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let context = InitContext::new(&mut module, &property_layout, &particle_layout);
         let str0 = context.eval(outputs[0]).unwrap();
         let str1 = context.eval(outputs[1]).unwrap();
         assert_eq!(str0, format!("sim_params.{}", BuiltInOperator::Time.name()));
@@ -920,8 +926,9 @@ mod tests {
         let ones = module.lit(Vec3::ONE);
         let outputs = node.eval(&mut module, vec![ones]).unwrap();
         assert_eq!(outputs.len(), 1);
-        let pl = PropertyLayout::empty();
-        let context = InitContext::new(&mut module, &pl);
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let context = InitContext::new(&mut module, &property_layout, &particle_layout);
         let str = context.eval(outputs[0]).unwrap();
         assert_eq!(str, "normalize(vec3<f32>(1.,1.,1.))".to_string());
     }

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added a new `OrientModifier` and its `OrientMode`, allowing various modes of particle orienting during the rendering phase.
 - Added `SimulationSpace::Local` to simulate particles in local effect space, before rendering them with the `GlobalTransform` of the effect's entity.
+- Add access to `ModifierContext` and `ParticleLayout` from the `EvalContext` when evaluating modifiers.
+- Added `SimulationSpace::eval()` to evaluate a context-specific expression allowing to transform the particles to the proper simulation space.
+
+### Changed
+
+- `InitContext::new()` and `UpdateContext::new()` now take an additional reference to the `ParticleLayout` of the effect.
+- `RenderContext` now implements `EvalContext` like the init and update contexts, and like them reference the module, particle layout, and property layout of the effect.
 
 ### Removed
 

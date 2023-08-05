@@ -296,7 +296,7 @@ impl UpdateModifier for TangentAccelModifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::{PropertyLayout, ToWgslString};
+    use crate::{ParticleLayout, PropertyLayout, ToWgslString};
 
     use super::*;
 
@@ -307,7 +307,8 @@ mod tests {
         let modifier = AccelModifier::constant(&mut module, accel);
 
         let property_layout = PropertyLayout::default();
-        let mut context = UpdateContext::new(&mut module, &property_layout);
+        let particle_layout = ParticleLayout::default();
+        let mut context = UpdateContext::new(&mut module, &property_layout, &particle_layout);
         assert!(modifier.apply_update(&mut context).is_ok());
 
         assert!(context.update_code.contains(&accel.to_wgsl_string()));
@@ -321,7 +322,8 @@ mod tests {
         let modifier = RadialAccelModifier::constant(&mut module, origin, accel);
 
         let property_layout = PropertyLayout::default();
-        let mut context = UpdateContext::new(&mut module, &property_layout);
+        let particle_layout = ParticleLayout::default();
+        let mut context = UpdateContext::new(&mut module, &property_layout, &particle_layout);
         assert!(modifier.apply_update(&mut context).is_ok());
 
         // TODO: less weak check...
@@ -337,7 +339,8 @@ mod tests {
         let modifier = TangentAccelModifier::constant(&mut module, origin, axis, accel);
 
         let property_layout = PropertyLayout::default();
-        let mut context = UpdateContext::new(&mut module, &property_layout);
+        let particle_layout = ParticleLayout::default();
+        let mut context = UpdateContext::new(&mut module, &property_layout, &particle_layout);
         assert!(modifier.apply_update(&mut context).is_ok());
 
         // TODO: less weak check...

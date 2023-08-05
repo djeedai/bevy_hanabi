@@ -496,7 +496,8 @@ mod tests {
         assert_eq!(effect.capacity, 4096);
 
         let property_layout = PropertyLayout::default();
-        let mut init_context = InitContext::new(&mut module, &property_layout);
+        let particle_layout = ParticleLayout::default();
+        let mut init_context = InitContext::new(&mut module, &property_layout, &particle_layout);
         assert!(init_pos_sphere.apply_init(&mut init_context).is_ok());
         assert!(init_vel_sphere.apply_init(&mut init_context).is_ok());
         assert!(init_age.apply_init(&mut init_context).is_ok());
@@ -507,7 +508,9 @@ mod tests {
         let accel_mod = AccelModifier::constant(&mut module, Vec3::ONE);
         let drag_mod = LinearDragModifier::constant(&mut module, 3.5);
         let property_layout = PropertyLayout::default();
-        let mut update_context = UpdateContext::new(&mut module, &property_layout);
+        let particle_layout = ParticleLayout::default();
+        let mut update_context =
+            UpdateContext::new(&mut module, &property_layout, &particle_layout);
         assert!(accel_mod.apply_update(&mut update_context).is_ok());
         assert!(drag_mod.apply_update(&mut update_context).is_ok());
         assert!(ForceFieldModifier::default()
@@ -515,7 +518,11 @@ mod tests {
             .is_ok());
         // assert_eq!(effect.update_layout, update_layout);
 
-        let mut render_context = RenderContext::default();
+        let mut module = Module::default();
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut render_context =
+            RenderContext::new(&mut module, &property_layout, &particle_layout);
         ParticleTextureModifier::default().apply_render(&mut render_context);
         ColorOverLifetimeModifier::default().apply_render(&mut render_context);
         SizeOverLifetimeModifier::default().apply_render(&mut render_context);
