@@ -46,7 +46,7 @@ use crate::{
     next_multiple_of,
     render::batch::{BatchInput, BatchState, Batcher, EffectBatch},
     spawn::EffectSpawner,
-    CompiledParticleEffect, ParticleLayout, PropertyLayout, RemovedEffectsEvent,
+    CompiledParticleEffect, EffectShader, ParticleLayout, PropertyLayout, RemovedEffectsEvent,
     SimulationCondition, SimulationSpace,
 };
 
@@ -1073,12 +1073,8 @@ pub(crate) struct ExtractedEffect {
     pub local_space_simulation: bool,
     /// Texture to modulate the particle color.
     pub image_handle_id: HandleId,
-    /// Init shader.
-    pub init_shader: Handle<Shader>,
-    /// Update shader.
-    pub update_shader: Handle<Shader>,
-    /// Render shader.
-    pub render_shader: Handle<Shader>,
+    /// Effect shader.
+    pub effect_shader: EffectShader,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
     #[cfg(feature = "2d")]
@@ -1258,7 +1254,7 @@ pub(crate) fn extract_effects(
     extracted_effects.effects.clear();
     for (entity, maybe_computed_visibility, spawner, effect, transform) in query.p0().iter_mut() {
         // Check if shaders are configured
-        let Some((init_shader, update_shader, render_shader)) = effect.get_configured_shaders() else {
+        let Some(effect_shader) = effect.get_configured_shader() else {
             continue;
         };
 
@@ -1323,9 +1319,7 @@ pub(crate) fn extract_effects(
                 screen_space_size,
                 local_space_simulation,
                 image_handle_id,
-                init_shader,
-                update_shader,
-                render_shader,
+                effect_shader,
                 #[cfg(feature = "2d")]
                 z_sort_key_2d,
             },
@@ -1759,9 +1753,7 @@ pub(crate) fn prepare_effects(
                 entity_index: entity.index(),
                 effect_slice,
                 property_layout: extracted_effect.property_layout.clone(),
-                init_shader: extracted_effect.init_shader.clone(),
-                update_shader: extracted_effect.update_shader.clone(),
-                render_shader: extracted_effect.render_shader.clone(),
+                effect_shader: extracted_effect.effect_shader.clone(),
                 layout_flags,
                 image_handle_id,
                 force_field: extracted_effect.force_field,
@@ -1797,14 +1789,14 @@ pub(crate) fn prepare_effects(
                 // Specialize the init pipeline based on the effect
                 trace!(
                     "Specializing compute pipeline: init_shader={:?} particle_layout={:?}",
-                    input.init_shader,
+                    input.effect_shader.init,
                     input.effect_slice.particle_layout
                 );
                 let init_pipeline_id = specialized_init_pipelines.specialize(
                     &pipeline_cache,
                     &init_pipeline,
                     ParticleInitPipelineKey {
-                        shader: input.init_shader.clone(),
+                        shader: input.effect_shader.init.clone(),
                         particle_layout: input.effect_slice.particle_layout.clone(),
                         property_layout: input.property_layout.clone(),
                     },
@@ -1814,7 +1806,7 @@ pub(crate) fn prepare_effects(
                 // Specialize the update pipeline based on the effect
                 trace!(
                 "Specializing update pipeline: update_shader={:?} particle_layout={:?} property_layout={:?}",
-                input.update_shader,
+                input.effect_shader.update,
                 input.effect_slice.particle_layout,
                 input.property_layout,
             );
@@ -1822,20 +1814,20 @@ pub(crate) fn prepare_effects(
                     &pipeline_cache,
                     &update_pipeline,
                     ParticleUpdatePipelineKey {
-                        shader: input.update_shader.clone(),
+                        shader: input.effect_shader.update.clone(),
                         particle_layout: input.effect_slice.particle_layout.clone(),
                         property_layout: input.property_layout.clone(),
                     },
                 );
                 trace!("Update pipeline specialized: id={:?}", update_pipeline_id);
 
-                let init_shader = input.init_shader.clone();
+                let init_shader = input.effect_shader.init.clone();
                 trace!("init_shader = {:?}", init_shader);
 
-                let update_shader = input.update_shader.clone();
+                let update_shader = input.effect_shader.update.clone();
                 trace!("update_shader = {:?}", update_shader);
 
-                let render_shader = input.render_shader.clone();
+                let render_shader = input.effect_shader.render.clone();
                 trace!("render_shader = {:?}", render_shader);
 
                 let image_handle_id = input.image_handle_id;

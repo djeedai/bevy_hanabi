@@ -9,7 +9,7 @@ use bevy::{
 #[cfg(feature = "2d")]
 use bevy::utils::FloatOrd;
 
-use crate::{EffectAsset, ForceFieldSource, ParticleLayout, PropertyLayout};
+use crate::{EffectAsset, EffectShader, ForceFieldSource, ParticleLayout, PropertyLayout};
 
 use super::{EffectSlice, LayoutFlags};
 
@@ -69,7 +69,7 @@ impl EffectBatch {
             handle: input.handle,
             layout_flags: input.layout_flags,
             image_handle_id: input.image_handle_id,
-            render_shader: input.render_shader,
+            render_shader: input.effect_shader.render,
             init_pipeline_id,
             update_pipeline_id,
             #[cfg(feature = "2d")]
@@ -91,12 +91,8 @@ pub(crate) struct BatchInput {
     pub effect_slice: EffectSlice,
     /// Layout of the effect properties.
     pub property_layout: PropertyLayout,
-    /// Handle to the init shader.
-    pub init_shader: Handle<Shader>,
-    /// Handle to the update shader.
-    pub update_shader: Handle<Shader>,
-    /// Handle to the render shader.
-    pub render_shader: Handle<Shader>,
+    /// Effect shader.
+    pub effect_shader: EffectShader,
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
     /// Texture to modulate the particle color.
@@ -142,8 +138,8 @@ impl BatchState {
     pub fn from_input(input: &mut BatchInput) -> BatchState {
         BatchState {
             property_layout: std::mem::take(&mut input.property_layout),
-            init_shader: std::mem::take(&mut input.init_shader),
-            update_shader: std::mem::take(&mut input.update_shader),
+            init_shader: std::mem::take(&mut input.effect_shader.init),
+            update_shader: std::mem::take(&mut input.effect_shader.update),
             has_property_data: !input.property_data.is_empty(),
         }
     }
@@ -179,9 +175,9 @@ impl Batchable<BatchState, EffectBatch> for BatchInput {
             && self.effect_slice.slice.start == batch.slice.end  // continuous
             && self.effect_slice.particle_layout == batch.particle_layout
             && self.property_layout == state.property_layout
-            && self.init_shader == state.init_shader
-            && self.update_shader == state.update_shader
-            && self.render_shader == batch.render_shader
+            && self.effect_shader.init == state.init_shader
+            && self.effect_shader.update == state.update_shader
+            && self.effect_shader.render == batch.render_shader
             && self.layout_flags == batch.layout_flags
             && self.image_handle_id == batch.image_handle_id
             && is_2d_compatible
@@ -288,6 +284,8 @@ impl<'a, S, B, I: Batchable<S, B>> Batcher<'a, S, B, I> {
 #[cfg(test)]
 mod tests {
     use bevy::reflect::TypeUuid;
+
+    use crate::EffectShader;
 
     use super::*;
 
@@ -525,9 +523,7 @@ mod tests {
     fn make_test_item() -> BatchInput {
         let handle = Handle::<EffectAsset>::default();
         let particle_layout = ParticleLayout::empty();
-        let init_shader = Handle::<Shader>::default();
-        let update_shader = Handle::<Shader>::default();
-        let render_shader = Handle::<Shader>::default();
+        let effect_shader = EffectShader::default();
         let image_handle_id = HandleId::default::<Image>();
         let property_layout = PropertyLayout::empty();
 
@@ -540,9 +536,7 @@ mod tests {
                 particle_layout,
             },
             property_layout,
-            init_shader,
-            update_shader,
-            render_shader,
+            effect_shader,
             layout_flags: LayoutFlags::NONE,
             image_handle_id,
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],

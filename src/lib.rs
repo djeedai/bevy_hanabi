@@ -150,7 +150,10 @@
 
 #[cfg(feature = "2d")]
 use bevy::utils::FloatOrd;
-use bevy::{prelude::*, utils::HashSet};
+use bevy::{
+    prelude::*,
+    utils::{thiserror::Error, HashSet},
+};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _; // import without risk of name clashing
 
@@ -391,7 +394,7 @@ impl SimulationSpace {
             ModifierContext::Init | ModifierContext::Update => match *self {
                 SimulationSpace::Global => {
                     if !context.particle_layout().contains(Attribute::POSITION) {
-                        return Err(ExprError::GraphEvalError(format!("Global-space simulation requires that the particel have a {} attribute.", Attribute::POSITION.name())));
+                        return Err(ExprError::GraphEvalError(format!("Global-space simulation requires that the particles have a {} attribute.", Attribute::POSITION.name())));
                     }
                     Ok(format!(
                         "particle.{} += transform[3].xyz;", // TODO: get_view_position()
@@ -600,152 +603,67 @@ impl ParticleEffect {
     }
 }
 
-/// Compiled data for a [`ParticleEffect`].
+/// Effect shader.
 ///
-/// This component is managed automatically, and generally should not be
-/// accessed manually, with the exception of setting property values via
-/// [`set_property()`]. It contains data generated from the associated
-/// [`ParticleEffect`] component located on the same [`Entity`]. The data is
-/// split into this component in particular for change detection reasons, and
-/// any change to the associated [`ParticleEffect`] will cause the values of
-/// this component to be recalculated. Otherwise the data is cached
-/// frame-to-frame for performance.
-///
-/// The component also contains the current values of all properties. Those
-/// values are uploaded to the GPU each frame, to allow controling some
-/// behaviors of the effect.
-///
-/// All [`ParticleEffect`]s are compiled by the system running in the
-/// [`EffectSystems::CompileEffects`] set every frame when they're spawned or
-/// when they change, irrelevant of whether the entity if visible
-/// ([`Visibility::Visible`]).
-///
-/// [`set_property()`]: crate::CompiledParticleEffect::set_property
-#[derive(Debug, Clone, Component)]
-pub struct CompiledParticleEffect {
-    /// Weak handle to the underlying asset.
-    asset: Handle<EffectAsset>,
-    /// Cached simulation condition, to avoid having to query the asset each
-    /// time we need it.
-    simulation_condition: SimulationCondition,
-    /// Handle to the configured init shader for his effect instance, if
-    /// configured.
-    configured_init_shader: Option<Handle<Shader>>,
-    /// Handle to the configured update shader for his effect instance, if
-    /// configured.
-    configured_update_shader: Option<Handle<Shader>>,
-    /// Handle to the configured render shader for his effect instance, if
-    /// configured.
-    configured_render_shader: Option<Handle<Shader>>,
-    /// Instances of all exposed properties.
-    properties: Vec<PropertyInstance>,
-    /// Force field modifier values.
-    force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
-    /// Main particle texture.
-    particle_texture: Option<Handle<Image>>,
-    /// 2D layer for the effect instance.
-    #[cfg(feature = "2d")]
-    z_layer_2d: FloatOrd,
-    /// Is the particle size in screen-space logical pixels?
-    screen_space_size: bool,
-    /// Is the effect simulated in local space?
-    local_space_simulation: bool,
+/// Contains the configured shaders for the init, update, and render passes.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct EffectShader {
+    pub init: Handle<Shader>,
+    pub update: Handle<Shader>,
+    pub render: Handle<Shader>,
 }
 
-impl Default for CompiledParticleEffect {
-    fn default() -> Self {
-        Self {
-            asset: default(),
-            simulation_condition: SimulationCondition::default(),
-            configured_init_shader: None,
-            configured_update_shader: None,
-            configured_render_shader: None,
-            properties: vec![],
-            force_field: default(),
-            particle_texture: None,
-            #[cfg(feature = "2d")]
-            z_layer_2d: FloatOrd(0.0),
-            screen_space_size: false,
-            local_space_simulation: false,
-        }
-    }
+/// Source code (WGSL) of an effect.
+///
+/// The source code is generated from an [`EffectAsset`] by applying all
+/// modifiers. The resulting source code is configured (the Hanabi variables
+/// `{{VARIABLE}}` are replaced by the relevant WGSL code) but is not
+/// specialized (the conditional directives like `#if` are still present).
+#[derive(Debug)]
+struct EffectShaderSource {
+    pub init: String,
+    pub update: String,
+    pub render: String,
+    pub screen_space_size: bool,
+    pub particle_texture: Option<Handle<Image>>,
+    pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
 }
 
-impl CompiledParticleEffect {
-    /// Update the compiled effect from its asset and instance.
-    pub(crate) fn update(
-        &mut self,
-        rebuild: bool,
-        properties: &[PropertyValue],
-        #[cfg(feature = "2d")] z_layer_2d: FloatOrd,
-        weak_handle: Handle<EffectAsset>,
-        asset: &EffectAsset,
-        shaders: &mut ResMut<Assets<Shader>>,
-        shader_cache: &mut ResMut<ShaderCache>,
-    ) {
-        trace!(
-            "Updating (rebuild:{}) compiled particle effect '{}' ({:?})",
-            rebuild,
-            asset.name,
-            weak_handle
-        );
+/// Error resulting from the generating of the WGSL shader code of an
+/// [`EffectAsset`].
+#[derive(Debug, Error)]
+enum ShaderGenerateError {
+    #[error("Expression error: {0:?}")]
+    Expr(ExprError),
 
-        debug_assert!(weak_handle.is_weak());
-        debug_assert!(self.asset != weak_handle);
-        self.asset = weak_handle;
-        self.simulation_condition = asset.simulation_condition;
+    #[error("Validation error: {0:?}")]
+    Validate(String),
+}
 
-        // Check if the instance changed. If so, rebuild some data from this compiled
-        // effect based on the new data of the effect instance.
-        if rebuild {
-            // Clear the compiled effect if the effect instance changed. We could try to get
-            // smarter here, only invalidate what changed, but for now just wipe everything
-            // and rebuild from scratch all three shaders together.
-            self.configured_init_shader = None;
-            self.configured_update_shader = None;
-            self.configured_render_shader = None;
-
-            // Re-resolve all properties by looping on the properties defined in the asset
-            // (which are the source of truth) and trying to map a value set by the user,
-            // falling back to the property's default value if not found.
-            self.properties = asset
-                .properties()
-                .iter()
-                .map(|def| PropertyInstance {
-                    def: def.clone(),
-                    value: properties
-                        .iter()
-                        .find_map(|u| {
-                            // Try to find an unresolved property by name
-                            if u.name == def.name() {
-                                // If found, use the value specified by the user
-                                Some(u.value)
-                            } else {
-                                // Otherwise fallback to default value from asset's property
-                                None
-                            }
-                        })
-                        .unwrap_or(*def.default_value()),
-                })
-                .collect();
-
-            // Update the 2D layer
-            #[cfg(feature = "2d")]
-            {
-                self.z_layer_2d = z_layer_2d;
-            }
-        }
-
-        // If the shaders are already compiled, there's nothing more to do
-        if self.configured_init_shader.is_some()
-            && self.configured_update_shader.is_some()
-            && self.configured_render_shader.is_some()
-        {
-            return;
-        }
-
+impl EffectShaderSource {
+    /// Generate the effect shader WGSL source code.
+    ///
+    /// This takes a base asset effect and generate the WGSL code for the
+    /// various shaders (init/update/render).
+    pub fn generate(asset: &EffectAsset) -> Result<EffectShaderSource, ShaderGenerateError> {
         // Generate the shader code defining the particle attributes
         let particle_layout = asset.particle_layout();
+        // The particle layout cannot be empty currently because we always emit some
+        // Particle{} struct and it needs at least one field. There's probably no use
+        // case for an empty layout anyway.
+        if particle_layout.size() == 0 {
+            return Err(ShaderGenerateError::Validate(
+                "Empty particle layout.".to_string(),
+            ));
+        }
+        // Currently the POSITION attribute is mandatory, as it's always used by the
+        // render shader.
+        if !particle_layout.contains(Attribute::POSITION) {
+            return Err(ShaderGenerateError::Validate(format!(
+                "The particle layout is missing the {} attribute. Add a modifier using that attribute, for example the SetAttributeModifier.",
+                Attribute::POSITION.name()
+            )));
+        }
         let attributes_code = particle_layout.generate_code();
 
         // For the renderer, assign all its inputs to the values of the attributes
@@ -841,14 +759,14 @@ impl CompiledParticleEffect {
             for m in asset.init_modifiers() {
                 if let Err(err) = m.apply_init(&mut init_context) {
                     error!("Failed to compile effect, error in init context: {:?}", err);
-                    return;
+                    return Err(ShaderGenerateError::Expr(err));
                 }
             }
             let sim_space_transform_code = match asset.simulation_space.eval(&init_context) {
                 Ok(s) => s,
                 Err(err) => {
                     error!("Failed to compile effect's simulation space: {:?}", err);
-                    return;
+                    return Err(ShaderGenerateError::Expr(err));
                 }
             };
             (
@@ -868,7 +786,7 @@ impl CompiledParticleEffect {
                         "Failed to compile effect, error in udpate context: {:?}",
                         err
                     );
-                    return;
+                    return Err(ShaderGenerateError::Expr(err));
                 }
             }
             (
@@ -907,8 +825,6 @@ impl CompiledParticleEffect {
             }
         }
 
-        self.local_space_simulation = asset.simulation_space == SimulationSpace::Local;
-
         // Generate the shader code for the render shader
         let (
             vertex_code,
@@ -916,15 +832,22 @@ impl CompiledParticleEffect {
             render_extra,
             render_sim_space_transform_code,
             particle_texture,
+            screen_space_size,
         ) = {
             let mut render_context =
                 RenderContext::new(&mut module, &property_layout, &particle_layout);
             for m in asset.render_modifiers() {
                 m.apply_render(&mut render_context);
             }
-            let Ok(render_sim_space_transform_code) = asset.simulation_space.eval(&render_context) else { return; };
 
-            self.screen_space_size = render_context.screen_space_size;
+            let render_sim_space_transform_code = match asset.simulation_space.eval(&render_context)
+            {
+                Ok(s) => s,
+                Err(err) => {
+                    error!("Failed to compile effect's simulation space: {:?}", err);
+                    return Err(ShaderGenerateError::Expr(err));
+                }
+            };
 
             (
                 render_context.vertex_code,
@@ -932,6 +855,7 @@ impl CompiledParticleEffect {
                 render_context.render_extra,
                 render_sim_space_transform_code,
                 render_context.particle_texture,
+                render_context.screen_space_size,
             )
         };
 
@@ -983,7 +907,6 @@ impl CompiledParticleEffect {
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
                 &init_sim_space_transform_code,
             );
-        let init_shader = shader_cache.get_or_insert(&asset.name, &init_shader_source, shaders);
         trace!("Configured init shader:\n{}", init_shader_source);
 
         // Configure the update shader template, and make sure a corresponding shader
@@ -996,7 +919,6 @@ impl CompiledParticleEffect {
             .replace("{{UPDATE_EXTRA}}", &update_extra)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
-        let update_shader = shader_cache.get_or_insert(&asset.name, &update_shader_source, shaders);
         trace!("Configured update shader:\n{}", update_shader_source);
 
         // Configure the render shader template, and make sure a corresponding shader
@@ -1011,55 +933,197 @@ impl CompiledParticleEffect {
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
                 &render_sim_space_transform_code,
             );
-        let render_shader = shader_cache.get_or_insert(&asset.name, &render_shader_source, shaders);
         trace!("Configured render shader:\n{}", render_shader_source);
 
+        Ok(EffectShaderSource {
+            init: init_shader_source,
+            update: update_shader_source,
+            render: render_shader_source,
+            screen_space_size,
+            particle_texture,
+            force_field,
+        })
+    }
+}
+
+/// Compiled data for a [`ParticleEffect`].
+///
+/// This component is managed automatically, and generally should not be
+/// accessed manually, with the exception of setting property values via
+/// [`set_property()`]. It contains data generated from the associated
+/// [`ParticleEffect`] component located on the same [`Entity`]. The data is
+/// split into this component in particular for change detection reasons, and
+/// any change to the associated [`ParticleEffect`] will cause the values of
+/// this component to be recalculated. Otherwise the data is cached
+/// frame-to-frame for performance.
+///
+/// The component also contains the current values of all properties. Those
+/// values are uploaded to the GPU each frame, to allow controling some
+/// behaviors of the effect.
+///
+/// All [`ParticleEffect`]s are compiled by the system running in the
+/// [`EffectSystems::CompileEffects`] set every frame when they're spawned or
+/// when they change, irrelevant of whether the entity if visible
+/// ([`Visibility::Visible`]).
+///
+/// [`set_property()`]: crate::CompiledParticleEffect::set_property
+#[derive(Debug, Clone, Component)]
+pub struct CompiledParticleEffect {
+    /// Weak handle to the underlying asset.
+    asset: Handle<EffectAsset>,
+    /// Cached simulation condition, to avoid having to query the asset each
+    /// time we need it.
+    simulation_condition: SimulationCondition,
+    /// Handle to the effect shader for his effect instance, if configured.
+    effect_shader: Option<EffectShader>,
+    /// Instances of all exposed properties.
+    properties: Vec<PropertyInstance>,
+    /// Force field modifier values.
+    force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
+    /// Main particle texture.
+    particle_texture: Option<Handle<Image>>,
+    /// 2D layer for the effect instance.
+    #[cfg(feature = "2d")]
+    z_layer_2d: FloatOrd,
+    /// Is the particle size in screen-space logical pixels?
+    screen_space_size: bool,
+    /// Is the effect simulated in local space?
+    local_space_simulation: bool,
+}
+
+impl Default for CompiledParticleEffect {
+    fn default() -> Self {
+        Self {
+            asset: default(),
+            simulation_condition: SimulationCondition::default(),
+            effect_shader: None,
+            properties: vec![],
+            force_field: default(),
+            particle_texture: None,
+            #[cfg(feature = "2d")]
+            z_layer_2d: FloatOrd(0.0),
+            screen_space_size: false,
+            local_space_simulation: false,
+        }
+    }
+}
+
+impl CompiledParticleEffect {
+    /// Update the compiled effect from its asset and instance.
+    pub(crate) fn update(
+        &mut self,
+        rebuild: bool,
+        properties: &[PropertyValue],
+        #[cfg(feature = "2d")] z_layer_2d: FloatOrd,
+        weak_handle: Handle<EffectAsset>,
+        asset: &EffectAsset,
+        shaders: &mut ResMut<Assets<Shader>>,
+        shader_cache: &mut ResMut<ShaderCache>,
+    ) {
         trace!(
-            "tick_spawners: init_shader={:?} update_shader={:?} render_shader={:?} has_image={} screen_space_size={} local_space_simulation={}",
+            "Updating (rebuild:{}) compiled particle effect '{}' ({:?})",
+            rebuild,
+            asset.name,
+            weak_handle
+        );
+
+        debug_assert!(weak_handle.is_weak());
+        debug_assert!(self.asset != weak_handle);
+        self.asset = weak_handle;
+        self.simulation_condition = asset.simulation_condition;
+
+        // Check if the instance changed. If so, rebuild some data from this compiled
+        // effect based on the new data of the effect instance.
+        if rebuild {
+            // Clear the compiled effect if the effect instance changed. We could try to get
+            // smarter here, only invalidate what changed, but for now just wipe everything
+            // and rebuild from scratch all three shaders together.
+            self.effect_shader = None;
+
+            // Re-resolve all properties by looping on the properties defined in the asset
+            // (which are the source of truth) and trying to map a value set by the user,
+            // falling back to the property's default value if not found.
+            self.properties = asset
+                .properties()
+                .iter()
+                .map(|def| PropertyInstance {
+                    def: def.clone(),
+                    value: properties
+                        .iter()
+                        .find_map(|u| {
+                            // Try to find an unresolved property by name
+                            if u.name == def.name() {
+                                // If found, use the value specified by the user
+                                Some(u.value)
+                            } else {
+                                // Otherwise fallback to default value from asset's property
+                                None
+                            }
+                        })
+                        .unwrap_or(*def.default_value()),
+                })
+                .collect();
+
+            // Update the 2D layer
+            #[cfg(feature = "2d")]
+            {
+                self.z_layer_2d = z_layer_2d;
+            }
+        }
+
+        // If the shaders are already compiled, there's nothing more to do
+        if self.effect_shader.is_some() {
+            return;
+        }
+
+        self.local_space_simulation = asset.simulation_space == SimulationSpace::Local;
+
+        let shader_source = match EffectShaderSource::generate(asset) {
+            Ok(shader_source) => shader_source,
+            Err(err) => {
+                error!(
+                    "Failed to generate shaders for effect asset {}: {:?}",
+                    asset.name, err
+                );
+                return;
+            }
+        };
+
+        self.screen_space_size = shader_source.screen_space_size;
+
+        let init_shader = shader_cache.get_or_insert(&asset.name, &shader_source.init, shaders);
+        let update_shader = shader_cache.get_or_insert(&asset.name, &shader_source.update, shaders);
+        let render_shader = shader_cache.get_or_insert(&asset.name, &shader_source.render, shaders);
+
+        trace!(
+            "tick_spawners: init_shader={:?} update_shader={:?} render_shader={:?} screen_space_size={} local_space_simulation={}",
             init_shader,
             update_shader,
             render_shader,
-            particle_texture.is_some(),
             self.screen_space_size,
             self.local_space_simulation
         );
 
-        // TODO - Replace with Option<ConfiguredShader { handle: Handle<Shader>, hash:
+        // TODO - Replace with Option<EffectShader { handle: Handle<Shader>, hash:
         // u64 }> where the hash takes into account the code and extra code
         // for each pass (and any other varying item). We don't need to keep
         // around the entire shader code, only a hash of it for compare (or, maybe safer
         // to avoid hash collisions, an index into a shader cache). The only
         // use is to be able to compare 2 instances and see if they can be
         // batched together.
-        self.configured_init_shader = Some(init_shader);
-        self.configured_update_shader = Some(update_shader);
-        self.configured_render_shader = Some(render_shader);
+        self.effect_shader = Some(EffectShader {
+            init: init_shader,
+            update: update_shader,
+            render: render_shader,
+        });
 
-        self.force_field = force_field;
-        self.particle_texture = particle_texture;
+        self.force_field = shader_source.force_field;
+        self.particle_texture = shader_source.particle_texture;
     }
 
-    /// Get the init, update, and render shaders if they're all configured, or
-    /// `None` otherwise.
-    pub(crate) fn get_configured_shaders(
-        &self,
-    ) -> Option<(Handle<Shader>, Handle<Shader>, Handle<Shader>)> {
-        let init_shader = if let Some(init_shader) = &self.configured_init_shader {
-            init_shader.clone()
-        } else {
-            return None;
-        };
-        let update_shader = if let Some(update_shader) = &self.configured_update_shader {
-            update_shader.clone()
-        } else {
-            return None;
-        };
-        let render_shader = if let Some(render_shader) = &self.configured_render_shader {
-            render_shader.clone()
-        } else {
-            return None;
-        };
-        Some((init_shader, update_shader, render_shader))
+    /// Get the effect shader if configured, or `None` otherwise.
+    pub(crate) fn get_configured_shader(&self) -> Option<EffectShader> {
+        self.effect_shader.clone()
     }
 
     /// Set the value of a property associated with this effect.
@@ -1305,6 +1369,7 @@ mod tests {
         render::view::{VisibilityPlugin, VisibilitySystems},
         tasks::IoTaskPool,
     };
+    use naga_oil::compose::{Composer, NagaModuleDescriptor, ShaderDefValue};
 
     use crate::{spawn::new_rng, test_utils::DummyAssetIo};
 
@@ -1514,7 +1579,103 @@ else { return c1; }
     }
 
     #[test]
-    fn test_compile_effects() {
+    fn test_effect_shader_source() {
+        // Empty particle layout
+        let module = Module::default();
+        let asset = EffectAsset::new(256, Spawner::rate(32.0.into()), module)
+            .with_simulation_space(SimulationSpace::Local);
+        assert_eq!(asset.simulation_space, SimulationSpace::Local);
+        let res = EffectShaderSource::generate(&asset);
+        assert!(res.is_err());
+        let err = res.err().unwrap();
+        assert!(matches!(err, ShaderGenerateError::Validate(_)));
+
+        // Missing Attribute::POSITION, currently mandatory for all effects
+        let mut module = Module::default();
+        let zero = module.lit(Vec3::ZERO);
+        let asset = EffectAsset::new(256, Spawner::rate(32.0.into()), module)
+            .init(SetAttributeModifier::new(Attribute::VELOCITY, zero));
+        assert!(asset.particle_layout().size() > 0);
+        let res = EffectShaderSource::generate(&asset);
+        assert!(res.is_err());
+        let err = res.err().unwrap();
+        assert!(matches!(err, ShaderGenerateError::Validate(_)));
+
+        // Valid
+        let mut module = Module::default();
+        let zero = module.lit(Vec3::ZERO);
+        let asset = EffectAsset::new(256, Spawner::rate(32.0.into()), module)
+            .with_simulation_space(SimulationSpace::Local)
+            .init(SetAttributeModifier::new(Attribute::POSITION, zero));
+        assert_eq!(asset.simulation_space, SimulationSpace::Local);
+        let res = EffectShaderSource::generate(&asset);
+        assert!(res.is_ok());
+        let shader_source = res.unwrap();
+        for (name, code) in [
+            ("Init", &shader_source.init),
+            ("Update", &shader_source.update),
+            ("Render", &shader_source.render),
+        ] {
+            println!("{} shader:\n\n{}", name, code);
+
+            let mut shader_defs = std::collections::HashMap::<String, ShaderDefValue>::new();
+            shader_defs.insert("LOCAL_SPACE_SIMULATION".into(), ShaderDefValue::Bool(true));
+            shader_defs.insert("PARTICLE_TEXTURE".into(), ShaderDefValue::Bool(true));
+            shader_defs.insert(
+                "PARTICLE_SCREEN_SPACE_SIZE".into(),
+                ShaderDefValue::Bool(true),
+            );
+            let mut composer = Composer::default();
+            // let res = composer.add_composable_module(ComposableModuleDescriptor{
+            //     source: &shader_source.init,
+            //     file_path: "init.wgsl",
+            //     shader_defs,
+            //     ..Default::default()
+            // });
+            // assert!(res.is_ok());
+
+            match composer.make_naga_module(NagaModuleDescriptor {
+                source: &code,
+                file_path: "init.wgsl",
+                shader_defs,
+                ..Default::default()
+            }) {
+                Ok(module) => {
+                    // println!("shader: {:#?}", module);
+                    let info = naga::valid::Validator::new(
+                        naga::valid::ValidationFlags::all(),
+                        naga::valid::Capabilities::default(),
+                    )
+                    .validate(&module)
+                    .unwrap();
+                    let wgsl = naga::back::wgsl::write_string(
+                        &module,
+                        &info,
+                        naga::back::wgsl::WriterFlags::EXPLICIT_TYPES,
+                    )
+                    .unwrap();
+                    println!("Final wgsl from naga:\n\n{}", wgsl);
+                    //Ok(module)
+                }
+                Err(e) => {
+                    println!("{}", e.emit_to_string(&composer));
+                    assert!(false);
+                    //Err(e)
+                }
+            }
+
+            // let mut frontend = Frontend::new();
+            // let res = frontend.parse(code);
+            // if let Err(err) = &res {
+            //     println!("{} code: {}", name, code);
+            //     println!("Err: {:?}", err);
+            // }
+            // assert!(res.is_ok());
+        }
+    }
+
+    #[test]
+    fn test_compile_effect_visibility() {
         let spawner = Spawner::once(32.0.into(), true);
 
         for test_case in &[
@@ -1529,7 +1690,10 @@ else { return c1; }
 
                 // Add effect asset
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
-                let mut asset = EffectAsset::new(64, spawner, Module::default());
+                let mut module = Module::default();
+                let init_pos = module.lit(Vec3::ZERO);
+                let mut asset = EffectAsset::new(64, spawner, module)
+                    .init(SetAttributeModifier::new(Attribute::POSITION, init_pos));
                 asset.simulation_condition = if test_case.visibility.is_some() {
                     SimulationCondition::WhenVisible
                 } else {
@@ -1609,9 +1773,7 @@ else { return c1; }
                 // even if hidden
                 assert_eq!(compiled_particle_effect.asset, handle);
                 assert!(compiled_particle_effect.asset.is_weak());
-                assert!(compiled_particle_effect.configured_init_shader.is_some());
-                assert!(compiled_particle_effect.configured_update_shader.is_some());
-                assert!(compiled_particle_effect.configured_render_shader.is_some());
+                assert!(compiled_particle_effect.effect_shader.is_some());
 
                 // Toggle visibility and tick once more; this shouldn't panic (regression; #182)
                 let (mut visibility, _) = world
@@ -1639,9 +1801,7 @@ else { return c1; }
                 // `compile_effects()` always updates the CompiledParticleEffect
                 assert_eq!(compiled_particle_effect.asset, handle);
                 assert!(compiled_particle_effect.asset.is_weak());
-                assert!(compiled_particle_effect.configured_init_shader.is_some());
-                assert!(compiled_particle_effect.configured_update_shader.is_some());
-                assert!(compiled_particle_effect.configured_render_shader.is_some());
+                assert!(compiled_particle_effect.effect_shader.is_some());
             }
         }
     }
