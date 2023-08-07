@@ -50,6 +50,7 @@ all-features = true
 wgpu = "0.16"
 # For shader snippet validation
 naga = "0.12"
+naga_oil = "0.8"
 
 futures = "0.3"
 bevy-inspector-egui = "0.19"
