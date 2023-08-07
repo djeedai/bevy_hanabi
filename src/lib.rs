@@ -1635,7 +1635,7 @@ else { return c1; }
             // assert!(res.is_ok());
 
             match composer.make_naga_module(NagaModuleDescriptor {
-                source: &code,
+                source: code,
                 file_path: "init.wgsl",
                 shader_defs,
                 ..Default::default()
@@ -1658,8 +1658,7 @@ else { return c1; }
                     //Ok(module)
                 }
                 Err(e) => {
-                    println!("{}", e.emit_to_string(&composer));
-                    assert!(false);
+                    panic!("{}", e.emit_to_string(&composer));
                     //Err(e)
                 }
             }
