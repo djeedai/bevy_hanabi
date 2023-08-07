@@ -117,6 +117,15 @@ impl Hash for GradientKey<Vec4> {
 /// The gradient can be sampled anywhere, and will return a linear interpolation
 /// of the values of its closest keys. Sampling before 0 or after 1 returns a
 /// constant value equal to the one of the closest bound.
+///
+/// # Construction
+///
+/// The most efficient constructors take the entirety of the key points upfront.
+/// This prevents costly linear searches to insert key points one by one:
+/// - [`constant()`] creates a gradient with a single key point;
+/// - [`linear()`] creates a linear gradient between two key points;
+/// - [`from_keys()`] creates a more general gradient with any number of key
+///   points.
 #[derive(Debug, Default, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct Gradient<T: Lerp + FromReflect> {
     keys: Vec<GradientKey<T>>,
@@ -135,34 +144,188 @@ where
     }
 }
 
-impl<T: Default + Lerp + FromReflect> Gradient<T> {
+impl<T: Lerp + FromReflect> Gradient<T> {
     /// Create a new empty gradient.
-    pub fn new() -> Self {
-        Self::default()
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::Gradient;
+    /// let g: Gradient<f32> = Gradient::new();
+    /// assert!(g.is_empty());
+    /// ```
+    pub const fn new() -> Self {
+        Self { keys: vec![] }
     }
 
     /// Create a constant gradient.
     ///
-    /// The gradient contains `value` at key 0.0 and nothing else.
+    /// The gradient contains `value` at key 0.0 and nothing else. Any sampling
+    /// evaluates to that single value.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::Gradient;
+    /// # use bevy::math::Vec2;
+    /// let g = Gradient::constant(Vec2::X);
+    /// assert_eq!(g.sample(0.3), Vec2::X);
+    /// ```
     pub fn constant(value: T) -> Self {
-        let mut grad = Self::default();
-        grad.add_key(0., value);
-        grad
+        Self {
+            keys: vec![GradientKey::<T> { ratio: 0., value }],
+        }
     }
 
     /// Create a linear gradient between two values.
     ///
     /// The gradient contains the `start` value at key 0.0 and the `end` value
     /// at key 1.0.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::Gradient;
+    /// # use bevy::math::Vec3;
+    /// let g = Gradient::linear(Vec3::ZERO, Vec3::Y);
+    /// assert_eq!(g.sample(0.3), Vec3::new(0., 0.3, 0.));
+    /// ```
     pub fn linear(start: T, end: T) -> Self {
-        let mut grad = Self::default();
-        grad.add_key(0., start);
-        grad.add_key(1., end);
-        grad
+        Self {
+            keys: vec![
+                GradientKey::<T> {
+                    ratio: 0.,
+                    value: start,
+                },
+                GradientKey::<T> {
+                    ratio: 1.,
+                    value: end,
+                },
+            ],
+        }
     }
-}
 
-impl<T: Lerp + FromReflect> Gradient<T> {
+    /// Create a new gradient from a series of key points.
+    ///
+    /// If one or more duplicate ratios already exist, append each new key after
+    /// all the existing keys with same ratio. The keys are inserted in order,
+    /// but do not need to be sorted by ratio.
+    ///
+    /// The ratio must be a finite floating point value.
+    ///
+    /// This variant is slightly more performant than [`with_keys()`] because it
+    /// can sort all keys before inserting them in batch.
+    ///
+    /// If you have only one or two keys, consider using [`constant()`] or
+    /// [`linear()`], respectively, instead of this.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::Gradient;
+    /// let g = Gradient::from_keys([(0., 3.2), (1., 13.89), (0.3, 9.33)]);
+    /// assert_eq!(g.len(), 3);
+    /// assert_eq!(g.sample(0.3), 9.33);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This method panics if any `ratio` is not in the \[0:1\] range.
+    pub fn from_keys(keys: impl IntoIterator<Item = (f32, T)>) -> Self {
+        // Note that all operations below are stable, including the sort. This ensures
+        // the keys are kept in the correct order.
+        let mut keys = keys
+            .into_iter()
+            .map(|(ratio, value)| GradientKey { ratio, value })
+            .collect::<Vec<_>>();
+        keys.sort_by(|a, b| FloatOrd(a.ratio).cmp(&FloatOrd(b.ratio)));
+        Self { keys }
+    }
+
+    /// Returns `true` if the gradient contains no key points.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use bevy_hanabi::Gradient;
+    /// let mut g = Gradient::new();
+    /// assert!(g.is_empty());
+    ///
+    /// g.add_key(0.3, 3.42);
+    /// assert!(!g.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.keys.is_empty()
+    }
+
+    /// Returns the number of key points in the gradient, also referred to as
+    /// its 'length'.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use bevy_hanabi::Gradient;
+    /// let g = Gradient::linear(3.5, 7.8);
+    /// assert_eq!(g.len(), 2);
+    /// ```
+    pub fn len(&self) -> usize {
+        self.keys.len()
+    }
+
+    /// Add a key point to the gradient.
+    ///
+    /// If one or more duplicate ratios already exist, append the new key after
+    /// all the existing keys with same ratio.
+    ///
+    /// The ratio must be a finite floating point value.
+    ///
+    /// Note that this function needs to perform a linear search into the
+    /// gradient's key points to find an insertion point. If you already know
+    /// all key points in advance, it's more efficient to use [`constant()`],
+    /// [`linear()`], or [`with_keys()`].
+    ///
+    /// # Panics
+    ///
+    /// This method panics if `ratio` is not in the \[0:1\] range.
+    pub fn with_key(mut self, ratio: f32, value: T) -> Self {
+        self.add_key(ratio, value);
+        self
+    }
+
+    /// Add a series of key points to the gradient.
+    ///
+    /// If one or more duplicate ratios already exist, append each new key after
+    /// all the existing keys with same ratio. The keys are inserted in order.
+    ///
+    /// The ratio must be a finite floating point value.
+    ///
+    /// This variant is slightly more performant than [`add_key()`] because it
+    /// can reserve storage for all key points upfront, which requires an exact
+    /// size iterator.
+    ///
+    /// Note that if all key points are known upfront, [`from_keys()`] is a lot
+    /// more performant.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::Gradient;
+    /// fn add_some_keys(mut g: Gradient<f32>) -> Gradient<f32> {
+    ///     g.with_keys([(0.7, 12.9), (0.32, 9.31)].into_iter())
+    /// }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// This method panics if any `ratio` is not in the \[0:1\] range.
+    pub fn with_keys(mut self, keys: impl ExactSizeIterator<Item = (f32, T)>) -> Self {
+        self.keys.reserve(keys.len());
+        for (ratio, value) in keys {
+            self.add_key(ratio, value);
+        }
+        self
+    }
+
     /// Add a key point to the gradient.
     ///
     /// If one or more duplicate ratios already exist, append the new key after
@@ -307,6 +470,7 @@ mod tests {
     use std::collections::hash_map::DefaultHasher;
 
     use bevy::reflect::{ReflectRef, Struct};
+    use rand::{distributions::Standard, prelude::Distribution, rngs::ThreadRng, thread_rng, Rng};
 
     use crate::test_utils::*;
 
@@ -360,6 +524,8 @@ mod tests {
     #[test]
     fn constant() {
         let grad = Gradient::constant(3.0);
+        assert!(!grad.is_empty());
+        assert_eq!(grad.len(), 1);
         for r in [
             -1e5, -0.5, -0.0001, 0., 0.0001, 0.3, 0.5, 0.9, 0.9999, 1., 1.0001, 100., 1e5,
         ] {
@@ -368,16 +534,35 @@ mod tests {
     }
 
     #[test]
+    fn with_keys() {
+        let g = Gradient::new().with_keys([(0.5, RED), (0.8, BLUE)].into_iter());
+        assert_eq!(g.len(), 2);
+        // Keys are inserted in order and after existing ones -> (R, B, B, R)
+        let g2 = g.with_keys([(0.5, BLUE), (0.8, RED)].into_iter());
+        assert_eq!(g2.len(), 4);
+        assert_eq!(g2.sample(0.499), RED);
+        assert_eq!(g2.sample(0.501), BLUE);
+        assert_eq!(g2.sample(0.799), BLUE);
+        assert_eq!(g2.sample(0.801), RED);
+    }
+
+    #[test]
     fn add_key() {
         let mut g = Gradient::new();
+        assert!(g.is_empty());
+        assert_eq!(g.len(), 0);
         g.add_key(0.3, RED);
+        assert!(!g.is_empty());
+        assert_eq!(g.len(), 1);
         // duplicate keys allowed
-        g.add_key(0.3, RED);
+        let mut g = g.with_key(0.3, RED);
+        assert_eq!(g.len(), 2);
         // duplicate ratios stored in order they're inserted
         g.add_key(0.7, BLUE);
         g.add_key(0.7, GREEN);
+        assert_eq!(g.len(), 4);
         let keys = g.keys();
-        assert_eq!(4, keys.len());
+        assert_eq!(keys.len(), 4);
         assert!(color_approx_eq(RED, keys[0].value, 1e-5));
         assert!(color_approx_eq(RED, keys[1].value, 1e-5));
         assert!(color_approx_eq(BLUE, keys[2].value, 1e-5));
@@ -406,9 +591,7 @@ mod tests {
 
     #[test]
     fn sample_by() {
-        let mut g = Gradient::new();
-        g.add_key(0.5, RED);
-        g.add_key(0.8, BLUE);
+        let g = Gradient::from_keys([(0.5, RED), (0.8, BLUE)]);
         const COUNT: usize = 256;
         let mut data: [Vec4; COUNT] = [Vec4::ZERO; COUNT];
         let start = 0.;
@@ -465,12 +648,107 @@ mod tests {
         assert_eq!(g, g_serde);
     }
 
-    #[test]
-    fn hash() {
-        let g = make_test_gradient();
+    /// Hash the given gradient.
+    fn hash_gradient<T>(g: &Gradient<T>) -> u64
+    where
+        T: Default + Lerp + FromReflect,
+        GradientKey<T>: Hash,
+    {
         let mut hasher = DefaultHasher::default();
         g.hash(&mut hasher);
-        let h = hasher.finish();
-        println!("gradient: {:?}\nhash: {:016X}", g, h);
+        hasher.finish()
+    }
+
+    /// Make a collection of random keys, for testing.
+    fn make_keys<R, T, S>(rng: &mut R, count: usize) -> Vec<(f32, T)>
+    where
+        R: Rng + ?Sized,
+        T: Lerp + FromReflect + From<S>,
+        Standard: Distribution<S>,
+    {
+        if count == 0 {
+            return vec![];
+        }
+        if count == 1 {
+            return vec![(0., rng.gen().into())];
+        }
+        let mut ret = Vec::with_capacity(count);
+        for i in 0..count {
+            ret.push((i as f32 / (count - 1) as f32, rng.gen().into()));
+        }
+        ret
+    }
+
+    #[test]
+    fn hash() {
+        let mut rng = thread_rng();
+        for count in 0..10 {
+            let keys: Vec<(f32, f32)> = make_keys::<ThreadRng, f32, f32>(&mut rng, count);
+            let mut g1 = Gradient::new().with_keys(keys.into_iter());
+            let g2 = g1.clone();
+            assert_eq!(g1, g2);
+            assert_eq!(hash_gradient(&g1), hash_gradient(&g2));
+            if count > 0 {
+                g1.keys_mut()[0].value += 1.;
+                assert_ne!(g1, g2);
+                assert_ne!(hash_gradient(&g1), hash_gradient(&g2));
+                g1.keys_mut()[0].value = g2.keys()[0].value;
+                assert_eq!(g1, g2);
+                assert_eq!(hash_gradient(&g1), hash_gradient(&g2));
+            }
+        }
+
+        let mut rng = thread_rng();
+        for count in 0..10 {
+            let keys: Vec<(f32, Vec2)> = make_keys::<ThreadRng, Vec2, (f32, f32)>(&mut rng, count);
+            let mut g1 = Gradient::new().with_keys(keys.into_iter());
+            let g2 = g1.clone();
+            assert_eq!(g1, g2);
+            assert_eq!(hash_gradient(&g1), hash_gradient(&g2));
+            if count > 0 {
+                g1.keys_mut()[0].value += 1.;
+                assert_ne!(g1, g2);
+                assert_ne!(hash_gradient(&g1), hash_gradient(&g2));
+                g1.keys_mut()[0].value = g2.keys()[0].value;
+                assert_eq!(g1, g2);
+                assert_eq!(hash_gradient(&g1), hash_gradient(&g2));
+            }
+        }
+
+        let mut rng = thread_rng();
+        for count in 0..10 {
+            let keys: Vec<(f32, Vec3)> =
+                make_keys::<ThreadRng, Vec3, (f32, f32, f32)>(&mut rng, count);
+            let mut g1 = Gradient::new().with_keys(keys.into_iter());
+            let g2 = g1.clone();
+            assert_eq!(g1, g2);
+            assert_eq!(hash_gradient(&g1), hash_gradient(&g2));
+            if count > 0 {
+                g1.keys_mut()[0].value += 1.;
+                assert_ne!(g1, g2);
+                assert_ne!(hash_gradient(&g1), hash_gradient(&g2));
+                g1.keys_mut()[0].value = g2.keys()[0].value;
+                assert_eq!(g1, g2);
+                assert_eq!(hash_gradient(&g1), hash_gradient(&g2));
+            }
+        }
+
+        let mut rng = thread_rng();
+        for count in 0..10 {
+            let keys: Vec<(f32, Vec4)> =
+                make_keys::<ThreadRng, Vec4, (f32, f32, f32, f32)>(&mut rng, count);
+            let mut g1 = Gradient::new().with_keys(keys.into_iter());
+            let g2 = g1.clone();
+            assert_eq!(g1, g2);
+            assert_eq!(hash_gradient(&g1), hash_gradient(&g2));
+            if count > 0 {
+                g1.keys_mut()[0].value += 1.;
+                assert_ne!(g1, g2);
+                assert_ne!(hash_gradient(&g1), hash_gradient(&g2));
+                g1.keys_mut()[0].value = g2.keys()[0].value;
+                assert_eq!(g1, g2);
+                assert_eq!(hash_gradient(&g1), hash_gradient(&g2));
+            }
+        }
     }
 }
