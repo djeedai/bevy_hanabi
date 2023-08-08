@@ -106,7 +106,9 @@ use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
 use bevy::{reflect::Reflect, utils::thiserror::Error};
 use serde::{Deserialize, Serialize};
 
-use crate::{Attribute, PropertyLayout, ScalarType, ToWgslString, ValueType};
+use crate::{
+    Attribute, ModifierContext, ParticleLayout, PropertyLayout, ScalarType, ToWgslString, ValueType,
+};
 
 use super::Value;
 
@@ -439,8 +441,14 @@ pub enum ExprError {
 /// most common example are [`PropertyExpr`] which are only valid if the
 /// property is actually defined in the evaluation context.
 pub trait EvalContext {
+    /// Get the modifier context of the evaluation.
+    fn modifier_context(&self) -> ModifierContext;
+
     /// Get the module the evaluation is taking place in.
     fn module(&self) -> &Module;
+
+    /// Get the particle layout of the effect.
+    fn particle_layout(&self) -> &ParticleLayout;
 
     /// Get the property layout of the effect.
     fn property_layout(&self) -> &PropertyLayout;
@@ -566,7 +574,8 @@ impl Expr {
     /// # use bevy_hanabi::*;
     /// # let mut module = Module::default();
     /// # let pl = PropertyLayout::empty();
-    /// # let context = InitContext::new(&mut module, &pl);
+    /// # let pal = ParticleLayout::default();
+    /// # let context = InitContext::new(&mut module, &pl, &pal);
     /// let expr = Expr::Literal(LiteralExpr::new(1.));
     /// assert_eq!(Ok("1.".to_string()), expr.eval(&context));
     /// ```
@@ -1937,8 +1946,9 @@ mod tests {
         // Create an evaluation context
         let property_layout =
             PropertyLayout::new(&[Property::new("my_prop", ScalarValue::Float(3.))]);
+        let particle_layout = ParticleLayout::default();
         let mut m = w.finish();
-        let context = InitContext::new(&mut m, &property_layout);
+        let context = InitContext::new(&mut m, &property_layout, &particle_layout);
 
         // Evaluate the expression
         let s = context.expr(x).unwrap().eval(&context).unwrap();
@@ -1973,13 +1983,9 @@ mod tests {
         let gt = m.gt(x, y);
         let ge = m.ge(x, y);
 
-        let pl = PropertyLayout::default();
-        let ctx = InitContext {
-            module: &mut m,
-            init_code: String::new(),
-            init_extra: String::new(),
-            property_layout: &pl,
-        };
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let ctx = InitContext::new(&mut m, &property_layout, &particle_layout);
 
         for (expr, op) in [
             (add, "+"),
@@ -2012,13 +2018,9 @@ mod tests {
         for op in [BuiltInOperator::Time, BuiltInOperator::DeltaTime] {
             let value = m.builtin(op);
 
-            let pl = PropertyLayout::default();
-            let ctx = InitContext {
-                module: &mut m,
-                init_code: String::new(),
-                init_extra: String::new(),
-                property_layout: &pl,
-            };
+            let property_layout = PropertyLayout::default();
+            let particle_layout = ParticleLayout::default();
+            let ctx = InitContext::new(&mut m, &property_layout, &particle_layout);
 
             let expr = ctx.eval(value);
             assert!(expr.is_ok());
@@ -2034,13 +2036,9 @@ mod tests {
         ] {
             let value = m.builtin(BuiltInOperator::Rand(scalar_type.into()));
 
-            let pl = PropertyLayout::default();
-            let ctx = InitContext {
-                module: &mut m,
-                init_code: String::new(),
-                init_extra: String::new(),
-                property_layout: &pl,
-            };
+            let property_layout = PropertyLayout::default();
+            let particle_layout = ParticleLayout::default();
+            let ctx = InitContext::new(&mut m, &property_layout, &particle_layout);
 
             let expr = ctx.eval(value);
             assert!(expr.is_ok());
@@ -2052,13 +2050,9 @@ mod tests {
                     VectorType::new(scalar_type, count).into(),
                 ));
 
-                let pl = PropertyLayout::default();
-                let ctx = InitContext {
-                    module: &mut m,
-                    init_code: String::new(),
-                    init_extra: String::new(),
-                    property_layout: &pl,
-                };
+                let property_layout = PropertyLayout::default();
+                let particle_layout = ParticleLayout::default();
+                let ctx = InitContext::new(&mut m, &property_layout, &particle_layout);
 
                 let expr = ctx.eval(vec);
                 assert!(expr.is_ok());
@@ -2081,13 +2075,9 @@ mod tests {
         let any = m.any(z);
         let all = m.all(z);
 
-        let pl = PropertyLayout::default();
-        let ctx = InitContext {
-            module: &mut m,
-            init_code: String::new(),
-            init_extra: String::new(),
-            property_layout: &pl,
-        };
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let ctx = InitContext::new(&mut m, &property_layout, &particle_layout);
 
         for (expr, op, inner) in [
             (
@@ -2116,13 +2106,9 @@ mod tests {
         let min = m.min(x, y);
         let max = m.max(x, y);
 
-        let pl = PropertyLayout::default();
-        let ctx = InitContext {
-            module: &mut m,
-            init_code: String::new(),
-            init_extra: String::new(),
-            property_layout: &pl,
-        };
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let ctx = InitContext::new(&mut m, &property_layout, &particle_layout);
 
         for (expr, op) in [(min, "min"), (max, "max")] {
             let expr = ctx.eval(expr);

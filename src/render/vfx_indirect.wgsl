@@ -1,24 +1,4 @@
 
-// struct RenderIndirect {
-//     vertex_count: u32,
-//     instance_count: u32,
-//     base_index: u32,
-//     vertex_offset: i32,
-//     base_instance: u32,
-//     alive_count: u32,
-//     dead_count: u32,
-//     max_spawn: u32,
-//     ping: u32,
-//     max_update: u32,
-// };
-
-// struct DispatchIndirect {
-//     x: u32,
-//     y: u32,
-//     z: u32,
-//     pong: u32,
-// };
-
 struct SimParams {
     delta_time: f32,
     time: f32,

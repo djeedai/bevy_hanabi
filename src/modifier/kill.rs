@@ -165,7 +165,7 @@ impl UpdateModifier for KillAabbModifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Module, PropertyLayout};
+    use crate::{Module, ParticleLayout, PropertyLayout};
 
     use super::*;
 
@@ -177,7 +177,8 @@ mod tests {
         let modifier = KillAabbModifier::new(center, half_size);
 
         let property_layout = PropertyLayout::default();
-        let mut context = UpdateContext::new(&mut module, &property_layout);
+        let particle_layout = ParticleLayout::default();
+        let mut context = UpdateContext::new(&mut module, &property_layout, &particle_layout);
         assert!(modifier.apply_update(&mut context).is_ok());
 
         assert!(context.update_code.contains("is_alive = false")); // TODO - less weak check

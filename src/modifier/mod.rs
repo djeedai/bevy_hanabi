@@ -55,7 +55,8 @@ pub use position::*;
 pub use velocity::*;
 
 use crate::{
-    Attribute, EvalContext, Expr, ExprError, ExprHandle, Gradient, Module, PropertyLayout,
+    Attribute, EvalContext, Expr, ExprError, ExprHandle, Gradient, Module, ParticleLayout,
+    PropertyLayout,
 };
 
 /// The dimension of a shape to consider.
@@ -165,27 +166,42 @@ pub struct InitContext<'a> {
     pub init_extra: String,
     /// Layout of properties for the current effect.
     pub property_layout: &'a PropertyLayout,
+    /// Layout of attributes of a particle for the current effect.
+    pub particle_layout: &'a ParticleLayout,
 }
 
 impl<'a> InitContext<'a> {
     /// Create a new init context.
-    pub fn new(module: &'a mut Module, property_layout: &'a PropertyLayout) -> Self {
+    pub fn new(
+        module: &'a mut Module,
+        property_layout: &'a PropertyLayout,
+        particle_layout: &'a ParticleLayout,
+    ) -> Self {
         Self {
             module,
             init_code: String::new(),
             init_extra: String::new(),
             property_layout,
+            particle_layout,
         }
     }
 }
 
 impl<'a> EvalContext for InitContext<'a> {
+    fn modifier_context(&self) -> ModifierContext {
+        ModifierContext::Init
+    }
+
     fn module(&self) -> &Module {
         self.module
     }
 
     fn property_layout(&self) -> &PropertyLayout {
         self.property_layout
+    }
+
+    fn particle_layout(&self) -> &ParticleLayout {
+        self.particle_layout
     }
 
     fn expr(&self, expr: ExprHandle) -> Result<&Expr, ExprError> {
@@ -300,6 +316,8 @@ pub struct UpdateContext<'a> {
     pub update_extra: String,
     /// Layout of properties for the current effect.
     pub property_layout: &'a PropertyLayout,
+    /// Layout of attributes of a particle for the current effect.
+    pub particle_layout: &'a ParticleLayout,
 
     // TEMP
     /// Array of force field components with a maximum number of components
@@ -309,24 +327,37 @@ pub struct UpdateContext<'a> {
 
 impl<'a> UpdateContext<'a> {
     /// Create a new update context.
-    pub fn new(module: &'a mut Module, property_layout: &'a PropertyLayout) -> Self {
+    pub fn new(
+        module: &'a mut Module,
+        property_layout: &'a PropertyLayout,
+        particle_layout: &'a ParticleLayout,
+    ) -> Self {
         Self {
             module,
             update_code: String::new(),
             update_extra: String::new(),
             property_layout,
+            particle_layout,
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
         }
     }
 }
 
 impl<'a> EvalContext for UpdateContext<'a> {
+    fn modifier_context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
     fn module(&self) -> &Module {
         self.module
     }
 
     fn property_layout(&self) -> &PropertyLayout {
         self.property_layout
+    }
+
+    fn particle_layout(&self) -> &ParticleLayout {
+        self.particle_layout
     }
 
     fn expr(&self, expr: ExprHandle) -> Result<&Expr, ExprError> {
@@ -354,6 +385,8 @@ pub struct RenderContext<'a> {
     pub module: &'a mut Module,
     /// Layout of properties for the current effect.
     pub property_layout: &'a PropertyLayout,
+    /// Layout of attributes of a particle for the current effect.
+    pub particle_layout: &'a ParticleLayout,
     /// Main particle rendering code for the vertex shader.
     pub vertex_code: String,
     /// Main particle rendering code for the fragment shader.
@@ -374,11 +407,16 @@ pub struct RenderContext<'a> {
 }
 
 impl<'a> RenderContext<'a> {
-    /// Create a new render context.
-    pub fn new(module: &'a mut Module, property_layout: &'a PropertyLayout) -> Self {
+    /// Create a new update context.
+    pub fn new(
+        module: &'a mut Module,
+        property_layout: &'a PropertyLayout,
+        particle_layout: &'a ParticleLayout,
+    ) -> Self {
         Self {
             module,
             property_layout,
+            particle_layout,
             vertex_code: String::new(),
             fragment_code: String::new(),
             render_extra: String::new(),
@@ -422,12 +460,20 @@ impl<'a> RenderContext<'a> {
 }
 
 impl<'a> EvalContext for RenderContext<'a> {
+    fn modifier_context(&self) -> ModifierContext {
+        ModifierContext::Render
+    }
+
     fn module(&self) -> &Module {
         self.module
     }
 
     fn property_layout(&self) -> &PropertyLayout {
         self.property_layout
+    }
+
+    fn particle_layout(&self) -> &ParticleLayout {
+        self.particle_layout
     }
 
     fn expr(&self, expr: ExprHandle) -> Result<&Expr, ExprError> {
@@ -675,7 +721,8 @@ mod tests {
         ];
         for &modifier in modifiers.iter() {
             let property_layout = PropertyLayout::default();
-            let mut context = InitContext::new(&mut module, &property_layout);
+            let particle_layout = ParticleLayout::default();
+            let mut context = InitContext::new(&mut module, &property_layout, &particle_layout);
             assert!(modifier.apply_init(&mut context).is_ok());
             let init_code = context.init_code;
             let init_extra = context.init_extra;
@@ -771,7 +818,8 @@ fn main() {{
         let mut module = writer.finish();
         for &modifier in modifiers.iter() {
             let property_layout = PropertyLayout::default();
-            let mut context = UpdateContext::new(&mut module, &property_layout);
+            let particle_layout = ParticleLayout::default();
+            let mut context = UpdateContext::new(&mut module, &property_layout, &particle_layout);
             assert!(modifier.apply_update(&mut context).is_ok());
             let update_code = context.update_code;
             let update_extra = context.update_extra;
@@ -867,10 +915,11 @@ fn main() {{
                 mode: OrientMode::AlongVelocity,
             },
         ];
-        let mut module = Module::default();
         for &modifier in modifiers.iter() {
+            let mut module = Module::default();
             let property_layout = PropertyLayout::default();
-            let mut context = RenderContext::new(&mut module, &property_layout);
+            let particle_layout = ParticleLayout::default();
+            let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
             modifier.apply_render(&mut context);
             let vertex_code = context.vertex_code;
             let fragment_code = context.fragment_code;

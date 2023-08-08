@@ -1038,6 +1038,21 @@ impl From<&ParticleLayout> for ParticleLayoutBuilder {
 /// together in a single call, therefore it is recommended to minimize the
 /// layout variations across effects and attempt to reuse the same layout for
 /// multiple effects, which can be benefical for performance.
+///
+/// # Construction
+///
+/// To create a particle layout you can either:
+/// - Use [`ParticleLayout::default()`] to create the default layout, which
+///   contains some default attributes commonly used for effects
+///   ([`Attribute::POSITION`], [`Attribute::VELOCITY`], [`Attribute::AGE`],
+///   [`Attribute::LIFETIME`]).
+/// - Use [`ParticleLayout::empty()`] to create an empty layout without any
+///   attribute.
+/// - Use [`ParticleLayout::new()`] to create a [`ParticleLayoutBuilder`] and
+///   append the necessary attributes manually then call [`build()`] to complete
+///   the layout.
+///
+/// [`build()`]: crate::ParticleLayoutBuilder::build
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ParticleLayout {
     layout: Vec<AttributeLayout>,

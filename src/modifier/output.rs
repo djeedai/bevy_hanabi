@@ -303,7 +303,7 @@ axis_z = cross(axis_x, axis_y);
 
 #[cfg(test)]
 mod tests {
-    use crate::{Module, PropertyLayout};
+    use crate::*;
 
     use super::*;
 
@@ -316,7 +316,8 @@ mod tests {
 
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
-        let mut context = RenderContext::new(&mut module, &property_layout);
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
         modifier.apply_render(&mut context);
 
         assert!(context.particle_texture.is_some());
@@ -336,7 +337,8 @@ mod tests {
 
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
-        let mut context = RenderContext::new(&mut module, &property_layout);
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
         modifier.apply_render(&mut context);
 
         assert!(context
@@ -358,7 +360,8 @@ mod tests {
 
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
-        let mut context = RenderContext::new(&mut module, &property_layout);
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
         modifier.apply_render(&mut context);
 
         assert!(context
@@ -369,10 +372,10 @@ mod tests {
     #[test]
     fn mod_billboard() {
         let modifier = OrientModifier::default();
-
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
-        let mut context = RenderContext::new(&mut module, &property_layout);
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
         modifier.apply_render(&mut context);
 
         // TODO - less weak test...
