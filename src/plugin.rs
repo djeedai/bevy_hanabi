@@ -1,7 +1,7 @@
 #[cfg(feature = "2d")]
 use bevy::core_pipeline::core_2d::Transparent2d;
 #[cfg(feature = "3d")]
-use bevy::core_pipeline::core_3d::Transparent3d;
+use bevy::core_pipeline::core_3d::{AlphaMask3d, Transparent3d};
 use bevy::{
     prelude::*,
     render::{
@@ -164,6 +164,14 @@ impl Plugin for HanabiPlugin {
             render_app
                 .world
                 .get_resource::<DrawFunctions<Transparent3d>>()
+                .unwrap()
+                .write()
+                .add(draw_particles);
+
+            let draw_particles = DrawEffects::new(&mut render_app.world);
+            render_app
+                .world
+                .get_resource::<DrawFunctions<AlphaMask3d>>()
                 .unwrap()
                 .write()
                 .add(draw_particles);

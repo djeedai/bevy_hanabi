@@ -377,6 +377,7 @@ mod tests {
         let particle_layout = ParticleLayout::default();
         let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
         modifier.apply_render(&mut context);
+
         // TODO - less weak test...
         assert!(context
             .vertex_code

@@ -11,7 +11,7 @@ use bevy::utils::FloatOrd;
 
 use crate::{EffectAsset, EffectShader, ForceFieldSource, ParticleLayout, PropertyLayout};
 
-use super::{EffectSlice, LayoutFlags};
+use super::{EffectSlice, GpuCompressedTransform, LayoutFlags};
 
 /// A batch of multiple instances of the same effect, rendered all together to
 /// reduce GPU shader permutations and draw call overhead.
@@ -102,9 +102,9 @@ pub(crate) struct BatchInput {
     /// Number of particles to spawn for this effect.
     pub spawn_count: u32,
     /// Emitter transform.
-    pub transform: [f32; 12],
+    pub transform: GpuCompressedTransform,
     /// Emitter inverse transform.
-    pub inverse_transform: [f32; 12],
+    pub inverse_transform: GpuCompressedTransform,
     /// GPU buffer where properties for this batch need to be written.
     pub property_buffer: Option<Buffer>,
     /// Serialized property data.
@@ -541,8 +541,8 @@ mod tests {
             image_handle_id,
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
             spawn_count: 32,
-            transform: [0.; 12],
-            inverse_transform: [0.; 12],
+            transform: GpuCompressedTransform::default(),
+            inverse_transform: GpuCompressedTransform::default(),
             property_buffer: None,
             property_data: vec![],
             #[cfg(feature = "2d")]

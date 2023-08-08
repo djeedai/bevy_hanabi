@@ -31,6 +31,11 @@ struct ParticlesBuffer {
     particles: array<Particle>,
 }
 
+struct SimParams {
+    delta_time: f32,
+    time: f32,
+};
+
 struct IndirectBuffer {
     indices: array<u32>,
 }
@@ -70,6 +75,7 @@ struct VertexOutput {
 }
 
 @group(0) @binding(0) var<uniform> view: View;
+@group(0) @binding(1) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read> particle_buffer : ParticlesBuffer;
 @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
@@ -238,6 +244,10 @@ fn vertex(
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
+#ifdef USE_ALPHA_MASK
+    var alpha_cutoff: f32 = {{ALPHA_CUTOFF}};
+#endif
+
 {{FRAGMENT_MODIFIERS}}
 
 #ifdef PARTICLE_TEXTURE
@@ -247,5 +257,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #else
     var color = in.color;
 #endif
+
+#ifdef USE_ALPHA_MASK
+    if color.a >= alpha_cutoff {
+        color.a = 1.0;
+    } else {
+        discard;
+    }
+#endif
+
     return color;
 }

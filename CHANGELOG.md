@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add access to `ModifierContext` and `ParticleLayout` from the `EvalContext` when evaluating modifiers.
 - Added `SimulationSpace::eval()` to evaluate a context-specific expression allowing to transform the particles to the proper simulation space.
 - Added a few more functions to `Gradient<T>`: `is_empty(` and `len()` which do as implied, `from_keys()` which creates a new gradient from a key point iterator, and `with_key()` and `with_keys()` which append one or more keys to an existing gradient.
+- Added `AlphaMode` and the ability to render particles with alpha masking instead of alpha blending. This is controlled by `EffectAsset::alpha_mode` and the new `EffectAsset::with_alpha_mode()` helper.
+- Added a new `BuiltInOperator::AlphaCutoff` value and associated expression, which represent the alpha cutoff threshold when rendering an effect with alpha masking. The `billboard` example has been updated to show how to use that value, and even dynamically change it with an expression.
 
 ### Changed
 
@@ -20,11 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Gradient<T>::new()`, `Gradient<T>::constant()`, and `Gradient<T>::linear()` do not require the `T: Default` trait bound anymore. The bound had been added by mistake, and is not necessary.
 - `Gradient<T>::new()` is now a `const fn`.
 - `Gradient<T>::constant()` and `Gradient<T>::linear()` do not attempt to perform linear searches anymore; instead they directly create the `Gradient<T>` object from scratch. This should not have any real consequence in practice though.
+- Changed `CompiledParticleEffect` to store a `LayoutFlags` instead of individual boolean values, for convenience and consistency with the internal representation.
+- Changed `RenderContext` to implement `EvalContext`. This allows render modifiers to use the expression API.
 
 ### Removed
 
 - Removed the `BillboardModifier`; this is superseded by the `OrientModifier { mode: OrientMode::ParallelCameraDepthPlane }`.
 - Removed the `OrientAlongVelocityModifier`; this is superseded by the `OrientModifier { mode: OrientMode::AlongVelocity }`.
+
+### Fixed
+
+- Render modifiers can now access simulation parameters (time, delta time) like in any other context.
 
 ## [0.7.0] 2023-07-17
 

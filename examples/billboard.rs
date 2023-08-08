@@ -1,5 +1,10 @@
-//! An example using the [`OrientModifier`] to force
-//! particles to always render facing the camera.
+//! An example using the [`OrientModifier`] to force particles to always render
+//! facing the camera, even when the view moves. This is particularly beneficial
+//! with flat particles, to prevent stretching and maintain the illusion of 3D.
+//!
+//! This example also demonstrates the use of [`AlphaMode::Mask`] to render
+//! particles with an alpha mask threshold. This feature is generally useful to
+//! obtain non-square "cutout" opaque shapes, or to produce some
 
 use bevy::{
     core_pipeline::tonemapping::Tonemapping,
@@ -92,9 +97,15 @@ fn setup(
         speed: (writer.lit(0.5) + writer.lit(0.2) * writer.rand(ScalarType::Float)).expr(),
     };
 
+    // Bounce the alpha cutoff value between 0 and 1, to show its effect on the
+    // alpha masking
+    let alpha_cutoff =
+        ((writer.time() * writer.lit(2.)).sin() * writer.lit(0.5) + writer.lit(0.5)).expr();
+
     let effect = effects.add(
         EffectAsset::new(32768, Spawner::rate(64.0.into()), writer.finish())
             .with_name("billboard")
+            .with_alpha_mode(bevy_hanabi::AlphaMode::Mask(alpha_cutoff))
             .init(init_pos)
             .init(init_vel)
             .init(init_age)

@@ -70,9 +70,9 @@ fn setup(
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");
 
     let mut gradient = Gradient::new();
-    gradient.add_key(0.0, Vec4::splat(1.0));
-    gradient.add_key(0.1, Vec4::new(1.0, 1.0, 0.0, 1.0));
-    gradient.add_key(0.4, Vec4::new(1.0, 0.0, 0.0, 1.0));
+    gradient.add_key(0.0, Vec4::new(0.5, 0.5, 0.5, 1.0));
+    gradient.add_key(0.1, Vec4::new(0.5, 0.5, 0.0, 1.0));
+    gradient.add_key(0.4, Vec4::new(0.5, 0.0, 0.0, 1.0));
     gradient.add_key(1.0, Vec4::splat(0.0));
 
     let writer = ExprWriter::new();
@@ -164,8 +164,9 @@ fn lemniscate(time: f32, radius: f32) -> Vec2 {
     let sign = theta.cos().signum();
     let theta = theta.sin() * PI_OVER_4;
 
-    // Solve the polar equation to build the parametric position
-    let r2 = radius * radius * (theta * 2.0).cos();
+    // Solve the polar equation to build the parametric position. Clamp to positive
+    // values for r2 due to numerical errors infrequently yielding negative values.
+    let r2 = (radius * radius * (theta * 2.0).cos()).max(0.);
     let r = r2.sqrt().copysign(sign);
 
     // Convert to cartesian coordinates

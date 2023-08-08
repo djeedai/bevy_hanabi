@@ -173,7 +173,7 @@ mod test_utils;
 
 use properties::PropertyInstance;
 
-pub use asset::{EffectAsset, MotionIntegration, SimulationCondition};
+pub use asset::{AlphaMode, EffectAsset, MotionIntegration, SimulationCondition};
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
@@ -181,7 +181,7 @@ pub use graph::*;
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
 pub use properties::{Property, PropertyLayout};
-pub use render::{EffectSystems, ShaderCache};
+pub use render::{EffectSystems, LayoutFlags, ShaderCache};
 pub use spawn::{tick_spawners, CpuValue, EffectSpawner, Random, Spawner};
 
 #[allow(missing_docs)]
@@ -624,7 +624,7 @@ struct EffectShaderSource {
     pub init: String,
     pub update: String,
     pub render: String,
-    pub screen_space_size: bool,
+    pub layout_flags: LayoutFlags,
     pub particle_texture: Option<Handle<Image>>,
     pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
 }
@@ -831,14 +831,34 @@ impl EffectShaderSource {
             fragment_code,
             render_extra,
             render_sim_space_transform_code,
+            alpha_cutoff_code,
             particle_texture,
-            screen_space_size,
+            layout_flags,
         ) = {
             let mut render_context =
                 RenderContext::new(&mut module, &property_layout, &particle_layout);
             for m in asset.render_modifiers() {
                 m.apply_render(&mut render_context);
             }
+
+            let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
+                render_context.eval(*cutoff).unwrap_or_else(|err| {
+                    error!(
+                        "Failed to evaluate the expression for AlphaMode::Mask, error: {:?}",
+                        err
+                    );
+
+                    // In Debug, show everything to help diagnosing
+                    #[cfg(debug_assertions)]
+                    return 1_f32.to_wgsl_string();
+
+                    // In Release, hide everything with an error
+                    #[cfg(not(debug_assertions))]
+                    return 0_f32.to_wgsl_string();
+                })
+            } else {
+                String::new()
+            };
 
             let render_sim_space_transform_code = match asset.simulation_space.eval(&render_context)
             {
@@ -849,13 +869,25 @@ impl EffectShaderSource {
                 }
             };
 
+            let mut layout_flags = LayoutFlags::NONE;
+            if asset.simulation_space == SimulationSpace::Local {
+                layout_flags |= LayoutFlags::LOCAL_SPACE_SIMULATION;
+            }
+            if let AlphaMode::Mask(_) = &asset.alpha_mode {
+                layout_flags |= LayoutFlags::USE_ALPHA_MASK;
+            }
+            if render_context.screen_space_size {
+                layout_flags |= LayoutFlags::SCREEN_SPACE_SIZE;
+            }
+
             (
                 render_context.vertex_code,
                 render_context.fragment_code,
                 render_context.render_extra,
                 render_sim_space_transform_code,
+                alpha_cutoff_code,
                 render_context.particle_texture,
-                render_context.screen_space_size,
+                layout_flags,
             )
         };
 
@@ -932,14 +964,15 @@ impl EffectShaderSource {
             .replace(
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
                 &render_sim_space_transform_code,
-            );
+            )
+            .replace("{{ALPHA_CUTOFF}}", &alpha_cutoff_code);
         trace!("Configured render shader:\n{}", render_shader_source);
 
         Ok(EffectShaderSource {
             init: init_shader_source,
             update: update_shader_source,
             render: render_shader_source,
-            screen_space_size,
+            layout_flags,
             particle_texture,
             force_field,
         })
@@ -985,10 +1018,8 @@ pub struct CompiledParticleEffect {
     /// 2D layer for the effect instance.
     #[cfg(feature = "2d")]
     z_layer_2d: FloatOrd,
-    /// Is the particle size in screen-space logical pixels?
-    screen_space_size: bool,
-    /// Is the effect simulated in local space?
-    local_space_simulation: bool,
+    /// Layout flags.
+    layout_flags: LayoutFlags,
 }
 
 impl Default for CompiledParticleEffect {
@@ -1002,8 +1033,7 @@ impl Default for CompiledParticleEffect {
             particle_texture: None,
             #[cfg(feature = "2d")]
             z_layer_2d: FloatOrd(0.0),
-            screen_space_size: false,
-            local_space_simulation: false,
+            layout_flags: LayoutFlags::NONE,
         }
     }
 }
@@ -1076,8 +1106,6 @@ impl CompiledParticleEffect {
             return;
         }
 
-        self.local_space_simulation = asset.simulation_space == SimulationSpace::Local;
-
         let shader_source = match EffectShaderSource::generate(asset) {
             Ok(shader_source) => shader_source,
             Err(err) => {
@@ -1089,19 +1117,19 @@ impl CompiledParticleEffect {
             }
         };
 
-        self.screen_space_size = shader_source.screen_space_size;
+        self.layout_flags = shader_source.layout_flags;
 
         let init_shader = shader_cache.get_or_insert(&asset.name, &shader_source.init, shaders);
         let update_shader = shader_cache.get_or_insert(&asset.name, &shader_source.update, shaders);
         let render_shader = shader_cache.get_or_insert(&asset.name, &shader_source.render, shaders);
 
         trace!(
-            "tick_spawners: init_shader={:?} update_shader={:?} render_shader={:?} screen_space_size={} local_space_simulation={}",
+            "tick_spawners: init_shader={:?} update_shader={:?} render_shader={:?} has_image={} layout_flags={:?}",
             init_shader,
             update_shader,
             render_shader,
-            self.screen_space_size,
-            self.local_space_simulation
+            shader_source.particle_texture.is_some(),
+            self.layout_flags,
         );
 
         // TODO - Replace with Option<EffectShader { handle: Handle<Shader>, hash:

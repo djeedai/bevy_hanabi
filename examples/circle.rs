@@ -62,9 +62,9 @@ fn setup(
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");
 
     let mut gradient = Gradient::new();
-    gradient.add_key(0.0, Vec4::splat(1.0));
-    gradient.add_key(0.5, Vec4::splat(1.0));
-    gradient.add_key(1.0, Vec4::new(1.0, 1.0, 1.0, 0.0));
+    gradient.add_key(0.0, Vec4::splat(0.5));
+    gradient.add_key(0.5, Vec4::splat(0.5));
+    gradient.add_key(1.0, Vec4::new(0.5, 0.5, 0.5, 0.0));
 
     let writer = ExprWriter::new();
 
