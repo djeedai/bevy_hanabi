@@ -1956,29 +1956,28 @@ pub(crate) fn prepare_effects(
 
     // Update simulation parameters
     {
-        let sim_params_uni = effects_meta.sim_params_uniforms.get_mut();
+        let storage_align = effects_meta.gpu_limits.storage_buffer_align().get() as usize;
+        
+        let gpu_sim_params = effects_meta.sim_params_uniforms.get_mut();
         let sim_params = *sim_params;
-        *sim_params_uni = sim_params.into();
+        *gpu_sim_params = sim_params.into();
 
-        sim_params_uni.num_effects = num_emitted;
+        gpu_sim_params.num_effects = num_emitted;
 
-        let storage_align = render_device.limits().min_storage_buffer_offset_alignment; // TODO - cache this
-        sim_params_uni.render_stride = next_multiple_of(
-            GpuRenderIndirect::min_size().get() as usize,
-            storage_align as usize,
-        ) as u32;
-        sim_params_uni.dispatch_stride = next_multiple_of(
+        gpu_sim_params.render_stride =
+            next_multiple_of(GpuRenderIndirect::min_size().get() as usize, storage_align) as u32;
+        gpu_sim_params.dispatch_stride = next_multiple_of(
             GpuDispatchIndirect::min_size().get() as usize,
-            storage_align as usize,
+            storage_align,
         ) as u32;
 
         trace!(
                 "Simulation parameters: time={} delta_time={} num_effects={} render_stride={} dispatch_stride={}",
-                sim_params_uni.time,
-                sim_params_uni.delta_time,
-                sim_params_uni.num_effects,
-                sim_params_uni.render_stride,
-                sim_params_uni.dispatch_stride
+                gpu_sim_params.time,
+                gpu_sim_params.delta_time,
+                gpu_sim_params.num_effects,
+                gpu_sim_params.render_stride,
+                gpu_sim_params.dispatch_stride
             );
     }
     effects_meta
