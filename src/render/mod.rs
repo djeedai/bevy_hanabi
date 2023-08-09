@@ -356,10 +356,7 @@ impl FromWorld for DispatchIndirectPipeline {
                 label: Some("hanabi:bind_group_layout:dispatch_indirect_dispatch_indirect"),
             });
 
-        trace!(
-            "GpuSimParams: min_size={}",
-            GpuSimParams::min_size()
-        );
+        trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &[BindGroupLayoutEntry {
@@ -436,10 +433,7 @@ impl FromWorld for ParticlesInitPipeline {
             limits.max_compute_workgroups_per_dimension, limits.min_storage_buffer_offset_alignment, limits.max_storage_buffers_per_shader_stage, limits.max_bind_groups
         );
 
-        trace!(
-            "GpuSimParams: min_size={}",
-            GpuSimParams::min_size()
-        );
+        trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &[BindGroupLayoutEntry {
@@ -610,10 +604,7 @@ impl FromWorld for ParticlesUpdatePipeline {
             limits.max_compute_workgroups_per_dimension, limits.min_storage_buffer_offset_alignment
         );
 
-        trace!(
-            "GpuSimParams: min_size={}",
-            GpuSimParams::min_size()
-        );
+        trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &[BindGroupLayoutEntry {
@@ -3113,6 +3104,9 @@ mod tests {
 
         //assert!(limits.storage_buffer_align().get() >= 1);
         assert!(limits.render_indirect_offset(256) >= 256 * GpuRenderIndirect::min_size().get());
-        assert!(limits.dispatch_indirect_offset(256) as u64 >= 256 * GpuDispatchIndirect::min_size().get());
+        assert!(
+            limits.dispatch_indirect_offset(256) as u64
+                >= 256 * GpuDispatchIndirect::min_size().get()
+        );
     }
 }
