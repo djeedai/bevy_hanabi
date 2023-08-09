@@ -1957,7 +1957,7 @@ pub(crate) fn prepare_effects(
     // Update simulation parameters
     {
         let storage_align = effects_meta.gpu_limits.storage_buffer_align().get() as usize;
-        
+
         let gpu_sim_params = effects_meta.sim_params_uniforms.get_mut();
         let sim_params = *sim_params;
         *gpu_sim_params = sim_params.into();
