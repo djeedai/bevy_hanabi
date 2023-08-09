@@ -59,12 +59,29 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
   // Create a new expression module
   let mut module = Module::default();
 
-  // Create a lifetime modifier
+  // On spawn, randomly initialize the position of the particle
+  // to be over the surface of a sphere of radius 2 units.
+  let init_pos = SetPositionSphereModifier {
+      center: module.lit(Vec3::ZERO),
+      radius: module.lit(0.05),
+      dimension: ShapeDimension::Surface,
+  };
+
+  // Also initialize a radial initial velocity to 6 units/sec
+  // away from the (same) sphere center.
+  let init_vel = SetVelocitySphereModifier {
+      center: module.lit(Vec3::ZERO),
+      speed: module.lit(6.),
+  };
+
+  // Initialize the total lifetime of the particle, that is
+  // the time for which it's simulated and rendered. This modifier
+  // is almost always required, otherwise the particles won't show.
   let lifetime = module.lit(10.); // literal value "10.0"
   let init_lifetime = SetAttributeModifier::new(
       Attribute::LIFETIME, lifetime);
 
-  // Create an acceleration modifier
+  // Every frame, add a gravity-like acceleration downward
   let accel = module.lit(Vec3::new(0., -3., 0.));
   let update_accel = AccelModifier::new(accel);
 
@@ -78,24 +95,9 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
     module
   )
   .with_name("MyEffect")
-  // On spawn, randomly initialize the position of the particle
-  // to be over the surface of a sphere of radius 2 units.
-  .init(SetPositionSphereModifier {
-      center: Vec3::ZERO,
-      radius: 2.,
-      dimension: ShapeDimension::Surface,
-  })
-  // Also initialize a radial initial velocity to 6 units/sec
-  // away from the (same) sphere center.
-  .init(SetVelocitySphereModifier {
-      center: Vec3::ZERO,
-      speed: 6.0.into(),
-  })
-  // Also initialize the total lifetime of the particle, that is
-  // the time for which it's simulated and rendered. This modifier
-  // is almost always required, otherwise the particles won't show.
+  .init(init_pos)
+  .init(init_vel)
   .init(init_lifetime)
-  // Every frame, add a gravity-like acceleration downward
   .update(update_accel)
   // Render the particles with a color gradient over their
   // lifetime. This maps the gradient key 0 to the particle spawn
