@@ -119,7 +119,7 @@ pub(crate) struct SimParams {
 /// GPU representation of [`SimParams`].
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable, ShaderType)]
-struct SimParamsUniform {
+struct GpuSimParams {
     delta_time: f32,
     time: f32,
     num_effects: u32,
@@ -127,7 +127,7 @@ struct SimParamsUniform {
     dispatch_stride: u32,
 }
 
-impl Default for SimParamsUniform {
+impl Default for GpuSimParams {
     fn default() -> Self {
         Self {
             delta_time: 0.04,
@@ -139,7 +139,7 @@ impl Default for SimParamsUniform {
     }
 }
 
-impl From<SimParams> for SimParamsUniform {
+impl From<SimParams> for GpuSimParams {
     fn from(src: SimParams) -> Self {
         Self {
             delta_time: src.delta_time,
@@ -356,10 +356,7 @@ impl FromWorld for DispatchIndirectPipeline {
                 label: Some("hanabi:bind_group_layout:dispatch_indirect_dispatch_indirect"),
             });
 
-        trace!(
-            "SimParamsUniform: min_size={}",
-            SimParamsUniform::min_size()
-        );
+        trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &[BindGroupLayoutEntry {
@@ -368,7 +365,7 @@ impl FromWorld for DispatchIndirectPipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: Some(SimParamsUniform::min_size()),
+                        min_binding_size: Some(GpuSimParams::min_size()),
                     },
                     count: None,
                 }],
@@ -436,10 +433,7 @@ impl FromWorld for ParticlesInitPipeline {
             limits.max_compute_workgroups_per_dimension, limits.min_storage_buffer_offset_alignment, limits.max_storage_buffers_per_shader_stage, limits.max_bind_groups
         );
 
-        trace!(
-            "SimParamsUniform: min_size={}",
-            SimParamsUniform::min_size()
-        );
+        trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &[BindGroupLayoutEntry {
@@ -448,7 +442,7 @@ impl FromWorld for ParticlesInitPipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: Some(SimParamsUniform::min_size()),
+                        min_binding_size: Some(GpuSimParams::min_size()),
                     },
                     count: None,
                 }],
@@ -610,10 +604,7 @@ impl FromWorld for ParticlesUpdatePipeline {
             limits.max_compute_workgroups_per_dimension, limits.min_storage_buffer_offset_alignment
         );
 
-        trace!(
-            "SimParamsUniform: min_size={}",
-            SimParamsUniform::min_size()
-        );
+        trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_layout =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &[BindGroupLayoutEntry {
@@ -622,7 +613,7 @@ impl FromWorld for ParticlesUpdatePipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: Some(SimParamsUniform::min_size()),
+                        min_binding_size: Some(GpuSimParams::min_size()),
                     },
                     count: None,
                 }],
@@ -794,7 +785,7 @@ impl FromWorld for ParticlesRenderPipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: Some(SimParamsUniform::min_size()),
+                        min_binding_size: Some(GpuSimParams::min_size()),
                     },
                     count: None,
                 },
@@ -1424,7 +1415,35 @@ struct GpuLimits {
 }
 
 impl GpuLimits {
-    #[allow(dead_code)]
+    pub fn from_device(render_device: &RenderDevice) -> Self {
+        let storage_buffer_align = render_device.limits().min_storage_buffer_offset_alignment;
+
+        let dispatch_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
+            GpuDispatchIndirect::min_size().get() as usize,
+            storage_buffer_align as usize,
+        ) as u32)
+        .unwrap();
+
+        let render_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
+            GpuRenderIndirect::min_size().get() as usize,
+            storage_buffer_align as usize,
+        ) as u32)
+        .unwrap();
+
+        trace!(
+            "GpuLimits: storage_buffer_align={} gpu_dispatch_indirect_aligned_size={} gpu_render_indirect_aligned_size={}",
+            storage_buffer_align,
+            dispatch_indirect_aligned_size.get(),
+            render_indirect_aligned_size.get()
+        );
+
+        Self {
+            storage_buffer_align: NonZeroU32::new(storage_buffer_align).unwrap(),
+            dispatch_indirect_aligned_size,
+            render_indirect_aligned_size,
+        }
+    }
+
     pub fn storage_buffer_align(&self) -> NonZeroU32 {
         self.storage_buffer_align
     }
@@ -1473,7 +1492,7 @@ pub(crate) struct EffectsMeta {
     /// buffer.
     update_render_indirect_bind_group: Option<BindGroup>,
 
-    sim_params_uniforms: UniformBuffer<SimParamsUniform>,
+    sim_params_uniforms: UniformBuffer<GpuSimParams>,
     spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
     dispatch_indirect_buffer: BufferTable<GpuDispatchIndirect>,
     render_dispatch_buffer: BufferTable<GpuRenderIndirect>,
@@ -1486,7 +1505,7 @@ pub(crate) struct EffectsMeta {
     indirect_dispatch_pipeline: Option<ComputePipeline>,
     /// Various GPU limits and aligned sizes lazily allocated and cached for
     /// convenience.
-    gpu_limits: Option<GpuLimits>,
+    gpu_limits: GpuLimits,
 }
 
 impl EffectsMeta {
@@ -1501,9 +1520,11 @@ impl EffectsMeta {
             });
         }
 
+        let gpu_limits = GpuLimits::from_device(&device);
+
         // Ensure individual GpuSpawnerParams elements are properly aligned so they can
         // be addressed individually by the computer shaders.
-        let item_align = device.limits().min_storage_buffer_offset_alignment as u64;
+        let item_align = gpu_limits.storage_buffer_align().get() as u64;
         trace!(
             "Aligning storage buffers to {} bytes as device limits requires.",
             item_align
@@ -1540,42 +1561,8 @@ impl EffectsMeta {
             ),
             vertices,
             indirect_dispatch_pipeline: None,
-            gpu_limits: None,
+            gpu_limits,
         }
-    }
-
-    /// Cache various GPU limits for later use.
-    pub fn update_gpu_limits(&mut self, render_device: &RenderDevice) {
-        if self.gpu_limits.is_some() {
-            return;
-        }
-
-        let storage_buffer_align = render_device.limits().min_storage_buffer_offset_alignment;
-
-        let dispatch_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
-            GpuDispatchIndirect::min_size().get() as usize,
-            storage_buffer_align as usize,
-        ) as u32)
-        .unwrap();
-
-        let render_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
-            GpuRenderIndirect::min_size().get() as usize,
-            storage_buffer_align as usize,
-        ) as u32)
-        .unwrap();
-
-        trace!(
-            "GpuLimits: storage_buffer_align={} gpu_dispatch_indirect_aligned_size={} gpu_render_indirect_aligned_size={}",
-            storage_buffer_align,
-            dispatch_indirect_aligned_size.get(),
-            render_indirect_aligned_size.get()
-        );
-
-        self.gpu_limits = Some(GpuLimits {
-            storage_buffer_align: NonZeroU32::new(storage_buffer_align).unwrap(),
-            dispatch_indirect_aligned_size,
-            render_indirect_aligned_size,
-        });
     }
 
     /// Allocate internal resources for newly spawned effects, and deallocate
@@ -1743,8 +1730,6 @@ pub(crate) fn prepare_effects(
     mut effect_bind_groups: ResMut<EffectBindGroups>,
 ) {
     trace!("prepare_effects");
-
-    effects_meta.update_gpu_limits(&render_device);
 
     // Allocate spawner buffer if needed
     // if effects_meta.spawner_buffer.is_empty() {
@@ -1966,34 +1951,33 @@ pub(crate) fn prepare_effects(
     // if effects_meta.sim_params_uniforms.is_empty() {
     effects_meta
         .sim_params_uniforms
-        .set(SimParamsUniform::default());
+        .set(GpuSimParams::default());
     //}
 
     // Update simulation parameters
     {
-        let sim_params_uni = effects_meta.sim_params_uniforms.get_mut();
+        let storage_align = effects_meta.gpu_limits.storage_buffer_align().get() as usize;
+
+        let gpu_sim_params = effects_meta.sim_params_uniforms.get_mut();
         let sim_params = *sim_params;
-        *sim_params_uni = sim_params.into();
+        *gpu_sim_params = sim_params.into();
 
-        sim_params_uni.num_effects = num_emitted;
+        gpu_sim_params.num_effects = num_emitted;
 
-        let storage_align = render_device.limits().min_storage_buffer_offset_alignment; // TODO - cache this
-        sim_params_uni.render_stride = next_multiple_of(
-            GpuRenderIndirect::min_size().get() as usize,
-            storage_align as usize,
-        ) as u32;
-        sim_params_uni.dispatch_stride = next_multiple_of(
+        gpu_sim_params.render_stride =
+            next_multiple_of(GpuRenderIndirect::min_size().get() as usize, storage_align) as u32;
+        gpu_sim_params.dispatch_stride = next_multiple_of(
             GpuDispatchIndirect::min_size().get() as usize,
-            storage_align as usize,
+            storage_align,
         ) as u32;
 
         trace!(
                 "Simulation parameters: time={} delta_time={} num_effects={} render_stride={} dispatch_stride={}",
-                sim_params_uni.time,
-                sim_params_uni.delta_time,
-                sim_params_uni.num_effects,
-                sim_params_uni.render_stride,
-                sim_params_uni.dispatch_stride
+                gpu_sim_params.time,
+                gpu_sim_params.delta_time,
+                gpu_sim_params.num_effects,
+                gpu_sim_params.render_stride,
+                gpu_sim_params.dispatch_stride
             );
     }
     effects_meta
@@ -2634,7 +2618,7 @@ fn draw<'w>(
     let effect_bind_groups = effect_bind_groups.into_inner();
     let effect_batch = effects.get(entity).unwrap();
 
-    let Some(gpu_limits) = effects_meta.gpu_limits.as_ref() else { return; };
+    let gpu_limits = &effects_meta.gpu_limits;
 
     let Some(pipeline) = pipeline_cache
     .into_inner()
@@ -3106,5 +3090,22 @@ mod tests {
     fn layout_flags() {
         let flags = LayoutFlags::default();
         assert_eq!(flags, LayoutFlags::NONE);
+    }
+
+    #[cfg(feature = "gpu_tests")]
+    #[test]
+    fn gpu_limits() {
+        use crate::test_utils::MockRenderer;
+
+        let renderer = MockRenderer::new();
+        let device = renderer.device();
+        let limits = GpuLimits::from_device(&device);
+
+        //assert!(limits.storage_buffer_align().get() >= 1);
+        assert!(limits.render_indirect_offset(256) >= 256 * GpuRenderIndirect::min_size().get());
+        assert!(
+            limits.dispatch_indirect_offset(256) as u64
+                >= 256 * GpuDispatchIndirect::min_size().get()
+        );
     }
 }
