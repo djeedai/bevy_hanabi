@@ -8,6 +8,8 @@
 use std::hash::Hash;
 
 use bevy::prelude::*;
+
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -32,7 +34,8 @@ use crate::{
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct AccelModifier {
     /// The acceleration to apply to all particles in the effect each frame.
     ///
@@ -61,7 +64,7 @@ impl AccelModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for AccelModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update
@@ -84,7 +87,7 @@ impl Modifier for AccelModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for AccelModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let attr = context.module.attr(Attribute::VELOCITY);
@@ -116,7 +119,8 @@ impl UpdateModifier for AccelModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RadialAccelModifier {
     /// The center point the radial direction is calculated from.
     ///
@@ -163,7 +167,7 @@ impl_mod_update!(
     &[Attribute::POSITION, Attribute::VELOCITY]
 );
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for RadialAccelModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);
@@ -209,7 +213,8 @@ impl UpdateModifier for RadialAccelModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TangentAccelModifier {
     /// The center point the tangent direction is calculated from.
     ///
@@ -267,7 +272,7 @@ impl_mod_update!(
     &[Attribute::POSITION, Attribute::VELOCITY]
 );
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for TangentAccelModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);

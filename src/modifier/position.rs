@@ -5,6 +5,8 @@
 //! used during simulation update to enforce a particular position.
 
 use bevy::prelude::*;
+
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -19,7 +21,8 @@ use crate::{
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SetPositionCircleModifier {
     /// The circle center, relative to the emitter position.
     ///
@@ -101,7 +104,7 @@ impl SetPositionCircleModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl InitModifier for SetPositionCircleModifier {
     fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
         let (code, extra) = self.eval(context)?;
@@ -111,7 +114,7 @@ impl InitModifier for SetPositionCircleModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for SetPositionCircleModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let (code, extra) = self.eval(context)?;
@@ -127,7 +130,8 @@ impl UpdateModifier for SetPositionCircleModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SetPositionSphereModifier {
     /// The sphere center, relative to the emitter position.
     ///
@@ -191,7 +195,7 @@ let dir = vec3<f32>(x, y, z);
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl InitModifier for SetPositionSphereModifier {
     fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
         let (code, extra) = self.eval(context)?;
@@ -201,7 +205,7 @@ impl InitModifier for SetPositionSphereModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for SetPositionSphereModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let (code, extra) = self.eval(context)?;
@@ -225,7 +229,8 @@ impl UpdateModifier for SetPositionSphereModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SetPositionCone3dModifier {
     /// The cone height along its axis, between the base and top radii.
     ///
@@ -291,7 +296,7 @@ impl SetPositionCone3dModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl InitModifier for SetPositionCone3dModifier {
     fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
         let (code, extra) = self.eval(context)?;
@@ -301,7 +306,7 @@ impl InitModifier for SetPositionCone3dModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for SetPositionCone3dModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let (code, extra) = self.eval(context)?;

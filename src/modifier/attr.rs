@@ -6,6 +6,8 @@
 //! stored per particle.
 
 use bevy::prelude::*;
+
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -52,7 +54,8 @@ use crate::{
 /// # Attributes
 ///
 /// This modifier requires the attribute specified in the `attribute` field.
-#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SetAttributeModifier {
     /// The attribute to initialize.
     ///
@@ -81,7 +84,7 @@ impl SetAttributeModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for SetAttributeModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update
@@ -112,7 +115,7 @@ impl Modifier for SetAttributeModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl InitModifier for SetAttributeModifier {
     fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
         assert!(context.module.get(self.value).is_some());
@@ -124,7 +127,7 @@ impl InitModifier for SetAttributeModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for SetAttributeModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         assert!(context.module.get(self.value).is_some());

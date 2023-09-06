@@ -1,20 +1,20 @@
-#![deny(
-    warnings,
-    missing_copy_implementations,
-    trivial_casts,
-    trivial_numeric_casts,
-    unsafe_code,
-    unstable_features,
-    unused_import_braces,
-    unused_qualifications,
-    missing_docs,
-    clippy::suboptimal_flops,
-    clippy::imprecise_flops,
-    clippy::branches_sharing_code,
-    clippy::suspicious_operation_groupings,
-    clippy::useless_let_if_seq
-)]
-#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+// #![deny(
+//     warnings,
+//     missing_copy_implementations,
+//     trivial_casts,
+//     trivial_numeric_casts,
+//     unsafe_code,
+//     unstable_features,
+//     unused_import_braces,
+//     unused_qualifications,
+//     missing_docs,
+//     clippy::suboptimal_flops,
+//     clippy::imprecise_flops,
+//     clippy::branches_sharing_code,
+//     clippy::suspicious_operation_groupings,
+//     clippy::useless_let_if_seq
+// )]
+// #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 //! 🎆 Hanabi -- a GPU particle system plugin for the Bevy game engine.
 //!

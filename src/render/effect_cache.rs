@@ -154,7 +154,7 @@ impl EffectBuffer {
         layout_flags: LayoutFlags,
         // compute_pipeline: ComputePipeline,
         render_device: &RenderDevice,
-        label: Option<&str>,
+        buffer_index: u32,
     ) -> Self {
         trace!(
             "EffectBuffer::new(capacity={}, particle_layout={:?}, property_layout={:?}, layout_flags={:?}, item_size={}B, properties_size={}B)",
@@ -174,8 +174,9 @@ impl EffectBuffer {
 
         let particle_capacity_bytes: BufferAddress =
             capacity as u64 * particle_layout.min_binding_size().get();
+        let particle_label = format!("hanabi:buffer:effect{buffer_index}_particles");
         let particle_buffer = render_device.create_buffer(&BufferDescriptor {
-            label,
+            label: Some(&particle_label),
             size: particle_capacity_bytes,
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
             mapped_at_creation: false,
@@ -183,11 +184,7 @@ impl EffectBuffer {
 
         let capacity_bytes: BufferAddress = capacity as u64 * 4;
 
-        let indirect_label = if let Some(label) = label {
-            format!("{label}_indirect")
-        } else {
-            "hanabi:buffer:effect_indirect".to_owned()
-        };
+        let indirect_label = format!("hanabi:buffer:effect{buffer_index}_indirect");
         let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
             size: capacity_bytes * 3, // ping-pong + deadlist
@@ -211,11 +208,7 @@ impl EffectBuffer {
         let properties_buffer = if property_layout.is_empty() {
             None
         } else {
-            let properties_label = if let Some(label) = label {
-                format!("{}_properties", label)
-            } else {
-                "hanabi:buffer:effect_properties".to_owned()
-            };
+            let properties_label = format!("hanabi:buffer:effect{buffer_index}_properties");
             let size = property_layout.min_binding_size().get(); // TODO: * num_effects_in_buffer (once batching works again)
             let properties_buffer = render_device.create_buffer(&BufferDescriptor {
                 label: Some(&properties_label),
@@ -263,16 +256,17 @@ impl EffectBuffer {
                 count: None,
             });
         }
-        let label = "hanabi:simualate_particles_buffer_layout";
+        let layout_label =
+            format!("hanabi:bind_group_layout:effect{buffer_index}_simulate_particles");
         trace!(
             "Creating particle bind group layout '{}' for simulate passes (init & update) with {} entries.",
-            label,
+            layout_label,
             entries.len(),
         );
         let particles_buffer_layout_simulate =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &entries,
-                label: Some(label),
+                label: Some(&layout_label),
             });
 
         let mut entries = vec![
@@ -319,11 +313,17 @@ impl EffectBuffer {
                 count: None,
             });
         }
-        trace!("Creating render layout with {} entries", entries.len());
+        let layout_label =
+            format!("hanabi:bind_group_layout:effect{buffer_index}_render_particles");
+        trace!(
+            "Creating render layout {} with {} entries",
+            layout_label,
+            entries.len()
+        );
         let particles_buffer_layout_with_dispatch =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &entries,
-                label: Some("hanabi:buffer_layout_render"),
+                label: Some(&layout_label),
             });
 
         Self {
@@ -476,6 +476,10 @@ impl EffectBuffer {
         );
 
         if capacity > self.capacity {
+            trace!(
+                "Capacity larger than buffer, can't allocate {} particles here.",
+                capacity
+            );
             return None;
         }
 
@@ -494,6 +498,7 @@ impl EffectBuffer {
                         capacity, self.capacity
                     );
                 }
+                trace!("Buffer full, can't allocate {} particles here.", capacity);
                 return None;
             }
         };
@@ -662,7 +667,7 @@ impl EffectCache {
                     layout_flags,
                     //pipeline,
                     &self.device,
-                    Some(&format!("hanabi:buffer:effect{buffer_index}_particles")),
+                    buffer_index as u32,
                 );
                 let slice_ref = buffer.allocate_slice(capacity, particle_layout).unwrap();
                 if buffer_index >= self.buffers.len() {
@@ -845,7 +850,7 @@ mod gpu_tests {
             PropertyLayout::empty(), // not using properties
             LayoutFlags::NONE,
             &render_device,
-            Some("my_buffer"),
+            42,
         );
 
         assert_eq!(buffer.capacity, capacity.max(EffectBuffer::MIN_CAPACITY));
@@ -921,7 +926,7 @@ mod gpu_tests {
             PropertyLayout::empty(), // not using properties
             LayoutFlags::NONE,
             &render_device,
-            Some("my_buffer"),
+            42,
         );
 
         let slice0 = buffer.allocate_slice(32, &l64);

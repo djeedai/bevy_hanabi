@@ -1,6 +1,6 @@
 use bevy::{
     core::{cast_slice, Pod},
-    log::trace,
+    prelude::{error, info, warn},
     render::{
         render_resource::{
             Buffer, BufferAddress, BufferDescriptor, BufferUsages, CommandEncoder, ShaderSize,
@@ -133,7 +133,7 @@ impl<T: Pod + ShaderSize> Default for BufferTable<T> {
     }
 }
 
-impl<T: Pod + ShaderSize> BufferTable<T> {
+impl<T: Pod + ShaderSize + std::fmt::Debug> BufferTable<T> {
     /// Create a new collection.
     ///
     /// `item_align` is an optional additional alignment for items in the
@@ -166,10 +166,9 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         } else {
             item_size
         };
-        trace!(
+        info!(
             "BufferTable: item_size={} aligned_size={}",
-            item_size,
-            aligned_size
+            item_size, aligned_size
         );
         if buffer_usage.contains(BufferUsages::UNIFORM) {
             <T as ShaderType>::assert_uniform_compat();
@@ -264,7 +263,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     /// For performance reasons, this buffers the row content on the CPU until
     /// the next GPU update, to minimize the number of CPU to GPU transfers.
     pub fn insert(&mut self, value: T) -> BufferTableId {
-        trace!(
+        info!(
             "Inserting into table buffer with {} free indices, capacity: {}, active_size: {}",
             self.free_indices.len(),
             self.capacity,
@@ -289,12 +288,9 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             .map(|ab| ab.allocated_size())
             .unwrap_or(0);
         debug_assert!(allocated_size % self.aligned_size == 0);
-        trace!(
+        info!(
             "Found free index {}, capacity: {}, active_size: {}, allocated_size: {}",
-            index,
-            self.capacity,
-            self.active_size,
-            allocated_size
+            index, self.capacity, self.active_size, allocated_size
         );
         let allocated_count = allocated_size / self.aligned_size;
         if index < allocated_count {
@@ -362,7 +358,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         let allocated_size = self.buffer.as_ref().map(|ab| ab.size).unwrap_or(0);
         let size = self.aligned_size * self.capacity;
         let reallocated = if size > allocated_size {
-            trace!(
+            info!(
                 "reserve: increase capacity from {} to {} elements, new size {} bytes",
                 allocated_size / self.aligned_size,
                 self.capacity,
@@ -418,7 +414,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 let mut aligned_buffer: Vec<u8> = vec![0; self.aligned_size];
                 let src: &[u8] = cast_slice(std::slice::from_ref(&content));
                 let dst_range = ..self.item_size;
-                trace!(
+                info!(
                     "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
                     index,
                     src.as_ptr(),
@@ -453,7 +449,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                     let mut aligned_buffer: Vec<u8> = vec![0; self.aligned_size];
                     let src: &[u8] = cast_slice(std::slice::from_ref(&content));
                     let dst_range = ..self.item_size;
-                    trace!(
+                    info!(
                         "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
                         index,
                         src.as_ptr(),
@@ -493,7 +489,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             return;
         }
 
-        trace!(
+        info!(
             "write_buffer: pending_values.len={} item_size={} aligned_size={} buffer={:?}",
             self.pending_values.len(),
             self.item_size,
@@ -509,8 +505,52 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         // which stays alive until the copy is done (but we don't need to care about
         // keeping it alive, wgpu does that for us).
         if let Some(old_buffer) = ab.old_buffer.as_ref() {
-            trace!("Copy old buffer id {:?} of size {} bytes into newly-allocated buffer {:?} of size {} bytes.", old_buffer.id(), ab.old_size, ab.buffer.id(), ab.size);
+            info!("Copy old buffer id {:?} of size {} bytes into newly-allocated buffer {:?} of size {} bytes.", old_buffer.id(), ab.old_size, ab.buffer.id(), ab.size);
             encoder.copy_buffer_to_buffer(old_buffer, 0, &ab.buffer, 0, ab.old_size as u64);
+        }
+    }
+
+    pub fn read_buffer_async(&self, device: &RenderDevice, queue: &RenderQueue) {
+        if let Some(buffer) = self.buffer.as_ref() {
+            let len = self.len();
+            let aligned_size = self.aligned_size();
+            wgpu::util::DownloadBuffer::read_buffer(
+                device.wgpu_device(),
+                &queue.0,
+                &buffer.buffer.slice(..),
+                move |ret| match ret {
+                    Ok(db) => {
+                        let item_size = <T as ShaderSize>::SHADER_SIZE.get() as usize;
+                        info!(
+                            "Downloaded content: {}B | item_size: {}B | alined_size: {}B | len={}",
+                            db.len(),
+                            item_size,
+                            aligned_size,
+                            len
+                        );
+                        let mut count = 0;
+                        for item in db.chunks(aligned_size) {
+                            if count >= len {
+                                return;
+                            }
+                            count += 1;
+                            if item.len() >= item_size {
+                                let item: &[T] = cast_slice(&item[..item_size]);
+                                info!("+ {:?}", item[0]);
+                            } else {
+                                warn!(
+                                    "+ Cannot decode {}B of item from slice of {}B",
+                                    item_size,
+                                    item.len()
+                                );
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        error!("Failed to readback buffer: {:?}", err);
+                    }
+                },
+            );
         }
     }
 }
@@ -687,7 +727,7 @@ mod gpu_tests {
         s
     }
 
-    fn write_buffers_and_wait<T: Pod + ShaderSize>(
+    fn write_buffers_and_wait<T: Pod + ShaderSize + std::fmt::Debug>(
         table: &BufferTable<T>,
         device: &RenderDevice,
         queue: &RenderQueue,

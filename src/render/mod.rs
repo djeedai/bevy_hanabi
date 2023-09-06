@@ -272,7 +272,7 @@ impl Default for GpuDispatchIndirect {
 pub struct GpuRenderIndirect {
     pub vertex_count: u32,
     pub instance_count: u32,
-    pub base_index: u32,
+    pub base_index: u32, // FIXME - We use draw_indirect(), this shouldn't be here!
     pub vertex_offset: i32,
     pub base_instance: u32,
     //
@@ -1541,12 +1541,12 @@ impl EffectsMeta {
             update_render_indirect_bind_group: None,
             sim_params_uniforms: UniformBuffer::default(),
             spawner_buffer: AlignedBufferVec::new(
-                BufferUsages::STORAGE,
+                BufferUsages::STORAGE | BufferUsages::COPY_SRC,
                 NonZeroU64::new(item_align),
                 Some("hanabi:buffer:spawner".to_string()),
             ),
             dispatch_indirect_buffer: BufferTable::new(
-                BufferUsages::STORAGE | BufferUsages::INDIRECT,
+                BufferUsages::STORAGE | BufferUsages::INDIRECT | BufferUsages::COPY_SRC,
                 // NOTE: Technically we're using an offset in dispatch_workgroups_indirect(), but
                 // `min_storage_buffer_offset_alignment` is documented as being for the offset in
                 // BufferBinding and the dynamic offset in set_bind_group(), so either the
@@ -1555,7 +1555,7 @@ impl EffectsMeta {
                 Some("hanabi:buffer:dispatch_indirect".to_string()),
             ),
             render_dispatch_buffer: BufferTable::new(
-                BufferUsages::STORAGE | BufferUsages::INDIRECT,
+                BufferUsages::STORAGE | BufferUsages::INDIRECT | BufferUsages::COPY_SRC,
                 NonZeroU64::new(item_align),
                 Some("hanabi:buffer:render_dispatch".to_string()),
             ),
@@ -1946,6 +1946,16 @@ pub(crate) fn prepare_effects(
     effects_meta
         .spawner_buffer
         .write_buffer(&render_device, &render_queue);
+
+    effects_meta
+        .spawner_buffer
+        .read_buffer_async(&render_device, &render_queue);
+    effects_meta
+        .dispatch_indirect_buffer
+        .read_buffer_async(&render_device, &render_queue);
+    effects_meta
+        .render_dispatch_buffer
+        .read_buffer_async(&render_device, &render_queue);
 
     // Allocate simulation uniform if needed
     // if effects_meta.sim_params_uniforms.is_empty() {
@@ -2466,12 +2476,13 @@ pub(crate) fn queue_effects(
                         }),
                     });
                 }
-                trace!("Creating render bind group with {} entries", entries.len());
+                let label = format!(
+                    "hanabi:bind_group_render_vfx{buffer_index}_particles",
+                );
+                trace!("Creating render bind group '{}' with {} entries", label, entries.len());
                 let render = render_device.create_bind_group(&BindGroupDescriptor {
                     entries: &entries,
-                    label: Some(&format!(
-                        "hanabi:bind_group_render_vfx{buffer_index}_particles",
-                    )),
+                    label: Some(&label),
                     layout: buffer.particle_layout_bind_group_with_dispatch(),
                 });
 
@@ -2640,14 +2651,17 @@ fn draw<'w>(
 
     // Particles buffer
     let dispatch_indirect_offset = gpu_limits.dispatch_indirect_offset(effect_batch.buffer_index);
-    trace!(
-        "set_bind_group(1): dispatch_indirect_offset={}",
-        dispatch_indirect_offset
-    );
     let spawner_base = effect_batch.spawner_base;
     let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
     assert!(spawner_buffer_aligned >= GpuSpawnerParams::min_size().get() as usize);
     let spawner_offset = spawner_base * spawner_buffer_aligned as u32;
+    trace!(
+        "set_bind_group(1): effect_batch.buffer_index={} dispatch_indirect_offset={} spawner_base={} spawner_offset={}",
+        effect_batch.buffer_index,
+        dispatch_indirect_offset,
+        spawner_base,
+        spawner_offset
+    );
     let dyn_uniform_indices: [u32; 2] = [dispatch_indirect_offset, spawner_offset];
     let dyn_uniform_indices = if effect_batch
         .layout_flags

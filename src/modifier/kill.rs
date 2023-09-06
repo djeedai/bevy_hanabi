@@ -4,6 +4,8 @@
 //! specific conditions, like entering or leaving an area in space.
 
 use bevy::prelude::*;
+
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -20,7 +22,8 @@ use crate::{
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct KillSphereModifier {
     /// Center of the sphere.
     ///
@@ -62,7 +65,7 @@ impl KillSphereModifier {
 
 impl_mod_update!(KillSphereModifier, &[Attribute::POSITION]);
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for KillSphereModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let pos = context.module.attr(Attribute::POSITION);
@@ -96,7 +99,8 @@ impl UpdateModifier for KillSphereModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct KillAabbModifier {
     /// Center of the AABB.
     ///
@@ -133,7 +137,7 @@ impl KillAabbModifier {
 
 impl_mod_update!(KillAabbModifier, &[Attribute::POSITION]);
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for KillAabbModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let pos = context.module.attr(Attribute::POSITION);

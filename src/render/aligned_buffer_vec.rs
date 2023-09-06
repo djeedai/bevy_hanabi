@@ -1,6 +1,7 @@
 use bevy::{
     core::{cast_slice, Pod},
     log::trace,
+    prelude::{error, info, warn},
     render::{
         render_resource::{
             Buffer, BufferAddress, BufferDescriptor, BufferUsages, ShaderSize, ShaderType,
@@ -9,7 +10,8 @@ use bevy::{
     },
 };
 use copyless::VecHelper;
-use std::num::NonZeroU64;
+use std::{mem::MaybeUninit, num::NonZeroU64};
+use wgpu;
 
 use crate::next_multiple_of;
 
@@ -64,7 +66,7 @@ impl<T: Pod + ShaderType + ShaderSize> Default for AlignedBufferVec<T> {
     }
 }
 
-impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
+impl<T: Pod + ShaderType + ShaderSize + std::fmt::Debug> AlignedBufferVec<T> {
     /// Create a new collection.
     ///
     /// `item_align` is an optional additional alignment for items in the
@@ -193,6 +195,68 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
             }
             let bytes: &[u8] = cast_slice(&aligned_buffer);
             queue.write_buffer(buffer, 0, bytes);
+        }
+    }
+
+    pub fn read_buffer_async(&self, device: &RenderDevice, queue: &RenderQueue) {
+        if let Some(buffer) = self.buffer.clone() {
+            let len = self.len();
+            let aligned_size = self.aligned_size();
+            wgpu::util::DownloadBuffer::read_buffer(
+                device.wgpu_device(),
+                &queue.0,
+                &buffer.slice(..),
+                move |ret| match ret {
+                    Ok(db) => {
+                        let item_size = <T as ShaderSize>::SHADER_SIZE.get() as usize;
+                        info!(
+                            "Downloaded content: {}B | item_size: {}B | aligned_size: {}B | len={} | rust_size: {}B | rust_align: {}B",
+                            db.len(),
+                            item_size,
+                            aligned_size,
+                            len,
+                            std::mem::size_of::<T>(),
+                            std::mem::align_of::<T>(),
+                        );
+                        let mut count = 0;
+                        for item in db.chunks(aligned_size) {
+                            if count >= len {
+                                return;
+                            }
+                            count += 1;
+                            if item.len() >= item_size {
+                                info!(
+                                    "+ Casting item of size {}B to item_size: {}B...",
+                                    item.len(),
+                                    item_size
+                                );
+                                let mut obj = MaybeUninit::<T>::uninit();
+                                #[allow(unsafe_code)]
+                                let obj = unsafe {
+                                    std::ptr::copy_nonoverlapping(
+                                        item.as_ptr(),
+                                        obj.as_mut_ptr() as *mut _,
+                                        std::mem::size_of::<T>(),
+                                    );
+                                    obj.assume_init()
+                                };
+                                //let item: &[T] = cast_slice(&item[..item_size]);
+                                //info!("+ {:?}", item[0]);
+                                info!("+ {:?}", obj);
+                            } else {
+                                warn!(
+                                    "+ Cannot decode {}B of item from slice of {}B",
+                                    item_size,
+                                    item.len()
+                                );
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        error!("Failed to readback buffer: {:?}", err);
+                    }
+                },
+            );
         }
     }
 

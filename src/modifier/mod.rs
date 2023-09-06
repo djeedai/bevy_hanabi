@@ -32,11 +32,13 @@ use bevy::{
     utils::{FloatOrd, HashMap},
 };
 use bitflags::bitflags;
-use serde::{Deserialize, Serialize};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
 };
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 pub mod accel;
 pub mod attr;
@@ -62,7 +64,8 @@ use crate::{
 /// The dimension of a shape to consider.
 ///
 /// The exact meaning depends on the context where this enum is used.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum ShapeDimension {
     /// Consider the surface of the shape only.
     #[default]
@@ -219,7 +222,7 @@ impl<'a> EvalContext for InitContext<'a> {
 }
 
 /// Trait to customize the initializing of newly spawned particles.
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 pub trait InitModifier: Modifier {
     /// Append the initializing code.
     fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError>;
@@ -231,7 +234,8 @@ pub trait InitModifier: Modifier {
 /// position, with a decreasing intensity the further away from the source the
 /// particle is. This force is added to the one(s) of all the other active
 /// sources of a [`ForceFieldModifier`].
-#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ForceFieldSource {
     /// Position of the source.
     pub position: Vec3,
@@ -372,7 +376,7 @@ impl<'a> EvalContext for UpdateContext<'a> {
 }
 
 /// Trait to customize the updating of existing particles each frame.
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 pub trait UpdateModifier: Modifier {
     /// Append the update code.
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError>;
@@ -488,7 +492,7 @@ impl<'a> EvalContext for RenderContext<'a> {
 }
 
 /// Trait to customize the rendering of alive particles each frame.
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 pub trait RenderModifier: Modifier {
     /// Apply the rendering code.
     fn apply_render(&self, context: &mut RenderContext);
@@ -497,7 +501,7 @@ pub trait RenderModifier: Modifier {
 /// Macro to implement the [`Modifier`] trait for an init modifier.
 // macro_rules! impl_mod_init {
 //     ($t:ty, $attrs:expr) => {
-//         #[typetag::serde]
+//         #[cfg_attr(feature = "serde", typetag::serde)]
 //         impl $crate::Modifier for $t {
 //             fn context(&self) -> $crate::ModifierContext {
 //                 $crate::ModifierContext::Init
@@ -527,7 +531,7 @@ pub trait RenderModifier: Modifier {
 /// Macro to implement the [`Modifier`] trait for an update modifier.
 macro_rules! impl_mod_update {
     ($t:ty, $attrs:expr) => {
-        #[typetag::serde]
+        #[cfg_attr(feature = "serde", typetag::serde)]
         impl $crate::Modifier for $t {
             fn context(&self) -> $crate::ModifierContext {
                 $crate::ModifierContext::Update
@@ -558,7 +562,7 @@ pub(crate) use impl_mod_update;
 /// both in init and update contexts.
 macro_rules! impl_mod_init_update {
     ($t:ty, $attrs:expr) => {
-        #[typetag::serde]
+        #[cfg_attr(feature = "serde", typetag::serde)]
         impl $crate::Modifier for $t {
             fn context(&self) -> $crate::ModifierContext {
                 $crate::ModifierContext::Init | $crate::ModifierContext::Update
@@ -596,7 +600,7 @@ pub(crate) use impl_mod_init_update;
 /// Macro to implement the [`Modifier`] trait for a render modifier.
 macro_rules! impl_mod_render {
     ($t:ty, $attrs:expr) => {
-        #[typetag::serde]
+        #[cfg_attr(feature = "serde", typetag::serde)]
         impl $crate::Modifier for $t {
             fn context(&self) -> $crate::ModifierContext {
                 $crate::ModifierContext::Render

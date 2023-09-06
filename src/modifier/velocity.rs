@@ -10,6 +10,8 @@
 //! ```
 
 use bevy::prelude::*;
+
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -24,7 +26,8 @@ use crate::{
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SetVelocityCircleModifier {
     /// The circle center, relative to the emitter position.
     ///
@@ -73,7 +76,7 @@ impl SetVelocityCircleModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl InitModifier for SetVelocityCircleModifier {
     fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
         let (code, extra) = self.eval(context)?;
@@ -83,7 +86,7 @@ impl InitModifier for SetVelocityCircleModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for SetVelocityCircleModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let (code, extra) = self.eval(context)?;
@@ -100,7 +103,8 @@ impl UpdateModifier for SetVelocityCircleModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SetVelocitySphereModifier {
     /// Center of the sphere. The radial direction of the velocity is the
     /// direction from the sphere center to the particle position.
@@ -118,7 +122,7 @@ impl_mod_init_update!(
     &[Attribute::POSITION, Attribute::VELOCITY]
 );
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl InitModifier for SetVelocitySphereModifier {
     fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
         context.init_code += &format!(
@@ -132,7 +136,7 @@ impl InitModifier for SetVelocitySphereModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for SetVelocitySphereModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         context.update_code += &format!(
@@ -153,7 +157,8 @@ impl UpdateModifier for SetVelocitySphereModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SetVelocityTangentModifier {
     /// Origin from which to derive the radial axis based on the particle
     /// position.
@@ -176,7 +181,7 @@ impl_mod_init_update!(
     &[Attribute::POSITION, Attribute::VELOCITY]
 );
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl InitModifier for SetVelocityTangentModifier {
     fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);
@@ -204,7 +209,7 @@ impl InitModifier for SetVelocityTangentModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for SetVelocityTangentModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);

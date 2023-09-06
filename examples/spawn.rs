@@ -8,6 +8,8 @@ use bevy::{
         RenderPlugin,
     },
 };
+
+#[cfg(not(target_family = "wasm"))]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
@@ -30,13 +32,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         wgpu_settings.constrained_limits = Some(limits);
     }
 
-    App::default()
-        .insert_resource(ClearColor(Color::DARK_GRAY))
+    let mut app = App::default();
+    app.insert_resource(ClearColor(Color::DARK_GRAY))
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,spawn=trace".to_string(),
+                    filter: "bevy_hanabi=trace,spawn=trace".to_string(),
                 })
                 .set(RenderPlugin { wgpu_settings })
                 .set(WindowPlugin {
@@ -47,10 +49,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..default()
                 }),
         )
-        .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
-        .add_systems(Startup, setup)
-        .add_systems(Update, (bevy::window::close_on_esc, update_accel))
+        .add_plugins(HanabiPlugin);
+
+    #[cfg(not(target_family = "wasm"))]
+    app.add_plugins(WorldInspectorPlugin::default());
+
+    app.add_systems(Startup, setup)
+        .add_systems(Update, (bevy::window::close_on_esc /* update_accel*/,))
         .run();
 
     Ok(())
@@ -61,6 +66,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// runtime.
 #[derive(Component)]
 struct DynamicRuntimeAccel;
+
+#[cfg(not(target_family = "wasm"))]
+const EFFECT_CAPACITY: u32 = 32768;
+#[cfg(target_family = "wasm")]
+const EFFECT_CAPACITY: u32 = 64;
 
 fn setup(
     mut commands: Commands,
@@ -126,9 +136,10 @@ fn setup(
     };
 
     let effect1 = effects.add(
-        EffectAsset::new(32768, Spawner::rate(500.0.into()), writer1.finish())
+        EffectAsset::new(EFFECT_CAPACITY, Spawner::rate(5.0.into()), writer1.finish())
             .with_name("emit:rate")
             .with_property("my_accel", Vec3::new(0., -3., 0.).into())
+            .with_simulation_space(SimulationSpace::Local)
             .init(init_pos1)
             // Make spawned particles move away from the emitter origin
             .init(init_vel1)
@@ -143,28 +154,6 @@ fn setup(
                 screen_space_size: false,
             }),
     );
-
-    commands
-        .spawn((
-            Name::new("emit:rate"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect1),
-                transform: Transform::from_translation(Vec3::new(-30., 0., 0.))
-                    .with_rotation(Quat::from_rotation_z(1.)),
-                ..Default::default()
-            },
-        ))
-        .with_children(|p| {
-            // Reference cube to visualize the emit origin
-            p.spawn((
-                PbrBundle {
-                    mesh: cube.clone(),
-                    material: mat.clone(),
-                    ..Default::default()
-                },
-                Name::new("source"),
-            ));
-        });
 
     let mut gradient2 = Gradient::new();
     gradient2.add_key(0.0, Vec4::new(0.0, 0.7, 0.0, 1.0));
@@ -185,37 +174,20 @@ fn setup(
         speed: writer2.lit(2.).expr(),
     };
     let effect2 = effects.add(
-        EffectAsset::new(32768, Spawner::once(1000.0.into(), true), writer2.finish())
-            .with_name("emit:once")
-            .init(init_pos2)
-            .init(init_vel2)
-            .init(init_age2)
-            .init(init_lifetime2)
-            .render(ColorOverLifetimeModifier {
-                gradient: gradient2,
-            }),
+        EffectAsset::new(
+            EFFECT_CAPACITY,
+            Spawner::once(1000.0.into(), true),
+            writer2.finish(),
+        )
+        .with_name("emit:once")
+        .init(init_pos2)
+        .init(init_vel2)
+        .init(init_age2)
+        .init(init_lifetime2)
+        .render(ColorOverLifetimeModifier {
+            gradient: gradient2,
+        }),
     );
-
-    commands
-        .spawn((
-            Name::new("emit:once"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect2),
-                transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
-                ..Default::default()
-            },
-        ))
-        .with_children(|p| {
-            // Reference cube to visualize the emit origin
-            p.spawn((
-                PbrBundle {
-                    mesh: cube.clone(),
-                    material: mat.clone(),
-                    ..Default::default()
-                },
-                Name::new("source"),
-            ));
-        });
 
     // Note: same as gradient2, will yield shared render shader between effects #2
     // and #3
@@ -253,7 +225,7 @@ fn setup(
 
     let effect3 = effects.add(
         EffectAsset::new(
-            32768,
+            EFFECT_CAPACITY,
             Spawner::burst(400.0.into(), 3.0.into()),
             writer3.finish(),
         )
@@ -270,15 +242,37 @@ fn setup(
         }),
     );
 
+    // commands
+    //     .spawn((
+    //         Name::new("emit:burst"),
+    //         ParticleEffectBundle {
+    //             effect: ParticleEffect::new(effect3),
+    //             transform: Transform::from_translation(Vec3::new(30., 0., 0.)),
+    //             ..Default::default()
+    //         },
+    //         DynamicRuntimeAccel,
+    //     ))
+    //     .with_children(|p| {
+    //         // Reference cube to visualize the emit origin
+    //         p.spawn((
+    //             PbrBundle {
+    //                 mesh: cube.clone(),
+    //                 material: mat.clone(),
+    //                 ..Default::default()
+    //             },
+    //             Name::new("source"),
+    //         ));
+    //     });
+
     commands
         .spawn((
-            Name::new("emit:burst"),
+            Name::new("emit:rate"),
             ParticleEffectBundle {
-                effect: ParticleEffect::new(effect3),
-                transform: Transform::from_translation(Vec3::new(30., 0., 0.)),
+                effect: ParticleEffect::new(effect1.clone()),
+                transform: Transform::from_translation(Vec3::new(-30., 0., 0.))
+                    .with_rotation(Quat::from_rotation_z(1.)),
                 ..Default::default()
             },
-            DynamicRuntimeAccel,
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin
@@ -291,15 +285,58 @@ fn setup(
                 Name::new("source"),
             ));
         });
+
+    commands
+        .spawn((
+            Name::new("emit:rate"),
+            ParticleEffectBundle {
+                effect: ParticleEffect::new(effect1),
+                transform: Transform::from_translation(Vec3::new(30., 0., 0.))
+                    .with_rotation(Quat::from_rotation_z(-1.)),
+                ..Default::default()
+            },
+        ))
+        .with_children(|p| {
+            // Reference cube to visualize the emit origin
+            p.spawn((
+                PbrBundle {
+                    mesh: cube.clone(),
+                    material: mat.clone(),
+                    ..Default::default()
+                },
+                Name::new("source"),
+            ));
+        });
+
+    // commands
+    //     .spawn((
+    //         Name::new("emit:once"),
+    //         ParticleEffectBundle {
+    //             effect: ParticleEffect::new(effect2),
+    //             transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
+    //             ..Default::default()
+    //         },
+    //     ))
+    //     .with_children(|p| {
+    //         // Reference cube to visualize the emit origin
+    //         p.spawn((
+    //             PbrBundle {
+    //                 mesh: cube.clone(),
+    //                 material: mat.clone(),
+    //                 ..Default::default()
+    //             },
+    //             Name::new("source"),
+    //         ));
+    //     });
 }
 
-fn update_accel(
-    time: Res<Time>,
-    mut query: Query<&mut CompiledParticleEffect, With<DynamicRuntimeAccel>>,
-) {
-    let mut effect = query.single_mut();
-    let accel0 = 10.;
-    let (s, c) = (time.elapsed_seconds() * 0.3).sin_cos();
-    let accel = Vec3::new(c * accel0, s * accel0, 0.);
-    effect.set_property("my_accel", accel.into());
-}
+// fn update_accel(
+//     time: Res<Time>,
+//     mut query: Query<&mut CompiledParticleEffect, With<DynamicRuntimeAccel>>,
+// ) {
+//     let mut effect = query.single_mut();
+//     let accel0 = 10.;
+//     let (s, c) = (time.elapsed_seconds() * 0.3).sin_cos();
+//     let accel = Vec3::new(c * accel0, s * accel0, 0.);
+//     effect.set_property("my_accel", accel.into());
+// }

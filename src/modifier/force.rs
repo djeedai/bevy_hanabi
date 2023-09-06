@@ -6,6 +6,8 @@
 use std::hash::Hash;
 
 use bevy::prelude::*;
+
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -26,7 +28,8 @@ use crate::{
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ForceFieldModifier {
     /// Array of force field sources.
     ///
@@ -84,7 +87,7 @@ impl_mod_update!(
     &[Attribute::POSITION, Attribute::VELOCITY]
 );
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for ForceFieldModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);
@@ -115,7 +118,8 @@ impl UpdateModifier for ForceFieldModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::VELOCITY`]
-#[derive(Debug, Clone, Copy, Reflect, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Reflect, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct LinearDragModifier {
     /// Drag coefficient. Higher values increase the drag force, and
     /// consequently decrease the particle's speed faster.
@@ -140,7 +144,7 @@ impl LinearDragModifier {
 
 impl_mod_update!(LinearDragModifier, &[Attribute::VELOCITY]);
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl UpdateModifier for LinearDragModifier {
     fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
         let m = &mut context.module;

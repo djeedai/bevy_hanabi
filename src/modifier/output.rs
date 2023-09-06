@@ -1,8 +1,10 @@
 //! Modifiers to influence the output (rendering) of each particle.
 
 use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::hash::Hash;
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use crate::{
     impl_mod_render, Attribute, BoxedModifier, CpuValue, Gradient, Modifier, ModifierContext,
@@ -14,10 +16,11 @@ use crate::{
 /// # Attributes
 ///
 /// This modifier does not require any specific particle attribute.
-#[derive(Default, Debug, Clone, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, PartialEq, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ParticleTextureModifier {
     /// The texture image to modulate the particle color with.
-    #[serde(skip)]
+    #[cfg_attr(feature = "serde", serde(skip))]
     // TODO - Clarify if Modifier needs to be serializable, or we need another on-disk
     // representation... NOTE - Need to keep a strong handle here, nothing else will keep that
     // texture loaded currently.
@@ -26,7 +29,7 @@ pub struct ParticleTextureModifier {
 
 impl_mod_render!(ParticleTextureModifier, &[]); // TODO - should require some UV maybe?
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for ParticleTextureModifier {
     fn apply_render(&self, context: &mut RenderContext) {
         context.set_particle_texture(self.texture.clone());
@@ -42,7 +45,8 @@ impl RenderModifier for ParticleTextureModifier {
 /// # Attributes
 ///
 /// This modifier does not require any specific particle attribute.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SetColorModifier {
     /// The particle color.
     pub color: CpuValue<Vec4>,
@@ -50,7 +54,7 @@ pub struct SetColorModifier {
 
 impl_mod_render!(SetColorModifier, &[]);
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for SetColorModifier {
     fn apply_render(&self, context: &mut RenderContext) {
         context.vertex_code += &format!("color = {0};\n", self.color.to_wgsl_string());
@@ -65,7 +69,8 @@ impl RenderModifier for SetColorModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::AGE`]
 /// - [`Attribute::LIFETIME`]
-#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct ColorOverLifetimeModifier {
     /// The color gradient defining the particle color based on its lifetime.
     pub gradient: Gradient<Vec4>,
@@ -76,7 +81,7 @@ impl_mod_render!(
     &[Attribute::AGE, Attribute::LIFETIME]
 );
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for ColorOverLifetimeModifier {
     fn apply_render(&self, context: &mut RenderContext) {
         let func_name = context.add_color_gradient(self.gradient.clone());
@@ -108,7 +113,8 @@ impl RenderModifier for ColorOverLifetimeModifier {
 /// # Attributes
 ///
 /// This modifier does not require any specific particle attribute.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SetSizeModifier {
     /// The particle color.
     pub size: CpuValue<Vec2>,
@@ -120,7 +126,7 @@ pub struct SetSizeModifier {
 
 impl_mod_render!(SetSizeModifier, &[]);
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for SetSizeModifier {
     fn apply_render(&self, context: &mut RenderContext) {
         context.vertex_code += &format!("size = {0};\n", self.size.to_wgsl_string());
@@ -136,7 +142,8 @@ impl RenderModifier for SetSizeModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::AGE`]
 /// - [`Attribute::LIFETIME`]
-#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SizeOverLifetimeModifier {
     /// The size gradient defining the particle size based on its lifetime.
     pub gradient: Gradient<Vec2>,
@@ -151,7 +158,7 @@ impl_mod_render!(
     &[Attribute::AGE, Attribute::LIFETIME]
 );
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for SizeOverLifetimeModifier {
     fn apply_render(&self, context: &mut RenderContext) {
         let func_name = context.add_size_gradient(self.gradient.clone());
@@ -177,7 +184,8 @@ impl RenderModifier for SizeOverLifetimeModifier {
 }
 
 /// Mode of orientation of a particle's local frame.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum OrientMode {
     /// Orient a particle such that its local XY plane is parallel to the
     /// camera's near and far planes (depth planes).
@@ -237,13 +245,14 @@ pub enum OrientMode {
 ///
 /// [`mode`]: crate::modifier::output::OrientModifier::mode
 /// [`Attribute::POSITION`]: crate::attributes::Attribute::POSITION
-#[derive(Debug, Default, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Hash, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct OrientModifier {
     /// Orientation mode for the particles.
     pub mode: OrientMode,
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for OrientModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Render
@@ -273,7 +282,7 @@ impl Modifier for OrientModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for OrientModifier {
     fn apply_render(&self, context: &mut RenderContext) {
         match self.mode {

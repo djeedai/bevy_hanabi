@@ -3,7 +3,7 @@ use bevy::{
     utils::{default, HashSet},
 };
 
-//#[cfg(feature = "serde")]
+#[cfg(feature = "serde")]
 use bevy::{
     asset::{AssetLoader, LoadContext, LoadedAsset},
     utils::BoxedFuture,
