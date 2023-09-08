@@ -202,7 +202,9 @@ fn update(
     // Note: On first frame where the effect spawns, EffectSpawner is spawned during
     // CoreSet::PostUpdate, so will not be available yet. Ignore for a frame if
     // so.
-    let Ok((mut effect, mut spawner, mut effect_transform)) = effect.get_single_mut() else { return; };
+    let Ok((mut effect, mut spawner, mut effect_transform)) = effect.get_single_mut() else {
+        return;
+    };
 
     for (mut ball, mut transform) in balls.iter_mut() {
         let mut pos = transform.translation.xy() + ball.velocity * time.delta_seconds();
