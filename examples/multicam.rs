@@ -265,7 +265,9 @@ fn update_camera_viewports(
     // A resize_event is sent when the window is first created, allowing us to reuse
     // this system for initial setup.
     for resize_event in resize_events.iter() {
-        let Ok(window) = window.get(resize_event.window) else {continue;};
+        let Ok(window) = window.get(resize_event.window) else {
+            continue;
+        };
         let dw = window.physical_width() / 2;
         let dh = window.physical_height() / 2;
         let physical_size = UVec2::new(dw, dh);

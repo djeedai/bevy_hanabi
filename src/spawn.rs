@@ -572,7 +572,9 @@ pub fn tick_spawners(
     for (entity, effect, maybe_computed_visibility, maybe_spawner) in query.iter_mut() {
         // TODO - maybe cache simulation_condition so we don't need to unconditionally
         // query the asset?
-        let Some(asset) = effects.get(&effect.handle) else { continue; };
+        let Some(asset) = effects.get(&effect.handle) else {
+            continue;
+        };
 
         if asset.simulation_condition == SimulationCondition::WhenVisible {
             if let Some(computed_visibility) = maybe_computed_visibility {

@@ -1332,7 +1332,10 @@ pub(crate) fn extract_effects(
 
         // Check if asset is available, otherwise silently ignore
         let Some(asset) = effects.get(&effect.asset) else {
-            trace!("EffectAsset not ready; skipping ParticleEffect instance on entity {:?}.", entity);
+            trace!(
+                "EffectAsset not ready; skipping ParticleEffect instance on entity {:?}.",
+                entity
+            );
             continue;
         };
 
@@ -2236,7 +2239,9 @@ pub(crate) fn queue_effects(
 
     // Get the binding for the ViewUniform, the uniform data structure containing
     // the Camera data for the current view.
-    let Some(view_binding) = view_uniforms.uniforms.binding() else { return; };
+    let Some(view_binding) = view_uniforms.uniforms.binding() else {
+        return;
+    };
 
     // Create the bind group for the camera/view parameters
     effects_meta.view_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
@@ -2620,9 +2625,9 @@ fn draw<'w>(
 
     let gpu_limits = &effects_meta.gpu_limits;
 
-    let Some(pipeline) = pipeline_cache
-    .into_inner()
-    .get_render_pipeline(pipeline_id) else { return; };
+    let Some(pipeline) = pipeline_cache.into_inner().get_render_pipeline(pipeline_id) else {
+        return;
+    };
 
     trace!("render pass");
 
@@ -2879,7 +2884,11 @@ impl Node for VfxSimulateNode {
                         // let effect_slice = effects_meta.get(&effect_entity);
                         // let effect_group =
                         //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
-                        let Some(particles_bind_group) = effect_bind_groups.particle_simulate(batch.buffer_index) else { continue; };
+                        let Some(particles_bind_group) =
+                            effect_bind_groups.particle_simulate(batch.buffer_index)
+                        else {
+                            continue;
+                        };
 
                         let item_size = batch.particle_layout.min_binding_size();
                         let item_count = batch.slice.end - batch.slice.start;
@@ -3007,7 +3016,11 @@ impl Node for VfxSimulateNode {
                     // let effect_slice = effects_meta.get(&effect_entity);
                     // let effect_group =
                     //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
-                    let Some(particles_bind_group) = effect_bind_groups.particle_simulate(batch.buffer_index) else { continue; };
+                    let Some(particles_bind_group) =
+                        effect_bind_groups.particle_simulate(batch.buffer_index)
+                    else {
+                        continue;
+                    };
 
                     let item_size = batch.particle_layout.size();
                     let item_count = batch.slice.end - batch.slice.start;
