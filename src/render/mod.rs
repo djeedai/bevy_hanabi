@@ -1332,7 +1332,10 @@ pub(crate) fn extract_effects(
 
         // Check if asset is available, otherwise silently ignore
         let Some(asset) = effects.get(&effect.asset) else {
-            trace!("EffectAsset not ready; skipping ParticleEffect instance on entity {:?}.", entity);
+            trace!(
+                "EffectAsset not ready; skipping ParticleEffect instance on entity {:?}.",
+                entity
+            );
             continue;
         };
 
@@ -2033,6 +2036,8 @@ pub(crate) struct QueueEffectsReadOnlyParams<'w, 's> {
     draw_functions_2d: Res<'w, DrawFunctions<Transparent2d>>,
     #[cfg(feature = "3d")]
     draw_functions_3d: Res<'w, DrawFunctions<Transparent3d>>,
+    #[cfg(feature = "3d")]
+    draw_functions_alpha_mask: Res<'w, DrawFunctions<AlphaMask3d>>,
     dispatch_indirect_pipeline: Res<'w, DispatchIndirectPipeline>,
     init_pipeline: Res<'w, ParticlesInitPipeline>,
     update_pipeline: Res<'w, ParticlesUpdatePipeline>,
@@ -2236,7 +2241,9 @@ pub(crate) fn queue_effects(
 
     // Get the binding for the ViewUniform, the uniform data structure containing
     // the Camera data for the current view.
-    let Some(view_binding) = view_uniforms.uniforms.binding() else { return; };
+    let Some(view_binding) = view_uniforms.uniforms.binding() else {
+        return;
+    };
 
     // Create the bind group for the camera/view parameters
     effects_meta.view_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
@@ -2521,15 +2528,16 @@ pub(crate) fn queue_effects(
     // Loop over all 3D cameras/views that need to render effects
     #[cfg(feature = "3d")]
     {
-        let draw_effects_function_3d = read_params
-            .draw_functions_3d
-            .read()
-            .get_id::<DrawEffects>()
-            .unwrap();
-
         // Effects with full alpha blending
         if !views_3d.is_empty() {
             trace!("Emit effect draw calls for alpha blended 3D views...");
+
+            let draw_effects_function_3d = read_params
+                .draw_functions_3d
+                .read()
+                .get_id::<DrawEffects>()
+                .unwrap();
+
             emit_draw(
                 &mut views_3d,
                 &effect_batches,
@@ -2555,6 +2563,13 @@ pub(crate) fn queue_effects(
         // Effects with alpha mask
         if !views_alpha_mask.is_empty() {
             trace!("Emit effect draw calls for alpha masked 3D views...");
+
+            let draw_effects_function_alpha_mask = read_params
+                .draw_functions_alpha_mask
+                .read()
+                .get_id::<DrawEffects>()
+                .unwrap();
+
             emit_draw(
                 &mut views_alpha_mask,
                 &effect_batches,
@@ -2566,7 +2581,7 @@ pub(crate) fn queue_effects(
                 &pipeline_cache,
                 msaa.samples(),
                 |id, entity, _batch| AlphaMask3d {
-                    draw_function: draw_effects_function_3d,
+                    draw_function: draw_effects_function_alpha_mask,
                     pipeline: id,
                     entity,
                     distance: 0.0, // TODO
@@ -2620,9 +2635,9 @@ fn draw<'w>(
 
     let gpu_limits = &effects_meta.gpu_limits;
 
-    let Some(pipeline) = pipeline_cache
-    .into_inner()
-    .get_render_pipeline(pipeline_id) else { return; };
+    let Some(pipeline) = pipeline_cache.into_inner().get_render_pipeline(pipeline_id) else {
+        return;
+    };
 
     trace!("render pass");
 
@@ -2879,7 +2894,11 @@ impl Node for VfxSimulateNode {
                         // let effect_slice = effects_meta.get(&effect_entity);
                         // let effect_group =
                         //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
-                        let Some(particles_bind_group) = effect_bind_groups.particle_simulate(batch.buffer_index) else { continue; };
+                        let Some(particles_bind_group) =
+                            effect_bind_groups.particle_simulate(batch.buffer_index)
+                        else {
+                            continue;
+                        };
 
                         let item_size = batch.particle_layout.min_binding_size();
                         let item_count = batch.slice.end - batch.slice.start;
@@ -3007,7 +3026,11 @@ impl Node for VfxSimulateNode {
                     // let effect_slice = effects_meta.get(&effect_entity);
                     // let effect_group =
                     //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
-                    let Some(particles_bind_group) = effect_bind_groups.particle_simulate(batch.buffer_index) else { continue; };
+                    let Some(particles_bind_group) =
+                        effect_bind_groups.particle_simulate(batch.buffer_index)
+                    else {
+                        continue;
+                    };
 
                     let item_size = batch.particle_layout.size();
                     let item_count = batch.slice.end - batch.slice.start;
