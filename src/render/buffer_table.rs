@@ -502,7 +502,9 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         );
 
         // If there's no more GPU buffer, there's nothing to do
-        let Some(ab) = self.buffer.as_ref() else { return; };
+        let Some(ab) = self.buffer.as_ref() else {
+            return;
+        };
 
         // Copy any old buffer into the new one, and clear the old buffer. Note that we
         // only clear the ref-counted reference to the buffer, not the actual buffer,

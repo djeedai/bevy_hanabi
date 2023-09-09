@@ -625,7 +625,9 @@ mod tests {
             .type_name()
             .starts_with("bevy_hanabi::gradient::Gradient<")); // the Vec4 type name depends on platform
         let keys = g.field("keys").unwrap();
-        let ReflectRef::List(keys) = keys.reflect_ref() else { panic!("Invalid type"); };
+        let ReflectRef::List(keys) = keys.reflect_ref() else {
+            panic!("Invalid type");
+        };
         assert_eq!(keys.len(), 3);
         for (i, (r, v)) in [(0.5, RED), (0.8, BLUE), (0.8, GREEN)].iter().enumerate() {
             let k = keys.get(i).unwrap();
@@ -633,7 +635,9 @@ mod tests {
             assert_approx_eq!(gk.ratio(), r);
             assert_approx_eq!(gk.value, v);
 
-            let ReflectRef::Struct(k) = k.reflect_ref() else { panic!("Invalid type"); };
+            let ReflectRef::Struct(k) = k.reflect_ref() else {
+                panic!("Invalid type");
+            };
             assert!(k.type_name().contains("GradientKey"));
         }
     }
