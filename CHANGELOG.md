@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Render modifiers can now access simulation parameters (time, delta time) like in any other context.
+- Fixed a panic in Debug builds when a `ParticleEffect` was marked as changed (for example, via `Mut`) but the asset handle remained the same. (#228)
 
 ## [0.7.0] 2023-07-17
 

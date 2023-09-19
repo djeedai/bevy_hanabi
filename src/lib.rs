@@ -1058,7 +1058,11 @@ impl CompiledParticleEffect {
         );
 
         debug_assert!(weak_handle.is_weak());
-        debug_assert!(self.asset != weak_handle);
+        // Note: if something marked the ParticleEffect as changed (via Mut for example)
+        // but didn't actually change anything, or at least didn't change the asset,
+        // then we may end up here with the same asset handle. Don't try to be
+        // too smart, and rebuild everything anyway, it's easier than trying to
+        // diff what may or may not have changed.
         self.asset = weak_handle;
         self.simulation_condition = asset.simulation_condition;
 
@@ -1395,6 +1399,8 @@ fn gather_removed_effects(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::DerefMut;
+
     use bevy::{
         render::view::{VisibilityPlugin, VisibilitySystems},
         tasks::IoTaskPool,
@@ -1685,11 +1691,11 @@ else { return c1; }
                     )
                     .unwrap();
                     println!("Final wgsl from naga:\n\n{}", wgsl);
-                    //Ok(module)
+                    // Ok(module)
                 }
                 Err(e) => {
                     panic!("{}", e.emit_to_string(&composer));
-                    //Err(e)
+                    // Err(e)
                 }
             }
 
@@ -1700,6 +1706,99 @@ else { return c1; }
             //     println!("Err: {:?}", err);
             // }
             // assert!(res.is_ok());
+        }
+    }
+
+    // Regression test for #228
+    #[test]
+    fn test_compile_effect_changed() {
+        let spawner = Spawner::once(32.0.into(), true);
+
+        let mut app = make_test_app();
+
+        let (effect_entity, handle) = {
+            let world = &mut app.world;
+
+            // Add effect asset
+            let mut assets = world.resource_mut::<Assets<EffectAsset>>();
+            let mut module = Module::default();
+            let init_pos = module.lit(Vec3::ZERO);
+            let mut asset = EffectAsset::new(64, spawner, module)
+                .init(SetAttributeModifier::new(Attribute::POSITION, init_pos));
+            asset.simulation_condition = SimulationCondition::Always;
+            let handle = assets.add(asset);
+
+            // Spawn particle effect
+            let entity = world
+                .spawn((
+                    ParticleEffect {
+                        handle: handle.clone(),
+                        ..default()
+                    },
+                    CompiledParticleEffect::default(),
+                ))
+                .id();
+
+            // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
+            world.spawn(Camera3dBundle::default());
+
+            (entity, handle)
+        };
+
+        // Tick once
+        app.update();
+
+        // Check
+        {
+            let world = &mut app.world;
+
+            let (entity, particle_effect, compiled_particle_effect) = world
+                .query::<(Entity, &ParticleEffect, &CompiledParticleEffect)>()
+                .iter(world)
+                .next()
+                .unwrap();
+            assert_eq!(entity, effect_entity);
+            assert_eq!(particle_effect.handle, handle);
+
+            // `compile_effects()` always updates the CompiledParticleEffect
+            assert_eq!(compiled_particle_effect.asset, handle);
+            assert!(compiled_particle_effect.asset.is_weak());
+            assert!(compiled_particle_effect.effect_shader.is_some());
+        }
+
+        // Mark as changed without actually changing anything
+        {
+            let world = &mut app.world;
+
+            let mut particle_effect = world
+                .query::<&mut ParticleEffect>()
+                .iter_mut(world)
+                .next()
+                .unwrap();
+
+            // Force via Mut to mark the component as changed
+            particle_effect.deref_mut();
+        }
+
+        // Tick once - Regression test for #228, this should not panic
+        app.update();
+
+        // Check again, nothing changed
+        {
+            let world = &mut app.world;
+
+            let (entity, particle_effect, compiled_particle_effect) = world
+                .query::<(Entity, &ParticleEffect, &CompiledParticleEffect)>()
+                .iter(world)
+                .next()
+                .unwrap();
+            assert_eq!(entity, effect_entity);
+            assert_eq!(particle_effect.handle, handle);
+
+            // `compile_effects()` always updates the CompiledParticleEffect
+            assert_eq!(compiled_particle_effect.asset, handle);
+            assert!(compiled_particle_effect.asset.is_weak());
+            assert!(compiled_particle_effect.effect_shader.is_some());
         }
     }
 
