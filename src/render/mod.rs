@@ -3124,7 +3124,7 @@ mod tests {
         let device = renderer.device();
         let limits = GpuLimits::from_device(&device);
 
-        //assert!(limits.storage_buffer_align().get() >= 1);
+        // assert!(limits.storage_buffer_align().get() >= 1);
         assert!(limits.render_indirect_offset(256) >= 256 * GpuRenderIndirect::min_size().get());
         assert!(
             limits.dispatch_indirect_offset(256) as u64

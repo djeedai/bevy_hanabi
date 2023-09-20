@@ -465,7 +465,7 @@ impl PropertyLayout {
     /// empty string if the layout is empty. The `Properties` struct contains
     /// the values of all the effect properties, as defined by this layout.
     pub fn generate_code(&self) -> String {
-        //debug_assert!(self.layout.is_sorted_by_key(|entry| entry.offset));
+        // debug_assert!(self.layout.is_sorted_by_key(|entry| entry.offset));
         let content = self
             .layout
             .iter()
