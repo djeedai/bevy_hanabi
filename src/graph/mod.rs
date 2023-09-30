@@ -61,6 +61,7 @@ pub use node::{
     AddNode, AttributeNode, DivNode, Graph, MulNode, Node, NormalizeNode, Slot, SlotDir, SlotId,
     SubNode, TimeNode,
 };
+use crate::prelude::Mat3;
 
 /// Variant storage for a scalar value.
 #[derive(Debug)]
@@ -1345,6 +1346,17 @@ impl ToWgslString for MatrixValue {
     }
 }
 
+impl From<Mat3> for MatrixValue {
+    fn from(value: Mat3) -> Self {
+        let mut s = Self {
+            matrix_type: MatrixType::MAT3X3F,
+            storage: [0.; 16],
+        };
+        value.write_cols_to_slice(&mut s.storage);
+        s
+    }
+}
+
 /// Variant storage for a simple value.
 ///
 /// The variant can store a scalar, vector, or matrix value.
@@ -1655,6 +1667,10 @@ mod tests {
         assert_eq!(
             Value::Vector(BVec4::TRUE.into()).value_type(),
             ValueType::Vector(VectorType::VEC4B)
+        );
+        assert_eq!(
+            Value::Matrix(Mat3::IDENTITY.into()).value_type(),
+            ValueType::Matrix(MatrixType::MAT3X3F)
         );
     }
 
