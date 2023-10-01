@@ -42,7 +42,7 @@
 use std::fmt::Debug;
 
 use bevy::{
-    math::{BVec2, BVec3, BVec4, IVec2, IVec3, IVec4, Vec2, Vec3, Vec3A, Vec4},
+    math::{BVec2, BVec3, BVec4, IVec2, IVec3, IVec4, Mat2, Mat3, Mat4, Vec2, Vec3, Vec3A, Vec4},
     reflect::Reflect,
     utils::FloatOrd,
 };
@@ -1329,19 +1329,49 @@ impl std::hash::Hash for MatrixValue {
 
 impl ToWgslString for MatrixValue {
     fn to_wgsl_string(&self) -> String {
-        let mut vals = format!(
-            "{}({}",
-            self.matrix_type().to_wgsl_string(),
-            self.value_n::<0, 0>().to_wgsl_string()
-        );
+        let mut vals = format!("{}(", self.matrix_type().to_wgsl_string(),);
         for j in 0..self.matrix_type.cols() {
             for i in 0..self.matrix_type.rows() {
-                vals.push(',');
                 vals.push_str(&self.value(i, j).to_wgsl_string());
+                vals.push(',');
             }
         }
+        vals.pop(); // Remove the last comma
         vals.push(')');
         vals
+    }
+}
+
+impl From<Mat2> for MatrixValue {
+    fn from(value: Mat2) -> Self {
+        let mut s = Self {
+            matrix_type: MatrixType::MAT2X2F,
+            storage: [0.; 16],
+        };
+        value.write_cols_to_slice(&mut s.storage);
+        s
+    }
+}
+
+impl From<Mat3> for MatrixValue {
+    fn from(value: Mat3) -> Self {
+        let mut s = Self {
+            matrix_type: MatrixType::MAT3X3F,
+            storage: [0.; 16],
+        };
+        value.write_cols_to_slice(&mut s.storage);
+        s
+    }
+}
+
+impl From<Mat4> for MatrixValue {
+    fn from(value: Mat4) -> Self {
+        let mut s = Self {
+            matrix_type: MatrixType::MAT4X4F,
+            storage: [0.; 16],
+        };
+        value.write_cols_to_slice(&mut s.storage);
+        s
     }
 }
 
@@ -1567,12 +1597,11 @@ impl_vec_value!(IVec4, VEC4I, as_ivec4);
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::{
         collections::hash_map::DefaultHasher,
         hash::{Hash, Hasher},
     };
-
-    use super::*;
 
     #[test]
     fn as_bytes() {
@@ -1656,6 +1685,18 @@ mod tests {
             Value::Vector(BVec4::TRUE.into()).value_type(),
             ValueType::Vector(VectorType::VEC4B)
         );
+        assert_eq!(
+            Value::Matrix(Mat2::IDENTITY.into()).value_type(),
+            ValueType::Matrix(MatrixType::MAT2X2F)
+        );
+        assert_eq!(
+            Value::Matrix(Mat3::IDENTITY.into()).value_type(),
+            ValueType::Matrix(MatrixType::MAT3X3F)
+        );
+        assert_eq!(
+            Value::Matrix(Mat4::IDENTITY.into()).value_type(),
+            ValueType::Matrix(MatrixType::MAT4X4F)
+        );
     }
 
     #[test]
@@ -1711,6 +1752,24 @@ mod tests {
             Vec4::new(-42.578, 663.449, -42558.35, -4.2),
         ] {
             assert_eq!(Value::Vector(v.into()).to_wgsl_string(), v.to_wgsl_string());
+        }
+
+        for (m, expected) in [
+            (Mat3::IDENTITY, "mat3x3<f32>(1.,0.,0.,0.,1.,0.,0.,0.,1.)"),
+            (Mat3::ZERO, "mat3x3<f32>(0.,0.,0.,0.,0.,0.,0.,0.,0.)"),
+            (
+                Mat3::from_cols(
+                    Vec3::new(1., 2., 3.),
+                    Vec3::new(4., 5., 6.),
+                    Vec3::new(7., 8., 9.),
+                ),
+                "mat3x3<f32>(1.,2.,3.,4.,5.,6.,7.,8.,9.)",
+            ),
+        ] {
+            assert_eq!(
+                Value::Matrix(m.into()).to_wgsl_string(),
+                expected.to_string()
+            );
         }
     }
 
@@ -1916,7 +1975,7 @@ mod tests {
         );
         assert_eq!(
             calc_hash(&Into::<VectorValue>::into(Vec4::new(
-                3.5, -42., 999.99, -0.01
+                3.5, -42., 999.99, -0.01,
             ))),
             calc_f32_vector_hash(VectorType::VEC4F, &[3.5, -42., 999.99, -0.01])
         );
