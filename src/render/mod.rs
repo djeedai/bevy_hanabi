@@ -101,29 +101,41 @@ pub enum EffectSystems {
     QueueEffects,
 }
 
-/// Simulation parameters.
+/// Simulation parameters, available to all shaders of all effects.
 #[derive(Debug, Default, Clone, Copy, Resource)]
 pub(crate) struct SimParams {
     /// Current effect system simulation time since startup, in seconds.
     time: f64,
     /// Delta time, in seconds, since last effect system update.
     delta_time: f32,
-    /// Number of effects to dispatch, for vfx_dispatch.wgsl.
-    num_effects: u32,
-    /// Stride of RenderIndirect, for vfx_dispatch.wgsl.
-    render_stride: u32,
-    /// Stride of DispatchIndirect, for vfx_dispatch.wgsl.
-    dispatch_stride: u32,
 }
 
-/// GPU representation of [`SimParams`].
+/// GPU representation of [`SimParams`], as well as additional per-frame
+/// effect-independent values.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable, ShaderType)]
 struct GpuSimParams {
+    /// Delta time, in seconds, since last effect system update.
     delta_time: f32,
+    /// Current effect system simulation time since startup, in seconds.
+    ///
+    /// This is a lower-precision variant of [`SimParams::time`].
     time: f32,
+    /// Total number of effects to simulate this frame. Used by the indirect
+    /// compute pipeline to cap the compute thread to the actual number of
+    /// effect to process.
+    ///
+    /// This is only used by the `vfx_indirect` compute shader.
     num_effects: u32,
+    /// Stride in bytes of a render indirect block, used to index the effect's
+    /// block based on its index.
+    ///
+    /// This is only used by the `vfx_indirect` compute shader.
     render_stride: u32,
+    /// Stride in bytes of a dispatch indirect block, used to index the effect's
+    /// block based on its index.
+    ///
+    /// This is only used by the `vfx_indirect` compute shader.
     dispatch_stride: u32,
 }
 
@@ -144,9 +156,7 @@ impl From<SimParams> for GpuSimParams {
         Self {
             delta_time: src.delta_time,
             time: src.time as f32,
-            num_effects: src.num_effects,
-            render_stride: src.render_stride,
-            dispatch_stride: src.dispatch_stride,
+            ..default()
         }
     }
 }
@@ -287,7 +297,7 @@ pub struct GpuRenderIndirect {
     // FIXME - min_storage_buffer_offset_alignment
 }
 
-/// Compute pipeline to run the vfx_indirect dispatch workgroup calculation
+/// Compute pipeline to run the `vfx_indirect` dispatch workgroup calculation
 /// shader.
 #[derive(Resource)]
 pub(crate) struct DispatchIndirectPipeline {
@@ -496,14 +506,15 @@ impl FromWorld for ParticlesInitPipeline {
     }
 }
 
-#[derive(Default, Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub(crate) struct ParticleInitPipelineKey {
     /// Compute shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
-    /// Particle layout.
-    particle_layout: ParticleLayout,
-    /// Property layout.
-    property_layout: PropertyLayout,
+    /// Minimum binding size in bytes for the particle layout buffer.
+    particle_layout_min_binding_size: NonZeroU64,
+    /// Minimum binding size in bytes for the property layout buffer, if the
+    /// effect has any property. Otherwise this is `None`.
+    property_layout_min_binding_size: Option<NonZeroU64>,
 }
 
 impl SpecializedComputePipeline for ParticlesInitPipeline {
@@ -512,44 +523,44 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
     fn specialize(&self, key: Self::Key) -> ComputePipelineDescriptor {
         trace!(
             "GpuParticle: attributes.min_binding_size={} properties.min_binding_size={}",
-            key.particle_layout.min_binding_size().get(),
-            if key.property_layout.is_empty() {
-                0
-            } else {
-                key.property_layout.min_binding_size().get()
-            },
+            key.particle_layout_min_binding_size.get(),
+            key.property_layout_min_binding_size
+                .map(|sz| sz.get())
+                .unwrap_or(0),
         );
 
-        let mut entries = vec![
-            BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(key.particle_layout.min_binding_size()),
-                },
-                count: None,
+        let mut entries = Vec::with_capacity(3);
+        // (1,0) ParticleBuffer
+        entries.push(BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: false },
+                has_dynamic_offset: true,
+                min_binding_size: Some(key.particle_layout_min_binding_size),
             },
-            BindGroupLayoutEntry {
-                binding: 1,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: true,
-                    min_binding_size: BufferSize::new(12),
-                },
-                count: None,
+            count: None,
+        });
+        // (1,1) IndirectBuffer
+        entries.push(BindGroupLayoutEntry {
+            binding: 1,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: false },
+                has_dynamic_offset: true,
+                min_binding_size: BufferSize::new(12),
             },
-        ];
-        if !key.property_layout.is_empty() {
+            count: None,
+        });
+        if let Some(min_binding_size) = key.property_layout_min_binding_size {
+            // (1,2) Properties
             entries.push(BindGroupLayoutEntry {
                 binding: 2,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false, // TODO
-                    min_binding_size: Some(key.property_layout.min_binding_size()),
+                    min_binding_size: Some(min_binding_size),
                 },
                 count: None,
             });
@@ -1835,8 +1846,15 @@ pub(crate) fn prepare_effects(
                     &init_pipeline,
                     ParticleInitPipelineKey {
                         shader: input.effect_shader.init.clone(),
-                        particle_layout: input.effect_slice.particle_layout.clone(),
-                        property_layout: input.property_layout.clone(),
+                        particle_layout_min_binding_size: input
+                            .effect_slice
+                            .particle_layout
+                            .min_binding_size(),
+                        property_layout_min_binding_size: if input.property_layout.is_empty() {
+                            None
+                        } else {
+                            Some(input.property_layout.min_binding_size())
+                        },
                     },
                 );
                 trace!("Init pipeline specialized: id={:?}", init_pipeline_id);

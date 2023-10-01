@@ -646,28 +646,33 @@ impl EffectShaderSource {
     /// This takes a base asset effect and generate the WGSL code for the
     /// various shaders (init/update/render).
     pub fn generate(asset: &EffectAsset) -> Result<EffectShaderSource, ShaderGenerateError> {
-        // Generate the shader code defining the particle attributes
         let particle_layout = asset.particle_layout();
+
         // The particle layout cannot be empty currently because we always emit some
         // Particle{} struct and it needs at least one field. There's probably no use
         // case for an empty layout anyway.
         if particle_layout.size() == 0 {
-            return Err(ShaderGenerateError::Validate(
-                "Empty particle layout.".to_string(),
-            ));
+            return Err(ShaderGenerateError::Validate(format!(
+                "Asset {} has invalid empty particle layout.",
+                asset.name
+            )));
         }
+
         // Currently the POSITION attribute is mandatory, as it's always used by the
         // render shader.
         if !particle_layout.contains(Attribute::POSITION) {
             return Err(ShaderGenerateError::Validate(format!(
-                "The particle layout is missing the {} attribute. Add a modifier using that attribute, for example the SetAttributeModifier.",
-                Attribute::POSITION.name()
+                "The particle layout of asset {} is missing the {} attribute. Add a modifier using that attribute, for example the SetAttributeModifier.",
+                asset.name, Attribute::POSITION.name()
             )));
         }
+
+        // Generate the WGSL code declaring all the attributes inside the Particle
+        // struct.
         let attributes_code = particle_layout.generate_code();
 
         // For the renderer, assign all its inputs to the values of the attributes
-        // present, or a default value
+        // present, or a default value.
         let mut inputs_code = String::new();
         // All required attributes, except the size/color which are variadic
         let required_attributes =
@@ -717,7 +722,8 @@ impl EffectShaderSource {
                 present_attributes.insert(attr);
             }
         }
-        // Assign default values if not present
+        // For all attributes required by the render shader, if they're not explicitly
+        // stored in the particle layout, define a variable with their default value.
         if !has_size {
             inputs_code += &format!(
                 "var size = {0};\n",

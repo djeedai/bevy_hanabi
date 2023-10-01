@@ -215,7 +215,10 @@ impl Batchable<BatchState, EffectBatch> for BatchInput {
 /// Each time a batch is completed, the batcher invokes an emit callback to
 /// yield the newly-created batch.
 pub(crate) struct Batcher<'a, S, B, I: Batchable<S, B>> {
+    /// Convert a batchable item into a batch merge state and a newly created
+    /// batch containing that item alone.
     into_batch: Box<dyn FnMut(I) -> (S, B) + 'a>,
+    /// Emit a completed batch.
     emit: Box<dyn FnMut(B) + 'a>,
 }
 
