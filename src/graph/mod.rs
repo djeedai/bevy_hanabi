@@ -351,8 +351,8 @@ pub trait ElemType {
     ///
     /// This is only valid for numeric types, and will panic for a boolean type.
     fn get_all(storage: &[u32; 4], count: usize) -> &[Self]
-    where
-        Self: Sized;
+        where
+            Self: Sized;
 
     /// Get a mutable reference to the given component of the vector from within
     /// its raw storage.
@@ -1728,6 +1728,18 @@ mod tests {
         ] {
             assert_eq!(Value::Vector(v.into()).to_wgsl_string(), v.to_wgsl_string());
         }
+
+        for (m, expected) in [
+            (Mat3::IDENTITY, "mat3x3<f32>(1.,0.,0.,0.,1.,0.,0.,0.,1.)"),
+            (Mat3::ZERO, "mat3x3<f32>(0.,0.,0.,0.,1.,0.,0.,0.,0.)"),
+            (Mat3::from_cols(
+                Vec3::new(1., 2., 3.),
+                Vec3::new(4., 5., 6.),
+                Vec3::new(7., 8., 9.),
+            ), "mat3x3<f32>(1.,2.,3.,4.,5.,6.,7.,8.,9.)"),
+        ] {
+            assert_eq!(Value::Matrix(m.into()).to_wgsl_string(), expected.to_string());
+        }
     }
 
     #[test]
@@ -1932,7 +1944,7 @@ mod tests {
         );
         assert_eq!(
             calc_hash(&Into::<VectorValue>::into(Vec4::new(
-                3.5, -42., 999.99, -0.01
+                3.5, -42., 999.99, -0.01,
             ))),
             calc_f32_vector_hash(VectorType::VEC4F, &[3.5, -42., 999.99, -0.01])
         );
