@@ -350,8 +350,8 @@ pub trait ElemType {
     ///
     /// This is only valid for numeric types, and will panic for a boolean type.
     fn get_all(storage: &[u32; 4], count: usize) -> &[Self]
-        where
-            Self: Sized;
+    where
+        Self: Sized;
 
     /// Get a mutable reference to the given component of the vector from within
     /// its raw storage.
@@ -1329,10 +1329,7 @@ impl std::hash::Hash for MatrixValue {
 
 impl ToWgslString for MatrixValue {
     fn to_wgsl_string(&self) -> String {
-        let mut vals = format!(
-            "{}(",
-            self.matrix_type().to_wgsl_string(),
-        );
+        let mut vals = format!("{}(", self.matrix_type().to_wgsl_string(),);
         for j in 0..self.matrix_type.cols() {
             for i in 0..self.matrix_type.rows() {
                 vals.push_str(&self.value(i, j).to_wgsl_string());
@@ -1600,11 +1597,11 @@ impl_vec_value!(IVec4, VEC4I, as_ivec4);
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::{
         collections::hash_map::DefaultHasher,
         hash::{Hash, Hasher},
     };
-    use super::*;
 
     #[test]
     fn as_bytes() {
@@ -1760,13 +1757,19 @@ mod tests {
         for (m, expected) in [
             (Mat3::IDENTITY, "mat3x3<f32>(1.,0.,0.,0.,1.,0.,0.,0.,1.)"),
             (Mat3::ZERO, "mat3x3<f32>(0.,0.,0.,0.,0.,0.,0.,0.,0.)"),
-            (Mat3::from_cols(
-                Vec3::new(1., 2., 3.),
-                Vec3::new(4., 5., 6.),
-                Vec3::new(7., 8., 9.),
-            ), "mat3x3<f32>(1.,2.,3.,4.,5.,6.,7.,8.,9.)"),
+            (
+                Mat3::from_cols(
+                    Vec3::new(1., 2., 3.),
+                    Vec3::new(4., 5., 6.),
+                    Vec3::new(7., 8., 9.),
+                ),
+                "mat3x3<f32>(1.,2.,3.,4.,5.,6.,7.,8.,9.)",
+            ),
         ] {
-            assert_eq!(Value::Matrix(m.into()).to_wgsl_string(), expected.to_string());
+            assert_eq!(
+                Value::Matrix(m.into()).to_wgsl_string(),
+                expected.to_string()
+            );
         }
     }
 
