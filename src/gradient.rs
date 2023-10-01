@@ -126,6 +126,10 @@ impl Hash for GradientKey<Vec4> {
 /// - [`linear()`] creates a linear gradient between two key points;
 /// - [`from_keys()`] creates a more general gradient with any number of key
 ///   points.
+///
+/// [`constant()`]: crate::Gradient::constant
+/// [`linear()`]: crate::Gradient::linear
+/// [`from_keys()`]: crate::Gradient::from_keys
 #[derive(Debug, Default, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct Gradient<T: Lerp + FromReflect> {
     keys: Vec<GradientKey<T>>,
@@ -231,6 +235,10 @@ impl<T: Lerp + FromReflect> Gradient<T> {
     /// # Panics
     ///
     /// This method panics if any `ratio` is not in the \[0:1\] range.
+    ///
+    /// [`with_keys()`]: crate::Gradient::with_keys
+    /// [`constant()`]: crate::Gradient::constant
+    /// [`linear()`]: crate::Gradient::linear
     pub fn from_keys(keys: impl IntoIterator<Item = (f32, T)>) -> Self {
         // Note that all operations below are stable, including the sort. This ensures
         // the keys are kept in the correct order.
@@ -287,6 +295,10 @@ impl<T: Lerp + FromReflect> Gradient<T> {
     /// # Panics
     ///
     /// This method panics if `ratio` is not in the \[0:1\] range.
+    ///
+    /// [`constant()`]: crate::Gradient::constant
+    /// [`linear()`]: crate::Gradient::linear
+    /// [`with_keys()`]: crate::Gradient::with_keys
     pub fn with_key(mut self, ratio: f32, value: T) -> Self {
         self.add_key(ratio, value);
         self
@@ -318,6 +330,9 @@ impl<T: Lerp + FromReflect> Gradient<T> {
     /// # Panics
     ///
     /// This method panics if any `ratio` is not in the \[0:1\] range.
+    ///
+    /// [`add_key()`]: crate::Gradient::add_key
+    /// [`from_keys()`]: crate::Gradient::from_keys
     pub fn with_keys(mut self, keys: impl ExactSizeIterator<Item = (f32, T)>) -> Self {
         self.keys.reserve(keys.len());
         for (ratio, value) in keys {
