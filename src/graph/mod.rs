@@ -350,8 +350,8 @@ pub trait ElemType {
     ///
     /// This is only valid for numeric types, and will panic for a boolean type.
     fn get_all(storage: &[u32; 4], count: usize) -> &[Self]
-        where
-            Self: Sized;
+    where
+        Self: Sized;
 
     /// Get a mutable reference to the given component of the vector from within
     /// its raw storage.
@@ -1604,6 +1604,7 @@ mod tests {
         collections::hash_map::DefaultHasher,
         hash::{Hash, Hasher},
     };
+    use bevy::math::Mat3;
 
     use super::*;
 
@@ -1690,8 +1691,16 @@ mod tests {
             ValueType::Vector(VectorType::VEC4B)
         );
         assert_eq!(
+            Value::Matrix(Mat2::IDENTITY.into()).value_type(),
+            ValueType::Matrix(MatrixType::MAT2X2F)
+        );
+        assert_eq!(
             Value::Matrix(Mat3::IDENTITY.into()).value_type(),
             ValueType::Matrix(MatrixType::MAT3X3F)
+        );
+        assert_eq!(
+            Value::Matrix(Mat4::IDENTITY.into()).value_type(),
+            ValueType::Matrix(MatrixType::MAT4X4F)
         );
     }
 
@@ -1965,7 +1974,7 @@ mod tests {
         );
         assert_eq!(
             calc_hash(&Into::<VectorValue>::into(Vec4::new(
-                3.5, -42., 999.99, -0.01,
+                3.5, -42., 999.99, -0.01
             ))),
             calc_f32_vector_hash(VectorType::VEC4F, &[3.5, -42., 999.99, -0.01])
         );
