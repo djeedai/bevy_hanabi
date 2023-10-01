@@ -42,16 +42,11 @@
 use std::fmt::Debug;
 
 use bevy::{
-    math::{BVec2, BVec3, BVec4, IVec2, IVec3, IVec4, Vec2, Vec3, Vec3A, Vec4},
+    math::{BVec2, BVec3, BVec4, IVec2, IVec3, IVec4, Mat2, Mat3, Mat4, Vec2, Vec3, Vec3A, Vec4},
     reflect::Reflect,
     utils::FloatOrd,
 };
 use serde::{Deserialize, Serialize};
-
-use crate::{MatrixType, ScalarType, ToWgslString, ValueType, VectorType};
-
-pub mod expr;
-pub mod node;
 
 pub use expr::{
     AttributeExpr, BinaryOperator, BuiltInExpr, BuiltInOperator, EvalContext, Expr, ExprError,
@@ -61,7 +56,11 @@ pub use node::{
     AddNode, AttributeNode, DivNode, Graph, MulNode, Node, NormalizeNode, Slot, SlotDir, SlotId,
     SubNode, TimeNode,
 };
-use crate::prelude::Mat3;
+
+use crate::{MatrixType, ScalarType, ToWgslString, ValueType, VectorType};
+
+pub mod expr;
+pub mod node;
 
 /// Variant storage for a scalar value.
 #[derive(Debug)]
@@ -1346,10 +1345,32 @@ impl ToWgslString for MatrixValue {
     }
 }
 
+impl From<Mat2> for MatrixValue {
+    fn from(value: Mat2) -> Self {
+        let mut s = Self {
+            matrix_type: MatrixType::MAT2X2F,
+            storage: [0.; 16],
+        };
+        value.write_cols_to_slice(&mut s.storage);
+        s
+    }
+}
+
 impl From<Mat3> for MatrixValue {
     fn from(value: Mat3) -> Self {
         let mut s = Self {
             matrix_type: MatrixType::MAT3X3F,
+            storage: [0.; 16],
+        };
+        value.write_cols_to_slice(&mut s.storage);
+        s
+    }
+}
+
+impl From<Mat4> for MatrixValue {
+    fn from(value: Mat4) -> Self {
+        let mut s = Self {
+            matrix_type: MatrixType::MAT4X4F,
             storage: [0.; 16],
         };
         value.write_cols_to_slice(&mut s.storage);
