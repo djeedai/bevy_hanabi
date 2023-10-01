@@ -48,6 +48,11 @@ use bevy::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::{MatrixType, ScalarType, ToWgslString, ValueType, VectorType};
+
+pub mod expr;
+pub mod node;
+
 pub use expr::{
     AttributeExpr, BinaryOperator, BuiltInExpr, BuiltInOperator, EvalContext, Expr, ExprError,
     ExprHandle, ExprWriter, LiteralExpr, Module, PropertyExpr, UnaryOperator, WriterExpr,
@@ -56,11 +61,6 @@ pub use node::{
     AddNode, AttributeNode, DivNode, Graph, MulNode, Node, NormalizeNode, Slot, SlotDir, SlotId,
     SubNode, TimeNode,
 };
-
-use crate::{MatrixType, ScalarType, ToWgslString, ValueType, VectorType};
-
-pub mod expr;
-pub mod node;
 
 /// Variant storage for a scalar value.
 #[derive(Debug)]
@@ -350,8 +350,8 @@ pub trait ElemType {
     ///
     /// This is only valid for numeric types, and will panic for a boolean type.
     fn get_all(storage: &[u32; 4], count: usize) -> &[Self]
-    where
-        Self: Sized;
+        where
+            Self: Sized;
 
     /// Get a mutable reference to the given component of the vector from within
     /// its raw storage.
@@ -1604,8 +1604,6 @@ mod tests {
         collections::hash_map::DefaultHasher,
         hash::{Hash, Hasher},
     };
-    use bevy::math::Mat3;
-
     use super::*;
 
     #[test]
@@ -1974,7 +1972,7 @@ mod tests {
         );
         assert_eq!(
             calc_hash(&Into::<VectorValue>::into(Vec4::new(
-                3.5, -42., 999.99, -0.01
+                3.5, -42., 999.99, -0.01,
             ))),
             calc_f32_vector_hash(VectorType::VEC4F, &[3.5, -42., 999.99, -0.01])
         );
