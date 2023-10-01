@@ -1331,16 +1331,16 @@ impl std::hash::Hash for MatrixValue {
 impl ToWgslString for MatrixValue {
     fn to_wgsl_string(&self) -> String {
         let mut vals = format!(
-            "{}({}",
+            "{}(",
             self.matrix_type().to_wgsl_string(),
-            self.value_n::<0, 0>().to_wgsl_string()
         );
         for j in 0..self.matrix_type.cols() {
             for i in 0..self.matrix_type.rows() {
-                vals.push(',');
                 vals.push_str(&self.value(i, j).to_wgsl_string());
+                vals.push(',');
             }
         }
+        vals.pop(); // Remove the last comma
         vals.push(')');
         vals
     }
@@ -1731,7 +1731,7 @@ mod tests {
 
         for (m, expected) in [
             (Mat3::IDENTITY, "mat3x3<f32>(1.,0.,0.,0.,1.,0.,0.,0.,1.)"),
-            (Mat3::ZERO, "mat3x3<f32>(0.,0.,0.,0.,1.,0.,0.,0.,0.)"),
+            (Mat3::ZERO, "mat3x3<f32>(0.,0.,0.,0.,0.,0.,0.,0.,0.)"),
             (Mat3::from_cols(
                 Vec3::new(1., 2., 3.),
                 Vec3::new(4., 5., 6.),
