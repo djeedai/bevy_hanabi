@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `AlphaMode` and the ability to render particles with alpha masking instead of alpha blending. This is controlled by `EffectAsset::alpha_mode` and the new `EffectAsset::with_alpha_mode()` helper.
 - Added a new `BuiltInOperator::AlphaCutoff` value and associated expression, which represent the alpha cutoff threshold when rendering an effect with alpha masking. The `billboard` example has been updated to show how to use that value, and even dynamically change it with an expression.
 - Added `PropertyLayout::properties()` to iterate over the layout.
+- Added `From` implementations for the most common matrix types
 
 ### Changed
 
@@ -36,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Render modifiers can now access simulation parameters (time, delta time) like in any other context.
 - Fixed a panic in Debug builds when a `ParticleEffect` was marked as changed (for example, via `Mut`) but the asset handle remained the same. (#228)
+- Fixed a bug in the `to_wgsl_string` impl of `MatrixType` that caused the first element to be added twice
 
 ## [0.7.0] 2023-07-17
 
