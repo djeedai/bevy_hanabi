@@ -164,6 +164,36 @@ pub struct Module {
     expressions: Vec<Expr>,
 }
 
+macro_rules! impl_module_unary {
+    ($t: ident, $T: ident) => {
+        #[doc = concat!("Build a [`UnaryOperator::", stringify!($T), "`](crate::graph::expr::UnaryOperator::", stringify!($T),") unary expression and append it to the module.\n\nThis is a shortcut for [`unary(UnaryOperator::", stringify!($T), ", inner)`](crate::graph::expr::Module::unary).")]
+        #[inline]
+        pub fn $t(&mut self, inner: ExprHandle) -> ExprHandle {
+            self.unary(UnaryOperator::$T, inner)
+        }
+    };
+}
+
+macro_rules! impl_module_binary {
+    ($t: ident, $T: ident) => {
+        #[doc = concat!("Build a [`BinaryOperator::", stringify!($T), "`](crate::graph::expr::BinaryOperator::", stringify!($T),") binary expression and append it to the module.\n\nThis is a shortcut for [`binary(BinaryOperator::", stringify!($T), ", left, right)`](crate::graph::expr::Module::binary).")]
+        #[inline]
+        pub fn $t(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
+            self.binary(BinaryOperator::$T, left, right)
+        }
+    };
+}
+
+macro_rules! impl_module_ternary {
+    ($t: ident, $T: ident) => {
+        #[doc = concat!("Build a [`TernaryOperator::", stringify!($T), "`](crate::graph::expr::TernaryOperator::", stringify!($T),") ternary expression and append it to the module.\n\nThis is a shortcut for [`ternary(TernaryOperator::", stringify!($T), ", first, second, third)`](crate::graph::expr::Module::ternary).")]
+        #[inline]
+        pub fn $t(&mut self, first: ExprHandle, second: ExprHandle, third: ExprHandle) -> ExprHandle {
+            self.ternary(TernaryOperator::$T, first, second, third)
+        }
+    };
+}
+
 impl Module {
     /// Create a new module from an existing collection of expressions.
     pub fn from_raw(expr: Vec<Expr>) -> Self {
@@ -213,10 +243,10 @@ impl Module {
     ///
     /// # Panics
     ///
-    /// Panics in some cases if the operand handle do
-    /// not reference an existing expression in the current module. Note however
-    /// that this check can miss some invalid handles (false negative), so only
-    /// represents an extra safety net that users shouldn't rely exclusively on
+    /// Panics in some cases if the operand handle do not reference an existing
+    /// expression in the current module. Note however that this check can
+    /// miss some invalid handles (false negative), so only represents an
+    /// extra safety net that users shouldn't rely exclusively on
     /// to ensure the operand handles are valid. Instead, it's the
     /// responsibility of the user to ensure the operand handle references an
     /// existing expression in the current [`Module`].
@@ -226,41 +256,27 @@ impl Module {
         self.push(Expr::Unary { op, expr: inner })
     }
 
-    /// Build an `abs()` unary expression and append it to the module.
-    #[inline]
-    pub fn abs(&mut self, inner: ExprHandle) -> ExprHandle {
-        self.unary(UnaryOperator::Abs, inner)
-    }
-
-    /// Build an `all()` unary expression and append it to the module.
-    #[inline]
-    pub fn all(&mut self, inner: ExprHandle) -> ExprHandle {
-        self.unary(UnaryOperator::All, inner)
-    }
-
-    /// Build an `any()` unary expression and append it to the module.
-    #[inline]
-    pub fn any(&mut self, inner: ExprHandle) -> ExprHandle {
-        self.unary(UnaryOperator::Any, inner)
-    }
-
-    /// Build a `normalize()` unary expression and append it to the module.
-    #[inline]
-    pub fn normalize(&mut self, inner: ExprHandle) -> ExprHandle {
-        self.unary(UnaryOperator::Normalize, inner)
-    }
-
-    /// Build a `sin()` unary expression and append it to the module.
-    #[inline]
-    pub fn sin(&mut self, inner: ExprHandle) -> ExprHandle {
-        self.unary(UnaryOperator::Sin, inner)
-    }
-
-    /// Build a `cos()` unary expression and append it to the module.
-    #[inline]
-    pub fn cos(&mut self, inner: ExprHandle) -> ExprHandle {
-        self.unary(UnaryOperator::Cos, inner)
-    }
+    impl_module_unary!(abs, Abs);
+    impl_module_unary!(all, All);
+    impl_module_unary!(any, Any);
+    impl_module_unary!(ceil, Ceil);
+    impl_module_unary!(cos, Cos);
+    impl_module_unary!(exp, Exp);
+    impl_module_unary!(exp2, Exp2);
+    impl_module_unary!(floor, Floor);
+    impl_module_unary!(fract, Fract);
+    impl_module_unary!(length, Length);
+    impl_module_unary!(log, Log);
+    impl_module_unary!(log2, Log2);
+    impl_module_unary!(normalize, Normalize);
+    impl_module_unary!(saturate, Saturate);
+    impl_module_unary!(sign, Sign);
+    impl_module_unary!(sin, Sin);
+    impl_module_unary!(tan, Tan);
+    impl_module_unary!(w, W);
+    impl_module_unary!(x, X);
+    impl_module_unary!(y, Y);
+    impl_module_unary!(z, Z);
 
     /// Build a binary expression and append it to the module.
     ///
@@ -289,79 +305,57 @@ impl Module {
         self.push(Expr::Binary { op, left, right })
     }
 
-    /// Build an `add()` binary expression and append it to the module.
+    impl_module_binary!(add, Add);
+    impl_module_binary!(distance, Distance);
+    impl_module_binary!(div, Div);
+    impl_module_binary!(dot, Dot);
+    impl_module_binary!(ge, GreaterThanOrEqual);
+    impl_module_binary!(gt, GreaterThan);
+    impl_module_binary!(le, LessThanOrEqual);
+    impl_module_binary!(lt, LessThan);
+    impl_module_binary!(max, Max);
+    impl_module_binary!(min, Min);
+    impl_module_binary!(mul, Mul);
+    impl_module_binary!(step, Step);
+    impl_module_binary!(sub, Sub);
+    impl_module_binary!(uniform, UniformRand);
+
+    /// Build a ternary expression and append it to the module.
+    ///
+    /// The handles to the expressions representing the three operands of the
+    /// ternary operation must be valid, that is reference expressions
+    /// contained in the current [`Module`].
+    ///
+    /// # Panics
+    ///
+    /// Panics in some cases if any of the operand handles do not reference
+    /// existing expressions in the current module. Note however
+    /// that this check can miss some invalid handles (false negative), so only
+    /// represents an extra safety net that users shouldn't rely exclusively on
+    /// to ensure the operand handles are valid. Instead, it's the
+    /// responsibility of the user to ensure handles reference existing
+    /// expressions in the current [`Module`].
     #[inline]
-    pub fn add(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::Add, left, right)
+    pub fn ternary(
+        &mut self,
+        op: TernaryOperator,
+        first: ExprHandle,
+        second: ExprHandle,
+        third: ExprHandle,
+    ) -> ExprHandle {
+        assert!(first.index() < self.expressions.len());
+        assert!(second.index() < self.expressions.len());
+        assert!(third.index() < self.expressions.len());
+        self.push(Expr::Ternary {
+            op,
+            first,
+            second,
+            third,
+        })
     }
 
-    /// Build a `sub()` binary expression and append it to the module.
-    #[inline]
-    pub fn sub(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::Sub, left, right)
-    }
-
-    /// Build a `mul()` binary expression and append it to the module.
-    #[inline]
-    pub fn mul(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::Mul, left, right)
-    }
-
-    /// Build a `div()` binary expression and append it to the module.
-    #[inline]
-    pub fn div(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::Div, left, right)
-    }
-
-    /// Build a `min()` binary expression and append it to the module.
-    #[inline]
-    pub fn min(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::Min, left, right)
-    }
-
-    /// Build a `max()` binary expression and append it to the module.
-    #[inline]
-    pub fn max(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::Max, left, right)
-    }
-
-    /// Build a `dot()` binary expression and append it to the module.
-    #[inline]
-    pub fn dot(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::Dot, left, right)
-    }
-
-    /// Build a less-than binary expression and append it to the module.
-    #[inline]
-    pub fn lt(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::LessThan, left, right)
-    }
-
-    /// Build a less-than-or-equal binary expression and append it to the
-    /// module.
-    #[inline]
-    pub fn le(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::LessThanOrEqual, left, right)
-    }
-
-    /// Build a greater-than binary expression and append it to the module.
-    #[inline]
-    pub fn gt(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::GreaterThan, left, right)
-    }
-
-    /// Build a greater-than-or-equal binary expression and append it to the
-    /// module.
-    #[inline]
-    pub fn ge(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::GreaterThanOrEqual, left, right)
-    }
-
-    /// Build a `uniform()` binary expression and append it to the module.
-    #[inline]
-    pub fn uniform(&mut self, left: ExprHandle, right: ExprHandle) -> ExprHandle {
-        self.binary(BinaryOperator::UniformRand, left, right)
-    }
+    impl_module_ternary!(mix, Mix);
+    impl_module_ternary!(smoothstep, SmoothStep);
 
     /// Get an existing expression from its handle.
     #[inline]
@@ -463,28 +457,44 @@ pub trait EvalContext {
 /// Language expression producing a value.
 #[derive(Debug, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub enum Expr {
-    /// Built-in expression ([`BuiltInExpr`]) providing access to some internal
+    /// Built-in expression ([`BuiltInExpr`]).
+    ///
+    /// A built-in expression provides access to some internal
     /// quantities like the simulation time.
     BuiltIn(BuiltInExpr),
-    /// Literal expression ([`LiteralExpr`]) representing shader constants.
+
+    /// Literal expression ([`LiteralExpr`]).
+    ///
+    /// A literal expression represents a shader constants.
     Literal(LiteralExpr),
-    /// Property expression ([`PropertyExpr`]) representing the value of an
-    /// [`EffectAsset`]'s property.
+
+    /// Property expression ([`PropertyExpr`]).
+    ///
+    /// A property expression represents the value of an [`EffectAsset`]'s
+    /// property.
     ///
     /// [`EffectAsset`]: crate::EffectAsset
     Property(PropertyExpr),
-    /// Attribute expression ([`AttributeExpr`]) representing the value of an
-    /// attribute for a particle, like its position or velocity.
+
+    /// Attribute expression ([`AttributeExpr`]).
+    ///
+    /// An attribute expression represents the value of an attribute for a
+    /// particle, like its position or velocity.
     Attribute(AttributeExpr),
-    /// Unary operation expression, transforming an expression into another
-    /// expression.
+
+    /// Unary operation expression.
+    ///
+    /// A unary operation transforms an expression into another expression.
     Unary {
         /// Unary operator.
         op: UnaryOperator,
         /// Operand the unary operation applies to.
         expr: ExprHandle,
     },
-    /// Binary operation expression, composing two expressions into a third one.
+
+    /// Binary operation expression.
+    ///
+    /// A binary operation composes two expressions into a third one.
     Binary {
         /// Binary operator.
         op: BinaryOperator,
@@ -492,6 +502,20 @@ pub enum Expr {
         left: ExprHandle,
         /// Right-hand side operand the binary operation applies to.
         right: ExprHandle,
+    },
+
+    /// Ternary operation expression.
+    ///
+    /// A ternary operation composes three expressions into a fourth one.
+    Ternary {
+        /// Ternary operator.
+        op: TernaryOperator,
+        /// First operand the ternary operation applies to.
+        first: ExprHandle,
+        /// Second operand the ternary operation applies to.
+        second: ExprHandle,
+        /// Third operand the ternary operation applies to.
+        third: ExprHandle,
     },
 }
 
@@ -529,6 +553,12 @@ impl Expr {
             Expr::Attribute(expr) => expr.is_const(),
             Expr::Unary { expr, .. } => module.is_const(*expr),
             Expr::Binary { left, right, .. } => module.is_const(*left) && module.is_const(*right),
+            Expr::Ternary {
+                first,
+                second,
+                third,
+                ..
+            } => module.is_const(*first) && module.is_const(*second) && module.is_const(*third),
         }
     }
 
@@ -556,6 +586,7 @@ impl Expr {
             Expr::Attribute(expr) => Some(expr.value_type()),
             Expr::Unary { .. } => None,
             Expr::Binary { .. } => None,
+            Expr::Ternary { .. } => None,
         }
     }
 
@@ -586,7 +617,7 @@ impl Expr {
             Expr::Property(expr) => expr.eval(context),
             Expr::Attribute(expr) => expr.eval(context),
             Expr::Unary { op, expr } => {
-                let expr = context.expr(*expr)?.eval(context);
+                let expr = context.expr(*expr)?.eval(context)?;
 
                 // if expr.value_type() != self.value_type() {
                 //     return Err(ExprError::TypeError(format!(
@@ -595,7 +626,11 @@ impl Expr {
                 //     )));
                 // }
 
-                expr.map(|s| format!("{}({})", op.to_wgsl_string(), s))
+                Ok(if op.is_functional() {
+                    format!("{}({})", op.to_wgsl_string(), expr)
+                } else {
+                    format!("{}.{}", expr, op.to_wgsl_string())
+                })
             }
             Expr::Binary { op, left, right } => {
                 let left = context.expr(*left)?.eval(context)?;
@@ -613,6 +648,31 @@ impl Expr {
                 } else {
                     format!("({}) {} ({})", left, op.to_wgsl_string(), right)
                 })
+            }
+            Expr::Ternary {
+                op,
+                first,
+                second,
+                third,
+            } => {
+                let first = context.expr(*first)?.eval(context)?;
+                let second = context.expr(*second)?.eval(context)?;
+                let third = context.expr(*third)?.eval(context)?;
+
+                // if !self.input.value_type().is_vector() {
+                //     return Err(ExprError::TypeError(format!(
+                //         "Cannot apply normalize() function to non-vector expression: {}",
+                //         expr.unwrap_or("(error evaluating expression)".to_string())
+                //     )));
+                // }
+
+                Ok(format!(
+                    "{}({}, {}, {})",
+                    op.to_wgsl_string(),
+                    first,
+                    second,
+                    third
+                ))
             }
         }
     }
@@ -936,17 +996,123 @@ pub enum UnaryOperator {
     /// Invalid for any other type of operand.
     Any,
 
+    /// Ceiling operator.
+    ///
+    /// Return the unique integral number `k` such that `k-1 < x <= k`, where
+    /// `x` is the operand which the operator applies to.
+    Ceil,
+
+    /// Cosine operator.
+    Cos,
+
+    /// Natural exponent operator.
+    ///
+    /// Return the natural exponentiation of the operand (`e^x`), component-wise
+    /// for vectors.
+    Exp,
+
+    /// Base-2 exponent operator.
+    ///
+    /// Return two raised to the power of the operand (`2^x`), component-wise
+    /// for vectors.
+    Exp2,
+
+    /// Floor operator.
+    ///
+    /// Return the unique integral number `k` such that `k <= x < k+1`, where
+    /// `x` is the operand which the operator applies to.
+    Floor,
+
+    /// Fractional part operator.
+    ///
+    /// Return the fractional part of the operand, which is equal to `x -
+    /// floor(x)`, component-wise for vectors.
+    Fract,
+
+    /// Length operator.
+    ///
+    /// Return the length of a floating point scalar or vector. The "length" of
+    /// a scalar is taken as its absolute value. The length of a vector is the
+    /// Euclidian distance `sqrt(x^2 + ...)` (square root of the sum of the
+    /// squared components).
+    ///
+    /// The output is always a floating point scalar.
+    Length,
+
+    /// Natural logarithm operator.
+    ///
+    /// Return the natural logarithm of the operand (`log(x)`), component-wise
+    /// for vectors.
+    Log,
+
+    /// Base-2 logarithm operator.
+    ///
+    /// Return the base-2 logarithm of the operand (`log2(x)`), component-wise
+    /// for vectors.
+    Log2,
+
     /// Vector normalizing operator.
     ///
     /// Normalize the given numeric vector. Only valid for numeric vector
     /// operands.
     Normalize,
 
-    /// Cosine operator.
-    Cos,
+    /// Saturate operator.
+    ///
+    /// Clamp the value of the operand to the \[0:1\] range, component-wise for
+    /// vectors.
+    Saturate,
+
+    /// Sign operator.
+    ///
+    /// Return a value representing the sign of a floating point scalar or
+    /// vector input:
+    /// - `1.` if the operand is > 0
+    /// - `0.` if the operand is = 0
+    /// - `-1.` if the operand is < 0
+    ///
+    /// Applies component-wise for vectors.
+    Sign,
 
     /// Sine operator.
     Sin,
+
+    /// Tangent operator.
+    Tan,
+
+    /// Get the fourth component of a vector.
+    ///
+    /// This is only valid for vectors of rank 4.
+    W,
+
+    /// Get the first component of a scalar or vector.
+    ///
+    /// For scalar, return the value itself. For vectors, return the first
+    /// component.
+    X,
+
+    /// Get the second component of a vector.
+    Y,
+
+    /// Get the third component of a vector.
+    ///
+    /// This is only valid for vectors of rank 3 or more.
+    Z,
+}
+
+impl UnaryOperator {
+    /// Check if a unary operator is called via a functional-style call.
+    ///
+    /// Functional-style calls are in the form `op(inner)`, like `abs(x)` for
+    /// example, while non-functional ones are in the form `inner.op`,
+    /// like `v.x` for example. This check is used for formatting the WGSL
+    /// code emitted during evaluation of a binary operation expression.
+    pub fn is_functional(&self) -> bool {
+        match *self {
+            UnaryOperator::X | UnaryOperator::Y | UnaryOperator::Z | UnaryOperator::W => false,
+            _ => true,
+        }
+    }
 }
 
 impl ToWgslString for UnaryOperator {
@@ -955,9 +1121,24 @@ impl ToWgslString for UnaryOperator {
             UnaryOperator::Abs => "abs".to_string(),
             UnaryOperator::All => "all".to_string(),
             UnaryOperator::Any => "any".to_string(),
-            UnaryOperator::Normalize => "normalize".to_string(),
+            UnaryOperator::Ceil => "ceil".to_string(),
             UnaryOperator::Cos => "cos".to_string(),
+            UnaryOperator::Exp => "exp".to_string(),
+            UnaryOperator::Exp2 => "exp2".to_string(),
+            UnaryOperator::Floor => "floor".to_string(),
+            UnaryOperator::Fract => "fract".to_string(),
+            UnaryOperator::Length => "length".to_string(),
+            UnaryOperator::Log => "log".to_string(),
+            UnaryOperator::Log2 => "log2".to_string(),
+            UnaryOperator::Normalize => "normalize".to_string(),
+            UnaryOperator::Saturate => "saturate".to_string(),
+            UnaryOperator::Sign => "sign".to_string(),
             UnaryOperator::Sin => "sin".to_string(),
+            UnaryOperator::Tan => "tan".to_string(),
+            UnaryOperator::W => "w".to_string(),
+            UnaryOperator::X => "x".to_string(),
+            UnaryOperator::Y => "y".to_string(),
+            UnaryOperator::Z => "z".to_string(),
         }
     }
 }
@@ -974,38 +1155,30 @@ pub enum BinaryOperator {
     /// Returns the sum of its operands. Only valid for numeric operands.
     Add,
 
-    /// Subtraction operator.
+    /// Cross product operator.
     ///
-    /// Returns the difference between its left and right operands. Only valid
-    /// for numeric operands.
-    Sub,
+    /// Returns the cross product of the left and right operands. Only valid for
+    /// vector type operands of size 3. Always produce a vector result of the
+    /// same size.
+    Cross,
 
-    /// Multiply operator.
+    /// Dot product operator.
     ///
-    /// Returns the product of its operands. Only valid for numeric operands.
-    Mul,
+    /// Returns the dot product of the left and right operands. Only valid for
+    /// vector type operands. Always produce a scalar floating-point result.
+    Dot,
+
+    /// Distance operator.
+    ///
+    /// Returns the distance between two floating point scalar or vectors, that
+    /// is `length(right - left)`.
+    Distance,
 
     /// Division operator.
     ///
     /// Returns the left operand divided by the right operand. Only valid for
     /// numeric operands.
     Div,
-
-    /// Less-than operator.
-    ///
-    /// Returns `true` if the left operand is strictly less than the right
-    /// operand. Only valid for numeric types. If the operands are vectors,
-    /// they must be of the same rank, and the result is a bool vector of
-    /// that rank.
-    LessThan,
-
-    /// Less-than-or-equal operator.
-    ///
-    /// Returns `true` if the left operand is less than or equal to the right
-    /// operand. Only valid for numeric types. If the operands are vectors,
-    /// they must be of the same rank, and the result is a bool vector of
-    /// that rank.
-    LessThanOrEqual,
 
     /// Greater-than operator.
     ///
@@ -1023,13 +1196,21 @@ pub enum BinaryOperator {
     /// that rank.
     GreaterThanOrEqual,
 
-    /// Minimum operator.
+    /// Less-than operator.
     ///
-    /// Returns the minimum value of its left and right operands. Only valid for
-    /// numeric types. If the operands are vectors, they must be of the same
-    /// rank, and the result is a vector of that rank and same element
-    /// scalar type.
-    Min,
+    /// Returns `true` if the left operand is strictly less than the right
+    /// operand. Only valid for numeric types. If the operands are vectors,
+    /// they must be of the same rank, and the result is a bool vector of
+    /// that rank.
+    LessThan,
+
+    /// Less-than-or-equal operator.
+    ///
+    /// Returns `true` if the left operand is less than or equal to the right
+    /// operand. Only valid for numeric types. If the operands are vectors,
+    /// they must be of the same rank, and the result is a bool vector of
+    /// that rank.
+    LessThanOrEqual,
 
     /// Maximum operator.
     ///
@@ -1039,18 +1220,31 @@ pub enum BinaryOperator {
     /// scalar type.
     Max,
 
-    /// Dot product operator.
+    /// Minimum operator.
     ///
-    /// Returns the dot product of the left and right operands. Only valid for
-    /// vector type operands. Always produce a scalar floating-point result.
-    Dot,
+    /// Returns the minimum value of its left and right operands. Only valid for
+    /// numeric types. If the operands are vectors, they must be of the same
+    /// rank, and the result is a vector of that rank and same element
+    /// scalar type.
+    Min,
 
-    /// Cross product operator.
+    /// Multiply operator.
     ///
-    /// Returns the cross product of the left and right operands. Only valid for
-    /// vector type operands of size 3. Always produce a vector result of the
-    /// same size.
-    Cross,
+    /// Returns the product of its operands. Only valid for numeric operands.
+    Mul,
+
+    /// Stepping operator.
+    ///
+    /// Returns `1.0` if the left operand is less than or equal to the right
+    /// operand, or `0.0` otherwise. Only valid for floating scalar or vectors
+    /// of the same rank, and applied component-wise for vectors.
+    Step,
+
+    /// Subtraction operator.
+    ///
+    /// Returns the difference between its left and right operands. Only valid
+    /// for numeric operands.
+    Sub,
 
     /// Uniform random number operator.
     ///
@@ -1074,17 +1268,19 @@ impl BinaryOperator {
     pub fn is_functional(&self) -> bool {
         match *self {
             BinaryOperator::Add
-            | BinaryOperator::Sub
-            | BinaryOperator::Mul
+            | BinaryOperator::Distance
             | BinaryOperator::Div
+            | BinaryOperator::GreaterThan
+            | BinaryOperator::GreaterThanOrEqual
             | BinaryOperator::LessThan
             | BinaryOperator::LessThanOrEqual
-            | BinaryOperator::GreaterThan
-            | BinaryOperator::GreaterThanOrEqual => false,
-            BinaryOperator::Min
-            | BinaryOperator::Max
+            | BinaryOperator::Mul
+            | BinaryOperator::Sub => false,
+            BinaryOperator::Cross
             | BinaryOperator::Dot
-            | BinaryOperator::Cross
+            | BinaryOperator::Max
+            | BinaryOperator::Min
+            | BinaryOperator::Step
             | BinaryOperator::UniformRand => true,
         }
     }
@@ -1094,18 +1290,62 @@ impl ToWgslString for BinaryOperator {
     fn to_wgsl_string(&self) -> String {
         match *self {
             BinaryOperator::Add => "+".to_string(),
-            BinaryOperator::Sub => "-".to_string(),
-            BinaryOperator::Mul => "*".to_string(),
+            BinaryOperator::Cross => "cross".to_string(),
+            BinaryOperator::Distance => "distance".to_string(),
             BinaryOperator::Div => "/".to_string(),
-            BinaryOperator::LessThan => "<".to_string(),
-            BinaryOperator::LessThanOrEqual => "<=".to_string(),
+            BinaryOperator::Dot => "dot".to_string(),
             BinaryOperator::GreaterThan => ">".to_string(),
             BinaryOperator::GreaterThanOrEqual => ">=".to_string(),
-            BinaryOperator::Min => "min".to_string(),
+            BinaryOperator::LessThan => "<".to_string(),
+            BinaryOperator::LessThanOrEqual => "<=".to_string(),
             BinaryOperator::Max => "max".to_string(),
-            BinaryOperator::Dot => "dot".to_string(),
-            BinaryOperator::Cross => "cross".to_string(),
+            BinaryOperator::Min => "min".to_string(),
+            BinaryOperator::Mul => "*".to_string(),
+            BinaryOperator::Step => "step".to_string(),
+            BinaryOperator::Sub => "-".to_string(),
             BinaryOperator::UniformRand => "rand_uniform".to_string(),
+        }
+    }
+}
+
+/// Ternary operator.
+///
+/// Operator applied between three operands. The type of the operands and the
+/// result are not necessarily the same. Valid operand types depend on the
+/// operator itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub enum TernaryOperator {
+    /// Linear blend ("mix") operator.
+    ///
+    /// Returns the linear blend between the first and second argument, based on
+    /// the fraction of the third argument. If the operands are vectors, they
+    /// must be of the same rank, and the result is a vector of that rank
+    /// and same element scalar type.
+    ///
+    /// The linear blend of `x` and `y` with fraction `t` is equivalent to `x *
+    /// (1 - t) + y * t`.
+    Mix,
+
+    /// Smooth stepping operator.
+    ///
+    /// Returns the smooth Hermitian interpolation between the first and second
+    /// argument, calculated at the third argument. If the operands are vectors,
+    /// they must be of the same rank, and the result is a vector of that
+    /// rank and same element scalar type.
+    ///
+    /// The smooth stepping of `low` and `high` at position `x` is equivalent to
+    /// `t * t * (3. - 2. * t)` where `t = clamp((x - low) / (high - low))`
+    /// represents the fractional position of `x` between `low` and `high`.
+    ///
+    /// The result is always a floating point scalar in \[0:1\].
+    SmoothStep,
+}
+
+impl ToWgslString for TernaryOperator {
+    fn to_wgsl_string(&self) -> String {
+        match *self {
+            TernaryOperator::Mix => "mix".to_string(),
+            TernaryOperator::SmoothStep => "smoothstep".to_string(),
         }
     }
 }
@@ -1396,6 +1636,7 @@ impl WriterExpr {
     /// // The absolute value `y = abs(x);`.
     /// let y = x.abs(); // == 3.5
     /// ```
+    #[inline]
     pub fn abs(self) -> Self {
         self.unary_op(UnaryOperator::Abs)
     }
@@ -1417,6 +1658,7 @@ impl WriterExpr {
     /// // Check if all components are true `y = all(x);`.
     /// let y = x.all(); // == false
     /// ```
+    #[inline]
     pub fn all(self) -> Self {
         self.unary_op(UnaryOperator::All)
     }
@@ -1438,8 +1680,225 @@ impl WriterExpr {
     /// // Check if any components is true `y = any(x);`.
     /// let y = x.any(); // == true
     /// ```
+    #[inline]
     pub fn any(self) -> Self {
         self.unary_op(UnaryOperator::Any)
+    }
+
+    /// Apply the "ceil" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Ceil: `y = ceil(x);`
+    /// let y = x.ceil();
+    /// ```
+    #[inline]
+    pub fn ceil(self) -> Self {
+        self.unary_op(UnaryOperator::Ceil)
+    }
+
+    /// Apply the "cos" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Cos: `y = cos(x);`
+    /// let y = x.cos();
+    /// ```
+    #[inline]
+    pub fn cos(self) -> Self {
+        self.unary_op(UnaryOperator::Cos)
+    }
+
+    /// Apply the "exp" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Exp: `y = exp(x);`
+    /// let y = x.exp();
+    /// ```
+    #[inline]
+    pub fn exp(self) -> Self {
+        self.unary_op(UnaryOperator::Exp)
+    }
+
+    /// Apply the "exp2" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Exp2: `y = exp2(x);`
+    /// let y = x.exp2();
+    /// ```
+    #[inline]
+    pub fn exp2(self) -> Self {
+        self.unary_op(UnaryOperator::Exp2)
+    }
+
+    /// Apply the "floor" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Floor: `y = floor(x);`
+    /// let y = x.floor();
+    /// ```
+    #[inline]
+    pub fn floor(self) -> Self {
+        self.unary_op(UnaryOperator::Floor)
+    }
+
+    /// Apply the "fract" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Fract: `y = fract(x);`
+    /// let y = x.fract();
+    /// ```
+    #[inline]
+    pub fn fract(self) -> Self {
+        self.unary_op(UnaryOperator::Fract)
+    }
+
+    /// Apply the "length" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Length: `y = length(x);`
+    /// let y = x.length();
+    /// ```
+    #[inline]
+    pub fn length(self) -> Self {
+        self.unary_op(UnaryOperator::Length)
+    }
+
+    /// Apply the "log" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Log: `y = log(x);`
+    /// let y = x.log();
+    /// ```
+    #[inline]
+    pub fn log(self) -> Self {
+        self.unary_op(UnaryOperator::Log)
+    }
+
+    /// Apply the "log2" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Log2: `y = log2(x);`
+    /// let y = x.log2();
+    /// ```
+    #[inline]
+    pub fn log2(self) -> Self {
+        self.unary_op(UnaryOperator::Log2)
     }
 
     /// Apply the "normalize" operator to the current float vector expression.
@@ -1460,8 +1919,33 @@ impl WriterExpr {
     /// // Normalize: `y = normalize(x);`
     /// let y = x.normalized();
     /// ```
+    #[inline]
     pub fn normalized(self) -> Self {
         self.unary_op(UnaryOperator::Normalize)
+    }
+
+    /// Apply the "sign" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Sign: `y = sign(x);`
+    /// let y = x.sign();
+    /// ```
+    #[inline]
+    pub fn sign(self) -> Self {
+        self.unary_op(UnaryOperator::Sign)
     }
 
     /// Apply the "sin" operator to the current float scalar or vector
@@ -1483,11 +1967,12 @@ impl WriterExpr {
     /// // Sin: `y = sin(x);`
     /// let y = x.sin();
     /// ```
+    #[inline]
     pub fn sin(self) -> Self {
         self.unary_op(UnaryOperator::Sin)
     }
 
-    /// Apply the "cos" operator to the current float scalar or vector
+    /// Apply the "tan" operator to the current float scalar or vector
     /// expression.
     ///
     /// This is a unary operator, which applies to float scalar or vector
@@ -1503,11 +1988,112 @@ impl WriterExpr {
     /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
     /// let x = w.lit(Vec3::ONE);
     ///
-    /// // Sin: `y = cos(x);`
-    /// let y = x.cos();
+    /// // Tan: `y = tan(x);`
+    /// let y = x.tan();
     /// ```
-    pub fn cos(self) -> Self {
-        self.unary_op(UnaryOperator::Cos)
+    #[inline]
+    pub fn tan(self) -> Self {
+        self.unary_op(UnaryOperator::Tan)
+    }
+
+    /// Apply the "saturate" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Saturate: `y = saturate(x);`
+    /// let y = x.saturate();
+    /// ```
+    #[inline]
+    pub fn saturate(self) -> Self {
+        self.unary_op(UnaryOperator::Saturate)
+    }
+
+    /// Get the first component of a scalar or vector.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `v = vec3<f32>(1., 1., 1.);`.
+    /// let v = w.lit(Vec3::ONE);
+    ///
+    /// // f = v.x;`
+    /// let f = v.x();
+    /// ```
+    #[inline]
+    pub fn x(self) -> Self {
+        self.unary_op(UnaryOperator::X)
+    }
+
+    /// Get the second component of a vector.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `v = vec3<f32>(1., 1., 1.);`.
+    /// let v = w.lit(Vec3::ONE);
+    ///
+    /// // f = v.y;`
+    /// let f = v.y();
+    /// ```
+    #[inline]
+    pub fn y(self) -> Self {
+        self.unary_op(UnaryOperator::Y)
+    }
+
+    /// Get the third component of a vector.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `v = vec3<f32>(1., 1., 1.);`.
+    /// let v = w.lit(Vec3::ONE);
+    ///
+    /// // f = v.z;`
+    /// let f = v.z();
+    /// ```
+    #[inline]
+    pub fn z(self) -> Self {
+        self.unary_op(UnaryOperator::Z)
+    }
+
+    /// Get the fourth component of a vector.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `v = vec3<f32>(1., 1., 1.);`.
+    /// let v = w.lit(Vec3::ONE);
+    ///
+    /// // f = v.w;`
+    /// let f = v.w();
+    /// ```
+    #[inline]
+    pub fn w(self) -> Self {
+        self.unary_op(UnaryOperator::W)
     }
 
     fn binary_op(self, other: Self, op: BinaryOperator) -> Self {
@@ -1522,54 +2108,6 @@ impl WriterExpr {
             expr,
             module: self.module,
         }
-    }
-
-    /// Take the minimum value of the current expression and another expression.
-    ///
-    /// This is a binary operator, which applies component-wise to vector
-    /// operand expressions.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use bevy_hanabi::*;
-    /// # use bevy::math::Vec2;
-    /// # let mut w = ExprWriter::new();
-    /// // A literal expression `x = vec2<f32>(3., -2.);`.
-    /// let x = w.lit(Vec2::new(3., -2.));
-    ///
-    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
-    /// let y = w.lit(Vec2::new(1., 5.));
-    ///
-    /// // The minimum of both vectors `z = min(x, y);`.
-    /// let z = x.min(y); // == vec2<f32>(1., -2.)
-    /// ```
-    pub fn min(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::Min)
-    }
-
-    /// Take the maximum value of the current expression and another expression.
-    ///
-    /// This is a binary operator, which applies component-wise to vector
-    /// operand expressions.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use bevy_hanabi::*;
-    /// # use bevy::math::Vec2;
-    /// # let mut w = ExprWriter::new();
-    /// // A literal expression `x = vec2<f32>(3., -2.);`.
-    /// let x = w.lit(Vec2::new(3., -2.));
-    ///
-    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
-    /// let y = w.lit(Vec2::new(1., 5.));
-    ///
-    /// // The maximum of both vectors `z = max(x, y);`.
-    /// let z = x.max(y); // == vec2<f32>(3., 5.)
-    /// ```
-    pub fn max(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::Max)
     }
 
     /// Add the current expression with another expression.
@@ -1598,47 +2136,42 @@ impl WriterExpr {
     /// // let z = x + y;
     /// ```
     #[allow(clippy::should_implement_trait)]
+    #[inline]
     pub fn add(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Add)
     }
 
-    /// Subtract another expression from the current expression.
+    /// Calculate the cross product of the current expression by another
+    /// expression.
     ///
-    /// This is a binary operator, which applies component-wise to vector
-    /// operand expressions.
-    ///
-    /// You can also use the [`std::ops::Sub`] trait directly, via the `-`
-    /// symbol, as an alternative to calling this method directly.
+    /// This is a binary operator, which applies to vector operands of size 3
+    /// only, and always produces a vector of the same size.
     ///
     /// # Example
     ///
     /// ```
     /// # use bevy_hanabi::*;
-    /// # use bevy::math::Vec2;
+    /// # use bevy::math::Vec3;
     /// # let mut w = ExprWriter::new();
-    /// // A literal expression `x = vec2<f32>(3., -2.);`.
-    /// let x = w.lit(Vec2::new(3., -2.));
+    /// // A literal expression `x = vec3<f32>(3., -2., 1.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 1.));
     ///
-    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
-    /// let y = w.lit(Vec2::new(1., 5.));
+    /// // Another literal expression `y = vec3<f32>(1., 5., 0.);`.
+    /// let y = w.lit(Vec3::new(1., 5., 0.));
     ///
-    /// // The difference of both vectors `z = x - y;`.
-    /// let z = x.sub(y); // == vec2<f32>(2., -7.)
-    /// // -OR-
-    /// // let z = x - y;
+    /// // The cross product of both vectors `z = cross(x, y);`.
+    /// let z = x.cross(y);
     /// ```
-    #[allow(clippy::should_implement_trait)]
-    pub fn sub(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::Sub)
+    #[inline]
+    pub fn cross(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::Cross)
     }
 
-    /// Multiply the current expression with another expression.
+    /// Calculate the dot product of the current expression by another
+    /// expression.
     ///
-    /// This is a binary operator, which applies component-wise to vector
-    /// operand expressions.
-    ///
-    /// You can also use the [`std::ops::Mul`] trait directly, via the `*`
-    /// symbol, as an alternative to calling this method directly.
+    /// This is a binary operator, which applies to vector operands of same size
+    /// only, and always produces a floating point scalar.
     ///
     /// # Example
     ///
@@ -1652,14 +2185,37 @@ impl WriterExpr {
     /// // Another literal expression `y = vec2<f32>(1., 5.);`.
     /// let y = w.lit(Vec2::new(1., 5.));
     ///
-    /// // The product of both vectors `z = x * y;`.
-    /// let z = x.mul(y); // == vec2<f32>(3., -10.)
-    /// // -OR-
-    /// // let z = x * y;
+    /// // The dot product of both vectors `z = dot(x, y);`.
+    /// let z = x.dot(y);
     /// ```
-    #[allow(clippy::should_implement_trait)]
-    pub fn mul(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::Mul)
+    #[inline]
+    pub fn dot(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::Dot)
+    }
+
+    /// Calculate the distance between the current expression and another
+    /// expression.
+    ///
+    /// This is a binary operator.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(3., -2., 1.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 1.));
+    ///
+    /// // Another literal expression `y = vec3<f32>(1., 5., 0.);`.
+    /// let y = w.lit(Vec3::new(1., 5., 0.));
+    ///
+    /// // The distance between the vectors `z = distance(x, y);`.
+    /// let z = x.distance(y);
+    /// ```
+    #[inline]
+    pub fn distance(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::Distance)
     }
 
     /// Divide the current expression by another expression.
@@ -1688,108 +2244,9 @@ impl WriterExpr {
     /// // let z = x / y;
     /// ```
     #[allow(clippy::should_implement_trait)]
+    #[inline]
     pub fn div(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Div)
-    }
-
-    /// Calculate the dot product of the current expression by another
-    /// expression.
-    ///
-    /// This is a binary operator, which applies to vector operands of same size
-    /// only, and always produces a floating point scalar.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use bevy_hanabi::*;
-    /// # use bevy::math::Vec2;
-    /// # let mut w = ExprWriter::new();
-    /// // A literal expression `x = vec2<f32>(3., -2.);`.
-    /// let x = w.lit(Vec2::new(3., -2.));
-    ///
-    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
-    /// let y = w.lit(Vec2::new(1., 5.));
-    ///
-    /// // The dot product of both vectors `z = dot(x, y);`.
-    /// let z = x.dot(y);
-    /// ```
-    pub fn dot(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::Dot)
-    }
-
-    /// Calculate the cross product of the current expression by another
-    /// expression.
-    ///
-    /// This is a binary operator, which applies to vector operands of size 3
-    /// only, and always produces a vector of the same size.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use bevy_hanabi::*;
-    /// # use bevy::math::Vec3;
-    /// # let mut w = ExprWriter::new();
-    /// // A literal expression `x = vec3<f32>(3., -2., 1.);`.
-    /// let x = w.lit(Vec3::new(3., -2., 1.));
-    ///
-    /// // Another literal expression `y = vec3<f32>(1., 5., 0.);`.
-    /// let y = w.lit(Vec3::new(1., 5., 0.));
-    ///
-    /// // The cross product of both vectors `z = cross(x, y);`.
-    /// let z = x.cross(y);
-    /// ```
-    pub fn cross(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::Cross)
-    }
-
-    /// Apply the logical operator "less than or equal" to this expression and
-    /// another expression.
-    ///
-    /// This is a binary operator, which applies component-wise to vector
-    /// operand expressions.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use bevy_hanabi::*;
-    /// # use bevy::math::Vec3;
-    /// # let mut w = ExprWriter::new();
-    /// // A literal expression `x = vec3<f32>(3., -2., 7.);`.
-    /// let x = w.lit(Vec3::new(3., -2., 7.));
-    ///
-    /// // Another literal expression `y = vec3<f32>(1., 5., 7.);`.
-    /// let y = w.lit(Vec3::new(1., 5., 7.));
-    ///
-    /// // The boolean result of the less than or equal operation `z = (x <= y);`.
-    /// let z = x.le(y); // == vec3<bool>(false, true, true)
-    /// ```
-    pub fn le(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::LessThanOrEqual)
-    }
-
-    /// Apply the logical operator "less than" to this expression and another
-    /// expression.
-    ///
-    /// This is a binary operator, which applies component-wise to vector
-    /// operand expressions.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use bevy_hanabi::*;
-    /// # use bevy::math::Vec3;
-    /// # let mut w = ExprWriter::new();
-    /// // A literal expression `x = vec3<f32>(3., -2., 7.);`.
-    /// let x = w.lit(Vec3::new(3., -2., 7.));
-    ///
-    /// // Another literal expression `y = vec3<f32>(1., 5., 7.);`.
-    /// let y = w.lit(Vec3::new(1., 5., 7.));
-    ///
-    /// // The boolean result of the less than operation `z = (x < y);`.
-    /// let z = x.lt(y); // == vec3<bool>(false, true, false)
-    /// ```
-    pub fn lt(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::LessThan)
     }
 
     /// Apply the logical operator "greater than or equal" to this expression
@@ -1813,6 +2270,7 @@ impl WriterExpr {
     /// // The boolean result of the greater than or equal operation `z = (x >= y);`.
     /// let z = x.ge(y); // == vec3<bool>(true, false, true)
     /// ```
+    #[inline]
     pub fn ge(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::GreaterThanOrEqual)
     }
@@ -1838,8 +2296,200 @@ impl WriterExpr {
     /// // The boolean result of the greater than operation `z = (x > y);`.
     /// let z = x.gt(y); // == vec3<bool>(true, false, false)
     /// ```
+    #[inline]
     pub fn gt(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::GreaterThan)
+    }
+
+    /// Apply the logical operator "less than or equal" to this expression and
+    /// another expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(3., -2., 7.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 7.));
+    ///
+    /// // Another literal expression `y = vec3<f32>(1., 5., 7.);`.
+    /// let y = w.lit(Vec3::new(1., 5., 7.));
+    ///
+    /// // The boolean result of the less than or equal operation `z = (x <= y);`.
+    /// let z = x.le(y); // == vec3<bool>(false, true, true)
+    /// ```
+    #[inline]
+    pub fn le(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::LessThanOrEqual)
+    }
+
+    /// Apply the logical operator "less than" to this expression and another
+    /// expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(3., -2., 7.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 7.));
+    ///
+    /// // Another literal expression `y = vec3<f32>(1., 5., 7.);`.
+    /// let y = w.lit(Vec3::new(1., 5., 7.));
+    ///
+    /// // The boolean result of the less than operation `z = (x < y);`.
+    /// let z = x.lt(y); // == vec3<bool>(false, true, false)
+    /// ```
+    #[inline]
+    pub fn lt(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::LessThan)
+    }
+
+    /// Take the maximum value of the current expression and another expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(3., -2.);`.
+    /// let x = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
+    /// let y = w.lit(Vec2::new(1., 5.));
+    ///
+    /// // The maximum of both vectors `z = max(x, y);`.
+    /// let z = x.max(y); // == vec2<f32>(3., 5.)
+    /// ```
+    #[inline]
+    pub fn max(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::Max)
+    }
+
+    /// Take the minimum value of the current expression and another expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(3., -2.);`.
+    /// let x = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
+    /// let y = w.lit(Vec2::new(1., 5.));
+    ///
+    /// // The minimum of both vectors `z = min(x, y);`.
+    /// let z = x.min(y); // == vec2<f32>(1., -2.)
+    /// ```
+    #[inline]
+    pub fn min(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::Min)
+    }
+
+    /// Multiply the current expression with another expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// You can also use the [`std::ops::Mul`] trait directly, via the `*`
+    /// symbol, as an alternative to calling this method directly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(3., -2.);`.
+    /// let x = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
+    /// let y = w.lit(Vec2::new(1., 5.));
+    ///
+    /// // The product of both vectors `z = x * y;`.
+    /// let z = x.mul(y); // == vec2<f32>(3., -10.)
+    /// // -OR-
+    /// // let z = x * y;
+    /// ```
+    #[allow(clippy::should_implement_trait)]
+    #[inline]
+    pub fn mul(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::Mul)
+    }
+
+    /// Calculate the step of a value with respect to a reference.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(3., -2.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 8.));
+    ///
+    /// // An edge reference `e = vec3<f32>(1., 5.);`.
+    /// let e = w.lit(Vec3::new(1., 5., 8.));
+    ///
+    /// // The step value
+    /// let s = x.step(e); // == vec3<f32>(1., 0., 1.)
+    /// ```
+    #[allow(clippy::should_implement_trait)]
+    #[inline]
+    pub fn step(self, edge: Self) -> Self {
+        // Note: order is step(edge, x) but x.step(edge)
+        edge.binary_op(self, BinaryOperator::Step)
+    }
+
+    /// Subtract another expression from the current expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// You can also use the [`std::ops::Sub`] trait directly, via the `-`
+    /// symbol, as an alternative to calling this method directly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(3., -2.);`.
+    /// let x = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `y = vec2<f32>(1., 5.);`.
+    /// let y = w.lit(Vec2::new(1., 5.));
+    ///
+    /// // The difference of both vectors `z = x - y;`.
+    /// let z = x.sub(y); // == vec2<f32>(2., -7.)
+    /// // -OR-
+    /// // let z = x - y;
+    /// ```
+    #[allow(clippy::should_implement_trait)]
+    #[inline]
+    pub fn sub(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::Sub)
     }
 
     /// Apply the logical operator "uniform" to this expression and another
@@ -1865,8 +2515,86 @@ impl WriterExpr {
     /// // A random variable uniformly distributed in [1:3]x[-2:5]x[7:7].
     /// let z = x.uniform(y);
     /// ```
+    #[inline]
     pub fn uniform(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::UniformRand)
+    }
+
+    fn ternary_op(self, second: Self, third: Self, op: TernaryOperator) -> Self {
+        assert_eq!(self.module, second.module);
+        assert_eq!(self.module, third.module);
+        let first = self.expr;
+        let second = second.expr;
+        let third = third.expr;
+        let expr = self.module.borrow_mut().push(Expr::Ternary {
+            op,
+            first,
+            second,
+            third,
+        });
+        WriterExpr {
+            expr,
+            module: self.module,
+        }
+    }
+
+    /// Blending linearly ("mix") two expressions with the fraction provided by
+    /// a third expression.
+    ///
+    /// This is a ternary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(3., -2.);`.
+    /// let x = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `y = vec2<f32>(1., 4.);`.
+    /// let y = w.lit(Vec2::new(1., 4.));
+    ///
+    /// // A fraction `t = 0.5;`.
+    /// let t = w.lit(0.25);
+    ///
+    /// // The linear blend of x and y via t: z = (1 - t) * x + y * t
+    /// let z = x.mix(y, t); // == vec2<f32>(2.5, -0.5)
+    /// ```
+    #[inline]
+    pub fn mix(self, other: Self, fraction: Self) -> Self {
+        self.ternary_op(other, fraction, TernaryOperator::Mix)
+    }
+
+    /// Calculate the smooth Hermite interpolation in \[0:1\] of the current
+    /// value taken between the given bounds.
+    ///
+    /// This is a ternary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `low = vec2<f32>(3., -2.);`.
+    /// let low = w.lit(Vec2::new(3., -2.));
+    ///
+    /// // Another literal expression `high = vec2<f32>(1., 4.);`.
+    /// let high = w.lit(Vec2::new(1., 4.));
+    ///
+    /// // A point `x = vec2<f32>(2., 1.);` between `low` and `high`.
+    /// let x = w.lit(Vec2::new(2., 1.));
+    ///
+    /// // The smooth Hermite interpolation: `t = smoothstep(low, high, x)`
+    /// let t = x.smoothstep(low, high); // == 0.5
+    /// ```
+    #[inline]
+    pub fn smoothstep(self, low: Self, high: Self) -> Self {
+        // Note: order is smoothstep(low, high, x) but x.smoothstep(low, high)
+        low.ternary_op(high, self, TernaryOperator::SmoothStep)
     }
 
     /// Finalize an expression chain and return the accumulated expression.
@@ -1885,6 +2613,7 @@ impl WriterExpr {
     /// // Retrieve the ExprHandle for that expression.
     /// let handle = x.expr();
     /// ```
+    #[inline]
     pub fn expr(self) -> ExprHandle {
         self.expr
     }
@@ -2069,11 +2798,29 @@ mod tests {
         let x = m.attr(Attribute::POSITION);
         let y = m.lit(Vec3::new(1., -3.1, 6.99));
         let z = m.lit(BVec3::new(false, true, false));
+        let w = m.lit(Vec4::W);
 
         let abs = m.abs(x);
-        let norm = m.normalize(y);
-        let any = m.any(z);
         let all = m.all(z);
+        let any = m.any(z);
+        let ceil = m.ceil(y);
+        let cos = m.cos(y);
+        let exp = m.exp(y);
+        let exp2 = m.exp2(y);
+        let floor = m.floor(y);
+        let fract = m.fract(y);
+        let length = m.length(y);
+        let log = m.log(y);
+        let log2 = m.log2(y);
+        let norm = m.normalize(y);
+        let saturate = m.saturate(y);
+        let sign = m.sign(y);
+        let sin = m.sin(y);
+        let tan = m.tan(y);
+        let comp_x = m.x(w);
+        let comp_y = m.y(w);
+        let comp_z = m.z(w);
+        let comp_w = m.w(w);
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
@@ -2085,14 +2832,39 @@ mod tests {
                 "abs",
                 &format!("particle.{}", Attribute::POSITION.name())[..],
             ),
-            (norm, "normalize", "vec3<f32>(1.,-3.1,6.99)"),
-            (any, "any", "vec3<bool>(false,true,false)"),
             (all, "all", "vec3<bool>(false,true,false)"),
+            (any, "any", "vec3<bool>(false,true,false)"),
+            (ceil, "ceil", "vec3<f32>(1.,-3.1,6.99)"),
+            (cos, "cos", "vec3<f32>(1.,-3.1,6.99)"),
+            (exp, "exp", "vec3<f32>(1.,-3.1,6.99)"),
+            (exp2, "exp2", "vec3<f32>(1.,-3.1,6.99)"),
+            (floor, "floor", "vec3<f32>(1.,-3.1,6.99)"),
+            (fract, "fract", "vec3<f32>(1.,-3.1,6.99)"),
+            (length, "length", "vec3<f32>(1.,-3.1,6.99)"),
+            (log, "log", "vec3<f32>(1.,-3.1,6.99)"),
+            (log2, "log2", "vec3<f32>(1.,-3.1,6.99)"),
+            (norm, "normalize", "vec3<f32>(1.,-3.1,6.99)"),
+            (saturate, "saturate", "vec3<f32>(1.,-3.1,6.99)"),
+            (sign, "sign", "vec3<f32>(1.,-3.1,6.99)"),
+            (sin, "sin", "vec3<f32>(1.,-3.1,6.99)"),
+            (tan, "tan", "vec3<f32>(1.,-3.1,6.99)"),
         ] {
             let expr = ctx.eval(expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
-            assert_eq!(expr, format!("{}({})", op, inner,));
+            assert_eq!(expr, format!("{}({})", op, inner));
+        }
+
+        for (expr, op, inner) in [
+            (comp_x, "x", "vec4<f32>(0.,0.,0.,1.)"),
+            (comp_y, "y", "vec4<f32>(0.,0.,0.,1.)"),
+            (comp_z, "z", "vec4<f32>(0.,0.,0.,1.)"),
+            (comp_w, "w", "vec4<f32>(0.,0.,0.,1.)"),
+        ] {
+            let expr = ctx.eval(expr);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            assert_eq!(expr, format!("{}.{}", inner, op));
         }
     }
 
@@ -2105,12 +2877,13 @@ mod tests {
 
         let min = m.min(x, y);
         let max = m.max(x, y);
+        let step = m.step(x, y);
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
         let ctx = InitContext::new(&mut m, &property_layout, &particle_layout);
 
-        for (expr, op) in [(min, "min"), (max, "max")] {
+        for (expr, op) in [(min, "min"), (max, "max"), (step, "step")] {
             let expr = ctx.eval(expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
@@ -2120,6 +2893,38 @@ mod tests {
                     "{}(particle.{}, vec3<f32>(1.,1.,1.))",
                     op,
                     Attribute::POSITION.name(),
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn ternary_expr() {
+        let mut m = Module::default();
+
+        let x = m.attr(Attribute::POSITION);
+        let y = m.lit(Vec3::ONE);
+        let t = m.lit(0.3);
+
+        let mix = m.mix(x, y, t);
+        let smoothstep = m.smoothstep(x, y, x);
+
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let ctx = InitContext::new(&mut m, &property_layout, &particle_layout);
+
+        for (expr, op, third) in [(mix, "mix", t), (smoothstep, "smoothstep", x)] {
+            let expr = ctx.eval(expr);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            let third = ctx.eval(third).unwrap();
+            assert_eq!(
+                expr,
+                format!(
+                    "{}(particle.{}, vec3<f32>(1.,1.,1.), {})",
+                    op,
+                    Attribute::POSITION.name(),
+                    third
                 )
             );
         }
