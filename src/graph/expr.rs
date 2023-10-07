@@ -1108,10 +1108,10 @@ impl UnaryOperator {
     /// like `v.x` for example. This check is used for formatting the WGSL
     /// code emitted during evaluation of a binary operation expression.
     pub fn is_functional(&self) -> bool {
-        match *self {
-            UnaryOperator::X | UnaryOperator::Y | UnaryOperator::Z | UnaryOperator::W => false,
-            _ => true,
-        }
+        !matches!(
+            *self,
+            UnaryOperator::X | UnaryOperator::Y | UnaryOperator::Z | UnaryOperator::W
+        )
     }
 }
 
