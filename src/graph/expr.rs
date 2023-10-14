@@ -107,7 +107,8 @@ use bevy::{reflect::Reflect, utils::thiserror::Error};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Attribute, ModifierContext, ParticleLayout, PropertyLayout, ScalarType, ToWgslString, ValueType,
+    Attribute, MatrixType, ModifierContext, ParticleLayout, PropertyLayout, ScalarType,
+    ToWgslString, ValueType, VectorType,
 };
 
 use super::Value;
@@ -192,6 +193,36 @@ macro_rules! impl_module_ternary {
             self.ternary(TernaryOperator::$T, first, second, third)
         }
     };
+}
+
+macro_rules! impl_module_vec2 {
+    ($f: ident, $T: ident) => {
+        #[doc = concat!("Build a 2-component vector expression from individual [ScalarType::", stringify!($T), "](crate::attribute::ScalarType::", stringify!($T), ") components, and append it to the module.\n\nThis is a shortcut for [`vec(c", stringify!($T), ", &[x, y])`](crate::graph::expr::Module::vec).")]
+        #[inline]
+        pub fn $f(&mut self, x: ExprHandle, y: ExprHandle) -> ExprHandle {
+            self.vec(ScalarType::$T, &[x, y])
+        }
+    }
+}
+
+macro_rules! impl_module_vec3 {
+    ($f: ident, $T: ident) => {
+        #[doc = concat!("Build a 3-component vector expression from individual [ScalarType::", stringify!($T), "](crate::attribute::ScalarType::", stringify!($T), ") components, and append it to the module.\n\nThis is a shortcut for [`vec(ScalarType::", stringify!($T), ", &[x, y, z])`](crate::graph::expr::Module::vec).")]
+        #[inline]
+        pub fn $f(&mut self, x: ExprHandle, y: ExprHandle, z: ExprHandle) -> ExprHandle {
+            self.vec(ScalarType::$T, &[x, y, z])
+        }
+    }
+}
+
+macro_rules! impl_module_vec4 {
+    ($f: ident, $T: ident) => {
+        #[doc = concat!("Build a 4-component vector expression from individual [ScalarType::", stringify!($T), "](crate::attribute::ScalarType::", stringify!($T), ") components, and append it to the module.\n\nThis is a shortcut for [`vec(ScalarType::", stringify!($T), ", &[x, y, z, w])`](crate::graph::expr::Module::vec).")]
+        #[inline]
+        pub fn $f(&mut self, x: ExprHandle, y: ExprHandle, z: ExprHandle, w: ExprHandle) -> ExprHandle {
+            self.vec(ScalarType::$T, &[x, y, z, w])
+        }
+    }
 }
 
 impl Module {
@@ -357,6 +388,413 @@ impl Module {
     impl_module_ternary!(mix, Mix);
     impl_module_ternary!(smoothstep, SmoothStep);
 
+    /// Build a vector expression out of components.
+    ///
+    /// The expression is of type `vecN<T>`, where `N` is the number of
+    /// components in `comp`, and `T` is the component type `ty`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut m = Module::default();
+    /// let x = m.lit(3.);
+    /// let v = m.vec(ScalarType::Float, &[x, x, x]); // vec3<f32>(3., 3., 3.)
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `comp` contains less than 2 or more than 4 components.
+    pub fn vec(&mut self, ty: ScalarType, comp: &[ExprHandle]) -> ExprHandle {
+        assert!(comp.len() >= 2 && comp.len() <= 4);
+        self.push(Expr::Compose(ComposeExpr::new(
+            ValueCtor::Vector((VectorType::new(ty, comp.len() as u8), VectorCtor::Comp)),
+            comp,
+        )))
+    }
+
+    /// Build a zeroed vector expression.
+    ///
+    /// The expression is of type `vecN<T>`, where `N` is the number of
+    /// components `count`, and `T` is the component type `ty`. All components
+    /// are zero.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut m = Module::default();
+    /// let v = m.zvec(ScalarType::Float, 4); // vec4<f32>()
+    /// let v = m.zvec(ScalarType::Bool, 2); // vec2<bool>()
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `count` is less than 2 or more than 4.
+    pub fn vec_zero(&mut self, ty: ScalarType, count: u8) -> ExprHandle {
+        assert!(count >= 2 && count <= 4);
+        self.push(Expr::Compose(ComposeExpr::new(
+            ValueCtor::Vector((VectorType::new(ty, count), VectorCtor::Default)),
+            &[],
+        )))
+    }
+
+    impl_module_vec2!(vec2b, Bool);
+    impl_module_vec3!(vec3b, Bool);
+    impl_module_vec4!(vec4b, Bool);
+    impl_module_vec2!(vec2f, Float);
+    impl_module_vec3!(vec3f, Float);
+    impl_module_vec4!(vec4f, Float);
+    impl_module_vec2!(vec2i, Int);
+    impl_module_vec3!(vec3i, Int);
+    impl_module_vec4!(vec4i, Int);
+    impl_module_vec2!(vec2u, Uint);
+    impl_module_vec3!(vec3u, Uint);
+    impl_module_vec4!(vec4u, Uint);
+
+    /// Build a matrix expression out of individual components.
+    ///
+    /// The expression is of type `maxCxR<f32>`, where `C` is the number of
+    /// columns `cols` in `{2, 3, 4}`, and `R` the number of rows determined by
+    /// the length of `comp` divided by `cols`. For this reason, the length
+    /// of `comp` must be divisible by `cols`, and the result must be in `{2, 3,
+    /// 4}`.
+    ///
+    /// The components are ordered by column. The first `R` components form the
+    /// first column, followed by the next `R` ones, etc. This builds
+    /// a matrix:
+    /// ```
+    /// [comp[0]   ...     ...    ]
+    /// [comp[1]   ...     ...    ]
+    /// [  ...     ...     ...    ]
+    /// [comp[R-1] ... comp[R*C-1]]
+    /// ```
+    ///
+    /// To build a matrix from column vectors, see [`cmat()`] instead.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut m = Module::default();
+    /// let x = m.lit(3.);
+    /// let v = m.mat(3, &[x, x, x, x, x, x]); // mat3x2<f32>
+    /// let v = m.mat(2, &[x, x, x, x, x, x]); // mat2x3<f32>
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `cols` is not in `{2, 3, 4}`, or if the number of components
+    /// in `comp` divided by `cols`, which is the number of rows of the
+    /// matrix, is not in `{2, 3, 4}`.
+    pub fn mat(&mut self, cols: u8, comp: &[ExprHandle]) -> ExprHandle {
+        assert!(cols >= 2 && cols <= 4);
+        assert!(comp.len() % cols as usize == 0);
+        let rows = comp.len() / cols as usize;
+        assert!(rows >= 2 && rows <= 4);
+        self.push(Expr::Compose(ComposeExpr::new(
+            ValueCtor::Matrix((MatrixType::new(cols, rows as u8), MatrixCtor::Comp)),
+            comp,
+        )))
+    }
+
+    /// Build a matrix expression out of column vectors.
+    ///
+    /// The expression is of type `maxCxR<f32>`, where `C` is the length of
+    /// `cols`, and `R` equals `rows`, both in `{2, 3, 4}`.
+    ///
+    /// This builds a matrix:
+    /// ```
+    /// [cols[0][0]   ... cols[C-1][0]  ]
+    /// [cols[0][1]   ...       ...     ]
+    /// [    ...      ...       ...     ]
+    /// [cols[0][R-1] ... cols[C-1][R-1]]
+    /// ```
+    ///
+    /// To build a matrix from column vectors, see [`cmat()`] instead.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut m = Module::default();
+    /// let x = m.lit(3.);
+    /// let v = m.mat(3, &[x, x, x, x, x, x]); // mat3x2<f32>
+    /// let v = m.mat(2, &[x, x, x, x, x, x]); // mat2x3<f32>
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rows` or if the number of components in `cols` are not in
+    /// `{2, 3, 4}`.
+    pub fn mat_cols(&mut self, rows: u8, cols: &[ExprHandle]) -> ExprHandle {
+        assert!(rows >= 2 && rows <= 4);
+        let c = cols.len();
+        assert!(c >= 2 && c <= 4);
+        self.push(Expr::Compose(ComposeExpr::new(
+            ValueCtor::Matrix((MatrixType::new(c as u8, rows), MatrixCtor::Cols)),
+            cols,
+        )))
+    }
+
+    /// Build a zeroed matrix expression.
+    ///
+    /// The expression is of type `maxCxR<f32>`, where `C` equals `cols` and `R`
+    /// equals `rows`, both in `{2, 3, 4}`.
+    ///
+    /// This builds an all-zero matrix.
+    ///
+    /// To build a matrix from column vectors, see [`mat_cols()`] instead. To
+    /// build a matrix from individual components, see [`mat()`] instead.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut m = Module::default();
+    /// let a = m.zmat(3, 2); // mat3x2<f32>()
+    /// let b = m.zmat(4, 4); // mat4x4<f32>()
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rows` or `cols` are not in `{2, 3, 4}`.
+    pub fn mat_zero(&mut self, rows: u8, cols: u8) -> ExprHandle {
+        assert!(rows >= 2 && rows <= 4);
+        assert!(cols >= 2 && cols <= 4);
+        self.push(Expr::Compose(ComposeExpr::new(
+            ValueCtor::Matrix((MatrixType::new(cols, rows), MatrixCtor::Default)),
+            &[],
+        )))
+    }
+
+    /// Create a `mat2x2`. This is a shortcut for [`mat()`].
+    ///
+    /// This builds a matrix:
+    /// ```
+    /// [m00 m01]
+    /// [m10 m11]
+    /// ```
+    #[inline]
+    pub fn mat2x2(
+        &mut self,
+        m00: ExprHandle,
+        m10: ExprHandle,
+        m01: ExprHandle,
+        m11: ExprHandle,
+    ) -> ExprHandle {
+        self.mat(2, &[m00, m10, m01, m11])
+    }
+
+    /// Create a `mat2x3`. This is a shortcut for [`mat()`].
+    ///
+    /// This builds a matrix:
+    /// ```
+    /// [m00 m01]
+    /// [m10 m11]
+    /// [m20 m21]
+    /// ```
+    #[inline]
+    pub fn mat2x3(
+        &mut self,
+        m00: ExprHandle,
+        m10: ExprHandle,
+        m20: ExprHandle,
+        m01: ExprHandle,
+        m11: ExprHandle,
+        m21: ExprHandle,
+    ) -> ExprHandle {
+        self.mat(2, &[m00, m10, m20, m01, m11, m21])
+    }
+
+    /// Create a `mat2x4`. This is a shortcut for [`mat()`].
+    ///
+    /// This builds a matrix:
+    /// ```
+    /// [m00 m01]
+    /// [m10 m11]
+    /// [m20 m21]
+    /// [m30 m31]
+    /// ```
+    #[inline]
+    pub fn mat2x4(
+        &mut self,
+        m00: ExprHandle,
+        m10: ExprHandle,
+        m20: ExprHandle,
+        m30: ExprHandle,
+        m01: ExprHandle,
+        m11: ExprHandle,
+        m21: ExprHandle,
+        m31: ExprHandle,
+    ) -> ExprHandle {
+        self.mat(2, &[m00, m10, m20, m30, m01, m11, m21, m31])
+    }
+
+    /// Create a `mat3x2`. This is a shortcut for [`mat()`].
+    ///
+    /// This builds a matrix:
+    /// ```
+    /// [m00 m01 m02]
+    /// [m10 m11 m12]
+    /// ```
+    #[inline]
+    pub fn mat3x2(
+        &mut self,
+        m00: ExprHandle,
+        m10: ExprHandle,
+        m01: ExprHandle,
+        m11: ExprHandle,
+        m02: ExprHandle,
+        m12: ExprHandle,
+    ) -> ExprHandle {
+        self.mat(3, &[m00, m10, m01, m11, m02, m12])
+    }
+
+    /// Create a `mat3x3`. This is a shortcut for [`mat()`].
+    ///
+    /// This builds a matrix:
+    /// ```
+    /// [m00 m01 m02]
+    /// [m10 m11 m12]
+    /// [m20 m21 m22]
+    /// ```
+    #[inline]
+    pub fn mat3x3(
+        &mut self,
+        m00: ExprHandle,
+        m10: ExprHandle,
+        m20: ExprHandle,
+        m01: ExprHandle,
+        m11: ExprHandle,
+        m21: ExprHandle,
+        m02: ExprHandle,
+        m12: ExprHandle,
+        m22: ExprHandle,
+    ) -> ExprHandle {
+        self.mat(3, &[m00, m10, m20, m01, m11, m21, m02, m12, m22])
+    }
+
+    /// Create a `mat3x4`. This is a shortcut for [`mat()`].
+    ///
+    /// This builds a matrix:
+    /// ```
+    /// [m00 m01 m02]
+    /// [m10 m11 m12]
+    /// [m20 m21 m22]
+    /// [m30 m31 m32]
+    /// ```
+    #[inline]
+    pub fn mat3x4(
+        &mut self,
+        m00: ExprHandle,
+        m10: ExprHandle,
+        m20: ExprHandle,
+        m30: ExprHandle,
+        m01: ExprHandle,
+        m11: ExprHandle,
+        m21: ExprHandle,
+        m31: ExprHandle,
+        m02: ExprHandle,
+        m12: ExprHandle,
+        m22: ExprHandle,
+        m32: ExprHandle,
+    ) -> ExprHandle {
+        self.mat(
+            3,
+            &[m00, m10, m20, m30, m01, m11, m21, m31, m02, m12, m22, m32],
+        )
+    }
+
+    /// Create a `mat4x2`. This is a shortcut for [`mat()`].
+    ///
+    /// This builds a matrix:
+    /// ```
+    /// [m00 m01 m02 m03]
+    /// [m10 m11 m12 m13]
+    /// ```
+    #[inline]
+    pub fn mat4x2(
+        &mut self,
+        m00: ExprHandle,
+        m10: ExprHandle,
+        m01: ExprHandle,
+        m11: ExprHandle,
+        m02: ExprHandle,
+        m12: ExprHandle,
+        m03: ExprHandle,
+        m13: ExprHandle,
+    ) -> ExprHandle {
+        self.mat(4, &[m00, m10, m01, m11, m02, m12, m03, m13])
+    }
+
+    /// Create a `mat4x3`. This is a shortcut for [`mat()`].
+    ///
+    /// This builds a matrix:
+    /// ```
+    /// [m00 m01 m02 m03]
+    /// [m10 m11 m12 m13]
+    /// [m20 m21 m22 m23]
+    /// ```
+    #[inline]
+    pub fn mat4x3(
+        &mut self,
+        m00: ExprHandle,
+        m10: ExprHandle,
+        m20: ExprHandle,
+        m01: ExprHandle,
+        m11: ExprHandle,
+        m21: ExprHandle,
+        m02: ExprHandle,
+        m12: ExprHandle,
+        m22: ExprHandle,
+        m03: ExprHandle,
+        m13: ExprHandle,
+        m23: ExprHandle,
+    ) -> ExprHandle {
+        self.mat(
+            4,
+            &[m00, m10, m20, m01, m11, m21, m02, m12, m22, m03, m13, m23],
+        )
+    }
+
+    /// Create a `mat4x4`. This is a shortcut for [`mat()`].
+    ///
+    /// This builds a matrix:
+    /// ```
+    /// [m00 m01 m02 m03]
+    /// [m10 m11 m12 m13]
+    /// [m20 m21 m22 m23]
+    /// [m30 m31 m32 m33]
+    /// ```
+    #[inline]
+    pub fn mat4x4(
+        &mut self,
+        m00: ExprHandle,
+        m10: ExprHandle,
+        m20: ExprHandle,
+        m30: ExprHandle,
+        m01: ExprHandle,
+        m11: ExprHandle,
+        m21: ExprHandle,
+        m31: ExprHandle,
+        m02: ExprHandle,
+        m12: ExprHandle,
+        m22: ExprHandle,
+        m32: ExprHandle,
+        m03: ExprHandle,
+        m13: ExprHandle,
+        m23: ExprHandle,
+        m33: ExprHandle,
+    ) -> ExprHandle {
+        self.mat(
+            4,
+            &[
+                m00, m10, m20, m30, m01, m11, m21, m31, m02, m12, m22, m32, m03, m13, m23, m33,
+            ],
+        )
+    }
+
     /// Get an existing expression from its handle.
     #[inline]
     pub fn get(&self, expr: ExprHandle) -> Option<&Expr> {
@@ -482,6 +920,13 @@ pub enum Expr {
     /// particle, like its position or velocity.
     Attribute(AttributeExpr),
 
+    /// Compose expression ([`ComposeExpr`]).
+    ///
+    /// A compose expression represents the composition of several expressions
+    /// with a given type. This is mainly used to build vector and matrix
+    /// expressions out of individual components.
+    Compose(ComposeExpr),
+
     /// Unary operation expression.
     ///
     /// A unary operation transforms an expression into another expression.
@@ -551,6 +996,7 @@ impl Expr {
             Expr::Literal(expr) => expr.is_const(),
             Expr::Property(expr) => expr.is_const(),
             Expr::Attribute(expr) => expr.is_const(),
+            Expr::Compose(expr) => expr.is_const(module),
             Expr::Unary { expr, .. } => module.is_const(*expr),
             Expr::Binary { left, right, .. } => module.is_const(*left) && module.is_const(*right),
             Expr::Ternary {
@@ -583,6 +1029,7 @@ impl Expr {
             Expr::BuiltIn(expr) => Some(expr.value_type()),
             Expr::Literal(expr) => Some(expr.value_type()),
             Expr::Property(_) => None,
+            Expr::Compose(_) => None,
             Expr::Attribute(expr) => Some(expr.value_type()),
             Expr::Unary { .. } => None,
             Expr::Binary { .. } => None,
@@ -616,6 +1063,7 @@ impl Expr {
             Expr::Literal(expr) => expr.eval(context),
             Expr::Property(expr) => expr.eval(context),
             Expr::Attribute(expr) => expr.eval(context),
+            Expr::Compose(expr) => expr.eval(context),
             Expr::Unary { op, expr } => {
                 let expr = context.expr(*expr)?.eval(context)?;
 
@@ -823,6 +1271,222 @@ impl ToWgslString for PropertyExpr {
 impl From<String> for PropertyExpr {
     fn from(property_name: String) -> Self {
         PropertyExpr::new(property_name)
+    }
+}
+
+/// Vector type constructor.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub enum VectorCtor {
+    /// Default constructor.
+    ///
+    /// Builds a vector with zero-initialized components, for example:
+    /// ```wgsl
+    /// vec3<f32>()  // (0., 0., 0.)
+    /// ```
+    ///
+    /// This takes no expression.
+    #[default]
+    Default,
+
+    /// Constructor via component splatting.
+    ///
+    /// Builds a vector whose components are copies of a same element, for
+    /// example: ```wgsl
+    /// vec3<f32>(3.0)  // (3., 3., 3.)
+    /// ```
+    /// 
+    /// This takes a single expression representing the scalar component to
+    /// duplicate.
+    Splat,
+
+    /// Copy constructor.
+    ///
+    /// Builds a vector by copying another vector, for example:
+    /// ```wgsl
+    /// vec3<f32>(v)  // (v.x, v.y, v.z)
+    /// ```
+    ///
+    /// This takes a single expression representing the vector to copy.
+    Copy,
+
+    /// Constructor from individual components.
+    ///
+    /// Builds a vector from individual components, for example:
+    /// ```wgsl
+    /// vec3<f32>(1.0, 2.0, 3.0)  // (1., 2., 3.)
+    /// ```
+    ///
+    /// This takes a series of expressions representing the indivdual components
+    /// of the vector.
+    Comp,
+}
+
+/// Matrix type constructor.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub enum MatrixCtor {
+    /// Default constructor.
+    ///
+    /// Builds a matrix with zero-initialized components, for example:
+    /// ```wgsl
+    /// // [0 0]
+    /// // [0 0]
+    /// // [0 0]
+    /// mat2x3<f32>()
+    /// ```
+    ///
+    /// This takes no expression.
+    #[default]
+    Default,
+
+    /// Copy constructor.
+    ///
+    /// Builds a matrix by copying another matrix, for example:
+    /// ```wgsl
+    /// mat2x3<f32>(m)
+    /// ```
+    ///
+    /// This takes a single expression representing the matrix to copy.
+    Copy,
+
+    /// Constructor from column vectors.
+    ///
+    /// Builds a matrix formed of column vectors, for example:
+    /// ```wgsl
+    /// // [c0.x c1.x]
+    /// // [c0.y c1.y]
+    /// // [c0.z c1.z]
+    /// mat2x3<f32>(c0, c1)
+    /// ```
+    ///
+    /// This takes one vector expression per matrix column.
+    Cols,
+
+    /// Constructor from individual components.
+    ///
+    /// Builds a matrix from individual components in column order, for example:
+    /// ```wgsl
+    /// // [1 4]
+    /// // [2 5]
+    /// // [3 6]
+    /// mat2x3<f32>(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+    /// ```
+    ///
+    /// This takes a series of expressions representing the indivdual components
+    /// of the matrix in column order (first column, then second, etc.).
+    Comp,
+}
+
+/// Value type constructor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub enum ValueCtor {
+    /// Vector type constructor.
+    Vector((VectorType, VectorCtor)),
+    /// Matrix type constructor.
+    Matrix((MatrixType, MatrixCtor)),
+}
+
+impl ValueCtor {
+    /// Get the value type of the constructor expression.
+    pub fn value_type(&self) -> ValueType {
+        (*self).into()
+    }
+
+    /// Number of components.
+    pub fn count(&self) -> usize {
+        match *self {
+            ValueCtor::Vector((ty, ctor)) => match ctor {
+                VectorCtor::Default => 0,
+                VectorCtor::Splat => 1,
+                VectorCtor::Copy => 1,
+                VectorCtor::Comp => ty.count(),
+            },
+            ValueCtor::Matrix((ty, ctor)) => match ctor {
+                MatrixCtor::Default => 0,
+                MatrixCtor::Copy => 1,
+                MatrixCtor::Cols => ty.cols(),
+                MatrixCtor::Comp => ty.rows() * ty.cols(),
+            },
+        }
+    }
+}
+
+impl From<ValueCtor> for ValueType {
+    fn from(value: ValueCtor) -> Self {
+        match value {
+            ValueCtor::Vector((v, _)) => v.into(),
+            ValueCtor::Matrix((m, _)) => m.into(),
+        }
+    }
+}
+
+/// Expression representing the composition of other expressions with a type.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct ComposeExpr {
+    ctor: ValueCtor,
+    args: Vec<ExprHandle>,
+}
+
+impl ComposeExpr {
+    /// Create a new compose expression.
+    ///
+    /// # Example
+    ///
+    ///```
+    /// # use bevy_hanabi::*;
+    /// let mut m = Module::default();
+    /// let x = m.lit(1.);
+    /// let y = m.lit(2.);
+    /// let z = m.lit(3.);
+    /// // ce = vec3<f32>(1., 2., 3.)
+    /// let ce = ComposeExpr::new(ValueCtor::Vector(VectorType::VEC3F, VectorCtor::Comp), &[x, y, z]);
+    /// // ce = mat2x3<f32>()
+    /// let ce = ComposeExpr::new(ValueCtor::Matrix(MatrixType::MAT2X3, MatrixCtor::Default), &[]);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if the length of `args` is different from the number of
+    /// components expected for the value constructor, as returned by
+    /// [`ValueCtor::count()`].
+    pub fn new(ctor: ValueCtor, args: &[ExprHandle]) -> Self {
+        assert_eq!(ctor.count(), args.len());
+        Self {
+            ctor,
+            args: args.to_vec(),
+        }
+    }
+
+    /// Is the expression resulting in a compile-time constant which can be
+    /// hard-coded into a shader's code?
+    ///
+    /// # Panics
+    ///
+    /// Panics if any of the argument expressions cannot be resolved from the
+    /// module.
+    pub fn is_const(&self, module: &Module) -> bool {
+        self.args
+            .iter()
+            .map(|e| module.get(*e).unwrap())
+            .all(|e| e.is_const(module))
+    }
+
+    /// Get the value type of the expression.
+    ///
+    /// This returns the type the compose expression was built with.
+    pub fn value_type(&self) -> ValueType {
+        self.ctor.value_type()
+    }
+
+    /// Evaluate the expression in the given context.
+    pub fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
+        let ty = self.ctor.value_type().to_wgsl_string();
+        let args = self
+            .args
+            .iter()
+            .map(|e| context.eval(*e))
+            .collect::<Result<Vec<_>, _>>()?;
+        let args = args.join(",");
+        Ok(format!("{}({})", ty, args))
     }
 }
 
@@ -2928,6 +3592,26 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn compose_expr() {
+        let mut m = Module::default();
+
+        let x = m.lit(1.);
+        let y = m.lit(2.);
+        let z = m.lit(3.);
+
+        let vec = m.vec(ScalarType::Float, &[x, y, z]);
+        let vec3f = m.vec3f(x, y, z);
+
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let ctx = InitContext::new(&mut m, &property_layout, &particle_layout);
+
+        let vec = ctx.eval(vec).unwrap();
+        let vec3f = ctx.eval(vec3f).unwrap();
+        assert_eq!(vec, vec3f);
     }
 
     // #[test]
