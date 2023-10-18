@@ -2750,7 +2750,7 @@ mod tests {
 
         // Evaluate the expression
         let s = ctx.expr(x2).unwrap().eval(&ctx).unwrap();
-        assert_eq!("(2.5) * (test)".to_string(), s);
+        assert_eq!("(2.5) * (expr_var_0)".to_string(), s);
     }
 
     #[test]
