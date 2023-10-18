@@ -106,11 +106,10 @@ use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
 use bevy::{reflect::Reflect, utils::thiserror::Error};
 use serde::{Deserialize, Serialize};
 
+use super::Value;
 use crate::{
     Attribute, ModifierContext, ParticleLayout, PropertyLayout, ScalarType, ToWgslString, ValueType,
 };
-
-use super::Value;
 
 type Index = NonZeroU32;
 
@@ -378,6 +377,30 @@ impl Module {
         let expr = self.get(expr).unwrap();
         expr.is_const(self)
     }
+
+    /// Gets all variable expressions
+    pub fn get_variable_expressions(&self) -> Vec<(String, ExprHandle)> {
+        self.expressions
+            .iter()
+            .filter_map(|v| match v {
+                Expr::Variable { name, expr } => Some((name.clone(), expr.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Create an indexed variable name based on the number of existing variables
+    pub fn next_variable_name(&self) -> String {
+        let current_index = self
+            .expressions
+            .iter()
+            .filter(|v| match v {
+                Expr::Variable { .. } => true,
+                _ => false,
+            })
+            .count();
+        format!("expr_var_{current_index}")
+    }
 }
 
 /// Errors raised when manipulating expressions [`Expr`] and node graphs
@@ -517,6 +540,14 @@ pub enum Expr {
         /// Third operand the ternary operation applies to.
         third: ExprHandle,
     },
+
+    /// An extracted variable expression
+    Variable {
+        /// variable name
+        name: String,
+        /// expression
+        expr: ExprHandle,
+    },
 }
 
 impl Expr {
@@ -559,6 +590,7 @@ impl Expr {
                 third,
                 ..
             } => module.is_const(*first) && module.is_const(*second) && module.is_const(*third),
+            Expr::Variable { name: _, expr } => module.is_const(*expr),
         }
     }
 
@@ -587,6 +619,7 @@ impl Expr {
             Expr::Unary { .. } => None,
             Expr::Binary { .. } => None,
             Expr::Ternary { .. } => None,
+            Expr::Variable { .. } => None,
         }
     }
 
@@ -674,6 +707,7 @@ impl Expr {
                     third
                 ))
             }
+            Expr::Variable { name, expr: _ } => Ok(name.to_string()),
         }
     }
 }
@@ -1612,6 +1646,19 @@ impl WriterExpr {
     fn unary_op(self, op: UnaryOperator) -> Self {
         let expr = self.module.borrow_mut().push(Expr::Unary {
             op,
+            expr: self.expr,
+        });
+        WriterExpr {
+            expr,
+            module: self.module,
+        }
+    }
+
+    /// Define the current expression as a variable with a reusable result
+    pub fn as_var(self) -> Self {
+        let name = self.module.borrow().next_variable_name();
+        let expr = self.module.borrow_mut().push(Expr::Variable {
+            name,
             expr: self.expr,
         });
         WriterExpr {
@@ -2686,6 +2733,24 @@ mod tests {
                 .to_string(),
             s
         );
+    }
+
+    #[test]
+    fn var_expression() {
+        // Get a module and its writer
+        let w = ExprWriter::new();
+
+        let x1 = (w.rand(ScalarType::Float) * w.lit(1.5)).as_var();
+        let x2 = (w.lit(2.5) * x1).expr();
+
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut m = w.finish();
+        let ctx = InitContext::new(&mut m, &property_layout, &particle_layout);
+
+        // Evaluate the expression
+        let s = ctx.expr(x2).unwrap().eval(&ctx).unwrap();
+        assert_eq!("(2.5) * (test)".to_string(), s);
     }
 
     #[test]

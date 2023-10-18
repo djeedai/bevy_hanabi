@@ -1,18 +1,18 @@
 #![deny(
-    warnings,
-    missing_copy_implementations,
-    trivial_casts,
-    trivial_numeric_casts,
-    unsafe_code,
-    unstable_features,
-    unused_import_braces,
-    unused_qualifications,
-    missing_docs,
-    clippy::suboptimal_flops,
-    clippy::imprecise_flops,
-    clippy::branches_sharing_code,
-    clippy::suspicious_operation_groupings,
-    clippy::useless_let_if_seq
+warnings,
+missing_copy_implementations,
+trivial_casts,
+trivial_numeric_casts,
+unsafe_code,
+unstable_features,
+unused_import_braces,
+unused_qualifications,
+missing_docs,
+clippy::suboptimal_flops,
+clippy::imprecise_flops,
+clippy::branches_sharing_code,
+clippy::suspicious_operation_groupings,
+clippy::useless_let_if_seq
 )]
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
@@ -409,7 +409,7 @@ impl SimulationSpace {
                 // TODO: transform_world_to_view(...)
                 SimulationSpace::Local => "transform * vec4<f32>(local_position, 1.0)",
             }
-            .to_string()),
+                .to_string()),
             _ => Err(ExprError::GraphEvalError(
                 "Invalid modifier context value.".to_string(),
             )),
@@ -589,7 +589,7 @@ impl ParticleEffect {
     /// [`properties`]: crate::ParticleEffect::properties
     pub fn with_properties<P>(
         mut self,
-        properties: impl IntoIterator<Item = (String, Value)>,
+        properties: impl IntoIterator<Item=(String, Value)>,
     ) -> Self {
         let iter = properties.into_iter();
         for (name, value) in iter {
@@ -760,8 +760,17 @@ impl EffectShaderSource {
 
         // Generate the shader code for the initializing shader
         let (init_code, init_extra, init_sim_space_transform_code) = {
+            let var_expressions = module.get_variable_expressions();
             let mut init_context =
                 InitContext::new(&mut module, &property_layout, &particle_layout);
+
+            // Generate code for variables
+            let mut variables_code = String::new();
+            for (name, expr) in var_expressions.iter() {
+                let expr_code = init_context.expr(*expr).unwrap().eval(&init_context).unwrap();
+                variables_code += format!("\nlet {name} = {expr_code};").as_str();
+            }
+
             for m in asset.init_modifiers() {
                 if let Err(err) = m.apply_init(&mut init_context) {
                     error!("Failed to compile effect, error in init context: {:?}", err);
@@ -776,7 +785,7 @@ impl EffectShaderSource {
                 }
             };
             (
-                init_context.init_code,
+                format!("{}\n{}", variables_code, init_context.init_code),
                 init_context.init_extra,
                 sim_space_transform_code,
             )
@@ -1332,18 +1341,18 @@ fn compile_effects(
     // state where only some effects are compiled, and effects becoming visible
     // later need to be special-cased.
     for (asset, entity, effect, mut compiled_effect) in
-        q_effects
-            .iter_mut()
-            .filter_map(|(entity, effect, compiled_effect)| {
-                // Check if asset is available, otherwise silently ignore as we can't check for
-                // changes, and conceptually it makes no sense to render a particle effect whose
-                // asset was unloaded.
-                let Some(asset) = effects.get(&effect.handle) else {
-                    return None;
-                };
+    q_effects
+        .iter_mut()
+        .filter_map(|(entity, effect, compiled_effect)| {
+            // Check if asset is available, otherwise silently ignore as we can't check for
+            // changes, and conceptually it makes no sense to render a particle effect whose
+            // asset was unloaded.
+            let Some(asset) = effects.get(&effect.handle) else {
+                return None;
+            };
 
-                Some((asset, entity, effect, compiled_effect))
-            })
+            Some((asset, entity, effect, compiled_effect))
+        })
     {
         // If the ParticleEffect didn't change, and the compiled one is for the correct
         // asset, then there's nothing to do.
@@ -1357,7 +1366,7 @@ fn compile_effects(
         }
 
         #[cfg(feature = "2d")]
-        let z_layer_2d = effect
+            let z_layer_2d = effect
             .z_layer_2d
             .map_or(FloatOrd(asset.z_layer_2d), |z_layer_2d| {
                 FloatOrd(z_layer_2d)
@@ -1367,7 +1376,7 @@ fn compile_effects(
             need_rebuild,
             &effect.properties,
             #[cfg(feature = "2d")]
-            z_layer_2d,
+                z_layer_2d,
             effect.handle.clone_weak(),
             asset,
             &mut shaders,
@@ -1644,11 +1653,13 @@ else { return c1; }
         assert!(matches!(err, ShaderGenerateError::Validate(_)));
 
         // Valid
-        let mut module = Module::default();
-        let zero = module.lit(Vec3::ZERO);
+        let w = ExprWriter::new();
+        let variable = (w.rand(ScalarType::Float) * w.lit(2.4)).as_var();
+        let x = (w.lit(Vec3::ONE) * variable).expr();
+        let module = w.finish();
         let asset = EffectAsset::new(256, Spawner::rate(32.0.into()), module)
             .with_simulation_space(SimulationSpace::Local)
-            .init(SetAttributeModifier::new(Attribute::POSITION, zero));
+            .init(SetAttributeModifier::new(Attribute::POSITION, x));
         assert_eq!(asset.simulation_space, SimulationSpace::Local);
         let res = EffectShaderSource::generate(&asset);
         assert!(res.is_ok());
@@ -1688,14 +1699,14 @@ else { return c1; }
                         naga::valid::ValidationFlags::all(),
                         naga::valid::Capabilities::default(),
                     )
-                    .validate(&module)
-                    .unwrap();
+                        .validate(&module)
+                        .unwrap();
                     let wgsl = naga::back::wgsl::write_string(
                         &module,
                         &info,
                         naga::back::wgsl::WriterFlags::EXPLICIT_TYPES,
                     )
-                    .unwrap();
+                        .unwrap();
                     println!("Final wgsl from naga:\n\n{}", wgsl);
                     // Ok(module)
                 }
