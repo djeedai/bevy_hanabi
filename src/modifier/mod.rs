@@ -204,9 +204,9 @@ impl<'a> EvalContext for InitContext<'a> {
         if let Some(s) = self.expr_cache.get(&handle) {
             Ok(s.clone())
         } else {
-            module.try_get(handle)?.eval(module, self).and_then(|s| {
+            module.try_get(handle)?.eval(module, self).map(|s| {
                 self.expr_cache.insert(handle, s.clone());
-                Ok(s)
+                s
             })
         }
     }
@@ -218,7 +218,7 @@ impl<'a> EvalContext for InitContext<'a> {
     }
 
     fn push_stmt(&mut self, stmt: &str) {
-        self.init_code += &stmt;
+        self.init_code += stmt;
         self.init_code += "\n";
     }
 
@@ -392,9 +392,9 @@ impl<'a> EvalContext for UpdateContext<'a> {
         if let Some(s) = self.expr_cache.get(&handle) {
             Ok(s.clone())
         } else {
-            module.try_get(handle)?.eval(module, self).and_then(|s| {
+            module.try_get(handle)?.eval(module, self).map(|s| {
                 self.expr_cache.insert(handle, s.clone());
-                Ok(s)
+                s
             })
         }
     }
@@ -406,7 +406,7 @@ impl<'a> EvalContext for UpdateContext<'a> {
     }
 
     fn push_stmt(&mut self, stmt: &str) {
-        self.update_code += &stmt;
+        self.update_code += stmt;
         self.update_code += "\n";
     }
 
@@ -549,9 +549,9 @@ impl<'a> EvalContext for RenderContext<'a> {
         if let Some(s) = self.expr_cache.get(&handle) {
             Ok(s.clone())
         } else {
-            module.try_get(handle)?.eval(module, self).and_then(|s| {
+            module.try_get(handle)?.eval(module, self).map(|s| {
                 self.expr_cache.insert(handle, s.clone());
-                Ok(s)
+                s
             })
         }
     }
@@ -564,7 +564,7 @@ impl<'a> EvalContext for RenderContext<'a> {
 
     fn push_stmt(&mut self, stmt: &str) {
         // FIXME - vertex vs. fragment code, can't differentiate here currently
-        self.vertex_code += &stmt;
+        self.vertex_code += stmt;
         self.vertex_code += "\n";
     }
 
@@ -1122,10 +1122,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {{
             &mut RenderContext::new(&property_layout, &particle_layout);
         for ctx in [init, update, render] {
             // First evaluation is cached inside a local variable 'var0'
-            let s = ctx.eval(&mut module, x).unwrap();
+            let s = ctx.eval(&module, x).unwrap();
             assert_eq!(s, "var0");
             // Second evaluation return the same variable
-            let s2 = ctx.eval(&mut module, x).unwrap();
+            let s2 = ctx.eval(&module, x).unwrap();
             assert_eq!(s2, s);
         }
     }

@@ -845,22 +845,20 @@ impl EffectShaderSource {
             }
 
             let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
-                render_context
-                    .eval(&mut module, *cutoff)
-                    .unwrap_or_else(|err| {
-                        error!(
-                            "Failed to evaluate the expression for AlphaMode::Mask, error: {:?}",
-                            err
-                        );
+                render_context.eval(&module, *cutoff).unwrap_or_else(|err| {
+                    error!(
+                        "Failed to evaluate the expression for AlphaMode::Mask, error: {:?}",
+                        err
+                    );
 
-                        // In Debug, show everything to help diagnosing
-                        #[cfg(debug_assertions)]
-                        return 1_f32.to_wgsl_string();
+                    // In Debug, show everything to help diagnosing
+                    #[cfg(debug_assertions)]
+                    return 1_f32.to_wgsl_string();
 
-                        // In Release, hide everything with an error
-                        #[cfg(not(debug_assertions))]
-                        return 0_f32.to_wgsl_string();
-                    })
+                    // In Release, hide everything with an error
+                    #[cfg(not(debug_assertions))]
+                    return 0_f32.to_wgsl_string();
+                })
             } else {
                 String::new()
             };

@@ -2840,7 +2840,7 @@ mod tests {
                 m.lit(3.);
                 let v = ctx.make_local_var();
                 assert_eq!(v, "var0");
-                let code = format!("");
+                let code = String::new();
                 Ok(code)
             })
             .is_ok());
@@ -2918,7 +2918,7 @@ mod tests {
             (gt, ">"),
             (ge, ">="),
         ] {
-            let expr = ctx.eval(&mut m, expr);
+            let expr = ctx.eval(&m, expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
             assert_eq!(
@@ -2943,7 +2943,7 @@ mod tests {
             let particle_layout = ParticleLayout::default();
             let mut ctx = InitContext::new(&property_layout, &particle_layout);
 
-            let expr = ctx.eval(&mut m, value);
+            let expr = ctx.eval(&m, value);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
             assert_eq!(expr, format!("sim_params.{}", op.name()));
@@ -2964,7 +2964,7 @@ mod tests {
                 let particle_layout = ParticleLayout::default();
                 let mut ctx = InitContext::new(&property_layout, &particle_layout);
 
-                let expr = ctx.eval(&mut m, value);
+                let expr = ctx.eval(&m, value);
                 assert!(expr.is_ok());
                 let expr = expr.unwrap();
                 assert_eq!(expr, "var0");
@@ -2981,7 +2981,7 @@ mod tests {
                 let particle_layout = ParticleLayout::default();
                 let mut ctx = InitContext::new(&property_layout, &particle_layout);
 
-                let expr = ctx.eval(&mut m, vec);
+                let expr = ctx.eval(&m, vec);
                 assert!(expr.is_ok());
                 let expr = expr.unwrap();
                 assert_eq!(expr, "var0");
@@ -3051,7 +3051,7 @@ mod tests {
             (sin, "sin", "vec3<f32>(1.,-3.1,6.99)"),
             (tan, "tan", "vec3<f32>(1.,-3.1,6.99)"),
         ] {
-            let expr = ctx.eval(&mut m, expr);
+            let expr = ctx.eval(&m, expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
             assert_eq!(expr, format!("{}({})", op, inner));
@@ -3063,7 +3063,7 @@ mod tests {
             (comp_z, "z", "vec4<f32>(0.,0.,0.,1.)"),
             (comp_w, "w", "vec4<f32>(0.,0.,0.,1.)"),
         ] {
-            let expr = ctx.eval(&mut m, expr);
+            let expr = ctx.eval(&m, expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
             assert_eq!(expr, format!("{}.{}", inner, op));
@@ -3086,7 +3086,7 @@ mod tests {
         let mut ctx = InitContext::new(&property_layout, &particle_layout);
 
         for (expr, op) in [(min, "min"), (max, "max"), (step, "step")] {
-            let expr = ctx.eval(&mut m, expr);
+            let expr = ctx.eval(&m, expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
             assert_eq!(
@@ -3116,10 +3116,10 @@ mod tests {
         let mut ctx = InitContext::new(&property_layout, &particle_layout);
 
         for (expr, op, third) in [(mix, "mix", t), (smoothstep, "smoothstep", x)] {
-            let expr = ctx.eval(&mut m, expr);
+            let expr = ctx.eval(&m, expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
-            let third = ctx.eval(&mut m, third).unwrap();
+            let third = ctx.eval(&m, third).unwrap();
             assert_eq!(
                 expr,
                 format!(
@@ -3145,8 +3145,8 @@ mod tests {
         //   frand() + frand()
 
         let r = m.builtin(BuiltInOperator::Rand(ScalarType::Float.into()));
-        let r2 = r.clone();
-        let r3 = r2.clone();
+        let r2 = r;
+        let r3 = r2;
         let a = m.add(r, r2);
         let b = m.mix(r, r2, r3);
         let c = m.abs(a);
@@ -3155,7 +3155,7 @@ mod tests {
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
             let mut ctx = InitContext::new(&property_layout, &particle_layout);
-            let value = ctx.eval(&mut m, a).unwrap();
+            let value = ctx.eval(&m, a).unwrap();
             assert_eq!(value, "(var0) + (var0)");
             assert_eq!(ctx.init_code, "let var0 = frand();\n");
         }
@@ -3164,7 +3164,7 @@ mod tests {
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
             let mut ctx = InitContext::new(&property_layout, &particle_layout);
-            let value = ctx.eval(&mut m, b).unwrap();
+            let value = ctx.eval(&m, b).unwrap();
             assert_eq!(value, "mix(var0, var0, var0)");
             assert_eq!(ctx.init_code, "let var0 = frand();\n");
         }
@@ -3173,7 +3173,7 @@ mod tests {
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
             let mut ctx = InitContext::new(&property_layout, &particle_layout);
-            let value = ctx.eval(&mut m, c).unwrap();
+            let value = ctx.eval(&m, c).unwrap();
             assert_eq!(value, "abs((var0) + (var0))");
             assert_eq!(ctx.init_code, "let var0 = frand();\n");
         }
