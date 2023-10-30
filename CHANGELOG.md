@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `PropertyLayout::properties()` to iterate over the layout.
 - Added `From` implementations for the most common matrix types.
 - Added many more expressions to `Expr`.
+- Added `Expr::has_side_effect()` to determine if an expression has a side effect and therefore needs to be stored into a temporary local variable to avoid being evaluated more than once.
+- Added `EvalContext::make_local_var()` to generate a unique name for a variable local to an `EvalContext` (generally, inside a function).
+- Added `EvalContext::push_stmt()` to emit a single statement prepended to the currently evaluating expression. This is useful to define temporary local variables for storing expressions with a side-effect.
+- Added `EvalContext::make_fn()` to create a function with a dedicated `EvalContext`, allowing to properly scope local variables and stored expression side effects.
+- Added `Module::try_get()`, similar to `Module::get()` but returning a `Result<&Expr, ExprError>` instead for convenience.
 
 ### Changed
 
@@ -28,17 +33,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed `CompiledParticleEffect` to store a `LayoutFlags` instead of individual boolean values, for convenience and consistency with the internal representation.
 - Changed `RenderContext` to implement `EvalContext`. This allows render modifiers to use the expression API.
 - `PropertyLayout::generate_code()` has no more extra empty line at the end of the struct in the generated code.
+- `EvalContext::eval()` now caches the evaluation of an `ExprHandle` and guarantees that the evaluation is only ever performed once. This ensures that cloned `ExprHandle` making a same expression used in multiple places all reference the same evaluation, which is stored inside a local variable. This fixes an unexpected behavior where expressions with side effect like `rand()` where emitted multiple times, leading to different values, even though a single expression was used (via cloned handles). To restore the old behavior, simply generating separate expressions from a `Module` or an `ExprWriter` instead of cloning and reusing a same `ExprHandle`.
 
 ### Removed
 
 - Removed the `BillboardModifier`; this is superseded by the `OrientModifier { mode: OrientMode::ParallelCameraDepthPlane }`.
 - Removed the `OrientAlongVelocityModifier`; this is superseded by the `OrientModifier { mode: OrientMode::AlongVelocity }`.
+- Removed `module()` and `expr()` from `EvalContext`; the current module is now passed explicitly alongside the `EvalContext` in functions such as `EvalContext::eval()`.
 
 ### Fixed
 
 - Render modifiers can now access simulation parameters (time, delta time) like in any other context.
 - Fixed a panic in Debug builds when a `ParticleEffect` was marked as changed (for example, via `Mut`) but the asset handle remained the same. (#228)
 - Fixed a bug in the `to_wgsl_string` impl of `MatrixType` that caused the first element to be added twice.
+- Fixed missing parentheses leading to incorrect operator order in the following modifiers depending on the expression(s) used:
+  - `SetPositionCircleModifier`
+  - `SetPositionSphereModifier`
+  - `SetVelocityCircleModifier`
+  - `SetVelocitySphereModifier`
+  - `SetVelocityTangentModifier`
 
 ## [0.7.0] 2023-07-17
 

@@ -574,11 +574,17 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut init_context = InitContext::new(&mut module, &property_layout, &particle_layout);
-        assert!(init_pos_sphere.apply_init(&mut init_context).is_ok());
-        assert!(init_vel_sphere.apply_init(&mut init_context).is_ok());
-        assert!(init_age.apply_init(&mut init_context).is_ok());
-        assert!(init_lifetime.apply_init(&mut init_context).is_ok());
+        let mut init_context = InitContext::new(&property_layout, &particle_layout);
+        assert!(init_pos_sphere
+            .apply_init(&mut module, &mut init_context)
+            .is_ok());
+        assert!(init_vel_sphere
+            .apply_init(&mut module, &mut init_context)
+            .is_ok());
+        assert!(init_age.apply_init(&mut module, &mut init_context).is_ok());
+        assert!(init_lifetime
+            .apply_init(&mut module, &mut init_context)
+            .is_ok());
         // assert_eq!(effect., init_context.init_code);
 
         let mut module = Module::default();
@@ -586,35 +592,37 @@ mod tests {
         let drag_mod = LinearDragModifier::constant(&mut module, 3.5);
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut update_context =
-            UpdateContext::new(&mut module, &property_layout, &particle_layout);
-        assert!(accel_mod.apply_update(&mut update_context).is_ok());
-        assert!(drag_mod.apply_update(&mut update_context).is_ok());
+        let mut update_context = UpdateContext::new(&property_layout, &particle_layout);
+        assert!(accel_mod
+            .apply_update(&mut module, &mut update_context)
+            .is_ok());
+        assert!(drag_mod
+            .apply_update(&mut module, &mut update_context)
+            .is_ok());
         assert!(ForceFieldModifier::default()
-            .apply_update(&mut update_context)
+            .apply_update(&mut module, &mut update_context)
             .is_ok());
         // assert_eq!(effect.update_layout, update_layout);
 
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut render_context =
-            RenderContext::new(&mut module, &property_layout, &particle_layout);
-        ParticleTextureModifier::default().apply_render(&mut render_context);
-        ColorOverLifetimeModifier::default().apply_render(&mut render_context);
-        SizeOverLifetimeModifier::default().apply_render(&mut render_context);
+        let mut render_context = RenderContext::new(&property_layout, &particle_layout);
+        ParticleTextureModifier::default().apply_render(&mut module, &mut render_context);
+        ColorOverLifetimeModifier::default().apply_render(&mut module, &mut render_context);
+        SizeOverLifetimeModifier::default().apply_render(&mut module, &mut render_context);
         OrientModifier {
             mode: OrientMode::ParallelCameraDepthPlane,
         }
-        .apply_render(&mut render_context);
+        .apply_render(&mut module, &mut render_context);
         OrientModifier {
             mode: OrientMode::FaceCameraPosition,
         }
-        .apply_render(&mut render_context);
+        .apply_render(&mut module, &mut render_context);
         OrientModifier {
             mode: OrientMode::AlongVelocity,
         }
-        .apply_render(&mut render_context);
+        .apply_render(&mut module, &mut render_context);
         // assert_eq!(effect.render_layout, render_layout);
     }
 

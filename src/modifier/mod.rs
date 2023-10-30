@@ -55,8 +55,7 @@ pub use position::*;
 pub use velocity::*;
 
 use crate::{
-    Attribute, EvalContext, Expr, ExprError, ExprHandle, Gradient, Module, ParticleLayout,
-    PropertyLayout,
+    Attribute, EvalContext, ExprError, ExprHandle, Gradient, Module, ParticleLayout, PropertyLayout,
 };
 
 /// The dimension of a shape to consider.
@@ -157,8 +156,6 @@ impl Clone for BoxedModifier {
 /// Particle initializing shader code generation context.
 #[derive(Debug, PartialEq)]
 pub struct InitContext<'a> {
-    /// Module being populated with new expressions from modifiers.
-    pub module: &'a mut Module,
     /// Main particle initializing code, which needs to assign the fields of the
     /// `particle` struct instance.
     pub init_code: String,
@@ -168,21 +165,22 @@ pub struct InitContext<'a> {
     pub property_layout: &'a PropertyLayout,
     /// Layout of attributes of a particle for the current effect.
     pub particle_layout: &'a ParticleLayout,
+    /// Counter for unique variable names.
+    var_counter: u32,
+    /// Cache of evaluated expressions.
+    expr_cache: HashMap<ExprHandle, String>,
 }
 
 impl<'a> InitContext<'a> {
     /// Create a new init context.
-    pub fn new(
-        module: &'a mut Module,
-        property_layout: &'a PropertyLayout,
-        particle_layout: &'a ParticleLayout,
-    ) -> Self {
+    pub fn new(property_layout: &'a PropertyLayout, particle_layout: &'a ParticleLayout) -> Self {
         Self {
-            module,
             init_code: String::new(),
             init_extra: String::new(),
             property_layout,
             particle_layout,
+            var_counter: 0,
+            expr_cache: Default::default(),
         }
     }
 }
@@ -190,10 +188,6 @@ impl<'a> InitContext<'a> {
 impl<'a> EvalContext for InitContext<'a> {
     fn modifier_context(&self) -> ModifierContext {
         ModifierContext::Init
-    }
-
-    fn module(&self) -> &Module {
-        self.module
     }
 
     fn property_layout(&self) -> &PropertyLayout {
@@ -204,17 +198,54 @@ impl<'a> EvalContext for InitContext<'a> {
         self.particle_layout
     }
 
-    fn expr(&self, expr: ExprHandle) -> Result<&Expr, ExprError> {
-        self.module
-            .get(expr)
-            .ok_or(ExprError::InvalidExprHandleError(format!(
-                "Cannot find expression with handle {:?} in the current module. Check that the Module used to build the expression was the same used in the EvalContext or the original EffectAsset.",
-                expr
-            )))
+    fn eval(&mut self, module: &Module, handle: ExprHandle) -> Result<String, ExprError> {
+        // On cache hit, don't re-evaluate the expression to prevent any duplicate
+        // side-effect.
+        if let Some(s) = self.expr_cache.get(&handle) {
+            Ok(s.clone())
+        } else {
+            module.try_get(handle)?.eval(module, self).map(|s| {
+                self.expr_cache.insert(handle, s.clone());
+                s
+            })
+        }
     }
 
-    fn eval(&self, handle: ExprHandle) -> Result<String, ExprError> {
-        self.expr(handle)?.eval(self)
+    fn make_local_var(&mut self) -> String {
+        let index = self.var_counter;
+        self.var_counter += 1;
+        format!("var{}", index)
+    }
+
+    fn push_stmt(&mut self, stmt: &str) {
+        self.init_code += stmt;
+        self.init_code += "\n";
+    }
+
+    fn make_fn(
+        &mut self,
+        func_name: &str,
+        args: &str,
+        module: &mut Module,
+        f: &mut dyn FnMut(&mut Module, &mut dyn EvalContext) -> Result<String, ExprError>,
+    ) -> Result<(), ExprError> {
+        // Generate a temporary context for the function content itself
+        let mut ctx = InitContext::new(self.property_layout, self.particle_layout);
+
+        // Evaluate the function content
+        let body = f(module, &mut ctx)?;
+
+        // Append any extra
+        self.init_extra += &ctx.init_extra;
+
+        // Append the function itself
+        self.init_extra += &format!(
+            r##"fn {0}({1}) {{
+{2}{3}}}"##,
+            func_name, args, ctx.init_code, body
+        );
+
+        Ok(())
     }
 }
 
@@ -222,7 +253,7 @@ impl<'a> EvalContext for InitContext<'a> {
 #[typetag::serde]
 pub trait InitModifier: Modifier {
     /// Append the initializing code.
-    fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError>;
+    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError>;
 }
 
 /// A single attraction or repulsion source of a [`ForceFieldModifier`].
@@ -307,8 +338,6 @@ impl ForceFieldSource {
 /// Particle update shader code generation context.
 #[derive(Debug, PartialEq)]
 pub struct UpdateContext<'a> {
-    /// Module being populated with new expressions from modifiers.
-    pub module: &'a mut Module,
     /// Main particle update code, which needs to update the fields of the
     /// `particle` struct instance.
     pub update_code: String,
@@ -318,6 +347,10 @@ pub struct UpdateContext<'a> {
     pub property_layout: &'a PropertyLayout,
     /// Layout of attributes of a particle for the current effect.
     pub particle_layout: &'a ParticleLayout,
+    /// Counter for unique variable names.
+    var_counter: u32,
+    /// Cache of evaluated expressions.
+    expr_cache: HashMap<ExprHandle, String>,
 
     // TEMP
     /// Array of force field components with a maximum number of components
@@ -327,17 +360,14 @@ pub struct UpdateContext<'a> {
 
 impl<'a> UpdateContext<'a> {
     /// Create a new update context.
-    pub fn new(
-        module: &'a mut Module,
-        property_layout: &'a PropertyLayout,
-        particle_layout: &'a ParticleLayout,
-    ) -> Self {
+    pub fn new(property_layout: &'a PropertyLayout, particle_layout: &'a ParticleLayout) -> Self {
         Self {
-            module,
             update_code: String::new(),
             update_extra: String::new(),
             property_layout,
             particle_layout,
+            var_counter: 0,
+            expr_cache: Default::default(),
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
         }
     }
@@ -348,10 +378,6 @@ impl<'a> EvalContext for UpdateContext<'a> {
         ModifierContext::Update
     }
 
-    fn module(&self) -> &Module {
-        self.module
-    }
-
     fn property_layout(&self) -> &PropertyLayout {
         self.property_layout
     }
@@ -360,14 +386,56 @@ impl<'a> EvalContext for UpdateContext<'a> {
         self.particle_layout
     }
 
-    fn expr(&self, expr: ExprHandle) -> Result<&Expr, ExprError> {
-        self.module
-            .get(expr)
-            .ok_or(ExprError::GraphEvalError("Unknown expression.".to_string()))
+    fn eval(&mut self, module: &Module, handle: ExprHandle) -> Result<String, ExprError> {
+        // On cache hit, don't re-evaluate the expression to prevent any duplicate
+        // side-effect.
+        if let Some(s) = self.expr_cache.get(&handle) {
+            Ok(s.clone())
+        } else {
+            module.try_get(handle)?.eval(module, self).map(|s| {
+                self.expr_cache.insert(handle, s.clone());
+                s
+            })
+        }
     }
 
-    fn eval(&self, handle: ExprHandle) -> Result<String, ExprError> {
-        self.expr(handle)?.eval(self)
+    fn make_local_var(&mut self) -> String {
+        let index = self.var_counter;
+        self.var_counter += 1;
+        format!("var{}", index)
+    }
+
+    fn push_stmt(&mut self, stmt: &str) {
+        self.update_code += stmt;
+        self.update_code += "\n";
+    }
+
+    fn make_fn(
+        &mut self,
+        func_name: &str,
+        args: &str,
+        module: &mut Module,
+        f: &mut dyn FnMut(&mut Module, &mut dyn EvalContext) -> Result<String, ExprError>,
+    ) -> Result<(), ExprError> {
+        // Generate a temporary context for the function content itself
+        let mut ctx = UpdateContext::new(self.property_layout, self.particle_layout);
+
+        // Evaluate the function content
+        let body = f(module, &mut ctx)?;
+
+        // Append any extra
+        self.update_extra += &ctx.update_extra;
+
+        // Append the function itself
+        self.update_extra += &format!(
+            r##"fn {0}({1}) {{
+            {2};
+        }}
+        "##,
+            func_name, args, body
+        );
+
+        Ok(())
     }
 }
 
@@ -375,14 +443,16 @@ impl<'a> EvalContext for UpdateContext<'a> {
 #[typetag::serde]
 pub trait UpdateModifier: Modifier {
     /// Append the update code.
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError>;
+    fn apply_update(
+        &self,
+        module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError>;
 }
 
 /// Particle rendering shader code generation context.
 #[derive(Debug, PartialEq)]
 pub struct RenderContext<'a> {
-    /// Module being populated with new expressions from modifiers.
-    pub module: &'a mut Module,
     /// Layout of properties for the current effect.
     pub property_layout: &'a PropertyLayout,
     /// Layout of attributes of a particle for the current effect.
@@ -404,17 +474,16 @@ pub struct RenderContext<'a> {
     /// `true` then the particle size is not affected by the camera projection,
     /// and in particular by the distance to the camera.
     pub screen_space_size: bool,
+    /// Counter for unique variable names.
+    var_counter: u32,
+    /// Cache of evaluated expressions.
+    expr_cache: HashMap<ExprHandle, String>,
 }
 
 impl<'a> RenderContext<'a> {
     /// Create a new update context.
-    pub fn new(
-        module: &'a mut Module,
-        property_layout: &'a PropertyLayout,
-        particle_layout: &'a ParticleLayout,
-    ) -> Self {
+    pub fn new(property_layout: &'a PropertyLayout, particle_layout: &'a ParticleLayout) -> Self {
         Self {
-            module,
             property_layout,
             particle_layout,
             vertex_code: String::new(),
@@ -424,6 +493,8 @@ impl<'a> RenderContext<'a> {
             gradients: HashMap::new(),
             size_gradients: HashMap::new(),
             screen_space_size: false,
+            var_counter: 0,
+            expr_cache: Default::default(),
         }
     }
 
@@ -464,10 +535,6 @@ impl<'a> EvalContext for RenderContext<'a> {
         ModifierContext::Render
     }
 
-    fn module(&self) -> &Module {
-        self.module
-    }
-
     fn property_layout(&self) -> &PropertyLayout {
         self.property_layout
     }
@@ -476,14 +543,57 @@ impl<'a> EvalContext for RenderContext<'a> {
         self.particle_layout
     }
 
-    fn expr(&self, expr: ExprHandle) -> Result<&Expr, ExprError> {
-        self.module
-            .get(expr)
-            .ok_or(ExprError::GraphEvalError("Unknown expression.".to_string()))
+    fn eval(&mut self, module: &Module, handle: ExprHandle) -> Result<String, ExprError> {
+        // On cache hit, don't re-evaluate the expression to prevent any duplicate
+        // side-effect.
+        if let Some(s) = self.expr_cache.get(&handle) {
+            Ok(s.clone())
+        } else {
+            module.try_get(handle)?.eval(module, self).map(|s| {
+                self.expr_cache.insert(handle, s.clone());
+                s
+            })
+        }
     }
 
-    fn eval(&self, handle: ExprHandle) -> Result<String, ExprError> {
-        self.expr(handle)?.eval(self)
+    fn make_local_var(&mut self) -> String {
+        let index = self.var_counter;
+        self.var_counter += 1;
+        format!("var{}", index)
+    }
+
+    fn push_stmt(&mut self, stmt: &str) {
+        // FIXME - vertex vs. fragment code, can't differentiate here currently
+        self.vertex_code += stmt;
+        self.vertex_code += "\n";
+    }
+
+    fn make_fn(
+        &mut self,
+        func_name: &str,
+        args: &str,
+        module: &mut Module,
+        f: &mut dyn FnMut(&mut Module, &mut dyn EvalContext) -> Result<String, ExprError>,
+    ) -> Result<(), ExprError> {
+        // Generate a temporary context for the function content itself
+        let mut ctx = RenderContext::new(self.property_layout, self.particle_layout);
+
+        // Evaluate the function content
+        let body = f(module, &mut ctx)?;
+
+        // Append any extra
+        self.render_extra += &ctx.render_extra;
+
+        // Append the function itself
+        self.render_extra += &format!(
+            r##"fn {0}({1}) {{
+            {2};
+        }}
+        "##,
+            func_name, args, body
+        );
+
+        Ok(())
     }
 }
 
@@ -491,7 +601,7 @@ impl<'a> EvalContext for RenderContext<'a> {
 #[typetag::serde]
 pub trait RenderModifier: Modifier {
     /// Apply the rendering code.
-    fn apply_render(&self, context: &mut RenderContext);
+    fn apply_render(&self, module: &mut Module, context: &mut RenderContext);
 }
 
 /// Macro to implement the [`Modifier`] trait for an init modifier.
@@ -628,7 +738,7 @@ mod tests {
     use bevy::prelude::*;
     use naga::front::wgsl::Frontend;
 
-    use crate::{ExprWriter, ParticleLayout};
+    use crate::{BuiltInOperator, ExprWriter, ParticleLayout, ScalarType};
 
     use super::*;
 
@@ -722,8 +832,8 @@ mod tests {
         for &modifier in modifiers.iter() {
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut context = InitContext::new(&mut module, &property_layout, &particle_layout);
-            assert!(modifier.apply_init(&mut context).is_ok());
+            let mut context = InitContext::new(&property_layout, &particle_layout);
+            assert!(modifier.apply_init(&mut module, &mut context).is_ok());
             let init_code = context.init_code;
             let init_extra = context.init_extra;
 
@@ -819,8 +929,8 @@ fn main() {{
         for &modifier in modifiers.iter() {
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut context = UpdateContext::new(&mut module, &property_layout, &particle_layout);
-            assert!(modifier.apply_update(&mut context).is_ok());
+            let mut context = UpdateContext::new(&property_layout, &particle_layout);
+            assert!(modifier.apply_update(&mut module, &mut context).is_ok());
             let update_code = context.update_code;
             let update_extra = context.update_extra;
 
@@ -919,8 +1029,8 @@ fn main() {{
             let mut module = Module::default();
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
-            modifier.apply_render(&mut context);
+            let mut context = RenderContext::new(&property_layout, &particle_layout);
+            modifier.apply_render(&mut module, &mut context);
             let vertex_code = context.vertex_code;
             let fragment_code = context.fragment_code;
             let render_extra = context.render_extra;
@@ -996,6 +1106,27 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {{
                 println!("Err: {:?}", err);
             }
             assert!(res.is_ok());
+        }
+    }
+
+    #[test]
+    fn eval_cached() {
+        let mut module = Module::default();
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let x = module.builtin(BuiltInOperator::Rand(ScalarType::Float.into()));
+        let init: &mut dyn EvalContext = &mut InitContext::new(&property_layout, &particle_layout);
+        let update: &mut dyn EvalContext =
+            &mut UpdateContext::new(&property_layout, &particle_layout);
+        let render: &mut dyn EvalContext =
+            &mut RenderContext::new(&property_layout, &particle_layout);
+        for ctx in [init, update, render] {
+            // First evaluation is cached inside a local variable 'var0'
+            let s = ctx.eval(&module, x).unwrap();
+            assert_eq!(s, "var0");
+            // Second evaluation return the same variable
+            let s2 = ctx.eval(&module, x).unwrap();
+            assert_eq!(s2, s);
         }
     }
 }

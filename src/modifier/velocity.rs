@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     calc_func_id, graph::ExprError, impl_mod_init_update, Attribute, EvalContext, ExprHandle,
-    InitContext, InitModifier, UpdateContext, UpdateModifier,
+    InitContext, InitModifier, Module, UpdateContext, UpdateModifier,
 };
 
 /// A modifier to set the velocity of particles radially on a circle.
@@ -47,37 +47,48 @@ impl_mod_init_update!(
 );
 
 impl SetVelocityCircleModifier {
-    fn eval(&self, context: &dyn EvalContext) -> Result<(String, String), ExprError> {
+    fn eval(
+        &self,
+        module: &mut Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
         let func_id = calc_func_id(self);
         let func_name = format!("set_velocity_circle_{0:016X}", func_id);
 
-        let extra = format!(
-            r##"fn {0}(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
-    let delta = (*particle).{1} - {2};
-    let radial = normalize(delta - dot(delta, {3}) * {3});
+        context.make_fn(
+            &func_name,
+            "transform: mat4x4<f32>, particle: ptr<function, Particle>",
+            module,
+            &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
+                let center = ctx.eval(m, self.center)?;
+                let axis = ctx.eval(m, self.axis)?;
+                let speed = ctx.eval(m, self.speed)?;
+
+                Ok(format!(
+                    r##"    let delta = (*particle).{0} - ({1});
+    let radial = normalize(delta - dot(delta, {2}) * ({2}));
     let radial_vec4 = transform * vec4<f32>(radial.xyz, 0.0);
-    (*particle).{4} = radial_vec4.xyz * {5};
-}}
+    (*particle).{3} = radial_vec4.xyz * ({4});
 "##,
-            func_name,
-            Attribute::POSITION.name(),
-            context.eval(self.center)?,
-            context.eval(self.axis)?,
-            Attribute::VELOCITY.name(),
-            context.eval(self.speed)?,
-        );
+                    Attribute::POSITION.name(),
+                    center,
+                    axis,
+                    Attribute::VELOCITY.name(),
+                    speed,
+                ))
+            },
+        )?;
 
         let code = format!("{}(transform, &particle);\n", func_name);
 
-        Ok((code, extra))
+        Ok(code)
     }
 }
 
 #[typetag::serde]
 impl InitModifier for SetVelocityCircleModifier {
-    fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
-        let (code, extra) = self.eval(context)?;
-        context.init_extra += &extra;
+    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
         context.init_code += &code;
         Ok(())
     }
@@ -85,9 +96,12 @@ impl InitModifier for SetVelocityCircleModifier {
 
 #[typetag::serde]
 impl UpdateModifier for SetVelocityCircleModifier {
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let (code, extra) = self.eval(context)?;
-        context.update_extra += &extra;
+    fn apply_update(
+        &self,
+        module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
         context.update_code += &code;
         Ok(())
     }
@@ -118,30 +132,43 @@ impl_mod_init_update!(
     &[Attribute::POSITION, Attribute::VELOCITY]
 );
 
-#[typetag::serde]
-impl InitModifier for SetVelocitySphereModifier {
-    fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
-        context.init_code += &format!(
-            "particle.{} = normalize(particle.{} - {}) * ({});\n",
+impl SetVelocitySphereModifier {
+    fn eval(
+        &self,
+        module: &mut Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
+        let center = context.eval(module, self.center)?;
+        let speed = context.eval(module, self.speed)?;
+        let code = format!(
+            "particle.{} = normalize(particle.{} - ({})) * ({});\n",
             Attribute::VELOCITY.name(),
             Attribute::POSITION.name(),
-            context.eval(self.center)?,
-            context.eval(self.speed)?
+            center,
+            speed
         );
+        Ok(code)
+    }
+}
+
+#[typetag::serde]
+impl InitModifier for SetVelocitySphereModifier {
+    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
+        context.init_code += &code;
         Ok(())
     }
 }
 
 #[typetag::serde]
 impl UpdateModifier for SetVelocitySphereModifier {
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        context.update_code += &format!(
-            "particle.{} = normalize(particle.{} - {}) * ({});\n",
-            Attribute::VELOCITY.name(),
-            Attribute::POSITION.name(),
-            context.eval(self.center)?,
-            context.eval(self.speed)?
-        );
+    fn apply_update(
+        &self,
+        module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
+        context.update_code += &code;
         Ok(())
     }
 }
@@ -176,58 +203,63 @@ impl_mod_init_update!(
     &[Attribute::POSITION, Attribute::VELOCITY]
 );
 
-#[typetag::serde]
-impl InitModifier for SetVelocityTangentModifier {
-    fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
+impl SetVelocityTangentModifier {
+    fn eval(
+        &self,
+        module: &mut Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
         let func_id = calc_func_id(self);
         let func_name = format!("set_velocity_tangent_{0:016X}", func_id);
 
-        context.init_extra += &format!(
-            r##"fn {0}(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
-    let radial = (*particle).{1} - {2};
-    let tangent = normalize(cross({3}, radial));
+        context.make_fn(
+            &func_name,
+            "transform: mat4x4<f32>, particle: ptr<function, Particle>",
+            module,
+            &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
+                let origin = ctx.eval(m, self.origin)?;
+                let axis = ctx.eval(m, self.axis)?;
+                let speed = ctx.eval(m, self.speed)?;
+
+                Ok(format!(
+                    r##"    let radial = (*particle).{0} - ({1});
+    let tangent = normalize(cross({2}, radial));
     let tangent_vec4 = transform * vec4<f32>(tangent.xyz, 0.0);
-    (*particle).{4} = tangent_vec4.xyz * {5};
-}}
+    (*particle).{3} = tangent_vec4.xyz * ({4});
 "##,
-            func_name,
-            Attribute::POSITION.name(),
-            context.eval(self.origin)?,
-            context.eval(self.axis)?,
-            Attribute::VELOCITY.name(),
-            context.eval(self.speed)?,
-        );
+                    Attribute::POSITION.name(),
+                    origin,
+                    axis,
+                    Attribute::VELOCITY.name(),
+                    speed,
+                ))
+            },
+        )?;
 
-        context.init_code += &format!("{}(transform, &particle);\n", func_name);
+        let code = format!("{}(transform, &particle);\n", func_name);
 
+        Ok(code)
+    }
+}
+
+#[typetag::serde]
+impl InitModifier for SetVelocityTangentModifier {
+    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
+        context.init_code += &code;
         Ok(())
     }
 }
 
 #[typetag::serde]
 impl UpdateModifier for SetVelocityTangentModifier {
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let func_id = calc_func_id(self);
-        let func_name = format!("set_velocity_tangent_{0:016X}", func_id);
-
-        context.update_extra += &format!(
-            r##"fn {0}(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
-    let radial = (*particle).{1} - {2};
-    let tangent = normalize(cross({3}, radial));
-    let tangent_vec4 = transform * vec4<f32>(tangent.xyz, 0.0);
-    (*particle).{4} = tangent_vec4.xyz * {5};
-}}
-"##,
-            func_name,
-            Attribute::POSITION.name(),
-            context.eval(self.origin)?,
-            context.eval(self.axis)?,
-            Attribute::VELOCITY.name(),
-            context.eval(self.speed)?,
-        );
-
-        context.update_code += &format!("{}(transform, &particle);\n", func_name);
-
+    fn apply_update(
+        &self,
+        module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
+        context.update_code += &code;
         Ok(())
     }
 }
