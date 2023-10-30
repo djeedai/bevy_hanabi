@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     graph::{EvalContext, ExprError},
     Attribute, BoxedModifier, ExprHandle, InitContext, InitModifier, Modifier, ModifierContext,
-    UpdateContext, UpdateModifier,
+    Module, UpdateContext, UpdateModifier,
 };
 
 /// A modifier to assign a value to a particle attribute.
@@ -114,11 +114,11 @@ impl Modifier for SetAttributeModifier {
 
 #[typetag::serde]
 impl InitModifier for SetAttributeModifier {
-    fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
-        assert!(context.module.get(self.value).is_some());
-        let attr = context.module.attr(self.attribute);
-        let attr = context.eval(attr)?;
-        let expr = context.eval(self.value)?;
+    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
+        assert!(module.get(self.value).is_some());
+        let attr = module.attr(self.attribute);
+        let attr = context.eval(module, attr)?;
+        let expr = context.eval(module, self.value)?;
         context.init_code += &format!("{} = {};\n", attr, expr);
         Ok(())
     }
@@ -126,11 +126,15 @@ impl InitModifier for SetAttributeModifier {
 
 #[typetag::serde]
 impl UpdateModifier for SetAttributeModifier {
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        assert!(context.module.get(self.value).is_some());
-        let attr = context.module.attr(self.attribute);
-        let attr = context.eval(attr)?;
-        let expr = context.eval(self.value)?;
+    fn apply_update(
+        &self,
+        module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError> {
+        assert!(module.get(self.value).is_some());
+        let attr = module.attr(self.attribute);
+        let attr = context.eval(module, attr)?;
+        let expr = context.eval(module, self.value)?;
         context.update_code += &format!("{} = {};\n", attr, expr);
         Ok(())
     }

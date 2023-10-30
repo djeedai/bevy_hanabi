@@ -86,7 +86,11 @@ impl_mod_update!(
 
 #[typetag::serde]
 impl UpdateModifier for ForceFieldModifier {
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
+    fn apply_update(
+        &self,
+        _module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);
         let func_name = format!("force_field_{0:016X}", func_id);
 
@@ -142,8 +146,12 @@ impl_mod_update!(LinearDragModifier, &[Attribute::VELOCITY]);
 
 #[typetag::serde]
 impl UpdateModifier for LinearDragModifier {
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let m = &mut context.module;
+    fn apply_update(
+        &self,
+        module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError> {
+        let m = module;
         let attr = m.attr(Attribute::VELOCITY);
         let dt = m.builtin(BuiltInOperator::DeltaTime);
         let drag_dt = m.mul(self.drag, dt);
@@ -151,8 +159,8 @@ impl UpdateModifier for LinearDragModifier {
         let one_minus_drag_dt = m.sub(one, drag_dt);
         let zero = m.lit(0.);
         let expr = m.max(zero, one_minus_drag_dt);
-        let attr = context.eval(attr)?;
-        let expr = context.eval(expr)?;
+        let attr = context.eval(m, attr)?;
+        let expr = context.eval(m, expr)?;
         context.update_code += &format!("{} *= {};", attr, expr);
         Ok(())
     }
@@ -175,8 +183,8 @@ mod tests {
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
         let mut module = Module::default();
-        let mut context = UpdateContext::new(&mut module, &property_layout, &particle_layout);
-        assert!(modifier.apply_update(&mut context).is_ok());
+        let mut context = UpdateContext::new(&property_layout, &particle_layout);
+        assert!(modifier.apply_update(&mut module, &mut context).is_ok());
 
         // force_field_code.wgsl is too big
         // assert!(context.update_code.contains(&include_str!("../render/
@@ -197,8 +205,8 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = UpdateContext::new(&mut module, &property_layout, &particle_layout);
-        assert!(modifier.apply_update(&mut context).is_ok());
+        let mut context = UpdateContext::new(&property_layout, &particle_layout);
+        assert!(modifier.apply_update(&mut module, &mut context).is_ok());
 
         assert!(context.update_code.contains("3.5")); // TODO - less weak check
     }

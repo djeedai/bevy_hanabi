@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     calc_func_id, graph::ExprError, impl_mod_init_update, modifier::ShapeDimension, Attribute,
-    EvalContext, ExprHandle, InitContext, InitModifier, UpdateContext, UpdateModifier,
+    EvalContext, ExprHandle, InitContext, InitModifier, Module, UpdateContext, UpdateModifier,
 };
 
 /// A modifier to set the position of particles on or inside a circle/disc,
@@ -51,27 +51,36 @@ pub struct SetPositionCircleModifier {
 impl_mod_init_update!(SetPositionCircleModifier, &[Attribute::POSITION]);
 
 impl SetPositionCircleModifier {
-    fn eval(&self, context: &dyn EvalContext) -> Result<(String, String), ExprError> {
+    fn eval(
+        &self,
+        module: &mut Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
         let func_id = calc_func_id(self);
         let func_name = format!("set_position_circle_{0:016X}", func_id);
 
-        let radius_code = match self.dimension {
-            ShapeDimension::Surface => {
-                // Constant radius
-                format!("let r = {};", context.eval(self.radius)?)
-            }
-            ShapeDimension::Volume => {
-                // Radius uniformly distributed in [0:1], then square-rooted
-                // to account for the increased perimeter covered by increased radii.
-                format!("let r = sqrt(frand()) * {};", context.eval(self.radius)?)
-            }
-        };
+        context.make_fn(
+            &func_name,
+            "particle: ptr<function, Particle>",
+            module,
+            &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
+                let center = ctx.eval(m, self.center)?;
+                let axis = ctx.eval(m, self.axis)?;
 
-        // Orthonormal basis from https://graphics.pixar.com/library/OrthonormalB/paper.pdf
-        // Note that in WGSL sign(0.0) == 0.0, so we use (step(x, 0) * 2 - 1) instead
-        let extra = format!(
-            r##"fn {}(particle: ptr<function, Particle>) {{
-    // Circle center
+                let radius = match self.dimension {
+                    ShapeDimension::Surface => {
+                        // Constant radius
+                        format!("let r = {};", ctx.eval(m, self.radius)?)
+                    }
+                    ShapeDimension::Volume => {
+                        // Radius uniformly distributed in [0:1], then square-rooted
+                        // to account for the increased perimeter covered by increased radii.
+                        format!("let r = sqrt(frand()) * ({});", ctx.eval(m, self.radius)?)
+                    }
+                };
+
+                Ok(format!(
+                    r##"    // Circle center
     let c = {};
     // Circle basis
     let n = {};
@@ -86,26 +95,25 @@ impl SetPositionCircleModifier {
     let theta = frand() * tau;
     let dir = tangent * cos(theta) + bitangent * sin(theta);
     (*particle).{} = c + r * dir;
-}}
 "##,
-            func_name,
-            context.eval(self.center)?,
-            context.eval(self.axis)?,
-            radius_code,
-            Attribute::POSITION.name(),
-        );
+                    center,
+                    axis,
+                    radius,
+                    Attribute::POSITION.name(),
+                ))
+            },
+        )?;
 
         let code = format!("{}(&particle);\n", func_name);
 
-        Ok((code, extra))
+        Ok(code)
     }
 }
 
 #[typetag::serde]
 impl InitModifier for SetPositionCircleModifier {
-    fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
-        let (code, extra) = self.eval(context)?;
-        context.init_extra += &extra;
+    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
         context.init_code += &code;
         Ok(())
     }
@@ -113,9 +121,12 @@ impl InitModifier for SetPositionCircleModifier {
 
 #[typetag::serde]
 impl UpdateModifier for SetPositionCircleModifier {
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let (code, extra) = self.eval(context)?;
-        context.update_extra += &extra;
+    fn apply_update(
+        &self,
+        module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
         context.update_code += &code;
         Ok(())
     }
@@ -127,7 +138,7 @@ impl UpdateModifier for SetPositionCircleModifier {
 ///
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
-#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct SetPositionSphereModifier {
     /// The sphere center, relative to the emitter position.
     ///
@@ -144,58 +155,71 @@ pub struct SetPositionSphereModifier {
 impl_mod_init_update!(SetPositionSphereModifier, &[Attribute::POSITION]);
 
 impl SetPositionSphereModifier {
-    fn eval(&self, context: &dyn EvalContext) -> Result<(String, String), ExprError> {
-        let radius_code = match self.dimension {
-            ShapeDimension::Surface => {
-                // Constant radius
-                format!("let r = {};", context.eval(self.radius)?)
-            }
-            ShapeDimension::Volume => {
-                // Radius uniformly distributed in [0:1], then scaled by ^(1/3) in 3D
-                // to account for the increased surface covered by increased radii.
-                // https://stackoverflow.com/questions/54544971/how-to-generate-uniform-random-points-inside-d-dimension-ball-sphere
-                format!(
-                    "let r = pow(frand(), 1./3.) * {};",
-                    context.eval(self.radius)?
-                )
-            }
-        };
+    fn eval(
+        &self,
+        module: &mut Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
+        let func_id = calc_func_id(self);
+        let func_name = format!("set_position_sphere_{0:016X}", func_id);
 
-        let extra = format!(
-            r##"fn init_position_sphere(particle: ptr<function, Particle>) {{
-// Sphere center
-let c = {};
+        context.make_fn(
+            &func_name,
+            "particle: ptr<function, Particle>",
+            module,
+            &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
+                let center = ctx.eval(m, self.center)?;
 
-// Sphere radius
-{}
+                let radius = match self.dimension {
+                    ShapeDimension::Surface => {
+                        // Constant radius
+                        format!("let r = {};", ctx.eval(m, self.radius)?)
+                    }
+                    ShapeDimension::Volume => {
+                        // Radius uniformly distributed in [0:1], then scaled by ^(1/3) in 3D
+                        // to account for the increased surface covered by increased radii.
+                        // https://stackoverflow.com/questions/54544971/how-to-generate-uniform-random-points-inside-d-dimension-ball-sphere
+                        format!(
+                            "let r = pow(frand(), 1./3.) * ({});",
+                            ctx.eval(m, self.radius)?
+                        )
+                    }
+                };
 
-// Spawn randomly along the sphere surface using Archimedes's theorem
-let theta = frand() * tau;
-let z = frand() * 2. - 1.;
-let phi = acos(z);
-let sinphi = sin(phi);
-let x = sinphi * cos(theta);
-let y = sinphi * sin(theta);
-let dir = vec3<f32>(x, y, z);
-(*particle).{} = c + r * dir;
-}}
+                Ok(format!(
+                    r##"    // Sphere center
+    let c = {};
+
+    // Sphere radius
+    {}
+
+    // Spawn randomly along the sphere surface using Archimedes's theorem
+    let theta = frand() * tau;
+    let z = frand() * 2. - 1.;
+    let phi = acos(z);
+    let sinphi = sin(phi);
+    let x = sinphi * cos(theta);
+    let y = sinphi * sin(theta);
+    let dir = vec3<f32>(x, y, z);
+    (*particle).{} = c + r * dir;
 "##,
-            context.eval(self.center)?,
-            radius_code,
-            Attribute::POSITION.name(),
-        );
+                    center,
+                    radius,
+                    Attribute::POSITION.name(),
+                ))
+            },
+        )?;
 
-        let code = "init_position_sphere(&particle);\n".to_string();
+        let code = format!("{}(&particle);\n", func_name);
 
-        Ok((code, extra))
+        Ok(code)
     }
 }
 
 #[typetag::serde]
 impl InitModifier for SetPositionSphereModifier {
-    fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
-        let (code, extra) = self.eval(context)?;
-        context.init_extra += &extra;
+    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
         context.init_code += &code;
         Ok(())
     }
@@ -203,9 +227,12 @@ impl InitModifier for SetPositionSphereModifier {
 
 #[typetag::serde]
 impl UpdateModifier for SetPositionSphereModifier {
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let (code, extra) = self.eval(context)?;
-        context.update_extra += &extra;
+    fn apply_update(
+        &self,
+        module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
         context.update_code += &code;
         Ok(())
     }
@@ -247,10 +274,25 @@ pub struct SetPositionCone3dModifier {
 impl_mod_init_update!(SetPositionCone3dModifier, &[Attribute::POSITION]);
 
 impl SetPositionCone3dModifier {
-    fn eval(&self, context: &dyn EvalContext) -> Result<(String, String), ExprError> {
-        let extra = format!(
-            r##"fn init_position_cone3d(transform: mat4x4<f32>, particle: ptr<function, Particle>) {{
-    // Truncated cone height
+    fn eval(
+        &self,
+        module: &mut Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
+        let func_id = calc_func_id(self);
+        let func_name = format!("set_position_cone3d_{0:016X}", func_id);
+
+        context.make_fn(
+            &func_name,
+            "transform: mat4x4<f32>, particle: ptr<function, Particle>",
+            module,
+            &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
+                let height = ctx.eval(m, self.height)?;
+                let top_radius = ctx.eval(m, self.top_radius)?;
+                let base_radius = ctx.eval(m, self.base_radius)?;
+
+                Ok(format!(
+                    r##"    // Truncated cone height
     let h0 = {0};
     // Random height ratio
     let alpha_h = pow(frand(), 1.0 / 3.0);
@@ -277,25 +319,25 @@ impl SetPositionCone3dModifier {
     let p = vec3<f32>(x, y, z);
     let p2 = transform * vec4<f32>(p, 0.0);
     (*particle).{3} = p2.xyz;
-}}
 "##,
-            context.eval(self.height)?,
-            context.eval(self.top_radius)?,
-            context.eval(self.base_radius)?,
-            Attribute::POSITION.name(),
-        );
+                    height,
+                    top_radius,
+                    base_radius,
+                    Attribute::POSITION.name(),
+                ))
+            },
+        )?;
 
-        let code = "init_position_cone3d(transform, &particle);\n".to_string();
+        let code = format!("{}(&particle);\n", func_name);
 
-        Ok((code, extra))
+        Ok(code)
     }
 }
 
 #[typetag::serde]
 impl InitModifier for SetPositionCone3dModifier {
-    fn apply_init(&self, context: &mut InitContext) -> Result<(), ExprError> {
-        let (code, extra) = self.eval(context)?;
-        context.init_extra += &extra;
+    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
         context.init_code += &code;
         Ok(())
     }
@@ -303,9 +345,12 @@ impl InitModifier for SetPositionCone3dModifier {
 
 #[typetag::serde]
 impl UpdateModifier for SetPositionCone3dModifier {
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let (code, extra) = self.eval(context)?;
-        context.update_extra += &extra;
+    fn apply_update(
+        &self,
+        module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
         context.update_code += &code;
         Ok(())
     }

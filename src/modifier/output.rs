@@ -6,7 +6,7 @@ use std::hash::Hash;
 
 use crate::{
     impl_mod_render, Attribute, BoxedModifier, CpuValue, Gradient, Modifier, ModifierContext,
-    RenderContext, RenderModifier, ShaderCode, ToWgslString,
+    Module, RenderContext, RenderModifier, ShaderCode, ToWgslString,
 };
 
 /// A modifier modulating each particle's color by sampling a texture.
@@ -28,7 +28,7 @@ impl_mod_render!(ParticleTextureModifier, &[]); // TODO - should require some UV
 
 #[typetag::serde]
 impl RenderModifier for ParticleTextureModifier {
-    fn apply_render(&self, context: &mut RenderContext) {
+    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.set_particle_texture(self.texture.clone());
     }
 }
@@ -52,7 +52,7 @@ impl_mod_render!(SetColorModifier, &[]);
 
 #[typetag::serde]
 impl RenderModifier for SetColorModifier {
-    fn apply_render(&self, context: &mut RenderContext) {
+    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.vertex_code += &format!("color = {0};\n", self.color.to_wgsl_string());
     }
 }
@@ -78,7 +78,7 @@ impl_mod_render!(
 
 #[typetag::serde]
 impl RenderModifier for ColorOverLifetimeModifier {
-    fn apply_render(&self, context: &mut RenderContext) {
+    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         let func_name = context.add_color_gradient(self.gradient.clone());
         context.render_extra += &format!(
             r#"fn {0}(key: f32) -> vec4<f32> {{
@@ -122,7 +122,7 @@ impl_mod_render!(SetSizeModifier, &[]);
 
 #[typetag::serde]
 impl RenderModifier for SetSizeModifier {
-    fn apply_render(&self, context: &mut RenderContext) {
+    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.vertex_code += &format!("size = {0};\n", self.size.to_wgsl_string());
         context.screen_space_size = self.screen_space_size;
     }
@@ -153,7 +153,7 @@ impl_mod_render!(
 
 #[typetag::serde]
 impl RenderModifier for SizeOverLifetimeModifier {
-    fn apply_render(&self, context: &mut RenderContext) {
+    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         let func_name = context.add_size_gradient(self.gradient.clone());
         context.render_extra += &format!(
             r#"fn {0}(key: f32) -> vec2<f32> {{
@@ -275,7 +275,7 @@ impl Modifier for OrientModifier {
 
 #[typetag::serde]
 impl RenderModifier for OrientModifier {
-    fn apply_render(&self, context: &mut RenderContext) {
+    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         match self.mode {
             OrientMode::ParallelCameraDepthPlane => {
                 context.vertex_code += r#"let cam_rot = get_camera_rotation_effect_space();
@@ -317,8 +317,8 @@ mod tests {
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
-        modifier.apply_render(&mut context);
+        let mut context = RenderContext::new(&property_layout, &particle_layout);
+        modifier.apply_render(&mut module, &mut context);
 
         assert!(context.particle_texture.is_some());
         assert_eq!(context.particle_texture.unwrap(), texture);
@@ -338,8 +338,8 @@ mod tests {
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
-        modifier.apply_render(&mut context);
+        let mut context = RenderContext::new(&property_layout, &particle_layout);
+        modifier.apply_render(&mut module, &mut context);
 
         assert!(context
             .render_extra
@@ -361,8 +361,8 @@ mod tests {
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
-        modifier.apply_render(&mut context);
+        let mut context = RenderContext::new(&property_layout, &particle_layout);
+        modifier.apply_render(&mut module, &mut context);
 
         assert!(context
             .render_extra
@@ -375,8 +375,8 @@ mod tests {
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&mut module, &property_layout, &particle_layout);
-        modifier.apply_render(&mut context);
+        let mut context = RenderContext::new(&property_layout, &particle_layout);
+        modifier.apply_render(&mut module, &mut context);
 
         // TODO - less weak test...
         assert!(context

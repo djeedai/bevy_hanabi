@@ -760,10 +760,9 @@ impl EffectShaderSource {
 
         // Generate the shader code for the initializing shader
         let (init_code, init_extra, init_sim_space_transform_code) = {
-            let mut init_context =
-                InitContext::new(&mut module, &property_layout, &particle_layout);
+            let mut init_context = InitContext::new(&property_layout, &particle_layout);
             for m in asset.init_modifiers() {
-                if let Err(err) = m.apply_init(&mut init_context) {
+                if let Err(err) = m.apply_init(&mut module, &mut init_context) {
                     error!("Failed to compile effect, error in init context: {:?}", err);
                     return Err(ShaderGenerateError::Expr(err));
                 }
@@ -784,10 +783,9 @@ impl EffectShaderSource {
 
         // Generate the shader code for the update shader
         let (mut update_code, update_extra, force_field) = {
-            let mut update_context =
-                UpdateContext::new(&mut module, &property_layout, &particle_layout);
+            let mut update_context = UpdateContext::new(&property_layout, &particle_layout);
             for m in asset.update_modifiers() {
-                if let Err(err) = m.apply_update(&mut update_context) {
+                if let Err(err) = m.apply_update(&mut module, &mut update_context) {
                     error!(
                         "Failed to compile effect, error in udpate context: {:?}",
                         err
@@ -841,27 +839,28 @@ impl EffectShaderSource {
             particle_texture,
             layout_flags,
         ) = {
-            let mut render_context =
-                RenderContext::new(&mut module, &property_layout, &particle_layout);
+            let mut render_context = RenderContext::new(&property_layout, &particle_layout);
             for m in asset.render_modifiers() {
-                m.apply_render(&mut render_context);
+                m.apply_render(&mut module, &mut render_context);
             }
 
             let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
-                render_context.eval(*cutoff).unwrap_or_else(|err| {
-                    error!(
-                        "Failed to evaluate the expression for AlphaMode::Mask, error: {:?}",
-                        err
-                    );
+                render_context
+                    .eval(&mut module, *cutoff)
+                    .unwrap_or_else(|err| {
+                        error!(
+                            "Failed to evaluate the expression for AlphaMode::Mask, error: {:?}",
+                            err
+                        );
 
-                    // In Debug, show everything to help diagnosing
-                    #[cfg(debug_assertions)]
-                    return 1_f32.to_wgsl_string();
+                        // In Debug, show everything to help diagnosing
+                        #[cfg(debug_assertions)]
+                        return 1_f32.to_wgsl_string();
 
-                    // In Release, hide everything with an error
-                    #[cfg(not(debug_assertions))]
-                    return 0_f32.to_wgsl_string();
-                })
+                        // In Release, hide everything with an error
+                        #[cfg(not(debug_assertions))]
+                        return 0_f32.to_wgsl_string();
+                    })
             } else {
                 String::new()
             };
@@ -1550,37 +1549,36 @@ else { return c1; }
 
     #[test]
     fn test_simulation_space_eval() {
-        let mut module = Module::default();
         let particle_layout = ParticleLayout::empty();
         let property_layout = PropertyLayout::default();
         {
             // Local is always available
-            let ctx = InitContext::new(&mut module, &property_layout, &particle_layout);
+            let ctx = InitContext::new(&property_layout, &particle_layout);
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_err());
 
             // Global requires storing the particle's position
             let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
-            let ctx = InitContext::new(&mut module, &property_layout, &particle_layout);
+            let ctx = InitContext::new(&property_layout, &particle_layout);
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_ok());
         }
         {
             // Local is always available
-            let ctx = UpdateContext::new(&mut module, &property_layout, &particle_layout);
+            let ctx = UpdateContext::new(&property_layout, &particle_layout);
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_err());
 
             // Global requires storing the particle's position
             let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
-            let ctx = UpdateContext::new(&mut module, &property_layout, &particle_layout);
+            let ctx = UpdateContext::new(&property_layout, &particle_layout);
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_ok());
         }
         {
             // In the render context, the particle position is always available (either
             // stored or not), so the simulation space can always be evaluated.
-            let ctx = RenderContext::new(&mut module, &property_layout, &particle_layout);
+            let ctx = RenderContext::new(&property_layout, &particle_layout);
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_ok());
         }

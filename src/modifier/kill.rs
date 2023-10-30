@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::{EvalContext, ExprError},
-    impl_mod_update, Attribute, ExprHandle, UpdateContext, UpdateModifier,
+    impl_mod_update, Attribute, ExprHandle, Module, UpdateContext, UpdateModifier,
 };
 
 /// A modifier killing all particles that enter or exit a sphere.
@@ -64,16 +64,20 @@ impl_mod_update!(KillSphereModifier, &[Attribute::POSITION]);
 
 #[typetag::serde]
 impl UpdateModifier for KillSphereModifier {
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let pos = context.module.attr(Attribute::POSITION);
-        let diff = context.module.sub(pos, self.center);
-        let sqr_dist = context.module.dot(diff, diff);
+    fn apply_update(
+        &self,
+        module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError> {
+        let pos = module.attr(Attribute::POSITION);
+        let diff = module.sub(pos, self.center);
+        let sqr_dist = module.dot(diff, diff);
         let cmp = if self.kill_inside {
-            context.module.lt(sqr_dist, self.sqr_radius)
+            module.lt(sqr_dist, self.sqr_radius)
         } else {
-            context.module.gt(sqr_dist, self.sqr_radius)
+            module.gt(sqr_dist, self.sqr_radius)
         };
-        let expr = context.eval(cmp)?;
+        let expr = context.eval(module, cmp)?;
 
         context.update_code += &format!(
             r#"if ({}) {{
@@ -135,21 +139,25 @@ impl_mod_update!(KillAabbModifier, &[Attribute::POSITION]);
 
 #[typetag::serde]
 impl UpdateModifier for KillAabbModifier {
-    fn apply_update(&self, context: &mut UpdateContext) -> Result<(), ExprError> {
-        let pos = context.module.attr(Attribute::POSITION);
-        let diff = context.module.sub(pos, self.center);
-        let dist = context.module.abs(diff);
+    fn apply_update(
+        &self,
+        module: &mut Module,
+        context: &mut UpdateContext,
+    ) -> Result<(), ExprError> {
+        let pos = module.attr(Attribute::POSITION);
+        let diff = module.sub(pos, self.center);
+        let dist = module.abs(diff);
         let cmp = if self.kill_inside {
-            context.module.lt(dist, self.half_size)
+            module.lt(dist, self.half_size)
         } else {
-            context.module.gt(dist, self.half_size)
+            module.gt(dist, self.half_size)
         };
         let reduce = if self.kill_inside {
-            context.module.all(cmp)
+            module.all(cmp)
         } else {
-            context.module.any(cmp)
+            module.any(cmp)
         };
-        let expr = context.eval(reduce)?;
+        let expr = context.eval(module, reduce)?;
 
         context.update_code += &format!(
             r#"if ({}) {{
@@ -178,8 +186,8 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = UpdateContext::new(&mut module, &property_layout, &particle_layout);
-        assert!(modifier.apply_update(&mut context).is_ok());
+        let mut context = UpdateContext::new(&property_layout, &particle_layout);
+        assert!(modifier.apply_update(&mut module, &mut context).is_ok());
 
         assert!(context.update_code.contains("is_alive = false")); // TODO - less weak check
     }
