@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `EvalContext::push_stmt()` to emit a single statement prepended to the currently evaluating expression. This is useful to define temporary local variables for storing expressions with a side-effect.
 - Added `EvalContext::make_fn()` to create a function with a dedicated `EvalContext`, allowing to properly scope local variables and stored expression side effects.
 - Added `Module::try_get()`, similar to `Module::get()` but returning a `Result<&Expr, ExprError>` instead for convenience.
+- Added implementations of `ToWgslString` for the missing vector types (`UVec2/3/4`, `IVec2/3/4`, `BVec2/3/4`).
 
 ### Changed
 
