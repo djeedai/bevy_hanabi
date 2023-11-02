@@ -297,15 +297,114 @@ impl ToWgslString for bool {
     }
 }
 
+impl ToWgslString for BVec2 {
+    fn to_wgsl_string(&self) -> String {
+        format!(
+            "vec2<bool>({0},{1})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string()
+        )
+    }
+}
+
+impl ToWgslString for BVec3 {
+    fn to_wgsl_string(&self) -> String {
+        format!(
+            "vec3<bool>({0},{1},{2})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string(),
+            self.z.to_wgsl_string()
+        )
+    }
+}
+
+impl ToWgslString for BVec4 {
+    fn to_wgsl_string(&self) -> String {
+        format!(
+            "vec4<bool>({0},{1},{2},{3})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string(),
+            self.z.to_wgsl_string(),
+            self.w.to_wgsl_string()
+        )
+    }
+}
+
 impl ToWgslString for i32 {
     fn to_wgsl_string(&self) -> String {
         format!("{}", self)
     }
 }
 
+impl ToWgslString for IVec2 {
+    fn to_wgsl_string(&self) -> String {
+        format!(
+            "vec2<i32>({0},{1})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string()
+        )
+    }
+}
+
+impl ToWgslString for IVec3 {
+    fn to_wgsl_string(&self) -> String {
+        format!(
+            "vec3<i32>({0},{1},{2})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string(),
+            self.z.to_wgsl_string()
+        )
+    }
+}
+
+impl ToWgslString for IVec4 {
+    fn to_wgsl_string(&self) -> String {
+        format!(
+            "vec4<i32>({0},{1},{2},{3})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string(),
+            self.z.to_wgsl_string(),
+            self.w.to_wgsl_string()
+        )
+    }
+}
+
 impl ToWgslString for u32 {
     fn to_wgsl_string(&self) -> String {
         format!("{}", self)
+    }
+}
+
+impl ToWgslString for UVec2 {
+    fn to_wgsl_string(&self) -> String {
+        format!(
+            "vec2<u32>({0},{1})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string()
+        )
+    }
+}
+
+impl ToWgslString for UVec3 {
+    fn to_wgsl_string(&self) -> String {
+        format!(
+            "vec3<u32>({0},{1},{2})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string(),
+            self.z.to_wgsl_string()
+        )
+    }
+}
+
+impl ToWgslString for UVec4 {
+    fn to_wgsl_string(&self) -> String {
+        format!(
+            "vec4<u32>({0},{1},{2},{3})",
+            self.x.to_wgsl_string(),
+            self.y.to_wgsl_string(),
+            self.z.to_wgsl_string(),
+            self.w.to_wgsl_string()
+        )
     }
 }
 
@@ -1479,6 +1578,36 @@ mod tests {
         assert_eq!(s, "vec3<f32>(1.,2.,-1.)");
         let s = Vec4::new(1., 2., -1., 2.).to_wgsl_string();
         assert_eq!(s, "vec4<f32>(1.,2.,-1.,2.)");
+    }
+
+    #[test]
+    fn to_wgsl_ivec() {
+        let s = IVec2::new(1, 2).to_wgsl_string();
+        assert_eq!(s, "vec2<i32>(1,2)");
+        let s = IVec3::new(1, 2, -1).to_wgsl_string();
+        assert_eq!(s, "vec3<i32>(1,2,-1)");
+        let s = IVec4::new(1, 2, -1, 2).to_wgsl_string();
+        assert_eq!(s, "vec4<i32>(1,2,-1,2)");
+    }
+
+    #[test]
+    fn to_wgsl_uvec() {
+        let s = UVec2::new(1, 2).to_wgsl_string();
+        assert_eq!(s, "vec2<u32>(1,2)");
+        let s = UVec3::new(1, 2, 42).to_wgsl_string();
+        assert_eq!(s, "vec3<u32>(1,2,42)");
+        let s = UVec4::new(1, 2, 42, 5).to_wgsl_string();
+        assert_eq!(s, "vec4<u32>(1,2,42,5)");
+    }
+
+    #[test]
+    fn to_wgsl_bvec() {
+        let s = BVec2::new(false, true).to_wgsl_string();
+        assert_eq!(s, "vec2<bool>(false,true)");
+        let s = BVec3::new(false, true, true).to_wgsl_string();
+        assert_eq!(s, "vec3<bool>(false,true,true)");
+        let s = BVec4::new(false, true, true, false).to_wgsl_string();
+        assert_eq!(s, "vec4<bool>(false,true,true,false)");
     }
 
     #[test]
