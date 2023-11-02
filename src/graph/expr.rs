@@ -357,6 +357,34 @@ impl Module {
     impl_module_ternary!(mix, Mix);
     impl_module_ternary!(smoothstep, SmoothStep);
 
+    /// Build a cast expression and append it to the module.
+    ///
+    /// The handle to the expressions representing the operand of the cast
+    /// operation must be valid, that is reference expressions contained in
+    /// the current [`Module`].
+    ///
+    /// # Panics
+    ///
+    /// Panics in some cases if the operand handle does not reference existing
+    /// expressions in the current module. Note however that this check can
+    /// miss some invalid handles (false negative), so only represents an
+    /// extra safety net that users shouldn't rely exclusively on
+    /// to ensure the operand handles are valid. Instead, it's the
+    /// responsibility of the user to ensure handles reference existing
+    /// expressions in the current [`Module`].
+    ///
+    /// Panics if the resulting cast expression is not valid. See
+    /// [`CastExpr::is_valid()`] for the exact meaning.
+    pub fn cast(&mut self, expr: ExprHandle, target: impl Into<ValueType>) -> ExprHandle {
+        assert!(expr.index() < self.expressions.len());
+        let target = target.into();
+        let expr = CastExpr::new(expr, target);
+        if let Some(valid) = expr.is_valid(self) {
+            assert!(valid);
+        }
+        self.push(Expr::Cast(expr))
+    }
+
     /// Get an existing expression from its handle.
     #[inline]
     pub fn get(&self, expr: ExprHandle) -> Option<&Expr> {
@@ -591,6 +619,11 @@ pub enum Expr {
         /// Third operand the ternary operation applies to.
         third: ExprHandle,
     },
+
+    /// Cast expression.
+    ///
+    /// An expression to cast an expression to another type.
+    Cast(CastExpr),
 }
 
 impl Expr {
@@ -633,6 +666,7 @@ impl Expr {
                 third,
                 ..
             } => module.is_const(*first) && module.is_const(*second) && module.is_const(*third),
+            Expr::Cast(expr) => module.is_const(expr.inner),
         }
     }
 
@@ -663,6 +697,7 @@ impl Expr {
                     || module.has_side_effect(*second)
                     || module.has_side_effect(*third)
             }
+            Expr::Cast(expr) => module.has_side_effect(expr.inner),
         }
     }
 
@@ -691,6 +726,7 @@ impl Expr {
             Expr::Unary { .. } => None,
             Expr::Binary { .. } => None,
             Expr::Ternary { .. } => None,
+            Expr::Cast(expr) => Some(expr.value_type()),
         }
     }
 
@@ -785,6 +821,12 @@ impl Expr {
                     second,
                     third
                 ))
+            }
+            Expr::Cast(expr) => {
+                // Recursively evaluate child expressions throught the context to ensure caching
+                let inner = context.eval(module, expr.inner)?;
+
+                Ok(format!("{}({})", expr.target.to_wgsl_string(), inner))
             }
         }
     }
@@ -935,6 +977,65 @@ impl ToWgslString for PropertyExpr {
 impl From<String> for PropertyExpr {
     fn from(property_name: String) -> Self {
         PropertyExpr::new(property_name)
+    }
+}
+
+/// Expression to cast an expression to another type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct CastExpr {
+    /// The operand expression to cast.
+    inner: ExprHandle,
+    /// The target type to cast to.
+    target: ValueType,
+}
+
+impl CastExpr {
+    /// Create a new cast expression.
+    #[inline]
+    pub fn new(inner: ExprHandle, target: impl Into<ValueType>) -> Self {
+        Self {
+            inner,
+            target: target.into(),
+        }
+    }
+
+    /// Get the value type of the expression.
+    pub fn value_type(&self) -> ValueType {
+        self.target
+    }
+
+    /// Try to evaluate if the cast expression is valid.
+    ///
+    /// The evaluation fails if the value type of the operand cannot be
+    /// determined. In that case, the function returns `None`.
+    ///
+    /// Valid cast expressions are:
+    /// - scalar to scalar
+    /// - scalar to vector
+    /// - vector to vector
+    /// - matrix to matrix
+    pub fn is_valid(&self, module: &Module) -> Option<bool> {
+        let Some(inner) = module.get(self.inner) else {
+            return Some(false);
+        };
+        if let Some(inner_type) = inner.value_type() {
+            match self.target {
+                ValueType::Scalar(_) => {
+                    // scalar -> scalar only
+                    Some(matches!(inner_type, ValueType::Scalar(_)))
+                }
+                ValueType::Vector(_) => {
+                    // {scalar, vector} -> vector
+                    Some(!matches!(inner_type, ValueType::Matrix(_)))
+                }
+                ValueType::Matrix(_) => {
+                    // matrix -> matrix only
+                    Some(matches!(inner_type, ValueType::Matrix(_)))
+                }
+            }
+        } else {
+            None
+        }
     }
 }
 
@@ -2724,6 +2825,29 @@ impl WriterExpr {
         low.ternary_op(high, self, TernaryOperator::SmoothStep)
     }
 
+    /// Cast an expression to a different type.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// let x = w.lit(Vec2::new(3., -2.));
+    /// let y = x.cast(VectorType::VEC3I); // x = vec3<i32>(particle.position);
+    /// ```
+    pub fn cast(self, target: impl Into<ValueType>) -> Self {
+        let target = target.into();
+        let expr = self
+            .module
+            .borrow_mut()
+            .push(Expr::Cast(CastExpr::new(self.expr, target)));
+        WriterExpr {
+            expr,
+            module: self.module,
+        }
+    }
+
     /// Finalize an expression chain and return the accumulated expression.
     ///
     /// The returned handle indexes the [`Module`] owned by the [`ExprWriter`]
@@ -2784,7 +2908,7 @@ impl std::ops::Div<WriterExpr> for WriterExpr {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::Property, InitContext, ScalarValue, VectorType};
+    use crate::{prelude::Property, InitContext, MatrixType, ScalarValue, VectorType};
 
     use super::*;
     use bevy::{prelude::*, utils::HashSet};
@@ -3130,6 +3254,100 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn cast_expr() {
+        let mut m = Module::default();
+
+        let x = m.attr(Attribute::POSITION);
+        let y = m.lit(IVec2::ONE);
+        let z = m.lit(0.3);
+        let w = m.lit(false);
+
+        let cx = m.cast(x, VectorType::VEC3I);
+        let cy = m.cast(y, VectorType::VEC2U);
+        let cz = m.cast(z, ScalarType::Int);
+        let cw = m.cast(w, ScalarType::Uint);
+
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut ctx = InitContext::new(&property_layout, &particle_layout);
+
+        for (expr, cast, target) in [
+            (x, cx, ValueType::Vector(VectorType::VEC3I)),
+            (y, cy, VectorType::VEC2U.into()),
+            (z, cz, ScalarType::Int.into()),
+            (w, cw, ScalarType::Uint.into()),
+        ] {
+            let expr = ctx.eval(&m, expr);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            let cast = ctx.eval(&m, cast);
+            assert!(cast.is_ok());
+            let cast = cast.unwrap();
+            assert_eq!(cast, format!("{}({})", target.to_wgsl_string(), expr));
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_cast_vector_to_scalar() {
+        let mut m = Module::default();
+        let x = m.lit(Vec2::ONE);
+        let _ = m.cast(x, ScalarType::Float);
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_cast_matrix_to_scalar() {
+        let mut m = Module::default();
+        let x = m.lit(Value::Matrix(Mat4::ZERO.into()));
+        let _ = m.cast(x, ScalarType::Float);
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_cast_matrix_to_vector() {
+        let mut m = Module::default();
+        let x = m.lit(Value::Matrix(Mat4::ZERO.into()));
+        let _ = m.cast(x, VectorType::VEC4F);
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_cast_scalar_to_matrix() {
+        let mut m = Module::default();
+        let x = m.lit(3.);
+        let _ = m.cast(x, MatrixType::MAT3X3F);
+    }
+
+    #[test]
+    #[should_panic]
+    fn invalid_cast_vector_to_matrix() {
+        let mut m = Module::default();
+        let x = m.lit(Vec3::ZERO);
+        let _ = m.cast(x, MatrixType::MAT2X4F);
+    }
+
+    #[test]
+    fn cast_expr_new() {
+        let mut m = Module::default();
+
+        let x = m.attr(Attribute::POSITION);
+        let c = CastExpr::new(x, VectorType::VEC3F);
+        assert_eq!(c.value_type(), ValueType::Vector(VectorType::VEC3F));
+        assert_eq!(c.is_valid(&m), Some(true));
+
+        let x = m.attr(Attribute::POSITION);
+        let c = CastExpr::new(x, ScalarType::Bool);
+        assert_eq!(c.value_type(), ValueType::Scalar(ScalarType::Bool));
+        assert_eq!(c.is_valid(&m), Some(false)); // invalid cast vector -> scalar
+
+        let y = m.prop("my_prop");
+        let c = CastExpr::new(y, MatrixType::MAT2X3F);
+        assert_eq!(c.value_type(), ValueType::Matrix(MatrixType::MAT2X3F));
+        assert_eq!(c.is_valid(&m), None); // properties' value_type() is unknown
     }
 
     #[test]
