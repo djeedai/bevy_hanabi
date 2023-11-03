@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added implementations of `ToWgslString` for the missing vector types (`UVec2/3/4`, `IVec2/3/4`, `BVec2/3/4`).
 - Added new `CastExpr` expression to cast an operand expression to another `ValueType`. This adds a new variant `Expr::Cast` too.
 - Added new `BinaryOperator::Remainder` to calculate the remainder (`%` operator) of two expressions.
+- Added the `ImageSampleMapping` enum to determine how samples of the image of a `ParticleTextureModifier` are mapped to and modulated with the particle's base color. The new default behavior is `ImageSampleMapping::Modulate`, corresponding to a full modulate of all RGBA components. To restore the previous behavior, and use the Red channel of the texture as an opacity mask, set `ParticleTextureModifier::sample_mapping` to `ImageSampleMapping::ModulateOpacityFromR`.
 
 ### Changed
 

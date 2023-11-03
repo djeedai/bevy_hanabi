@@ -112,6 +112,7 @@ fn setup(
             .init(init_lifetime)
             .render(ParticleTextureModifier {
                 texture: texture_handle,
+                sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
             .render(OrientModifier {
                 mode: OrientMode::ParallelCameraDepthPlane,

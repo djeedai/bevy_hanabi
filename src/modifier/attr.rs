@@ -79,6 +79,18 @@ impl SetAttributeModifier {
     pub fn new(attribute: Attribute, value: ExprHandle) -> Self {
         Self { attribute, value }
     }
+
+    fn eval(
+        &self,
+        module: &mut Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
+        assert!(module.get(self.value).is_some());
+        let attr = module.attr(self.attribute);
+        let attr = context.eval(module, attr)?;
+        let expr = context.eval(module, self.value)?;
+        Ok(format!("{} = {};\n", attr, expr))
+    }
 }
 
 #[typetag::serde]
@@ -115,11 +127,8 @@ impl Modifier for SetAttributeModifier {
 #[typetag::serde]
 impl InitModifier for SetAttributeModifier {
     fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
-        assert!(module.get(self.value).is_some());
-        let attr = module.attr(self.attribute);
-        let attr = context.eval(module, attr)?;
-        let expr = context.eval(module, self.value)?;
-        context.init_code += &format!("{} = {};\n", attr, expr);
+        let code = self.eval(module, context)?;
+        context.init_code += &code;
         Ok(())
     }
 }
@@ -131,11 +140,8 @@ impl UpdateModifier for SetAttributeModifier {
         module: &mut Module,
         context: &mut UpdateContext,
     ) -> Result<(), ExprError> {
-        assert!(module.get(self.value).is_some());
-        let attr = module.attr(self.attribute);
-        let attr = context.eval(module, attr)?;
-        let expr = context.eval(module, self.value)?;
-        context.update_code += &format!("{} = {};\n", attr, expr);
+        let code = self.eval(module, context)?;
+        context.update_code += &code;
         Ok(())
     }
 }
