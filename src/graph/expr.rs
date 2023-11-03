@@ -2694,6 +2694,7 @@ impl WriterExpr {
     /// // The remainder of the division `z = x % y;`.
     /// let z = x.rem(y);
     /// ```
+    #[allow(clippy::should_implement_trait)]
     #[inline]
     pub fn rem(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Remainder)
@@ -2940,6 +2941,15 @@ impl std::ops::Div<WriterExpr> for WriterExpr {
     #[inline]
     fn div(self, rhs: WriterExpr) -> Self::Output {
         self.div(rhs)
+    }
+}
+
+impl std::ops::Rem<WriterExpr> for WriterExpr {
+    type Output = WriterExpr;
+
+    #[inline]
+    fn rem(self, rhs: WriterExpr) -> Self::Output {
+        self.rem(rhs)
     }
 }
 
