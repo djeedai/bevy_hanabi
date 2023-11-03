@@ -937,6 +937,7 @@ impl EffectShaderSource {
             alpha_cutoff_code,
             particle_texture,
             layout_flags,
+            image_sample_mapping_code,
         ) = {
             let mut render_context = RenderContext::new(&property_layout, &particle_layout);
             for m in asset.render_modifiers() {
@@ -990,6 +991,7 @@ impl EffectShaderSource {
                 alpha_cutoff_code,
                 render_context.particle_texture,
                 layout_flags,
+                render_context.image_sample_mapping_code,
             )
         };
 
@@ -1067,7 +1069,11 @@ impl EffectShaderSource {
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
                 &render_sim_space_transform_code,
             )
-            .replace("{{ALPHA_CUTOFF}}", &alpha_cutoff_code);
+            .replace("{{ALPHA_CUTOFF}}", &alpha_cutoff_code)
+            .replace(
+                "{{PARTICLE_TEXTURE_SAMPLE_MAPPING}}",
+                &image_sample_mapping_code,
+            );
         trace!("Configured render shader:\n{}", render_shader_source);
 
         Ok(EffectShaderSource {

@@ -9,6 +9,52 @@ use crate::{
     Module, RenderContext, RenderModifier, ShaderCode, ToWgslString,
 };
 
+/// Mapping of the sample read from a texture image to the base particle color.
+///
+/// This defines the way the texture image of [`ParticleTextureModifier`] blends
+/// with the base particle color to define the final render color of the
+/// particle.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub enum ImageSampleMapping {
+    /// Modulate the particle's base color with the full RGBA sample of the
+    /// texture image.
+    ///
+    /// ```
+    /// color = baseColor * texColor;
+    /// ```
+    #[default]
+    Modulate,
+
+    /// Modulate the particle's base color with the RGB sample of the texture
+    /// image, leaving the alpha component unmodified.
+    ///
+    /// ```
+    /// color.rgb = baseColor.rgb * texColor.rgb;
+    /// ```
+    ModulateRGB,
+
+    /// Modulate the alpha component (opacity) of the particle's base color with
+    /// the red component of the sample of the texture image.
+    ///
+    /// ```
+    /// color.a = baseColor.a * texColor.r;
+    /// ```
+    ModulateOpacityFromR,
+}
+
+impl ToWgslString for ImageSampleMapping {
+    fn to_wgsl_string(&self) -> String {
+        match *self {
+            ImageSampleMapping::Modulate => "color = color * texColor;",
+            ImageSampleMapping::ModulateRGB => {
+                "color = vec4<f32>(color.rgb * texColor.rgb, color.a);"
+            }
+            ImageSampleMapping::ModulateOpacityFromR => "color.a = color.a * texColor.r;",
+        }
+        .to_string()
+    }
+}
+
 /// A modifier modulating each particle's color by sampling a texture.
 ///
 /// # Attributes
@@ -22,6 +68,9 @@ pub struct ParticleTextureModifier {
     // representation... NOTE - Need to keep a strong handle here, nothing else will keep that
     // texture loaded currently.
     pub texture: Handle<Image>,
+
+    /// The mapping of the texture image samples to the base particle color.
+    pub sample_mapping: ImageSampleMapping,
 }
 
 impl_mod_render!(ParticleTextureModifier, &[]); // TODO - should require some UV maybe?
@@ -30,6 +79,7 @@ impl_mod_render!(ParticleTextureModifier, &[]); // TODO - should require some UV
 impl RenderModifier for ParticleTextureModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.set_particle_texture(self.texture.clone());
+        context.image_sample_mapping_code = self.sample_mapping.to_wgsl_string();
     }
 }
 
@@ -312,6 +362,7 @@ mod tests {
         let texture = Handle::<Image>::default();
         let modifier = ParticleTextureModifier {
             texture: texture.clone(),
+            ..default()
         };
 
         let mut module = Module::default();

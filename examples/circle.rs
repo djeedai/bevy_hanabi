@@ -96,6 +96,7 @@ fn setup(
             .init(init_lifetime)
             .render(ParticleTextureModifier {
                 texture: texture_handle.clone(),
+                sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
             .render(ColorOverLifetimeModifier { gradient })
             .render(SizeOverLifetimeModifier {

@@ -250,12 +250,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
 {{FRAGMENT_MODIFIERS}}
 
-#ifdef PARTICLE_TEXTURE
-    var color = textureSample(particle_texture, particle_sampler, in.uv);
-    color = vec4<f32>(1.0, 1.0, 1.0, color.r); // FIXME - grayscale modulate
-    color = in.color * color;
-#else
     var color = in.color;
+
+#ifdef PARTICLE_TEXTURE
+    var texColor = textureSample(particle_texture, particle_sampler, in.uv);
+    {{PARTICLE_TEXTURE_SAMPLE_MAPPING}}
 #endif
 
 #ifdef USE_ALPHA_MASK

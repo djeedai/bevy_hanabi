@@ -466,6 +466,9 @@ pub struct RenderContext<'a> {
     pub render_extra: String,
     /// Texture modulating the particle color.
     pub particle_texture: Option<Handle<Image>>,
+    /// WGSL code describing how to modulate the base color of the particle with
+    /// the image texture sample, if any.
+    pub image_sample_mapping_code: String,
     /// Color gradients.
     pub gradients: HashMap<u64, Gradient<Vec4>>,
     /// Size gradients.
@@ -490,6 +493,7 @@ impl<'a> RenderContext<'a> {
             fragment_code: String::new(),
             render_extra: String::new(),
             particle_texture: None,
+            image_sample_mapping_code: String::new(),
             gradients: HashMap::new(),
             size_gradients: HashMap::new(),
             screen_space_size: false,
