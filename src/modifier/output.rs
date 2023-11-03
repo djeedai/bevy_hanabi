@@ -19,7 +19,7 @@ pub enum ImageSampleMapping {
     /// Modulate the particle's base color with the full RGBA sample of the
     /// texture image.
     ///
-    /// ```
+    /// ```wgsl
     /// color = baseColor * texColor;
     /// ```
     #[default]
@@ -28,7 +28,7 @@ pub enum ImageSampleMapping {
     /// Modulate the particle's base color with the RGB sample of the texture
     /// image, leaving the alpha component unmodified.
     ///
-    /// ```
+    /// ```wgsl
     /// color.rgb = baseColor.rgb * texColor.rgb;
     /// ```
     ModulateRGB,
@@ -36,7 +36,7 @@ pub enum ImageSampleMapping {
     /// Modulate the alpha component (opacity) of the particle's base color with
     /// the red component of the sample of the texture image.
     ///
-    /// ```
+    /// ```wgsl
     /// color.a = baseColor.a * texColor.r;
     /// ```
     ModulateOpacityFromR,
