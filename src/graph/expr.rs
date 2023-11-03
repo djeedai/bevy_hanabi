@@ -306,6 +306,7 @@ impl Module {
     }
 
     impl_module_binary!(add, Add);
+    impl_module_binary!(cross, Cross);
     impl_module_binary!(distance, Distance);
     impl_module_binary!(div, Div);
     impl_module_binary!(dot, Dot);
@@ -316,6 +317,7 @@ impl Module {
     impl_module_binary!(max, Max);
     impl_module_binary!(min, Min);
     impl_module_binary!(mul, Mul);
+    impl_module_binary!(rem, Remainder);
     impl_module_binary!(step, Step);
     impl_module_binary!(sub, Sub);
     impl_module_binary!(uniform, UniformRand);
@@ -1390,12 +1392,6 @@ pub enum BinaryOperator {
     /// same size.
     Cross,
 
-    /// Dot product operator.
-    ///
-    /// Returns the dot product of the left and right operands. Only valid for
-    /// vector type operands. Always produce a scalar floating-point result.
-    Dot,
-
     /// Distance operator.
     ///
     /// Returns the distance between two floating point scalar or vectors, that
@@ -1407,6 +1403,12 @@ pub enum BinaryOperator {
     /// Returns the left operand divided by the right operand. Only valid for
     /// numeric operands.
     Div,
+
+    /// Dot product operator.
+    ///
+    /// Returns the dot product of the left and right operands. Only valid for
+    /// vector type operands. Always produce a scalar floating-point result.
+    Dot,
 
     /// Greater-than operator.
     ///
@@ -1461,6 +1463,14 @@ pub enum BinaryOperator {
     /// Returns the product of its operands. Only valid for numeric operands.
     Mul,
 
+    /// Remainder operator.
+    ///
+    /// Returns the remainder of the division of the first operand by the
+    /// second. Only valid for numeric types. If the operands are vectors,
+    /// they must be of the same rank, and the result is a vector of that
+    /// rank and same element scalar type.
+    Remainder,
+
     /// Stepping operator.
     ///
     /// Returns `1.0` if the left operand is less than or equal to the right
@@ -1496,15 +1506,16 @@ impl BinaryOperator {
     pub fn is_functional(&self) -> bool {
         match *self {
             BinaryOperator::Add
-            | BinaryOperator::Distance
             | BinaryOperator::Div
             | BinaryOperator::GreaterThan
             | BinaryOperator::GreaterThanOrEqual
             | BinaryOperator::LessThan
             | BinaryOperator::LessThanOrEqual
             | BinaryOperator::Mul
+            | BinaryOperator::Remainder
             | BinaryOperator::Sub => false,
             BinaryOperator::Cross
+            | BinaryOperator::Distance
             | BinaryOperator::Dot
             | BinaryOperator::Max
             | BinaryOperator::Min
@@ -1529,6 +1540,7 @@ impl ToWgslString for BinaryOperator {
             BinaryOperator::Max => "max".to_string(),
             BinaryOperator::Min => "min".to_string(),
             BinaryOperator::Mul => "*".to_string(),
+            BinaryOperator::Remainder => "%".to_string(),
             BinaryOperator::Step => "step".to_string(),
             BinaryOperator::Sub => "-".to_string(),
             BinaryOperator::UniformRand => "rand_uniform".to_string(),
@@ -2662,6 +2674,31 @@ impl WriterExpr {
         self.binary_op(other, BinaryOperator::Mul)
     }
 
+    /// Calculate the remainder of the division of the current expression by
+    /// another expression.
+    ///
+    /// This is a binary operator.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(3., -2., 1.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 1.));
+    ///
+    /// // Another literal expression `y = vec3<f32>(1., 5., 0.);`.
+    /// let y = w.lit(Vec3::new(1., 5., 0.));
+    ///
+    /// // The remainder of the division `z = x % y;`.
+    /// let z = x.remainder(y);
+    /// ```
+    #[inline]
+    pub fn rem(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::Remainder)
+    }
+
     /// Calculate the step of a value with respect to a reference.
     ///
     /// This is a binary operator, which applies component-wise to vector
@@ -3023,6 +3060,7 @@ mod tests {
         let sub = m.sub(x, y);
         let mul = m.mul(x, y);
         let div = m.div(x, y);
+        let rem = m.rem(x, y);
         let lt = m.lt(x, y);
         let le = m.le(x, y);
         let gt = m.gt(x, y);
@@ -3037,6 +3075,7 @@ mod tests {
             (sub, "-"),
             (mul, "*"),
             (div, "/"),
+            (rem, "%"),
             (lt, "<"),
             (le, "<="),
             (gt, ">"),
@@ -3201,6 +3240,9 @@ mod tests {
         let x = m.attr(Attribute::POSITION);
         let y = m.lit(Vec3::ONE);
 
+        let cross = m.cross(x, y);
+        let dist = m.distance(x, y);
+        let dot = m.dot(x, y);
         let min = m.min(x, y);
         let max = m.max(x, y);
         let step = m.step(x, y);
@@ -3209,7 +3251,14 @@ mod tests {
         let particle_layout = ParticleLayout::default();
         let mut ctx = InitContext::new(&property_layout, &particle_layout);
 
-        for (expr, op) in [(min, "min"), (max, "max"), (step, "step")] {
+        for (expr, op) in [
+            (cross, "cross"),
+            (dist, "distance"),
+            (dot, "dot"),
+            (min, "min"),
+            (max, "max"),
+            (step, "step"),
+        ] {
             let expr = ctx.eval(&m, expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
