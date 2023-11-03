@@ -2692,7 +2692,7 @@ impl WriterExpr {
     /// let y = w.lit(Vec3::new(1., 5., 0.));
     ///
     /// // The remainder of the division `z = x % y;`.
-    /// let z = x.remainder(y);
+    /// let z = x.rem(y);
     /// ```
     #[inline]
     pub fn rem(self, other: Self) -> Self {
