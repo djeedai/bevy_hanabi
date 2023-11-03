@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `Module::try_get()`, similar to `Module::get()` but returning a `Result<&Expr, ExprError>` instead for convenience.
 - Added implementations of `ToWgslString` for the missing vector types (`UVec2/3/4`, `IVec2/3/4`, `BVec2/3/4`).
 - Added new `CastExpr` expression to cast an operand expression to another `ValueType`. This adds a new variant `Expr::Cast` too.
+- Added new `BinaryOperator::Remainder` to calculate the remainder (`%` operator) of two expressions.
 
 ### Changed
 
