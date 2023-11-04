@@ -1,6 +1,7 @@
 //! Example of using the circle spawner with random velocity.
 //!
-//! A sphere spawns dust in a circle.
+//! A sphere spawns dust in a circle. Each dust particle is animated with a
+//! [`FlipbookModifier`], from a procedurally generated sprite sheet.
 
 use bevy::{
     core_pipeline::tonemapping::Tonemapping,
@@ -11,6 +12,10 @@ use bevy::{
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
+
+mod texutils;
+
+use texutils::make_anim_img;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut wgpu_settings = WgpuSettings::default();
@@ -45,8 +50,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn setup(
-    asset_server: Res<AssetServer>,
     mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
     mut effects: ResMut<Assets<EffectAsset>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -59,16 +64,24 @@ fn setup(
         Transform::from_xyz(3.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
     commands.spawn(camera);
 
-    let texture_handle: Handle<Image> = asset_server.load("cloud.png");
+    // Procedurally create a sprite sheet representing an animated texture
+    let sprite_size = UVec2::new(64, 64);
+    let sprite_grid_size = UVec2::new(8, 8);
+    let anim_img = make_anim_img(sprite_size, sprite_grid_size, Vec3::new(0.1, 0.1, 0.1));
+    let texture_handle = images.add(anim_img);
+
+    let frame_count = sprite_grid_size.x * sprite_grid_size.y;
 
     let mut gradient = Gradient::new();
-    gradient.add_key(0.0, Vec4::splat(0.5));
-    gradient.add_key(0.5, Vec4::splat(0.5));
-    gradient.add_key(1.0, Vec4::new(0.5, 0.5, 0.5, 0.0));
+    gradient.add_key(0.0, Vec4::ONE);
+    gradient.add_key(0.5, Vec4::ONE);
+    gradient.add_key(1.0, Vec3::ONE.extend(0.));
 
     let writer = ExprWriter::new();
 
-    let age = writer.lit(0.).expr();
+    // Initialize the AGE to a random [0:1] value to ensure not all particles start
+    // their animation at the same frame. Otherwise they all animate in sync.
+    let age = writer.rand(ScalarType::Float).expr();
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     let lifetime = writer.lit(5.).expr();
@@ -87,6 +100,35 @@ fn setup(
         speed: (writer.lit(1.) + writer.lit(0.5) * writer.rand(ScalarType::Float)).expr(),
     };
 
+    // Animate the SPRITE_INDEX attribute of each particle based on its age.
+    // We want to animate back and forth the index in [0:N-1] where N is the total
+    // number of sprites in the sprite sheet.
+    // - For the back and forth, we build a linear ramp z 1 -> 0 -> 1 with abs(x)
+    //   and y linear in [-1:1]
+    // - To get that linear cyclic y variable in [-1:1], we build a linear cyclic x
+    //   variable in [0:1]
+    // - To get that linear cyclic x variable in [0:1], we take the fractional part
+    //   of the age
+    // - Because we want to have one full cycle every couple of seconds, we need to
+    //   scale down the age value (0.02)
+    // - Finally the linear ramp z is scaled to the [0:N-1] range
+    // Putting it together we get:
+    //   sprite_index = i32(
+    //       abs(fract(particle.age * 0.02) * 2. - 1.) * frame_count
+    //     ) % frame_count;
+    let sprite_index = writer
+        .attr(Attribute::AGE)
+        .mul(writer.lit(0.1))
+        .fract()
+        .mul(writer.lit(2.))
+        .sub(writer.lit(1.))
+        .abs()
+        .mul(writer.lit(frame_count as f32))
+        .cast(ScalarType::Int)
+        .rem(writer.lit(frame_count as i32))
+        .expr();
+    let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
+
     let effect = effects.add(
         EffectAsset::new(32768, Spawner::once(32.0.into(), true), writer.finish())
             .with_name("circle")
@@ -94,13 +136,15 @@ fn setup(
             .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
+            .update(update_sprite_index)
             .render(ParticleTextureModifier {
                 texture: texture_handle.clone(),
                 sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
+            .render(FlipbookModifier { sprite_grid_size })
             .render(ColorOverLifetimeModifier { gradient })
             .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant([0.2; 2].into()),
+                gradient: Gradient::constant([0.5; 2].into()),
                 screen_space_size: false,
             }),
     );

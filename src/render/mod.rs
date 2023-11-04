@@ -865,6 +865,10 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// Key: USE_ALPHA_MASK
     /// The effect is rendered with alpha masking.
     use_alpha_mask: bool,
+    /// Key: FLIPBOOK
+    /// The effect is rendered with flipbook texture animation based on the
+    /// sprite index of each particle.
+    flipbook: bool,
     /// For dual-mode configurations only, the actual mode of the current render
     /// pipeline. Otherwise the mode is implicitly determined by the active
     /// feature.
@@ -885,6 +889,7 @@ impl Default for ParticleRenderPipelineKey {
             screen_space_size: false,
             local_space_simulation: false,
             use_alpha_mask: false,
+            flipbook: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
             msaa_samples: Msaa::default().samples(),
@@ -1026,6 +1031,11 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         // Key: USE_ALPHA_MASK
         if key.use_alpha_mask {
             shader_defs.push("USE_ALPHA_MASK".into());
+        }
+
+        // Key: FLIPBOOK
+        if key.flipbook {
+            shader_defs.push("FLIPBOOK".into());
         }
 
         #[cfg(all(feature = "2d", feature = "3d"))]
@@ -1717,6 +1727,8 @@ bitflags! {
         const LOCAL_SPACE_SIMULATION = (1 << 2);
         /// The effect uses alpha masking instead of alpha blending. Only used for 3D.
         const USE_ALPHA_MASK = (1 << 3);
+        /// The effect is rendered with flipbook texture animation based on the [`Attribute::SPRITE_INDEX`] of each particle.
+        const FLIPBOOK = (1 << 4);
     }
 }
 
@@ -2172,13 +2184,17 @@ fn emit_draw<T, F>(
             let local_space_simulation = batch
                 .layout_flags
                 .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
+            let use_alpha_mask = batch.layout_flags.contains(LayoutFlags::USE_ALPHA_MASK);
+            let flipbook = batch.layout_flags.contains(LayoutFlags::FLIPBOOK);
 
             // Specialize the render pipeline based on the effect batch
             trace!(
-                "Specializing render pipeline: render_shader={:?} has_image={:?} screen_space_size={:?} hdr={}",
+                "Specializing render pipeline: render_shader={:?} has_image={:?} screen_space_size={:?} use_alpha_mask={:?} flipbook={:?} hdr={}",
                 batch.render_shader,
                 has_image,
                 screen_space_size,
+                use_alpha_mask,
+                flipbook,
                 view.hdr
             );
             let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2190,7 +2206,8 @@ fn emit_draw<T, F>(
                     has_image,
                     screen_space_size,
                     local_space_simulation,
-                    use_alpha_mask: batch.layout_flags.contains(LayoutFlags::USE_ALPHA_MASK),
+                    use_alpha_mask,
+                    flipbook,
                     #[cfg(all(feature = "2d", feature = "3d"))]
                     pipeline_mode,
                     msaa_samples,

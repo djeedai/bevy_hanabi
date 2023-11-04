@@ -328,7 +328,7 @@ impl SetPositionCone3dModifier {
             },
         )?;
 
-        let code = format!("{}(&particle);\n", func_name);
+        let code = format!("{}(transform, &particle);\n", func_name);
 
         Ok(code)
     }

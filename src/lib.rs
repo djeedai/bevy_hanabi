@@ -468,7 +468,11 @@ pub enum SimulationSpace {
     ///
     /// The global space is the Bevy world space. Particles simulated in global
     /// space are "detached" from the emitter when they spawn, and not
-    /// influenced anymore by the emitter's [`Transform`] after spawning.
+    /// influenced anymore by the emitter's [`Transform`] after spawning. The
+    /// particle's [`Attribute::POSITION`] is the world space position of the
+    /// particle.
+    ///
+    /// This is the default.
     #[default]
     Global,
 
@@ -477,7 +481,8 @@ pub enum SimulationSpace {
     /// The local space is the space associated with the [`Transform`] of the
     /// [`ParticleEffect`] component being simulated. Particles simulated in
     /// local effect space are "attached" to the effect, and will be affected by
-    /// its [`Transform`].
+    /// its [`Transform`]. The particle's [`Attribute::POSITION`] is the
+    /// position of the particle relative to the effect's [`Transform`].
     Local,
 }
 
@@ -937,6 +942,8 @@ impl EffectShaderSource {
             alpha_cutoff_code,
             particle_texture,
             layout_flags,
+            flipbook_scale_code,
+            flipbook_row_count_code,
             image_sample_mapping_code,
         ) = {
             let mut render_context = RenderContext::new(&property_layout, &particle_layout);
@@ -983,6 +990,18 @@ impl EffectShaderSource {
                 layout_flags |= LayoutFlags::SCREEN_SPACE_SIZE;
             }
 
+            let (flipbook_scale_code, flipbook_row_count_code) = if let Some(grid_size) =
+                render_context.sprite_grid_size
+            {
+                layout_flags |= LayoutFlags::FLIPBOOK;
+                let flipbook_row_count_code = grid_size.x.to_wgsl_string();
+                let flipbook_scale_code =
+                    Vec2::new(1.0 / grid_size.x as f32, 1.0 / grid_size.y as f32).to_wgsl_string();
+                (flipbook_scale_code, flipbook_row_count_code)
+            } else {
+                (String::new(), String::new())
+            };
+
             (
                 render_context.vertex_code,
                 render_context.fragment_code,
@@ -991,6 +1010,8 @@ impl EffectShaderSource {
                 alpha_cutoff_code,
                 render_context.particle_texture,
                 layout_flags,
+                flipbook_scale_code,
+                flipbook_row_count_code,
                 render_context.image_sample_mapping_code,
             )
         };
@@ -1070,6 +1091,8 @@ impl EffectShaderSource {
                 &render_sim_space_transform_code,
             )
             .replace("{{ALPHA_CUTOFF}}", &alpha_cutoff_code)
+            .replace("{{FLIPBOOK_SCALE}}", &flipbook_scale_code)
+            .replace("{{FLIPBOOK_ROW_COUNT}}", &flipbook_row_count_code)
             .replace(
                 "{{PARTICLE_TEXTURE_SAMPLE_MAPPING}}",
                 &image_sample_mapping_code,

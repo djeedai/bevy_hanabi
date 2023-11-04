@@ -52,6 +52,9 @@ wgpu = "0.16"
 naga = "0.12"
 naga_oil = "0.8"
 
+# For procedural texture generation in examples
+noise = "0.8"
+
 futures = "0.3"
 bevy-inspector-egui = "0.19"
 

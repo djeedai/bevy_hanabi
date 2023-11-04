@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added new `CastExpr` expression to cast an operand expression to another `ValueType`. This adds a new variant `Expr::Cast` too.
 - Added new `BinaryOperator::Remainder` to calculate the remainder (`%` operator) of two expressions.
 - Added the `ImageSampleMapping` enum to determine how samples of the image of a `ParticleTextureModifier` are mapped to and modulated with the particle's base color. The new default behavior is `ImageSampleMapping::Modulate`, corresponding to a full modulate of all RGBA components. To restore the previous behavior, and use the Red channel of the texture as an opacity mask, set `ParticleTextureModifier::sample_mapping` to `ImageSampleMapping::ModulateOpacityFromR`.
+- Added new `FlipbookModifier` to treat the image of a `ParticleTextureModifier` as a grid sprite sheet, and allow rendering a sprite from that sheet. By animating the selected sprite, this creates a flipbook animation for the particle.
+- Added new `Attribute::SPRITE_INDEX` holding the `i32` index of a sprite inside a sprite sheet texture. This is used with the `FlipbookModifier` to render sprite-based animated particles.
 
 ### Changed
 
@@ -38,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Changed `RenderContext` to implement `EvalContext`. This allows render modifiers to use the expression API.
 - `PropertyLayout::generate_code()` has no more extra empty line at the end of the struct in the generated code.
 - `EvalContext::eval()` now caches the evaluation of an `ExprHandle` and guarantees that the evaluation is only ever performed once. This ensures that cloned `ExprHandle` making a same expression used in multiple places all reference the same evaluation, which is stored inside a local variable. This fixes an unexpected behavior where expressions with side effect like `rand()` where emitted multiple times, leading to different values, even though a single expression was used (via cloned handles). To restore the old behavior, simply generating separate expressions from a `Module` or an `ExprWriter` instead of cloning and reusing a same `ExprHandle`.
+- The default texture sampling mode for `ParticleTextureModifier` is now a full RGBA modulate. See `ImageSampleMapping` for details. Use `ImageSampleMapping::ModulateOpacityFromR` to restore the previous behavior.
 
 ### Removed
 

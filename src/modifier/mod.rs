@@ -26,7 +26,7 @@
 
 use bevy::{
     asset::Handle,
-    math::{Vec2, Vec3, Vec4},
+    math::{UVec2, Vec2, Vec3, Vec4},
     reflect::Reflect,
     render::texture::Image,
     utils::{FloatOrd, HashMap},
@@ -469,6 +469,8 @@ pub struct RenderContext<'a> {
     /// WGSL code describing how to modulate the base color of the particle with
     /// the image texture sample, if any.
     pub image_sample_mapping_code: String,
+    /// Flipbook sprite sheet grid size, if any.
+    pub sprite_grid_size: Option<UVec2>,
     /// Color gradients.
     pub gradients: HashMap<u64, Gradient<Vec4>>,
     /// Size gradients.
@@ -494,6 +496,7 @@ impl<'a> RenderContext<'a> {
             render_extra: String::new(),
             particle_texture: None,
             image_sample_mapping_code: String::new(),
+            sprite_grid_size: None,
             gradients: HashMap::new(),
             size_gradients: HashMap::new(),
             screen_space_size: false,

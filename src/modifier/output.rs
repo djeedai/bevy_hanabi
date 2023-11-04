@@ -351,6 +351,103 @@ axis_z = cross(axis_x, axis_y);
     }
 }
 
+/// A modifier to render particles using flipbook animation.
+///
+/// Flipbook animation renders multiple still images at interactive framerate
+/// (generally 10+ FPS) to give the illusion of animation. The still images are
+/// sprites, taken from a single texture acting as a sprite sheet. This requires
+/// using the [`ParticleTextureModifier`] to specify the source texture
+/// containing the sprite sheet image. The [`FlipbookModifier`] itself only
+/// activates flipbook rendering, specifying how to slice the texture into a
+/// sprite sheet (list of sprites).
+///
+/// The flipbook renderer reads the [`Attribute::SPRITE_INDEX`] of the particle
+/// and selects a region of the particle texture specified via
+/// [`ParticleTextureModifier`]. Note that [`FlipbookModifier`] by itself
+/// doesn't animate anything; instead, the animation comes from a varying value
+/// of [`Attribute::SPRITE_INDEX`].
+///
+/// There's no built-in modifier to update the [`Attribute::SPRITE_INDEX`];
+/// instead you should use a [`SetAttributeModifier`] with a suitable
+/// expression. A common example is to base the sprite index on the particle
+/// age, accessed from [`Attribute::AGE`]. Note that in that case the
+/// [`Attribute::AGE`] being a floating point value must be cast to an integer
+/// to be assigned to [`Attribute::SPRITE_INDEX`].
+///
+/// # Example
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_hanabi::*;
+/// # let texture = Handle::<Image>::default();
+/// let writer = ExprWriter::new();
+///
+/// let lifetime = writer.lit(5.).expr();
+/// let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+///
+/// // Age goes from 0 to LIFETIME=5s
+/// let age = writer.lit(0.).expr();
+/// let init_age = SetAttributeModifier::new(Attribute::AGE, age);
+///
+/// // sprite_index = i32(particle.age) % 4;
+/// let sprite_index = writer.attr(Attribute::AGE).cast(ScalarType::Int).rem(writer.lit(4i32)).expr();
+/// let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
+///
+/// let asset = EffectAsset::new(32768, Spawner::once(32.0.into(), true), writer.finish())
+///     .with_name("flipbook")
+///     .init(init_age)
+///     .init(init_lifetime)
+///     .update(update_sprite_index)
+///     .render(ParticleTextureModifier {
+///         texture,
+///         sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
+///     })
+///     .render(FlipbookModifier {
+///         sprite_grid_size: UVec2::new(2, 2), // 4 frames
+///     });
+/// ```
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::SPRITE_INDEX`]
+///
+/// [`SetAttributeModifier`]: crate::modifier::attr::SetAttributeModifier
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+pub struct FlipbookModifier {
+    /// Flipbook sprite sheet grid size.
+    ///
+    /// The grid size defines the number of sprites in the texture, and
+    /// implicitly their size as the total texture size divided by the grid
+    /// size.
+    ///
+    /// To animate the rendered sprite index, modify the
+    /// [`Attribute::SPRITE_INDEX`] property. The value of that attribute should
+    /// ideally be in the `[0:N-1]` range where `N = grid.x * grid.y` is the
+    /// total number of sprites. However values outside that range will not
+    /// produce any error, but will yield texture UV coordinates outside the
+    /// `[0:1]` range.
+    pub sprite_grid_size: UVec2,
+}
+
+impl Default for FlipbookModifier {
+    fn default() -> Self {
+        // Default to something which animates, to help debug mistakes.
+        Self {
+            sprite_grid_size: UVec2::ONE * 2,
+        }
+    }
+}
+
+impl_mod_render!(FlipbookModifier, &[Attribute::SPRITE_INDEX]);
+
+#[typetag::serde]
+impl RenderModifier for FlipbookModifier {
+    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
+        context.sprite_grid_size = Some(self.sprite_grid_size);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::*;
@@ -373,6 +470,22 @@ mod tests {
 
         assert!(context.particle_texture.is_some());
         assert_eq!(context.particle_texture.unwrap(), texture);
+    }
+
+    #[test]
+    fn mod_flipbook() {
+        let modifier = FlipbookModifier {
+            sprite_grid_size: UVec2::new(3, 4),
+        };
+
+        let mut module = Module::default();
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&property_layout, &particle_layout);
+        modifier.apply_render(&mut module, &mut context);
+
+        assert!(context.sprite_grid_size.is_some());
+        assert_eq!(context.sprite_grid_size.unwrap(), UVec2::new(3, 4));
     }
 
     #[test]
