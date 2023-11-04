@@ -203,7 +203,13 @@ fn vertex(
     var particle = particle_buffer.particles[index];
     var out: VertexOutput;
 #ifdef PARTICLE_TEXTURE
-    out.uv = vertex_uv;
+    var uv = vertex_uv;
+#ifdef FLIPBOOK
+    let row_count = {{FLIPBOOK_ROW_COUNT}};
+    let ij = vec2<f32>(f32(particle.sprite_index % row_count), f32(particle.sprite_index / row_count));
+    uv = (ij + uv) * {{FLIPBOOK_SCALE}};
+#endif
+    out.uv = uv;
 #endif
 
 {{INPUTS}}

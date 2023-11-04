@@ -419,6 +419,11 @@ impl AttributeInner {
         Value::Vector(VectorValue::new_vec3(Vec3::Z)),
     );
 
+    pub const SPRITE_INDEX: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("sprite_index"),
+        Value::Scalar(ScalarValue::Int(0)),
+    );
+
     #[inline]
     pub(crate) const fn new(name: Cow<'static, str>, default_value: Value) -> Self {
         Self {
@@ -637,6 +642,10 @@ impl FromReflect for Attribute {
 impl Attribute {
     /// The particle position in [simulation space].
     ///
+    /// # Name
+    ///
+    /// `position`
+    ///
     /// # Type
     ///
     /// [`VectorType::VEC3F`] representing the XYZ coordinates of the position.
@@ -645,6 +654,10 @@ impl Attribute {
     pub const POSITION: Attribute = Attribute(AttributeInner::POSITION);
 
     /// The particle velocity in [simulation space].
+    ///
+    /// # Name
+    ///
+    /// `velocity`
     ///
     /// # Type
     ///
@@ -655,7 +668,7 @@ impl Attribute {
 
     /// The age of the particle.
     ///
-    /// Each time the particle is updated, the current simualtion delta time is
+    /// Each time the particle is updated, the current simulation delta time is
     /// added to the particle's age. The age can be used to animate some other
     /// quantities; see the [`ColorOverLifetimeModifier`] for example.
     ///
@@ -664,6 +677,10 @@ impl Attribute {
     /// [`Attribute::LIFETIME`] attribute), then when the age of the particle
     /// exceeds its lifetime, the particle dies and is not simulated nor
     /// rendered anymore.
+    ///
+    /// # Name
+    ///
+    /// `age`
     ///
     /// # Type
     ///
@@ -679,6 +696,10 @@ impl Attribute {
     /// simulated and rendered. This requires the [`Attribute::AGE`]
     /// attribute to be used too.
     ///
+    /// # Name
+    ///
+    /// `lifetime`
+    ///
     /// # Type
     ///
     /// [`ScalarType::Float`]
@@ -689,6 +710,10 @@ impl Attribute {
     /// This attribute stores a per-particle color, which can be used for
     /// various purposes, generally as the base color for rendering the
     /// particle.
+    ///
+    /// # Name
+    ///
+    /// `color`
     ///
     /// # Type
     ///
@@ -702,6 +727,10 @@ impl Attribute {
     /// various purposes, generally as the base color for rendering the
     /// particle.
     ///
+    /// # Name
+    ///
+    /// `hdr_color`
+    ///
     /// # Type
     ///
     /// [`VectorType::VEC4F`] representing the RGBA components of the color.
@@ -709,14 +738,27 @@ impl Attribute {
     /// represent HDR values.
     pub const HDR_COLOR: Attribute = Attribute(AttributeInner::HDR_COLOR);
 
-    /// The particle's transparency (alpha).
+    /// The particle's opacity (alpha).
     ///
-    /// Type: [`ScalarType::Float`]
+    /// This is a value in \[0:1\], where `0` corresponds to a fully transparent
+    /// particle, and `1` to a fully opaque one.
+    ///
+    /// # Name
+    ///
+    /// `alpha`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Float`]
     pub const ALPHA: Attribute = Attribute(AttributeInner::ALPHA);
 
     /// The particle's uniform size.
     ///
     /// The particle is uniformly scaled by this size.
+    ///
+    /// # Name
+    ///
+    /// `size`
     ///
     /// # Type
     ///
@@ -728,6 +770,10 @@ impl Attribute {
     /// The particle, when drawn as a quad, is scaled along its local X and Y
     /// axes by these values.
     ///
+    /// # Name
+    ///
+    /// `size2`
+    ///
     /// # Type
     ///
     /// [`VectorType::VEC2F`] representing the XY sizes of the particle.
@@ -738,11 +784,18 @@ impl Attribute {
     /// This attribute stores a per-particle X axis, which defines the
     /// horizontal direction of a quad particle. This is generally used to
     /// re-orient the particle during rendering, for example to face the camera
-    /// or another point of interest.
+    /// or another point of interest. For example, the [`OrientModifier`]
+    /// modifies this attribute to make the particle face a specific item.
+    ///
+    /// # Name
+    ///
+    /// `axis_x`
     ///
     /// # Type
     ///
     /// [`VectorType::VEC3F`]
+    ///
+    /// [`OrientModifier`]: crate::modifier::output::OrientModifier
     pub const AXIS_X: Attribute = Attribute(AttributeInner::AXIS_X);
 
     /// The local Y axis of the particle.
@@ -750,11 +803,18 @@ impl Attribute {
     /// This attribute stores a per-particle Y axis, which defines the vertical
     /// direction of a quad particle. This is generally used to re-orient the
     /// particle during rendering, for example to face the camera or another
-    /// point of interest.
+    /// point of interest. For example, the [`OrientModifier`] modifies this
+    /// attribute to make the particle face a specific item.
+    ///
+    /// # Name
+    ///
+    /// `axis_y`
     ///
     /// # Type
     ///
     /// [`VectorType::VEC3F`]
+    ///
+    /// [`OrientModifier`]: crate::modifier::output::OrientModifier
     pub const AXIS_Y: Attribute = Attribute(AttributeInner::AXIS_Y);
 
     /// The local Z axis of the particle.
@@ -762,15 +822,38 @@ impl Attribute {
     /// This attribute stores a per-particle Z axis, which defines the normal to
     /// a quad particle's plane. This is generally used to re-orient the
     /// particle during rendering, for example to face the camera or another
-    /// point of interest.
+    /// point of interest. For example, the [`OrientModifier`] modifies this
+    /// attribute to make the particle face a specific item.
+    ///
+    /// # Name
+    ///
+    /// `axis_z`
     ///
     /// # Type
     ///
     /// [`VectorType::VEC3F`]
+    ///
+    /// [`OrientModifier`]: crate::modifier::output::OrientModifier
     pub const AXIS_Z: Attribute = Attribute(AttributeInner::AXIS_Z);
 
+    /// The sprite index in a flipbook animation.
+    ///
+    /// This attribute stores the index of the sprite of a flipbook animation.
+    /// This is used with the [`FlipbookModifier`].
+    ///
+    /// # Name
+    ///
+    /// `sprite_index`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Int`]
+    ///
+    /// [`FlipbookModifier`]: crate::modifier::output::FlipbookModifier
+    pub const SPRITE_INDEX: Attribute = Attribute(AttributeInner::SPRITE_INDEX);
+
     /// Collection of all the existing particle attributes.
-    pub const ALL: [Attribute; 12] = [
+    pub const ALL: [Attribute; 13] = [
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,
@@ -783,6 +866,7 @@ impl Attribute {
         Attribute::AXIS_X,
         Attribute::AXIS_Y,
         Attribute::AXIS_Z,
+        Attribute::SPRITE_INDEX,
     ];
 
     /// Retrieve an attribute by its name.

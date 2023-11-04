@@ -11,6 +11,7 @@ keywords = ["bevy", "particle-system", "particles", "vfx"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 exclude = ["examples/*.gif", "examples/*.png", ".github", "release.md", "run_examples.bat", "run_examples.sh"]
+autoexamples = false
 
 [features]
 default = ["2d", "3d", "gpu_tests"]
@@ -51,6 +52,9 @@ wgpu = "0.16"
 # For shader snippet validation
 naga = "0.12"
 naga_oil = "0.8"
+
+# For procedural texture generation in examples
+noise = "0.8"
 
 futures = "0.3"
 bevy-inspector-egui = "0.19"
