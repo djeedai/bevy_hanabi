@@ -1,7 +1,6 @@
 use std::ops::Range;
 
 use bevy::{
-    asset::HandleId,
     prelude::*,
     render::render_resource::{Buffer, CachedComputePipelineId},
 };
@@ -32,7 +31,7 @@ pub(crate) struct EffectBatch {
     /// Flags describing the render layout.
     pub layout_flags: LayoutFlags,
     /// Texture to modulate the particle color.
-    pub image_handle_id: HandleId,
+    pub image_handle_id: AssetId<Image>,
     /// Configured shader used for the particle rendering of this batch.
     /// Note that we don't need to keep the init/update shaders alive because
     /// their pipeline specialization is doing it via the specialization key.
@@ -96,7 +95,7 @@ pub(crate) struct BatchInput {
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
     /// Texture to modulate the particle color.
-    pub image_handle_id: HandleId,
+    pub image_handle_id: AssetId<Image>,
     /// Force field sources.
     pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Number of particles to spawn for this effect.
@@ -286,8 +285,6 @@ impl<'a, S, B, I: Batchable<S, B>> Batcher<'a, S, B, I> {
 
 #[cfg(test)]
 mod tests {
-    use bevy::reflect::TypeUuid;
-
     use crate::EffectShader;
 
     use super::*;
@@ -527,7 +524,7 @@ mod tests {
         let handle = Handle::<EffectAsset>::default();
         let particle_layout = ParticleLayout::empty();
         let effect_shader = EffectShader::default();
-        let image_handle_id = HandleId::default::<Image>();
+        let image_handle_id = AssetId::<Image>::default();
         let property_layout = PropertyLayout::empty();
 
         BatchInput {
@@ -650,7 +647,7 @@ mod tests {
             );
 
             let mut item1 = make_test_item();
-            item1.image_handle_id = HandleId::random::<Image>();
+            item1.image_handle_id = AssetId::<Image>::from(Handle::weak_from_u128(rand::random()));
 
             let mut item2 = item1.clone();
             item2.effect_slice.slice = 100..200;
@@ -685,11 +682,11 @@ mod tests {
             );
 
             let mut item1 = make_test_item();
-            item1.image_handle_id = HandleId::new(Image::TYPE_UUID, 1);
+            item1.image_handle_id = AssetId::<Image>::from(Handle::weak_from_u128(1));
 
             let mut item2 = item1.clone();
             item2.effect_slice.slice = 100..200;
-            item2.image_handle_id = HandleId::new(Image::TYPE_UUID, 2);
+            item2.image_handle_id = AssetId::<Image>::from(Handle::weak_from_u128(2));
 
             assert_ne!(item1.image_handle_id, item2.image_handle_id);
 
@@ -730,7 +727,7 @@ mod tests {
             let mut item2 = item1.clone();
             item2.effect_slice.slice = 100..200;
             // Has texture, while item1 doesn't
-            item2.image_handle_id = HandleId::random::<Image>();
+            item2.image_handle_id = AssetId::<Image>::from(Handle::weak_from_u128(rand::random()));
 
             batcher.batch([item1, item2]);
         }

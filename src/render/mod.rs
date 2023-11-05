@@ -1,7 +1,7 @@
 #[cfg(feature = "2d")]
 use bevy::utils::FloatOrd;
 use bevy::{
-    asset::{AssetEvent, Assets, Handle, HandleId},
+    asset::{AssetEvent, Assets, Handle},
     core::{Pod, Zeroable},
     ecs::{
         prelude::*,
@@ -18,14 +18,14 @@ use bevy::{
         renderer::{RenderContext, RenderDevice, RenderQueue},
         texture::{BevyDefault, Image},
         view::{
-            ComputedVisibility, ExtractedView, Msaa, ViewTarget, ViewUniform, ViewUniformOffset,
-            ViewUniforms, VisibleEntities,
+            ExtractedView, InheritedVisibility, Msaa, ViewTarget, ViewUniform, ViewUniformOffset,
+            ViewUniforms, ViewVisibility, VisibleEntities,
         },
         Extract,
     },
     time::Time,
     transform::components::GlobalTransform,
-    utils::{HashMap, Uuid},
+    utils::HashMap,
 };
 use bitflags::bitflags;
 use rand::random;
@@ -883,7 +883,7 @@ pub(crate) struct ParticleRenderPipelineKey {
 impl Default for ParticleRenderPipelineKey {
     fn default() -> Self {
         Self {
-            shader: Handle::weak(HandleId::new(Uuid::nil(), u64::MAX)),
+            shader: Handle::weak_from_u128(u128::MAX),
             particle_layout: ParticleLayout::empty(),
             has_image: false,
             screen_space_size: false,
@@ -1149,7 +1149,7 @@ pub(crate) struct ExtractedEffect {
     /// Layout flags.
     pub layout_flags: LayoutFlags,
     /// Texture to modulate the particle color.
-    pub image_handle_id: HandleId,
+    pub image_handle_id: AssetId<Image>,
     /// Effect shader.
     pub effect_shader: EffectShader,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
@@ -1213,22 +1213,10 @@ pub(crate) fn extract_effect_events(
     trace!("extract_effect_events");
 
     let EffectAssetEvents { ref mut images } = *events;
-    images.clear();
-
-    for image in image_events.iter() {
-        // AssetEvent: !Clone
-        images.push(match image {
-            AssetEvent::Created { handle } => AssetEvent::Created {
-                handle: handle.clone_weak(),
-            },
-            AssetEvent::Modified { handle } => AssetEvent::Modified {
-                handle: handle.clone_weak(),
-            },
-            AssetEvent::Removed { handle } => AssetEvent::Removed {
-                handle: handle.clone_weak(),
-            },
-        });
-    }
+    *images = image_events
+        .read()
+        .map(|image| image.to_owned())
+        .collect::<Vec<_>>();
 }
 
 /// System extracting data for rendering of all active [`ParticleEffect`]
@@ -1251,7 +1239,8 @@ pub(crate) fn extract_effects(
             // All existing ParticleEffect components
             Query<(
                 Entity,
-                Option<&ComputedVisibility>,
+                Option<&InheritedVisibility>,
+                Option<&ViewVisibility>,
                 &EffectSpawner,
                 &CompiledParticleEffect,
                 &GlobalTransform,
@@ -1261,7 +1250,8 @@ pub(crate) fn extract_effects(
                 (Entity, &CompiledParticleEffect),
                 (
                     Added<CompiledParticleEffect>,
-                    With<ComputedVisibility>,
+                    With<InheritedVisibility>,
+                    With<ViewVisibility>,
                     With<GlobalTransform>,
                 ),
             >,
@@ -1281,7 +1271,7 @@ pub(crate) fn extract_effects(
     // Collect removed effects for later GPU data purge
     extracted_effects.removed_effect_entities =
         removed_effects_event_reader
-            .iter()
+            .read()
             .fold(vec![], |mut acc, ev| {
                 // FIXME - Need to clone because we can't consume the event, we only have
                 // read-only access to the main world
@@ -1332,7 +1322,9 @@ pub(crate) fn extract_effects(
 
     // Loop over all existing effects to update them
     extracted_effects.effects.clear();
-    for (entity, maybe_computed_visibility, spawner, effect, transform) in query.p0().iter_mut() {
+    for (entity, maybe_inherited_visiblity, maybe_view_visibility, spawner, effect, transform) in
+        query.p0().iter_mut()
+    {
         // Check if shaders are configured
         let Some(effect_shader) = effect.get_configured_shader() else {
             continue;
@@ -1340,9 +1332,10 @@ pub(crate) fn extract_effects(
 
         // Check if hidden, unless always simulated
         if effect.simulation_condition == SimulationCondition::WhenVisible
-            && !maybe_computed_visibility
-                .map(|cv| cv.is_visible())
-                .unwrap_or(true)
+            && !match (maybe_inherited_visiblity, maybe_view_visibility) {
+                (Some(iv), Some(vv)) => iv.get() && vv.get(),
+                _ => true,
+            }
         {
             continue;
         }
@@ -2139,7 +2132,7 @@ fn emit_draw<T, F>(
             // group for it
             let has_image = batch.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE);
             if has_image {
-                let image_handle = Handle::weak(batch.image_handle_id);
+                let image_handle = Handle::Weak(batch.image_handle_id);
                 if effect_bind_groups.images.get(&image_handle).is_none() {
                     trace!(
                         "Batch buffer #{} slice={:?} has missing GPU image bind group, creating...",
@@ -2149,20 +2142,14 @@ fn emit_draw<T, F>(
                     // If texture doesn't have a bind group yet from another instance of the
                     // same effect, then try to create one now
                     if let Some(gpu_image) = gpu_images.get(&image_handle) {
-                        let bind_group = render_device.create_bind_group(&BindGroupDescriptor {
-                            entries: &[
-                                BindGroupEntry {
-                                    binding: 0,
-                                    resource: BindingResource::TextureView(&gpu_image.texture_view),
-                                },
-                                BindGroupEntry {
-                                    binding: 1,
-                                    resource: BindingResource::Sampler(&gpu_image.sampler),
-                                },
-                            ],
-                            label: Some("hanabi:material_bind_group"),
-                            layout: &read_params.render_pipeline.material_layout,
-                        });
+                        let bind_group = render_device.create_bind_group(
+                            "hanabi:material_bind_group",
+                            &read_params.render_pipeline.material_layout,
+                            &BindGroupEntries::sequential((
+                                BindingResource::TextureView(&gpu_image.texture_view),
+                                BindingResource::Sampler(&gpu_image.sampler),
+                            )),
+                        );
                         effect_bind_groups
                             .images
                             .insert(image_handle.clone(), bind_group);
@@ -2251,19 +2238,18 @@ pub(crate) fn queue_effects(
     events: Res<EffectAssetEvents>,
     read_params: QueueEffectsReadOnlyParams,
     msaa: Res<Msaa>,
+    images: Query<&Handle<Image>>,
 ) {
     trace!("queue_effects");
 
     // If an image has changed, the GpuImage has (probably) changed
     for event in &events.images {
         match event {
-            AssetEvent::Created { .. } => None,
-            AssetEvent::Modified { handle } => {
+            AssetEvent::Added { .. } | AssetEvent::LoadedWithDependencies { .. } => None,
+            AssetEvent::Modified { id } | AssetEvent::Removed { id } => {
+                // TODO: is fetching the handle necessary?
+                let handle = images.iter().find(|img| img.id() == *id).unwrap();
                 trace!("Destroy bind group of modified image asset {:?}", handle);
-                effect_bind_groups.images.remove(handle)
-            }
-            AssetEvent::Removed { handle } => {
-                trace!("Destroy bind group of removed image asset {:?}", handle);
                 effect_bind_groups.images.remove(handle)
             }
         };
@@ -2281,32 +2267,22 @@ pub(crate) fn queue_effects(
     };
 
     // Create the bind group for the camera/view parameters
-    effects_meta.view_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
-        entries: &[
-            BindGroupEntry {
-                binding: 0,
-                resource: view_binding,
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: effects_meta.sim_params_uniforms.binding().unwrap(),
-            },
-        ],
-        label: Some("hanabi:bind_group_camera_view"),
-        layout: &read_params.render_pipeline.view_layout,
-    }));
+    effects_meta.view_bind_group = Some(render_device.create_bind_group(
+        "hanabi:bind_group_camera_view",
+        &read_params.render_pipeline.view_layout,
+        &BindGroupEntries::sequential((
+            view_binding,
+            effects_meta.sim_params_uniforms.binding().unwrap(),
+        )),
+    ));
 
     // Create the bind group for the global simulation parameters
-    effects_meta.sim_params_bind_group =
-        Some(render_device.create_bind_group(&BindGroupDescriptor {
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: effects_meta.sim_params_uniforms.binding().unwrap(),
-            }],
-            label: Some("hanabi:bind_group_sim_params"),
-            layout: &read_params.update_pipeline.sim_params_layout, /* FIXME - Shared with
-                                                                     * vfx_update, is that OK? */
-        }));
+    effects_meta.sim_params_bind_group = Some(render_device.create_bind_group(
+        "hanabi:bind_group_sim_params",
+        &read_params.update_pipeline.sim_params_layout, /* FIXME - Shared with
+                                                         * vfx_update, is that OK? */
+        &BindGroupEntries::sequential((effects_meta.sim_params_uniforms.binding().unwrap(),)),
+    ));
 
     // Create the bind group for the spawner parameters
     // FIXME - This is shared by init and update; should move
@@ -2319,87 +2295,65 @@ pub(crate) fn queue_effects(
     assert!(
         effects_meta.spawner_buffer.aligned_size() >= GpuSpawnerParams::min_size().get() as usize
     );
-    effects_meta.spawner_bind_group = Some(render_device.create_bind_group(&BindGroupDescriptor {
-        entries: &[BindGroupEntry {
-            binding: 0,
-            resource: BindingResource::Buffer(BufferBinding {
-                buffer: effects_meta.spawner_buffer.buffer().unwrap(),
-                offset: 0,
-                size: Some(
-                    NonZeroU64::new(effects_meta.spawner_buffer.aligned_size() as u64).unwrap(),
-                ),
-            }),
-        }],
-        label: Some("hanabi:bind_group_spawner_buffer"),
-        layout: &read_params.update_pipeline.spawner_buffer_layout, /* FIXME - Shared with init,
-                                                                     * is that OK? */
-    }));
+    effects_meta.spawner_bind_group = Some(render_device.create_bind_group(
+        "hanabi:bind_group_spawner_buffer",
+        &read_params.update_pipeline.spawner_buffer_layout, /* FIXME - Shared with init,
+                                                             * is that OK? */
+        &BindGroupEntries::sequential((BindingResource::Buffer(BufferBinding {
+            buffer: effects_meta.spawner_buffer.buffer().unwrap(),
+            offset: 0,
+            size: Some(NonZeroU64::new(effects_meta.spawner_buffer.aligned_size() as u64).unwrap()),
+        }),)),
+    ));
 
     // Create the bind group for the indirect dispatch of all effects
     effects_meta.dr_indirect_bind_group = Some(
-        render_device.create_bind_group(&BindGroupDescriptor {
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::Buffer(BufferBinding {
-                        buffer: effects_meta.render_dispatch_buffer.buffer().unwrap(),
-                        offset: 0,
-                        size: None, //NonZeroU64::new(256), // Some(GpuRenderIndirect::min_size()),
-                    }),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::Buffer(BufferBinding {
-                        buffer: effects_meta.dispatch_indirect_buffer.buffer().unwrap(),
-                        offset: 0,
-                        size: None, //NonZeroU64::new(256), // Some(GpuDispatchIndirect::min_size()),
-                    }),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::Buffer(BufferBinding {
-                        buffer: effects_meta.spawner_buffer.buffer().unwrap(),
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-            ],
-            label: Some("hanabi:bind_group_vfx_indirect_dr_indirect"),
-            layout: &read_params
+        render_device.create_bind_group(
+            "hanabi:bind_group_vfx_indirect_dr_indirect",
+            &read_params
                 .dispatch_indirect_pipeline
                 .dispatch_indirect_layout,
-        }),
+            &BindGroupEntries::sequential((
+                BindingResource::Buffer(BufferBinding {
+                    buffer: effects_meta.render_dispatch_buffer.buffer().unwrap(),
+                    offset: 0,
+                    size: None, //NonZeroU64::new(256), // Some(GpuRenderIndirect::min_size()),
+                }),
+                BindingResource::Buffer(BufferBinding {
+                    buffer: effects_meta.dispatch_indirect_buffer.buffer().unwrap(),
+                    offset: 0,
+                    size: None, //NonZeroU64::new(256), // Some(GpuDispatchIndirect::min_size()),
+                }),
+                BindingResource::Buffer(BufferBinding {
+                    buffer: effects_meta.spawner_buffer.buffer().unwrap(),
+                    offset: 0,
+                    size: None,
+                }),
+            )),
+        ),
     );
 
     // Create the bind group for the indirect render buffer use in the init shader
-    effects_meta.init_render_indirect_bind_group =
-        Some(render_device.create_bind_group(&BindGroupDescriptor {
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer: effects_meta.render_dispatch_buffer.buffer().unwrap(),
-                    offset: 0,
-                    size: Some(GpuRenderIndirect::min_size()),
-                }),
-            }],
-            label: Some("hanabi:bind_group_init_render_dispatch"),
-            layout: &read_params.init_pipeline.render_indirect_layout,
-        }));
+    effects_meta.init_render_indirect_bind_group = Some(render_device.create_bind_group(
+        "hanabi:bind_group_init_render_dispatch",
+        &read_params.init_pipeline.render_indirect_layout,
+        &BindGroupEntries::sequential((BindingResource::Buffer(BufferBinding {
+            buffer: effects_meta.render_dispatch_buffer.buffer().unwrap(),
+            offset: 0,
+            size: Some(GpuRenderIndirect::min_size()),
+        }),)),
+    ));
 
     // Create the bind group for the indirect render buffer use in the update shader
-    effects_meta.update_render_indirect_bind_group =
-        Some(render_device.create_bind_group(&BindGroupDescriptor {
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer: effects_meta.render_dispatch_buffer.buffer().unwrap(),
-                    offset: 0,
-                    size: Some(GpuRenderIndirect::min_size()),
-                }),
-            }],
-            label: Some("hanabi:bind_group_update_render_dispatch"),
-            layout: &read_params.update_pipeline.render_indirect_layout,
-        }));
+    effects_meta.update_render_indirect_bind_group = Some(render_device.create_bind_group(
+        "hanabi:bind_group_update_render_dispatch",
+        &read_params.update_pipeline.render_indirect_layout,
+        &BindGroupEntries::sequential((BindingResource::Buffer(BufferBinding {
+            buffer: effects_meta.render_dispatch_buffer.buffer().unwrap(),
+            offset: 0,
+            size: Some(GpuRenderIndirect::min_size()),
+        }),)),
+    ));
 
     // Make a copy of the buffer ID before borrowing effects_meta mutably in the
     // loop below
@@ -2455,11 +2409,11 @@ pub(crate) fn queue_effects(
                         },
                     ];
                     trace!("=> create update bind group '{}' with 3 entries", label);
-                    render_device.create_bind_group(&BindGroupDescriptor {
-                        entries: &entries,
-                        label: Some(&label),
+                    render_device.create_bind_group(
+                        label.as_str(),
                         layout,
-                    })
+                        &entries
+                    )
                 } else {
                     let entries = [
                         BindGroupEntry {
@@ -2472,11 +2426,11 @@ pub(crate) fn queue_effects(
                         },
                     ];
                     trace!("=> create update bind group '{}' with 2 entries", label);
-                    render_device.create_bind_group(&BindGroupDescriptor {
-                        entries: &entries,
-                        label: Some(&label),
+                    render_device.create_bind_group(
+                        label.as_str(),
                         layout,
-                    })
+                        &entries
+                    )
                 };
 
                 // 
@@ -2509,13 +2463,13 @@ pub(crate) fn queue_effects(
                     });
                 }
                 trace!("Creating render bind group with {} entries", entries.len());
-                let render = render_device.create_bind_group(&BindGroupDescriptor {
-                    entries: &entries,
-                    label: Some(&format!(
+                let render = render_device.create_bind_group(
+                    format!(
                         "hanabi:bind_group_render_vfx{buffer_index}_particles",
-                    )),
-                    layout: buffer.particle_layout_bind_group_with_dispatch(),
-                });
+                    ).as_str(),
+                    buffer.particle_layout_bind_group_with_dispatch(),
+                    &entries,
+                );
 
                 BufferBindGroups {
                     simulate,
@@ -2551,7 +2505,10 @@ pub(crate) fn queue_effects(
                     pipeline: id,
                     entity,
                     sort_key: batch.z_sort_key_2d,
-                    batch_range: None,
+
+                    // FIXME: Guessing here
+                    batch_range: 0..u32::MAX,
+                    dynamic_offset: None,
                 },
                 #[cfg(feature = "3d")]
                 PipelineMode::Camera2d,
@@ -2588,6 +2545,10 @@ pub(crate) fn queue_effects(
                     pipeline: id,
                     entity,
                     distance: 0.0, // TODO
+
+                    // FIXME: Guessing here
+                    batch_range: 0..u32::MAX,
+                    dynamic_offset: None,
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
@@ -2620,6 +2581,10 @@ pub(crate) fn queue_effects(
                     pipeline: id,
                     entity,
                     distance: 0.0, // TODO
+
+                    // FIXME: Guessing here
+                    batch_range: 0..u32::MAX,
+                    dynamic_offset: None,
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
@@ -2720,7 +2685,7 @@ fn draw<'w>(
         .layout_flags
         .contains(LayoutFlags::PARTICLE_TEXTURE)
     {
-        let image_handle = Handle::weak(effect_batch.image_handle_id);
+        let image_handle = Handle::Weak(effect_batch.image_handle_id);
         if let Some(bind_group) = effect_bind_groups.images.get(&image_handle) {
             pass.set_bind_group(2, bind_group, &[]);
         } else {

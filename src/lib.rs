@@ -128,10 +128,10 @@
 //! spawned together.
 //!
 //! ```
-//! # use bevy::{prelude::*, asset::HandleId};
+//! # use bevy::prelude::*;
 //! # use bevy_hanabi::prelude::*;
 //! # fn spawn_effect(mut commands: Commands) {
-//! #   let effect_handle = Handle::weak(HandleId::random::<EffectAsset>());
+//! #   let effect_handle = Handle::weak_from_u128(rand::random());
 //! // Configure the emitter to spawn 100 particles / second
 //! let spawner = Spawner::rate(100_f32.into());
 //!
@@ -665,8 +665,8 @@ impl ParticleEffect {
     ///
     /// ```
     /// # use bevy_hanabi::*;
-    /// # use bevy::asset::{Handle, HandleId};
-    /// # let asset = Handle::weak(HandleId::random::<EffectAsset>());
+    /// # use bevy::asset::Handle;
+    /// # let asset = Handle::weak_from_u128(rand::random());
     /// // Always render the effect in front of the default layer (z=0)
     /// let effect = ParticleEffect::new(asset).with_z_layer_2d(Some(0.1));
     /// ```
@@ -1522,7 +1522,7 @@ fn gather_removed_effects(
     mut removed_effects: RemovedComponents<ParticleEffect>,
     mut removed_effects_event_writer: EventWriter<RemovedEffectsEvent>,
 ) {
-    let entities: Vec<Entity> = removed_effects.iter().collect();
+    let entities: Vec<Entity> = removed_effects.read().collect();
     if !entities.is_empty() {
         removed_effects_event_writer.send(RemovedEffectsEvent { entities });
     }
@@ -1533,12 +1533,16 @@ mod tests {
     use std::ops::DerefMut;
 
     use bevy::{
+        asset::{
+            io::{AssetSourceBuilder, AssetSourceBuilders},
+            AssetServerMode,
+        },
         render::view::{VisibilityPlugin, VisibilitySystems},
         tasks::IoTaskPool,
     };
     use naga_oil::compose::{Composer, NagaModuleDescriptor, ShaderDefValue};
 
-    use crate::{spawn::new_rng, test_utils::DummyAssetIo};
+    use crate::spawn::new_rng;
 
     use super::*;
 
@@ -1741,18 +1745,26 @@ else { return c1; }
     }
 
     fn make_test_app() -> App {
-        IoTaskPool::init(Default::default);
-        let asset_server = AssetServer::new(DummyAssetIo {});
+        IoTaskPool::get_or_init(Default::default);
+        let mut builder = AssetSourceBuilders::default();
+        builder.init_default_source("assets", None);
+        builder.insert("", AssetSourceBuilder::default());
+        // TODO: Look into asset processing
+        let asset_server = AssetServer::new(
+            builder.build_sources(false, false),
+            AssetServerMode::Unprocessed,
+            false,
+        );
 
         let mut app = App::new();
         app.insert_resource(asset_server);
         // app.add_plugins(DefaultPlugins);
-        app.add_asset::<Mesh>();
-        app.add_asset::<Shader>();
+        app.init_asset::<Mesh>();
+        app.init_asset::<Shader>();
         app.add_plugins(VisibilityPlugin);
         app.init_resource::<ShaderCache>();
         app.insert_resource(Random(new_rng()));
-        app.add_asset::<EffectAsset>();
+        app.init_asset::<EffectAsset>();
         app.add_systems(
             PostUpdate,
             compile_effects.after(VisibilitySystems::CheckVisibility),
@@ -1997,7 +2009,8 @@ else { return c1; }
                     world
                         .spawn((
                             visibility,
-                            ComputedVisibility::default(),
+                            InheritedVisibility::default(),
+                            ViewVisibility::default(),
                             ParticleEffect {
                                 handle: handle.clone(),
                                 ..default()
@@ -2035,14 +2048,14 @@ else { return c1; }
                 let (
                     entity,
                     visibility,
-                    computed_visibility,
+                    inherited_visibility,
                     particle_effect,
                     compiled_particle_effect,
                 ) = world
                     .query::<(
                         Entity,
                         &Visibility,
-                        &ComputedVisibility,
+                        &InheritedVisibility,
                         &ParticleEffect,
                         &CompiledParticleEffect,
                     )>()
@@ -2052,7 +2065,7 @@ else { return c1; }
                 assert_eq!(entity, effect_entity);
                 assert_eq!(visibility, test_visibility);
                 assert_eq!(
-                    computed_visibility.is_visible(),
+                    inherited_visibility.get(),
                     test_visibility == Visibility::Visible
                 );
                 assert_eq!(particle_effect.handle, handle);

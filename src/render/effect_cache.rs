@@ -734,7 +734,7 @@ impl EffectCache {
 mod gpu_tests {
     use std::borrow::Cow;
 
-    use bevy::{asset::HandleId, math::Vec4};
+    use bevy::math::Vec4;
 
     use crate::{
         graph::{Value, VectorValue},
@@ -836,7 +836,7 @@ mod gpu_tests {
             .build();
         assert_eq!(64, l64.size());
 
-        let asset = Handle::weak(HandleId::random::<EffectAsset>());
+        let asset = Handle::weak_from_u128(rand::random());
         let capacity = 4096;
         let mut buffer = EffectBuffer::new(
             asset,
@@ -911,7 +911,7 @@ mod gpu_tests {
             .build();
         assert_eq!(64, l64.size());
 
-        let asset = Handle::weak(HandleId::random::<EffectAsset>());
+        let asset = Handle::weak_from_u128(rand::random());
         let capacity = 2048; // EffectBuffer::MIN_CAPACITY;
         assert!(capacity >= 2048); // otherwise the logic below breaks
         let mut buffer = EffectBuffer::new(
@@ -982,7 +982,7 @@ mod gpu_tests {
         let mut effect_cache = EffectCache::new(render_device);
         assert_eq!(effect_cache.buffers().len(), 0);
 
-        let asset = Handle::weak(HandleId::random::<EffectAsset>());
+        let asset = Handle::weak_from_u128(rand::random());
         let capacity = EffectBuffer::MIN_CAPACITY;
         let item_size = l32.size();
 

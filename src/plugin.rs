@@ -52,11 +52,11 @@ pub struct HanabiPlugin;
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
         // Register asset
-        app.add_asset::<EffectAsset>()
-            .add_event::<RemovedEffectsEvent>()
+        app.add_event::<RemovedEffectsEvent>()
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<ShaderCache>()
-            .init_asset_loader::<EffectAssetLoader>()
+            .register_asset_loader(EffectAssetLoader)
+            .init_asset::<EffectAsset>()
             .configure_sets(
                 PostUpdate,
                 (

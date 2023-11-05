@@ -876,7 +876,7 @@ fn main() {{
             let mut frontend = Frontend::new();
             let res = frontend.parse(&code);
             if let Err(err) = &res {
-                println!("Modifier: {:?}", modifier.type_name());
+                println!("Modifier: {:?}", modifier.reflect_type_path());
                 println!("Code: {:?}", code);
                 println!("Err: {:?}", err);
             }
@@ -1008,7 +1008,7 @@ fn main() {{
             let mut frontend = Frontend::new();
             let res = frontend.parse(&code);
             if let Err(err) = &res {
-                println!("Modifier: {:?}", modifier.type_name());
+                println!("Modifier: {:?}", modifier.reflect_type_path());
                 println!("Code: {:?}", code);
                 println!("Err: {:?}", err);
             }
@@ -1108,7 +1108,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {{
             let mut frontend = Frontend::new();
             let res = frontend.parse(&code);
             if let Err(err) = &res {
-                println!("Modifier: {:?}", modifier.type_name());
+                println!("Modifier: {:?}", modifier.reflect_type_path());
                 println!("Code: {:?}", code);
                 println!("Err: {:?}", err);
             }

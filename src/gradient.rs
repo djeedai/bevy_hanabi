@@ -484,7 +484,7 @@ impl<T: Lerp + FromReflect> Gradient<T> {
 mod tests {
     use std::collections::hash_map::DefaultHasher;
 
-    use bevy::reflect::{ReflectRef, Struct};
+    use bevy::reflect::{DynamicTypePath, ReflectRef, Struct};
     use rand::{distributions::Standard, prelude::Distribution, rngs::ThreadRng, thread_rng, Rng};
 
     use crate::test_utils::*;
@@ -637,7 +637,7 @@ mod tests {
 
         // Struct
         assert!(g
-            .type_name()
+            .reflect_type_path()
             .starts_with("bevy_hanabi::gradient::Gradient<")); // the Vec4 type name depends on platform
         let keys = g.field("keys").unwrap();
         let ReflectRef::List(keys) = keys.reflect_ref() else {
@@ -653,7 +653,7 @@ mod tests {
             let ReflectRef::Struct(k) = k.reflect_ref() else {
                 panic!("Invalid type");
             };
-            assert!(k.type_name().contains("GradientKey"));
+            assert!(k.reflect_type_path().contains("GradientKey"));
         }
     }
 

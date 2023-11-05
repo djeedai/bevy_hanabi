@@ -1,5 +1,6 @@
 use bevy::{
-    asset::{AssetLoader, LoadContext, LoadedAsset},
+    asset::{io::Reader, AssetLoader, AsyncReadExt, LoadContext},
+    prelude::Asset,
     reflect::{Reflect, TypeUuid},
     utils::{default, BoxedFuture, HashSet},
 };
@@ -160,7 +161,7 @@ pub enum AlphaMode {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Default, Clone, TypeUuid, Reflect, Serialize, Deserialize)]
+#[derive(Asset, Default, Clone, TypeUuid, Reflect, Serialize, Deserialize)]
 #[reflect(from_reflect = false)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
@@ -477,15 +478,21 @@ impl EffectAsset {
 pub struct EffectAssetLoader;
 
 impl AssetLoader for EffectAssetLoader {
+    type Asset = EffectAsset;
+    type Settings = ();
+    type Error = ron::Error;
+
     fn load<'a>(
         &'a self,
-        bytes: &'a [u8],
-        load_context: &'a mut LoadContext,
-    ) -> BoxedFuture<'a, Result<(), anyhow::Error>> {
+        reader: &'a mut Reader,
+        _settings: &'a Self::Settings,
+        _load_context: &'a mut LoadContext,
+    ) -> BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
         Box::pin(async move {
-            let custom_asset = ron::de::from_bytes::<EffectAsset>(bytes)?;
-            load_context.set_default_asset(LoadedAsset::new(custom_asset));
-            Ok(())
+            let mut bytes = Vec::new();
+            reader.read_to_end(&mut bytes).await?;
+            let custom_asset = ron::de::from_bytes(bytes.as_slice())?;
+            Ok(custom_asset)
         })
     }
 

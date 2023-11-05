@@ -497,7 +497,7 @@ impl Typed for Attribute {
                 NamedField::new::<Cow<str>>("name"),
                 NamedField::new::<Value>("default_value"),
             ];
-            let info = StructInfo::new::<Self>("Attribute", &fields);
+            let info = StructInfo::new::<Self>(&fields);
             TypeInfo::Struct(info)
         })
     }
@@ -556,11 +556,6 @@ impl Struct for Attribute {
 }
 
 impl Reflect for Attribute {
-    #[inline]
-    fn type_name(&self) -> &str {
-        ::core::any::type_name::<Attribute>()
-    }
-
     fn get_represented_type_info(&self) -> Option<&'static TypeInfo> {
         Some(<Self as Typed>::type_info())
     }
@@ -1374,8 +1369,8 @@ mod tests {
                 .iter()
                 .find(|c| c.1.name == Some("x".to_string()))
                 .unwrap();
-            let (size, align) = if let naga::ConstantInner::Scalar { width, value: _ } = &cst.inner
-            {
+            let inner = &m.types.get_handle(cst.ty).unwrap().inner;
+            let (size, align) = if let naga::TypeInner::Scalar { width, kind: _ } = inner {
                 // Scalar types have the same size and align
                 (
                     *width as u32,
@@ -1383,10 +1378,15 @@ mod tests {
                 )
             } else {
                 // For non-scalar types, calculate the type layout according to WGSL
-                let type_handle = cst.inner.resolve_type().handle().unwrap();
                 let mut layouter = Layouter::default();
-                assert!(layouter.update(&m.types, &m.constants).is_ok());
-                let layout = layouter[type_handle];
+                assert!(layouter
+                    .update(naga::proc::GlobalCtx {
+                        types: &m.types,
+                        constants: &m.constants,
+                        const_expressions: &m.const_expressions
+                    })
+                    .is_ok());
+                let layout = layouter[cst.ty];
                 (layout.size, layout.alignment)
             };
 
@@ -1436,10 +1436,7 @@ mod tests {
         let mut attr = Attribute(TEST_ATTR_INNER);
 
         let r = attr.as_reflect();
-        assert_eq!(
-            TypeRegistration::of::<Attribute>().type_name(),
-            r.type_name()
-        );
+        assert_eq!(TypeRegistration::of::<Attribute>().type_id(), r.type_id());
         match r.reflect_ref() {
             ReflectRef::Struct(s) => {
                 assert_eq!(2, s.field_len());
@@ -1451,26 +1448,26 @@ mod tests {
 
                 assert_eq!(
                     Some("alloc::borrow::Cow<str>"),
-                    s.field("name").map(|f| f.type_name())
+                    s.field("name").map(|f| f.reflect_type_path())
                 );
                 assert_eq!(
                     Some("bevy_hanabi::graph::Value"),
-                    s.field("default_value").map(|f| f.type_name())
+                    s.field("default_value").map(|f| f.reflect_type_path())
                 );
                 assert!(s.field("DUMMY").is_none());
                 assert!(s.field("").is_none());
 
                 for f in s.iter_fields() {
                     assert!(
-                        f.type_name().contains("alloc::borrow::Cow<str>")
-                            || f.type_name().contains("bevy_hanabi::graph::Value")
+                        f.reflect_type_path().contains("alloc::borrow::Cow<str>")
+                            || f.reflect_type_path().contains("bevy_hanabi::graph::Value")
                     );
                 }
 
                 let d = s.clone_dynamic();
                 assert_eq!(
-                    TypeRegistration::of::<Attribute>().type_name(),
-                    d.get_represented_type_info().unwrap().type_name()
+                    TypeRegistration::of::<Attribute>().type_id(),
+                    d.get_represented_type_info().unwrap().type_id()
                 );
                 assert_eq!(Some(0), d.index_of("name"));
                 assert_eq!(Some(1), d.index_of("default_value"));
