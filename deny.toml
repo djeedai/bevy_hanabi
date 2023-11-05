@@ -1,0 +1,45 @@
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+vulnerability = "deny"
+unmaintained = "deny"
+yanked = "deny"
+notice = "deny"
+ignore = [
+]
+
+[licenses]
+unlicensed = "deny"
+copyleft = "deny"
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "BSD-2-Clause",
+    "CC0-1.0",
+]
+exceptions = [
+    { name = "unicode-ident", allow = ["Unicode-DFS-2016"] },
+]
+default = "deny"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Certain crates that we don't want multiple versions of in the dependency tree
+deny = [
+    { name = "ahash", deny-multiple-versions = true },
+    { name = "android-activity", deny-multiple-versions = true },
+    { name = "glam", deny-multiple-versions = true },
+    { name = "raw-window-handle", deny-multiple-versions = true },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
