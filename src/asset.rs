@@ -1,7 +1,7 @@
 use bevy::{
-    asset::{AssetLoader, LoadContext, LoadedAsset},
+    asset::{io::Reader, Asset, AssetLoader, AsyncReadExt, LoadContext},
     reflect::{Reflect, TypeUuid},
-    utils::{default, BoxedFuture, HashSet},
+    utils::{default, thiserror::Error, BoxedFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
 
@@ -160,7 +160,7 @@ pub enum AlphaMode {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Default, Clone, TypeUuid, Reflect, Serialize, Deserialize)]
+#[derive(Asset, Default, Clone, TypeUuid, Reflect, Serialize, Deserialize)]
 #[reflect(from_reflect = false)]
 #[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
@@ -473,19 +473,42 @@ impl EffectAsset {
     }
 }
 
+/// Asset loader for [`EffectAsset`].
+///
+/// Effet assets take the `.effect` extension.
 #[derive(Default)]
 pub struct EffectAssetLoader;
 
+/// Error for the [`EffectAssetLoader`] loading an [`EffectAsset`].
+#[derive(Error, Debug)]
+pub enum EffectAssetLoaderError {
+    /// I/O error reading the asset source.
+    #[error("An IO error occurred during loading of a particle effect")]
+    Io(#[from] std::io::Error),
+
+    /// Error during RON format parsing.
+    #[error("A RON format error occurred during loading of a particle effect")]
+    Ron(#[from] ron::error::SpannedError),
+}
+
 impl AssetLoader for EffectAssetLoader {
+    type Asset = EffectAsset;
+
+    type Settings = ();
+
+    type Error = EffectAssetLoaderError;
+
     fn load<'a>(
         &'a self,
-        bytes: &'a [u8],
-        load_context: &'a mut LoadContext,
-    ) -> BoxedFuture<'a, Result<(), anyhow::Error>> {
+        reader: &'a mut Reader,
+        _settings: &'a Self::Settings,
+        _load_context: &'a mut LoadContext,
+    ) -> BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
         Box::pin(async move {
-            let custom_asset = ron::de::from_bytes::<EffectAsset>(bytes)?;
-            load_context.set_default_asset(LoadedAsset::new(custom_asset));
-            Ok(())
+            let mut bytes = Vec::new();
+            reader.read_to_end(&mut bytes).await?;
+            let custom_asset = ron::de::from_bytes::<EffectAsset>(&bytes)?;
+            Ok(custom_asset)
         })
     }
 

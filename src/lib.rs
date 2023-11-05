@@ -128,10 +128,10 @@
 //! spawned together.
 //!
 //! ```
-//! # use bevy::{prelude::*, asset::HandleId};
+//! # use bevy::prelude::*;
 //! # use bevy_hanabi::prelude::*;
 //! # fn spawn_effect(mut commands: Commands) {
-//! #   let effect_handle = Handle::weak(HandleId::random::<EffectAsset>());
+//! #   let effect_handle = Handle::<EffectAsset>::default();
 //! // Configure the emitter to spawn 100 particles / second
 //! let spawner = Spawner::rate(100_f32.into());
 //!
@@ -665,8 +665,8 @@ impl ParticleEffect {
     ///
     /// ```
     /// # use bevy_hanabi::*;
-    /// # use bevy::asset::{Handle, HandleId};
-    /// # let asset = Handle::weak(HandleId::random::<EffectAsset>());
+    /// # use bevy::asset::Handle;
+    /// # let asset = Handle::<EffectAsset>::default();
     /// // Always render the effect in front of the default layer (z=0)
     /// let effect = ParticleEffect::new(asset).with_z_layer_2d(Some(0.1));
     /// ```
@@ -1433,16 +1433,19 @@ impl ShaderCode for Gradient<Vec4> {
     }
 }
 
-/// Compile all the visible [`ParticleEffect`] components.
+/// Compile all the [`ParticleEffect`] components into a
+/// [`CompiledParticleEffect`].
 ///
-/// This system runs in the [`CoreSet::PostUpdate`] stage, after the visibility
-/// system has updated the [`ComputedVisibility`] of each effect instance (see
-/// [`VisibilitySystems::CheckVisibility`]). Hidden instances are not compiled,
-/// unless their [`EffectAsset::simulation_condition`] is set to
-/// [`SimulationCondition::Always`].
+/// This system runs in the [`EffectSystems::CompileEffects`] set of the
+/// [`PostUpdate`] schedule. It gathers all new instances of [`ParticleEffect`],
+/// as well as instances which changed, and (re)compile them into an optimized
+/// form saved into the [`CompiledParticleEffect`] component.
 ///
-/// [`VisibilitySystems::CheckVisibility`]: bevy::render::view::VisibilitySystems::CheckVisibility
-/// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
+/// Hidden instances are compiled like visible ones, both to allow users to
+/// compile "in the background" by spawning a hidden effect, and also to prevent
+/// having mixed state where only some effects are compiled, and effects
+/// becoming visible later need to be special casing. If you want to avoid
+/// compiling an effect, don't spawn it.
 fn compile_effects(
     effects: Res<Assets<EffectAsset>>,
     mut shaders: ResMut<Assets<Shader>>,
@@ -1451,11 +1454,7 @@ fn compile_effects(
 ) {
     trace!("compile_effects");
 
-    // Loop over all existing effects to update them, including invisible ones. We
-    // always compile all effects when they change, to allow users to compile "in
-    // the background" by spawning a hidden effect. This also prevent having mixed
-    // state where only some effects are compiled, and effects becoming visible
-    // later need to be special-cased.
+    // Loop over all existing effects to update them, including invisible ones
     for (asset, entity, effect, mut compiled_effect) in
         q_effects
             .iter_mut()
@@ -1522,7 +1521,7 @@ fn gather_removed_effects(
     mut removed_effects: RemovedComponents<ParticleEffect>,
     mut removed_effects_event_writer: EventWriter<RemovedEffectsEvent>,
 ) {
-    let entities: Vec<Entity> = removed_effects.iter().collect();
+    let entities: Vec<Entity> = removed_effects.read().collect();
     if !entities.is_empty() {
         removed_effects_event_writer.send(RemovedEffectsEvent { entities });
     }
@@ -1533,12 +1532,19 @@ mod tests {
     use std::ops::DerefMut;
 
     use bevy::{
+        asset::{
+            io::{
+                memory::{Dir, MemoryAssetReader},
+                AssetSourceBuilder, AssetSourceBuilders, AssetSourceId,
+            },
+            AssetServerMode,
+        },
         render::view::{VisibilityPlugin, VisibilitySystems},
-        tasks::IoTaskPool,
+        tasks::{IoTaskPool, TaskPoolBuilder},
     };
     use naga_oil::compose::{Composer, NagaModuleDescriptor, ShaderDefValue};
 
-    use crate::{spawn::new_rng, test_utils::DummyAssetIo};
+    use crate::spawn::new_rng;
 
     use super::*;
 
@@ -1741,18 +1747,35 @@ else { return c1; }
     }
 
     fn make_test_app() -> App {
-        IoTaskPool::init(Default::default);
-        let asset_server = AssetServer::new(DummyAssetIo {});
+        IoTaskPool::get_or_init(|| {
+            TaskPoolBuilder::default()
+                .num_threads(1)
+                .thread_name("Hanabi test IO Task Pool".to_string())
+                .build()
+        });
 
         let mut app = App::new();
+
+        let watch_for_changes = false;
+        let mut builders = app
+            .world
+            .get_resource_or_insert_with::<AssetSourceBuilders>(Default::default);
+        let dir = Dir::default();
+        let dummy_builder = AssetSourceBuilder::default()
+            .with_reader(move || Box::new(MemoryAssetReader { root: dir.clone() }));
+        builders.insert(AssetSourceId::Default, dummy_builder);
+        let sources = builders.build_sources(watch_for_changes, false);
+        let asset_server =
+            AssetServer::new(sources, AssetServerMode::Unprocessed, watch_for_changes);
+
         app.insert_resource(asset_server);
         // app.add_plugins(DefaultPlugins);
-        app.add_asset::<Mesh>();
-        app.add_asset::<Shader>();
+        app.init_asset::<Mesh>();
+        app.init_asset::<Shader>();
         app.add_plugins(VisibilityPlugin);
         app.init_resource::<ShaderCache>();
         app.insert_resource(Random(new_rng()));
-        app.add_asset::<EffectAsset>();
+        app.init_asset::<EffectAsset>();
         app.add_systems(
             PostUpdate,
             compile_effects.after(VisibilitySystems::CheckVisibility),
@@ -1997,7 +2020,7 @@ else { return c1; }
                     world
                         .spawn((
                             visibility,
-                            ComputedVisibility::default(),
+                            InheritedVisibility::default(),
                             ParticleEffect {
                                 handle: handle.clone(),
                                 ..default()
@@ -2035,14 +2058,14 @@ else { return c1; }
                 let (
                     entity,
                     visibility,
-                    computed_visibility,
+                    inherited_visibility,
                     particle_effect,
                     compiled_particle_effect,
                 ) = world
                     .query::<(
                         Entity,
                         &Visibility,
-                        &ComputedVisibility,
+                        &InheritedVisibility,
                         &ParticleEffect,
                         &CompiledParticleEffect,
                     )>()
@@ -2052,7 +2075,7 @@ else { return c1; }
                 assert_eq!(entity, effect_entity);
                 assert_eq!(visibility, test_visibility);
                 assert_eq!(
-                    computed_visibility.is_visible(),
+                    inherited_visibility.get(),
                     test_visibility == Visibility::Visible
                 );
                 assert_eq!(particle_effect.handle, handle);

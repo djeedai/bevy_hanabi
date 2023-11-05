@@ -9,7 +9,7 @@ use bevy::{
         mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
     },
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -27,7 +27,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,random=trace".to_string(),
                 })
-                .set(RenderPlugin { wgpu_settings })
+                .set(RenderPlugin {
+                    render_creation: wgpu_settings.into(),
+                })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "🎆 Hanabi — random".to_string(),
@@ -38,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .add_systems(Update, bevy::window::close_on_esc)
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
+        //.add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .run();
 

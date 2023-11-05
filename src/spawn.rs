@@ -561,7 +561,7 @@ pub fn tick_spawners(
     mut query: Query<(
         Entity,
         &ParticleEffect,
-        Option<&ComputedVisibility>,
+        Option<&InheritedVisibility>,
         Option<&mut EffectSpawner>,
     )>,
 ) {
@@ -569,19 +569,19 @@ pub fn tick_spawners(
 
     let dt = time.delta_seconds();
 
-    for (entity, effect, maybe_computed_visibility, maybe_spawner) in query.iter_mut() {
+    for (entity, effect, maybe_inherited_visibility, maybe_spawner) in query.iter_mut() {
         // TODO - maybe cache simulation_condition so we don't need to unconditionally
         // query the asset?
         let Some(asset) = effects.get(&effect.handle) else {
             continue;
         };
 
-        if asset.simulation_condition == SimulationCondition::WhenVisible {
-            if let Some(computed_visibility) = maybe_computed_visibility {
-                if !computed_visibility.is_visible() {
-                    continue;
-                }
-            }
+        if asset.simulation_condition == SimulationCondition::WhenVisible
+            && !maybe_inherited_visibility
+                .map(|iv| iv.get())
+                .unwrap_or(true)
+        {
+            continue;
         }
 
         if let Some(mut spawner) = maybe_spawner {
@@ -599,11 +599,18 @@ mod test {
     use std::time::Duration;
 
     use bevy::{
+        asset::{
+            io::{
+                memory::{Dir, MemoryAssetReader},
+                AssetSourceBuilder, AssetSourceBuilders, AssetSourceId,
+            },
+            AssetServerMode,
+        },
         render::view::{VisibilityPlugin, VisibilitySystems},
-        tasks::IoTaskPool,
+        tasks::{IoTaskPool, TaskPoolBuilder},
     };
 
-    use crate::{test_utils::DummyAssetIo, Module};
+    use crate::Module;
 
     use super::*;
 
@@ -762,17 +769,34 @@ mod test {
     }
 
     fn make_test_app() -> App {
-        IoTaskPool::init(Default::default);
-        let asset_server = AssetServer::new(DummyAssetIo {});
+        IoTaskPool::get_or_init(|| {
+            TaskPoolBuilder::default()
+                .num_threads(1)
+                .thread_name("Hanabi test IO Task Pool".to_string())
+                .build()
+        });
 
         let mut app = App::new();
+
+        let watch_for_changes = false;
+        let mut builders = app
+            .world
+            .get_resource_or_insert_with::<AssetSourceBuilders>(Default::default);
+        let dir = Dir::default();
+        let dummy_builder = AssetSourceBuilder::default()
+            .with_reader(move || Box::new(MemoryAssetReader { root: dir.clone() }));
+        builders.insert(AssetSourceId::Default, dummy_builder);
+        let sources = builders.build_sources(watch_for_changes, false);
+        let asset_server =
+            AssetServer::new(sources, AssetServerMode::Unprocessed, watch_for_changes);
+
         app.insert_resource(asset_server);
         // app.add_plugins(DefaultPlugins);
-        app.add_asset::<Mesh>();
+        app.init_asset::<Mesh>();
         app.add_plugins(VisibilityPlugin);
         app.init_resource::<Time>();
         app.insert_resource(Random(new_rng()));
-        app.add_asset::<EffectAsset>();
+        app.init_asset::<EffectAsset>();
         app.add_systems(
             PostUpdate,
             tick_spawners.after(VisibilitySystems::CheckVisibility),
@@ -844,7 +868,7 @@ mod test {
                     world
                         .spawn((
                             visibility,
-                            ComputedVisibility::default(),
+                            InheritedVisibility::default(),
                             ParticleEffect {
                                 handle: handle.clone(),
                                 spawner: test_case.instance_spawner,
@@ -875,11 +899,7 @@ mod test {
                 // `Time::delta_seconds()` only update after the *second* update. So we tick the
                 // `Time` twice here to enforce this.
                 let mut time = app.world.resource_mut::<Time>();
-                let start = time.startup();
-                // Force a zero-length update the first time around, otherwise the accumulated
-                // delta-time is different from the absolute elapsed time, which makes no sense.
-                time.update_with_instant(start);
-                time.update_with_instant(start + Duration::from_millis(16));
+                time.advance_by(Duration::from_millis(16));
                 time.elapsed()
             };
             app.update();
@@ -890,12 +910,12 @@ mod test {
             if let Some(test_visibility) = test_case.visibility {
                 // Simulated-when-visible effect (SimulationCondition::WhenVisible)
 
-                let (entity, visibility, computed_visibility, particle_effect, effect_spawner) =
+                let (entity, visibility, inherited_visibility, particle_effect, effect_spawner) =
                     world
                         .query::<(
                             Entity,
                             &Visibility,
-                            &ComputedVisibility,
+                            &InheritedVisibility,
                             &ParticleEffect,
                             Option<&EffectSpawner>,
                         )>()
@@ -905,11 +925,11 @@ mod test {
                 assert_eq!(entity, effect_entity);
                 assert_eq!(visibility, test_visibility);
                 assert_eq!(
-                    computed_visibility.is_visible(),
+                    inherited_visibility.get(),
                     test_visibility == Visibility::Visible
                 );
                 assert_eq!(particle_effect.handle, handle);
-                if computed_visibility.is_visible() {
+                if inherited_visibility.get() {
                     // If visible, `tick_spawners()` spawns the EffectSpawner and ticks it
                     assert!(effect_spawner.is_some());
                     let effect_spawner = effect_spawner.unwrap();
