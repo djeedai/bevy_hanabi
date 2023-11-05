@@ -42,8 +42,8 @@ pub struct ParticleEffectBundle {
     /// [`SimulationCondition::WhenVisible`]: crate::SimulationCondition::WhenVisible
     /// [`SimulationCondition::Always`]: crate::SimulationCondition::Always
     pub visibility: Visibility,
-    /// Algorithmically-computed indication of whether an entity is visible and
-    /// should be extracted for rendering.
+    /// Algorithmically-computed indication of whether an entity is visible in
+    /// the entity hierarchy and should be extracted for rendering.
     ///
     /// If your effect uses [`SimulationCondition::Always`] then this component
     /// is not necessary and you can remove it (spawn components manually
@@ -53,7 +53,19 @@ pub struct ParticleEffectBundle {
     /// required by Bevy's built-in visibility system.
     ///
     /// [`SimulationCondition::Always`]: crate::SimulationCondition::Always
-    pub computed_visibility: ComputedVisibility,
+    pub inherited_visibility: InheritedVisibility,
+    /// Algorithmically-computed indication of whether an entity is visible in
+    /// the current camera view and should be extracted for rendering.
+    ///
+    /// If your effect uses [`SimulationCondition::Always`] then this component
+    /// is not necessary and you can remove it (spawn components manually
+    /// instead of using this bundle).
+    ///
+    /// Users should not interact with this component manually, but it is
+    /// required by Bevy's built-in visibility system.
+    ///
+    /// [`SimulationCondition::Always`]: crate::SimulationCondition::Always
+    pub view_visibility: ViewVisibility,
 }
 
 impl Default for ParticleEffectBundle {
@@ -71,7 +83,8 @@ impl ParticleEffectBundle {
             transform: Default::default(),
             global_transform: Default::default(),
             visibility: Default::default(),
-            computed_visibility: Default::default(),
+            inherited_visibility: InheritedVisibility::default(),
+            view_visibility: ViewVisibility::default(),
         }
     }
 
@@ -92,7 +105,6 @@ impl ParticleEffectBundle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::{asset::HandleId, reflect::TypeUuid};
 
     #[test]
     fn bundle_default() {
@@ -103,7 +115,7 @@ mod tests {
 
     #[test]
     fn bundle_new() {
-        let handle = Handle::weak(HandleId::new(EffectAsset::TYPE_UUID, 42));
+        let handle = Handle::default();
         let bundle = ParticleEffectBundle::new(handle.clone());
         assert_eq!(bundle.effect.handle, handle);
     }

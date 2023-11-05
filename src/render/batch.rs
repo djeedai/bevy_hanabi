@@ -1,7 +1,6 @@
 use std::ops::Range;
 
 use bevy::{
-    asset::HandleId,
     prelude::*,
     render::render_resource::{Buffer, CachedComputePipelineId},
 };
@@ -32,7 +31,7 @@ pub(crate) struct EffectBatch {
     /// Flags describing the render layout.
     pub layout_flags: LayoutFlags,
     /// Texture to modulate the particle color.
-    pub image_handle_id: HandleId,
+    pub image_handle: Handle<Image>,
     /// Configured shader used for the particle rendering of this batch.
     /// Note that we don't need to keep the init/update shaders alive because
     /// their pipeline specialization is doing it via the specialization key.
@@ -68,7 +67,7 @@ impl EffectBatch {
             slice: input.effect_slice.slice,
             handle: input.handle,
             layout_flags: input.layout_flags,
-            image_handle_id: input.image_handle_id,
+            image_handle: input.image_handle,
             render_shader: input.effect_shader.render,
             init_pipeline_id,
             update_pipeline_id,
@@ -96,7 +95,7 @@ pub(crate) struct BatchInput {
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
     /// Texture to modulate the particle color.
-    pub image_handle_id: HandleId,
+    pub image_handle: Handle<Image>,
     /// Force field sources.
     pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Number of particles to spawn for this effect.
@@ -179,7 +178,7 @@ impl Batchable<BatchState, EffectBatch> for BatchInput {
             && self.effect_shader.update == state.update_shader
             && self.effect_shader.render == batch.render_shader
             && self.layout_flags == batch.layout_flags
-            && self.image_handle_id == batch.image_handle_id
+            && self.image_handle == batch.image_handle
             && is_2d_compatible
             && (self.property_data.is_empty() || !state.has_property_data);
 
@@ -286,8 +285,6 @@ impl<'a, S, B, I: Batchable<S, B>> Batcher<'a, S, B, I> {
 
 #[cfg(test)]
 mod tests {
-    use bevy::reflect::TypeUuid;
-
     use crate::EffectShader;
 
     use super::*;
@@ -527,7 +524,7 @@ mod tests {
         let handle = Handle::<EffectAsset>::default();
         let particle_layout = ParticleLayout::empty();
         let effect_shader = EffectShader::default();
-        let image_handle_id = HandleId::default::<Image>();
+        let image_handle = Handle::<Image>::default();
         let property_layout = PropertyLayout::empty();
 
         BatchInput {
@@ -541,7 +538,7 @@ mod tests {
             property_layout,
             effect_shader,
             layout_flags: LayoutFlags::NONE,
-            image_handle_id,
+            image_handle,
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
             spawn_count: 32,
             transform: GpuCompressedTransform::default(),
@@ -650,7 +647,7 @@ mod tests {
             );
 
             let mut item1 = make_test_item();
-            item1.image_handle_id = HandleId::random::<Image>();
+            item1.image_handle = Handle::<Image>::default();
 
             let mut item2 = item1.clone();
             item2.effect_slice.slice = 100..200;
@@ -665,6 +662,11 @@ mod tests {
     #[test]
     fn effect_batch_texture_different() {
         let mut batches = vec![];
+
+        let mut images = Assets::<Image>::default();
+        let image1 = images.add(Image::default());
+        let image2 = images.add(Image::default());
+        assert_ne!(image1, image2);
 
         {
             let mut spawner_base = 0;
@@ -685,13 +687,13 @@ mod tests {
             );
 
             let mut item1 = make_test_item();
-            item1.image_handle_id = HandleId::new(Image::TYPE_UUID, 1);
+            item1.image_handle = image1;
 
             let mut item2 = item1.clone();
             item2.effect_slice.slice = 100..200;
-            item2.image_handle_id = HandleId::new(Image::TYPE_UUID, 2);
+            item2.image_handle = image2;
 
-            assert_ne!(item1.image_handle_id, item2.image_handle_id);
+            assert_ne!(item1.image_handle, item2.image_handle);
 
             batcher.batch([item1, item2]);
         }
@@ -706,6 +708,9 @@ mod tests {
     #[test]
     fn effect_batch_texture_mixed() {
         let mut batches = vec![];
+
+        let mut images = Assets::<Image>::default();
+        let image1 = images.add(Image::default());
 
         {
             let mut spawner_base = 0;
@@ -730,7 +735,7 @@ mod tests {
             let mut item2 = item1.clone();
             item2.effect_slice.slice = 100..200;
             // Has texture, while item1 doesn't
-            item2.image_handle_id = HandleId::random::<Image>();
+            item2.image_handle = image1;
 
             batcher.batch([item1, item2]);
         }

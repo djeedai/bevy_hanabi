@@ -637,7 +637,9 @@ mod tests {
 
         // Struct
         assert!(g
-            .type_name()
+            .get_represented_type_info()
+            .unwrap()
+            .type_path()
             .starts_with("bevy_hanabi::gradient::Gradient<")); // the Vec4 type name depends on platform
         let keys = g.field("keys").unwrap();
         let ReflectRef::List(keys) = keys.reflect_ref() else {
@@ -653,7 +655,11 @@ mod tests {
             let ReflectRef::Struct(k) = k.reflect_ref() else {
                 panic!("Invalid type");
             };
-            assert!(k.type_name().contains("GradientKey"));
+            assert!(k
+                .get_represented_type_info()
+                .unwrap()
+                .type_path()
+                .contains("GradientKey"));
         }
     }
 

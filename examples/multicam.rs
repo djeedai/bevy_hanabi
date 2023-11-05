@@ -10,7 +10,7 @@ use bevy::{
     },
     window::WindowResized,
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+// use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -31,7 +31,7 @@ fn main() {
                 }),
         )
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
+        //.add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -264,7 +264,7 @@ fn update_camera_viewports(
     // changes so then each camera always takes up half the screen.
     // A resize_event is sent when the window is first created, allowing us to reuse
     // this system for initial setup.
-    for resize_event in resize_events.iter() {
+    for resize_event in resize_events.read() {
         let Ok(window) = window.get(resize_event.window) else {
             continue;
         };
