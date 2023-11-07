@@ -57,7 +57,7 @@ naga_oil = "0.10"
 noise = "0.8"
 
 futures = "0.3"
-#bevy-inspector-egui = "0.19"
+bevy-inspector-egui = "0.21"
 
 [[example]]
 name = "firework"

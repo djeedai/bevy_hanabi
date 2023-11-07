@@ -10,7 +10,7 @@ use bevy::{
     },
     window::WindowResized,
 };
-// use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -31,7 +31,7 @@ fn main() {
                 }),
         )
         .add_plugins(HanabiPlugin)
-        //.add_plugins(WorldInspectorPlugin::default())
+        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(
             Update,

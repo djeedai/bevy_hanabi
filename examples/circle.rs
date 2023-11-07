@@ -9,7 +9,7 @@ use bevy::{
     prelude::*,
     render::{render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin},
 };
-// use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .add_systems(Update, bevy::window::close_on_esc)
         .add_plugins(HanabiPlugin)
-        //.add_plugins(WorldInspectorPlugin::default())
+        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .run();
 
@@ -132,23 +132,27 @@ fn setup(
     let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
 
     let effect = effects.add(
-        EffectAsset::new(32768, Spawner::once(32.0.into(), true), writer.finish())
-            .with_name("circle")
-            .init(init_pos)
-            .init(init_vel)
-            .init(init_age)
-            .init(init_lifetime)
-            .update(update_sprite_index)
-            .render(ParticleTextureModifier {
-                texture: texture_handle.clone(),
-                sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
-            })
-            .render(FlipbookModifier { sprite_grid_size })
-            .render(ColorOverLifetimeModifier { gradient })
-            .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant([0.5; 2].into()),
-                screen_space_size: false,
-            }),
+        EffectAsset::new(
+            32768,
+            Spawner::burst(32.0.into(), 8.0.into()),
+            writer.finish(),
+        )
+        .with_name("circle")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_age)
+        .init(init_lifetime)
+        .update(update_sprite_index)
+        .render(ParticleTextureModifier {
+            texture: texture_handle.clone(),
+            sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
+        })
+        .render(FlipbookModifier { sprite_grid_size })
+        .render(ColorOverLifetimeModifier { gradient })
+        .render(SizeOverLifetimeModifier {
+            gradient: Gradient::constant([0.5; 2].into()),
+            screen_space_size: false,
+        }),
     );
 
     // The ground
