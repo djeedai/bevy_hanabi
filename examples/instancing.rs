@@ -12,7 +12,7 @@
 use bevy::{
     core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*, render::mesh::shape::Cube,
 };
-// use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use rand::Rng;
 
 use bevy_hanabi::prelude::*;
@@ -186,7 +186,7 @@ fn main() {
                 }),
         )
         .add_plugins(HanabiPlugin)
-        //.add_plugins(WorldInspectorPlugin::default())
+        .add_plugins(WorldInspectorPlugin::default())
         .insert_resource(InstanceManager::new(5, 4))
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, keyboard_input_system))

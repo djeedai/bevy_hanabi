@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Compatible with Bevy 0.12
 - `InitContext::new()` and `UpdateContext::new()` now take an additional reference to the `ParticleLayout` of the effect.
 - `RenderContext` now implements `EvalContext` like the init and update contexts, and like them reference the module, particle layout, and property layout of the effect.
 - `Gradient<T>::new()`, `Gradient<T>::constant()`, and `Gradient<T>::linear()` do not require the `T: Default` trait bound anymore. The bound had been added by mistake, and is not necessary.
