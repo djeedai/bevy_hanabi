@@ -29,6 +29,8 @@ jobs:
   check-bans:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
       # on main, prepare a new cargo tree output and cache it
       - name: On main, prepare new cargo tree cache
         if: github.ref == 'refs/heads/main'
@@ -46,8 +48,6 @@ jobs:
         with:
           path: cargo-tree-from-main
           key: cargo-tree-from-main
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       # if not on main, check that the cargo tree output is unchanged
       - name: Check if the cargo tree changed from main
         if: github.ref != 'refs/heads/main'
