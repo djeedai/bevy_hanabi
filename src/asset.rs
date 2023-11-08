@@ -42,18 +42,25 @@ pub enum MotionIntegration {
 pub enum SimulationCondition {
     /// Simulate the effect only when visible.
     ///
-    /// The visibility is determined by the [`Visibility`] and
-    /// [`ComputedVisibility`] components.
+    /// The visibility is determined by the [`Visibility`], the
+    /// [`InheritedVisibility`], and the [`ViewVisibility`] components.
     ///
     /// This is the default for all assets, and is the most performant option,
     /// allowing to have many effects in the scene without the need to simulate
     /// all of them if they're not visible.
     ///
-    /// Note: AABB culling is not currently available. Only boolean ON/OFF
-    /// visibility is used.
+    /// Note that any [`ParticleEffect`] spawned is always compiled into a
+    /// [`CompiledParticleEffect`], even when it's not visible and even when
+    /// that variant is selected.
+    ///
+    /// Note also that AABB culling is not currently available. Only boolean
+    /// ON/OFF visibility is used.
     ///
     /// [`Visibility`]: bevy::render::view::Visibility
-    /// [`ComputedVisibility`]: bevy::render::view::ComputedVisibility
+    /// [`InheritedVisibility`]: bevy::render::view::InheritedVisibility
+    /// [`ViewVisibility`]: bevy::render::view::ViewVisibility
+    /// [`ParticleEffect`]: crate::ParticleEffect
+    /// [`CompiledParticleEffect`]: crate::CompiledParticleEffect
     #[default]
     WhenVisible,
 
@@ -67,12 +74,14 @@ pub enum SimulationCondition {
     /// should be aware of the performance implications of using this
     /// condition, and only use it when strictly necessary.
     ///
-    /// Any [`Visibility`] or [`ComputedVisibility`] component is ignored. You
-    /// may want to spawn the particle effect components manually instead of
-    /// using the [`ParticleEffectBundle`] to avoid adding those components.
+    /// Any [`Visibility`], [`InheritedVisibility`], or [`ViewVisibility`]
+    /// component is ignored. You may want to spawn the particle effect
+    /// components manually instead of using the [`ParticleEffectBundle`] to
+    /// avoid adding those components.
     ///
     /// [`Visibility`]: bevy::render::view::Visibility
-    /// [`ComputedVisibility`]: bevy::render::view::ComputedVisibility
+    /// [`InheritedVisibility`]: bevy::render::view::InheritedVisibility
+    /// [`ViewVisibility`]: bevy::render::view::ViewVisibility
     /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
     Always,
 }

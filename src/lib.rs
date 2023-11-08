@@ -1516,7 +1516,7 @@ struct RemovedEffectsEvent {
 /// unused GPU resources.
 ///
 /// This system executes inside the [`EffectSystems::GatherRemovedEffects`]
-/// system set.
+/// set of the [`PostUpdate`] schedule.
 fn gather_removed_effects(
     mut removed_effects: RemovedComponents<ParticleEffect>,
     mut removed_effects_event_writer: EventWriter<RemovedEffectsEvent>,

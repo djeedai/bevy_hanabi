@@ -546,12 +546,18 @@ impl EffectSpawner {
 /// Tick all the spawners of the visible [`ParticleEffect`] components.
 ///
 /// This system runs in the [`PostUpdate`] stage, after the visibility system
-/// has updated the [`ComputedVisibility`] of each effect instance (see
-/// [`VisibilitySystems::CheckVisibility`]). Hidden instances are not updated,
-/// unless the [`EffectAsset::simulation_condition`] is set to
-/// [`SimulationCondition::Always`].
+/// has updated the [`InheritedVisibility`] of each effect instance (see
+/// [`VisibilitySystems::VisibilityPropagate`]). Hidden instances are not
+/// updated, unless the [`EffectAsset::simulation_condition`]
+/// is set to [`SimulationCondition::Always`].
 ///
-/// [`VisibilitySystems::CheckVisibility`]: bevy::render::view::VisibilitySystems::CheckVisibility
+/// Note that by that point the [`ViewVisibility`] is not yet calculated, and it
+/// may happen that spawners are ticked but no effect is visible in any view
+/// even though some are "visible" (active) in the [`World`]. The actual
+/// per-view culling of invisible (not in view) effects is performed later on
+/// the render world.
+///
+/// [`VisibilitySystems::VisibilityPropagate`]: bevy::render::view::VisibilitySystems::VisibilityPropagate
 /// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
 pub fn tick_spawners(
     mut commands: Commands,

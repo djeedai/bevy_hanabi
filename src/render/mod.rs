@@ -2596,7 +2596,7 @@ pub(crate) fn queue_effects(
 /// This system runs in the [`Prepare`] render set, after Bevy has updated the
 /// [`ViewUniforms`], which need to be referenced to get access to the current
 /// camera view.
-pub fn prepare_resources(
+pub(crate) fn prepare_resources(
     mut effects_meta: ResMut<EffectsMeta>,
     render_device: Res<RenderDevice>,
     view_uniforms: Res<ViewUniforms>,
