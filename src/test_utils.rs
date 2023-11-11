@@ -102,11 +102,11 @@ macro_rules! assert_approx_eq {
         match (&$left, &$right) {
             (left_val, right_val) => {
                 assert!(
-                    AbsDiffEq::abs_diff_eq(left_val, right_val, 1e-5),
+                    crate::test_utils::AbsDiffEq::abs_diff_eq(left_val, right_val, 1e-5),
                     "assertion failed: expected={} actual={} delta={} tol=1e-5(default)",
                     left_val,
                     right_val,
-                    AbsDiffEq::abs_diff(left_val, right_val),
+                    crate::test_utils::AbsDiffEq::abs_diff(left_val, right_val),
                 );
             }
         }
@@ -115,11 +115,11 @@ macro_rules! assert_approx_eq {
         match (&$left, &$right, &$tol) {
             (left_val, right_val, tol_val) => {
                 assert!(
-                    AbsDiffEq::abs_diff_eq(left_val, right_val, *tol_val),
+                    crate::test_utils::AbsDiffEq::abs_diff_eq(left_val, right_val, *tol_val),
                     "assertion failed: expected={} actual={} delta={} tol={}",
                     left_val,
                     right_val,
-                    AbsDiffEq::abs_diff(left_val, right_val),
+                    crate::test_utils::AbsDiffEq::abs_diff(left_val, right_val),
                     tol_val
                 );
             }

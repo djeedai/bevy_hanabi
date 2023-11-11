@@ -208,7 +208,8 @@ pub(crate) struct GpuCompressedTransform {
 impl From<Mat4> for GpuCompressedTransform {
     fn from(value: Mat4) -> Self {
         let tr = value.transpose();
-        debug_assert_eq!(tr.w_axis, Vec4::W);
+        #[cfg(test)]
+        crate::test_utils::assert_approx_eq!(tr.w_axis, Vec4::W);
         Self {
             x_row: tr.x_axis,
             y_row: tr.y_axis,
@@ -220,7 +221,8 @@ impl From<Mat4> for GpuCompressedTransform {
 impl From<&Mat4> for GpuCompressedTransform {
     fn from(value: &Mat4) -> Self {
         let tr = value.transpose();
-        debug_assert_eq!(tr.w_axis, Vec4::W);
+        #[cfg(test)]
+        crate::test_utils::assert_approx_eq!(tr.w_axis, Vec4::W);
         Self {
             x_row: tr.x_axis,
             y_row: tr.y_axis,
