@@ -1131,25 +1131,39 @@ impl EffectShaderSource {
 /// ([`Visibility::Visible`]).
 ///
 /// [`set_property()`]: crate::CompiledParticleEffect::set_property
-#[derive(Debug, Clone, Component)]
+#[derive(Debug, Clone, Component, Reflect)]
+#[reflect(from_reflect = false)]
 pub struct CompiledParticleEffect {
     /// Weak handle to the underlying asset.
     asset: Handle<EffectAsset>,
+
     /// Cached simulation condition, to avoid having to query the asset each
     /// time we need it.
+    #[reflect(ignore)]
     simulation_condition: SimulationCondition,
-    /// Handle to the effect shader for his effect instance, if configured.
+
+    /// Handle to the effect shader for this effect instance, if configured.
+    #[reflect(ignore)]
     effect_shader: Option<EffectShader>,
+
     /// Instances of all exposed properties.
     properties: Vec<PropertyInstance>,
+
     /// Force field modifier values.
+    #[reflect(ignore)]
     force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
+
     /// Main particle texture.
+    #[reflect(ignore)]
     particle_texture: Option<Handle<Image>>,
+
     /// 2D layer for the effect instance.
     #[cfg(feature = "2d")]
+    #[reflect(ignore)]
     z_layer_2d: FloatOrd,
+
     /// Layout flags.
+    #[reflect(ignore)]
     layout_flags: LayoutFlags,
 }
 

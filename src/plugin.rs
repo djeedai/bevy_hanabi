@@ -24,7 +24,7 @@ use crate::{
         ParticlesUpdatePipeline, ShaderCache, SimParams, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
-    tick_spawners, ParticleEffect, RemovedEffectsEvent, Spawner,
+    tick_spawners, CompiledParticleEffect, ParticleEffect, RemovedEffectsEvent, Spawner,
 };
 
 pub mod main_graph {
@@ -80,6 +80,7 @@ impl Plugin for HanabiPlugin {
         // Register the component reflection
         app.register_type::<EffectAsset>();
         app.register_type::<ParticleEffect>();
+        app.register_type::<CompiledParticleEffect>();
         app.register_type::<Spawner>();
     }
 
