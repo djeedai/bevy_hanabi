@@ -155,6 +155,10 @@ fn setup(
                     .with_rotation(Quat::from_rotation_z(1.)),
                 ..Default::default()
             },
+            // Note: We don't need to manually insert an EffectProperties here, because Hanabi will
+            // take care of it on next update (since the effect has a property). Since we don't
+            // really use that property here, we don't access the EffectProperties so don't care
+            // when it's spawned. See also effect3 below for a different approach.
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin
@@ -280,6 +284,12 @@ fn setup(
                 transform: Transform::from_translation(Vec3::new(30., 0., 0.)),
                 ..Default::default()
             },
+            // Note: We manually insert EffectProperties so update_accel() can immediately set a
+            // new value to the property, without having to deal with one-frame delays. If we let
+            // Hanabi create the component, it will do so *before* Update, so on the first frame
+            // after spawning it, update_accel() will not find it (it's spawned on next frame) and
+            // will panic. See also effect1 above.
+            EffectProperties::default(),
             DynamicRuntimeAccel,
         ))
         .with_children(|p| {
@@ -297,11 +307,11 @@ fn setup(
 
 fn update_accel(
     time: Res<Time>,
-    mut query: Query<&mut CompiledParticleEffect, With<DynamicRuntimeAccel>>,
+    mut query: Query<&mut EffectProperties, With<DynamicRuntimeAccel>>,
 ) {
-    let mut effect = query.single_mut();
+    let mut properties = query.single_mut();
     let accel0 = 10.;
     let (s, c) = (time.elapsed_seconds() * 0.3).sin_cos();
     let accel = Vec3::new(c * accel0, s * accel0, 0.);
-    effect.set_property("my_accel", accel.into());
+    properties.set("my_accel", accel.into());
 }

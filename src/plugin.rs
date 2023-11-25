@@ -24,7 +24,8 @@ use crate::{
         ParticlesUpdatePipeline, ShaderCache, SimParams, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
-    tick_spawners, ParticleEffect, RemovedEffectsEvent, Spawner,
+    tick_spawners, update_properties_from_asset, EffectProperties, ParticleEffect,
+    RemovedEffectsEvent, Spawner,
 };
 
 pub mod main_graph {
@@ -68,19 +69,25 @@ impl Plugin for HanabiPlugin {
                     EffectSystems::GatherRemovedEffects,
                 ),
             )
+            .configure_sets(
+                bevy::asset::UpdateAssets,
+                EffectSystems::UpdatePropertiesFromAsset.after(bevy::asset::TrackAssets),
+            )
             .add_systems(
                 PostUpdate,
                 (
                     tick_spawners.in_set(EffectSystems::TickSpawners),
                     compile_effects.in_set(EffectSystems::CompileEffects),
+                    update_properties_from_asset.in_set(EffectSystems::UpdatePropertiesFromAsset),
                     gather_removed_effects.in_set(EffectSystems::GatherRemovedEffects),
                 ),
             );
 
-        // Register the component reflection
-        app.register_type::<EffectAsset>();
-        app.register_type::<ParticleEffect>();
-        app.register_type::<Spawner>();
+        // Register types with reflection
+        app.register_type::<EffectAsset>()
+            .register_type::<ParticleEffect>()
+            .register_type::<EffectProperties>()
+            .register_type::<Spawner>();
     }
 
     fn finish(&self, app: &mut App) {

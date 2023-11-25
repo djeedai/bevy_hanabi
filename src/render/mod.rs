@@ -46,8 +46,8 @@ use crate::{
     next_multiple_of,
     render::batch::{BatchInput, BatchState, Batcher, EffectBatch},
     spawn::EffectSpawner,
-    CompiledParticleEffect, EffectShader, ParticleLayout, PropertyLayout, RemovedEffectsEvent,
-    SimulationCondition, SimulationSpace,
+    CompiledParticleEffect, EffectProperties, EffectShader, ParticleLayout, PropertyLayout,
+    RemovedEffectsEvent, SimulationCondition, SimulationSpace,
 };
 
 mod aligned_buffer_vec;
@@ -68,21 +68,29 @@ pub use shader_cache::ShaderCache;
 pub enum EffectSystems {
     /// Tick all effect instances to generate particle spawn counts.
     ///
-    /// This system runs during the [`PostUpdate`] set, in parallel of
-    /// [`CompileEffects`]. Any system which modifies an effect spawner should
-    /// run before this set.
-    ///
-    /// [`CompileEffects`]: EffectSystems::CompileEffects
+    /// This system runs during the [`PostUpdate`] schedule. Any system which
+    /// modifies an effect spawner should run before this set to ensure the
+    /// spawner takes into account the newly set values during its ticking.
     TickSpawners,
 
     /// Compile the effect instances, updating the [`CompiledParticleEffect`]
     /// components.
     ///
-    /// This system runs during the [`PostUpdate`] set, in parallel of
-    /// [`TickSpawners`]. This is largely an internal task which can be ignored.
-    ///
-    /// [`TickSpawners`]: EffectSystems::TickSpawners
+    /// This system runs during the [`PostUpdate`] schedule. This is largely an
+    /// internal task which can be ignored by most users.
     CompileEffects,
+
+    /// Update the properties of the effect instance based on the declared
+    /// properties in the [`EffectAsset`], updating the associated
+    /// [`EffectProperties`] component.
+    ///
+    /// This system runs during Bevy's own [`UpdateAssets`] schedule, after the
+    /// assets have been updated. Any system which modifies an
+    /// [`EffectAsset`]'s declared properties should run before [`UpdateAssets`]
+    /// in order for changes to be taken into account in the same frame.
+    ///
+    /// [`UpdateAssets`]: bevy::asset::UpdateAssets
+    UpdatePropertiesFromAsset,
 
     /// Gather all removed [`ParticleEffect`] components during the
     /// [`PostUpdate`] set, to be able to clean-up GPU resources.
@@ -1133,8 +1141,11 @@ pub(crate) struct ExtractedEffect {
     /// Values of properties written in a binary blob according to
     /// [`property_layout`].
     ///
+    /// This is `Some(blob)` if the data needs to be (re)uploaded to GPU, or
+    /// `None` if nothing needs to be done for this frame.
+    ///
     /// [`property_layout`]: crate::render::ExtractedEffect::property_layout
-    pub property_data: Vec<u8>,
+    pub property_data: Option<Vec<u8>>,
     /// Number of particles to spawn this frame for the effect.
     /// Obtained from calling [`EffectSpawner::tick()`] on the source effect
     /// instance.
@@ -1245,6 +1256,7 @@ pub(crate) fn extract_effects(
                 Option<&ViewVisibility>,
                 &EffectSpawner,
                 &CompiledParticleEffect,
+                Option<Ref<EffectProperties>>,
                 &GlobalTransform,
             )>,
             // Newly added ParticleEffect components
@@ -1319,8 +1331,15 @@ pub(crate) fn extract_effects(
 
     // Loop over all existing effects to update them
     extracted_effects.effects.clear();
-    for (entity, maybe_inherited_visibility, maybe_view_visibility, spawner, effect, transform) in
-        query.p0().iter_mut()
+    for (
+        entity,
+        maybe_inherited_visibility,
+        maybe_view_visibility,
+        spawner,
+        effect,
+        maybe_properties,
+        transform,
+    ) in query.p0().iter_mut()
     {
         // Check if shaders are configured
         let Some(effect_shader) = effect.get_configured_shader() else {
@@ -1359,9 +1378,17 @@ pub(crate) fn extract_effects(
             .map(|handle| handle.clone_weak())
             .unwrap_or_default();
 
-        // TODO - Change detection and diff/caching to minimize CPU->GPU data transfer
-        let property_layout = asset.property_layout().clone();
-        let property_data = effect.write_properties(&property_layout);
+        let property_layout = asset.property_layout();
+
+        let property_data = if let Some(properties) = maybe_properties {
+            if properties.is_changed() {
+                Some(properties.serialize(&property_layout))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         let mut layout_flags = effect.layout_flags;
         if effect.particle_texture.is_some() {
@@ -1926,10 +1953,12 @@ pub(crate) fn prepare_effects(
                 trace!("spawner_params = {:?}", spawner_params);
                 effects_meta.spawner_buffer.push(spawner_params);
 
-                // Write properties for this effect.
+                // Write properties for this effect if they were modified.
                 // FIXME - This doesn't work with batching!
-                if let Some(property_buffer) = input.property_buffer.as_ref() {
-                    render_queue.write_buffer(property_buffer, 0, &input.property_data);
+                if let Some(property_data) = &input.property_data {
+                    if let Some(property_buffer) = input.property_buffer.as_ref() {
+                        render_queue.write_buffer(property_buffer, 0, property_data);
+                    }
                 }
 
                 let state = BatchState::from_input(&mut input);

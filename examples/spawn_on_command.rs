@@ -183,28 +183,23 @@ fn setup(
     );
 
     commands
-        .spawn(ParticleEffectBundle::new(effect).with_spawner(spawner))
+        .spawn((
+            ParticleEffectBundle::new(effect).with_spawner(spawner),
+            EffectProperties::default(),
+        ))
         .insert(Name::new("effect"));
 }
 
 fn update(
     mut balls: Query<(&mut Ball, &mut Transform)>,
-    mut effect: Query<
-        (
-            &mut CompiledParticleEffect,
-            &mut EffectSpawner,
-            &mut Transform,
-        ),
-        Without<Ball>,
-    >,
+    mut effect: Query<(&mut EffectProperties, &mut EffectSpawner, &mut Transform), Without<Ball>>,
     time: Res<Time>,
 ) {
     const HALF_SIZE: f32 = BOX_SIZE / 2.0 - BALL_RADIUS;
 
     // Note: On first frame where the effect spawns, EffectSpawner is spawned during
-    // CoreSet::PostUpdate, so will not be available yet. Ignore for a frame if
-    // so.
-    let Ok((mut effect, mut spawner, mut effect_transform)) = effect.get_single_mut() else {
+    // PostUpdate, so will not be available yet. Ignore for a frame if so.
+    let Ok((mut properties, mut spawner, mut effect_transform)) = effect.get_single_mut() else {
         return;
     };
 
@@ -244,12 +239,12 @@ fn update(
             let g = rand::random::<u8>();
             let b = rand::random::<u8>();
             let color = 0xFF000000u32 | (b as u32) << 16 | (g as u32) << 8 | (r as u32);
-            effect.set_property("spawn_color", color.into());
+            properties.set("spawn_color", color.into());
 
             // Set the collision normal
             let normal = normal.normalize();
             info!("Collision: n={:?}", normal);
-            effect.set_property("normal", normal.extend(0.).into());
+            properties.set("normal", normal.extend(0.).into());
 
             // Spawn the particles
             spawner.reset();
