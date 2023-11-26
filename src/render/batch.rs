@@ -108,10 +108,20 @@ pub(crate) struct BatchInput {
     pub property_buffer: Option<Buffer>,
     /// Serialized property data.
     // FIXME - Contains a single effect's data; should handle multiple ones.
-    pub property_data: Vec<u8>,
+    pub property_data: Option<Vec<u8>>,
     /// Sort key, for 2D only.
     #[cfg(feature = "2d")]
     pub z_sort_key_2d: FloatOrd,
+}
+
+impl BatchInput {
+    /// Check if the batch contains any property data.
+    pub fn has_property_data(&self) -> bool {
+        self.property_data
+            .as_ref()
+            .map(|data| !data.is_empty())
+            .unwrap_or(false)
+    }
 }
 
 /// Batching state, data not actually emitted in the effect batch but useful to
@@ -139,7 +149,7 @@ impl BatchState {
             property_layout: std::mem::take(&mut input.property_layout),
             init_shader: std::mem::take(&mut input.effect_shader.init),
             update_shader: std::mem::take(&mut input.effect_shader.update),
-            has_property_data: !input.property_data.is_empty(),
+            has_property_data: input.has_property_data(),
         }
     }
 }
@@ -170,6 +180,8 @@ impl Batchable<BatchState, EffectBatch> for BatchInput {
         #[cfg(not(feature = "2d"))]
         let is_2d_compatible = true;
 
+        let has_property_data = self.has_property_data();
+
         let is_compatible = self.effect_slice.group_index == batch.buffer_index
             && self.effect_slice.slice.start == batch.slice.end  // continuous
             && self.effect_slice.particle_layout == batch.particle_layout
@@ -180,7 +192,7 @@ impl Batchable<BatchState, EffectBatch> for BatchInput {
             && self.layout_flags == batch.layout_flags
             && self.image_handle == batch.image_handle
             && is_2d_compatible
-            && (self.property_data.is_empty() || !state.has_property_data);
+            && (!has_property_data || !state.has_property_data);
 
         if !is_compatible {
             return Err(self);
@@ -189,7 +201,7 @@ impl Batchable<BatchState, EffectBatch> for BatchInput {
         // Merge self into batch
         batch.slice.end = self.effect_slice.slice.end;
         batch.entities.push(self.entity_index);
-        state.has_property_data = !self.property_data.is_empty();
+        state.has_property_data = has_property_data;
         // TODO - add per-effect spawner stuffs etc. which are "batched" but remain
         // per-effect
 
@@ -544,7 +556,7 @@ mod tests {
             transform: GpuCompressedTransform::default(),
             inverse_transform: GpuCompressedTransform::default(),
             property_buffer: None,
-            property_data: vec![],
+            property_data: None,
             #[cfg(feature = "2d")]
             z_sort_key_2d: FloatOrd(0.),
         }
@@ -611,7 +623,7 @@ mod tests {
             let mut item1 = make_test_item();
             // Has property data, and so will item2 after cloning, so can't batch them
             // together
-            item1.property_data = vec![1, 2];
+            item1.property_data = Some(vec![1, 2]);
 
             let mut item2 = item1.clone();
             item2.effect_slice.slice = 100..200;

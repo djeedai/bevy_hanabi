@@ -6,15 +6,22 @@ use bevy::prelude::*;
 /// This bundle contains all necessary components for a [`ParticleEffect`] to
 /// function correctly, and is the preferred method for spawning a new
 /// [`ParticleEffect`].
+///
+/// If the effect uses properties, you can additionally spawn an
+/// [`EffectProperties`] component and insert initial values for some or all its
+/// properties. This bundle however doesn't add that component by default, to
+/// allow skipping effects without properties where possible.
+///
+/// [`EffectProperties`]: crate::EffectProperties
 #[derive(Bundle, Clone)]
 pub struct ParticleEffectBundle {
     /// The particle effect instance itself.
     pub effect: ParticleEffect,
     /// A compiled version of the particle effect, managed automatically.
     ///
-    /// You generally don't need to interact with this component, except to
-    /// manage the properties of the effect instance via
-    /// [`CompiledParticleEffect::set_property()`].
+    /// You don't need to interact with this component, but it must be present
+    /// for the effect to work. This is split from the [`ParticleEffect`] itself
+    /// mainly for change detection reasons, as well as for semantic.
     pub compiled_effect: CompiledParticleEffect,
     /// Transform of the entity, representing the frame of reference for the
     /// particle emission.

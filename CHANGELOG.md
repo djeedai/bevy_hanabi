@@ -3,6 +3,19 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Added a new `EffectProperties` component holding the runtime values for all properties of a single `ParticleEffect` instance. This component can be added manually to the same `Entity` holding the `ParticleEffect` if you want to set initial values different from the default ones declared in the `EffectAsset`. Otherwise Hanabi will add the component automatically.
+- Added a new `EffectSystems::UpdatePropertiesFromAsset` set running in the `PostUpdate` schedule. During this set, Hanabi automatically updates all `EffectProperties` if the properties declared in the underlying `EffectAsset` changed.
+
+### Changed
+
+- Properties of an effect have been moved from `CompiledParticleEffect` to a new `EffectProperties` component. This splits the semantic of the `CompiledParticleEffect`, which is purely an internal optimization, from the list of properties stored in `EffectProperties`, which is commonly accessed by the user to assign new values to properties.
+- Thanks to the split of properties into `EffectProperties`, change detection now works on properties, and uploads to GPU will only occur when change detection triggered on the component. Previously properties were re-uploaded each frame to the GPU even if unchanged.
+- Effect properties are now reflected (via the new `EffectProperties` component).
+
 ## [0.8.0] 2023-11-08
 
 ### Added
