@@ -119,7 +119,7 @@ impl BatchInput {
     pub fn has_property_data(&self) -> bool {
         self.property_data
             .as_ref()
-            .and_then(|data| Some(!data.is_empty()))
+            .map(|data| !data.is_empty())
             .unwrap_or(false)
     }
 }

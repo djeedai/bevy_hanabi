@@ -1248,7 +1248,7 @@ impl EffectProperties {
             }
             new_props.push(PropertyInstance {
                 def: prop.clone(),
-                value: prop.default_value().clone(),
+                value: *prop.default_value(),
             });
         }
 
