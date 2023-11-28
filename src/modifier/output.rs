@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
 use crate::{
-    impl_mod_render, Attribute, BoxedModifier, CpuValue, Gradient, Modifier, ModifierContext,
-    Module, RenderContext, RenderModifier, ShaderCode, ToWgslString,
+    impl_mod_render, Attribute, BoxedModifier, CpuValue, EvalContext, ExprHandle, Gradient,
+    Modifier, ModifierContext, Module, RenderContext, RenderModifier, ShaderCode, ToWgslString,
 };
 
 /// Mapping of the sample read from a texture image to the base particle color.
@@ -232,9 +232,11 @@ pub enum OrientMode {
     /// Orient a particle such that its local XY plane is parallel to the
     /// camera's near and far planes (depth planes).
     ///
-    /// The local X axis is (1,0,0) in camera space, and the local Y axis is
-    /// (0,1,0). The local Z axis is (0,0,1), perpendicular to the camera depth
-    /// planes, pointing toward the camera.
+    /// By default the local X axis is (1,0,0) in camera space, and the local Y
+    /// axis is (0,1,0). The local Z axis is (0,0,1), perpendicular to the
+    /// camera depth planes, pointing toward the camera. If an
+    /// [`OrientModifier::rotation`] is provided, it defines a rotation in the
+    /// local X-Y plane, relative to that default.
     ///
     /// This mode is a bit cheaper to calculate than [`FaceCameraPosition`], and
     /// should be preferred to it unless the particle absolutely needs to have
@@ -250,7 +252,8 @@ pub enum OrientMode {
     ///
     /// The local Z axis of the particle points directly at the camera position.
     /// The X and Y axes form an orthonormal frame with it, where Y is roughly
-    /// upward.
+    /// upward. If an [`OrientModifier::rotation`] is provided, it defines a
+    /// rotation in the local X-Y plane, relative to that default.
     ///
     /// This mode is a bit more costly to calculate than
     /// [`ParallelCameraDepthPlane`], and should be used only when the
@@ -268,12 +271,16 @@ pub enum OrientMode {
     /// particles (quads) to roughly face the camera position (as long as
     /// velocity is not perpendicular to the camera depth plane), while having
     /// their X axis always pointing alongside the velocity.
+    ///
+    /// With this mode, any provided [`OrientModifier::rotation`] is ignored.
     AlongVelocity,
 }
 
 /// Orients the particle's local frame.
 ///
-/// The orientation is calculated during the rendering of each particle.
+/// The orientation is calculated during the rendering of each particle. An
+/// additional in-plane rotation can be optionally specified; its meaning
+/// depends on the [`OrientMode`] in use.
 ///
 /// # Attributes
 ///
@@ -291,6 +298,24 @@ pub enum OrientMode {
 pub struct OrientModifier {
     /// Orientation mode for the particles.
     pub mode: OrientMode,
+    /// Optional in-plane rotation expression. Usage depends on [`OrientMode`].
+    pub rotation: Option<ExprHandle>,
+}
+
+impl OrientModifier {
+    /// Create a new instance of this modifier with the given orient mode.
+    pub fn new(mode: OrientMode) -> Self {
+        Self {
+            mode,
+            ..Default::default()
+        }
+    }
+
+    /// Set the rotation expression for the particles.
+    pub fn with_rotation(mut self, rotation: ExprHandle) -> Self {
+        self.rotation = Some(rotation);
+        self
+    }
 }
 
 #[typetag::serde]
@@ -325,20 +350,51 @@ impl Modifier for OrientModifier {
 
 #[typetag::serde]
 impl RenderModifier for OrientModifier {
-    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
+    fn apply_render(&self, module: &mut Module, context: &mut RenderContext) {
         match self.mode {
             OrientMode::ParallelCameraDepthPlane => {
-                context.vertex_code += r#"let cam_rot = get_camera_rotation_effect_space();
+                if let Some(rotation) = self.rotation {
+                    let rotation = context.eval(module, rotation).unwrap();
+                    context.vertex_code += &format!(
+                        r#"let cam_rot = get_camera_rotation_effect_space();
+let particle_rot_in_cam_space = {};
+let particle_rot_in_cam_space_cos = cos(particle_rot_in_cam_space);
+let particle_rot_in_cam_space_sin = sin(particle_rot_in_cam_space);
+axis_x = cam_rot[0].xyz * particle_rot_in_cam_space_cos + cam_rot[1].xyz * particle_rot_in_cam_space_sin;
+axis_y = cam_rot[0].xyz * particle_rot_in_cam_space_sin - cam_rot[1].xyz * particle_rot_in_cam_space_cos;
+axis_z = cam_rot[2].xyz;
+"#,
+                        rotation
+                    );
+                } else {
+                    context.vertex_code += r#"let cam_rot = get_camera_rotation_effect_space();
 axis_x = cam_rot[0].xyz;
 axis_y = cam_rot[1].xyz;
 axis_z = cam_rot[2].xyz;
 "#;
+                }
             }
             OrientMode::FaceCameraPosition => {
-                context.vertex_code += r#"axis_z = normalize(get_camera_position_effect_space() - position);
+                if let Some(rotation) = self.rotation {
+                    let rotation = context.eval(module, rotation).unwrap();
+                    context.vertex_code += &format!(
+                        r#"axis_z = normalize(get_camera_position_effect_space() - position);
+let particle_rot_in_cam_space = {};
+let particle_rot_in_cam_space_cos = cos(particle_rot_in_cam_space);
+let particle_rot_in_cam_space_sin = sin(particle_rot_in_cam_space);
+let axis_x0 = normalize(cross(view.view[1].xyz, axis_z));
+let axis_y0 = cross(axis_z, axis_x0);
+axis_x = axis_x0 * particle_rot_in_cam_space_cos + axis_y0 * particle_rot_in_cam_space_sin;
+axis_y = axis_x0 * particle_rot_in_cam_space_sin - axis_y0 * particle_rot_in_cam_space_cos;
+"#,
+                        rotation
+                    );
+                } else {
+                    context.vertex_code += r#"axis_z = normalize(get_camera_position_effect_space() - position);
 axis_x = normalize(cross(view.view[1].xyz, axis_z));
 axis_y = cross(axis_z, axis_x);
 "#;
+                }
             }
             OrientMode::AlongVelocity => {
                 context.vertex_code += r#"let dir = normalize(position - get_camera_position_effect_space());

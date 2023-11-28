@@ -99,10 +99,19 @@ fn setup(
         speed: (writer.lit(0.5) + writer.lit(0.2) * writer.rand(ScalarType::Float)).expr(),
     };
 
+    // Use the F32_0 attribute as a per-particle rotation value, initialized on
+    // spawn and constant after
+    let init_rotation = (writer.rand(ScalarType::Float) * writer.lit(std::f32::consts::TAU)).expr();
+    let init_rotation = SetAttributeModifier::new(Attribute::F32_0, init_rotation);
+
     // Bounce the alpha cutoff value between 0 and 1, to show its effect on the
     // alpha masking
     let alpha_cutoff =
         ((writer.time() * writer.lit(2.)).sin() * writer.lit(0.5) + writer.lit(0.5)).expr();
+
+    // The rotation of the OrientModifier is read from the F32_0 attribute (our
+    // per-particle rotation)
+    let rotation = writer.attr(Attribute::F32_0).expr();
 
     let effect = effects.add(
         EffectAsset::new(32768, Spawner::rate(64.0.into()), writer.finish())
@@ -112,12 +121,14 @@ fn setup(
             .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
+            .init(init_rotation)
             .render(ParticleTextureModifier {
                 texture: texture_handle,
                 sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
             .render(OrientModifier {
-                mode: OrientMode::ParallelCameraDepthPlane,
+                mode: OrientMode::FaceCameraPosition,
+                rotation: Some(rotation),
             })
             .render(ColorOverLifetimeModifier { gradient })
             .render(SizeOverLifetimeModifier {

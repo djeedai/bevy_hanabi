@@ -72,9 +72,7 @@ where
         .with_name(name)
         .with_simulation_space(SimulationSpace::Local)
         .init(init)
-        .render(OrientModifier {
-            mode: OrientMode::FaceCameraPosition,
-        })
+        .render(OrientModifier::new(OrientMode::FaceCameraPosition))
         .render(SetColorModifier {
             color: COLOR.into(),
         })

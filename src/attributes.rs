@@ -424,6 +424,26 @@ impl AttributeInner {
         Value::Scalar(ScalarValue::Int(0)),
     );
 
+    pub const F32_0: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("f32_0"),
+        Value::Scalar(ScalarValue::Float(0.)),
+    );
+
+    pub const F32_1: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("f32_1"),
+        Value::Scalar(ScalarValue::Float(0.)),
+    );
+
+    pub const F32_2: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("f32_2"),
+        Value::Scalar(ScalarValue::Float(0.)),
+    );
+
+    pub const F32_3: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("f32_3"),
+        Value::Scalar(ScalarValue::Float(0.)),
+    );
+
     #[inline]
     pub(crate) const fn new(name: Cow<'static, str>, default_value: Value) -> Self {
         Self {
@@ -438,8 +458,8 @@ impl AttributeInner {
 /// Effects are composed of many simulated particles. Each particle is in turn
 /// composed of a set of attributes, which are used to simulate and render it.
 /// Common attributes include the particle's position, its age, or its color.
-/// See [`Attribute::ALL`] for a list of supported attributes. Custom attributes
-/// are not supported.
+/// See [`Attribute::all()`] for a list of supported attributes. Custom
+/// attributes are not supported.
 ///
 /// Attributes are indirectly added to an effect by adding [modifiers] requiring
 /// them. Each modifier documents its required attributes. You can force a
@@ -852,8 +872,68 @@ impl Attribute {
     /// [`FlipbookModifier`]: crate::modifier::output::FlipbookModifier
     pub const SPRITE_INDEX: Attribute = Attribute(AttributeInner::SPRITE_INDEX);
 
+    /// A generic scalar float attribute.
+    ///
+    /// This attribute can be used for anything. It has no specific meaning. You
+    /// can store whatever per-particle value you want in it (for example, at
+    /// spawn time) and read it back later.
+    ///
+    /// # Name
+    ///
+    /// `f32_0`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Float`]
+    pub const F32_0: Attribute = Attribute(AttributeInner::F32_0);
+
+    /// A generic scalar float attribute.
+    ///
+    /// This attribute can be used for anything. It has no specific meaning. You
+    /// can store whatever per-particle value you want in it (for example, at
+    /// spawn time) and read it back later.
+    ///
+    /// # Name
+    ///
+    /// `f32_1`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Float`]
+    pub const F32_1: Attribute = Attribute(AttributeInner::F32_1);
+
+    /// A generic scalar float attribute.
+    ///
+    /// This attribute can be used for anything. It has no specific meaning. You
+    /// can store whatever per-particle value you want in it (for example, at
+    /// spawn time) and read it back later.
+    ///
+    /// # Name
+    ///
+    /// `f32_2`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Float`]
+    pub const F32_2: Attribute = Attribute(AttributeInner::F32_2);
+
+    /// A generic scalar float attribute.
+    ///
+    /// This attribute can be used for anything. It has no specific meaning. You
+    /// can store whatever per-particle value you want in it (for example, at
+    /// spawn time) and read it back later.
+    ///
+    /// # Name
+    ///
+    /// `f32_3`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Float`]
+    pub const F32_3: Attribute = Attribute(AttributeInner::F32_3);
+
     /// Collection of all the existing particle attributes.
-    pub const ALL: [Attribute; 13] = [
+    const ALL: [Attribute; 17] = [
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,
@@ -867,11 +947,15 @@ impl Attribute {
         Attribute::AXIS_Y,
         Attribute::AXIS_Z,
         Attribute::SPRITE_INDEX,
+        Attribute::F32_0,
+        Attribute::F32_1,
+        Attribute::F32_2,
+        Attribute::F32_3,
     ];
 
     /// Retrieve an attribute by its name.
     ///
-    /// See [`Attribute::ALL`] for the list of attributes, and the
+    /// See [`Attribute::all()`] for the list of attributes, and the
     /// [`Attribute::name()`] method of each attribute for their name.
     ///
     /// # Example
@@ -886,6 +970,20 @@ impl Attribute {
             .iter()
             .find(|&attr| attr.name() == name)
             .copied()
+    }
+
+    /// Get the list of all existing attributes.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// for attr in Attribute::all() {
+    ///     println!("{}", attr.name());
+    /// }
+    /// ```
+    pub fn all() -> &'static [Attribute] {
+        &Self::ALL
     }
 
     /// The attribute's name.

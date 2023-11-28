@@ -94,9 +94,7 @@ fn make_effect(color: Color) -> EffectAsset {
             gradient: size_gradient.clone(),
             screen_space_size: false,
         })
-        .render(OrientModifier {
-            mode: OrientMode::FaceCameraPosition,
-        })
+        .render(OrientModifier::new(OrientMode::FaceCameraPosition))
 }
 
 fn setup(
