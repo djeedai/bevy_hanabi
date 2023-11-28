@@ -592,15 +592,9 @@ mod tests {
         .render(ParticleTextureModifier::default())
         .render(ColorOverLifetimeModifier::default())
         .render(SizeOverLifetimeModifier::default())
-        .render(OrientModifier {
-            mode: OrientMode::ParallelCameraDepthPlane,
-        })
-        .render(OrientModifier {
-            mode: OrientMode::FaceCameraPosition,
-        })
-        .render(OrientModifier {
-            mode: OrientMode::AlongVelocity,
-        });
+        .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
+        .render(OrientModifier::new(OrientMode::FaceCameraPosition))
+        .render(OrientModifier::new(OrientMode::AlongVelocity));
 
         assert_eq!(effect.capacity, 4096);
 
@@ -643,18 +637,12 @@ mod tests {
         ParticleTextureModifier::default().apply_render(&mut module, &mut render_context);
         ColorOverLifetimeModifier::default().apply_render(&mut module, &mut render_context);
         SizeOverLifetimeModifier::default().apply_render(&mut module, &mut render_context);
-        OrientModifier {
-            mode: OrientMode::ParallelCameraDepthPlane,
-        }
-        .apply_render(&mut module, &mut render_context);
-        OrientModifier {
-            mode: OrientMode::FaceCameraPosition,
-        }
-        .apply_render(&mut module, &mut render_context);
-        OrientModifier {
-            mode: OrientMode::AlongVelocity,
-        }
-        .apply_render(&mut module, &mut render_context);
+        OrientModifier::new(OrientMode::ParallelCameraDepthPlane)
+            .apply_render(&mut module, &mut render_context);
+        OrientModifier::new(OrientMode::FaceCameraPosition)
+            .apply_render(&mut module, &mut render_context);
+        OrientModifier::new(OrientMode::AlongVelocity)
+            .apply_render(&mut module, &mut render_context);
         // assert_eq!(effect.render_layout, render_layout);
     }
 
