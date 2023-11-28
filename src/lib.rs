@@ -1970,13 +1970,20 @@ else { return c1; }
                 ShaderDefValue::Bool(true),
             );
             let mut composer = Composer::default();
-            // let res = composer.add_composable_module(ComposableModuleDescriptor{
-            //     source: &shader_source.init,
-            //     file_path: "init.wgsl",
-            //     shader_defs,
-            //     ..Default::default()
-            // });
-            // assert!(res.is_ok());
+
+            // Import bevy_render::view for the render shader
+            {
+                // It's reasonably hard to retrieve the source code for view.wgsl in bevy_render. We use a few tricks to get a Shader
+                // that we can then convert into a composable module (which is how imports work in Bevy itself).
+                let mut dummy_app = App::new();
+                dummy_app.init_resource::<Assets<Shader>>();
+                dummy_app.add_plugins(bevy::render::view::ViewPlugin);
+                let shaders = dummy_app.world.get_resource::<Assets<Shader>>().unwrap();
+                let view_shader = shaders.get(bevy::render::view::VIEW_TYPE_HANDLE).unwrap();
+
+                let res = composer.add_composable_module(view_shader.into());
+                assert!(res.is_ok());
+            }
 
             match composer.make_naga_module(NagaModuleDescriptor {
                 source: code,
