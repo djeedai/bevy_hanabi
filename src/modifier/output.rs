@@ -298,7 +298,11 @@ pub enum OrientMode {
 pub struct OrientModifier {
     /// Orientation mode for the particles.
     pub mode: OrientMode,
-    /// Optional in-plane rotation expression. Usage depends on [`OrientMode`].
+    /// Optional in-plane rotation expression, as a single `f32` angle in
+    /// radians.
+    ///
+    /// The actual meaning depends on [`OrientMode`], and the rotation may be
+    /// ignored for some mode(s).
     pub rotation: Option<ExprHandle>,
 }
 

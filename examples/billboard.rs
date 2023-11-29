@@ -100,7 +100,8 @@ fn setup(
     };
 
     // Use the F32_0 attribute as a per-particle rotation value, initialized on
-    // spawn and constant after
+    // spawn and constant after. The rotation angle is in radians, here randomly
+    // selected in [0:2*PI].
     let init_rotation = (writer.rand(ScalarType::Float) * writer.lit(std::f32::consts::TAU)).expr();
     let init_rotation = SetAttributeModifier::new(Attribute::F32_0, init_rotation);
 
