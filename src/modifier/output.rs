@@ -160,7 +160,7 @@ impl RenderModifier for ColorOverLifetimeModifier {
 /// This modifier does not require any specific particle attribute.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct SetSizeModifier {
-    /// The particle color.
+    /// The 2D particle (quad) size.
     pub size: CpuValue<Vec2>,
     /// Is the particle size in screen-space logical pixel? If `true`, the size
     /// is in screen-space logical pixels, and not affected by the camera
@@ -594,9 +594,54 @@ mod tests {
     }
 
     #[test]
-    fn mod_billboard() {
-        let modifier = OrientModifier::default();
+    fn mod_set_color() {
+        let mut modifier = SetColorModifier::default();
+        assert_eq!(modifier.context(), ModifierContext::Render);
+        assert!(modifier.as_render().is_some());
+        assert!(modifier.as_render_mut().is_some());
+        assert_eq!(modifier.boxed_clone().context(), ModifierContext::Render);
+
         let mut module = Module::default();
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&property_layout, &particle_layout);
+        modifier.apply_render(&mut module, &mut context);
+
+        assert_eq!(modifier.color, CpuValue::from(Vec4::ZERO));
+        assert_eq!(context.vertex_code, "color = vec4<f32>(0.,0.,0.,0.);\n");
+    }
+
+    #[test]
+    fn mod_set_size() {
+        let mut modifier = SetSizeModifier::default();
+        assert_eq!(modifier.context(), ModifierContext::Render);
+        assert!(modifier.as_render().is_some());
+        assert!(modifier.as_render_mut().is_some());
+        assert_eq!(modifier.boxed_clone().context(), ModifierContext::Render);
+
+        let mut module = Module::default();
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&property_layout, &particle_layout);
+        modifier.apply_render(&mut module, &mut context);
+
+        assert_eq!(modifier.size, CpuValue::from(Vec2::ZERO));
+        assert_eq!(context.vertex_code, "size = vec2<f32>(0.,0.);\n");
+    }
+
+    #[test]
+    fn mod_orient() {
+        let mut modifier = OrientModifier::default();
+        assert_eq!(modifier.context(), ModifierContext::Render);
+        assert!(modifier.as_render().is_some());
+        assert!(modifier.as_render_mut().is_some());
+        assert_eq!(modifier.boxed_clone().context(), ModifierContext::Render);
+    }
+
+    #[test]
+    fn mod_orient_default() {
+        let mut module = Module::default();
+        let modifier = OrientModifier::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
         let mut context = RenderContext::new(&property_layout, &particle_layout);
@@ -606,5 +651,48 @@ mod tests {
         assert!(context
             .vertex_code
             .contains("get_camera_rotation_effect_space"));
+        assert!(!context
+            .vertex_code
+            .contains("cos(particle_rot_in_cam_space)"));
+        assert!(!context.vertex_code.contains("let axis_x0 ="));
+    }
+
+    #[test]
+    fn mod_orient_rotation() {
+        let mut module = Module::default();
+        let modifier = OrientModifier::default().with_rotation(module.lit(1.));
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&property_layout, &particle_layout);
+        modifier.apply_render(&mut module, &mut context);
+
+        // TODO - less weak test...
+        assert!(context
+            .vertex_code
+            .contains("get_camera_rotation_effect_space"));
+        assert!(context
+            .vertex_code
+            .contains("cos(particle_rot_in_cam_space)"));
+        assert!(!context.vertex_code.contains("let axis_x0 ="));
+    }
+
+    #[test]
+    fn mod_orient_rotation_face_camera() {
+        let mut module = Module::default();
+        let modifier =
+            OrientModifier::new(OrientMode::FaceCameraPosition).with_rotation(module.lit(1.));
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut context = RenderContext::new(&property_layout, &particle_layout);
+        modifier.apply_render(&mut module, &mut context);
+
+        // TODO - less weak test...
+        assert!(context
+            .vertex_code
+            .contains("get_camera_position_effect_space"));
+        assert!(context
+            .vertex_code
+            .contains("cos(particle_rot_in_cam_space)"));
+        assert!(context.vertex_code.contains("let axis_x0 ="));
     }
 }

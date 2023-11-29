@@ -1517,8 +1517,8 @@ mod tests {
 
     #[test]
     fn attr_from_name() {
-        for attr in Attribute::ALL {
-            assert_eq!(Attribute::from_name(attr.name()), Some(attr));
+        for attr in Attribute::all() {
+            assert_eq!(Attribute::from_name(attr.name()), Some(*attr));
         }
     }
 
