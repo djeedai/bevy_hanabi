@@ -1973,8 +1973,10 @@ else { return c1; }
 
             // Import bevy_render::view for the render shader
             {
-                // It's reasonably hard to retrieve the source code for view.wgsl in bevy_render. We use a few tricks to get a Shader
-                // that we can then convert into a composable module (which is how imports work in Bevy itself).
+                // It's reasonably hard to retrieve the source code for view.wgsl in
+                // bevy_render. We use a few tricks to get a Shader that we can
+                // then convert into a composable module (which is how imports work in Bevy
+                // itself).
                 let mut dummy_app = App::new();
                 dummy_app.init_resource::<Assets<Shader>>();
                 dummy_app.add_plugins(bevy::render::view::ViewPlugin);

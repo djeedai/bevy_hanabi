@@ -1028,15 +1028,9 @@ fn main() {{
             &ParticleTextureModifier::default(),
             &ColorOverLifetimeModifier::default(),
             &SizeOverLifetimeModifier::default(),
-            &OrientModifier {
-                mode: OrientMode::ParallelCameraDepthPlane,
-            },
-            &OrientModifier {
-                mode: OrientMode::FaceCameraPosition,
-            },
-            &OrientModifier {
-                mode: OrientMode::AlongVelocity,
-            },
+            &OrientModifier::new(OrientMode::ParallelCameraDepthPlane),
+            &OrientModifier::new(OrientMode::FaceCameraPosition),
+            &OrientModifier::new(OrientMode::AlongVelocity),
         ];
         for &modifier in modifiers.iter() {
             let mut module = Module::default();
