@@ -72,6 +72,8 @@ fn setup(
     let anim_img = make_anim_img(sprite_size, sprite_grid_size, Vec3::new(0.1, 0.1, 0.1));
     let texture_handle = images.add(anim_img);
 
+    // The sprites form a grid, with a total animation frame count equal to the
+    // number of sprites.
     let frame_count = sprite_grid_size.x * sprite_grid_size.y;
 
     let mut gradient = Gradient::new();
@@ -86,6 +88,9 @@ fn setup(
     let age = writer.rand(ScalarType::Float).expr();
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
+    // All particles stay alive until their AGE is 5 seconds. Note that this doesn't
+    // mean they live for 5 seconds; if the AGE is initialized to a non-zero value
+    // at spawn, the total particle lifetime is (LIFETIME - AGE).
     let lifetime = writer.lit(5.).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 

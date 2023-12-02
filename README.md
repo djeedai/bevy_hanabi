@@ -287,17 +287,17 @@ cargo run --example lifetime --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 
 ### Billboard
 
-This example demonstrates particles with the billboard render modifier, making them always face the camera. It also demonstrates the use of alpha cutoff to filter out texture samples below a certain threshold, varying this threshold back and forth between 0 and 1.
+This example demonstrates particles with the billboard render modifier, making them always face the camera. It also demonstrates the use of alpha cutoff to filter out texture samples below a certain threshold, varying this threshold back and forth between 0 and 1. Finally, the example uses attributes to store per-particle data like a color or in-plane rotation.
 
 ```shell
 cargo run --example billboard --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-The image on the left has the `BillboardModifier` enabled.
-
-![billboard](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/billboard.png)
+![billboard](./examples/billboard.gif)
 
 ## Feature List
+
+This list contains the major fixed features provided by 🎆 Hanabi. Beyond that, with the power of the [Expressions API](https://docs.rs/bevy_hanabi/latest/bevy_hanabi/graph/expr/index.html), visual effect authors can further customize their effects by assigning individual particle attributes (position, color, _etc._).
 
 - Spawn
   - [x] Constant rate

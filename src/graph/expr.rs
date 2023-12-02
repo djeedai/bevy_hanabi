@@ -269,10 +269,14 @@ impl Module {
     impl_module_unary!(log, Log);
     impl_module_unary!(log2, Log2);
     impl_module_unary!(normalize, Normalize);
+    impl_module_unary!(pack4x8snorm, Pack4x8snorm);
+    impl_module_unary!(pack4x8unorm, Pack4x8unorm);
     impl_module_unary!(saturate, Saturate);
     impl_module_unary!(sign, Sign);
     impl_module_unary!(sin, Sin);
     impl_module_unary!(tan, Tan);
+    impl_module_unary!(unpack4x8snorm, Unpack4x8snorm);
+    impl_module_unary!(unpack4x8unorm, Unpack4x8unorm);
     impl_module_unary!(w, W);
     impl_module_unary!(x, X);
     impl_module_unary!(y, Y);
@@ -1287,6 +1291,22 @@ pub enum UnaryOperator {
     /// operands.
     Normalize,
 
+    /// Packing operator from `vec4<f32>` to `u32` (signed normalized).
+    ///
+    /// Convert the four components of a signed normalized floating point vector
+    /// into a signed integral `i8` value in `[-128:127]`, then pack those
+    /// four values into a single `u32`. Each vector component should be in
+    /// `[-1:1]` before packing; values outside this range are clamped.
+    Pack4x8snorm,
+
+    /// Packing operator from `vec4<f32>` to `u32` (unsigned normalized).
+    ///
+    /// Convert the four components of an unsigned normalized floating point
+    /// vector into an unsigned integral `u8` value in `[0:255]`, then pack
+    /// those four values into a single `u32`. Each vector component should
+    /// be in `[0:1]` before packing; values outside this range are clamped.
+    Pack4x8unorm,
+
     /// Saturate operator.
     ///
     /// Clamp the value of the operand to the \[0:1\] range, component-wise for
@@ -1309,6 +1329,19 @@ pub enum UnaryOperator {
 
     /// Tangent operator.
     Tan,
+
+    /// Unpacking operator from `u32` to `vec4<f32>` (signed normalized).
+    ///
+    /// Unpack the `u32` into four signed integral `i8` value in `[-128:127]`,
+    /// then convert each value to a signed normalized `f32` value in `[-1:1]`.
+    Unpack4x8snorm,
+
+    /// Unpacking operator from `u32` to `vec4<f32>` (unsigned normalized).
+    ///
+    /// Unpack the `u32` into four unsigned integral `u8` value in `[0:255]`,
+    /// then convert each value to an unsigned normalized `f32` value in
+    /// `[0:1]`.
+    Unpack4x8unorm,
 
     /// Get the fourth component of a vector.
     ///
@@ -1361,10 +1394,14 @@ impl ToWgslString for UnaryOperator {
             UnaryOperator::Log => "log".to_string(),
             UnaryOperator::Log2 => "log2".to_string(),
             UnaryOperator::Normalize => "normalize".to_string(),
+            UnaryOperator::Pack4x8snorm => "pack4x8snorm".to_string(),
+            UnaryOperator::Pack4x8unorm => "pack4x8unorm".to_string(),
             UnaryOperator::Saturate => "saturate".to_string(),
             UnaryOperator::Sign => "sign".to_string(),
             UnaryOperator::Sin => "sin".to_string(),
             UnaryOperator::Tan => "tan".to_string(),
+            UnaryOperator::Unpack4x8snorm => "unpack4x8snorm".to_string(),
+            UnaryOperator::Unpack4x8unorm => "unpack4x8unorm".to_string(),
             UnaryOperator::W => "w".to_string(),
             UnaryOperator::X => "x".to_string(),
             UnaryOperator::Y => "y".to_string(),
@@ -2164,6 +2201,52 @@ impl WriterExpr {
         self.unary_op(UnaryOperator::Normalize)
     }
 
+    /// Apply the "pack4x8snorm" operator to the current 4-component float
+    /// vector expression.
+    ///
+    /// This is a unary operator, which applies to 4-component float vector
+    /// operand expressions to produce a single `u32` scalar expression.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec4;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec4<f32>(-1., 1., 0., 7.2);`.
+    /// let x = w.lit(Vec4::new(-1., 1., 0., 7.2));
+    ///
+    /// // Pack: `y = pack4x8snorm(x);`
+    /// let y = x.pack4x8snorm(); // 0x7F007FFFu32
+    /// ```
+    #[inline]
+    pub fn pack4x8snorm(self) -> Self {
+        self.unary_op(UnaryOperator::Pack4x8snorm)
+    }
+
+    /// Apply the "pack4x8unorm" operator to the current 4-component float
+    /// vector expression.
+    ///
+    /// This is a unary operator, which applies to 4-component float vector
+    /// operand expressions to produce a single `u32` scalar expression.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec4;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec4<f32>(-1., 1., 0., 7.2);`.
+    /// let x = w.lit(Vec4::new(-1., 1., 0., 7.2));
+    ///
+    /// // Pack: `y = pack4x8unorm(x);`
+    /// let y = x.pack4x8unorm(); // 0xFF00FF00u32
+    /// ```
+    #[inline]
+    pub fn pack4x8unorm(self) -> Self {
+        self.unary_op(UnaryOperator::Pack4x8unorm)
+    }
+
     /// Apply the "sign" operator to the current float scalar or vector
     /// expression.
     ///
@@ -2234,6 +2317,54 @@ impl WriterExpr {
     #[inline]
     pub fn tan(self) -> Self {
         self.unary_op(UnaryOperator::Tan)
+    }
+
+    /// Apply the "unpack4x8snorm" operator to the current `u32` scalar
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to `u32` scalar operand
+    /// expressions to produce a 4-component floating point vector of signed
+    /// normalized components in `[-1:1]`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `y = 0x7F007FFFu32;`.
+    /// let y = w.lit(0x7F007FFFu32);
+    ///
+    /// // Unpack: `x = unpack4x8snorm(y);`
+    /// let x = y.unpack4x8snorm(); // vec4<f32>(-1., 1., 0., 7.2)
+    /// ```
+    #[inline]
+    pub fn unpack4x8snorm(self) -> Self {
+        self.unary_op(UnaryOperator::Unpack4x8snorm)
+    }
+
+    /// Apply the "unpack4x8unorm" operator to the current `u32` scalar
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to `u32` scalar operand
+    /// expressions to produce a 4-component floating point vector of unsigned
+    /// normalized components in `[0:1]`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `y = 0xFF00FF00u32;`.
+    /// let y = w.lit(0xFF00FF00u32);
+    ///
+    /// // Unpack: `x = unpack4x8unorm(y);`
+    /// let x = y.unpack4x8unorm(); // vec4<f32>(-1., 1., 0., 7.2)
+    /// ```
+    #[inline]
+    pub fn unpack4x8unorm(self) -> Self {
+        self.unary_op(UnaryOperator::Unpack4x8unorm)
     }
 
     /// Apply the "saturate" operator to the current float scalar or vector
@@ -3174,6 +3305,9 @@ mod tests {
         let y = m.lit(Vec3::new(1., -3.1, 6.99));
         let z = m.lit(BVec3::new(false, true, false));
         let w = m.lit(Vec4::W);
+        let v = m.lit(Vec4::new(-1., 1., 0., 7.2));
+        let us = m.lit(0x0u32);
+        let uu = m.lit(0x0u32);
 
         let abs = m.abs(x);
         let all = m.all(z);
@@ -3188,10 +3322,14 @@ mod tests {
         let log = m.log(y);
         let log2 = m.log2(y);
         let norm = m.normalize(y);
+        let pack4x8snorm = m.pack4x8snorm(v);
+        let pack4x8unorm = m.pack4x8unorm(v);
         let saturate = m.saturate(y);
         let sign = m.sign(y);
         let sin = m.sin(y);
         let tan = m.tan(y);
+        let unpack4x8snorm = m.unpack4x8snorm(us);
+        let unpack4x8unorm = m.unpack4x8unorm(uu);
         let comp_x = m.x(w);
         let comp_y = m.y(w);
         let comp_z = m.z(w);
@@ -3219,10 +3357,14 @@ mod tests {
             (log, "log", "vec3<f32>(1.,-3.1,6.99)"),
             (log2, "log2", "vec3<f32>(1.,-3.1,6.99)"),
             (norm, "normalize", "vec3<f32>(1.,-3.1,6.99)"),
+            (pack4x8snorm, "pack4x8snorm", "vec4<f32>(-1.,1.,0.,7.2)"),
+            (pack4x8unorm, "pack4x8unorm", "vec4<f32>(-1.,1.,0.,7.2)"),
             (saturate, "saturate", "vec3<f32>(1.,-3.1,6.99)"),
             (sign, "sign", "vec3<f32>(1.,-3.1,6.99)"),
             (sin, "sin", "vec3<f32>(1.,-3.1,6.99)"),
             (tan, "tan", "vec3<f32>(1.,-3.1,6.99)"),
+            (unpack4x8snorm, "unpack4x8snorm", "0"),
+            (unpack4x8unorm, "unpack4x8unorm", "0"),
         ] {
             let expr = ctx.eval(&m, expr);
             assert!(expr.is_ok());
