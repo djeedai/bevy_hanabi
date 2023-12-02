@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a new `EffectSystems::UpdatePropertiesFromAsset` set running in the `PostUpdate` schedule. During this set, Hanabi automatically updates all `EffectProperties` if the properties declared in the underlying `EffectAsset` changed.
 - Added `OrientModifier::rotation`, an optional expression which allows rotating the particle within its oriented plane. The actual meaning depends on the `OrientMode` used. (#258)
 - Added 4 new scalar float attributes `F32_0` to `F32_3`, which have no specified meaning but instead can be used to store any per-particle value.
+- Added 4 new expressions for packing and unpacking a `vec4<f32>` into a `u32`: `pack4x8snorm`, `pack4x8unorm`, `unpack4x8snorm`, `unpack4x8unorm`. This is particularly useful to convert between `COLOR` (`u32`) and `HDR_COLOR` (`vec4<f32>`). See the `billboard.rs` example for a use case. (#259)
 
 ### Changed
 
