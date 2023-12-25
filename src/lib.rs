@@ -147,6 +147,31 @@
 //!     ));
 //! # }
 //! ```
+//!
+//! # Workflow
+//!
+//! Authoring and using a particle effect follows this workflow:
+//!
+//! 1. Create an [`EffectAsset`] representing the definition of the particle
+//!    effect. This asset is a proper Bevy [`Asset`], expected to be authored in
+//!    advance, serialized, and shipped with your application. Creating an
+//!    [`EffectAsset`] at runtime while the application is running is also
+//!    supported, though. In any case however, the asset doesn't do anything by
+//!    itself.
+//! 2. At runtime, when the application is running, create an actual particle
+//!    effect instance by spawning a [`ParticleEffect`] component (or use the
+//!    [`ParticleEffectBundle`] for simplicity). The component references the
+//!    [`EffectAsset`] via its `handle` field. Multiple instances can reference
+//!    the same asset at the same time, and some changes to the asset are
+//!    reflected to its instances, although not all changes are supported. In
+//!    general, avoid changing an [`EffectAsset`] while it's in use by one or
+//!    more [`ParticleEffect`].
+//! 3. Optionally spawn an [`EffectProperties`] component on the same entity, if
+//!    the effect uses properties. See [properties] for more details.
+//! 4. If using properties, update them through the [`EffectProperties`] at any
+//!    time while the effect is active. This allows some moderate CPU-side
+//!    control over the simulation and rendering of the effect, without having
+//!    to destroy the effect and re-create a new one.
 
 #[cfg(feature = "2d")]
 use bevy::utils::FloatOrd;
@@ -158,13 +183,13 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Write as _; // import without risk of name clashing
 
 mod asset;
-mod attributes;
+pub mod attributes;
 mod bundle;
 mod gradient;
 pub mod graph;
 pub mod modifier;
 mod plugin;
-mod properties;
+pub mod properties;
 mod render;
 mod spawn;
 
@@ -180,7 +205,7 @@ pub use gradient::{Gradient, GradientKey};
 pub use graph::*;
 pub use modifier::*;
 pub use plugin::HanabiPlugin;
-pub use properties::{Property, PropertyLayout};
+pub use properties::*;
 pub use render::{EffectSystems, LayoutFlags, ShaderCache};
 pub use spawn::{tick_spawners, CpuValue, EffectSpawner, Random, Spawner};
 
@@ -1069,226 +1094,6 @@ impl EffectShaderSource {
     }
 }
 
-/// Dynamic runtime storage for the properties of a [`ParticleEffect`].
-///
-/// This component stores the list of properties of a single [`ParticleEffect`]
-/// instance and their current value. It represents the CPU side copy of the
-/// values actually present in GPU memory and used by the particle effect.
-///
-/// A new value can be assigned to a property via [`set()`] or
-/// [`set_if_changed()`], which will trigger a GPU (re-)upload
-/// of the properties by reading them during the render extract phase.
-///
-/// # Asset changes
-///
-/// When a declared property is added to or removed from the underlying
-/// [`EffectAsset`], an internal system automatically updates the component
-/// during the [`EffectSystems::UpdatePropertiesFromAsset`] stage, which runs in
-/// [`PostUpdate`] schedule. Note however that changing a declared property's
-/// default value has no effect on the instance already stored in the
-/// [`EffectProperties`], and will only affect other components spawned after
-/// the change.
-///
-/// [`set()`]: crate::EffectProperties::set
-/// [`set_if_changed()`]: crate::EffectProperties::set_if_changed
-#[derive(Debug, Default, Clone, Component, Reflect)]
-#[reflect(Component)]
-pub struct EffectProperties {
-    /// Instances of all declared properties, as well as any property manually
-    /// added with [`set()`] this frame.
-    properties: Vec<PropertyInstance>,
-}
-
-impl EffectProperties {
-    /// Set some properties.
-    pub fn with_properties<P>(
-        mut self,
-        properties: impl IntoIterator<Item = (String, Value)>,
-    ) -> Self {
-        let iter = properties.into_iter();
-        for (name, value) in iter {
-            if let Some(index) = self.properties.iter().position(|p| p.def.name() == name) {
-                self.properties[index].value = value;
-            } else {
-                self.properties.push(PropertyInstance {
-                    def: Property::new(name, value),
-                    value,
-                });
-            }
-        }
-        self
-    }
-
-    /// Get the value of a stored property.
-    ///
-    /// The property will be matched by name against the properties already
-    /// stored in this [`EffectProperties`] component. If no property exists
-    /// with that name, `None` is returned, which either indicates that the
-    /// [`EffectAsset`] does not declare such a property, or that the
-    /// [`EffectProperties`] component didn't observe the asset property yet.
-    /// This means that [`get_stored()`] is only relevant when called after a
-    /// [`set()`] of the same property, or after the
-    /// [`EffectSystems::UpdatePropertiesFromAsset`] stage has added any
-    /// property declared in the [`EffectAsset`] but missing in the
-    /// [`EffectProperties`]. This also means that [`get_stored()`] may
-    /// return a property which was [`set()`] but is not in fact declared in
-    /// the [`EffectAsset`].
-    ///
-    /// Note that this behavior is not symmetric with [`set()`], which allows
-    /// setting any property even if not declared on the asset.
-    ///
-    /// [`get_stored()`]: crate::EffectProperties::get_stored
-    /// [`set()`]: crate::EffectProperties::set
-    pub fn get_stored(&self, name: &str) -> Option<Value> {
-        self.properties
-            .iter()
-            .find(|prop| prop.def.name() == name)
-            .map(|prop| prop.value)
-    }
-
-    /// Set the value of a property.
-    ///
-    /// The property will be matched by name against the properties of the
-    /// associated [`EffectAsset`] on next update. If no property exists with
-    /// that name, the value will be discarded. Otherwise it will be used to
-    /// replace the current property's value, and if different will trigger a
-    /// GPU re-upload of the properties.
-    ///
-    /// Note that this behavior is not symmetric with [`get_stored()`], which
-    /// only returns properties already stored in this [`EffectProperties`]
-    /// component.
-    ///
-    /// [`get_stored()`]: crate::EffectProperties::get_stored
-    pub fn set(&mut self, name: &str, value: Value) {
-        if let Some(index) = self
-            .properties
-            .iter()
-            .position(|prop| prop.def.name() == name)
-        {
-            let prop = &mut self.properties[index];
-            assert_eq!(
-                prop.def.value_type(),
-                value.value_type(),
-                "Cannot assign value of type {:?} to property '{}' of type {:?}",
-                value.value_type(),
-                prop.def.name(),
-                prop.def.value_type()
-            );
-            prop.value = value;
-        } else {
-            self.properties.push(PropertyInstance {
-                def: Property::new(name, value),
-                value,
-            });
-        }
-    }
-
-    /// Set the value of a property, only if it changed.
-    ///
-    /// This is similar to [`set()`], with the notable difference that this
-    /// associated function takes a [`Mut`] reference, and will only trigger
-    /// change detection on the target component if the property either isn't
-    /// already stored, or has a different value than `value`. This means in
-    /// particular that a full value comparison is performed, which is never the
-    /// case with [`set()`].
-    ///
-    /// [`set()`]: crate::EffectProperties::set
-    pub fn set_if_changed(mut this: Mut<'_, EffectProperties>, name: &str, value: Value) {
-        if let Some(index) = this
-            .properties
-            .iter()
-            .position(|prop| prop.def.name() == name)
-        {
-            let prop = &this.properties[index];
-            assert_eq!(
-                prop.def.value_type(),
-                value.value_type(),
-                "Cannot assign value of type {:?} to property '{}' of type {:?}",
-                value.value_type(),
-                prop.def.name(),
-                prop.def.value_type()
-            );
-            if prop.value != value {
-                this.properties[index].value = value;
-            }
-        } else {
-            this.properties.push(PropertyInstance {
-                def: Property::new(name, value),
-                value,
-            });
-        }
-    }
-
-    /// Update the properties from the asset.
-    ///
-    /// Compare the properties declared in the asset with the properties
-    /// actually stored in the [`EffectProperties`] component, and update the
-    /// latter:
-    /// - Add any missing property, using their default value.
-    /// - Remove any unknown property not declared in the asset.
-    ///
-    /// Change detection on the [`EffectProperties`] component is guaranteed not
-    /// to trigger unless some property was added or removed.
-    pub(crate) fn update(
-        mut this: Mut<'_, EffectProperties>,
-        asset_properties: &[Property],
-        is_added: bool,
-    ) {
-        trace!(
-            "Updating effect properties from asset (is_added: {})",
-            is_added
-        );
-
-        let mut new_props = vec![];
-        let mut intersect = HashSet::new();
-        for prop in asset_properties {
-            if this.properties.iter().any(|p| p.def.name() == prop.name()) {
-                intersect.insert(prop.name());
-                continue;
-            }
-            new_props.push(PropertyInstance {
-                def: prop.clone(),
-                value: *prop.default_value(),
-            });
-        }
-
-        // Only mutate if needed to avoid triggering change detection
-        if intersect.len() != this.properties.len() {
-            // Delete instances for unknown properties
-            this.properties
-                .retain(|prop| intersect.contains(prop.def.name()));
-        }
-
-        // Only mutate if needed to avoid triggering change detection
-        if !new_props.is_empty() {
-            // Append new instances (with their default value) for missing properties
-            this.properties.append(&mut new_props);
-        }
-    }
-
-    /// Serialize properties into a binary blob ready for GPU upload.
-    ///
-    /// Return the binary blob where properties have been written according to
-    /// the given property layout. The size of the output blob is guaranteed
-    /// to be equal to the size of the layout.
-    fn serialize(&self, layout: &PropertyLayout) -> Vec<u8> {
-        let size = layout.size() as usize;
-        let mut data = vec![0; size];
-        // FIXME: O(n^2) search due to offset() being O(n) linear search already
-        for property in &self.properties {
-            if let Some(offset) = layout.offset(property.def.name()) {
-                let offset = offset as usize;
-                let size = property.def.size();
-                let src = property.value.as_bytes();
-                debug_assert_eq!(src.len(), size);
-                let dst = &mut data[offset..offset + size];
-                dst.copy_from_slice(src);
-            }
-        }
-        data
-    }
-}
-
 /// Compiled data for a [`ParticleEffect`].
 ///
 /// This component is managed automatically, and generally should not be
@@ -1663,7 +1468,6 @@ mod tests {
             },
             AssetServerMode,
         },
-        ecs::component::Tick,
         render::view::{VisibilityPlugin, VisibilitySystems},
         tasks::{IoTaskPool, TaskPoolBuilder},
     };
@@ -2249,110 +2053,5 @@ else { return c1; }
                 assert!(compiled_particle_effect.effect_shader.is_some());
             }
         }
-    }
-
-    #[test]
-    fn effect_properties_update_empty() {
-        // Empty asset vs. empty runtime == empty
-        let mut ep = EffectProperties::default();
-        let mut added = Tick::new(0);
-        let last_changed_prev = Tick::new(0u32.wrapping_sub(1u32));
-        let mut last_changed = last_changed_prev;
-        let last_run = last_changed;
-        let this_run = added;
-        let asset_properties = vec![];
-        {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
-            let is_added = true;
-            EffectProperties::update(this, &asset_properties, is_added);
-        }
-        assert!(ep.properties.is_empty());
-        assert_eq!(last_changed, last_changed_prev); // unchanged (no-op)
-    }
-
-    #[test]
-    fn effect_properties_update_added() {
-        // Some asset vs. empty runtime == some
-        let mut ep = EffectProperties::default();
-        let mut added = Tick::new(0);
-        let last_changed_prev = Tick::new(0u32.wrapping_sub(1u32));
-        let mut last_changed = last_changed_prev;
-        let last_run = last_changed;
-        let this_run = added;
-        let asset_properties = vec![Property::new("prop1", 32.)];
-        {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
-            let is_added = true;
-            EffectProperties::update(this, &asset_properties, is_added);
-        }
-        assert_eq!(ep.properties.len(), 1);
-        assert_eq!(ep.properties[0].def, asset_properties[0]);
-        assert_eq!(last_changed, this_run); // changed (added missing property)
-    }
-
-    #[test]
-    fn effect_properties_update_removed() {
-        // Empty asset vs. some runtime == empty
-        let mut ep = EffectProperties::default();
-        ep.set("unknown", 3.into());
-        let mut added = Tick::new(0);
-        let last_changed_prev = Tick::new(0u32.wrapping_sub(1u32));
-        let mut last_changed = last_changed_prev;
-        let last_run = last_changed;
-        let this_run = added;
-        let asset_properties = vec![];
-        {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
-            let is_added = true;
-            EffectProperties::update(this, &asset_properties, is_added);
-        }
-        assert!(ep.properties.is_empty());
-        assert_eq!(last_changed, this_run); // changed (removed unknown
-                                            // property)
-    }
-
-    #[test]
-    fn effect_properties_update_override() {
-        // Some asset vs. same runtime == same(runtime)
-        let mut ep = EffectProperties::default();
-        ep.set("prop1", 5_f32.into());
-        let mut added = Tick::new(0);
-        let last_changed_prev = Tick::new(0u32.wrapping_sub(1u32));
-        let mut last_changed = last_changed_prev;
-        let last_run = last_changed;
-        let this_run = added;
-        let asset_properties = vec![Property::new("prop1", 32.)];
-        {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
-            let is_added = true;
-            EffectProperties::update(this, &asset_properties, is_added);
-        }
-        assert_eq!(ep.properties.len(), 1);
-        assert_eq!(ep.properties[0].def.name(), asset_properties[0].name());
-        assert_eq!(ep.properties[0].value, 5_f32.into());
-        assert_eq!(last_changed, last_changed_prev); // unchanged
-    }
-
-    #[test]
-    fn effect_properties_update_mixed() {
-        // Some asset vs. some runtime, one override and one default
-        let mut ep = EffectProperties::default();
-        ep.set("prop1", 5_f32.into());
-        let mut added = Tick::new(0);
-        let last_changed_prev = Tick::new(0u32.wrapping_sub(1u32));
-        let mut last_changed = last_changed_prev;
-        let last_run = last_changed;
-        let this_run = added;
-        let asset_properties = vec![Property::new("prop1", 32.), Property::new("prop2", false)];
-        {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
-            let is_added = true;
-            EffectProperties::update(this, &asset_properties, is_added);
-        }
-        assert_eq!(ep.properties.len(), 2);
-        assert_eq!(ep.properties[0].def.name(), asset_properties[0].name());
-        assert_eq!(ep.properties[0].value, 5_f32.into());
-        assert_eq!(ep.properties[1].def, asset_properties[1]);
-        assert_eq!(last_changed, this_run); // changed (added missing property)
     }
 }

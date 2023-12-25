@@ -10,7 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a new `EffectProperties` component holding the runtime values for all properties of a single `ParticleEffect` instance. This component can be added manually to the same `Entity` holding the `ParticleEffect` if you want to set initial values different from the default ones declared in the `EffectAsset`. Otherwise Hanabi will add the component automatically.
 - Added a new `EffectSystems::UpdatePropertiesFromAsset` set running in the `PostUpdate` schedule. During this set, Hanabi automatically updates all `EffectProperties` if the properties declared in the underlying `EffectAsset` changed.
 - Added `OrientModifier::rotation`, an optional expression which allows rotating the particle within its oriented plane. The actual meaning depends on the `OrientMode` used. (#258)
-- Added 4 new scalar float attributes `F32_0` to `F32_3`, which have no specified meaning but instead can be used to store any per-particle value.
+- Added custom float attributes, which have no predefined meaning, but instead can be used to store any per-particle value.
+  - `Attribute::F32_0` to `Attribute::F32_3` for scalar `f32` attributes.
+  - `Attribute::F32X2_0` to `Attribute::F32X2_3` for vector `vec2<f32>` attributes.
+  - `Attribute::F32X3_0` to `Attribute::F32X3_3` for vector `vec3<f32>` attributes.
+  - `Attribute::F32X4_0` to `Attribute::F32X4_3` for vector `vec4<f32>` attributes.
 - Added 4 new expressions for packing and unpacking a `vec4<f32>` into a `u32`: `pack4x8snorm`, `pack4x8unorm`, `unpack4x8snorm`, `unpack4x8unorm`. This is particularly useful to convert between `COLOR` (`u32`) and `HDR_COLOR` (`vec4<f32>`). See the `billboard.rs` example for a use case. (#259)
 
 ### Changed
@@ -19,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Thanks to the split of properties into `EffectProperties`, change detection now works on properties, and uploads to GPU will only occur when change detection triggered on the component. Previously properties were re-uploaded each frame to the GPU even if unchanged.
 - Effect properties are now reflected (via the new `EffectProperties` component).
 - `Attribute::ALL` is now private; use `Attribute::all()` instead.
+- Exposed publicly the `attributes` and `properties` modules, and documented them.
 
 ## [0.8.0] 2023-11-08
 
