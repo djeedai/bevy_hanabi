@@ -27,7 +27,7 @@ Add the `bevy_hanabi` dependency to `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_hanabi = "0.8"
+bevy_hanabi = "0.9"
 ```
 
 See also [Features](#features) below for the list of supported features.
@@ -45,7 +45,7 @@ App::default()
     .run();
 ```
 
-### Create a particle effect
+### Create an effect asset
 
 Create an `EffectAsset` describing a visual effect:
 
@@ -109,9 +109,9 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
 }
 ```
 
-### Add a particle effect
+### Spawn a particle effect
 
-Use a `ParticleEffectBundle` to create an effect instance from an existing asset. The simplest way is to use the [`ParticleEffectBundle`] to ensure all required components are spawned together.
+Use a `ParticleEffect` to create an effect instance from an existing asset. The simplest way is to use the `ParticleEffectBundle` to ensure all required components are spawned together.
 
 ```rust
 commands
@@ -124,7 +124,7 @@ commands
 
 ## Examples
 
-See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples) folder.
+See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples) folder.
 
 Note for Linux users: The examples build with the `bevy/x11` feature by default to enable support for the X11 display server. If you want to use the Wayland display server instead, add the `bevy/wayland` feature.
 
@@ -136,7 +136,7 @@ Combine the `SetPositionSphereModifier` for spawning and `LinearDragModifier` to
 cargo run --example firework --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![firework](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/firework.gif)
+![firework](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/firework.gif)
 
 ### Portal
 
@@ -146,7 +146,7 @@ Combine the `SetVelocityTangentModifier` for tangential rotation of particles ar
 cargo run --example portal --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![portal](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/portal.gif)
+![portal](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/portal.gif)
 
 ### Expressions
 
@@ -156,7 +156,7 @@ Demonstrate the use of the Expression API to build a visual effect simulated and
 cargo run --example expr --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![expr](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/expr.gif)
+![expr](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/expr.gif)
 
 ### Gradient
 
@@ -166,7 +166,7 @@ Animate an emitter by moving its `Transform` component, and emit textured quad p
 cargo run --example gradient --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/gradient.gif)
+![gradient](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/gradient.gif)
 
 ### Force Field
 
@@ -176,7 +176,7 @@ This example demonstrates the force field modifier `ForceFieldModifier`, which a
 cargo run --example force_field --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![force_field](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/force_field.gif)
+![force_field](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/force_field.gif)
 
 ### 2D
 
@@ -188,7 +188,7 @@ The white square mesh is moving forward and backward along the camera depth. The
 cargo run --example 2d --features="bevy/bevy_winit bevy/bevy_sprite 2d"
 ```
 
-![2d](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/2d.gif)
+![2d](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/2d.gif)
 
 ### Multi-camera
 
@@ -198,7 +198,7 @@ The example demonstrates the use of multiple cameras and render layers to select
 cargo run --example multicam --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![multicam](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/multicam.gif)
+![multicam](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/multicam.gif)
 
 ### Activate
 
@@ -208,7 +208,7 @@ This example demonstrates manual activation and deactivation of a spawner, from 
 cargo run --example activate --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![activate](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/activate.gif)
+![activate](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/activate.gif)
 
 ### Spawn
 
@@ -224,7 +224,7 @@ It also shows the applying of constant acceleration to all particles. The right 
 cargo run --example spawn --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/spawn.gif)
+![spawn](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/spawn.gif)
 
 ### Spawn on command
 
@@ -234,7 +234,7 @@ This example demonstrates how to emit a burst of particles when an event occurs.
 cargo run --example spawn_on_command --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![spawn_on_command](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/spawn_on_command.gif)
+![spawn_on_command](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/spawn_on_command.gif)
 
 ### Circle
 
@@ -246,7 +246,7 @@ The example also uses the `FlipbookModifier` to animate the particles with a spr
 cargo run --example circle --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/circle.gif)
+![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/circle.gif)
 
 ### Visibility
 
@@ -259,7 +259,7 @@ This example demonstrates the difference between the default `SimulationConditio
 cargo run --example visibility --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/visibility.gif)
+![circle](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/visibility.gif)
 
 ### Random
 
@@ -269,7 +269,7 @@ This example spawns particles with randomized parameters.
 cargo run --example random --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![random](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/random.gif)
+![random](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/random.gif)
 
 ### Lifetime
 
@@ -283,7 +283,7 @@ This example demonstrates particle effects with different lifetimes. Each effect
 cargo run --example lifetime --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 ```
 
-![lifetime](https://raw.githubusercontent.com/djeedai/bevy_hanabi/0a04904e589ddbc6b8dd34614850fc850d99a3a5/examples/lifetime.gif)
+![lifetime](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/lifetime.gif)
 
 ### Billboard
 
@@ -293,7 +293,7 @@ This example demonstrates particles with the billboard render modifier, making t
 cargo run --example billboard --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 ```
 
-![billboard](./examples/billboard.gif)
+![billboard](https://raw.githubusercontent.com/djeedai/bevy_hanabi/26bd4d2f204a9fbc015adab5bbf0215ab965d5b0/examples/billboard.gif)
 
 ## Feature List
 
@@ -381,7 +381,7 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
 For optimization purpose, users of a single type of camera can disable the other type by skipping default features in their `Cargo.toml`. For example to use only the 3D mode:
 
 ```toml
-bevy_hanabi = { version = "0.7", default-features = false, features = [ "3d" ] }
+bevy_hanabi = { version = "0.9", default-features = false, features = [ "3d" ] }
 ```
 
 ## Compatible Bevy versions
@@ -392,7 +392,7 @@ Compatibility of `bevy_hanabi` versions:
 
 | `bevy_hanabi` | `bevy` |
 | :--           | :--    |
-| `0.8`         | `0.12` |
+| `0.8`-`0.9`   | `0.12` |
 | `0.7`         | `0.11` |
 | `0.6`         | `0.10` |
 | `0.5`         | `0.9`  |
