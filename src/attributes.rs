@@ -1,3 +1,126 @@
+//! Effect attributes.
+//!
+//! An _effect attribute_ is a quantity stored per particle for all particles.
+//! Unlike [properties](crate::properties), each particle can have a different
+//! value for each attribute. Examples of particle attributes include the
+//! particle's own position and its velocity. Attributes are represented by the
+//! [`Attribute`] type.
+//!
+//! Attributes are indirectly added to an effect by adding [modifiers] requiring
+//! them. Each modifier documents its required attributes. You can force a
+//! single attribute by adding the [`SetAttributeModifier`].
+//!
+//! Note that 🎆 Hanabi provides a number of associated [`Attribute`] constants,
+//! like [`Attribute::POSITION`]. You cannot build your own [`Attribute`]
+//! instance. See [Built-in attributes](#built-in-attributes) and [Custom
+//! attributes](#custom-attributes) for all available attributes.
+//!
+//! # Definition
+//!
+//! [`Attribute`] defines the attribute's unique name, the type of its value,
+//! and a default value used to initialize the attribute if not otherwise
+//! explicitly initialized.
+//!
+//! The attribute name is a string used to identify the attribute, and also as
+//! the associated variable name in any WGSL shader code using that attribute.
+//! Because it's unique, attributes can be compared by their name alone.
+//!
+//! The attribute type encodes the type of data stored in the attribute,
+//! including the number of components for a vector or matrix type. It's stored
+//! together with the default value for the attribute into a [`Value`] field.
+//!
+//! # Layout
+//!
+//! Each particle effect contains one or more attributes. The set of all
+//! attributes makes a particle. Attributes are organized in memory into a
+//! _layout_, which optimizes GPU RAM usage and access by packing types
+//! together, and avoid any padding gaps. However this layout needs to follow
+//! the rules of WGSL structs, therefore might introduce some gaps (wasted
+//! space) nonetheless, depending on each attribute's required type alignment.
+//!
+//! Here's an example for the default particle attribute set, containing the
+//! particle's position and velocity vectors (`vec3<f32>`), and its age and
+//! lifetime (`f32`), packed into a 32 bytes struct:
+//!
+//! | Bytes  | 0..4 | 4..8 | 8..12 | 12..16 |
+//! |--------|---|---|---|---|
+//! |  0..16 | [`POSITION`](Attribute::POSITION).X | [`POSITION`](Attribute::POSITION).Y | [`POSITION`](Attribute::POSITION).Z | [`AGE`](Attribute::AGE) |
+//! | 16..32 | [`VELOCITY`](Attribute::VELOCITY).X | [`VELOCITY`](Attribute::VELOCITY).Y | [`VELOCITY`](Attribute::VELOCITY).Z | [`LIFETIME`](Attribute::LIFETIME) |
+//!
+//! In WGSL code, this is represented by:
+//!
+//! ```wgsl
+//! struct Particle {
+//!   position: vec3<f32>,
+//!   age: f32,
+//!   velocity: vec3<f32>,
+//!   lifetime: f32,
+//! }
+//! ```
+//!
+//! The layout of a particle effect is represented by the [`ParticleLayout`]
+//! type, and built from a set of attributes via the [`ParticleLayoutBuilder`]
+//! helper. This is done internally by 🎆 Hanabi for each effect, so in general
+//! you don't have to use those types directly.
+//!
+//! # Built-in attributes
+//!
+//! 🎆 Hanabi provides a number of built-in attributes with a specified meaning.
+//! Those attributes are interpreted by some built-in library systems in a way
+//! specific to the attribute. For example, the [`Attribute::POSITION`]
+//! represents the particle's own position, and will be used as the position
+//! where to render the particle.
+//!
+//! In general those attributes can be read and written by the user, for example
+//! via the [`SetAttributeModifier`], but are also read and/or modified by 🎆
+//! Hanabi itself.
+//!
+//! | Attribute | Meaning |
+//! |---|---|
+//! | [`Attribute::POSITION`] | The particle's position in [simulation space](crate::SimulationSpace). |
+//! | [`Attribute::VELOCITY`] | The particle's velocity in [simulation space](crate::SimulationSpace). |
+//! | [`Attribute::AGE`] | The particle's age, in seconds. |
+//! | [`Attribute::LIFETIME`] | The particle's total lifetime, in seconds. |
+//! | [`Attribute::COLOR`] | The particle's LDR color as `u32`. |
+//! | [`Attribute::HDR_COLOR`] | The particle's HDR color as `vec4<f32>`. |
+//! | [`Attribute::ALPHA`] | The particle's opacity. |
+//! | [`Attribute::SIZE`] | The particle's uniform size. |
+//! | [`Attribute::SIZE2`] | The particle's non-uniform size. |
+//! | [`Attribute::AXIS_X`] | X axis of the particle frame. |
+//! | [`Attribute::AXIS_Y`] | Y axis of the particle frame. |
+//! | [`Attribute::AXIS_Z`] | Z axis of the particle frame. |
+//! | [`Attribute::SPRITE_INDEX`] | Index of the current sprite for flipbook animation. |
+//!
+//! # Custom attributes
+//!
+//! In additon of the built-in attributes, 🎆 Hanabi provides a number of
+//! _custom attributes_, which are attributes with a specified type but no
+//! particular internal meaning. Users are free to use those attributes to store
+//! any quantity they like, noting that each new attribute increases the
+//! per-particle size and therefor the total RAM usage of the particle effect.
+//!
+//! | Attribute | Meaning |
+//! |---|---|
+//! | [`Attribute::F32_0`] | A custom `f32` attribute. |
+//! | [`Attribute::F32_1`] | A custom `f32` attribute. |
+//! | [`Attribute::F32_2`] | A custom `f32` attribute. |
+//! | [`Attribute::F32_3`] | A custom `f32` attribute. |
+//! | [`Attribute::F32X2_0`] | A custom `vec2<f32>` attribute. |
+//! | [`Attribute::F32X2_1`] | A custom `vec2<f32>` attribute. |
+//! | [`Attribute::F32X2_2`] | A custom `vec2<f32>` attribute. |
+//! | [`Attribute::F32X2_3`] | A custom `vec2<f32>` attribute. |
+//! | [`Attribute::F32X3_0`] | A custom `vec3<f32>` attribute. |
+//! | [`Attribute::F32X3_1`] | A custom `vec3<f32>` attribute. |
+//! | [`Attribute::F32X3_2`] | A custom `vec3<f32>` attribute. |
+//! | [`Attribute::F32X3_3`] | A custom `vec3<f32>` attribute. |
+//! | [`Attribute::F32X4_0`] | A custom `vec4<f32>` attribute. |
+//! | [`Attribute::F32X4_1`] | A custom `vec4<f32>` attribute. |
+//! | [`Attribute::F32X4_2`] | A custom `vec4<f32>` attribute. |
+//! | [`Attribute::F32X4_3`] | A custom `vec4<f32>` attribute. |
+//!
+//! [modifiers]: crate::modifier
+//! [`SetAttributeModifier`]: crate::modifier::SetAttributeModifier
+
 use std::{any::Any, borrow::Cow, num::NonZeroU64};
 
 use bevy::{
@@ -362,6 +485,15 @@ impl std::hash::Hash for AttributeInner {
     }
 }
 
+macro_rules! declare_custom_attr_inner {
+    ($t: ident, $T: ty, $name: literal, $new_fn: ident) => {
+        pub const $t: &'static AttributeInner = &AttributeInner::new(
+            Cow::Borrowed($name),
+            Value::Vector(VectorValue::$new_fn(<$T>::ZERO)),
+        );
+    };
+}
+
 impl AttributeInner {
     pub const POSITION: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("position"),
@@ -444,6 +576,19 @@ impl AttributeInner {
         Value::Scalar(ScalarValue::Float(0.)),
     );
 
+    declare_custom_attr_inner!(F32X2_0, Vec2, "f32x2_0", new_vec2);
+    declare_custom_attr_inner!(F32X2_1, Vec2, "f32x2_1", new_vec2);
+    declare_custom_attr_inner!(F32X2_2, Vec2, "f32x2_2", new_vec2);
+    declare_custom_attr_inner!(F32X2_3, Vec2, "f32x2_3", new_vec2);
+    declare_custom_attr_inner!(F32X3_0, Vec3, "f32x3_0", new_vec3);
+    declare_custom_attr_inner!(F32X3_1, Vec3, "f32x3_1", new_vec3);
+    declare_custom_attr_inner!(F32X3_2, Vec3, "f32x3_2", new_vec3);
+    declare_custom_attr_inner!(F32X3_3, Vec3, "f32x3_3", new_vec3);
+    declare_custom_attr_inner!(F32X4_0, Vec4, "f32x4_0", new_vec4);
+    declare_custom_attr_inner!(F32X4_1, Vec4, "f32x4_1", new_vec4);
+    declare_custom_attr_inner!(F32X4_2, Vec4, "f32x4_2", new_vec4);
+    declare_custom_attr_inner!(F32X4_3, Vec4, "f32x4_3", new_vec4);
+
     #[inline]
     pub(crate) const fn new(name: Cow<'static, str>, default_value: Value) -> Self {
         Self {
@@ -458,15 +603,11 @@ impl AttributeInner {
 /// Effects are composed of many simulated particles. Each particle is in turn
 /// composed of a set of attributes, which are used to simulate and render it.
 /// Common attributes include the particle's position, its age, or its color.
-/// See [`Attribute::all()`] for a list of supported attributes. Custom
+/// See [`Attribute::all()`] for a list of supported attributes. User-created
 /// attributes are not supported.
 ///
-/// Attributes are indirectly added to an effect by adding [modifiers] requiring
-/// them. Each modifier documents its required attributes. You can force a
-/// single attribute by adding the [`SetAttributeModifier`].
-///
-/// [modifiers]: crate::modifier
-/// [`SetAttributeModifier`]: crate::modifier::SetAttributeModifier
+/// See also the [`attributes` module](crate::attributes) documentation for more
+/// details about particle attributes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "&str", into = "&'static str")]
 pub struct Attribute(pub(crate) &'static AttributeInner);
@@ -659,6 +800,13 @@ impl FromReflect for Attribute {
     }
 }
 
+macro_rules! declare_custom_attr_pub {
+    ($t: ident, $name: literal, $count: literal, $vector_type: ident) => {
+        #[doc = concat!("A generic vector float attribute with ", $count, " components.\n\n This attribute can be used for anything. It has no specific meaning. You can store whatever per-particle value you want in it (for example, at spawn time) and read it back later.\n\n# Name\n\n`", $name, "`\n\n# Type\n\n[`VectorType::", stringify!($vector_type), "`]")]
+        pub const $t: Attribute = Attribute(AttributeInner::$t);
+    };
+}
+
 impl Attribute {
     /// The particle position in [simulation space].
     ///
@@ -738,7 +886,14 @@ impl Attribute {
     /// # Type
     ///
     /// [`ScalarType::Uint`] representing the RGBA components of the color
-    /// encoded as `0xAABBGGRR`, with a single byte per component.
+    /// encoded as `0xAABBGGRR`, with a single byte per component, where the
+    /// alpha value is stored in the most significant byte and the red value in
+    /// the least significant byte. Note that this representation is the
+    /// same as the one returned by [`Color::as_rgba_u32()`] and
+    /// [`Color::as_linear_rgba_u32()`].
+    ///
+    /// [`Color::as_rgba_u32()`]: bevy::render::color::Color::as_rgba_u32
+    /// [`Color::as_linear_rgba_u32()`]: bevy::render::color::Color::as_linear_rgba_u32
     pub const COLOR: Attribute = Attribute(AttributeInner::COLOR);
 
     /// The particle's base color (HDR).
@@ -932,8 +1087,21 @@ impl Attribute {
     /// [`ScalarType::Float`]
     pub const F32_3: Attribute = Attribute(AttributeInner::F32_3);
 
+    declare_custom_attr_pub!(F32X2_0, "f32x2_0", 4, VEC2F);
+    declare_custom_attr_pub!(F32X2_1, "f32x2_1", 4, VEC2F);
+    declare_custom_attr_pub!(F32X2_2, "f32x2_2", 4, VEC2F);
+    declare_custom_attr_pub!(F32X2_3, "f32x2_3", 4, VEC2F);
+    declare_custom_attr_pub!(F32X3_0, "f32x3_0", 3, VEC3F);
+    declare_custom_attr_pub!(F32X3_1, "f32x3_1", 3, VEC3F);
+    declare_custom_attr_pub!(F32X3_2, "f32x3_2", 3, VEC3F);
+    declare_custom_attr_pub!(F32X3_3, "f32x3_3", 3, VEC3F);
+    declare_custom_attr_pub!(F32X4_0, "f32x4_0", 4, VEC4F);
+    declare_custom_attr_pub!(F32X4_1, "f32x4_1", 4, VEC4F);
+    declare_custom_attr_pub!(F32X4_2, "f32x4_2", 4, VEC4F);
+    declare_custom_attr_pub!(F32X4_3, "f32x4_3", 4, VEC4F);
+
     /// Collection of all the existing particle attributes.
-    const ALL: [Attribute; 17] = [
+    const ALL: [Attribute; 29] = [
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,
@@ -951,6 +1119,18 @@ impl Attribute {
         Attribute::F32_1,
         Attribute::F32_2,
         Attribute::F32_3,
+        Attribute::F32X2_0,
+        Attribute::F32X2_1,
+        Attribute::F32X2_2,
+        Attribute::F32X2_3,
+        Attribute::F32X3_0,
+        Attribute::F32X3_1,
+        Attribute::F32X3_2,
+        Attribute::F32X3_3,
+        Attribute::F32X4_0,
+        Attribute::F32X4_1,
+        Attribute::F32X4_2,
+        Attribute::F32X4_3,
     ];
 
     /// Retrieve an attribute by its name.

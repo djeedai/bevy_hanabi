@@ -17,6 +17,7 @@ use bevy::{
 use crate::{
     asset::{EffectAsset, EffectAssetLoader},
     compile_effects, gather_removed_effects,
+    properties::EffectProperties,
     render::{
         extract_effect_events, extract_effects, prepare_effects, prepare_resources, queue_effects,
         DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems,
@@ -24,8 +25,7 @@ use crate::{
         ParticlesUpdatePipeline, ShaderCache, SimParams, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
-    tick_spawners, update_properties_from_asset, EffectProperties, ParticleEffect,
-    RemovedEffectsEvent, Spawner,
+    tick_spawners, update_properties_from_asset, ParticleEffect, RemovedEffectsEvent, Spawner,
 };
 
 pub mod main_graph {

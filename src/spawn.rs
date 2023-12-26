@@ -878,7 +878,8 @@ mod test {
                             ParticleEffect {
                                 handle: handle.clone(),
                                 spawner: test_case.instance_spawner,
-                                ..default()
+                                #[cfg(feature = "2d")]
+                                z_layer_2d: None,
                             },
                         ))
                         .id()
@@ -887,7 +888,8 @@ mod test {
                         .spawn((ParticleEffect {
                             handle: handle.clone(),
                             spawner: test_case.instance_spawner,
-                            ..default()
+                            #[cfg(feature = "2d")]
+                            z_layer_2d: None,
                         },))
                         .id()
                 };
