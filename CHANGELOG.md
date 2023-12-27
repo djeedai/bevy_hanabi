@@ -3,6 +3,12 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Moved most shared WGSL code into an import module `vfx_common.wgsl`. This requires using `naga_oil` for import resolution, which in turns means `naga` and `naga_oil` are now dependencies of `bevy_hanabi` itself.
+
 ## [0.9.0] 2023-12-26
 
 ### Added
