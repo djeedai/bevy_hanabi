@@ -1,23 +1,13 @@
-#import bevy_hanabi::vfx_common::{SimParams, Spawner}
+#import bevy_hanabi::vfx_common::{
+    SimParams, Spawner,
+    DI_OFFSET_X, DI_OFFSET_PONG,
+    RI_OFFSET_ALIVE_COUNT, RI_OFFSET_MAX_UPDATE, RI_OFFSET_DEAD_COUNT,
+    RI_OFFSET_MAX_SPAWN, RI_OFFSET_INSTANCE_COUNT, RI_OFFSET_PING
+}
 
 struct SpawnerBuffer {
     spawners: array<Spawner>,
 }
-
-// naga doesn't support 'const' yet
-// https://github.com/gfx-rs/naga/issues/1829
-
-// const OFFSET_INSTANCE_COUNT: u32 = 1u;
-// const OFFSET_ALIVE_COUNT: u32 = 5u;
-// const OFFSET_DEAD_COUNT: u32 = 6u;
-// const OFFSET_MAX_SPAWN: u32 = 7u
-// const OFFSET_PING: u32 = 8u;
-// const OFFSET_MAX_UPDATE: u32 = 9u;
-
-// const OFFSET_X: u32 = 0u;
-// const OFFSET_Y: u32 = 1u;
-// const OFFSET_Z: u32 = 2u;
-// const OFFSET_PONG: u32 = 3u;
 
 @group(0) @binding(0) var<storage, read_write> render_indirect_buffer : array<u32>;
 @group(0) @binding(1) var<storage, read_write> dispatch_indirect : array<u32>;
@@ -49,31 +39,31 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Calculate the number of thread groups to dispatch for the update pass, which is
     // the number of alive particles rounded up to 64 (workgroup_size).
-    let alive_count = render_indirect_buffer[ri_base + 5u];
-    dispatch_indirect[di_base + 0u] = (alive_count + 63u) / 64u;
+    let alive_count = render_indirect_buffer[ri_base + RI_OFFSET_ALIVE_COUNT];
+    dispatch_indirect[di_base + DI_OFFSET_X] = (alive_count + 63u) / 64u;
 
     // Update max_update from current value of alive_count, so that the update pass
     // coming next can cap its threads to this value, while also atomically modifying
     // alive_count itself for next frame.
-    render_indirect_buffer[ri_base + 9u] = alive_count;
+    render_indirect_buffer[ri_base + RI_OFFSET_MAX_UPDATE] = alive_count;
 
     // Copy the number of dead particles to a constant location, so that the init pass
     // on next frame can atomically modify dead_count in parallel yet still read its
     // initial value at the beginning of the init pass, and limit the number of particles
     // spawned to the number of dead particles to recycle.
-    let dead_count = render_indirect_buffer[ri_base + 6u];
-    render_indirect_buffer[ri_base + 7u] = dead_count;
+    let dead_count = render_indirect_buffer[ri_base + RI_OFFSET_DEAD_COUNT];
+    render_indirect_buffer[ri_base + RI_OFFSET_MAX_SPAWN] = dead_count;
 
     // Clear the rendering instance count, which will be upgraded by the update pass
     // with the particles actually alive at the end of their update (after aged).
-    render_indirect_buffer[ri_base + 1u] = 0u;
+    render_indirect_buffer[ri_base + RI_OFFSET_INSTANCE_COUNT] = 0u;
 
     // Swap ping/pong buffers
-    let ping = render_indirect_buffer[ri_base + 8u];
+    let ping = render_indirect_buffer[ri_base + RI_OFFSET_PING];
     let pong = 1u - ping;
-    render_indirect_buffer[ri_base + 8u] = pong;
+    render_indirect_buffer[ri_base + RI_OFFSET_PING] = pong;
 
     // Copy the new pong into the dispatch buffer, which will be used during rendering
     // to determine where to read particle indices.
-    dispatch_indirect[di_base + 3u] = pong;
+    dispatch_indirect[di_base + DI_OFFSET_PONG] = pong;
 }

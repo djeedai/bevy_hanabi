@@ -826,7 +826,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
                 self.render_indirect_layout.clone(),
             ],
             shader: key.shader,
-            shader_defs: vec![],
+            shader_defs: vec!["RI_MAX_SPAWN_ATOMIC".into()],
             entry_point: "main".into(),
             push_constant_ranges: Vec::new(),
         }

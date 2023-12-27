@@ -1773,6 +1773,9 @@ else { return c1; }
                 "PARTICLE_SCREEN_SPACE_SIZE".into(),
                 ShaderDefValue::Bool(true),
             );
+            if name == "Update" {
+                shader_defs.insert("RI_MAX_SPAWN_ATOMIC".into(), ShaderDefValue::Bool(true));
+            }
             let mut composer = Composer::default();
 
             // Import bevy_render::view for the render shader

@@ -1,4 +1,4 @@
-#import bevy_hanabi::vfx_common::{SimParams, Spawner}
+#import bevy_hanabi::vfx_common::{ForceFieldSource, IndirectBuffer, RenderIndirect, SimParams, Spawner}
 
 struct Particle {
 {{ATTRIBUTES}}
@@ -8,32 +8,6 @@ struct ParticleBuffer {
     particles: array<Particle>,
 }
 
-struct ForceFieldSource {
-    position: vec3<f32>,
-    max_radius: f32,
-    min_radius: f32,
-    mass: f32,
-    force_exponent: f32,
-    conform_to_sphere: f32,
-}
-
-struct IndirectBuffer {
-    indices: array<u32>,
-}
-
-struct RenderIndirectBuffer {
-    vertex_count: u32,
-    instance_count: atomic<u32>,
-    base_index: u32,
-    vertex_offset: i32,
-    base_instance: u32,
-    alive_count: atomic<u32>,
-    dead_count: atomic<u32>,
-    max_spawn: atomic<u32>,
-    ping: u32,
-    max_update: u32,
-}
-
 {{PROPERTIES}}
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
@@ -41,7 +15,7 @@ struct RenderIndirectBuffer {
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 {{PROPERTIES_BINDING}}
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as init
-@group(3) @binding(0) var<storage, read_write> render_indirect : RenderIndirectBuffer;
+@group(3) @binding(0) var<storage, read_write> render_indirect : RenderIndirect;
 
 var<private> seed : u32 = 0u;
 

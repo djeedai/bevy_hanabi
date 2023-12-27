@@ -1,5 +1,5 @@
 #import bevy_render::view::View
-#import bevy_hanabi::vfx_common::{SimParams, Spawner}
+#import bevy_hanabi::vfx_common::{DispatchIndirect, ForceFieldSource, IndirectBuffer, SimParams, Spawner}
 
 struct Particle {
 {{ATTRIBUTES}}
@@ -7,26 +7,6 @@ struct Particle {
 
 struct ParticleBuffer {
     particles: array<Particle>,
-}
-
-struct IndirectBuffer {
-    indices: array<u32>,
-}
-
-struct DispatchIndirect {
-    x: u32,
-    y: u32,
-    z: u32,
-    pong: u32,
-}
-
-struct ForceFieldSource {
-    position: vec3<f32>,
-    max_radius: f32,
-    min_radius: f32,
-    mass: f32,
-    force_exponent: f32,
-    conform_to_sphere: f32,
 }
 
 struct VertexOutput {
