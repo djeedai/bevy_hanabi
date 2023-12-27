@@ -47,8 +47,8 @@ use crate::{
     next_multiple_of,
     render::batch::{BatchInput, BatchState, Batcher, EffectBatch},
     spawn::EffectSpawner,
-    CompiledParticleEffect, EffectProperties, EffectShader, ParticleLayout, PropertyLayout,
-    RemovedEffectsEvent, SimulationCondition, SimulationSpace,
+    CompiledParticleEffect, EffectProperties, EffectShader, HanabiPlugin, ParticleLayout,
+    PropertyLayout, RemovedEffectsEvent, SimulationCondition, SimulationSpace,
 };
 
 mod aligned_buffer_vec;
@@ -439,12 +439,17 @@ impl FromWorld for DispatchIndirectPipeline {
         let indirect_naga_module = {
             let mut composer = Composer::default();
 
-            // {
-            //     let shaders = world.get_resource::<Assets<Shader>>().unwrap();
-            //     let common_shader = shaders.get(HANABI_COMMON_TEMPLATE_HANDLE).unwrap();
-            //     let res = composer.add_composable_module(common_shader.into());
-            //     assert!(res.is_ok());
-            // }
+            {
+                let common_shader = HanabiPlugin::make_common_shader(item_align);
+                let mut desc: naga_oil::compose::ComposableModuleDescriptor<'_> =
+                    (&common_shader).into();
+                desc.shader_defs.insert(
+                    "SPAWNER_PADDING".to_string(),
+                    naga_oil::compose::ShaderDefValue::Bool(true),
+                );
+                let res = composer.add_composable_module(desc);
+                assert!(res.is_ok());
+            }
 
             let shader_defs = default();
 
