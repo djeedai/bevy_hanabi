@@ -439,6 +439,7 @@ impl FromWorld for DispatchIndirectPipeline {
         let indirect_naga_module = {
             let mut composer = Composer::default();
 
+            // Import bevy_hanabi::vfx_common
             {
                 let common_shader = HanabiPlugin::make_common_shader(item_align);
                 let mut desc: naga_oil::compose::ComposableModuleDescriptor<'_> =

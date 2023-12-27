@@ -71,7 +71,10 @@ impl HanabiPlugin {
             std::path::Path::new(file!())
                 .parent()
                 .unwrap()
-                .join("render/vfx_common.wgsl")
+                .join(format!(
+                    "render/vfx_common_{}.wgsl",
+                    min_storage_buffer_offset_alignment
+                ))
                 .to_string_lossy(),
         )
     }
@@ -139,11 +142,16 @@ impl Plugin for HanabiPlugin {
             info!("Initializing Hanabi for GPU adapter {}", adapter_name);
         }
 
-        let common_shader = HanabiPlugin::make_common_shader(
-            render_device.limits().min_storage_buffer_offset_alignment as usize,
-        );
-        let mut assets = app.world.resource_mut::<Assets<Shader>>();
-        assets.insert(HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
+        // Insert the properly aligned `vfx_common.wgsl` shader into Assets<Shader>, so
+        // that the automated Bevy shader processing finds it as an import. This is used
+        // for init/update/render shaders (but not the indirect one).
+        {
+            let common_shader = HanabiPlugin::make_common_shader(
+                render_device.limits().min_storage_buffer_offset_alignment as usize,
+            );
+            let mut assets = app.world.resource_mut::<Assets<Shader>>();
+            assets.insert(HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
+        }
 
         let effects_meta = EffectsMeta::new(render_device);
 
