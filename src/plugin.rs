@@ -48,7 +48,7 @@ pub mod simulate_graph {
 }
 
 // {626E7AD3-4E54-487E-B796-9A90E34CC1EC}
-pub const HANABI_COMMON_TEMPLATE_HANDLE: Handle<Shader> =
+const HANABI_COMMON_TEMPLATE_HANDLE: Handle<Shader> =
     Handle::weak_from_u128(0x626E7AD34E54487EB7969A90E34CC1ECu128);
 
 /// Plugin to add systems related to Hanabi.
