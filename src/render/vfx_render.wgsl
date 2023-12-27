@@ -1,17 +1,13 @@
 #import bevy_render::view::View
+#import bevy_hanabi::vfx_common::{SimParams, Spawner}
 
 struct Particle {
 {{ATTRIBUTES}}
 }
 
-struct ParticlesBuffer {
+struct ParticleBuffer {
     particles: array<Particle>,
 }
-
-struct SimParams {
-    delta_time: f32,
-    time: f32,
-};
 
 struct IndirectBuffer {
     indices: array<u32>,
@@ -33,16 +29,6 @@ struct ForceFieldSource {
     conform_to_sphere: f32,
 }
 
-struct Spawner {
-    transform: mat3x4<f32>, // transposed (row-major)
-    inverse_transform: mat3x4<f32>, // transposed (row-major)
-    spawn: i32,
-    seed: u32,
-    count: i32,
-    effect_index: u32,
-    force_field: array<ForceFieldSource, 16>,
-}
-
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
@@ -53,7 +39,7 @@ struct VertexOutput {
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<uniform> sim_params : SimParams;
-@group(1) @binding(0) var<storage, read> particle_buffer : ParticlesBuffer;
+@group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
 #ifdef LOCAL_SPACE_SIMULATION

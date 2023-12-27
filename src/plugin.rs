@@ -21,8 +21,9 @@ use crate::{
     render::{
         extract_effect_events, extract_effects, prepare_effects, prepare_resources, queue_effects,
         DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems,
-        EffectsMeta, ExtractedEffects, ParticlesInitPipeline, ParticlesRenderPipeline,
-        ParticlesUpdatePipeline, ShaderCache, SimParams, VfxSimulateDriverNode, VfxSimulateNode,
+        EffectsMeta, ExtractedEffects, GpuSpawnerParams, ParticlesInitPipeline,
+        ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache, SimParams,
+        VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners, update_properties_from_asset, ParticleEffect, RemovedEffectsEvent, Spawner,
@@ -46,9 +47,35 @@ pub mod simulate_graph {
     }
 }
 
+// {626E7AD3-4E54-487E-B796-9A90E34CC1EC}
+pub const HANABI_COMMON_TEMPLATE_HANDLE: Handle<Shader> =
+    Handle::weak_from_u128(0x626E7AD34E54487EB7969A90E34CC1ECu128);
+
 /// Plugin to add systems related to Hanabi.
 #[derive(Debug, Clone, Copy)]
 pub struct HanabiPlugin;
+
+impl HanabiPlugin {
+    /// Create the `vfx_common.wgsl` shader with proper alignment.
+    ///
+    /// This creates a new [`Shader`] from the `vfx_common.wgsl` code, by
+    /// applying the given alignment for storage buffers. This produces a shader
+    /// ready for the specific GPU device associated with that alignment.
+    pub(crate) fn make_common_shader(min_storage_buffer_offset_alignment: usize) -> Shader {
+        let spawner_padding_code =
+            GpuSpawnerParams::padding_code(min_storage_buffer_offset_alignment);
+        let common_code = include_str!("render/vfx_common.wgsl")
+            .replace("{{SPAWNER_PADDING}}", &spawner_padding_code);
+        Shader::from_wgsl(
+            common_code,
+            std::path::Path::new(file!())
+                .parent()
+                .unwrap()
+                .join("render/vfx_common.wgsl")
+                .to_string_lossy(),
+        )
+    }
+}
 
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
@@ -94,8 +121,7 @@ impl Plugin for HanabiPlugin {
         let render_device = app
             .sub_app(RenderApp)
             .world
-            .get_resource::<RenderDevice>()
-            .unwrap()
+            .resource::<RenderDevice>()
             .clone();
 
         let adapter_name = app
@@ -112,6 +138,12 @@ impl Plugin for HanabiPlugin {
         } else {
             info!("Initializing Hanabi for GPU adapter {}", adapter_name);
         }
+
+        let common_shader = HanabiPlugin::make_common_shader(
+            render_device.limits().min_storage_buffer_offset_alignment as usize,
+        );
+        let mut assets = app.world.resource_mut::<Assets<Shader>>();
+        assets.insert(HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
 
         let effects_meta = EffectsMeta::new(render_device);
 

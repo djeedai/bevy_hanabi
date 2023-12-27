@@ -1791,6 +1791,15 @@ else { return c1; }
                 assert!(res.is_ok());
             }
 
+            // Import bevy_hanabi::vfx_common
+            {
+                let min_storage_buffer_offset_alignment = 256usize;
+                let common_shader =
+                    HanabiPlugin::make_common_shader(min_storage_buffer_offset_alignment);
+                let res = composer.add_composable_module((&common_shader).into());
+                assert!(res.is_ok());
+            }
+
             match composer.make_naga_module(NagaModuleDescriptor {
                 source: code,
                 file_path: "init.wgsl",

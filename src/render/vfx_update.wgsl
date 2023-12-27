@@ -1,15 +1,12 @@
+#import bevy_hanabi::vfx_common::{SimParams, Spawner}
+
 struct Particle {
 {{ATTRIBUTES}}
-};
+}
 
 struct ParticleBuffer {
     particles: array<Particle>,
-};
-
-struct SimParams {
-    delta_time: f32,
-    time: f32,
-};
+}
 
 struct ForceFieldSource {
     position: vec3<f32>,
@@ -18,21 +15,11 @@ struct ForceFieldSource {
     mass: f32,
     force_exponent: f32,
     conform_to_sphere: f32,
-};
-
-struct Spawner {
-    transform: mat3x4<f32>, // transposed (row-major)
-    inverse_transform: mat3x4<f32>, // transposed (row-major)
-    spawn: atomic<i32>,
-    seed: u32,
-    count_unused: u32,
-    effect_index: u32,
-    force_field: array<ForceFieldSource, 16>,
-};
+}
 
 struct IndirectBuffer {
     indices: array<u32>,
-};
+}
 
 struct RenderIndirectBuffer {
     vertex_count: u32,
@@ -45,7 +32,7 @@ struct RenderIndirectBuffer {
     max_spawn: atomic<u32>,
     ping: u32,
     max_update: u32,
-};
+}
 
 {{PROPERTIES}}
 

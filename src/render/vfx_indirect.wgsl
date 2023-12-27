@@ -1,3 +1,4 @@
+//#import bevy_hanabi::vfx_common
 
 struct SimParams {
     delta_time: f32,
@@ -5,7 +6,7 @@ struct SimParams {
     num_effects: u32,
     render_stride: u32,
     dispatch_stride: u32,
-};
+}
 
 struct ForceFieldSource {
     position: vec3<f32>,
@@ -14,7 +15,7 @@ struct ForceFieldSource {
     mass: f32,
     force_exponent: f32,
     conform_to_sphere: f32,
-};
+}
 
 struct Spawner {
     transform: mat3x4<f32>, // transposed (row-major)
@@ -25,7 +26,7 @@ struct Spawner {
     effect_index: u32,
     force_field: array<ForceFieldSource, 16>,
     {{SPAWNER_PADDING}}
-};
+}
 
 struct SpawnerBuffer {
     spawners: array<Spawner>,

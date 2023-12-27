@@ -28,6 +28,7 @@ use bevy::{
     utils::HashMap,
 };
 use bitflags::bitflags;
+use naga_oil::compose::{Composer, NagaModuleDescriptor};
 use rand::random;
 use std::marker::PhantomData;
 use std::{
@@ -246,7 +247,7 @@ impl From<&Mat4> for GpuCompressedTransform {
 /// together form the spawner parameter buffer.
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
-struct GpuSpawnerParams {
+pub(crate) struct GpuSpawnerParams {
     /// Transform of the effect, as a Mat4 without the last row (which is always
     /// (0,0,0,1) for an affine transform), stored transposed as a mat3x4 to
     /// avoid padding in WGSL. This is either added to emitted particles at
@@ -267,6 +268,33 @@ struct GpuSpawnerParams {
     effect_index: u32,
     /// Force field components. One GpuForceFieldSource takes up 32 bytes.
     force_field: [GpuForceFieldSource; ForceFieldSource::MAX_SOURCES],
+}
+
+impl GpuSpawnerParams {
+    /// Get the aligned size of this type based on the given alignment in bytes.
+    pub fn aligned_size(align_size: usize) -> usize {
+        next_multiple_of(GpuSpawnerParams::min_size().get() as usize, align_size)
+    }
+
+    /// Get the WGSL padding code to append to the GPU struct to align it.
+    pub fn padding_code(align_size: usize) -> String {
+        let aligned_size = GpuSpawnerParams::aligned_size(align_size);
+        trace!(
+            "Aligning spawner params to {} bytes as device limits requires. Aligned size: {} bytes.",
+            align_size,
+            aligned_size
+        );
+
+        // We need to pad the Spawner WGSL struct based on the device padding so that we
+        // can use it as an array element but also has a direct struct binding.
+        if GpuSpawnerParams::min_size().get() as usize != aligned_size {
+            let padding_size = aligned_size - GpuSpawnerParams::min_size().get() as usize;
+            assert!(padding_size % 4 == 0);
+            format!("padding: array<u32, {}>", padding_size / 4)
+        } else {
+            "".to_string()
+        }
+    }
 }
 
 // FIXME - min_storage_buffer_offset_alignment
@@ -327,8 +355,7 @@ impl FromWorld for DispatchIndirectPipeline {
         // so needs the proper align. Because WGSL removed the @stride attribute, we pad
         // the WGSL type manually, so need to enforce min_binding_size everywhere.
         let item_align = render_device.limits().min_storage_buffer_offset_alignment as usize;
-        let spawner_aligned_size =
-            next_multiple_of(GpuSpawnerParams::min_size().get() as usize, item_align);
+        let spawner_aligned_size = GpuSpawnerParams::aligned_size(item_align);
         trace!(
             "Aligning spawner params to {} bytes as device limits requires. Size: {} bytes.",
             item_align,
@@ -403,22 +430,43 @@ impl FromWorld for DispatchIndirectPipeline {
 
         // We need to pad the Spawner WGSL struct based on the device padding so that we
         // can use it as an array element but also has a direct struct binding.
-        let spawner_padding_code = if GpuSpawnerParams::min_size().get() as usize
-            != spawner_aligned_size
-        {
-            let padding_size = spawner_aligned_size - GpuSpawnerParams::min_size().get() as usize;
-            assert!(padding_size % 4 == 0);
-            format!("padding: array<u32, {}>", padding_size / 4)
-        } else {
-            "".to_string()
+        let spawner_padding_code = GpuSpawnerParams::padding_code(item_align);
+        let indirect_code =
+            include_str!("vfx_indirect.wgsl").replace("{{SPAWNER_PADDING}}", &spawner_padding_code);
+
+        // Resolve imports. Because we don't insert this shader into Bevy' pipeline
+        // cache, we don't get that part "for free", so we have to do it manually here.
+        let indirect_naga_module = {
+            let mut composer = Composer::default();
+
+            // {
+            //     let shaders = world.get_resource::<Assets<Shader>>().unwrap();
+            //     let common_shader = shaders.get(HANABI_COMMON_TEMPLATE_HANDLE).unwrap();
+            //     let res = composer.add_composable_module(common_shader.into());
+            //     assert!(res.is_ok());
+            // }
+
+            let shader_defs = default();
+
+            match composer.make_naga_module(NagaModuleDescriptor {
+                source: &indirect_code,
+                file_path: "vfx_indirect.wgsl",
+                shader_defs,
+                ..Default::default()
+            }) {
+                Ok(naga_module) => ShaderSource::Naga(Cow::Owned(naga_module)),
+                Err(compose_error) => panic!(
+                    "Failed to compose vfx_indirect.wgsl, naga_oil returned: {}",
+                    compose_error.emit_to_string(&composer)
+                ),
+            }
         };
-        let indirect_code = include_str!("vfx_indirect.wgsl")
-            .to_string()
-            .replace("{{SPAWNER_PADDING}}", &spawner_padding_code);
+
         debug!("Create indirect dispatch shader:\n{}", indirect_code);
+
         let shader_module = render_device.create_shader_module(ShaderModuleDescriptor {
             label: Some("hanabi:vfx_indirect_shader"),
-            source: ShaderSource::Wgsl(Cow::Owned(indirect_code)),
+            source: indirect_naga_module,
         });
 
         let pipeline = render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
@@ -2049,7 +2097,7 @@ pub(crate) struct BufferBindGroups {
     /// Bind group for the render graphic shader.
     ///
     /// ```wgsl
-    /// @binding(0) var<storage, read> particle_buffer : ParticlesBuffer;
+    /// @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
     /// @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
     /// @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
     /// ```
