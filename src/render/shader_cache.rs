@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use bevy::{
     asset::{Assets, Handle},
     ecs::{change_detection::ResMut, system::Resource},
-    log::debug,
+    log::{debug, trace},
     render::render_resource::Shader,
     utils::HashMap,
 };
@@ -40,10 +40,17 @@ impl ShaderCache {
             let mut hasher = bevy::utils::AHasher::default();
             source.hash(&mut hasher);
             let hash = hasher.finish();
-            let handle = shaders.add(Shader::from_wgsl(
+            let shader = Shader::from_wgsl(
                 source.to_string(),
                 format!("hanabi/{}_{}.wgsl", filename, hash),
-            ));
+            );
+            trace!(
+                "Shader path={} import_path={:?} imports={:?}",
+                shader.path,
+                shader.import_path,
+                shader.imports
+            );
+            let handle = shaders.add(shader);
             debug!("Inserted new configured shader: {:?}\n{}", handle, source);
             self.cache.insert(source.to_string(), handle.clone());
             handle

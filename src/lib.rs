@@ -1773,6 +1773,9 @@ else { return c1; }
                 "PARTICLE_SCREEN_SPACE_SIZE".into(),
                 ShaderDefValue::Bool(true),
             );
+            if name == "Update" {
+                shader_defs.insert("RI_MAX_SPAWN_ATOMIC".into(), ShaderDefValue::Bool(true));
+            }
             let mut composer = Composer::default();
 
             // Import bevy_render::view for the render shader
@@ -1788,6 +1791,15 @@ else { return c1; }
                 let view_shader = shaders.get(bevy::render::view::VIEW_TYPE_HANDLE).unwrap();
 
                 let res = composer.add_composable_module(view_shader.into());
+                assert!(res.is_ok());
+            }
+
+            // Import bevy_hanabi::vfx_common
+            {
+                let min_storage_buffer_offset_alignment = 256usize;
+                let common_shader =
+                    HanabiPlugin::make_common_shader(min_storage_buffer_offset_alignment);
+                let res = composer.add_composable_module((&common_shader).into());
                 assert!(res.is_ok());
             }
 
