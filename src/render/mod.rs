@@ -2001,6 +2001,9 @@ pub(crate) fn prepare_effects(
                     seed: random::<u32>(), /* FIXME - Probably bad to re-seed each time there's a
                                             * change */
                     count: 0,
+                    // FIXME: the effect_index is global inside the global spawner buffer,
+                    // but the group_index is the index of the particle buffer, which can
+                    // in theory (with batching) contain > 1 effect per buffer.
                     effect_index: input.effect_slice.group_index,
                     force_field: input.force_field.map(Into::into),
                 };
@@ -2977,6 +2980,7 @@ impl Node for VfxSimulateNode {
             .write_buffer(render_context.command_encoder());
 
         // Compute init pass
+        let mut num_batches = 0;
         {
             let mut compute_pass =
                 render_context
@@ -2990,6 +2994,8 @@ impl Node for VfxSimulateNode {
 
                 // Dispatch init compute jobs
                 for batch in self.effect_query.iter_manual(world) {
+                    num_batches += 1;
+
                     if let Some(init_pipeline) =
                         pipeline_cache.get_compute_pipeline(batch.init_pipeline_id)
                     {
@@ -3093,8 +3099,6 @@ impl Node for VfxSimulateNode {
             // Dispatch indirect dispatch compute job
             if let Some(indirect_dispatch_pipeline) = &effects_meta.indirect_dispatch_pipeline {
                 trace!("record commands for indirect dispatch pipeline...");
-
-                let num_batches = self.effect_query.iter_manual(world).count() as u32;
 
                 const WORKGROUP_SIZE: u32 = 64;
                 let workgroup_count = (num_batches + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
