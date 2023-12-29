@@ -61,7 +61,7 @@ use aligned_buffer_vec::AlignedBufferVec;
 use buffer_table::{BufferTable, BufferTableId};
 pub(crate) use effect_cache::{EffectCache, EffectCacheId};
 
-pub use effect_cache::{EffectBuffer, EffectSlice};
+pub use effect_cache::EffectSlice;
 pub use shader_cache::ShaderCache;
 
 /// Labels for the Hanabi systems.
