@@ -212,7 +212,7 @@ pub struct EffectProperties {
 
 impl EffectProperties {
     /// Set some properties.
-    pub fn with_properties<P>(
+    pub fn with_properties(
         mut self,
         properties: impl IntoIterator<Item = (String, Value)>,
     ) -> Self {
