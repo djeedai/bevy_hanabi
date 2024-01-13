@@ -10,7 +10,7 @@ struct SpawnerBuffer {
 }
 
 @group(0) @binding(0) var<storage, read_write> render_indirect_buffer : array<u32>;
-@group(0) @binding(1) var<storage, read_write> dispatch_indirect : array<u32>;
+@group(0) @binding(1) var<storage, read_write> dispatch_indirect_buffer : array<u32>;
 @group(0) @binding(2) var<storage, read> spawner_buffer : SpawnerBuffer;
 @group(1) @binding(0) var<uniform> sim_params : SimParams;
 
@@ -40,7 +40,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Calculate the number of thread groups to dispatch for the update pass, which is
     // the number of alive particles rounded up to 64 (workgroup_size).
     let alive_count = render_indirect_buffer[ri_base + RI_OFFSET_ALIVE_COUNT];
-    dispatch_indirect[di_base + DI_OFFSET_X] = (alive_count + 63u) / 64u;
+    dispatch_indirect_buffer[di_base + DI_OFFSET_X] = (alive_count + 63u) >> 6u;
 
     // Update max_update from current value of alive_count, so that the update pass
     // coming next can cap its threads to this value, while also atomically modifying
@@ -65,5 +65,5 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Copy the new pong into the dispatch buffer, which will be used during rendering
     // to determine where to read particle indices.
-    dispatch_indirect[di_base + DI_OFFSET_PONG] = pong;
+    dispatch_indirect_buffer[di_base + DI_OFFSET_PONG] = pong;
 }
