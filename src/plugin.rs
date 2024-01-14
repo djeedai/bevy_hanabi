@@ -26,7 +26,8 @@ use crate::{
         VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
-    tick_spawners, update_properties_from_asset, ParticleEffect, RemovedEffectsEvent, Spawner,
+    tick_spawners, update_properties_from_asset, EffectTimeScale, ParticleEffect,
+    RemovedEffectsEvent, Spawner,
 };
 
 pub mod main_graph {
@@ -91,6 +92,8 @@ impl HanabiPlugin {
 
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<EffectTimeScale>();
+
         // Register asset
         app.init_asset::<EffectAsset>()
             .add_event::<RemovedEffectsEvent>()

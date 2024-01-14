@@ -1065,6 +1065,10 @@ pub enum BuiltInOperator {
     Time,
     /// Delta time, in seconds, since last effect system update.
     DeltaTime,
+    /// Current effect system simulation time since startup, in seconds.
+    UnscaledTime,
+    /// Delta time, in seconds, since last effect system update.
+    UnscaledDeltaTime,
     /// Random unit value of the given type.
     ///
     /// The type can be any scalar or vector type. Matrix types are not
@@ -1097,6 +1101,8 @@ impl BuiltInOperator {
         match self {
             BuiltInOperator::Time => "time",
             BuiltInOperator::DeltaTime => "delta_time",
+            BuiltInOperator::UnscaledTime => "unscaled_time",
+            BuiltInOperator::UnscaledDeltaTime => "unscaled_delta_time",
             BuiltInOperator::Rand(value_type) => match value_type {
                 ValueType::Scalar(s) => match s {
                     ScalarType::Bool => "brand",
@@ -1132,6 +1138,8 @@ impl BuiltInOperator {
         match self {
             BuiltInOperator::Time => ValueType::Scalar(ScalarType::Float),
             BuiltInOperator::DeltaTime => ValueType::Scalar(ScalarType::Float),
+            BuiltInOperator::UnscaledTime => ValueType::Scalar(ScalarType::Float),
+            BuiltInOperator::UnscaledDeltaTime => ValueType::Scalar(ScalarType::Float),
             BuiltInOperator::Rand(value_type) => *value_type,
             BuiltInOperator::AlphaCutoff => ValueType::Scalar(ScalarType::Float),
         }

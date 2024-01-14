@@ -5,6 +5,10 @@ struct SimParams {
     delta_time: f32,
     /// Time in seconds since the start of simulation.
     time: f32,
+    /// Delta time in seconds since last simulation tick.
+    unscaled_delta_time: f32,
+    /// Time in seconds since the start of simulation.
+    unscaled_time: f32,
 //#ifdef SIM_PARAMS_INDIRECT_DATA
     /// Number of effects batched together.
     num_effects: u32,

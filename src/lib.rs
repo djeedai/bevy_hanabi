@@ -234,6 +234,16 @@ pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
     count * align
 }
 
+/// Global time scale for all effects.
+#[derive(Debug, Clone, Copy, Deref, DerefMut, Resource)]
+pub struct EffectTimeScale(f64);
+
+impl Default for EffectTimeScale {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
 /// Extension trait to convert an object to WGSL code.
 ///
 /// This is mainly used for floating-point constants. This is required because
