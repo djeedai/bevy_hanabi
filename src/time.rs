@@ -42,7 +42,7 @@ impl Default for EffectSimulation {
     }
 }
 
-/// All methods for the effect simulation clock.
+/// All methods for the [`Time<EffectSimulation>`](EffectSimulation) clock.
 pub trait EffectSimulationTime {
     /// Returns the speed the clock advances relative to the virtual clock, as [`f32`].
     fn relative_speed(&self) -> f32;
