@@ -47,7 +47,7 @@ use crate::{
     next_multiple_of,
     render::batch::{BatchInput, BatchState, Batcher, EffectBatch},
     spawn::EffectSpawner,
-    CompiledParticleEffect, EffectProperties, EffectShader, EffectTimeScale, HanabiPlugin,
+    CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation, HanabiPlugin,
     ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition, SimulationSpace,
 };
 
@@ -117,14 +117,22 @@ pub enum EffectSystems {
 #[derive(Debug, Default, Clone, Copy, Resource)]
 pub(crate) struct SimParams {
     /// Current effect system simulation time since startup, in seconds.
+    /// This is based on the [`Time<EffectSimulation>`](EffectSimulation) clock.
     time: f64,
     /// Delta time, in seconds, since last effect system update.
     delta_time: f32,
 
-    /// Current effect system simulation time since startup, in seconds.
-    unscaled_time: f64,
-    /// Delta time, in seconds, since last effect system update.
-    unscaled_delta_time: f32,
+    /// Current virtual time since startup, in seconds.
+    /// This is based on the [`Time<Virtual>`](Virtual) clock.
+    virtual_time: f64,
+    /// Virtual delta time, in seconds, since last effect system update.
+    virtual_delta_time: f32,
+
+    /// Current real time since startup, in seconds.
+    /// This is based on the [`Time<Real>`](Real) clock.
+    real_time: f64,
+    /// Real delta time, in seconds, since last effect system update.
+    real_delta_time: f32,
 }
 
 /// GPU representation of [`SimParams`], as well as additional per-frame
@@ -138,12 +146,18 @@ struct GpuSimParams {
     ///
     /// This is a lower-precision variant of [`SimParams::time`].
     time: f32,
-    /// Delta time, in seconds, since last effect system update.
-    unscaled_delta_time: f32,
-    /// Current effect system simulation time since startup, in seconds.
+    /// Virtual delta time, in seconds, since last effect system update.
+    virtual_delta_time: f32,
+    /// Current virtual time since startup, in seconds.
     ///
     /// This is a lower-precision variant of [`SimParams::time`].
-    unscaled_time: f32,
+    virtual_time: f32,
+    /// Real delta time, in seconds, since last effect system update.
+    real_delta_time: f32,
+    /// Current real time since startup, in seconds.
+    ///
+    /// This is a lower-precision variant of [`SimParams::time`].
+    real_time: f32,
     /// Total number of effects to simulate this frame. Used by the indirect
     /// compute pipeline to cap the compute thread to the actual number of
     /// effect to process.
@@ -167,8 +181,10 @@ impl Default for GpuSimParams {
         Self {
             delta_time: 0.04,
             time: 0.0,
-            unscaled_delta_time: 0.04,
-            unscaled_time: 0.0,
+            virtual_delta_time: 0.04,
+            virtual_time: 0.0,
+            real_delta_time: 0.04,
+            real_time: 0.0,
             num_effects: 0,
             render_stride: 0,   // invalid
             dispatch_stride: 0, // invalid
@@ -181,8 +197,10 @@ impl From<SimParams> for GpuSimParams {
         Self {
             delta_time: src.delta_time,
             time: src.time as f32,
-            unscaled_delta_time: src.unscaled_delta_time,
-            unscaled_time: src.unscaled_time as f32,
+            virtual_delta_time: src.virtual_delta_time,
+            virtual_time: src.virtual_time as f32,
+            real_delta_time: src.real_delta_time,
+            real_time: src.real_time as f32,
             ..default()
         }
     }
@@ -1281,8 +1299,9 @@ pub(crate) fn extract_effect_events(
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 pub(crate) fn extract_effects(
-    time: Extract<Res<Time>>,
-    time_scale: Extract<Res<EffectTimeScale>>,
+    real_time: Extract<Res<Time<EffectSimulation>>>,
+    virtual_time: Extract<Res<Time<EffectSimulation>>>,
+    time: Extract<Res<Time<EffectSimulation>>>,
     effects: Extract<Res<Assets<EffectAsset>>>,
     _images: Extract<Res<Assets<Image>>>,
     mut query: Extract<
@@ -1311,10 +1330,12 @@ pub(crate) fn extract_effects(
     trace!("extract_effects");
 
     // Save simulation params into render world
-    sim_params.time += ***time_scale * time.delta_seconds_f64();
-    sim_params.delta_time = (***time_scale * time.delta_seconds_f64()) as f32;
-    sim_params.unscaled_time = time.elapsed_seconds_f64();
-    sim_params.unscaled_delta_time = time.delta_seconds();
+    sim_params.time = time.elapsed_seconds_f64();
+    sim_params.delta_time = time.delta_seconds();
+    sim_params.virtual_time = virtual_time.elapsed_seconds_f64();
+    sim_params.virtual_delta_time = virtual_time.delta_seconds();
+    sim_params.real_time = real_time.elapsed_seconds_f64();
+    sim_params.real_delta_time = real_time.delta_seconds();
 
     // Collect removed effects for later GPU data purge
     extracted_effects.removed_effect_entities =
@@ -2054,11 +2075,13 @@ pub(crate) fn prepare_effects(
         ) as u32;
 
         trace!(
-                "Simulation parameters: time={} delta_time={} unscaled_time={} unscaled_delta_time={} num_effects={} render_stride={} dispatch_stride={}",
+                "Simulation parameters: time={} delta_time={} virtual_time={} virtual_delta_time={} real_time={} real_delta_time={} num_effects={} render_stride={} dispatch_stride={}",
                 gpu_sim_params.time,
                 gpu_sim_params.delta_time,
-                gpu_sim_params.unscaled_time,
-                gpu_sim_params.unscaled_delta_time,
+                gpu_sim_params.virtual_time,
+                gpu_sim_params.virtual_delta_time,
+                gpu_sim_params.real_time,
+                gpu_sim_params.real_delta_time,
                 gpu_sim_params.num_effects,
                 gpu_sim_params.render_stride,
                 gpu_sim_params.dispatch_stride

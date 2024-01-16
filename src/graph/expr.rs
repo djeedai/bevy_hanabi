@@ -1062,13 +1062,20 @@ impl CastExpr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum BuiltInOperator {
     /// Current effect system simulation time since startup, in seconds.
+    /// This is based on the [`Time<EffectSimulation>`](crate::time::EffectSimulation) clock.
     Time,
     /// Delta time, in seconds, since last effect system update.
     DeltaTime,
-    /// Current effect system simulation time since startup, in seconds.
-    UnscaledTime,
-    /// Delta time, in seconds, since last effect system update.
-    UnscaledDeltaTime,
+    /// Current virtual time since startup, in seconds.
+    /// This is based on the [`Time<Virtual>`](bevy::time::Virtual) clock.
+    VirtualTime,
+    /// Virtual delta time, in seconds, since last effect system update.
+    VirtualDeltaTime,
+    /// Current real time since startup, in seconds.
+    /// This is based on the [`Time<Time>`](bevy::time::Real) clock.
+    RealTime,
+    /// Real delta time, in seconds, since last effect system update.
+    RealDeltaTime,
     /// Random unit value of the given type.
     ///
     /// The type can be any scalar or vector type. Matrix types are not
@@ -1101,8 +1108,10 @@ impl BuiltInOperator {
         match self {
             BuiltInOperator::Time => "time",
             BuiltInOperator::DeltaTime => "delta_time",
-            BuiltInOperator::UnscaledTime => "unscaled_time",
-            BuiltInOperator::UnscaledDeltaTime => "unscaled_delta_time",
+            BuiltInOperator::VirtualTime => "virtual_time",
+            BuiltInOperator::VirtualDeltaTime => "virtual_delta_time",
+            BuiltInOperator::RealTime => "real_time",
+            BuiltInOperator::RealDeltaTime => "real_delta_time",
             BuiltInOperator::Rand(value_type) => match value_type {
                 ValueType::Scalar(s) => match s {
                     ScalarType::Bool => "brand",
@@ -1138,8 +1147,10 @@ impl BuiltInOperator {
         match self {
             BuiltInOperator::Time => ValueType::Scalar(ScalarType::Float),
             BuiltInOperator::DeltaTime => ValueType::Scalar(ScalarType::Float),
-            BuiltInOperator::UnscaledTime => ValueType::Scalar(ScalarType::Float),
-            BuiltInOperator::UnscaledDeltaTime => ValueType::Scalar(ScalarType::Float),
+            BuiltInOperator::VirtualTime => ValueType::Scalar(ScalarType::Float),
+            BuiltInOperator::VirtualDeltaTime => ValueType::Scalar(ScalarType::Float),
+            BuiltInOperator::RealTime => ValueType::Scalar(ScalarType::Float),
+            BuiltInOperator::RealDeltaTime => ValueType::Scalar(ScalarType::Float),
             BuiltInOperator::Rand(value_type) => *value_type,
             BuiltInOperator::AlphaCutoff => ValueType::Scalar(ScalarType::Float),
         }

@@ -1009,8 +1009,10 @@ struct ParticleBuffer {{
 struct SimParams {{
     delta_time: f32,
     time: f32,
-    unscaled_delta_time: f32,
-    unscaled_time: f32,
+    virtual_delta_time: f32,
+    virtual_time: f32,
+    real_delta_time: f32,
+    real_time: f32,
 }};
 
 struct ForceFieldSource {{

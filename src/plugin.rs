@@ -12,6 +12,7 @@ use bevy::{
         view::{prepare_view_uniforms, visibility::VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
+    time::{virtual_time_system, TimeSystem},
 };
 
 use crate::{
@@ -26,8 +27,9 @@ use crate::{
         VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
-    tick_spawners, update_properties_from_asset, EffectTimeScale, ParticleEffect,
-    RemovedEffectsEvent, Spawner,
+    tick_spawners,
+    time::effect_simulation_time_system,
+    update_properties_from_asset, ParticleEffect, RemovedEffectsEvent, Spawner,
 };
 
 pub mod main_graph {
@@ -92,8 +94,6 @@ impl HanabiPlugin {
 
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<EffectTimeScale>();
-
         // Register asset
         app.init_asset::<EffectAsset>()
             .add_event::<RemovedEffectsEvent>()
@@ -114,6 +114,12 @@ impl Plugin for HanabiPlugin {
             .configure_sets(
                 bevy::asset::UpdateAssets,
                 EffectSystems::UpdatePropertiesFromAsset.after(bevy::asset::TrackAssets),
+            )
+            .add_systems(
+                First,
+                effect_simulation_time_system
+                    .after(virtual_time_system)
+                    .in_set(TimeSystem),
             )
             .add_systems(
                 PostUpdate,

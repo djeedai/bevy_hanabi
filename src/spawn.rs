@@ -8,7 +8,7 @@ use rand::{
 use rand_pcg::Pcg32;
 use serde::{Deserialize, Serialize};
 
-use crate::{EffectAsset, EffectTimeScale, ParticleEffect, SimulationCondition};
+use crate::{EffectAsset, EffectSimulation, ParticleEffect, SimulationCondition};
 
 /// An RNG to be used in the CPU for the particle system engine
 pub(crate) fn new_rng() -> Pcg32 {
@@ -561,8 +561,7 @@ impl EffectSpawner {
 /// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
 pub fn tick_spawners(
     mut commands: Commands,
-    time: Res<Time>,
-    time_scale: Res<EffectTimeScale>,
+    time: Res<Time<EffectSimulation>>,
     effects: Res<Assets<EffectAsset>>,
     mut rng: ResMut<Random>,
     mut query: Query<(
@@ -574,7 +573,7 @@ pub fn tick_spawners(
 ) {
     trace!("tick_spawners");
 
-    let dt = (**time_scale * time.delta_seconds_f64()) as f32;
+    let dt = time.delta_seconds();
 
     for (entity, effect, maybe_inherited_visibility, maybe_spawner) in query.iter_mut() {
         // TODO - maybe cache simulation_condition so we don't need to unconditionally
@@ -805,8 +804,7 @@ mod test {
         app.init_asset::<Mesh>();
         app.init_resource::<DeterministicRenderingConfig>();
         app.add_plugins(VisibilityPlugin);
-        app.init_resource::<Time>();
-        app.init_resource::<EffectTimeScale>();
+        app.init_resource::<Time<EffectSimulation>>();
         app.insert_resource(Random(new_rng()));
         app.init_asset::<EffectAsset>();
         app.add_systems(
@@ -912,7 +910,7 @@ mod test {
                 // Note that `Time` has this weird behavior where the common quantities like
                 // `Time::delta_seconds()` only update after the *second* update. So we tick the
                 // `Time` twice here to enforce this.
-                let mut time = app.world.resource_mut::<Time>();
+                let mut time = app.world.resource_mut::<Time<EffectSimulation>>();
                 time.advance_by(Duration::from_millis(16));
                 time.elapsed()
             };
