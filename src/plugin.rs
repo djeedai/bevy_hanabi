@@ -29,7 +29,7 @@ use crate::{
     spawn::{self, Random},
     tick_spawners,
     time::effect_simulation_time_system,
-    update_properties_from_asset, ParticleEffect, RemovedEffectsEvent, Spawner,
+    update_properties_from_asset, EffectSimulation, ParticleEffect, RemovedEffectsEvent, Spawner,
 };
 
 pub mod main_graph {
@@ -100,6 +100,7 @@ impl Plugin for HanabiPlugin {
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<ShaderCache>()
             .init_asset_loader::<EffectAssetLoader>()
+            .init_resource::<Time<EffectSimulation>>()
             .configure_sets(
                 PostUpdate,
                 (
