@@ -270,10 +270,7 @@ impl EffectBuffer {
             entries.len(),
         );
         let particles_buffer_layout_simulate =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &entries,
-                label: Some(label),
-            });
+            render_device.create_bind_group_layout(label, &entries);
 
         let mut entries = vec![
             BindGroupLayoutEntry {
@@ -321,10 +318,7 @@ impl EffectBuffer {
         }
         trace!("Creating render layout with {} entries", entries.len());
         let particles_buffer_layout_with_dispatch =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &entries,
-                label: Some("hanabi:buffer_layout_render"),
-            });
+            render_device.create_bind_group_layout("hanabi:buffer_layout_render", &entries);
 
         Self {
             particle_buffer,

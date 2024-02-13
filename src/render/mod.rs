@@ -367,60 +367,58 @@ impl FromWorld for DispatchIndirectPipeline {
             GpuRenderIndirect::min_size(),
             GpuDispatchIndirect::min_size()
         );
-        let dispatch_indirect_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: Some(GpuRenderIndirect::min_size()),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: Some(GpuDispatchIndirect::min_size()),
-                        },
-                        count: None,
-                    },
-                    BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: Some(
-                                NonZeroU64::new(spawner_aligned_size as u64).unwrap(),
-                            ),
-                        },
-                        count: None,
-                    },
-                ],
-                label: Some("hanabi:bind_group_layout:dispatch_indirect_dispatch_indirect"),
-            });
-
-        trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
-        let sim_params_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[BindGroupLayoutEntry {
+        let dispatch_indirect_layout = render_device.create_bind_group_layout(
+            "hanabi:bind_group_layout:dispatch_indirect_dispatch_indirect",
+            &[
+                BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
+                        ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(GpuSimParams::min_size()),
+                        min_binding_size: Some(GpuRenderIndirect::min_size()),
                     },
                     count: None,
-                }],
-                label: Some("hanabi:bind_group_layout:dispatch_indirect_sim_params"),
-            });
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(GpuDispatchIndirect::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(
+                            NonZeroU64::new(spawner_aligned_size as u64).unwrap(),
+                        ),
+                    },
+                    count: None,
+                },
+            ],
+        );
+
+        trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
+        let sim_params_layout = render_device.create_bind_group_layout(
+            "hanabi:bind_group_layout:dispatch_indirect_sim_params",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(GpuSimParams::min_size()),
+                },
+                count: None,
+            }],
+        );
 
         let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("hanabi:pipeline_layout:dispatch_indirect"),
@@ -511,58 +509,55 @@ impl FromWorld for ParticlesInitPipeline {
         );
 
         trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
-        let sim_params_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(GpuSimParams::min_size()),
-                    },
-                    count: None,
-                }],
-                label: Some("hanabi:bind_group_layout:update_sim_params"),
-            });
+        let sim_params_layout = render_device.create_bind_group_layout(
+            "hanabi:bind_group_layout:update_sim_params",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(GpuSimParams::min_size()),
+                },
+                count: None,
+            }],
+        );
 
         trace!(
             "GpuSpawnerParams: min_size={}",
             GpuSpawnerParams::min_size()
         );
-        let spawner_buffer_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(GpuSpawnerParams::min_size()),
-                    },
-                    count: None,
-                }],
-                label: Some("hanabi:buffer_layout:init_spawner"),
-            });
+        let spawner_buffer_layout = render_device.create_bind_group_layout(
+            "hanabi:buffer_layout:init_spawner",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(GpuSpawnerParams::min_size()),
+                },
+                count: None,
+            }],
+        );
 
         trace!(
             "GpuRenderIndirect: min_size={}",
             GpuRenderIndirect::min_size()
         );
-        let render_indirect_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(GpuRenderIndirect::min_size()),
-                    },
-                    count: None,
-                }],
-                label: Some("hanabi:bind_group_layout:init_render_indirect"),
-            });
+        let render_indirect_layout = render_device.create_bind_group_layout(
+            "hanabi:bind_group_layout:init_render_indirect",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(GpuRenderIndirect::min_size()),
+                },
+                count: None,
+            }],
+        );
 
         Self {
             render_device: render_device.clone(),
@@ -639,12 +634,7 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
             label,
             entries.len()
         );
-        let particles_buffer_layout =
-            self.render_device
-                .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                    entries: &entries,
-                    label: Some(label),
-                });
+        let particles_buffer_layout = self.render_device.create_bind_group_layout(label, &entries);
 
         ComputePipelineDescriptor {
             label: Some("hanabi:pipeline_init_compute".into()),
@@ -683,58 +673,55 @@ impl FromWorld for ParticlesUpdatePipeline {
         );
 
         trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
-        let sim_params_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(GpuSimParams::min_size()),
-                    },
-                    count: None,
-                }],
-                label: Some("hanabi:update_sim_params_layout"),
-            });
+        let sim_params_layout = render_device.create_bind_group_layout(
+            "hanabi:update_sim_params_layout",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(GpuSimParams::min_size()),
+                },
+                count: None,
+            }],
+        );
 
         trace!(
             "GpuSpawnerParams: min_size={}",
             GpuSpawnerParams::min_size()
         );
-        let spawner_buffer_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(GpuSpawnerParams::min_size()),
-                    },
-                    count: None,
-                }],
-                label: Some("hanabi:update_spawner_buffer_layout"),
-            });
+        let spawner_buffer_layout = render_device.create_bind_group_layout(
+            "hanabi:update_spawner_buffer_layout",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(GpuSpawnerParams::min_size()),
+                },
+                count: None,
+            }],
+        );
 
         trace!(
             "GpuRenderIndirect: min_size={}",
             GpuRenderIndirect::min_size()
         );
-        let render_indirect_layout =
-            render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(GpuRenderIndirect::min_size()),
-                    },
-                    count: None,
-                }],
-                label: Some("hanabi:update_render_indirect_layout"),
-            });
+        let render_indirect_layout = render_device.create_bind_group_layout(
+            "hanabi:update_render_indirect_layout",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(GpuRenderIndirect::min_size()),
+                },
+                count: None,
+            }],
+        );
 
         Self {
             render_device: render_device.clone(),
@@ -810,12 +797,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             label,
             entries.len()
         );
-        let particles_buffer_layout =
-            self.render_device
-                .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                    entries: &entries,
-                    label: Some(label),
-                });
+        let particles_buffer_layout = self.render_device.create_bind_group_layout(label, &entries);
 
         ComputePipelineDescriptor {
             label: Some("hanabi:pipeline_update_compute".into()),
@@ -845,8 +827,9 @@ impl FromWorld for ParticlesRenderPipeline {
         let world = world.cell();
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
-        let view_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            entries: &[
+        let view_layout = render_device.create_bind_group_layout(
+            "hanabi:view_layout_render",
+            &[
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::VERTEX_FRAGMENT,
@@ -868,11 +851,11 @@ impl FromWorld for ParticlesRenderPipeline {
                     count: None,
                 },
             ],
-            label: Some("hanabi:view_layout_render"),
-        });
+        );
 
-        let material_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            entries: &[
+        let material_layout = render_device.create_bind_group_layout(
+            "hanabi:material_layout_render",
+            &[
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::FRAGMENT,
@@ -890,8 +873,7 @@ impl FromWorld for ParticlesRenderPipeline {
                     count: None,
                 },
             ],
-            label: Some("hanabi:material_layout_render"),
-        });
+        );
 
         Self {
             render_device: render_device.clone(),
@@ -1062,12 +1044,9 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             "Creating render bind group layout with {} entries",
             entries.len()
         );
-        let particles_buffer_layout =
-            self.render_device
-                .create_bind_group_layout(&BindGroupLayoutDescriptor {
-                    entries: &entries,
-                    label: Some("hanabi:buffer_layout_render"),
-                });
+        let particles_buffer_layout = self
+            .render_device
+            .create_bind_group_layout("hanabi:buffer_layout_render", &entries);
 
         let mut layout = vec![self.view_layout.clone(), particles_buffer_layout];
         let mut shader_defs = vec![];
@@ -2347,6 +2326,7 @@ pub(crate) fn queue_effects(
                 trace!("Destroy bind group of removed image asset {:?}", id);
                 effect_bind_groups.images.remove(id)
             }
+            AssetEvent::Unused { .. } => None,
         };
     }
 
@@ -2987,6 +2967,7 @@ impl Node for VfxSimulateNode {
                     .command_encoder()
                     .begin_compute_pass(&ComputePassDescriptor {
                         label: Some("hanabi:init"),
+                        timestamp_writes: None,
                     });
 
             {
@@ -3094,6 +3075,7 @@ impl Node for VfxSimulateNode {
                     .command_encoder()
                     .begin_compute_pass(&ComputePassDescriptor {
                         label: Some("hanabi:indirect_dispatch"),
+                        timestamp_writes: None,
                     });
 
             // Dispatch indirect dispatch compute job
@@ -3131,6 +3113,7 @@ impl Node for VfxSimulateNode {
                     .command_encoder()
                     .begin_compute_pass(&ComputePassDescriptor {
                         label: Some("hanabi:update"),
+                        timestamp_writes: None,
                     });
 
             // Dispatch update compute jobs

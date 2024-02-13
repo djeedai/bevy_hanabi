@@ -38,9 +38,9 @@ ron = "0.8"
 bitflags = "2.3"
 typetag = "0.2"
 thiserror = "1.0"
-# Same versions as Bevy 0.12 (bevy_render)
-naga = "0.13"
-naga_oil = "0.10"
+# Same versions as Bevy 0.13 (bevy_render)
+naga = "0.19"
+naga_oil = "0.12"
 
 [dependencies.bevy]
 version = "0.12"
@@ -50,15 +50,15 @@ features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 [package.metadata.docs.rs]
 all-features = true
 
-[dev-dependencies]
+#[dev-dependencies]
 # Same versions as Bevy 0.12 (bevy_render)
-wgpu = "0.17.1"
+#wgpu = "0.17.1"
 
 # For procedural texture generation in examples
-noise = "0.8"
+#noise = "0.8"
 
-futures = "0.3"
-bevy-inspector-egui = "0.21"
+#futures = "0.3"
+#bevy-inspector-egui = "0.21"
 
 [[example]]
 name = "firework"

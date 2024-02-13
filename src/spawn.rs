@@ -438,6 +438,19 @@ impl EffectSpawner {
         self.active
     }
 
+    /// Get whether the spawner has more to spawn
+    pub fn has_more_to_spawn(&self) -> bool {
+        if self.active {
+            if self.limit.is_finite() {
+                self.active
+            } else {
+                self.spawn_remainder > 1.
+            }
+        } else {
+            self.active
+        }
+    }
+
     /// Get the spawner configuration in use.
     ///
     /// The effective [`Spawner`] used is either the override specified in the
