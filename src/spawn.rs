@@ -439,6 +439,8 @@ impl EffectSpawner {
     }
 
     /// Get whether the spawner has more to spawn
+    ///
+    /// Spawners with infinite limit will not spawn after `spawn_remainder < 1.`
     pub fn has_more_to_spawn(&self) -> bool {
         if self.active {
             if self.limit.is_finite() {
