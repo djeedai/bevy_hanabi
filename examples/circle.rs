@@ -3,48 +3,24 @@
 //! A sphere spawns dust in a circle. Each dust particle is animated with a
 //! [`FlipbookModifier`], from a procedurally generated sprite sheet.
 
-use bevy::{
-    core_pipeline::tonemapping::Tonemapping,
-    log::LogPlugin,
-    prelude::*,
-    render::{render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin},
-};
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
 
 use bevy_hanabi::prelude::*;
 
+mod example_features;
 mod texutils;
 
 use texutils::make_anim_img;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut wgpu_settings = WgpuSettings::default();
-    wgpu_settings
-        .features
-        .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
-
     App::default()
+        .add_plugins(example_features::ExampleFeaturesPlugin {
+            window_title: "🎆 Hanabi — circle".to_string(),
+            ..default()
+        })
         .insert_resource(ClearColor(Color::DARK_GRAY))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,circle=trace".to_string(),
-                })
-                .set(RenderPlugin {
-                    render_creation: wgpu_settings.into(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — circle".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
         .add_systems(Update, bevy::window::close_on_esc)
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .run();
 
@@ -167,7 +143,7 @@ fn setup(
                 size: 4.0,
                 ..default()
             })),
-            material: materials.add(Color::BLUE.into()),
+            material: materials.add(Color::BLUE),
             ..Default::default()
         })
         .insert(Name::new("ground"));
@@ -180,7 +156,7 @@ fn setup(
                 sectors: 32,
                 stacks: 16,
             })),
-            material: materials.add(Color::CYAN.into()),
+            material: materials.add(Color::CYAN),
             transform: Transform::from_translation(Vec3::Y),
             ..Default::default()
         })

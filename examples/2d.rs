@@ -5,44 +5,22 @@
 //! particle above or below the reference square.
 
 use bevy::{
-    log::LogPlugin,
     prelude::*,
-    render::{
-        camera::ScalingMode, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
-    },
+    render::camera::ScalingMode,
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+mod example_features;
 
 use bevy_hanabi::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut wgpu_settings = WgpuSettings::default();
-    wgpu_settings
-        .features
-        .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
-
     App::default()
         .insert_resource(ClearColor(Color::DARK_GRAY))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,2d=trace".to_string(),
-                })
-                .set(RenderPlugin {
-                    render_creation: wgpu_settings.into(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — 2d".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
+        .add_plugins(example_features::ExampleFeaturesPlugin {
+            window_title: "🎆 Hanabi — 2d".to_string(),
+            ..default()
+        })
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, update_plane))
         .run();

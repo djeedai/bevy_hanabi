@@ -16,15 +16,12 @@
 
 use bevy::{
     core_pipeline::tonemapping::Tonemapping,
-    log::LogPlugin,
     prelude::*,
-    render::{
-        camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
-    },
+    render::{camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings},
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
+mod example_features;
 
 // use smooth_bevy_cameras::{
 //     controllers::orbit::{OrbitCameraBundle, OrbitCameraController,
@@ -38,28 +35,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
 
     App::default()
+        .add_plugins(example_features::ExampleFeaturesPlugin {
+            window_title: "🎆 Hanabi — force field".to_string(),
+            ..default()
+        })
         .insert_resource(ClearColor(Color::DARK_GRAY))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,force_field=trace".to_string(),
-                })
-                .set(RenderPlugin {
-                    render_creation: wgpu_settings.into(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — force field".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
         //.add_plugins(LookTransformPlugin)
         //.add_plugins(OrbitCameraPlugin::default())
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, update))
         .run();
@@ -237,7 +220,7 @@ fn setup(
 
 fn update(
     mut q_effect: Query<(&mut EffectSpawner, &mut Transform), Without<Projection>>,
-    mouse_button_input: Res<Input<MouseButton>>,
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Projection>>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
 ) {

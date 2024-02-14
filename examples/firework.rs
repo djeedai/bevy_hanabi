@@ -15,35 +15,22 @@
 //!   increased realism. This is a subtle effect, but of importance.
 
 use bevy::{
-    core_pipeline::{
-        bloom::BloomSettings, clear_color::ClearColorConfig, tonemapping::Tonemapping,
-    },
-    log::LogPlugin,
+    core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
     prelude::*,
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+mod example_features;
 
 use bevy_hanabi::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     App::default()
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,firework=trace".to_string(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — firework".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
+        .add_plugins(example_features::ExampleFeaturesPlugin {
+            window_title: "🎆 Hanabi — firework".to_string(),
+            ..default()
+        })
         .add_systems(Update, bevy::window::close_on_esc)
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
+        //.add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .run();
 
@@ -58,15 +45,13 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
                 hdr: true,
                 ..default()
             },
-            camera_3d: Camera3d {
-                clear_color: ClearColorConfig::Custom(Color::BLACK),
-                ..default()
-            },
+            camera_3d: Camera3d { ..default() },
             tonemapping: Tonemapping::None,
             ..default()
         },
         BloomSettings::default(),
     ));
+    commands.insert_resource(ClearColor(Color::BLACK));
 
     let mut color_gradient1 = Gradient::new();
     color_gradient1.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));

@@ -8,46 +8,21 @@
 
 use bevy::{
     core_pipeline::tonemapping::Tonemapping,
-    log::LogPlugin,
     prelude::*,
-    render::{
-        camera::{Projection, ScalingMode},
-        render_resource::WgpuFeatures,
-        settings::WgpuSettings,
-        RenderPlugin,
-    },
+    render::camera::{Projection, ScalingMode},
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+mod example_features;
 
 use bevy_hanabi::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut wgpu_settings = WgpuSettings::default();
-    wgpu_settings
-        .features
-        .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
-
     App::default()
         .insert_resource(ClearColor(Color::DARK_GRAY))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,activate=trace".to_string(),
-                })
-                .set(RenderPlugin {
-                    render_creation: wgpu_settings.into(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — activate".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
+        .add_plugins(example_features::ExampleFeaturesPlugin {
+            window_title: "🎆 Hanabi — activate".to_string(),
+            ..default()
+        })
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, update))
         .run();

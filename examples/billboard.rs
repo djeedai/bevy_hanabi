@@ -27,45 +27,19 @@
 //! rendering order may vary frame to frame. This is tracked on GitHub as issue
 //! #183.
 
-use bevy::{
-    core_pipeline::tonemapping::Tonemapping,
-    log::LogPlugin,
-    prelude::*,
-    render::{
-        camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
-    },
-};
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*, render::camera::Projection};
+mod example_features;
 
 use bevy_hanabi::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut wgpu_settings = WgpuSettings::default();
-    wgpu_settings
-        .features
-        .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
-
     App::default()
         .insert_resource(ClearColor(Color::DARK_GRAY))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,billboard=trace".to_string(),
-                })
-                .set(RenderPlugin {
-                    render_creation: wgpu_settings.into(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — billboard".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
+        .add_plugins(example_features::ExampleFeaturesPlugin {
+            window_title: "🎆 Hanabi — billboard".to_string(),
+            ..default()
+        })
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, rotate_camera))
         .run();
@@ -172,7 +146,7 @@ fn setup(
                 size: 4.0,
                 ..default()
             })),
-            material: materials.add(Color::BLUE.into()),
+            material: materials.add(Color::BLUE),
             transform: Transform::from_xyz(0.0, -0.5, 0.0),
             ..Default::default()
         })

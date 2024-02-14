@@ -1,6 +1,5 @@
 use bevy::{
-    core_pipeline::{clear_color::ClearColorConfig, tonemapping::Tonemapping},
-    log::LogPlugin,
+    core_pipeline::tonemapping::Tonemapping,
     math::EulerRot,
     prelude::*,
     render::{
@@ -10,28 +9,17 @@ use bevy::{
     },
     window::WindowResized,
 };
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
+mod example_features;
 use bevy_hanabi::prelude::*;
 
 fn main() {
     App::default()
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,multicam=trace".to_string(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — multicam".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
+        .add_plugins(example_features::ExampleFeaturesPlugin {
+            window_title: "🎆 Hanabi — multicam".to_string(),
+            ..default()
+        })
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -125,11 +113,6 @@ fn setup(
                 camera_3d: Camera3d {
                     // Only clear render target from first camera, others additively render on same
                     // target
-                    clear_color: if i == 0 {
-                        ClearColorConfig::Default
-                    } else {
-                        ClearColorConfig::None
-                    },
                     ..default()
                 },
                 transform: Transform::from_translation(Vec3::new(x, 100.0, z))
@@ -161,8 +144,8 @@ fn setup(
         size: 200.0,
         ..default()
     }));
-    let mat = materials.add(Color::PURPLE.into());
-    let ground_mat = materials.add(Color::OLIVE.into());
+    let mat = materials.add(Color::PURPLE);
+    let ground_mat = materials.add(Color::OLIVE);
 
     let effect1 = effects.add(make_effect(Color::RED));
 

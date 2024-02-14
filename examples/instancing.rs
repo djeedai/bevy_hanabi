@@ -9,10 +9,8 @@
 
 #![allow(dead_code)]
 
-use bevy::{
-    core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*, render::mesh::shape::Cube,
-};
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*, render::mesh::shape::Cube};
+mod example_features;
 use rand::Rng;
 
 use bevy_hanabi::prelude::*;
@@ -171,22 +169,11 @@ impl InstanceManager {
 
 fn main() {
     App::default()
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,instancing=trace".to_string(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — instancing".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
+        .add_plugins(example_features::ExampleFeaturesPlugin {
+            window_title: "🎆 Hanabi — instancing".to_string(),
+            ..default()
+        })
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
         .insert_resource(InstanceManager::new(5, 4))
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, keyboard_input_system))
@@ -222,7 +209,7 @@ fn setup(
     });
 
     let mesh = meshes.add(Mesh::from(Cube { size: 1.0 }));
-    let mat = materials.add(Color::PURPLE.into());
+    let mat = materials.add(Color::PURPLE);
 
     let mut gradient = Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
@@ -269,7 +256,7 @@ fn setup(
 }
 
 fn keyboard_input_system(
-    keyboard_input: Res<Input<KeyCode>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
     mut my_effect: ResMut<InstanceManager>,
 ) {
@@ -278,7 +265,7 @@ fn keyboard_input_system(
     if keyboard_input.just_pressed(KeyCode::Space) {
         my_effect.spawn_random(&mut commands);
     } else if keyboard_input.just_pressed(KeyCode::Delete)
-        || keyboard_input.just_pressed(KeyCode::Back)
+        || keyboard_input.just_pressed(KeyCode::Backslash)
     {
         my_effect.despawn_random(&mut commands);
     }

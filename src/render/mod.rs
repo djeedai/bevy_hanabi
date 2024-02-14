@@ -441,7 +441,7 @@ impl FromWorld for DispatchIndirectPipeline {
             {
                 let common_shader = HanabiPlugin::make_common_shader(item_align);
                 let mut desc: naga_oil::compose::ComposableModuleDescriptor<'_> =
-                    (&common_shader).into();
+                    naga_oil::compose::ComposableModuleDescriptor::from(&common_shader);
                 desc.shader_defs.insert(
                     "SPAWNER_PADDING".to_string(),
                     naga_oil::compose::ShaderDefValue::Bool(true),
@@ -2896,7 +2896,7 @@ impl Node for VfxSimulateDriverNode {
         _render_context: &mut RenderContext,
         _world: &World,
     ) -> Result<(), NodeRunError> {
-        graph.run_sub_graph(crate::plugin::simulate_graph::NAME, vec![], None)?;
+        graph.run_sub_graph(crate::plugin::simulate_graph::Hanabi, vec![], None)?;
         Ok(())
     }
 }

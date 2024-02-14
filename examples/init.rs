@@ -7,15 +7,8 @@
 
 use std::f32::consts::PI;
 
-use bevy::{
-    core_pipeline::tonemapping::Tonemapping,
-    log::LogPlugin,
-    prelude::*,
-    render::{
-        mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
-    },
-};
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*, render::mesh::shape::Cube};
+mod example_features;
 
 use bevy_hanabi::prelude::*;
 
@@ -23,32 +16,13 @@ use bevy_hanabi::prelude::*;
 struct RotateSpeed(pub f32);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut wgpu_settings = WgpuSettings::default();
-    wgpu_settings
-        .features
-        .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
-
     App::default()
+        .add_plugins(example_features::ExampleFeaturesPlugin {
+            window_title: "🎆 Hanabi — init".to_string(),
+            ..default()
+        })
         .insert_resource(ClearColor(Color::DARK_GRAY))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,init=trace".to_string(),
-                })
-                .set(RenderPlugin {
-                    render_creation: wgpu_settings.into(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — init".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, rotate_effect))
         .run();
@@ -148,7 +122,7 @@ fn setup(
     });
 
     let cube = meshes.add(Mesh::from(Cube { size: 0.1 }));
-    let mat = materials.add(Color::PURPLE.into());
+    let mat = materials.add(Color::PURPLE);
 
     spawn_effect(
         &mut commands,

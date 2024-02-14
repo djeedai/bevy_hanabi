@@ -12,45 +12,19 @@
 
 use std::time::Duration;
 
-use bevy::{
-    core_pipeline::tonemapping::Tonemapping,
-    log::LogPlugin,
-    prelude::*,
-    render::{
-        mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
-    },
-};
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*, render::mesh::shape::Cube};
+mod example_features;
 
 use bevy_hanabi::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut wgpu_settings = WgpuSettings::default();
-    wgpu_settings
-        .features
-        .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
-
     App::default()
+        .add_plugins(example_features::ExampleFeaturesPlugin {
+            window_title: "🎆 Hanabi — visibility".to_string(),
+            ..default()
+        })
         .insert_resource(ClearColor(Color::DARK_GRAY))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,visibility=trace".to_string(),
-                })
-                .set(RenderPlugin {
-                    render_creation: wgpu_settings.into(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — visibility".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
         .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, update))
         .run();
@@ -83,7 +57,7 @@ fn setup(
     });
 
     let cube = meshes.add(Mesh::from(Cube { size: 1.0 }));
-    let mat = materials.add(Color::PURPLE.into());
+    let mat = materials.add(Color::PURPLE);
 
     let mut gradient = Gradient::new();
     gradient.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
