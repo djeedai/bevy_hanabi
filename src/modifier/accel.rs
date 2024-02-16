@@ -177,21 +177,28 @@ impl UpdateModifier for RadialAccelModifier {
         let func_id = calc_func_id(self);
         let func_name = format!("radial_accel_{0:016X}", func_id);
 
-        let origin = context.eval(module, self.origin)?;
-        let accel = context.eval(module, self.accel)?;
+        context.make_fn(
+            &func_name,
+            "particle: ptr<function, Particle>",
+            module,
+            &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
+                let origin = ctx.eval(m, self.origin)?;
+                let accel = ctx.eval(m, self.accel)?;
 
-        context.update_extra += &format!(
-            r##"fn {}(particle: ptr<function, Particle>) {{
-    let radial = normalize((*particle).{} - {});
-    (*particle).{} += radial * (({}) * sim_params.delta_time);
-}}
-"##,
-            func_name,
-            Attribute::POSITION.name(),
-            origin,
-            Attribute::VELOCITY.name(),
-            accel,
-        );
+                Ok(format!(
+                    r##"fn {}(particle: ptr<function, Particle>) {{
+            let radial = normalize((*particle).{} - {});
+            (*particle).{} += radial * (({}) * sim_params.delta_time);
+        }}
+        "##,
+                    func_name,
+                    Attribute::POSITION.name(),
+                    origin,
+                    Attribute::VELOCITY.name(),
+                    accel,
+                ))
+            },
+        )?;
 
         context.update_code += &format!("{}(&particle);\n", func_name);
 
@@ -315,7 +322,7 @@ impl UpdateModifier for TangentAccelModifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ParticleLayout, PropertyLayout, ToWgslString};
+    use crate::{ParticleLayout, Property, PropertyLayout, ToWgslString};
 
     use super::*;
 
@@ -336,17 +343,25 @@ mod tests {
     #[test]
     fn mod_radial_accel() {
         let mut module = Module::default();
+        let property_layout = PropertyLayout::new(&[Property::new("my_prop", 3.)]);
+        let particle_layout = ParticleLayout::default();
+
         let origin = Vec3::new(-1.2, 5.3, -8.5);
         let accel = 6.;
         let modifier = RadialAccelModifier::constant(&mut module, origin, accel);
-
-        let property_layout = PropertyLayout::default();
-        let particle_layout = ParticleLayout::default();
         let mut context = UpdateContext::new(&property_layout, &particle_layout);
         assert!(modifier.apply_update(&mut module, &mut context).is_ok());
-
         // TODO: less weak check...
         assert!(context.update_extra.contains(&accel.to_wgsl_string()));
+
+        let origin = module.attr(Attribute::POSITION);
+        let accel = module.prop("my_prop");
+        let modifier = RadialAccelModifier::new(origin, accel);
+        let mut context = UpdateContext::new(&property_layout, &particle_layout);
+        assert!(modifier.apply_update(&mut module, &mut context).is_ok());
+        // TODO: less weak check...
+        assert!(context.update_extra.contains(Attribute::POSITION.name()));
+        assert!(context.update_extra.contains("my_prop"));
     }
 
     #[test]
