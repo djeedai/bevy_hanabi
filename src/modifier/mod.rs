@@ -169,6 +169,8 @@ pub struct InitContext<'a> {
     var_counter: u32,
     /// Cache of evaluated expressions.
     expr_cache: HashMap<ExprHandle, String>,
+    /// Is the attriubute struct a pointer?
+    is_attribute_pointer: bool,
 }
 
 impl<'a> InitContext<'a> {
@@ -181,7 +183,14 @@ impl<'a> InitContext<'a> {
             particle_layout,
             var_counter: 0,
             expr_cache: Default::default(),
+            is_attribute_pointer: false,
         }
+    }
+
+    /// Mark the attribute struct as being available through a pointer.
+    pub fn with_attribute_pointer(mut self) -> Self {
+        self.is_attribute_pointer = true;
+        self
     }
 }
 
@@ -230,7 +239,9 @@ impl<'a> EvalContext for InitContext<'a> {
         f: &mut dyn FnMut(&mut Module, &mut dyn EvalContext) -> Result<String, ExprError>,
     ) -> Result<(), ExprError> {
         // Generate a temporary context for the function content itself
-        let mut ctx = InitContext::new(self.property_layout, self.particle_layout);
+        // FIXME - Dynamic with_attribute_pointer()!
+        let mut ctx =
+            InitContext::new(self.property_layout, self.particle_layout).with_attribute_pointer();
 
         // Evaluate the function content
         let body = f(module, &mut ctx)?;
@@ -246,6 +257,10 @@ impl<'a> EvalContext for InitContext<'a> {
         );
 
         Ok(())
+    }
+
+    fn is_attribute_pointer(&self) -> bool {
+        self.is_attribute_pointer
     }
 }
 
@@ -351,6 +366,8 @@ pub struct UpdateContext<'a> {
     var_counter: u32,
     /// Cache of evaluated expressions.
     expr_cache: HashMap<ExprHandle, String>,
+    /// Is the attriubute struct a pointer?
+    is_attribute_pointer: bool,
 
     // TEMP
     /// Array of force field components with a maximum number of components
@@ -368,8 +385,15 @@ impl<'a> UpdateContext<'a> {
             particle_layout,
             var_counter: 0,
             expr_cache: Default::default(),
+            is_attribute_pointer: false,
             force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
         }
+    }
+
+    /// Mark the attribute struct as being available through a pointer.
+    pub fn with_attribute_pointer(mut self) -> Self {
+        self.is_attribute_pointer = true;
+        self
     }
 }
 
@@ -418,7 +442,9 @@ impl<'a> EvalContext for UpdateContext<'a> {
         f: &mut dyn FnMut(&mut Module, &mut dyn EvalContext) -> Result<String, ExprError>,
     ) -> Result<(), ExprError> {
         // Generate a temporary context for the function content itself
-        let mut ctx = UpdateContext::new(self.property_layout, self.particle_layout);
+        // FIXME - Dynamic with_attribute_pointer()!
+        let mut ctx =
+            UpdateContext::new(self.property_layout, self.particle_layout).with_attribute_pointer();
 
         // Evaluate the function content
         let body = f(module, &mut ctx)?;
@@ -436,6 +462,10 @@ impl<'a> EvalContext for UpdateContext<'a> {
         );
 
         Ok(())
+    }
+
+    fn is_attribute_pointer(&self) -> bool {
+        self.is_attribute_pointer
     }
 }
 
@@ -483,6 +513,8 @@ pub struct RenderContext<'a> {
     var_counter: u32,
     /// Cache of evaluated expressions.
     expr_cache: HashMap<ExprHandle, String>,
+    /// Is the attriubute struct a pointer?
+    is_attribute_pointer: bool,
 }
 
 impl<'a> RenderContext<'a> {
@@ -502,6 +534,7 @@ impl<'a> RenderContext<'a> {
             screen_space_size: false,
             var_counter: 0,
             expr_cache: Default::default(),
+            is_attribute_pointer: false,
         }
     }
 
@@ -534,6 +567,12 @@ impl<'a> RenderContext<'a> {
         self.size_gradients.insert(func_id, gradient);
         let func_name = format!("size_gradient_{0:016X}", func_id);
         func_name
+    }
+
+    /// Mark the attribute struct as being available through a pointer.
+    pub fn with_attribute_pointer(mut self) -> Self {
+        self.is_attribute_pointer = true;
+        self
     }
 }
 
@@ -583,7 +622,9 @@ impl<'a> EvalContext for RenderContext<'a> {
         f: &mut dyn FnMut(&mut Module, &mut dyn EvalContext) -> Result<String, ExprError>,
     ) -> Result<(), ExprError> {
         // Generate a temporary context for the function content itself
-        let mut ctx = RenderContext::new(self.property_layout, self.particle_layout);
+        // FIXME - Dynamic with_attribute_pointer()!
+        let mut ctx =
+            RenderContext::new(self.property_layout, self.particle_layout).with_attribute_pointer();
 
         // Evaluate the function content
         let body = f(module, &mut ctx)?;
@@ -601,6 +642,10 @@ impl<'a> EvalContext for RenderContext<'a> {
         );
 
         Ok(())
+    }
+
+    fn is_attribute_pointer(&self) -> bool {
+        self.is_attribute_pointer
     }
 }
 
