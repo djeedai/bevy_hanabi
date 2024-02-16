@@ -186,12 +186,9 @@ impl UpdateModifier for RadialAccelModifier {
                 let accel = ctx.eval(m, self.accel)?;
 
                 Ok(format!(
-                    r##"fn {}(particle: ptr<function, Particle>) {{
-            let radial = normalize((*particle).{} - {});
+                    r##"let radial = normalize((*particle).{} - {});
             (*particle).{} += radial * (({}) * sim_params.delta_time);
-        }}
         "##,
-                    func_name,
                     Attribute::POSITION.name(),
                     origin,
                     Attribute::VELOCITY.name(),
