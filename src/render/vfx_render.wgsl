@@ -142,7 +142,7 @@ fn vertex(
     // Scale size by w_cs to negate the perspective divide which will happen later after the vertex shader.
     // The 2.0 factor is because clip space is in [-1:1] so we need to divide by the half screen size only.
     let screen_size_pixels = view.viewport.zw;
-    let projection_scale = vec2<f32>(view.projection[0][0], view.projection[1][1])
+    let projection_scale = vec2<f32>(view.projection[0][0], view.projection[1][1]);
     size = (size * w_cs * 2.0) / min(screen_size_pixels.x * projection_scale.x, screen_size_pixels.y * projection_scale.y);
 #endif
 
