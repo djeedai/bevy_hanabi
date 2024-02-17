@@ -1299,8 +1299,8 @@ pub(crate) fn extract_effect_events(
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 pub(crate) fn extract_effects(
-    real_time: Extract<Res<Time<EffectSimulation>>>,
-    virtual_time: Extract<Res<Time<EffectSimulation>>>,
+    real_time: Extract<Res<Time<Real>>>,
+    virtual_time: Extract<Res<Time<Virtual>>>,
     time: Extract<Res<Time<EffectSimulation>>>,
     effects: Extract<Res<Assets<EffectAsset>>>,
     _images: Extract<Res<Assets<Image>>>,
