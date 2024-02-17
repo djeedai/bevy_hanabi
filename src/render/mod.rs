@@ -48,7 +48,7 @@ use crate::{
     render::batch::{BatchInput, BatchState, Batcher, EffectBatch},
     spawn::EffectSpawner,
     CompiledParticleEffect, EffectProperties, EffectShader, HanabiPlugin, ParticleLayout,
-    PropertyLayout, RemovedEffectsEvent, SimulationCondition, SimulationSpace,
+    PropertyLayout, RemovedEffectsEvent, SimulationCondition,
 };
 
 mod aligned_buffer_vec;
@@ -1041,7 +1041,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 count: None,
             },
         ];
-        if key.local_space_simulation {
+        if key.local_space_simulation || key.screen_space_size {
             entries.push(BindGroupLayoutEntry {
                 binding: 3,
                 visibility: ShaderStages::VERTEX,
@@ -1088,11 +1088,13 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         // Key: PARTICLE_SCREEN_SPACE_SIZE
         if key.screen_space_size {
             shader_defs.push("PARTICLE_SCREEN_SPACE_SIZE".into());
+            shader_defs.push("RENDER_NEEDS_SPAWNER".into());
         }
 
         // Key: LOCAL_SPACE_SIMULATION
         if key.local_space_simulation {
             shader_defs.push("LOCAL_SPACE_SIMULATION".into());
+            shader_defs.push("RENDER_NEEDS_SPAWNER".into());
         }
 
         // Key: USE_ALPHA_MASK
@@ -1362,22 +1364,13 @@ pub(crate) fn extract_effects(
             );
             let property_layout = asset.property_layout();
 
-            let mut layout_flags = LayoutFlags::NONE;
-            if asset.simulation_space == SimulationSpace::Local {
-                layout_flags |= LayoutFlags::LOCAL_SPACE_SIMULATION;
-            }
-            if let crate::AlphaMode::Mask(_) = &asset.alpha_mode {
-                layout_flags |= LayoutFlags::USE_ALPHA_MASK;
-            }
-            // TODO - should we init the other flags here? (they're currently not used)
-
-            trace!("Found new effect: entity {:?} | capacity {} | particle_layout {:?} | property_layout {:?}", entity, asset.capacity(), particle_layout, property_layout);
+            trace!("Found new effect: entity {:?} | capacity {} | particle_layout {:?} | property_layout {:?} | layout_flags {:?}", entity, asset.capacity(), particle_layout, property_layout, effect.layout_flags);
             AddedEffect {
                 entity,
                 capacity: asset.capacity(),
                 particle_layout,
                 property_layout,
-                layout_flags,
+                layout_flags: effect.layout_flags,
                 handle,
             }
         })
@@ -2545,7 +2538,7 @@ pub(crate) fn queue_effects(
                         }),
                     },
                 ];
-                if buffer.layout_flags().contains(LayoutFlags::LOCAL_SPACE_SIMULATION) {
+                if buffer.layout_flags().contains(LayoutFlags::LOCAL_SPACE_SIMULATION) || buffer.layout_flags().contains(LayoutFlags::SCREEN_SPACE_SIZE) {
                     entries.push(BindGroupEntry {
                         binding: 3,
                         resource: BindingResource::Buffer(BufferBinding {
@@ -2555,7 +2548,7 @@ pub(crate) fn queue_effects(
                         }),
                     });
                 }
-                trace!("Creating render bind group with {} entries", entries.len());
+                trace!("Creating render bind group with {} entries (layour flags: {:?})", entries.len(), buffer.layout_flags());
                 let render = render_device.create_bind_group(
                     &format!("hanabi:bind_group_render_vfx{buffer_index}_particles")[..],
                      buffer.particle_layout_bind_group_with_dispatch(),
@@ -2786,6 +2779,9 @@ fn draw<'w>(
     let dyn_uniform_indices = if effect_batch
         .layout_flags
         .contains(LayoutFlags::LOCAL_SPACE_SIMULATION)
+        || effect_batch
+            .layout_flags
+            .contains(LayoutFlags::SCREEN_SPACE_SIZE)
     {
         &dyn_uniform_indices
     } else {

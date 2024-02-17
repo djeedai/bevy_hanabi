@@ -307,7 +307,9 @@ impl EffectBuffer {
                 count: None,
             },
         ];
-        if layout_flags.contains(LayoutFlags::LOCAL_SPACE_SIMULATION) {
+        if layout_flags.contains(LayoutFlags::LOCAL_SPACE_SIMULATION)
+            || layout_flags.contains(LayoutFlags::SCREEN_SPACE_SIZE)
+        {
             entries.push(BindGroupLayoutEntry {
                 binding: 3,
                 visibility: ShaderStages::VERTEX,
@@ -319,7 +321,11 @@ impl EffectBuffer {
                 count: None,
             });
         }
-        trace!("Creating render layout with {} entries", entries.len());
+        trace!(
+            "Creating render layout with {} entries (flags: {:?})",
+            entries.len(),
+            layout_flags
+        );
         let particles_buffer_layout_with_dispatch =
             render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 entries: &entries,

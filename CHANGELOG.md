@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Moved most shared WGSL code into an import module `vfx_common.wgsl`. This requires using `naga_oil` for import resolution, which in turns means `naga` and `naga_oil` are now dependencies of `bevy_hanabi` itself.
 
+### Fixed
+
+- Fixed a bug where particle attributes used in the context of a function would emit invalid code. (#275)
+- Fixed a bug where the screen-space size of particles was not correctly computed, leading to small variations in size. The new code correctly sizes particles based on a screen pixel size. This may increase the actual size of particles, if a larger size had been previously used to compensate the error introduced by this bug. (#269)
+- Fixed a bug where screen-space size ignored the particle's local orientation. (#269)
+
 ## [0.9.0] 2023-12-26
 
 ### Added

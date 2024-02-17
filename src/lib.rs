@@ -922,7 +922,6 @@ impl EffectShaderSource {
             vertex_code,
             fragment_code,
             render_extra,
-            render_sim_space_transform_code,
             alpha_cutoff_code,
             particle_texture,
             layout_flags,
@@ -954,15 +953,6 @@ impl EffectShaderSource {
                 String::new()
             };
 
-            let render_sim_space_transform_code = match asset.simulation_space.eval(&render_context)
-            {
-                Ok(s) => s,
-                Err(err) => {
-                    error!("Failed to compile effect's simulation space: {:?}", err);
-                    return Err(ShaderGenerateError::Expr(err));
-                }
-            };
-
             let mut layout_flags = LayoutFlags::NONE;
             if asset.simulation_space == SimulationSpace::Local {
                 layout_flags |= LayoutFlags::LOCAL_SPACE_SIMULATION;
@@ -990,7 +980,6 @@ impl EffectShaderSource {
                 render_context.vertex_code,
                 render_context.fragment_code,
                 render_context.render_extra,
-                render_sim_space_transform_code,
                 alpha_cutoff_code,
                 render_context.particle_texture,
                 layout_flags,
@@ -1070,10 +1059,6 @@ impl EffectShaderSource {
             .replace("{{VERTEX_MODIFIERS}}", &vertex_code)
             .replace("{{FRAGMENT_MODIFIERS}}", &fragment_code)
             .replace("{{RENDER_EXTRA}}", &render_extra)
-            .replace(
-                "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
-                &render_sim_space_transform_code,
-            )
             .replace("{{ALPHA_CUTOFF}}", &alpha_cutoff_code)
             .replace("{{FLIPBOOK_SCALE}}", &flipbook_scale_code)
             .replace("{{FLIPBOOK_ROW_COUNT}}", &flipbook_row_count_code)
@@ -1208,7 +1193,7 @@ impl CompiledParticleEffect {
         let render_shader = shader_cache.get_or_insert(&asset.name, &shader_source.render, shaders);
 
         trace!(
-            "tick_spawners: init_shader={:?} update_shader={:?} render_shader={:?} has_image={} layout_flags={:?}",
+            "CompiledParticleEffect::update(): init_shader={:?} update_shader={:?} render_shader={:?} has_image={} layout_flags={:?}",
             init_shader,
             update_shader,
             render_shader,
