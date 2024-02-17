@@ -167,6 +167,6 @@ pub(crate) fn effect_simulation_time_system(
         // avoid rounding when at normal speed
         virt_delta
     };
-    effect_simulation.context_mut().effective_speed = effective_speed;
+    effect_simulation.context_mut().effective_speed = effective_speed * virt.effective_speed_f64();
     effect_simulation.advance_by(delta);
 }
