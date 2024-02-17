@@ -50,18 +50,20 @@ pub trait EffectSimulationTime {
     /// Returns the speed the clock advances relative to the virtual clock, as [`f64`].
     fn relative_speed_f64(&self) -> f64;
 
-    /// Returns the speed the clock advanced relative to the virtual clock in
-    /// this update, as [`f32`].
+    /// Returns the speed the clock advanced relative to your system clock in this update,
+    /// as [`f32`].
     ///
-    /// Returns `0.0` if the game was paused or what the `relative_speed` value
-    /// was at the start of this update.
+    /// Returns `0.0` if the either [`Time<Virtual>`](Virtual) or
+    /// [`Time<EffectSimulationTime>`](EffectSimulationTime) was paused
+    /// and otherwise the product of the `relative_speed` of the clocks at the start of the update.
     fn effective_speed(&self) -> f32;
 
-    /// Returns the speed the clock advanced relative to the virtual clock in
-    /// this update, as [`f64`].
+    /// Returns the speed the clock advanced relative to your system clock in this update,
+    /// as [`f64`].
     ///
-    /// Returns `0.0` if the game was paused or what the `relative_speed` value
-    /// was at the start of this update.
+    /// Returns `0.0` if the either [`Time<Virtual>`](Virtual) or
+    /// [`Time<EffectSimulationTime>`](EffectSimulationTime) was paused
+    /// and otherwise the product of the `relative_speed` of the clocks at the start of the update.
     fn effective_speed_f64(&self) -> f64;
 
     /// Sets the speed the clock advances relative to the virtual clock, given as an [`f32`].
