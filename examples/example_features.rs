@@ -29,6 +29,7 @@ impl Plugin for ExampleFeaturesPlugin {
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
+                    ..default()
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {

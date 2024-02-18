@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.10.0-dev"
+version = "0.10.1-dev"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 description = "Hanabi GPU particle system for the Bevy game engine"
@@ -46,9 +46,7 @@ naga_oil = "0.13"
 bevy-inspector-egui = {version = "0.21", optional=true }
 
 [dependencies.bevy]
-git = "https://github.com/bevyengine/bevy.git"
-rev = "bc98333"
-#version = "0.13"
+version = "0.13"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 
