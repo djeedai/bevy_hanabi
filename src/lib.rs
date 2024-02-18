@@ -1754,6 +1754,7 @@ else { return c1; }
             let mut shader_defs = std::collections::HashMap::<String, ShaderDefValue>::new();
             shader_defs.insert("LOCAL_SPACE_SIMULATION".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("PARTICLE_TEXTURE".into(), ShaderDefValue::Bool(true));
+            shader_defs.insert("RENDER_NEEDS_SPAWNER".into(), ShaderDefValue::Bool(true));
             shader_defs.insert(
                 "PARTICLE_SCREEN_SPACE_SIZE".into(),
                 ShaderDefValue::Bool(true),
@@ -1790,7 +1791,7 @@ else { return c1; }
 
             match composer.make_naga_module(NagaModuleDescriptor {
                 source: code,
-                file_path: "init.wgsl",
+                file_path: &format!("{}.wgsl", name),
                 shader_defs,
                 ..Default::default()
             }) {
