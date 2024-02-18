@@ -26,7 +26,7 @@ struct VertexOutput {
 @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
-#ifdef LOCAL_SPACE_SIMULATION
+#ifdef RENDER_NEEDS_SPAWNER
 @group(1) @binding(3) var<storage, read> spawner : Spawner; // NOTE - same group as update
 #endif
 #ifdef PARTICLE_TEXTURE
@@ -70,6 +70,41 @@ fn get_camera_rotation_effect_space() -> mat3x3<f32> {
 #endif
 }
 
+/// Unpack a compressed transform stored in transposed row-major form.
+fn unpack_compressed_transform(compressed_transform: mat3x4<f32>) -> mat4x4<f32> {
+    return transpose(
+        mat4x4(
+            compressed_transform[0],
+            compressed_transform[1],
+            compressed_transform[2],
+            vec4<f32>(0.0, 0.0, 0.0, 1.0)
+        )
+    );
+}
+
+/// Transform a simulation space position into a world space position.
+///
+/// The simulation space depends on the effect's SimulationSpace value, and is either
+/// the effect space (SimulationSpace::Local) or the world space (SimulationSpace::Global).
+fn transform_position_simulation_to_world(sim_position: vec3<f32>) -> vec4<f32> {
+#ifdef LOCAL_SPACE_SIMULATION
+    let transform = unpack_compressed_transform(spawner.transform);
+    return transform * vec4<f32>(sim_position, 1.0);
+#else
+    return vec4<f32>(sim_position, 1.0);
+#endif
+}
+
+/// Transform a simulation space position into a clip space position.
+///
+/// The simulation space depends on the effect's SimulationSpace value, and is either
+/// the effect space (SimulationSpace::Local) or the world space (SimulationSpace::Global).
+/// The clip space is the final [-1:1]^3 space output from the vertex shader, before
+/// perspective divide and viewport transform are applied.
+fn transform_position_simulation_to_clip(sim_position: vec3<f32>) -> vec4<f32> {
+    return view.view_proj * transform_position_simulation_to_world(sim_position);
+}
+
 {{RENDER_EXTRA}}
 
 @vertex
@@ -100,31 +135,24 @@ fn vertex(
 
 {{VERTEX_MODIFIERS}}
 
-#ifdef LOCAL_SPACE_SIMULATION
-    let transform = transpose(
-        mat4x4(
-            spawner.transform[0],
-            spawner.transform[1],
-            spawner.transform[2],
-            vec4<f32>(0.0, 0.0, 0.0, 1.0)
-        )
-    );
+#ifdef PARTICLE_SCREEN_SPACE_SIZE
+    // Get perspective divide factor from clip space position. This is the "average" factor for the entire
+    // particle, taken at its position (mesh origin), and applied uniformly for all vertices.
+    let w_cs = transform_position_simulation_to_clip(particle.position).w;
+    // Scale size by w_cs to negate the perspective divide which will happen later after the vertex shader.
+    // The 2.0 factor is because clip space is in [-1:1] so we need to divide by the half screen size only.
+    let screen_size_pixels = view.viewport.zw;
+    let projection_scale = vec2<f32>(view.projection[0][0], view.projection[1][1]);
+    size = (size * w_cs * 2.0) / min(screen_size_pixels.x * projection_scale.x, screen_size_pixels.y * projection_scale.y);
 #endif
 
-#ifdef PARTICLE_SCREEN_SPACE_SIZE
-    let half_screen = view.viewport.zw / 2.;
-    let vpos = vertex_position * vec3<f32>(size.x / half_screen.x, size.y / half_screen.y, 1.0);
-    let local_position = particle.position;
-    let world_position = {{SIMULATION_SPACE_TRANSFORM_PARTICLE}};
-    out.position = view.view_proj * world_position + vec4<f32>(vpos, 0.0);
-#else
+    // Expand particle mesh vertex based on particle position ("origin"), and local
+    // orientation and size of the particle mesh (currently: only quad).
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
-    let local_position = particle.position
+    let sim_position = particle.position
         + axis_x * vpos.x
         + axis_y * vpos.y;
-    let world_position = {{SIMULATION_SPACE_TRANSFORM_PARTICLE}};
-    out.position = view.view_proj * world_position;
-#endif
+    out.position = transform_position_simulation_to_clip(sim_position);
 
     out.color = color;
 
