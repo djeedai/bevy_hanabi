@@ -560,6 +560,15 @@ pub trait EvalContext {
         module: &mut Module,
         f: &mut dyn FnMut(&mut Module, &mut dyn EvalContext) -> Result<String, ExprError>,
     ) -> Result<(), ExprError>;
+
+    /// Check if the particle attribute struct is a pointer?
+    ///
+    /// In some context the attribute struct (named 'particle' in WGSL code) is
+    /// a pointer instead of being a struct instance. This happens in particular
+    /// when defining a function for a modifier, and passing the attribute
+    /// struct to be modified. In that case the generated code needs to emit
+    /// a pointer indirection code to access the fields of the struct.
+    fn is_attribute_pointer(&self) -> bool;
 }
 
 /// Language expression producing a value.
@@ -923,8 +932,12 @@ impl AttributeExpr {
     }
 
     /// Evaluate the expression in the given context.
-    pub fn eval(&self, _context: &dyn EvalContext) -> Result<String, ExprError> {
-        Ok(self.to_wgsl_string())
+    pub fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
+        if context.is_attribute_pointer() {
+            Ok(format!("(*particle).{}", self.attr.name()))
+        } else {
+            Ok(format!("particle.{}", self.attr.name()))
+        }
     }
 }
 
@@ -3489,6 +3502,30 @@ mod tests {
             let cast = cast.unwrap();
             assert_eq!(cast, format!("{}({})", target.to_wgsl_string(), expr));
         }
+    }
+
+    #[test]
+    fn attribute_pointer() {
+        let mut m = Module::default();
+        let x = m.attr(Attribute::POSITION);
+
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut ctx = InitContext::new(&property_layout, &particle_layout);
+
+        let res = ctx.eval(&m, x);
+        assert!(res.is_ok());
+        let xx = res.ok().unwrap();
+        assert_eq!(xx, format!("particle.{}", Attribute::POSITION.name()));
+
+        // Use a different context; it's invalid to reuse a mutated context, as the
+        // expression cache will have been generated with the wrong context.
+        let mut ctx = InitContext::new(&property_layout, &particle_layout).with_attribute_pointer();
+
+        let res = ctx.eval(&m, x);
+        assert!(res.is_ok());
+        let xx = res.ok().unwrap();
+        assert_eq!(xx, format!("(*particle).{}", Attribute::POSITION.name()));
     }
 
     #[test]
