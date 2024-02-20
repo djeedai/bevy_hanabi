@@ -612,7 +612,10 @@ mod test {
             },
             AssetServerMode,
         },
-        render::view::{VisibilityPlugin, VisibilitySystems},
+        render::{
+            deterministic::DeterministicRenderingConfig,
+            view::{VisibilityPlugin, VisibilitySystems},
+        },
         tasks::{IoTaskPool, TaskPoolBuilder},
     };
 
@@ -799,6 +802,7 @@ mod test {
         app.insert_resource(asset_server);
         // app.add_plugins(DefaultPlugins);
         app.init_asset::<Mesh>();
+        app.init_resource::<DeterministicRenderingConfig>();
         app.add_plugins(VisibilityPlugin);
         app.init_resource::<Time>();
         app.insert_resource(Random(new_rng()));

@@ -378,11 +378,11 @@ mod gpu_tests {
         abv.write_buffer(&device, &queue);
         // need a submit() for write_buffer() to be processed
         queue.submit([command_buffer]);
-        device.poll(wgpu::Maintain::Wait);
         let (tx, rx) = futures::channel::oneshot::channel();
         queue.on_submitted_work_done(move || {
             tx.send(()).unwrap();
         });
+        device.poll(wgpu::Maintain::Wait);
         let _ = futures::executor::block_on(rx);
         println!("Buffer written");
 

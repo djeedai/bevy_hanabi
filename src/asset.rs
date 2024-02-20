@@ -1,6 +1,6 @@
 use bevy::{
     asset::{io::Reader, Asset, AssetLoader, AsyncReadExt, LoadContext},
-    reflect::{Reflect, TypeUuid},
+    reflect::Reflect,
     utils::{default, thiserror::Error, BoxedFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
@@ -169,9 +169,8 @@ pub enum AlphaMode {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Asset, Default, Clone, TypeUuid, Reflect, Serialize, Deserialize)]
+#[derive(Asset, Default, Clone, Reflect, Serialize, Deserialize)]
 #[reflect(from_reflect = false)]
-#[uuid = "249aefa4-9b8e-48d3-b167-3adf6c081c34"]
 pub struct EffectAsset {
     /// Display name of the effect.
     ///

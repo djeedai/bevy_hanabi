@@ -22,6 +22,7 @@ use bevy::{
         camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
     },
 };
+#[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
@@ -37,16 +38,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .features
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
 
-    App::default()
-        .insert_resource(ClearColor(Color::DARK_GRAY))
+    let mut app = App::default();
+    app.insert_resource(ClearColor(Color::DARK_GRAY))
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,force_field=trace".to_string(),
+                    update_subscriber: None,
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
+                    synchronous_pipeline_compilation: false,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -58,9 +61,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         //.add_plugins(LookTransformPlugin)
         //.add_plugins(OrbitCameraPlugin::default())
-        .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
-        .add_systems(Startup, setup)
+        .add_plugins(HanabiPlugin);
+
+    #[cfg(feature = "examples_world_inspector")]
+    app.add_plugins(WorldInspectorPlugin::default());
+
+    app.add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, update))
         .run();
 
@@ -98,9 +104,7 @@ fn setup(
     });
 
     commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::UVSphere {
-            sectors: 128,
-            stacks: 4,
+        mesh: meshes.add(Mesh::from(Sphere {
             radius: BALL_RADIUS * 2.0,
         })),
         material: materials.add(StandardMaterial {
@@ -113,9 +117,7 @@ fn setup(
     });
 
     commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::UVSphere {
-            sectors: 128,
-            stacks: 4,
+        mesh: meshes.add(Mesh::from(Sphere {
             radius: BALL_RADIUS * 1.0,
         })),
         material: materials.add(StandardMaterial {
@@ -129,7 +131,7 @@ fn setup(
 
     // "allow" box
     commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::Box::new(6., 4., 6.))),
+        mesh: meshes.add(Mesh::from(Cuboid::new(6., 4., 6.))),
         material: materials.add(StandardMaterial {
             base_color: Color::rgba(0., 0.7, 0., 0.3),
             unlit: true,
@@ -141,11 +143,7 @@ fn setup(
 
     // "forbid" sphere
     commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::UVSphere {
-            radius: 0.6,
-            sectors: 32,
-            stacks: 8,
-        })),
+        mesh: meshes.add(Mesh::from(Sphere { radius: 0.6 })),
         material: materials.add(StandardMaterial {
             base_color: Color::rgba(0.7, 0., 0., 0.3),
             unlit: true,
@@ -237,7 +235,7 @@ fn setup(
 
 fn update(
     mut q_effect: Query<(&mut EffectSpawner, &mut Transform), Without<Projection>>,
-    mouse_button_input: Res<Input<MouseButton>>,
+    mouse_button_input: Res<ButtonInput<MouseButton>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Projection>>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
 ) {

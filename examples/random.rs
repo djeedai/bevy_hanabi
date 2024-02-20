@@ -5,10 +5,9 @@ use bevy::{
     core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
-    render::{
-        mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
-    },
+    render::{render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin},
 };
+#[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
@@ -19,16 +18,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .features
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
 
-    App::default()
-        .insert_resource(ClearColor(Color::DARK_GRAY))
+    let mut app = App::default();
+    app.insert_resource(ClearColor(Color::DARK_GRAY))
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,random=trace".to_string(),
+                    update_subscriber: None,
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
+                    synchronous_pipeline_compilation: false,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -39,10 +40,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
         )
         .add_systems(Update, bevy::window::close_on_esc)
-        .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
-        .add_systems(Startup, setup)
-        .run();
+        .add_plugins(HanabiPlugin);
+
+    #[cfg(feature = "examples_world_inspector")]
+    app.add_plugins(WorldInspectorPlugin::default());
+
+    app.add_systems(Startup, setup).run();
 
     Ok(())
 }
@@ -71,8 +74,10 @@ fn setup(
         ..Default::default()
     });
 
-    let cube = meshes.add(Mesh::from(Cube { size: 1.0 }));
-    let mat = materials.add(Color::PURPLE.into());
+    let cube = meshes.add(Mesh::from(Cuboid {
+        half_size: Vec3::splat(0.5),
+    }));
+    let mat = materials.add(Color::PURPLE);
 
     let mut gradient = Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));

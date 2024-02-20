@@ -27,6 +27,8 @@
 //! rendering order may vary frame to frame. This is tracked on GitHub as issue
 //! #183.
 
+use std::f32::consts::FRAC_PI_2;
+
 use bevy::{
     core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
@@ -35,6 +37,7 @@ use bevy::{
         camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
     },
 };
+#[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
@@ -45,16 +48,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .features
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
 
-    App::default()
-        .insert_resource(ClearColor(Color::DARK_GRAY))
+    let mut app = App::default();
+    app.insert_resource(ClearColor(Color::DARK_GRAY))
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,billboard=trace".to_string(),
+                    update_subscriber: None,
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
+                    synchronous_pipeline_compilation: false,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -64,9 +69,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..default()
                 }),
         )
-        .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
-        .add_systems(Startup, setup)
+        .add_plugins(HanabiPlugin);
+
+    #[cfg(feature = "examples_world_inspector")]
+    app.add_plugins(WorldInspectorPlugin::default());
+
+    app.add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, rotate_camera))
         .run();
 
@@ -168,12 +176,12 @@ fn setup(
     // The ground
     commands
         .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Plane {
-                size: 4.0,
-                ..default()
+            mesh: meshes.add(Mesh::from(Rectangle {
+                half_size: Vec2::splat(2.0),
             })),
-            material: materials.add(Color::BLUE.into()),
-            transform: Transform::from_xyz(0.0, -0.5, 0.0),
+            material: materials.add(Color::BLUE),
+            transform: Transform::from_xyz(0.0, -0.5, 0.0)
+                * Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
             ..Default::default()
         })
         .insert(Name::new("ground"));
