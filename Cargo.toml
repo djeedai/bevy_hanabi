@@ -29,7 +29,11 @@ gpu_tests = []
 
 # Enable world inspector in examples, via bevy-inspector-egui.
 # This has no effect on the crate itself, only affects examples.
-examples_world_inspector = [ "dep:bevy-inspector-egui" ]
+# Unfortunately cargo doesn't allow example-only features.
+# We don't force a dependency on the bevy-inspector-egui crate because:
+# 1. dev-dependencies cannot be optional
+# 2. there's a bunch of duplicate deps and dodgy licenses pulled
+examples_world_inspector = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
@@ -46,11 +50,6 @@ thiserror = "1.0"
 naga = "0.19"
 naga_oil = { version = "0.13", default-features = false, features = ["test_shader"] }
 
-# For world inspector in examples only.
-# Unfortunately cargo doesn't support features for examples, so it's "promoted" here
-# as a crate feature. But this has no influence on the actual crate.
-bevy-inspector-egui = { version = "0.23", optional = true }
-
 [dependencies.bevy]
 version = "0.13"
 default-features = false
@@ -62,6 +61,9 @@ all-features = true
 [dev-dependencies]
 # Same versions as Bevy 0.13 (bevy_render)
 wgpu = "0.19.1"
+
+# For world inspector; required if "examples_world_inspector" is used.
+bevy-inspector-egui = "0.23"
 
 # For procedural texture generation in examples
 noise = "0.8"
