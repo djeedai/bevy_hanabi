@@ -14,7 +14,7 @@ exclude = ["examples/*.gif", "examples/*.png", ".github", "release.md", "run_exa
 autoexamples = false
 
 [features]
-default = ["2d", "3d", "gpu_tests"]
+default = ["2d", "3d", "gpu_tests", "examples_world_inspector"]
 
 # Enable support for rendering through a 2D camera (Camera2dBundle)
 2d = []
@@ -29,6 +29,10 @@ gpu_tests = []
 
 # Enable world inspector in examples, via bevy-inspector-egui.
 # This has no effect on the crate itself, only affects examples.
+# Unfortunately cargo doesn't allow example-only features.
+# We don't force a dependency on the bevy-inspector-egui crate because:
+# 1. dev-dependencies cannot be optional
+# 2. there's a bunch of duplicate deps and dodgy licenses pulled
 examples_world_inspector = []
 
 [dependencies]
@@ -58,13 +62,13 @@ all-features = true
 # Same versions as Bevy 0.13 (bevy_render)
 wgpu = "0.19.1"
 
+# For world inspector; required if "examples_world_inspector" is used.
+bevy-inspector-egui = "0.23"
+
 # For procedural texture generation in examples
 noise = "0.8"
 
 futures = "0.3"
-
-# For world inspector
-#bevy-inspector-egui = "0.21" # waiting for 0.13-compatible version
 
 # Bug in 0.13, need explicit dependency
 bevy_gizmos_macros = "0.13"
