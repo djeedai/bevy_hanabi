@@ -1,6 +1,9 @@
 use bevy::{
     prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    render::{
+        render_asset::RenderAssetUsages,
+        render_resource::{Extent3d, TextureDimension, TextureFormat},
+    },
 };
 use noise::{NoiseFn, Perlin};
 
@@ -66,5 +69,6 @@ pub fn make_anim_img(size: UVec2, grid: UVec2, scale: Vec3) -> Image {
         TextureDimension::D2,
         data,
         TextureFormat::R8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
     )
 }

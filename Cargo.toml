@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.10.0-dev"
+version = "0.10.0"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 description = "Hanabi GPU particle system for the Bevy game engine"
@@ -27,6 +27,10 @@ default = ["2d", "3d", "gpu_tests"]
 # This is a testing-only feature, which has no effect on the build.
 gpu_tests = []
 
+# Enable world inspector in examples, via bevy-inspector-egui.
+# This has no effect on the crate itself, only affects examples.
+examples_world_inspector = []
+
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
 copyless = "0.1"
@@ -38,12 +42,12 @@ ron = "0.8"
 bitflags = "2.3"
 typetag = "0.2"
 thiserror = "1.0"
-# Same versions as Bevy 0.12 (bevy_render)
-naga = "0.13"
-naga_oil = "0.10"
+# Same versions as Bevy 0.13 (bevy_render)
+naga = "0.19"
+naga_oil = { version = "0.13", default-features = false, features = ["test_shader"] }
 
 [dependencies.bevy]
-version = "0.12"
+version = "0.13"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 
@@ -51,14 +55,20 @@ features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 all-features = true
 
 [dev-dependencies]
-# Same versions as Bevy 0.12 (bevy_render)
-wgpu = "0.17.1"
+# Same versions as Bevy 0.13 (bevy_render)
+wgpu = "0.19.1"
 
 # For procedural texture generation in examples
 noise = "0.8"
 
 futures = "0.3"
-bevy-inspector-egui = "0.21"
+
+# For world inspector
+#bevy-inspector-egui = "0.21" # waiting for 0.13-compatible version
+
+# Bug in 0.13, need explicit dependency
+bevy_gizmos_macros = "0.13"
+bevy_sprite = "0.13"
 
 [[example]]
 name = "firework"

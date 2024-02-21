@@ -1453,7 +1453,10 @@ mod tests {
             },
             AssetServerMode,
         },
-        render::view::{VisibilityPlugin, VisibilitySystems},
+        render::{
+            deterministic::DeterministicRenderingConfig,
+            view::{VisibilityPlugin, VisibilitySystems},
+        },
         tasks::{IoTaskPool, TaskPoolBuilder},
     };
     use naga_oil::compose::{Composer, NagaModuleDescriptor, ShaderDefValue};
@@ -1686,6 +1689,7 @@ else { return c1; }
         // app.add_plugins(DefaultPlugins);
         app.init_asset::<Mesh>();
         app.init_asset::<Shader>();
+        app.init_resource::<DeterministicRenderingConfig>();
         app.add_plugins(VisibilityPlugin);
         app.init_resource::<ShaderCache>();
         app.insert_resource(Random(new_rng()));

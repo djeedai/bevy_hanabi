@@ -44,7 +44,7 @@ jobs:
           sudo apt-get update
           sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
         if: runner.os == 'linux'
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: actions/cache@v2
         with:
           path: |
@@ -76,20 +76,23 @@ jobs:
         if: matrix.dimensions == 'all'
 
   run-examples:
-    runs-on: ubuntu-latest
+    #runs-on: ubuntu-latest # Bug: Library libxkbcommon-x11.so could not be loaded.
+    runs-on: windows-latest
     steps:
       - name: Install Bevy dependencies
         run: |
           sudo apt-get update;
           DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
             libasound2-dev libudev-dev;
+        if: runner.os == 'linux'
       - name: Install graphic drivers
         run: |
           sudo apt-get update -y -qq
           sudo add-apt-repository ppa:kisak/kisak-mesa -y
           sudo apt-get update
           sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
-      - uses: actions/checkout@v2
+        if: runner.os == 'linux'
+      - uses: actions/checkout@v4
       - uses: actions/cache@v2
         with:
           path: |
@@ -104,7 +107,7 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
           override: true
-      - name: Build & run examples
+      - name: Build & run examples (Linux)
         run: |
           for example in .github/example-run/3d/*.ron; do
             example_name=`basename $example .ron`
@@ -126,6 +129,31 @@ jobs:
           done
         env:
           CARGO_INCREMENTAL: 0
+        if: runner.os == 'linux'
+      - name: Build & run examples (Windows)
+        shell: bash
+        run: |
+          for example in .github/example-run/3d/*.ron; do
+            example_name=`basename $example .ron`
+            echo "running $example_name - "`date`
+            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/bevy_ci_testing"
+            sleep 10
+          done
+          for example in .github/example-run/3dpng/*.ron; do
+            example_name=`basename $example .ron`
+            echo "running $example_name - "`date`
+            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d bevy/bevy_ci_testing"
+            sleep 10
+          done
+          for example in .github/example-run/2d/*.ron; do
+            example_name=`basename $example .ron`
+            echo "running $example_name - "`date`
+            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite 2d bevy/bevy_ci_testing"
+            sleep 10
+          done
+        env:
+          CARGO_INCREMENTAL: 0
+        if: runner.os == 'windows'
 
   check-format:
     name: Check format
@@ -136,7 +164,7 @@ jobs:
           sudo apt-get update;
           DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
             libasound2-dev libudev-dev;
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: actions/cache@v2
         with:
           path: |
@@ -170,7 +198,7 @@ jobs:
       - name: Install Bevy dependencies
         run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
         if: runner.os == 'linux'
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - uses: actions/cache@v2
         with:
           path: |

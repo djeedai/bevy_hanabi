@@ -717,11 +717,6 @@ impl Struct for Attribute {
 }
 
 impl Reflect for Attribute {
-    #[inline]
-    fn type_name(&self) -> &str {
-        ::core::any::type_name::<Attribute>()
-    }
-
     fn get_represented_type_info(&self) -> Option<&'static TypeInfo> {
         Some(<Self as Typed>::type_info())
     }

@@ -3,10 +3,10 @@ use bevy::{
     log::LogPlugin,
     prelude::*,
     render::{
-        mesh::shape::Cube, render_resource::WgpuFeatures, settings::WgpuSettings,
-        view::RenderLayers, RenderPlugin,
+        render_resource::WgpuFeatures, settings::WgpuSettings, view::RenderLayers, RenderPlugin,
     },
 };
+#[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use std::f32::consts::PI;
 
@@ -18,16 +18,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .features
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
 
-    App::default()
-        .insert_resource(ClearColor(Color::BLACK))
+    let mut app = App::default();
+    app.insert_resource(ClearColor(Color::BLACK))
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,gradient=trace".to_string(),
+                    update_subscriber: None,
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
+                    synchronous_pipeline_compilation: false,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -37,9 +39,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..default()
                 }),
         )
-        .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
-        .add_systems(Startup, setup)
+        .add_plugins(HanabiPlugin);
+
+    #[cfg(feature = "examples_world_inspector")]
+    app.add_plugins(WorldInspectorPlugin::default());
+
+    app.add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, update))
         .run();
 
@@ -120,8 +125,10 @@ fn setup(
         ))
         .with_children(|p| {
             p.spawn(PbrBundle {
-                mesh: meshes.add(Mesh::from(Cube { size: 1.0 })),
-                material: materials.add(Color::RED.into()),
+                mesh: meshes.add(Cuboid {
+                    half_size: Vec3::splat(0.5),
+                }),
+                material: materials.add(Color::RED),
                 ..Default::default()
             });
         });

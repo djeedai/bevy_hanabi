@@ -666,12 +666,21 @@ mod gpu_tests {
         queue: &RenderQueue,
         command_buffer: CommandBuffer,
     ) {
+        // Queue command
         queue.submit([command_buffer]);
-        device.poll(wgpu::Maintain::Wait);
+
+        // Register callback to observe completion
         let (tx, rx) = futures::channel::oneshot::channel();
         queue.on_submitted_work_done(move || {
             tx.send(()).unwrap();
         });
+
+        // Poll device, checking for completion and raising callback
+        device.poll(wgpu::Maintain::Wait);
+
+        // Wait for callback to be raised. This was need in previous versions, however
+        // it's a bit unclear if it's still needed or if device.poll() is enough to
+        // guarantee that the command was executed.
         let _ = futures::executor::block_on(rx);
     }
 

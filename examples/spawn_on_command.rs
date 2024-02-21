@@ -17,6 +17,7 @@ use bevy::{
         RenderPlugin,
     },
 };
+#[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
@@ -27,16 +28,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .features
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
 
-    App::default()
-        .insert_resource(ClearColor(Color::DARK_GRAY))
+    let mut app = App::default();
+    app.insert_resource(ClearColor(Color::DARK_GRAY))
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,spawn_on_command=trace".to_string(),
+                    update_subscriber: None,
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
+                    synchronous_pipeline_compilation: false,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
@@ -46,9 +49,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..default()
                 }),
         )
-        .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
-        .add_systems(Startup, setup)
+        .add_plugins(HanabiPlugin);
+
+    #[cfg(feature = "examples_world_inspector")]
+    app.add_plugins(WorldInspectorPlugin::default());
+
+    app.add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, update))
         .run();
 
@@ -82,10 +88,9 @@ fn setup(
 
     commands
         .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Quad {
-                size: Vec2::splat(BOX_SIZE),
-                ..Default::default()
-            })),
+            mesh: meshes.add(Rectangle {
+                half_size: Vec2::splat(BOX_SIZE / 2.),
+            }),
             material: materials.add(StandardMaterial {
                 base_color: Color::BLACK,
                 unlit: true,
@@ -97,9 +102,7 @@ fn setup(
 
     commands
         .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::UVSphere {
-                sectors: 32,
-                stacks: 2,
+            mesh: meshes.add(Mesh::from(Sphere {
                 radius: BALL_RADIUS,
             })),
             material: materials.add(StandardMaterial {

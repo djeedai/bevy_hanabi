@@ -1,38 +1,41 @@
+use std::f32::consts::FRAC_PI_2;
+
 use bevy::{
-    core_pipeline::{clear_color::ClearColorConfig, tonemapping::Tonemapping},
+    core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     math::EulerRot,
     prelude::*,
-    render::{
-        camera::Viewport,
-        mesh::shape::{Cube, Plane},
-        view::RenderLayers,
-    },
+    render::{camera::Viewport, view::RenderLayers},
     window::WindowResized,
 };
+#[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use bevy_hanabi::prelude::*;
 
 fn main() {
-    App::default()
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,multicam=trace".to_string(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — multicam".to_string(),
-                        ..default()
-                    }),
+    let mut app = App::default();
+    app.add_plugins(
+        DefaultPlugins
+            .set(LogPlugin {
+                level: bevy::log::Level::WARN,
+                filter: "bevy_hanabi=warn,multicam=trace".to_string(),
+                update_subscriber: None,
+            })
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "🎆 Hanabi — multicam".to_string(),
                     ..default()
                 }),
-        )
-        .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
-        .add_systems(Startup, setup)
+                ..default()
+            }),
+    )
+    .add_plugins(HanabiPlugin);
+
+    #[cfg(feature = "examples_world_inspector")]
+    app.add_plugins(WorldInspectorPlugin::default());
+
+    app.add_systems(Startup, setup)
         .add_systems(
             Update,
             (bevy::window::close_on_esc, update_camera_viewports),
@@ -120,9 +123,6 @@ fn setup(
                 camera: Camera {
                     // Have a different order for each camera to ensure determinism
                     order: i as isize,
-                    ..default()
-                },
-                camera_3d: Camera3d {
                     // Only clear render target from first camera, others additively render on same
                     // target
                     clear_color: if i == 0 {
@@ -156,13 +156,14 @@ fn setup(
         ..Default::default()
     });
 
-    let cube = meshes.add(Mesh::from(Cube { size: 1.0 }));
-    let plane = meshes.add(Mesh::from(Plane {
-        size: 200.0,
-        ..default()
-    }));
-    let mat = materials.add(Color::PURPLE.into());
-    let ground_mat = materials.add(Color::OLIVE.into());
+    let cube = meshes.add(Cuboid {
+        half_size: Vec3::splat(0.5),
+    });
+    let plane = meshes.add(Rectangle {
+        half_size: Vec2::splat(200.0),
+    });
+    let mat = materials.add(Color::PURPLE);
+    let ground_mat = materials.add(Color::OLIVE);
 
     let effect1 = effects.add(make_effect(Color::RED));
 
@@ -170,7 +171,8 @@ fn setup(
     commands.spawn((
         PbrBundle {
             transform: Transform::from_translation(Vec3::Y * -20.)
-                * Transform::from_scale(Vec3::new(0.4, 1., 1.)),
+                * Transform::from_scale(Vec3::new(0.4, 1., 1.))
+                * Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
             mesh: plane,
             material: ground_mat,
             ..Default::default()

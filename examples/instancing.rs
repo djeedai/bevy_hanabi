@@ -9,9 +9,8 @@
 
 #![allow(dead_code)]
 
-use bevy::{
-    core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*, render::mesh::shape::Cube,
-};
+use bevy::{core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*};
+#[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use rand::Rng;
 
@@ -170,24 +169,28 @@ impl InstanceManager {
 }
 
 fn main() {
-    App::default()
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
-                    filter: "bevy_hanabi=warn,instancing=trace".to_string(),
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — instancing".to_string(),
-                        ..default()
-                    }),
+    let mut app = App::default();
+    app.add_plugins(
+        DefaultPlugins
+            .set(LogPlugin {
+                level: bevy::log::Level::WARN,
+                filter: "bevy_hanabi=warn,instancing=trace".to_string(),
+                update_subscriber: None,
+            })
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "🎆 Hanabi — instancing".to_string(),
                     ..default()
                 }),
-        )
-        .add_plugins(HanabiPlugin)
-        .add_plugins(WorldInspectorPlugin::default())
-        .insert_resource(InstanceManager::new(5, 4))
+                ..default()
+            }),
+    )
+    .add_plugins(HanabiPlugin);
+
+    #[cfg(feature = "examples_world_inspector")]
+    app.add_plugins(WorldInspectorPlugin::default());
+
+    app.insert_resource(InstanceManager::new(5, 4))
         .add_systems(Startup, setup)
         .add_systems(Update, (bevy::window::close_on_esc, keyboard_input_system))
         //.add_system(stress_test.after(keyboard_input_system))
@@ -221,8 +224,10 @@ fn setup(
         ..Default::default()
     });
 
-    let mesh = meshes.add(Mesh::from(Cube { size: 1.0 }));
-    let mat = materials.add(Color::PURPLE.into());
+    let mesh = meshes.add(Cuboid {
+        half_size: Vec3::splat(0.5),
+    });
+    let mat = materials.add(Color::PURPLE);
 
     let mut gradient = Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
@@ -269,7 +274,7 @@ fn setup(
 }
 
 fn keyboard_input_system(
-    keyboard_input: Res<Input<KeyCode>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
     mut my_effect: ResMut<InstanceManager>,
 ) {
@@ -278,7 +283,7 @@ fn keyboard_input_system(
     if keyboard_input.just_pressed(KeyCode::Space) {
         my_effect.spawn_random(&mut commands);
     } else if keyboard_input.just_pressed(KeyCode::Delete)
-        || keyboard_input.just_pressed(KeyCode::Back)
+        || keyboard_input.just_pressed(KeyCode::Backspace)
     {
         my_effect.despawn_random(&mut commands);
     }

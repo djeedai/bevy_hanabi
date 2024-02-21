@@ -31,19 +31,28 @@ use crate::{
 
 pub mod main_graph {
     pub mod node {
+        use bevy::render::render_graph::RenderLabel;
+
         /// Label for the simulation driver node running the simulation graph.
-        pub const HANABI: &str = "hanabi_driver_node";
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, RenderLabel)]
+        pub struct HanabiDriverNode;
     }
 }
 
 pub mod simulate_graph {
+    use bevy::render::render_graph::RenderSubGraph;
+
     /// Name of the simulation sub-graph.
-    pub const NAME: &str = "hanabi_simulate_graph";
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, RenderSubGraph)]
+    pub struct HanabiSimulateGraph;
 
     pub mod node {
+        use bevy::render::render_graph::RenderLabel;
+
         /// Label for the simulation node (init and update compute passes;
         /// view-independent).
-        pub const SIMULATE: &str = "hanabi_simulate_node";
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, RenderLabel)]
+        pub struct HanabiSimulateNode;
     }
 }
 
@@ -229,17 +238,17 @@ impl Plugin for HanabiPlugin {
         // how many cameras/views are active (view-independent).
         let mut simulate_graph = RenderGraph::default();
         let simulate_node = VfxSimulateNode::new(&mut render_app.world);
-        simulate_graph.add_node(simulate_graph::node::SIMULATE, simulate_node);
+        simulate_graph.add_node(simulate_graph::node::HanabiSimulateNode, simulate_node);
         let mut graph = render_app.world.get_resource_mut::<RenderGraph>().unwrap();
-        graph.add_sub_graph(simulate_graph::NAME, simulate_graph);
+        graph.add_sub_graph(simulate_graph::HanabiSimulateGraph, simulate_graph);
 
         // Add the simulation driver node which executes the simulation sub-graph. It
         // runs before the camera driver, since rendering needs to access simulated
         // particles.
-        graph.add_node(main_graph::node::HANABI, VfxSimulateDriverNode {});
+        graph.add_node(main_graph::node::HanabiDriverNode, VfxSimulateDriverNode {});
         graph.add_node_edge(
-            main_graph::node::HANABI,
-            bevy::render::main_graph::node::CAMERA_DRIVER,
+            main_graph::node::HanabiDriverNode,
+            bevy::render::graph::CameraDriverLabel,
         );
     }
 }
