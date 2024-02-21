@@ -224,9 +224,9 @@ fn setup(
         ..Default::default()
     });
 
-    let mesh = meshes.add(Mesh::from(Cuboid {
+    let mesh = meshes.add(Cuboid {
         half_size: Vec3::splat(0.5),
-    }));
+    });
     let mat = materials.add(Color::PURPLE);
 
     let mut gradient = Gradient::new();

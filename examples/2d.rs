@@ -72,9 +72,9 @@ fn setup(
     commands
         .spawn(MaterialMesh2dBundle {
             mesh: meshes
-                .add(Mesh::from(Rectangle {
+                .add(Rectangle {
                     half_size: Vec2::splat(0.1),
-                }))
+                })
                 .into(),
             material: materials.add(ColorMaterial {
                 color: Color::WHITE,

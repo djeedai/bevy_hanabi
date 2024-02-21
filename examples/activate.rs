@@ -85,9 +85,9 @@ fn setup(
 
     commands
         .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(Rectangle {
+            mesh: meshes.add(Rectangle {
                 half_size: Vec2::splat(2.0),
-            })),
+            }),
             material: materials.add(StandardMaterial {
                 base_color: Color::BLUE,
                 unlit: true,
@@ -99,7 +99,7 @@ fn setup(
         .insert(Name::new("water"));
 
     let mut ball = commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(Sphere { radius: 0.05 })),
+        mesh: meshes.add(Sphere { radius: 0.05 }),
         material: materials.add(StandardMaterial {
             base_color: Color::WHITE,
             unlit: true,

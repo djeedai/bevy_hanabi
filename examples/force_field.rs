@@ -117,9 +117,9 @@ fn setup(
     });
 
     commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(Sphere {
+        mesh: meshes.add(Sphere {
             radius: BALL_RADIUS * 1.0,
-        })),
+        }),
         material: materials.add(StandardMaterial {
             base_color: Color::PURPLE,
             unlit: false,
@@ -131,7 +131,7 @@ fn setup(
 
     // "allow" box
     commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(Cuboid::new(6., 4., 6.))),
+        mesh: meshes.add(Cuboid::new(6., 4., 6.)),
         material: materials.add(StandardMaterial {
             base_color: Color::rgba(0., 0.7, 0., 0.3),
             unlit: true,
@@ -143,7 +143,7 @@ fn setup(
 
     // "forbid" sphere
     commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(Sphere { radius: 0.6 })),
+        mesh: meshes.add(Sphere { radius: 0.6 }),
         material: materials.add(StandardMaterial {
             base_color: Color::rgba(0.7, 0., 0., 0.3),
             unlit: true,

@@ -84,9 +84,9 @@ fn setup(
         ..Default::default()
     });
 
-    let cube = meshes.add(Mesh::from(Cuboid {
+    let cube = meshes.add(Cuboid {
         half_size: Vec3::splat(0.5),
-    }));
+    });
     let mat = materials.add(Color::PURPLE);
 
     let lifetime1 = 12.;

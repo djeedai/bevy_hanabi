@@ -125,9 +125,9 @@ fn setup(
         ))
         .with_children(|p| {
             p.spawn(PbrBundle {
-                mesh: meshes.add(Mesh::from(Cuboid {
+                mesh: meshes.add(Cuboid {
                     half_size: Vec3::splat(0.5),
-                })),
+                }),
                 material: materials.add(Color::RED),
                 ..Default::default()
             });

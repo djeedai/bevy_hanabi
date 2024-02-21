@@ -88,9 +88,9 @@ fn setup(
 
     commands
         .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(Rectangle {
+            mesh: meshes.add(Rectangle {
                 half_size: Vec2::splat(BOX_SIZE / 2.),
-            })),
+            }),
             material: materials.add(StandardMaterial {
                 base_color: Color::BLACK,
                 unlit: true,

@@ -176,9 +176,9 @@ fn setup(
     // The ground
     commands
         .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(Rectangle {
+            mesh: meshes.add(Rectangle {
                 half_size: Vec2::splat(2.0),
-            })),
+            }),
             material: materials.add(Color::BLUE),
             transform: Transform::from_xyz(0.0, -0.5, 0.0)
                 * Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),

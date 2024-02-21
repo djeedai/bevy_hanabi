@@ -156,12 +156,12 @@ fn setup(
         ..Default::default()
     });
 
-    let cube = meshes.add(Mesh::from(Cuboid {
+    let cube = meshes.add(Cuboid {
         half_size: Vec3::splat(0.5),
-    }));
-    let plane = meshes.add(Mesh::from(Rectangle {
+    });
+    let plane = meshes.add(Rectangle {
         half_size: Vec2::splat(200.0),
-    }));
+    });
     let mat = materials.add(Color::PURPLE);
     let ground_mat = materials.add(Color::OLIVE);
 
