@@ -48,7 +48,7 @@ use crate::{
     render::batch::{BatchInput, BatchState, Batcher, EffectBatch},
     spawn::EffectSpawner,
     CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation, HanabiPlugin,
-    ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition, SimulationSpace,
+    ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition,
 };
 
 mod aligned_buffer_vec;
