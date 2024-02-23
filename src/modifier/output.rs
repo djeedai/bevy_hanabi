@@ -157,15 +157,14 @@ impl RenderModifier for ColorOverLifetimeModifier {
 ///
 /// # Attributes
 ///
-/// This modifier does not require any specific particle attribute.
+/// This modifier does not require any specific particle attribute. The size of
+/// the particle is extracted from the [`Attribute::SIZE`] or
+/// [`Attribute::SIZE2`] if any, but even if they're absent this modifier acts
+/// on the default particle size.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct SetSizeModifier {
     /// The 2D particle (quad) size.
     pub size: CpuValue<Vec2>,
-    /// Is the particle size in screen-space logical pixel? If `true`, the size
-    /// is in screen-space logical pixels, and not affected by the camera
-    /// projection. If `false`, the particle size is in world units.
-    pub screen_space_size: bool,
 }
 
 impl_mod_render!(SetSizeModifier, &[]);
@@ -174,7 +173,6 @@ impl_mod_render!(SetSizeModifier, &[]);
 impl RenderModifier for SetSizeModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.vertex_code += &format!("size = {0};\n", self.size.to_wgsl_string());
-        context.screen_space_size = self.screen_space_size;
     }
 }
 
@@ -221,8 +219,6 @@ impl RenderModifier for SizeOverLifetimeModifier {
             Attribute::AGE.name(),
             Attribute::LIFETIME.name()
         );
-
-        context.screen_space_size = self.screen_space_size;
     }
 }
 
@@ -505,6 +501,55 @@ impl_mod_render!(FlipbookModifier, &[Attribute::SPRITE_INDEX]);
 impl RenderModifier for FlipbookModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.sprite_grid_size = Some(self.sprite_grid_size);
+    }
+}
+
+/// A modifier to interpret the size of all particles in screen-space pixels.
+///
+/// This modifier assigns a pixel size to particles in screen space, ignoring
+/// the distance to the camera and perspective. It effectively scales the
+/// existing [`Attribute::SIZE`] of each particle to negate the perspective
+/// correction usually applied to rendered objects based on their distance to
+/// the camera.
+///
+/// Note that this modifier should generally be placed last in the stack, or at
+/// least after any modifier which might modify the particle position or its
+/// size. Otherwise the scaling will be incorrect.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
+///
+/// If the [`Attribute::SIZE`] or [`Attribute::SIZE2`] are present, they're used
+/// to initialize the particle's size. Otherwise the default size is used. So
+/// this modifier doesn't require any size attribute.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct ScreenSpaceSizeModifier;
+
+impl_mod_render!(
+    ScreenSpaceSizeModifier,
+    &[Attribute::POSITION, Attribute::SIZE]
+);
+
+#[typetag::serde]
+impl RenderModifier for ScreenSpaceSizeModifier {
+    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
+        // Get perspective divide factor from clip space position. This is the "average"
+        // factor for the entire particle, taken at its position (mesh origin),
+        // and applied uniformly for all vertices. Scale size by w_cs to negate
+        // the perspective divide which will happen later after the vertex shader.
+        // The 2.0 factor is because clip space is in [-1:1] so we need to divide by the
+        // half screen size only.
+        // Note: here "size" is the built-in render size, which is always defined and
+        // called "size", and which may or may not be the Attribute::SIZE/2
+        // attribute(s).
+        context.vertex_code += &format!(
+            "let w_cs = transform_position_simulation_to_clip(particle.{0}).w;\n
+            let screen_size_pixels = view.viewport.zw;\n
+            let projection_scale = vec2<f32>(view.projection[0][0], view.projection[1][1]);\n
+            size = (size * w_cs * 2.0) / min(screen_size_pixels.x * projection_scale.x, screen_size_pixels.y * projection_scale.y);\n",
+            Attribute::POSITION.name());
     }
 }
 

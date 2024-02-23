@@ -80,10 +80,7 @@ where
         .render(SetColorModifier {
             color: COLOR.into(),
         })
-        .render(SetSizeModifier {
-            size: SIZE.into(),
-            screen_space_size: false,
-        })
+        .render(SetSizeModifier { size: SIZE.into() })
 }
 
 fn spawn_effect(

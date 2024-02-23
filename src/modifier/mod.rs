@@ -505,10 +505,6 @@ pub struct RenderContext<'a> {
     pub gradients: HashMap<u64, Gradient<Vec4>>,
     /// Size gradients.
     pub size_gradients: HashMap<u64, Gradient<Vec2>>,
-    /// Are particles using a fixed screen-space size (in logical pixels)? If
-    /// `true` then the particle size is not affected by the camera projection,
-    /// and in particular by the distance to the camera.
-    pub screen_space_size: bool,
     /// Counter for unique variable names.
     var_counter: u32,
     /// Cache of evaluated expressions.
@@ -531,7 +527,6 @@ impl<'a> RenderContext<'a> {
             sprite_grid_size: None,
             gradients: HashMap::new(),
             size_gradients: HashMap::new(),
-            screen_space_size: false,
             var_counter: 0,
             expr_cache: Default::default(),
             is_attribute_pointer: false,

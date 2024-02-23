@@ -135,17 +135,6 @@ fn vertex(
 
 {{VERTEX_MODIFIERS}}
 
-#ifdef PARTICLE_SCREEN_SPACE_SIZE
-    // Get perspective divide factor from clip space position. This is the "average" factor for the entire
-    // particle, taken at its position (mesh origin), and applied uniformly for all vertices.
-    let w_cs = transform_position_simulation_to_clip(particle.position).w;
-    // Scale size by w_cs to negate the perspective divide which will happen later after the vertex shader.
-    // The 2.0 factor is because clip space is in [-1:1] so we need to divide by the half screen size only.
-    let screen_size_pixels = view.viewport.zw;
-    let projection_scale = vec2<f32>(view.projection[0][0], view.projection[1][1]);
-    size = (size * w_cs * 2.0) / min(screen_size_pixels.x * projection_scale.x, screen_size_pixels.y * projection_scale.y);
-#endif
-
     // Expand particle mesh vertex based on particle position ("origin"), and local
     // orientation and size of the particle mesh (currently: only quad).
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);

@@ -304,9 +304,7 @@ impl EffectBuffer {
                 count: None,
             },
         ];
-        if layout_flags.contains(LayoutFlags::LOCAL_SPACE_SIMULATION)
-            || layout_flags.contains(LayoutFlags::SCREEN_SPACE_SIZE)
-        {
+        if layout_flags.contains(LayoutFlags::LOCAL_SPACE_SIMULATION) {
             entries.push(BindGroupLayoutEntry {
                 binding: 3,
                 visibility: ShaderStages::VERTEX,

@@ -960,9 +960,6 @@ impl EffectShaderSource {
             if let AlphaMode::Mask(_) = &asset.alpha_mode {
                 layout_flags |= LayoutFlags::USE_ALPHA_MASK;
             }
-            if render_context.screen_space_size {
-                layout_flags |= LayoutFlags::SCREEN_SPACE_SIZE;
-            }
 
             let (flipbook_scale_code, flipbook_row_count_code) = if let Some(grid_size) =
                 render_context.sprite_grid_size
