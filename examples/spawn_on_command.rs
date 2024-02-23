@@ -181,8 +181,8 @@ fn setup(
             // Set a size of 3 (logical) pixels, constant in screen space, independent of projection
             .render(SetSizeModifier {
                 size: Vec2::splat(3.).into(),
-                screen_space_size: true,
-            }),
+            })
+            .render(ScreenSpaceSizeModifier),
     );
 
     commands

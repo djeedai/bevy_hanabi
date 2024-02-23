@@ -3,6 +3,16 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added a new `ScreenSpaceSizeModifier` which negates the effect of perspective projection, and makes the particle's size a pixel size in screen space, instead of a Bevy world unit size. This replaces the hard-coded behavior previously available on the `SetSizeModifier`.
+
+### Removed
+
+- Removed the `screen_space_size` field from the `SetSizeModifier`. Use the new `ScreenSpaceSizeModifier` to use a screen-space size.
+
 ## [0.10.0] 2024-02-24
 
 ### Changed

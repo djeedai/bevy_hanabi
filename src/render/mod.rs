@@ -901,12 +901,6 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// This key requires the presence of UV coordinates on the particle
     /// vertices.
     has_image: bool,
-    /// Key: PARTICLE_SCREEN_SPACE_SIZE
-    /// The particle size is expressed in screen space. The particle has a
-    /// constant size on screen (in logical pixels) which is not influenced by
-    /// the camera projection (and so, not influenced by the distance to the
-    /// camera).
-    screen_space_size: bool,
     /// Key: LOCAL_SPACE_SIMULATION
     /// The effect is simulated in local space, and during rendering all
     /// particles are transformed by the effect's [`GlobalTransform`].
@@ -935,7 +929,6 @@ impl Default for ParticleRenderPipelineKey {
             shader: Handle::default(),
             particle_layout: ParticleLayout::empty(),
             has_image: false,
-            screen_space_size: false,
             local_space_simulation: false,
             use_alpha_mask: false,
             flipbook: false,
@@ -1023,7 +1016,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 count: None,
             },
         ];
-        if key.local_space_simulation || key.screen_space_size {
+        if key.local_space_simulation {
             entries.push(BindGroupLayoutEntry {
                 binding: 3,
                 visibility: ShaderStages::VERTEX,
@@ -1062,12 +1055,6 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             //     shader_location: 1,
             // });
             // vertex_buffer_layout.array_stride += 8;
-        }
-
-        // Key: PARTICLE_SCREEN_SPACE_SIZE
-        if key.screen_space_size {
-            shader_defs.push("PARTICLE_SCREEN_SPACE_SIZE".into());
-            shader_defs.push("RENDER_NEEDS_SPAWNER".into());
         }
 
         // Key: LOCAL_SPACE_SIMULATION
@@ -1764,8 +1751,6 @@ bitflags! {
         const NONE = 0;
         /// The effect uses an image texture.
         const PARTICLE_TEXTURE = (1 << 0);
-        /// The effect's particles have a size specified in screen space.
-        const SCREEN_SPACE_SIZE = (1 << 1);
         /// The effect is simulated in local space.
         const LOCAL_SPACE_SIMULATION = (1 << 2);
         /// The effect uses alpha masking instead of alpha blending. Only used for 3D.
@@ -2233,7 +2218,6 @@ fn emit_draw<T, F>(
                 }
             }
 
-            let screen_space_size = batch.layout_flags.contains(LayoutFlags::SCREEN_SPACE_SIZE);
             let local_space_simulation = batch
                 .layout_flags
                 .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
@@ -2242,10 +2226,9 @@ fn emit_draw<T, F>(
 
             // Specialize the render pipeline based on the effect batch
             trace!(
-                "Specializing render pipeline: render_shader={:?} has_image={:?} screen_space_size={:?} use_alpha_mask={:?} flipbook={:?} hdr={}",
+                "Specializing render pipeline: render_shader={:?} has_image={:?} use_alpha_mask={:?} flipbook={:?} hdr={}",
                 batch.render_shader,
                 has_image,
-                screen_space_size,
                 use_alpha_mask,
                 flipbook,
                 view.hdr
@@ -2257,7 +2240,6 @@ fn emit_draw<T, F>(
                     shader: batch.render_shader.clone(),
                     particle_layout: batch.particle_layout.clone(),
                     has_image,
-                    screen_space_size,
                     local_space_simulation,
                     use_alpha_mask,
                     flipbook,
@@ -2518,7 +2500,7 @@ pub(crate) fn queue_effects(
                         }),
                     },
                 ];
-                if buffer.layout_flags().contains(LayoutFlags::LOCAL_SPACE_SIMULATION) || buffer.layout_flags().contains(LayoutFlags::SCREEN_SPACE_SIZE) {
+                if buffer.layout_flags().contains(LayoutFlags::LOCAL_SPACE_SIMULATION) {
                     entries.push(BindGroupEntry {
                         binding: 3,
                         resource: BindingResource::Buffer(BufferBinding {
@@ -2759,9 +2741,6 @@ fn draw<'w>(
     let dyn_uniform_indices = if effect_batch
         .layout_flags
         .contains(LayoutFlags::LOCAL_SPACE_SIMULATION)
-        || effect_batch
-            .layout_flags
-            .contains(LayoutFlags::SCREEN_SPACE_SIZE)
     {
         &dyn_uniform_indices
     } else {
