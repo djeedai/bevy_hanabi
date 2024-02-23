@@ -196,8 +196,6 @@ mod spawn;
 #[cfg(test)]
 mod test_utils;
 
-use properties::PropertyInstance;
-
 pub use asset::{AlphaMode, EffectAsset, MotionIntegration, SimulationCondition};
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
@@ -840,6 +838,19 @@ impl EffectShaderSource {
             "@group(1) @binding(2) var<storage, read> properties : Properties;".to_string()
         };
 
+        let (trail_binding_code, trail_render_indirect_binding_code) = if asset.trail_capacity()
+            == 0
+        {
+            ("// (no trails)".to_string(), "// (no trails)".to_string())
+        } else {
+            (
+                "@group(1) @binding(3) var<storage, read_write> trail_buffer : ParticleBuffer;"
+                    .to_string(),
+                "@group(3) @binding(1) var<storage, read_write> trail_render_indirect : TrailRenderIndirect;"
+                    .to_string(),
+            )
+        };
+
         // Start from the base module containing the expressions actually serialized in
         // the asset. We will add the ones created on-the-fly by applying the
         // modifiers to the contexts.
@@ -968,6 +979,10 @@ impl EffectShaderSource {
                 (String::new(), String::new())
             };
 
+            if asset.trail_capacity() > 0 {
+                layout_flags |= LayoutFlags::TRAILS_BUFFER_PRESENT;
+            }
+
             (
                 render_context.vertex_code,
                 render_context.fragment_code,
@@ -1040,7 +1055,12 @@ impl EffectShaderSource {
             .replace("{{UPDATE_CODE}}", &update_code)
             .replace("{{UPDATE_EXTRA}}", &update_extra)
             .replace("{{PROPERTIES}}", &properties_code)
-            .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
+            .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
+            .replace("{{TRAIL_BINDING}}", &trail_binding_code)
+            .replace(
+                "{{TRAIL_RENDER_INDIRECT_BINDING}}",
+                &trail_render_indirect_binding_code,
+            );
         trace!("Configured update shader:\n{}", update_shader_source);
 
         // Configure the render shader template, and make sure a corresponding shader

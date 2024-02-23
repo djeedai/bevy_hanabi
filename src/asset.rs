@@ -186,6 +186,11 @@ pub struct EffectAsset {
     /// should keep this quantity as close as possible to the maximum number of
     /// particles they expect to render.
     capacity: u32,
+    /// Maximum number of concurrent trail particles.
+    ///
+    /// The same caveats as [`capacity`] apply. This value can't be changed
+    /// after the effect is created.
+    trail_capacity: u32,
     /// Spawner.
     pub spawner: Spawner,
     /// For 2D rendering, the Z coordinate used as the sort key.
@@ -250,6 +255,9 @@ impl EffectAsset {
     /// which should be passed to this method. If expressions are not used, just
     /// pass an empty module [`Module::default()`].
     ///
+    /// This function doesn't allocate space for any trails. If you need
+    /// particle trails, use [`with_trails`] instead.
+    ///
     /// # Examples
     ///
     /// Create a new effect asset without any modifier. This effect doesn't
@@ -290,12 +298,30 @@ impl EffectAsset {
         }
     }
 
+    /// As [`new`], but reserves space for trails.
+    ///
+    /// Use this method when you want to enable particle trails.
+    pub fn with_trails(
+        capacity: u32,
+        trail_capacity: u32,
+        spawner: Spawner,
+        module: Module,
+    ) -> Self {
+        Self {
+            capacity,
+            trail_capacity,
+            spawner,
+            module,
+            ..default()
+        }
+    }
+
     /// Get the capacity of the effect, in number of particles.
     ///
     /// This represents the number of particles stored in GPU memory at all
     /// time, even if unused, so you should try to minimize this value. However,
     /// the [`Spawner`] cannot emit more particles than this capacity. Whatever
-    /// the spanwer settings, if the number of particles reaches the capacity,
+    /// the spawner settings, if the number of particles reaches the capacity,
     /// no new particle can be emitted. Setting an appropriate capacity for an
     /// effect is therefore a compromise between more particles available for
     /// visuals and more GPU memory usage.
@@ -308,6 +334,15 @@ impl EffectAsset {
     /// crazy with the capacity.
     pub fn capacity(&self) -> u32 {
         self.capacity
+    }
+
+    /// Get the trail capacity of the effect, in number of trail particles.
+    ///
+    /// The same caveats as [`capacity`] apply here: the GPU always allocates
+    /// space for this many trail particles, regardless of the number actually
+    /// used.
+    pub fn trail_capacity(&self) -> u32 {
+        self.trail_capacity
     }
 
     /// Get the expression module storing all expressions in use by modifiers of

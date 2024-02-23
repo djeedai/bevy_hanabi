@@ -17,10 +17,14 @@ use std::{
 
 use crate::{
     asset::EffectAsset,
-    render::GpuDispatchIndirect,
-    render::{GpuSpawnerParams, LayoutFlags},
+    render::{
+        particle_bind_group_layout_entries, GpuDispatchIndirect, GpuRenderIndirect,
+        GpuSpawnerParams, GpuTrailRenderIndirect, LayoutFlags,
+    },
     ParticleLayout, PropertyLayout,
 };
+
+use super::buffer_table::BufferTableId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSlice {
@@ -100,18 +104,23 @@ pub struct EffectBuffer {
     /// GPU buffer holding the properties of the effect(s), if any. This is
     /// always `None` if the property layout is empty.
     properties_buffer: Option<Buffer>,
+    /// GPU ring buffer holding trail particles, if any.
+    trail_buffer: Option<Buffer>,
     /// Layout of particles.
     particle_layout: ParticleLayout,
     /// Layout of properties of the effect(s), if using properties.
     property_layout: PropertyLayout,
+    trail_chunks: TrailChunks,
     /// Flags
     layout_flags: LayoutFlags,
     /// -
     particles_buffer_layout_simulate: BindGroupLayout,
     /// -
     particles_buffer_layout_with_dispatch: BindGroupLayout,
+    update_render_indirect_layout: BindGroupLayout,
     /// Total buffer capacity, in number of particles.
     capacity: u32,
+    trail_capacity: u32,
     /// Used buffer size, in number of particles, either from allocated slices
     /// or from slices in the free list.
     used_size: u32,
@@ -124,6 +133,71 @@ pub struct EffectBuffer {
     /// Handle of all effects common in this buffer. TODO - replace with
     /// compatible layout.
     asset: Handle<EffectAsset>,
+}
+
+/// The CPU-side list of trail chunks.
+///
+/// A *chunk* is a group of trail particles that are all spawned at the same
+/// time. Chunking is useful because it allows trail particles to be despawned
+/// all at once instead of having to despawn them individually. The index of the
+/// first particle within each chunk is stored on GPU within the *chunk buffer*.
+/// In turn, the index of the slot within the chunk buffer of each such particle
+/// index is stored here, on CPU. See the diagram:
+///
+/// ```text
+///                            ┌───┬───┬───┬───┬───┐
+///          Chunks (CPU)      │   │   │   │   │   │
+///                            └─┬─┴─┬─┴─┬─┴─┬─┴─┬─┘
+///                              │   │   │   │   │
+///                          ┌───┘ ┌─┘   │   └─┐ └───┐
+///                          │     │     │     │     │
+///                        ┌─▼─┐ ┌─▼─┐ ┌─▼─┐ ┌─▼─┐ ┌─▼─┐
+///    Chunk Buffer (GPU)  │   │ │   │ │   │ │   │ │   │
+///                        └─┬─┘ └─┬─┘ └─┬─┘ └─┬─┘ └─┬─┘
+///                          │     │     │     │     │
+///                          │    ┌┘   ┌─┘  ┌──┘ ┌───┘
+///                          ▼    ▼    ▼    ▼    ▼
+///                        ──┬────┬────┬────┬────┬────┬───
+/// Trail Particles (GPU)    │    │    │    │    │    │➜
+///                        ──┴────┴────┴────┴────┴────┴───
+///                          ▲
+///                          │
+///                    Base Instance
+///
+///                          └────────────────────────┘
+///                                Instance Count
+/// ```
+///
+/// A reasonable question at this point is "why not store a
+/// contiguously-allocated ring buffer on GPU instead of storing the buffer on
+/// CPU and using indirection?" To answer this, we start by making two
+/// observations:
+///
+/// 1. We need to access the chunk positions during the invocation of
+/// `vfx_indirect.wgsl`, which is dispatched only once and is expected to handle
+/// every particle effect in the scene. This means that the all the chunk
+/// positions for every particle system need to be stored in the same GPU
+/// buffer. At the same time, particle effects can be spawned and despawned
+/// arbitrarily. If we wanted to store them contiguously, then we would need a
+/// dynamic memory allocator capable of handling blocks of arbitrary size, which
+/// would be complicated and would lead to fragmentation.
+///
+/// 2. The GPU doesn't actually need to consult the entire chunk buffer during a
+/// single frame. It only needs to know the index of the oldest alive trail
+/// particle and the index of the most recent trail particle. This is because
+/// the trail particle ring buffer is naturally sorted from the oldest particle
+/// to the newest.
+///
+/// By allocating each slot in the chunk value separately, and not necessarily
+/// contiguously, we can use a simple free list (reusing the [`BufferTable`]
+/// infrastructure) instead of a full-blown memory allocator, solving point (1).
+/// And, because of point (2), the fact that the chunk slots aren't contiguous
+/// isn't a problem, because the GPU only needs to look at the head and the tail
+/// on each frame.
+#[derive(Default, Debug)]
+pub(crate) struct TrailChunks {
+    /// Indices of the chunk pointers within the GPU chunk buffer.
+    pub(crate) chunk_ids: Vec<BufferTableId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,8 +223,10 @@ impl EffectBuffer {
     pub fn new(
         asset: Handle<EffectAsset>,
         capacity: u32,
+        trail_capacity: u32,
         particle_layout: ParticleLayout,
         property_layout: PropertyLayout,
+        trail_chunks: TrailChunks,
         layout_flags: LayoutFlags,
         // compute_pipeline: ComputePipeline,
         render_device: &RenderDevice,
@@ -182,6 +258,20 @@ impl EffectBuffer {
         });
 
         let capacity_bytes: BufferAddress = capacity as u64 * 4;
+
+        // Create the trail buffer.
+        let trail_bytes: BufferAddress =
+            trail_capacity as u64 * particle_layout.min_binding_size().get();
+        let trail_buffer = if trail_bytes > 0 {
+            Some(render_device.create_buffer(&BufferDescriptor {
+                label,
+                size: trail_bytes,
+                usage: BufferUsages::STORAGE,
+                mapped_at_creation: false,
+            }))
+        } else {
+            None
+        };
 
         let indirect_label = if let Some(label) = label {
             format!("{label}_indirect")
@@ -229,40 +319,16 @@ impl EffectBuffer {
         // TODO - Cache particle_layout and associated bind group layout, instead of
         // creating one bind group layout per buffer using that layout...
 
-        let mut entries = vec![
-            BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(particle_layout.min_binding_size()),
-                },
-                count: None,
-            },
-            BindGroupLayoutEntry {
-                binding: 1,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: true,
-                    min_binding_size: BufferSize::new(12),
-                },
-                count: None,
-            },
-        ];
-        if !property_layout.is_empty() {
-            entries.push(BindGroupLayoutEntry {
-                binding: 2,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false, // TODO
-                    min_binding_size: Some(property_layout.min_binding_size()),
-                },
-                count: None,
-            });
-        }
+        let property_layout_min_binding_size = if property_layout.is_empty() {
+            None
+        } else {
+            Some(property_layout.min_binding_size())
+        };
+        let entries = particle_bind_group_layout_entries(
+            particle_layout.min_binding_size(),
+            property_layout_min_binding_size,
+            trail_buffer.is_some(),
+        );
         let label = "hanabi:simualate_particles_buffer_layout";
         trace!(
             "Creating particle bind group layout '{}' for simulate passes (init & update) with {} entries.",
@@ -324,16 +390,45 @@ impl EffectBuffer {
         let particles_buffer_layout_with_dispatch =
             render_device.create_bind_group_layout("hanabi:buffer_layout_render", &entries);
 
+        let mut entries = vec![BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: false },
+                has_dynamic_offset: true,
+                min_binding_size: Some(GpuRenderIndirect::min_size()),
+            },
+            count: None,
+        }];
+        if layout_flags.contains(LayoutFlags::TRAILS_BUFFER_PRESENT) {
+            entries.push(BindGroupLayoutEntry {
+                binding: 1,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(GpuTrailRenderIndirect::min_size()),
+                },
+                count: None,
+            });
+        }
+        let update_render_indirect_layout = render_device
+            .create_bind_group_layout("hanabi:update_render_indirect_layout", &entries);
+
         Self {
             particle_buffer,
+            trail_buffer,
             indirect_buffer,
             properties_buffer,
             particle_layout,
             property_layout,
+            trail_chunks,
             layout_flags,
             particles_buffer_layout_simulate,
             particles_buffer_layout_with_dispatch,
+            update_render_indirect_layout,
             capacity,
+            trail_capacity,
             used_size: 0,
             free_slices: vec![],
             // compute_pipeline,
@@ -365,6 +460,10 @@ impl EffectBuffer {
         &self.particles_buffer_layout_with_dispatch
     }
 
+    pub fn update_render_indirect_layout_bind_group(&self) -> &BindGroupLayout {
+        &self.update_render_indirect_layout
+    }
+
     /// Return a binding for the entire particle buffer.
     pub fn max_binding(&self) -> BindingResource {
         let capacity_bytes = self.capacity as u64 * self.particle_layout.min_binding_size().get();
@@ -383,6 +482,20 @@ impl EffectBuffer {
             buffer: &self.particle_buffer,
             offset: 0,
             size: Some(NonZeroU64::new(size as u64).unwrap()),
+        })
+    }
+
+    /// Return a binding for the entire trail buffer associated with the
+    /// current effect buffer.
+    pub fn trail_max_binding(&self) -> Option<BindingResource> {
+        self.trail_buffer.as_ref().map(|trail_buffer| {
+            let capacity_bytes =
+                self.trail_capacity as u64 * self.particle_layout.min_binding_size().get();
+            BindingResource::Buffer(BufferBinding {
+                buffer: trail_buffer,
+                offset: 0,
+                size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
+            })
         })
     }
 
@@ -587,6 +700,14 @@ pub(crate) struct EffectCache {
     effects: HashMap<EffectCacheId, (usize, SliceRef)>,
 }
 
+/// Information about an [`EffectBuffer`] that was just deleted.
+pub(crate) struct DroppedEffectBuffer {
+    /// The index of the buffer.
+    pub(crate) index: u32,
+    /// Indices within the trail chunk buffer that should now be freed.
+    pub(crate) trail_chunks: TrailChunks,
+}
+
 impl EffectCache {
     pub fn new(device: RenderDevice) -> Self {
         Self {
@@ -610,8 +731,10 @@ impl EffectCache {
         &mut self,
         asset: Handle<EffectAsset>,
         capacity: u32,
+        trail_capacity: u32,
         particle_layout: &ParticleLayout,
         property_layout: &PropertyLayout,
+        trail_chunks: TrailChunks,
         layout_flags: LayoutFlags,
         // pipeline: ComputePipeline,
         _queue: &RenderQueue,
@@ -644,10 +767,11 @@ impl EffectCache {
                     capacity, particle_layout, particle_layout.min_binding_size().get()
                 ));
                 trace!(
-                    "Creating new effect buffer #{} for effect {:?} (capacity={}, particle_layout={:?} item_size={}, byte_size={})",
+                    "Creating new effect buffer #{} for effect {:?} (capacity={}, trail_capacity={}, particle_layout={:?} item_size={}, byte_size={})",
                     buffer_index,
                     asset,
                     capacity,
+                    trail_capacity,
                     particle_layout,
                     particle_layout.min_binding_size().get(),
                     byte_size
@@ -655,8 +779,10 @@ impl EffectCache {
                 let mut buffer = EffectBuffer::new(
                     asset,
                     capacity,
+                    trail_capacity,
                     particle_layout.clone(),
                     property_layout.clone(),
+                    trail_chunks,
                     layout_flags,
                     //pipeline,
                     &self.device,
@@ -708,6 +834,38 @@ impl EffectCache {
         }
     }
 
+    /// An internal method that returns the indices of the head and tail chunks
+    /// in the trail chunk buffer for this frame.
+    ///
+    /// The head chunk is the index of the most recent trail chunk, while the
+    /// tail chunk is the index of the oldest trail chunk that is still alive.
+    ///
+    /// See the diagram in [`TrailChunks`] for more details.
+    pub fn get_trail_head_and_tail_chunks(
+        &self,
+        id: EffectCacheId,
+        tick: u32,
+    ) -> Option<(u32, u32)> {
+        self.effects
+            .get(&id)
+            .and_then(|(buffer_index, _)| self.buffers[*buffer_index].as_ref())
+            .map(|buffer| {
+                let head_index = tick as usize;
+
+                // Wrap around if necessary, since this is a ring buffer.
+                let tail_index = if head_index == buffer.trail_chunks.chunk_ids.len() - 1 {
+                    0
+                } else {
+                    head_index + 1
+                };
+
+                (
+                    buffer.trail_chunks.chunk_ids[head_index].0,
+                    buffer.trail_chunks.chunk_ids[tail_index].0,
+                )
+            })
+    }
+
     /// Get the zero-based index of the buffer. Used internally.
     pub(crate) fn buffer_index(&self, id: EffectCacheId) -> Option<usize> {
         self.effects.get(&id).map(|(buffer_index, _)| *buffer_index)
@@ -715,12 +873,15 @@ impl EffectCache {
 
     /// Remove an effect from the cache. If this was the last effect, drop the
     /// underlying buffer and return the index of the dropped buffer.
-    pub fn remove(&mut self, id: EffectCacheId) -> Option<u32> {
+    pub fn remove(&mut self, id: EffectCacheId) -> Option<DroppedEffectBuffer> {
         if let Some((buffer_index, slice)) = self.effects.remove(&id) {
             if let Some(buffer) = &mut self.buffers[buffer_index] {
                 if buffer.free_slice(slice) == BufferState::Free {
-                    self.buffers[buffer_index] = None;
-                    return Some(buffer_index as u32);
+                    let freed_buffer = self.buffers[buffer_index].take().unwrap();
+                    return Some(DroppedEffectBuffer {
+                        index: buffer_index as u32,
+                        trail_chunks: freed_buffer.trail_chunks,
+                    });
                 }
             }
         }
@@ -836,11 +997,14 @@ mod gpu_tests {
 
         let asset = Handle::<EffectAsset>::default();
         let capacity = 4096;
+        let trail_capacity = 0;
         let mut buffer = EffectBuffer::new(
             asset,
             capacity,
+            trail_capacity,
             l64.clone(),
             PropertyLayout::empty(), // not using properties
+            TrailChunks::default(),  // not using trails
             LayoutFlags::NONE,
             &render_device,
             Some("my_buffer"),
@@ -912,11 +1076,14 @@ mod gpu_tests {
         let asset = Handle::<EffectAsset>::default();
         let capacity = 2048; // EffectBuffer::MIN_CAPACITY;
         assert!(capacity >= 2048); // otherwise the logic below breaks
+        let trail_capacity = 0;
         let mut buffer = EffectBuffer::new(
             asset,
             capacity,
+            trail_capacity,
             l64.clone(),
             PropertyLayout::empty(), // not using properties
+            TrailChunks::default(),  // not using trails
             LayoutFlags::NONE,
             &render_device,
             Some("my_buffer"),
@@ -983,12 +1150,15 @@ mod gpu_tests {
         let asset = Handle::<EffectAsset>::default();
         let capacity = EffectBuffer::MIN_CAPACITY;
         let item_size = l32.size();
+        let trail_capacity = 0;
 
         let id1 = effect_cache.insert(
             asset.clone(),
             capacity,
+            trail_capacity,
             &l32,
             &empty_property_layout,
+            TrailChunks::default(),
             LayoutFlags::NONE,
             &render_queue,
         );
@@ -1004,8 +1174,10 @@ mod gpu_tests {
         let id2 = effect_cache.insert(
             asset.clone(),
             capacity,
+            trail_capacity,
             &l32,
             &empty_property_layout,
+            TrailChunks::default(),
             LayoutFlags::NONE,
             &render_queue,
         );
@@ -1018,9 +1190,9 @@ mod gpu_tests {
         assert_eq!(slice2.slice, 0..capacity);
         assert_eq!(effect_cache.buffers().len(), 2);
 
-        let buffer_index = effect_cache.remove(id1);
-        assert!(buffer_index.is_some());
-        assert_eq!(buffer_index.unwrap(), 0);
+        let dropped_buffer = effect_cache.remove(id1);
+        assert!(dropped_buffer.is_some());
+        assert_eq!(dropped_buffer.unwrap().index, 0);
         assert_eq!(effect_cache.buffers().len(), 2);
         {
             let buffers = effect_cache.buffers();
@@ -1032,8 +1204,10 @@ mod gpu_tests {
         let id3 = effect_cache.insert(
             asset,
             capacity,
+            trail_capacity,
             &l32,
             &empty_property_layout,
+            TrailChunks::default(),
             LayoutFlags::NONE,
             &render_queue,
         );

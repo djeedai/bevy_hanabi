@@ -178,6 +178,13 @@ pub struct Spawner {
     /// spawner becomes active. If `false`, the spawner doesn't do anything
     /// until [`EffectSpawner::reset()`] is called.
     starts_immediately: bool,
+
+    /// The length of each trail, in particles.
+    trail_length: u32,
+
+    /// Time that elapses before a trail particle is spawned, in seconds. If
+    /// this is zero, then a trail particle is spawned every update.
+    trail_period: CpuValue<f32>,
 }
 
 impl Default for Spawner {
@@ -246,6 +253,8 @@ impl Spawner {
             period,
             starts_active: true,
             starts_immediately: true,
+            trail_period: CpuValue::Single(0.0),
+            trail_length: 0,
         }
     }
 
@@ -358,6 +367,61 @@ impl Spawner {
     pub fn starts_active(&self) -> bool {
         self.starts_active
     }
+
+    /// Sets the number of particles that make up each trail.
+    ///
+    /// The trail length is the same for all particles. This value doesn't
+    /// include the head particle.
+    pub fn set_trail_length(&mut self, trail_length: u32) {
+        self.trail_length = trail_length;
+    }
+
+    /// The number of particles that make up each trail.
+    ///
+    /// The trail length is the same for all particles. This value doesn't
+    /// include the head particle.
+    pub fn trail_length(&self) -> u32 {
+        self.trail_length
+    }
+
+    /// Sets the number of particles that make up each trail, using the builder
+    /// pattern.
+    ///
+    /// The trail length is the same for all particles. This value doesn't
+    /// include the head particle.
+    pub fn with_trail_length(mut self, trail_length: u32) -> Self {
+        self.trail_length = trail_length;
+        self
+    }
+
+    /// Sets the amount of time between emission of trail particles.
+    ///
+    /// After this much time elapses, a new trail particle is spawned.
+    ///
+    /// This value is the same for all particles.
+    pub fn set_trail_period(&mut self, trail_period: CpuValue<f32>) {
+        self.trail_period = trail_period;
+    }
+
+    /// The amount of time between emission of trail particles.
+    ///
+    /// After this much time elapses, a new trail particle is spawned.
+    ///
+    /// This value is the same for all particles.
+    pub fn trail_period(&self) -> CpuValue<f32> {
+        self.trail_period
+    }
+
+    /// Sets the amount of time between emission of trail particles, using the
+    /// builder pattern.
+    ///
+    /// After this much time elapses, a new trail particle is spawned.
+    ///
+    /// This value is the same for all particles.
+    pub fn with_trail_period(mut self, trail_period: CpuValue<f32>) -> Self {
+        self.trail_period = trail_period;
+        self
+    }
 }
 
 /// Runtime component maintaining the state of the spawner for an effect.
@@ -390,8 +454,20 @@ pub struct EffectSpawner {
     /// Fractional remainder of particle count to spawn.
     spawn_remainder: f32,
 
+    /// Accumulated time since last trail spawn.
+    trail_time: f32,
+
+    /// Sampled value of `trail_spawn_time`.
+    curr_trail_spawn_time: f32,
+
+    /// Number of times a trail particle spawn event has occurred.
+    trail_ticks: u32,
+
     /// Whether the system is active. Defaults to `true`.
     active: bool,
+
+    /// Whether we should spawn a trail particle, as calculated by last [`tick()`] call.
+    spawn_trail_particle: bool,
 }
 
 impl EffectSpawner {
@@ -412,7 +488,11 @@ impl EffectSpawner {
             limit: 0.,
             spawn_count: 0,
             spawn_remainder: 0.,
+            trail_time: 0.0,
+            curr_trail_spawn_time: 0.0,
+            trail_ticks: 0,
             active: spawner.starts_active(),
+            spawn_trail_particle: false,
         }
     }
 
@@ -521,6 +601,28 @@ impl EffectSpawner {
         self.spawn_remainder -= count;
         self.spawn_count = count as u32;
 
+        // Handle trails.
+
+        self.trail_time += dt;
+        self.spawn_trail_particle = self.trail_time >= self.curr_trail_spawn_time;
+
+        if self.spawn_trail_particle {
+            // 0 spawn time means "spawn a trail particle every frame". Handle
+            // this case.
+            if self.curr_trail_spawn_time == 0.0 {
+                self.trail_time = 0.0;
+            } else {
+                self.trail_time %= self.curr_trail_spawn_time;
+            }
+
+            self.resample_trail_spawn_time(rng);
+
+            self.trail_ticks += 1;
+            if self.trail_ticks == self.spawner.trail_length + 1 {
+                self.trail_ticks = 0;
+            }
+        }
+
         self.spawn_count
     }
 
@@ -536,10 +638,34 @@ impl EffectSpawner {
         self.spawn_count
     }
 
+    /// The total number of chunks of trail particles that have been spawned
+    /// over the life of this particle effect.
+    ///
+    /// This includes dead trail particles; thus, this number is monotonically
+    /// increasing (until it wraps around).
+    #[inline]
+    pub fn trail_tick(&self) -> u32 {
+        self.trail_ticks
+    }
+
+    /// Whether a chunk of trail particles is to be spawned this frame.
+    ///
+    /// This occurs at the set trail period.
+    #[inline]
+    pub fn spawn_trail_particle(&self) -> bool {
+        self.spawn_trail_particle
+    }
+
     /// Resamples the spawn time and period.
     fn resample(&mut self, rng: &mut Pcg32) {
         self.limit = self.spawner.period.sample(rng);
         self.curr_spawn_time = self.spawner.spawn_time.sample(rng).clamp(0.0, self.limit);
+    }
+
+    /// Resamples the trail period, and recalculates the trail spawn time based
+    /// on it.
+    fn resample_trail_spawn_time(&mut self, rng: &mut Pcg32) {
+        self.curr_trail_spawn_time = self.spawner.trail_period.sample(rng);
     }
 }
 

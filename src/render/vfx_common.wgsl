@@ -14,6 +14,9 @@ struct SimParams {
     /// Stride in bytes of the DispatchIndirect struct. Used to calculate
     /// the position of each effect's data into the buffer of a batch.
     dispatch_stride: u32,
+    /// Stride in bytes of the TrailRenderIndirect struct. Used to calculate
+    /// the position of each effect's data into the buffer of a batch.
+    trail_render_stride: u32,
 //#endif
 }
 
@@ -24,6 +27,10 @@ struct Spawner {
     seed: u32,
     count: atomic<i32>,
     effect_index: u32,
+    spawn_trail_particle: u32,
+    trail_capacity: u32,
+    trail_head_chunk: u32,
+    trail_tail_chunk: u32,
 #ifdef SPAWNER_PADDING
     {{SPAWNER_PADDING}}
 #endif
@@ -107,6 +114,18 @@ struct RenderIndirect {
     /// thread count while also modifying the actual `alive_count` if some particle
     /// dies during the update pass.
     max_update: u32,
+}
+
+const TRI_OFFSET_VERTEX_COUNT: u32 = 0u;
+const TRI_OFFSET_INSTANCE_COUNT: u32 = 1u;
+const TRI_OFFSET_BASE_INDEX: u32 = 2u;
+const TRI_OFFSET_BASE_INSTANCE: u32 = 3u;
+
+struct TrailRenderIndirect {
+    vertex_count: u32,
+    instance_count: atomic<u32>,
+    base_index: u32,
+    base_instance: u32,
 }
 
 var<private> seed : u32 = 0u;

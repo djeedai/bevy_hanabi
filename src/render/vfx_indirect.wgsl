@@ -2,7 +2,8 @@
     SimParams, Spawner,
     DI_OFFSET_X, DI_OFFSET_PONG,
     RI_OFFSET_ALIVE_COUNT, RI_OFFSET_MAX_UPDATE, RI_OFFSET_DEAD_COUNT,
-    RI_OFFSET_MAX_SPAWN, RI_OFFSET_INSTANCE_COUNT, RI_OFFSET_PING
+    RI_OFFSET_MAX_SPAWN, RI_OFFSET_INSTANCE_COUNT, RI_OFFSET_PING,
+    TRI_OFFSET_BASE_INSTANCE, TRI_OFFSET_INSTANCE_COUNT, TRI_OFFSET_TRAIL_INDICES
 }
 
 struct SpawnerBuffer {
@@ -12,6 +13,10 @@ struct SpawnerBuffer {
 @group(0) @binding(0) var<storage, read_write> render_indirect_buffer : array<u32>;
 @group(0) @binding(1) var<storage, read_write> dispatch_indirect_buffer : array<u32>;
 @group(0) @binding(2) var<storage, read> spawner_buffer : SpawnerBuffer;
+#ifdef TRAILS
+@group(0) @binding(3) var<storage, read_write> trail_render_indirect_buffer : array<u32>;
+@group(0) @binding(4) var<storage, read_write> trail_chunk_buffer : array<u32>;
+#endif
 @group(1) @binding(0) var<uniform> sim_params : SimParams;
 
 /// Calculate the indirect workgroups counts based on the number of particles alive.
@@ -36,6 +41,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // dispatch indirect arrays.
     let ri_base = sim_params.render_stride * effect_index / 4u;
     let di_base = sim_params.dispatch_stride * effect_index / 4u;
+    let tri_base = sim_params.trail_render_stride * effect_index / 4u;
 
     // Calculate the number of thread groups to dispatch for the update pass, which is
     // the number of alive particles rounded up to 64 (workgroup_size).
@@ -57,6 +63,27 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Clear the rendering instance count, which will be upgraded by the update pass
     // with the particles actually alive at the end of their update (after aged).
     render_indirect_buffer[ri_base + RI_OFFSET_INSTANCE_COUNT] = 0u;
+
+#ifdef TRAILS
+    // If needed, spawn a trail particle.
+    if (spawner_buffer.spawners[index].spawn_trail_particle != 0) {
+        // Get the trail head and tail chunks.
+        let head_chunk_index = spawner_buffer.spawners[index].trail_head_chunk;
+        let tail_chunk_index = spawner_buffer.spawners[index].trail_tail_chunk;
+
+        // The previous tick's final instance becomes the current head.
+        let last_base_instance = trail_render_indirect_buffer[tri_base + TRI_OFFSET_BASE_INSTANCE];
+        let last_instance_count = trail_render_indirect_buffer[tri_base + TRI_OFFSET_INSTANCE_COUNT];
+        let last_instance_index = last_base_instance + last_instance_count;
+        trail_chunk_buffer[head_chunk_index] = last_instance_index;
+
+        // Calculate the new base count and instance index.
+        let tail_trail_index = trail_chunk_buffer[tail_chunk_index];
+        trail_render_indirect_buffer[tri_base + TRI_OFFSET_BASE_INSTANCE] = u32(tail_trail_index);
+        trail_render_indirect_buffer[tri_base + TRI_OFFSET_INSTANCE_COUNT] =
+            last_instance_index - u32(tail_trail_index);
+    }
+#endif
 
     // Swap ping/pong buffers
     let ping = render_indirect_buffer[ri_base + RI_OFFSET_PING];

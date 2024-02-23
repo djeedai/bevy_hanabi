@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import bevy_hanabi::vfx_common::{
-    DispatchIndirect, IndirectBuffer, SimParams, Spawner,
+    DispatchIndirect, IndirectBuffer, RenderIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform, proj
 }
@@ -117,9 +117,18 @@ fn vertex(
     // @location(1) vertex_color: u32,
     // @location(1) vertex_velocity: vec3<f32>,
 ) -> VertexOutput {
+    // Is this a head particle or a trail particle?
+#ifdef TRAILS
+    // Trail particle.
+    let particle_index = instance_index % arrayLength(&particle_buffer.particles);
+    let particle = particle_buffer.particles[particle_index];
+#else
+    // Head particle.
     let pong = dispatch_indirect.pong;
     let index = indirect_buffer.indices[3u * instance_index + pong];
-    var particle = particle_buffer.particles[index];
+    let particle = particle_buffer.particles[index];
+#endif
+
     var out: VertexOutput;
 #ifdef PARTICLE_TEXTURE
     var uv = vertex_uv;

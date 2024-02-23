@@ -4,10 +4,7 @@ use bevy::{
     utils::FloatOrd,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    hash::{Hash, Hasher},
-    vec::Vec,
-};
+use std::hash::{Hash, Hasher};
 
 /// Describes a type that can be linearly interpolated between two keys.
 ///

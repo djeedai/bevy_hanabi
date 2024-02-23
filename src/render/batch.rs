@@ -49,6 +49,9 @@ pub(crate) struct EffectBatch {
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
     pub entities: Vec<u32>,
+    /// Whether trails are active for this effect (present with a nonzero
+    /// length).
+    pub trails_active: bool,
 }
 
 impl EffectBatch {
@@ -74,6 +77,7 @@ impl EffectBatch {
             #[cfg(feature = "2d")]
             z_sort_key_2d: input.z_sort_key_2d,
             entities: vec![input.entity_index],
+            trails_active: input.trail_capacity > 0 && input.trail_length > 0,
         }
     }
 }
@@ -98,6 +102,11 @@ pub(crate) struct BatchInput {
     pub image_handle: Handle<Image>,
     /// Number of particles to spawn for this effect.
     pub spawn_count: u32,
+    pub spawn_trail_particle: bool,
+    pub trail_length: u32,
+    pub trail_capacity: u32,
+    pub trail_head_chunk: u32,
+    pub trail_tail_chunk: u32,
     /// Emitter transform.
     pub transform: GpuCompressedTransform,
     /// Emitter inverse transform.
@@ -295,8 +304,6 @@ impl<'a, S, B, I: Batchable<S, B>> Batcher<'a, S, B, I> {
 
 #[cfg(test)]
 mod tests {
-    use crate::EffectShader;
-
     use super::*;
 
     // Test item to batch
@@ -550,6 +557,11 @@ mod tests {
             layout_flags: LayoutFlags::NONE,
             image_handle,
             spawn_count: 32,
+            spawn_trail_particle: false,
+            trail_length: 0,
+            trail_capacity: 0,
+            trail_head_chunk: 0,
+            trail_tail_chunk: 0,
             transform: GpuCompressedTransform::default(),
             inverse_transform: GpuCompressedTransform::default(),
             property_buffer: None,
