@@ -97,6 +97,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let mut module = writer.finish();
 
     let tangent_accel = TangentAccelModifier::constant(&mut module, Vec3::ZERO, Vec3::Z, 30.);
+    let round = RoundModifier::constant(&mut module, 1.0 / 3.0);
 
     let effect1 = effects.add(
         EffectAsset::new(32768, Spawner::rate(5000.0.into()), module)
@@ -113,7 +114,8 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
                 gradient: size_gradient1,
                 screen_space_size: false,
             })
-            .render(OrientModifier::new(OrientMode::AlongVelocity)),
+            .render(OrientModifier::new(OrientMode::AlongVelocity))
+            .render(round),
     );
 
     commands.spawn((

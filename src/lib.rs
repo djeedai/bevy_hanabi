@@ -955,6 +955,9 @@ impl EffectShaderSource {
             if let AlphaMode::Mask(_) = &asset.alpha_mode {
                 layout_flags |= LayoutFlags::USE_ALPHA_MASK;
             }
+            if render_context.needs_uv {
+                layout_flags |= LayoutFlags::NEEDS_UV;
+            }
 
             let (flipbook_scale_code, flipbook_row_count_code) = if let Some(grid_size) =
                 render_context.sprite_grid_size
@@ -1745,6 +1748,7 @@ else { return c1; }
             let mut shader_defs = std::collections::HashMap::<String, ShaderDefValue>::new();
             shader_defs.insert("LOCAL_SPACE_SIMULATION".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("PARTICLE_TEXTURE".into(), ShaderDefValue::Bool(true));
+            shader_defs.insert("NEEDS_UV".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("RENDER_NEEDS_SPAWNER".into(), ShaderDefValue::Bool(true));
             shader_defs.insert(
                 "PARTICLE_SCREEN_SPACE_SIZE".into(),

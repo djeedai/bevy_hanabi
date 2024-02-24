@@ -16,7 +16,7 @@ struct ParticleBuffer {
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
-#ifdef PARTICLE_TEXTURE
+#ifdef NEEDS_UV
     @location(1) uv: vec2<f32>,
 #endif
 }
@@ -111,7 +111,7 @@ fn transform_position_simulation_to_clip(sim_position: vec3<f32>) -> vec4<f32> {
 fn vertex(
     @builtin(instance_index) instance_index: u32,
     @location(0) vertex_position: vec3<f32>,
-#ifdef PARTICLE_TEXTURE
+#ifdef NEEDS_UV
     @location(1) vertex_uv: vec2<f32>,
 #endif
     // @location(1) vertex_color: u32,
@@ -121,7 +121,7 @@ fn vertex(
     let index = indirect_buffer.indices[3u * instance_index + pong];
     var particle = particle_buffer.particles[index];
     var out: VertexOutput;
-#ifdef PARTICLE_TEXTURE
+#ifdef NEEDS_UV
     var uv = vertex_uv;
 #ifdef FLIPBOOK
     let row_count = {{FLIPBOOK_ROW_COUNT}};
@@ -129,7 +129,7 @@ fn vertex(
     uv = (ij + uv) * {{FLIPBOOK_SCALE}};
 #endif
     out.uv = uv;
-#endif
+#endif  // NEEDS_UV
 
 {{INPUTS}}
 

@@ -553,6 +553,71 @@ impl RenderModifier for ScreenSpaceSizeModifier {
     }
 }
 
+/// Makes particles round.
+///
+/// The shape of each particle is a [squircle] (like a rounded rectangle, but
+/// faster to evaluate). The `roundness` parameter specifies how round the shape
+/// is. At 0.0, the particle is a rectangle; at 1.0, the particle is an
+/// ellipse.
+///
+/// Given x and y from (-1, 1), the equation of the shape of the particle is
+/// |x|ⁿ + |y|ⁿ = 1, where n = 2 / `roundness``.
+///
+/// Note that this modifier is presently incompatible with the
+/// [`FlipbookModifier`]. Attempts to use them together will produce unexpected
+/// results.
+///
+/// [squircle]: https://en.wikipedia.org/wiki/Squircle
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+pub struct RoundModifier {
+    /// How round the particle is.
+    ///
+    /// This ranges from 0.0 for a perfect rectangle to 1.0 for a perfect
+    /// ellipse. 1/3 produces a nice rounded rectangle shape.
+    ///
+    /// n in the squircle formula is calculated as (2 / roundness).
+    pub roundness: ExprHandle,
+}
+
+impl_mod_render!(RoundModifier, &[]);
+
+#[typetag::serde]
+impl RenderModifier for RoundModifier {
+    fn apply_render(&self, module: &mut Module, context: &mut RenderContext) {
+        context.set_needs_uv();
+
+        let roundness = context.eval(module, self.roundness).unwrap();
+        context.fragment_code += &format!(
+            "let roundness = {};
+            if (roundness > 0.0f) {{
+                let n = 2.0f / roundness;
+                if (pow(abs(1.0f - 2.0f * in.uv.x), n) +
+                        pow(abs(1.0f - 2.0f * in.uv.y), n) > 1.0f) {{
+                    discard;
+                }}
+            }}",
+            roundness
+        );
+    }
+}
+
+impl RoundModifier {
+    /// Creates a new [`RoundModifier`] with the given roundness.
+    ///
+    /// The `roundness` parameter varies from 0.0 to 1.0.
+    pub fn constant(module: &mut Module, roundness: f32) -> RoundModifier {
+        RoundModifier {
+            roundness: module.lit(roundness),
+        }
+    }
+
+    /// Creates a new [`RoundModifier`] that describes an ellipse.
+    #[doc(alias = "circle")]
+    pub fn ellipse(module: &mut Module) -> RoundModifier {
+        RoundModifier::constant(module, 1.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::*;
