@@ -1,5 +1,5 @@
 #import bevy_hanabi::vfx_common::{
-    ForceFieldSource, IndirectBuffer, RenderIndirect, SimParams, Spawner,
+    IndirectBuffer, RenderIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform, proj
 }

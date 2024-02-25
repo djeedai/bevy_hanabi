@@ -8,10 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added a new `ScreenSpaceSizeModifier` which negates the effect of perspective projection, and makes the particle's size a pixel size in screen space, instead of a Bevy world unit size. This replaces the hard-coded behavior previously available on the `SetSizeModifier`.
+- Added a new `ConformToSphereModifier` acting as an attractor applying a force toward a point (sphere center) to all particles in range, and making particles conform ("stick") to the sphere surface.
+
+### Changed
+
+- `ExprHandle` is now `#[repr(transparent)]`, which guarantees that `Option<ExprHandle>` has the same size as `ExprHandle` itself (4 bytes).
+- `EffectProperties::set_if_changed()` now returns the `Mut` variable it takes as input, to allow subsequent calls.
 
 ### Removed
 
 - Removed the `screen_space_size` field from the `SetSizeModifier`. Use the new `ScreenSpaceSizeModifier` to use a screen-space size.
+- Removed the built-in `ForceFieldSource` and associated `ForceFieldModifier`. Use the new `ConformToSphereModifer` instead. The behavior might change a bit as the conforming code is not strictly identical; use the `force_field.rs` example with the `examples_world_inspector` feature to tweak the parameters in real time and observe how they work and change the effect.
+
+### Fixed
+
+- Fixed a panic in rendering randomly occurring when no effect is present.
 
 ## [0.10.0] 2024-02-24
 

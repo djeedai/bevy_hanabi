@@ -64,6 +64,8 @@ wgpu = "0.19.1"
 
 # For world inspector; required if "examples_world_inspector" is used.
 bevy-inspector-egui = "0.23"
+bevy_egui = "0.25"
+egui = "0.26"
 
 # For procedural texture generation in examples
 noise = "0.8"
