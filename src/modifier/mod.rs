@@ -26,10 +26,10 @@
 
 use bevy::{
     asset::Handle,
-    math::{UVec2, Vec2, Vec3, Vec4},
+    math::{UVec2, Vec2, Vec4},
     reflect::Reflect,
     render::texture::Image,
-    utils::{FloatOrd, HashMap},
+    utils::HashMap,
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -271,85 +271,6 @@ pub trait InitModifier: Modifier {
     fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError>;
 }
 
-/// A single attraction or repulsion source of a [`ForceFieldModifier`].
-///
-/// The source applies a radial force field to all particles around its
-/// position, with a decreasing intensity the further away from the source the
-/// particle is. This force is added to the one(s) of all the other active
-/// sources of a [`ForceFieldModifier`].
-#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
-pub struct ForceFieldSource {
-    /// Position of the source.
-    pub position: Vec3,
-    /// Maximum radius of the sphere of influence, outside of which
-    /// the contribution of this source to the force field is null.
-    pub max_radius: f32,
-    /// Minimum radius of the sphere of influence, inside of which
-    /// the contribution of this source to the force field is null, avoiding the
-    /// singularity at the source position.
-    pub min_radius: f32,
-    /// The intensity of the force of the source is proportional to its mass.
-    /// Note that the update shader will ignore all subsequent force field
-    /// sources after it encountered a source with a mass of zero. To change
-    /// the force from an attracting one to a repulsive one, simply
-    /// set the mass to a negative value.
-    pub mass: f32,
-    /// The source force is proportional to `1 / distance^force_exponent`.
-    pub force_exponent: f32,
-    /// If `true`, the particles which attempt to come closer than
-    /// [`min_radius`] from the source position will conform to a sphere of
-    /// radius [`min_radius`] around the source position, appearing like a
-    /// recharging effect.
-    ///
-    /// [`min_radius`]: ForceFieldSource::min_radius
-    pub conform_to_sphere: bool,
-}
-
-impl PartialEq for ForceFieldSource {
-    fn eq(&self, other: &Self) -> bool {
-        FloatOrd(self.position.x) == FloatOrd(other.position.x)
-            && FloatOrd(self.position.y) == FloatOrd(other.position.y)
-            && FloatOrd(self.position.z) == FloatOrd(other.position.z)
-            && FloatOrd(self.max_radius) == FloatOrd(other.max_radius)
-            && FloatOrd(self.min_radius) == FloatOrd(other.min_radius)
-            && FloatOrd(self.mass) == FloatOrd(other.mass)
-            && FloatOrd(self.force_exponent) == FloatOrd(other.force_exponent)
-            && self.conform_to_sphere == other.conform_to_sphere
-    }
-}
-
-impl Hash for ForceFieldSource {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        FloatOrd(self.position.x).hash(state);
-        FloatOrd(self.position.y).hash(state);
-        FloatOrd(self.position.z).hash(state);
-        FloatOrd(self.max_radius).hash(state);
-        FloatOrd(self.min_radius).hash(state);
-        FloatOrd(self.mass).hash(state);
-        FloatOrd(self.force_exponent).hash(state);
-        self.conform_to_sphere.hash(state);
-    }
-}
-
-impl Default for ForceFieldSource {
-    fn default() -> Self {
-        // defaults to no force field (a mass of 0)
-        Self {
-            position: Vec3::new(0., 0., 0.),
-            min_radius: 0.1,
-            max_radius: 0.0,
-            mass: 0.,
-            force_exponent: 0.0,
-            conform_to_sphere: false,
-        }
-    }
-}
-
-impl ForceFieldSource {
-    /// Maximum number of sources in the force field.
-    pub const MAX_SOURCES: usize = 16;
-}
-
 /// Particle update shader code generation context.
 #[derive(Debug, PartialEq)]
 pub struct UpdateContext<'a> {
@@ -368,11 +289,6 @@ pub struct UpdateContext<'a> {
     expr_cache: HashMap<ExprHandle, String>,
     /// Is the attriubute struct a pointer?
     is_attribute_pointer: bool,
-
-    // TEMP
-    /// Array of force field components with a maximum number of components
-    /// determined by [`ForceFieldSource::MAX_SOURCES`].
-    pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
 }
 
 impl<'a> UpdateContext<'a> {
@@ -386,7 +302,6 @@ impl<'a> UpdateContext<'a> {
             var_counter: 0,
             expr_cache: Default::default(),
             is_attribute_pointer: false,
-            force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
         }
     }
 
@@ -940,7 +855,7 @@ fn main() {{
             &AccelModifier::new(origin),
             &RadialAccelModifier::new(origin, one),
             &TangentAccelModifier::new(origin, y_axis, one),
-            &ForceFieldModifier::default(),
+            &ConformToSphereModifier::new(origin, one, one, one, one),
             &LinearDragModifier::new(writer.lit(3.5).expr()),
             &KillAabbModifier::new(writer.lit(Vec3::ZERO).expr(), writer.lit(Vec3::ONE).expr()),
             &SetPositionCircleModifier {
@@ -1011,22 +926,12 @@ struct SimParams {{
     time: f32,
 }};
 
-struct ForceFieldSource {{
-    position: vec3<f32>,
-    max_radius: f32,
-    min_radius: f32,
-    mass: f32,
-    force_exponent: f32,
-    conform_to_sphere: f32,
-}};
-
 struct Spawner {{
     transform: mat3x4<f32>, // transposed (row-major)
     spawn: atomic<i32>,
     seed: u32,
     count_unused: u32,
     effect_index: u32,
-    force_field: array<ForceFieldSource, 16>,
 }};
 
 fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {{

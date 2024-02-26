@@ -714,7 +714,6 @@ struct EffectShaderSource {
     pub render: String,
     pub layout_flags: LayoutFlags,
     pub particle_texture: Option<Handle<Image>>,
-    pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
 }
 
 /// Error resulting from the generating of the WGSL shader code of an
@@ -870,7 +869,7 @@ impl EffectShaderSource {
         };
 
         // Generate the shader code for the update shader
-        let (mut update_code, update_extra, force_field) = {
+        let (mut update_code, update_extra) = {
             let mut update_context = UpdateContext::new(&property_layout, &particle_layout);
             for m in asset.update_modifiers() {
                 if let Err(err) = m.apply_update(&mut module, &mut update_context) {
@@ -881,11 +880,7 @@ impl EffectShaderSource {
                     return Err(ShaderGenerateError::Expr(err));
                 }
             }
-            (
-                update_context.update_code,
-                update_context.update_extra,
-                update_context.force_field,
-            )
+            (update_context.update_code, update_context.update_extra)
         };
 
         // Insert Euler motion integration if needed.
@@ -1071,7 +1066,6 @@ impl EffectShaderSource {
             render: render_shader_source,
             layout_flags,
             particle_texture,
-            force_field,
         })
     }
 }
@@ -1099,8 +1093,6 @@ pub struct CompiledParticleEffect {
     simulation_condition: SimulationCondition,
     /// Handle to the effect shader for his effect instance, if configured.
     effect_shader: Option<EffectShader>,
-    /// Force field modifier values.
-    force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Main particle texture.
     particle_texture: Option<Handle<Image>>,
     /// 2D layer for the effect instance.
@@ -1116,7 +1108,6 @@ impl Default for CompiledParticleEffect {
             asset: default(),
             simulation_condition: SimulationCondition::default(),
             effect_shader: None,
-            force_field: default(),
             particle_texture: None,
             #[cfg(feature = "2d")]
             z_layer_2d: FloatOrd(0.0),
@@ -1211,7 +1202,6 @@ impl CompiledParticleEffect {
             render: render_shader,
         });
 
-        self.force_field = shader_source.force_field;
         self.particle_texture = shader_source.particle_texture;
     }
 

@@ -43,7 +43,6 @@ use bevy::core_pipeline::core_3d::{AlphaMask3d, Transparent3d};
 
 use crate::{
     asset::EffectAsset,
-    modifier::ForceFieldSource,
     next_multiple_of,
     render::batch::{BatchInput, BatchState, Batcher, EffectBatch},
     spawn::EffectSpawner,
@@ -173,31 +172,6 @@ impl From<SimParams> for GpuSimParams {
     }
 }
 
-/// GPU representation of a [`ForceFieldSource`].
-#[repr(C)]
-#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
-struct GpuForceFieldSource {
-    pub position_or_direction: Vec3,
-    pub max_radius: f32,
-    pub min_radius: f32,
-    pub mass: f32,
-    pub force_exponent: f32,
-    pub conform_to_sphere: f32,
-}
-
-impl From<ForceFieldSource> for GpuForceFieldSource {
-    fn from(source: ForceFieldSource) -> Self {
-        Self {
-            position_or_direction: source.position,
-            max_radius: source.max_radius,
-            min_radius: source.min_radius,
-            mass: source.mass,
-            force_exponent: source.force_exponent,
-            conform_to_sphere: if source.conform_to_sphere { 1.0 } else { 0.0 },
-        }
-    }
-}
-
 /// Compressed representation of a transform for GPU transfer.
 ///
 /// The transform is stored as the three first rows of a transposed [`Mat4`],
@@ -241,10 +215,6 @@ impl From<&Mat4> for GpuCompressedTransform {
 }
 
 /// GPU representation of spawner parameters.
-///
-/// This structure contains the fixed-size part of the parameters. Inside the
-/// GPU buffer, it is followed by an array of [`GpuForceFieldSource`], which
-/// together form the spawner parameter buffer.
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub(crate) struct GpuSpawnerParams {
@@ -266,8 +236,6 @@ pub(crate) struct GpuSpawnerParams {
     count: i32,
     /// Index of the effect into the indirect dispatch and render buffers.
     effect_index: u32,
-    /// Force field components. One GpuForceFieldSource takes up 32 bytes.
-    force_field: [GpuForceFieldSource; ForceFieldSource::MAX_SOURCES],
 }
 
 impl GpuSpawnerParams {
@@ -1180,10 +1148,6 @@ pub(crate) struct ExtractedEffect {
     /// Inverse global transform of the effect origin, extracted from the
     /// [`GlobalTransform`].
     pub inverse_transform: Mat4,
-    /// Force field applied to all particles in the "update" phase.
-    // FIXME - Remove from here, this should be using properties. Only left here for back-compat
-    // until we have a proper graph solution to replace it.
-    force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Layout flags.
     pub layout_flags: LayoutFlags,
     /// Texture to modulate the particle color.
@@ -1371,7 +1335,6 @@ pub(crate) fn extract_effects(
 
         // Retrieve other values from the compiled effect
         let spawn_count = spawner.spawn_count();
-        let force_field = effect.force_field; // TEMP
 
         // Check if asset is available, otherwise silently ignore
         let Some(asset) = effects.get(&effect.asset) else {
@@ -1395,6 +1358,7 @@ pub(crate) fn extract_effects(
 
         let property_data = if let Some(properties) = maybe_properties {
             if properties.is_changed() {
+                trace!("Detected property change, re-serializing...");
                 Some(properties.serialize(&property_layout))
             } else {
                 None
@@ -1428,7 +1392,6 @@ pub(crate) fn extract_effects(
                 transform: transform.compute_matrix(),
                 // TODO - more efficient/correct way than inverse()?
                 inverse_transform: transform.compute_matrix().inverse(),
-                force_field,
                 layout_flags,
                 image_handle,
                 effect_shader,
@@ -1845,7 +1808,6 @@ pub(crate) fn prepare_effects(
                 effect_shader: extracted_effect.effect_shader.clone(),
                 layout_flags: extracted_effect.layout_flags,
                 image_handle: extracted_effect.image_handle,
-                force_field: extracted_effect.force_field,
                 spawn_count: extracted_effect.spawn_count,
                 transform: extracted_effect.transform.into(),
                 inverse_transform: extracted_effect.inverse_transform.into(),
@@ -1962,7 +1924,6 @@ pub(crate) fn prepare_effects(
                     // but the group_index is the index of the particle buffer, which can
                     // in theory (with batching) contain > 1 effect per buffer.
                     effect_index: input.effect_slice.group_index,
-                    force_field: input.force_field.map(Into::into),
                 };
                 trace!("spawner_params = {:?}", spawner_params);
                 effects_meta.spawner_buffer.push(spawner_params);
@@ -1970,8 +1931,12 @@ pub(crate) fn prepare_effects(
                 // Write properties for this effect if they were modified.
                 // FIXME - This doesn't work with batching!
                 if let Some(property_data) = &input.property_data {
+                    trace!("Properties changed, need to (re-)upload to GPU");
                     if let Some(property_buffer) = input.property_buffer.as_ref() {
+                        trace!("Scheduled property upload to GPU");
                         render_queue.write_buffer(property_buffer, 0, property_data);
+                    } else {
+                        error!("Cannot upload properties to GPU, no property buffer!");
                     }
                 }
 
@@ -2305,7 +2270,7 @@ pub(crate) fn queue_effects(
         };
     }
 
-    if effects_meta.spawner_buffer.buffer().is_none() {
+    if effects_meta.spawner_buffer.buffer().is_none() || effects_meta.spawner_buffer.is_empty() {
         // No spawners are active
         return;
     }
@@ -3047,7 +3012,11 @@ impl Node for VfxSimulateNode {
         }
 
         // Compute indirect dispatch pass
-        if effects_meta.spawner_buffer.buffer().is_some() {
+        if effects_meta.spawner_buffer.buffer().is_some()
+            && !effects_meta.spawner_buffer.is_empty()
+            && effects_meta.dr_indirect_bind_group.is_some()
+            && effects_meta.sim_params_bind_group.is_some()
+        {
             // Only if there's an effect
             let mut compute_pass =
                 render_context
@@ -3068,6 +3037,8 @@ impl Node for VfxSimulateNode {
                 compute_pass.set_pipeline(indirect_dispatch_pipeline);
                 compute_pass.set_bind_group(
                     0,
+                    // FIXME - got some unwrap() panic here, investigate... possibly race
+                    // condition!
                     effects_meta.dr_indirect_bind_group.as_ref().unwrap(),
                     &[],
                 );

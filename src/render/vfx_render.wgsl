@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import bevy_hanabi::vfx_common::{
-    DispatchIndirect, ForceFieldSource, IndirectBuffer, SimParams, Spawner,
+    DispatchIndirect, IndirectBuffer, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform, proj
 }

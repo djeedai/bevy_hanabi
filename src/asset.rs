@@ -564,6 +564,7 @@ mod tests {
     #[test]
     fn test_apply_modifiers() {
         let mut module = Module::default();
+        let origin = module.lit(Vec3::ZERO);
         let one = module.lit(1.);
         let init_age = SetAttributeModifier::new(Attribute::AGE, one);
         let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, one);
@@ -586,8 +587,8 @@ mod tests {
         .init(init_pos_sphere)
         .init(init_vel_sphere)
         //.update(AccelModifier::default())
-        .update(LinearDragModifier::new(module.lit(1.)))
-        .update(ForceFieldModifier::default())
+        .update(LinearDragModifier::new(one))
+        .update(ConformToSphereModifier::new(origin, one, one, one, one))
         .render(ParticleTextureModifier::default())
         .render(ColorOverLifetimeModifier::default())
         .render(SizeOverLifetimeModifier::default())
@@ -624,7 +625,7 @@ mod tests {
         assert!(drag_mod
             .apply_update(&mut module, &mut update_context)
             .is_ok());
-        assert!(ForceFieldModifier::default()
+        assert!(ConformToSphereModifier::new(origin, one, one, one, one)
             .apply_update(&mut module, &mut update_context)
             .is_ok());
         // assert_eq!(effect.update_layout, update_layout);

@@ -8,7 +8,7 @@ use bevy::{
 #[cfg(feature = "2d")]
 use bevy::utils::FloatOrd;
 
-use crate::{EffectAsset, EffectShader, ForceFieldSource, ParticleLayout, PropertyLayout};
+use crate::{EffectAsset, EffectShader, ParticleLayout, PropertyLayout};
 
 use super::{EffectSlice, GpuCompressedTransform, LayoutFlags};
 
@@ -96,8 +96,6 @@ pub(crate) struct BatchInput {
     pub layout_flags: LayoutFlags,
     /// Texture to modulate the particle color.
     pub image_handle: Handle<Image>,
-    /// Force field sources.
-    pub force_field: [ForceFieldSource; ForceFieldSource::MAX_SOURCES],
     /// Number of particles to spawn for this effect.
     pub spawn_count: u32,
     /// Emitter transform.
@@ -551,7 +549,6 @@ mod tests {
             effect_shader,
             layout_flags: LayoutFlags::NONE,
             image_handle,
-            force_field: [ForceFieldSource::default(); ForceFieldSource::MAX_SOURCES],
             spawn_count: 32,
             transform: GpuCompressedTransform::default(),
             inverse_transform: GpuCompressedTransform::default(),

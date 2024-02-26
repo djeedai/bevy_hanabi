@@ -124,6 +124,7 @@ type Index = NonZeroU32;
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect, Serialize, Deserialize,
 )]
+#[repr(transparent)]
 pub struct ExprHandle {
     index: Index,
 }
