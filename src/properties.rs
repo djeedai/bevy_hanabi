@@ -307,9 +307,9 @@ impl EffectProperties {
     /// case with [`set()`].
     ///
     /// [`set()`]: crate::EffectProperties::set
-    pub fn set_if_changed<'p, 's>(
+    pub fn set_if_changed<'p>(
         mut this: Mut<'p, EffectProperties>,
-        name: &'s str,
+        name: &str,
         value: Value,
     ) -> Mut<'p, EffectProperties> {
         if let Some(index) = this
