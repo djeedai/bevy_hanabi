@@ -136,7 +136,8 @@ impl Plugin for HanabiPlugin {
         app.register_type::<EffectAsset>()
             .register_type::<ParticleEffect>()
             .register_type::<EffectProperties>()
-            .register_type::<Spawner>();
+            .register_type::<Spawner>()
+            .register_type::<Time<EffectSimulation>>();
     }
 
     fn finish(&self, app: &mut App) {
