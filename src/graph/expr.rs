@@ -325,6 +325,7 @@ impl Module {
     impl_module_binary!(step, Step);
     impl_module_binary!(sub, Sub);
     impl_module_binary!(uniform, UniformRand);
+    impl_module_binary!(vec2, Vec2);
 
     /// Build a ternary expression and append it to the module.
     ///
@@ -1544,6 +1545,12 @@ pub enum BinaryOperator {
     /// rank, and the result is a vector of that rank and same element
     /// scalar type.
     UniformRand,
+
+    /// Constructor for 2-element vectors.
+    ///
+    /// Given two scalar elements `x` and `y`, returns the vector consisting of
+    /// those two elements `(x, y)`.
+    Vec2,
 }
 
 impl BinaryOperator {
@@ -1570,7 +1577,8 @@ impl BinaryOperator {
             | BinaryOperator::Max
             | BinaryOperator::Min
             | BinaryOperator::Step
-            | BinaryOperator::UniformRand => true,
+            | BinaryOperator::UniformRand
+            | BinaryOperator::Vec2 => true,
         }
     }
 }
@@ -1594,6 +1602,7 @@ impl ToWgslString for BinaryOperator {
             BinaryOperator::Step => "step".to_string(),
             BinaryOperator::Sub => "-".to_string(),
             BinaryOperator::UniformRand => "rand_uniform".to_string(),
+            BinaryOperator::Vec2 => "vec2".to_string(),
         }
     }
 }
@@ -1629,6 +1638,12 @@ pub enum TernaryOperator {
     ///
     /// The result is always a floating point scalar in \[0:1\].
     SmoothStep,
+
+    /// Constructor for 3-element vectors.
+    ///
+    /// Given three scalar elements `x`, `y`, and `z`, returns the vector
+    /// consisting of those three elements `(x, y, z)`.
+    Vec3,
 }
 
 impl ToWgslString for TernaryOperator {
@@ -1636,6 +1651,7 @@ impl ToWgslString for TernaryOperator {
         match *self {
             TernaryOperator::Mix => "mix".to_string(),
             TernaryOperator::SmoothStep => "smoothstep".to_string(),
+            TernaryOperator::Vec3 => "vec3".to_string(),
         }
     }
 }
@@ -3005,6 +3021,38 @@ impl WriterExpr {
     pub fn smoothstep(self, low: Self, high: Self) -> Self {
         // Note: order is smoothstep(low, high, x) but x.smoothstep(low, high)
         low.ternary_op(high, self, TernaryOperator::SmoothStep)
+    }
+
+    /// Construct a `Vec2` from two scalars.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # let mut w = ExprWriter::new();
+    /// // Convert the angular property `theta` to a 2D vector.
+    /// let (cos_theta, sin_theta) = (w.prop("theta").cos(), w.prop("theta").sin());
+    /// let circle_pos = cos_theta.vec2(sin_theta);
+    /// ```
+    #[inline]
+    pub fn vec2(self, y: Self) -> Self {
+        self.binary_op(y, BinaryOperator::Vec2)
+    }
+
+    /// Construct a `Vec3` from two scalars.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # let mut w = ExprWriter::new();
+    /// // Convert the angular property `theta` to a 3D vector in a flat plane.
+    /// let (cos_theta, sin_theta) = (w.prop("theta").cos(), w.prop("theta").sin());
+    /// let circle_pos = cos_theta.vec3(w.lit(0.0), sin_theta);
+    /// ```
+    #[inline]
+    pub fn vec3(self, y: Self, z: Self) -> Self {
+        self.ternary_op(y, z, TernaryOperator::Vec3)
     }
 
     /// Cast an expression to a different type.
