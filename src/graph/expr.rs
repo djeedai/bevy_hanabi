@@ -3425,8 +3425,8 @@ mod tests {
             (sign, "sign", "vec3<f32>(1.,-3.1,6.99)"),
             (sin, "sin", "vec3<f32>(1.,-3.1,6.99)"),
             (tan, "tan", "vec3<f32>(1.,-3.1,6.99)"),
-            (unpack4x8snorm, "unpack4x8snorm", "0"),
-            (unpack4x8unorm, "unpack4x8unorm", "0"),
+            (unpack4x8snorm, "unpack4x8snorm", "0u"),
+            (unpack4x8unorm, "unpack4x8unorm", "0u"),
         ] {
             let expr = ctx.eval(&m, expr);
             assert!(expr.is_ok());

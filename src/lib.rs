@@ -396,7 +396,7 @@ impl ToWgslString for IVec4 {
 
 impl ToWgslString for u32 {
     fn to_wgsl_string(&self) -> String {
-        format!("{}", self)
+        format!("{}u", self)
     }
 }
 
@@ -1532,11 +1532,11 @@ mod tests {
     #[test]
     fn to_wgsl_uvec() {
         let s = UVec2::new(1, 2).to_wgsl_string();
-        assert_eq!(s, "vec2<u32>(1,2)");
+        assert_eq!(s, "vec2<u32>(1u,2u)");
         let s = UVec3::new(1, 2, 42).to_wgsl_string();
-        assert_eq!(s, "vec3<u32>(1,2,42)");
+        assert_eq!(s, "vec3<u32>(1u,2u,42u)");
         let s = UVec4::new(1, 2, 42, 5).to_wgsl_string();
-        assert_eq!(s, "vec4<u32>(1,2,42,5)");
+        assert_eq!(s, "vec4<u32>(1u,2u,42u,5u)");
     }
 
     #[test]
