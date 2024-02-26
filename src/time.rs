@@ -172,3 +172,73 @@ pub(crate) fn effect_simulation_time_system(
     effect_simulation.context_mut().effective_speed = effective_speed * virt.effective_speed_f64();
     effect_simulation.advance_by(delta);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::time::{virtual_time_system, TimePlugin, TimeSystem};
+    use std::{thread::sleep, time::Duration};
+
+    fn make_test_app() -> App {
+        let mut app = App::new();
+
+        app.add_plugins(TimePlugin);
+        app.init_resource::<Time<EffectSimulation>>();
+        app.add_systems(
+            First,
+            effect_simulation_time_system
+                .after(virtual_time_system)
+                .in_set(TimeSystem),
+        );
+
+        app
+    }
+
+    #[test]
+    #[allow(clippy::suboptimal_flops)]
+    fn test_effect_simulation_time() {
+        // This is only used for floating point comparisons, inaccurate sleep times are always fine,
+        // as we only test for the relative values between the clocks.
+        const EPSILON: f32 = 0.000001;
+
+        let mut app = make_test_app();
+        app.update();
+
+        // Update with default speed
+        sleep(Duration::from_millis(1));
+        app.update();
+        let real = app.world.resource::<Time<Real>>();
+        let virt = app.world.resource::<Time<Virtual>>();
+        let effect_simulation = app.world.resource::<Time<EffectSimulation>>();
+        assert!(f32::abs(virt.delta_seconds() - real.delta_seconds()) < EPSILON);
+        assert!(f32::abs(effect_simulation.delta_seconds() - real.delta_seconds()) < EPSILON);
+
+        // Update with virtual speed 2.0
+        app.world
+            .resource_mut::<Time<Virtual>>()
+            .set_relative_speed(2.0);
+        sleep(Duration::from_millis(1));
+        app.update();
+        let real = app.world.resource::<Time<Real>>();
+        let virt = app.world.resource::<Time<Virtual>>();
+        let effect_simulation = app.world.resource::<Time<EffectSimulation>>();
+        assert!(f32::abs(virt.delta_seconds() - 2.0 * real.delta_seconds()) < EPSILON);
+        assert!(f32::abs(effect_simulation.delta_seconds() - 2.0 * real.delta_seconds()) < EPSILON);
+        assert!(f32::abs(virt.effective_speed() - 2.0) < EPSILON);
+        assert!(f32::abs(effect_simulation.effective_speed() - 2.0) < EPSILON);
+
+        // Update with virtual speed 2.0 and effect speed 3.0
+        app.world
+            .resource_mut::<Time<EffectSimulation>>()
+            .set_relative_speed(3.0);
+        sleep(Duration::from_millis(1));
+        app.update();
+        let real = app.world.resource::<Time<Real>>();
+        let virt = app.world.resource::<Time<Virtual>>();
+        let effect_simulation = app.world.resource::<Time<EffectSimulation>>();
+        assert!(f32::abs(virt.delta_seconds() - 2.0 * real.delta_seconds()) < EPSILON);
+        assert!(f32::abs(effect_simulation.delta_seconds() - 6.0 * real.delta_seconds()) < EPSILON);
+        assert!(f32::abs(virt.effective_speed() - 2.0) < EPSILON);
+        assert!(f32::abs(effect_simulation.effective_speed() - 6.0) < EPSILON);
+    }
+}
