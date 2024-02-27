@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added a new `ScreenSpaceSizeModifier` which negates the effect of perspective projection, and makes the particle's size a pixel size in screen space, instead of a Bevy world unit size. This replaces the hard-coded behavior previously available on the `SetSizeModifier`.
 - Added a new `ConformToSphereModifier` acting as an attractor applying a force toward a point (sphere center) to all particles in range, and making particles conform ("stick") to the sphere surface.
+- Added `vec2` and `vec3` functions that allow construction of vectors from dynamic parts.
 
 ### Changed
 
@@ -23,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed a panic in rendering randomly occurring when no effect is present.
+- Fixed invalid WGSL being generated for large `u32` values.
 
 ## [0.10.0] 2024-02-24
 
