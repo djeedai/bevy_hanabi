@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `ExprHandle` is now `#[repr(transparent)]`, which guarantees that `Option<ExprHandle>` has the same size as `ExprHandle` itself (4 bytes).
 - `EffectProperties::set_if_changed()` now returns the `Mut` variable it takes as input, to allow subsequent calls.
+- `VectorValue::new_uvecX()` now take a `UVecX` instead of individual components, like for all other scalar types.
 
 ### Removed
 
