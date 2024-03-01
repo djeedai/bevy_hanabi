@@ -42,7 +42,10 @@
 use std::fmt::Debug;
 
 use bevy::{
-    math::{BVec2, BVec3, BVec4, IVec2, IVec3, IVec4, Mat2, Mat3, Mat4, Vec2, Vec3, Vec3A, Vec4},
+    math::{
+        BVec2, BVec3, BVec4, IVec2, IVec3, IVec4, Mat2, Mat3, Mat4, UVec2, UVec3, UVec4, Vec2,
+        Vec3, Vec3A, Vec4,
+    },
     reflect::Reflect,
     utils::FloatOrd,
 };
@@ -191,13 +194,7 @@ impl ScalarValue {
     /// not guaranteed to be stable.
     fn as_storage(&self) -> u32 {
         match self {
-            ScalarValue::Bool(b) => {
-                if *b {
-                    Self::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                }
-            }
+            ScalarValue::Bool(b) => Self::BOOL_STORAGE[*b as usize],
             ScalarValue::Float(f) => bytemuck::cast::<f32, u32>(*f),
             ScalarValue::Int(i) => bytemuck::cast::<i32, u32>(*i),
             ScalarValue::Uint(u) => *u,
@@ -452,16 +449,8 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC2B,
             storage: [
-                if value.x {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.y {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
+                ScalarValue::BOOL_STORAGE[value.x as usize],
+                ScalarValue::BOOL_STORAGE[value.y as usize],
                 0u32,
                 0u32,
             ],
@@ -474,21 +463,9 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC3B,
             storage: [
-                if value.x {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.y {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.z {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
+                ScalarValue::BOOL_STORAGE[value.x as usize],
+                ScalarValue::BOOL_STORAGE[value.y as usize],
+                ScalarValue::BOOL_STORAGE[value.z as usize],
                 0u32,
             ],
         }
@@ -500,26 +477,10 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC4B,
             storage: [
-                if value.x {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.y {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.z {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.w {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
+                ScalarValue::BOOL_STORAGE[value.x as usize],
+                ScalarValue::BOOL_STORAGE[value.y as usize],
+                ScalarValue::BOOL_STORAGE[value.z as usize],
+                ScalarValue::BOOL_STORAGE[value.w as usize],
             ],
         }
     }
@@ -598,36 +559,27 @@ impl VectorValue {
         }
     }
 
-    /// Create a new [`VectorValue`] from a 2D vector of `u32`.
-    ///
-    /// Note that due to the lack of `UVec2` in glam, this method takes
-    /// individual vector components instead.
-    pub const fn new_uvec2(x: u32, y: u32) -> Self {
+    /// Workaround for `impl const From<UVec2>`.
+    pub const fn new_uvec2(v: UVec2) -> Self {
         Self {
             vector_type: VectorType::VEC2U,
-            storage: [x, y, 0, 0],
+            storage: [v.x, v.y, 0, 0],
         }
     }
 
-    /// Create a new [`VectorValue`] from a 3D vector of `u32`.
-    ///
-    /// Note that due to the lack of `UVec3` in glam, this method takes
-    /// individual vector components instead.
-    pub const fn new_uvec3(x: u32, y: u32, z: u32) -> Self {
+    /// Workaround for `impl const From<UVec3>`.
+    pub const fn new_uvec3(v: UVec3) -> Self {
         Self {
             vector_type: VectorType::VEC3U,
-            storage: [x, y, z, 0],
+            storage: [v.x, v.y, v.z, 0],
         }
     }
 
-    /// Create a new [`VectorValue`] from a 4D vector of `u32`.
-    ///
-    /// Note that due to the lack of `UVec4` in glam, this method takes
-    /// individual vector components instead.
-    pub const fn new_uvec4(x: u32, y: u32, z: u32, w: u32) -> Self {
+    /// Workaround for `impl const From<UVec4>`.
+    pub const fn new_uvec4(v: UVec4) -> Self {
         Self {
             vector_type: VectorType::VEC4U,
-            storage: [x, y, z, w],
+            storage: v.to_array(),
         }
     }
 
@@ -1932,7 +1884,7 @@ mod tests {
         let vecs = [
             VectorValue::new_vec2(Vec2::new(1., 0.)),
             VectorValue::new_ivec2(IVec2::new(1, 0)),
-            VectorValue::new_uvec2(1, 0),
+            VectorValue::new_uvec2(UVec2::new(1, 0)),
             VectorValue::new_bvec2(BVec2::new(true, false)),
         ];
         for i in 0..=3 {
@@ -1994,15 +1946,15 @@ mod tests {
         );
 
         assert_eq!(
-            calc_hash(&VectorValue::new_uvec2(3, 42)),
+            calc_hash(&VectorValue::new_uvec2(UVec2::new(3, 42))),
             calc_u32_vector_hash(VectorType::VEC2U, &[3, 42])
         );
         assert_eq!(
-            calc_hash(&VectorValue::new_uvec3(3, 42, 999)),
+            calc_hash(&VectorValue::new_uvec3(UVec3::new(3, 42, 999))),
             calc_u32_vector_hash(VectorType::VEC3U, &[3, 42, 999])
         );
         assert_eq!(
-            calc_hash(&VectorValue::new_uvec4(3, 42, 999, 1)),
+            calc_hash(&VectorValue::new_uvec4(UVec4::new(3, 42, 999, 1))),
             calc_u32_vector_hash(VectorType::VEC4U, &[3, 42, 999, 1])
         );
     }
