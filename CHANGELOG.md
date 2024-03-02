@@ -11,17 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a new `ConformToSphereModifier` acting as an attractor applying a force toward a point (sphere center) to all particles in range, and making particles conform ("stick") to the sphere surface.
 - Added `vec2` and `vec3` functions that allow construction of vectors from dynamic parts.
 - Added missing `VectorValue::as_uvecX()` and `impl From<UVecX> for VectorValue` for all `X=2,3,4`.
+- Added a new `ShaderWriter` helper, common to the init and update modifier contexts, and which replaces the `InitContext` and `UpdateContext`.
+- Added a simple `impl Display for ModifierContext`.
+- Added `Modifier::apply()` which replaces the now deleted `InitModifier::apply_init()` and `UdpdateModifier::apply_update()`.
+- Added `RenderModifier::as_modifier()` to upcast a `RenderModifier` to a `Modifier`.
+- Added `RenderModifier::boxed_render_clone()` to clone a `RenderModifier` into a boxed self (instead of a `BoxedModifier`, as we can't upcast from `Box<dyn RenderModifier>` to `Box<dyn Modifier>`). Added `impl Clone for Box<dyn RenderModifier>` based on this.
+- Added `EffectAsset::add_modifier()` to add a pre-boxed `Modifier` (so, a `BoxedModifier`) to the init or update context, and added `EffectAsset::add_render_modifier()` to add a pre-boxed `RenderModifier` to the render context.
 
 ### Changed
 
 - `ExprHandle` is now `#[repr(transparent)]`, which guarantees that `Option<ExprHandle>` has the same size as `ExprHandle` itself (4 bytes).
 - `EffectProperties::set_if_changed()` now returns the `Mut` variable it takes as input, to allow subsequent calls.
 - `VectorValue::new_uvecX()` now take a `UVecX` instead of individual components, like for all other scalar types.
+- Merged the `InitModifier` and `UpdateModifier` traits into the `Modifier` subtrait; see other changelog entries for details. This helps manage modifiers in a unified way, and generally simplifies writing and maintain modifiers compatible with both the init and update contexts.
+- `EffectAsset::init()` and `EffectAsset::update()` now take a `Modifier`-bound type, and validate its `ModifierContext` is compatible (and panics if not).
+- `EffectAsset::render()` now panics if the modifier is not compatible with the `ModifierContext::Render`. Note that this indicates a malformed render modifier, because all objects implementing `RenderModifier` must include `ModifierContext::Render` in their `Modifier::context()`.
 
 ### Removed
 
 - Removed the `screen_space_size` field from the `SetSizeModifier`. Use the new `ScreenSpaceSizeModifier` to use a screen-space size.
 - Removed the built-in `ForceFieldSource` and associated `ForceFieldModifier`. Use the new `ConformToSphereModifer` instead. The behavior might change a bit as the conforming code is not strictly identical; use the `force_field.rs` example with the `examples_world_inspector` feature to tweak the parameters in real time and observe how they work and change the effect.
+- Removed `InitContext` and `UpdateContext`; they're replaced with `ShaderWriter`.
+- Removed `InitModifer` and `UpdateModifer`. Modifiers for the init and update contexts now only need to implement the base `Modifier` trait.
+- Removed downcast methods from `Modifier` (`as_init()`, `as_init_mut()`, `as_update()`, `as_update_mut()`).
+- Removed the various helper macros `impl_mod_xxx!()` to implement modifier traits; simply implement the trait by hand instead.
 
 ### Fixed
 

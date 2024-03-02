@@ -65,7 +65,7 @@ const SIZE: Vec2 = Vec2::splat(0.1);
 
 fn base_effect<M, F>(name: impl Into<String>, mut make_modifier: F) -> EffectAsset
 where
-    M: InitModifier + Send + Sync + 'static,
+    M: Modifier + Send + Sync + 'static,
     F: FnMut(&ExprWriter) -> M,
 {
     let writer = ExprWriter::new();

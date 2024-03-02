@@ -13,8 +13,8 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    calc_func_id, graph::ExprError, impl_mod_init_update, Attribute, EvalContext, ExprHandle,
-    InitContext, InitModifier, Module, UpdateContext, UpdateModifier,
+    calc_func_id, graph::ExprError, Attribute, BoxedModifier, EvalContext, ExprHandle, Modifier,
+    ModifierContext, Module, ShaderWriter,
 };
 
 /// A modifier to set the velocity of particles radially on a circle.
@@ -40,11 +40,6 @@ pub struct SetVelocityCircleModifier {
     /// Expression type: `f32`
     pub speed: ExprHandle,
 }
-
-impl_mod_init_update!(
-    SetVelocityCircleModifier,
-    &[Attribute::POSITION, Attribute::VELOCITY]
-);
 
 impl SetVelocityCircleModifier {
     fn eval(
@@ -86,23 +81,22 @@ impl SetVelocityCircleModifier {
 }
 
 #[typetag::serde]
-impl InitModifier for SetVelocityCircleModifier {
-    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
-        let code = self.eval(module, context)?;
-        context.init_code += &code;
-        Ok(())
+impl Modifier for SetVelocityCircleModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Init | ModifierContext::Update
     }
-}
 
-#[typetag::serde]
-impl UpdateModifier for SetVelocityCircleModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::POSITION, Attribute::VELOCITY]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let code = self.eval(module, context)?;
-        context.update_code += &code;
+        context.main_code += &code;
         Ok(())
     }
 }
@@ -127,11 +121,6 @@ pub struct SetVelocitySphereModifier {
     pub speed: ExprHandle,
 }
 
-impl_mod_init_update!(
-    SetVelocitySphereModifier,
-    &[Attribute::POSITION, Attribute::VELOCITY]
-);
-
 impl SetVelocitySphereModifier {
     fn eval(
         &self,
@@ -152,23 +141,22 @@ impl SetVelocitySphereModifier {
 }
 
 #[typetag::serde]
-impl InitModifier for SetVelocitySphereModifier {
-    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
-        let code = self.eval(module, context)?;
-        context.init_code += &code;
-        Ok(())
+impl Modifier for SetVelocitySphereModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Init | ModifierContext::Update
     }
-}
 
-#[typetag::serde]
-impl UpdateModifier for SetVelocitySphereModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::POSITION, Attribute::VELOCITY]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let code = self.eval(module, context)?;
-        context.update_code += &code;
+        context.main_code += &code;
         Ok(())
     }
 }
@@ -197,11 +185,6 @@ pub struct SetVelocityTangentModifier {
     /// Expression type: `f32`
     pub speed: ExprHandle,
 }
-
-impl_mod_init_update!(
-    SetVelocityTangentModifier,
-    &[Attribute::POSITION, Attribute::VELOCITY]
-);
 
 impl SetVelocityTangentModifier {
     fn eval(
@@ -243,23 +226,22 @@ impl SetVelocityTangentModifier {
 }
 
 #[typetag::serde]
-impl InitModifier for SetVelocityTangentModifier {
-    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
-        let code = self.eval(module, context)?;
-        context.init_code += &code;
-        Ok(())
+impl Modifier for SetVelocityTangentModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Init | ModifierContext::Update
     }
-}
 
-#[typetag::serde]
-impl UpdateModifier for SetVelocityTangentModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::POSITION, Attribute::VELOCITY]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let code = self.eval(module, context)?;
-        context.update_code += &code;
+        context.main_code += &code;
         Ok(())
     }
 }

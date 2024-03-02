@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::{EvalContext, ExprError},
-    Attribute, BoxedModifier, ExprHandle, InitContext, InitModifier, Modifier, ModifierContext,
-    Module, UpdateContext, UpdateModifier,
+    Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module, ShaderWriter,
 };
 
 /// A modifier to assign a value to a particle attribute.
@@ -99,22 +98,6 @@ impl Modifier for SetAttributeModifier {
         ModifierContext::Init | ModifierContext::Update
     }
 
-    fn as_init(&self) -> Option<&dyn InitModifier> {
-        Some(self)
-    }
-
-    fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
-        Some(self)
-    }
-
-    fn as_update(&self) -> Option<&dyn UpdateModifier> {
-        Some(self)
-    }
-
-    fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
-        Some(self)
-    }
-
     fn attributes(&self) -> &[Attribute] {
         std::slice::from_ref(&self.attribute)
     }
@@ -122,26 +105,10 @@ impl Modifier for SetAttributeModifier {
     fn boxed_clone(&self) -> BoxedModifier {
         Box::new(*self)
     }
-}
 
-#[typetag::serde]
-impl InitModifier for SetAttributeModifier {
-    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let code = self.eval(module, context)?;
-        context.init_code += &code;
-        Ok(())
-    }
-}
-
-#[typetag::serde]
-impl UpdateModifier for SetAttributeModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
-        let code = self.eval(module, context)?;
-        context.update_code += &code;
+        context.main_code += &code;
         Ok(())
     }
 }

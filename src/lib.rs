@@ -196,8 +196,6 @@ mod spawn;
 #[cfg(test)]
 mod test_utils;
 
-use properties::PropertyInstance;
-
 pub use asset::{AlphaMode, EffectAsset, MotionIntegration, SimulationCondition};
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
@@ -847,9 +845,10 @@ impl EffectShaderSource {
 
         // Generate the shader code for the initializing shader
         let (init_code, init_extra, init_sim_space_transform_code) = {
-            let mut init_context = InitContext::new(&property_layout, &particle_layout);
+            let mut init_context =
+                ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
             for m in asset.init_modifiers() {
-                if let Err(err) = m.apply_init(&mut module, &mut init_context) {
+                if let Err(err) = m.apply(&mut module, &mut init_context) {
                     error!("Failed to compile effect, error in init context: {:?}", err);
                     return Err(ShaderGenerateError::Expr(err));
                 }
@@ -862,17 +861,18 @@ impl EffectShaderSource {
                 }
             };
             (
-                init_context.init_code,
-                init_context.init_extra,
+                init_context.main_code,
+                init_context.extra_code,
                 sim_space_transform_code,
             )
         };
 
         // Generate the shader code for the update shader
         let (mut update_code, update_extra) = {
-            let mut update_context = UpdateContext::new(&property_layout, &particle_layout);
+            let mut update_context =
+                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
             for m in asset.update_modifiers() {
-                if let Err(err) = m.apply_update(&mut module, &mut update_context) {
+                if let Err(err) = m.apply(&mut module, &mut update_context) {
                     error!(
                         "Failed to compile effect, error in udpate context: {:?}",
                         err
@@ -880,7 +880,7 @@ impl EffectShaderSource {
                     return Err(ShaderGenerateError::Expr(err));
                 }
             }
-            (update_context.update_code, update_context.update_extra)
+            (update_context.main_code, update_context.extra_code)
         };
 
         // Insert Euler motion integration if needed.
@@ -1332,9 +1332,7 @@ fn compile_effects(
                 // Check if asset is available, otherwise silently ignore as we can't check for
                 // changes, and conceptually it makes no sense to render a particle effect whose
                 // asset was unloaded.
-                let Some(asset) = effects.get(&effect.handle) else {
-                    return None;
-                };
+                let asset = effects.get(&effect.handle)?;
 
                 Some((asset, entity, effect, compiled_effect))
             })
@@ -1619,25 +1617,29 @@ else { return c1; }
         let property_layout = PropertyLayout::default();
         {
             // Local is always available
-            let ctx = InitContext::new(&property_layout, &particle_layout);
+            let ctx =
+                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_err());
 
             // Global requires storing the particle's position
             let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
-            let ctx = InitContext::new(&property_layout, &particle_layout);
+            let ctx =
+                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_ok());
         }
         {
             // Local is always available
-            let ctx = UpdateContext::new(&property_layout, &particle_layout);
+            let ctx =
+                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_err());
 
             // Global requires storing the particle's position
             let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
-            let ctx = UpdateContext::new(&property_layout, &particle_layout);
+            let ctx =
+                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_ok());
         }

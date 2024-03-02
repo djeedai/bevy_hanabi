@@ -100,31 +100,39 @@ bitflags! {
     }
 }
 
+impl std::fmt::Display for ModifierContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = if self.contains(ModifierContext::Init) {
+            "Init".to_string()
+        } else {
+            String::new()
+        };
+        if self.contains(ModifierContext::Update) {
+            if s.is_empty() {
+                s = "Update".to_string();
+            } else {
+                s += " | Update";
+            }
+        }
+        if self.contains(ModifierContext::Render) {
+            if s.is_empty() {
+                s = "Render".to_string();
+            } else {
+                s += " | Render";
+            }
+        }
+        if s.is_empty() {
+            s = "None".to_string();
+        }
+        write!(f, "{}", s)
+    }
+}
+
 /// Trait describing a modifier customizing an effect pipeline.
 #[typetag::serde]
 pub trait Modifier: Reflect + Send + Sync + 'static {
     /// Get the context this modifier applies to.
     fn context(&self) -> ModifierContext;
-
-    /// Try to cast this modifier to an [`InitModifier`].
-    fn as_init(&self) -> Option<&dyn InitModifier> {
-        None
-    }
-
-    /// Try to cast this modifier to an [`InitModifier`].
-    fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
-        None
-    }
-
-    /// Try to cast this modifier to an [`UpdateModifier`].
-    fn as_update(&self) -> Option<&dyn UpdateModifier> {
-        None
-    }
-
-    /// Try to cast this modifier to an [`UpdateModifier`].
-    fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
-        None
-    }
 
     /// Try to cast this modifier to a [`RenderModifier`].
     fn as_render(&self) -> Option<&dyn RenderModifier> {
@@ -142,6 +150,9 @@ pub trait Modifier: Reflect + Send + Sync + 'static {
 
     /// Clone self.
     fn boxed_clone(&self) -> BoxedModifier;
+
+    /// Apply the modifier to generate code.
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError>;
 }
 
 /// Boxed version of [`Modifier`].
@@ -153,18 +164,31 @@ impl Clone for BoxedModifier {
     }
 }
 
-/// Particle initializing shader code generation context.
+/// Shader code writer.
+///
+/// Writer utility to generate shader code. The writer works in a defined
+/// context, for a given [`ModifierContext`] and a particular effect setup
+/// ([`ParticleLayout`] and [`PropertyLayout`]).
 #[derive(Debug, PartialEq)]
-pub struct InitContext<'a> {
-    /// Main particle initializing code, which needs to assign the fields of the
-    /// `particle` struct instance.
-    pub init_code: String,
-    /// Extra functions emitted at top level, which `init_code` can call.
-    pub init_extra: String,
+pub struct ShaderWriter<'a> {
+    /// Main shader compute code emitted.
+    ///
+    /// This is the WGSL code emitted into the target [`ModifierContext`]. The
+    /// context dictates what variables are available (this is currently
+    /// implicit and requires knownledge of the target context; there's little
+    /// validation that the emitted code is valid).
+    pub main_code: String,
+    /// Extra functions emitted at shader top level.
+    ///
+    /// This contains optional WGSL code emitted at shader top level. This
+    /// generally contains functions called from `main_code`.
+    pub extra_code: String,
     /// Layout of properties for the current effect.
     pub property_layout: &'a PropertyLayout,
     /// Layout of attributes of a particle for the current effect.
     pub particle_layout: &'a ParticleLayout,
+    /// Modifier context the writer is being used from.
+    modifier_context: ModifierContext,
     /// Counter for unique variable names.
     var_counter: u32,
     /// Cache of evaluated expressions.
@@ -173,14 +197,19 @@ pub struct InitContext<'a> {
     is_attribute_pointer: bool,
 }
 
-impl<'a> InitContext<'a> {
+impl<'a> ShaderWriter<'a> {
     /// Create a new init context.
-    pub fn new(property_layout: &'a PropertyLayout, particle_layout: &'a ParticleLayout) -> Self {
+    pub fn new(
+        modifier_context: ModifierContext,
+        property_layout: &'a PropertyLayout,
+        particle_layout: &'a ParticleLayout,
+    ) -> Self {
         Self {
-            init_code: String::new(),
-            init_extra: String::new(),
+            main_code: String::new(),
+            extra_code: String::new(),
             property_layout,
             particle_layout,
+            modifier_context,
             var_counter: 0,
             expr_cache: Default::default(),
             is_attribute_pointer: false,
@@ -194,9 +223,9 @@ impl<'a> InitContext<'a> {
     }
 }
 
-impl<'a> EvalContext for InitContext<'a> {
+impl<'a> EvalContext for ShaderWriter<'a> {
     fn modifier_context(&self) -> ModifierContext {
-        ModifierContext::Init
+        self.modifier_context
     }
 
     fn property_layout(&self) -> &PropertyLayout {
@@ -227,8 +256,8 @@ impl<'a> EvalContext for InitContext<'a> {
     }
 
     fn push_stmt(&mut self, stmt: &str) {
-        self.init_code += stmt;
-        self.init_code += "\n";
+        self.main_code += stmt;
+        self.main_code += "\n";
     }
 
     fn make_fn(
@@ -240,20 +269,24 @@ impl<'a> EvalContext for InitContext<'a> {
     ) -> Result<(), ExprError> {
         // Generate a temporary context for the function content itself
         // FIXME - Dynamic with_attribute_pointer()!
-        let mut ctx =
-            InitContext::new(self.property_layout, self.particle_layout).with_attribute_pointer();
+        let mut ctx = ShaderWriter::new(
+            self.modifier_context,
+            self.property_layout,
+            self.particle_layout,
+        )
+        .with_attribute_pointer();
 
         // Evaluate the function content
         let body = f(module, &mut ctx)?;
 
         // Append any extra
-        self.init_extra += &ctx.init_extra;
+        self.extra_code += &ctx.extra_code;
 
         // Append the function itself
-        self.init_extra += &format!(
+        self.extra_code += &format!(
             r##"fn {0}({1}) {{
 {2}{3}}}"##,
-            func_name, args, ctx.init_code, body
+            func_name, args, ctx.main_code, body
         );
 
         Ok(())
@@ -262,137 +295,6 @@ impl<'a> EvalContext for InitContext<'a> {
     fn is_attribute_pointer(&self) -> bool {
         self.is_attribute_pointer
     }
-}
-
-/// Trait to customize the initializing of newly spawned particles.
-#[typetag::serde]
-pub trait InitModifier: Modifier {
-    /// Append the initializing code.
-    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError>;
-}
-
-/// Particle update shader code generation context.
-#[derive(Debug, PartialEq)]
-pub struct UpdateContext<'a> {
-    /// Main particle update code, which needs to update the fields of the
-    /// `particle` struct instance.
-    pub update_code: String,
-    /// Extra functions emitted at top level, which `update_code` can call.
-    pub update_extra: String,
-    /// Layout of properties for the current effect.
-    pub property_layout: &'a PropertyLayout,
-    /// Layout of attributes of a particle for the current effect.
-    pub particle_layout: &'a ParticleLayout,
-    /// Counter for unique variable names.
-    var_counter: u32,
-    /// Cache of evaluated expressions.
-    expr_cache: HashMap<ExprHandle, String>,
-    /// Is the attriubute struct a pointer?
-    is_attribute_pointer: bool,
-}
-
-impl<'a> UpdateContext<'a> {
-    /// Create a new update context.
-    pub fn new(property_layout: &'a PropertyLayout, particle_layout: &'a ParticleLayout) -> Self {
-        Self {
-            update_code: String::new(),
-            update_extra: String::new(),
-            property_layout,
-            particle_layout,
-            var_counter: 0,
-            expr_cache: Default::default(),
-            is_attribute_pointer: false,
-        }
-    }
-
-    /// Mark the attribute struct as being available through a pointer.
-    pub fn with_attribute_pointer(mut self) -> Self {
-        self.is_attribute_pointer = true;
-        self
-    }
-}
-
-impl<'a> EvalContext for UpdateContext<'a> {
-    fn modifier_context(&self) -> ModifierContext {
-        ModifierContext::Update
-    }
-
-    fn property_layout(&self) -> &PropertyLayout {
-        self.property_layout
-    }
-
-    fn particle_layout(&self) -> &ParticleLayout {
-        self.particle_layout
-    }
-
-    fn eval(&mut self, module: &Module, handle: ExprHandle) -> Result<String, ExprError> {
-        // On cache hit, don't re-evaluate the expression to prevent any duplicate
-        // side-effect.
-        if let Some(s) = self.expr_cache.get(&handle) {
-            Ok(s.clone())
-        } else {
-            module.try_get(handle)?.eval(module, self).map(|s| {
-                self.expr_cache.insert(handle, s.clone());
-                s
-            })
-        }
-    }
-
-    fn make_local_var(&mut self) -> String {
-        let index = self.var_counter;
-        self.var_counter += 1;
-        format!("var{}", index)
-    }
-
-    fn push_stmt(&mut self, stmt: &str) {
-        self.update_code += stmt;
-        self.update_code += "\n";
-    }
-
-    fn make_fn(
-        &mut self,
-        func_name: &str,
-        args: &str,
-        module: &mut Module,
-        f: &mut dyn FnMut(&mut Module, &mut dyn EvalContext) -> Result<String, ExprError>,
-    ) -> Result<(), ExprError> {
-        // Generate a temporary context for the function content itself
-        // FIXME - Dynamic with_attribute_pointer()!
-        let mut ctx =
-            UpdateContext::new(self.property_layout, self.particle_layout).with_attribute_pointer();
-
-        // Evaluate the function content
-        let body = f(module, &mut ctx)?;
-
-        // Append any extra
-        self.update_extra += &ctx.update_extra;
-
-        // Append the function itself
-        self.update_extra += &format!(
-            r##"fn {0}({1}) {{
-            {2};
-        }}
-        "##,
-            func_name, args, body
-        );
-
-        Ok(())
-    }
-
-    fn is_attribute_pointer(&self) -> bool {
-        self.is_attribute_pointer
-    }
-}
-
-/// Trait to customize the updating of existing particles each frame.
-#[typetag::serde]
-pub trait UpdateModifier: Modifier {
-    /// Append the update code.
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError>;
 }
 
 /// Particle rendering shader code generation context.
@@ -564,106 +466,19 @@ impl<'a> EvalContext for RenderContext<'a> {
 pub trait RenderModifier: Modifier {
     /// Apply the rendering code.
     fn apply_render(&self, module: &mut Module, context: &mut RenderContext);
+
+    /// Clone into boxed self.
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier>;
+
+    /// Upcast to [`Modifier`] trait.
+    fn as_modifier(&self) -> &dyn Modifier;
 }
 
-/// Macro to implement the [`Modifier`] trait for an init modifier.
-// macro_rules! impl_mod_init {
-//     ($t:ty, $attrs:expr) => {
-//         #[typetag::serde]
-//         impl $crate::Modifier for $t {
-//             fn context(&self) -> $crate::ModifierContext {
-//                 $crate::ModifierContext::Init
-//             }
-
-//             fn as_init(&self) -> Option<&dyn $crate::InitModifier> {
-//                 Some(self)
-//             }
-
-//             fn as_init_mut(&mut self) -> Option<&mut dyn $crate::InitModifier> {
-//                 Some(self)
-//             }
-
-//             fn attributes(&self) -> &[$crate::Attribute] {
-//                 $attrs
-//             }
-
-//             fn boxed_clone(&self) -> $crate::BoxedModifier {
-//                 Box::new(*self)
-//             }
-//         }
-//     };
-// }
-
-// pub(crate) use impl_mod_init;
-
-/// Macro to implement the [`Modifier`] trait for an update modifier.
-macro_rules! impl_mod_update {
-    ($t:ty, $attrs:expr) => {
-        #[typetag::serde]
-        impl $crate::Modifier for $t {
-            fn context(&self) -> $crate::ModifierContext {
-                $crate::ModifierContext::Update
-            }
-
-            fn as_update(&self) -> Option<&dyn $crate::UpdateModifier> {
-                Some(self)
-            }
-
-            fn as_update_mut(&mut self) -> Option<&mut dyn $crate::UpdateModifier> {
-                Some(self)
-            }
-
-            fn attributes(&self) -> &[$crate::Attribute] {
-                $attrs
-            }
-
-            fn boxed_clone(&self) -> $crate::BoxedModifier {
-                Box::new(self.clone())
-            }
-        }
-    };
+impl Clone for Box<dyn RenderModifier> {
+    fn clone(&self) -> Self {
+        self.boxed_render_clone()
+    }
 }
-
-pub(crate) use impl_mod_update;
-
-/// Macro to implement the [`Modifier`] trait for a modifier which can be used
-/// both in init and update contexts.
-macro_rules! impl_mod_init_update {
-    ($t:ty, $attrs:expr) => {
-        #[typetag::serde]
-        impl $crate::Modifier for $t {
-            fn context(&self) -> $crate::ModifierContext {
-                $crate::ModifierContext::Init | $crate::ModifierContext::Update
-            }
-
-            fn as_init(&self) -> Option<&dyn $crate::InitModifier> {
-                Some(self)
-            }
-
-            fn as_init_mut(&mut self) -> Option<&mut dyn $crate::InitModifier> {
-                Some(self)
-            }
-
-            fn as_update(&self) -> Option<&dyn $crate::UpdateModifier> {
-                Some(self)
-            }
-
-            fn as_update_mut(&mut self) -> Option<&mut dyn $crate::UpdateModifier> {
-                Some(self)
-            }
-
-            fn attributes(&self) -> &[$crate::Attribute] {
-                $attrs
-            }
-
-            fn boxed_clone(&self) -> $crate::BoxedModifier {
-                Box::new(self.clone())
-            }
-        }
-    };
-}
-
-pub(crate) use impl_mod_init_update;
 
 /// Macro to implement the [`Modifier`] trait for a render modifier.
 macro_rules! impl_mod_render {
@@ -689,6 +504,17 @@ macro_rules! impl_mod_render {
             fn boxed_clone(&self) -> $crate::BoxedModifier {
                 Box::new(self.clone())
             }
+
+            fn apply(
+                &self,
+                _module: &mut Module,
+                context: &mut ShaderWriter,
+            ) -> Result<(), ExprError> {
+                Err(ExprError::InvalidModifierContext(
+                    context.modifier_context(),
+                    ModifierContext::Render,
+                ))
+            }
         }
     };
 }
@@ -700,7 +526,7 @@ mod tests {
     use bevy::prelude::*;
     use naga::front::wgsl::Frontend;
 
-    use crate::{BuiltInOperator, ExprWriter, ParticleLayout, ScalarType};
+    use crate::{BuiltInOperator, ExprWriter, ScalarType};
 
     use super::*;
 
@@ -713,6 +539,30 @@ mod tests {
             radius: m.lit(1.),
             dimension: ShapeDimension::Surface,
         }
+    }
+
+    #[test]
+    fn modifier_context_display() {
+        assert_eq!("None", format!("{}", ModifierContext::empty()));
+        assert_eq!("Init", format!("{}", ModifierContext::Init));
+        assert_eq!("Update", format!("{}", ModifierContext::Update));
+        assert_eq!("Render", format!("{}", ModifierContext::Render));
+        assert_eq!(
+            "Init | Update",
+            format!("{}", ModifierContext::Init | ModifierContext::Update)
+        );
+        assert_eq!(
+            "Update | Render",
+            format!("{}", ModifierContext::Update | ModifierContext::Render)
+        );
+        assert_eq!(
+            "Init | Render",
+            format!("{}", ModifierContext::Init | ModifierContext::Render)
+        );
+        assert_eq!(
+            "Init | Update | Render",
+            format!("{}", ModifierContext::all())
+        );
     }
 
     #[test]
@@ -758,7 +608,7 @@ mod tests {
         let center = module.lit(Vec3::ZERO);
         let axis = module.lit(Vec3::Y);
         let radius = module.lit(1.);
-        let modifiers: &[&dyn InitModifier] = &[
+        let modifiers: &[&dyn Modifier] = &[
             &SetPositionCircleModifier {
                 center,
                 axis,
@@ -792,12 +642,14 @@ mod tests {
             },
         ];
         for &modifier in modifiers.iter() {
+            assert!(modifier.context().contains(ModifierContext::Init));
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut context = InitContext::new(&property_layout, &particle_layout);
-            assert!(modifier.apply_init(&mut module, &mut context).is_ok());
-            let init_code = context.init_code;
-            let init_extra = context.init_extra;
+            let mut context =
+                ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
+            assert!(modifier.apply(&mut module, &mut context).is_ok());
+            let main_code = context.main_code;
+            let extra_code = context.extra_code;
 
             let mut particle_layout = ParticleLayout::new();
             for &attr in modifier.attributes() {
@@ -817,13 +669,13 @@ struct Particle {{
     {attributes_code}
 }};
 
-{init_extra}
+{extra_code}
 
 @compute @workgroup_size(64)
 fn main() {{
     var particle = Particle();
     var transform: mat4x4<f32> = mat4x4<f32>();
-{init_code}
+{main_code}
 }}"##
             );
             // println!("code: {:?}", code);
@@ -851,7 +703,7 @@ fn main() {{
         let y_axis = writer.lit(Vec3::Y).expr();
         let one = writer.lit(1.).expr();
         let radius = one;
-        let modifiers: &[&dyn UpdateModifier] = &[
+        let modifiers: &[&dyn Modifier] = &[
             &AccelModifier::new(origin),
             &RadialAccelModifier::new(origin, one),
             &TangentAccelModifier::new(origin, y_axis, one),
@@ -892,12 +744,14 @@ fn main() {{
         ];
         let mut module = writer.finish();
         for &modifier in modifiers.iter() {
+            assert!(modifier.context().contains(ModifierContext::Update));
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut context = UpdateContext::new(&property_layout, &particle_layout);
-            assert!(modifier.apply_update(&mut module, &mut context).is_ok());
-            let update_code = context.update_code;
-            let update_extra = context.update_extra;
+            let mut context =
+                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            assert!(modifier.apply(&mut module, &mut context).is_ok());
+            let update_code = context.main_code;
+            let update_extra = context.extra_code;
 
             let mut particle_layout = ParticleLayout::new();
             for &attr in modifier.attributes() {
@@ -1070,9 +924,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {{
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
         let x = module.builtin(BuiltInOperator::Rand(ScalarType::Float.into()));
-        let init: &mut dyn EvalContext = &mut InitContext::new(&property_layout, &particle_layout);
+        let init: &mut dyn EvalContext =
+            &mut ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
         let update: &mut dyn EvalContext =
-            &mut UpdateContext::new(&property_layout, &particle_layout);
+            &mut ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
         let render: &mut dyn EvalContext =
             &mut RenderContext::new(&property_layout, &particle_layout);
         for ctx in [init, update, render] {

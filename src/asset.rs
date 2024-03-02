@@ -4,12 +4,13 @@ use bevy::{
     utils::{default, thiserror::Error, BoxedFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
+use std::ops::Deref;
 
 use crate::{
     graph::Value,
-    modifier::{InitModifier, RenderModifier, UpdateModifier},
-    BoxedModifier, ExprHandle, Module, ParticleLayout, Property, PropertyLayout, SimulationSpace,
-    Spawner,
+    modifier::{Modifier, RenderModifier},
+    BoxedModifier, ExprHandle, ModifierContext, Module, ParticleLayout, Property, PropertyLayout,
+    SimulationSpace, Spawner,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -212,7 +213,7 @@ pub struct EffectAsset {
     /// Render modifiers defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    render_modifiers: Vec<BoxedModifier>,
+    render_modifiers: Vec<Box<dyn RenderModifier>>,
     /// Properties of the effect.
     ///
     /// Properties must have a unique name. Manually adding two or more
@@ -374,49 +375,101 @@ impl EffectAsset {
 
     /// Add an initialization modifier to the effect.
     ///
-    /// [`with_property()`]: crate::EffectAsset::with_property
-    /// [`add_property()`]: crate::EffectAsset::add_property
+    /// # Panics
+    ///
+    /// Panics if the modifier doesn't support the init context (that is,
+    /// `modifier.context()` returns a flag which doesn't include
+    /// [`ModifierContext::Init`]).
     #[inline]
     pub fn init<M>(mut self, modifier: M) -> Self
     where
-        M: InitModifier + Send + Sync + 'static,
+        M: Modifier + Send + Sync + 'static,
     {
+        assert!(modifier.context().contains(ModifierContext::Init));
         self.init_modifiers.push(Box::new(modifier));
         self
     }
 
     /// Add an update modifier to the effect.
     ///
-    /// [`with_property()`]: crate::EffectAsset::with_property
-    /// [`add_property()`]: crate::EffectAsset::add_property
+    /// # Panics
+    ///
+    /// Panics if the modifier doesn't support the update context (that is,
+    /// `modifier.context()` returns a flag which doesn't include
+    /// [`ModifierContext::Update`]).
     #[inline]
     pub fn update<M>(mut self, modifier: M) -> Self
     where
-        M: UpdateModifier + Send + Sync + 'static,
+        M: Modifier + Send + Sync + 'static,
     {
+        assert!(modifier.context().contains(ModifierContext::Update));
         self.update_modifiers.push(Box::new(modifier));
+        self
+    }
+
+    /// Add a [`BoxedModifier`] to the specific context.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the context is [`ModifierContext::Render`]; use
+    /// [`add_render_modifier()`] instead.
+    ///
+    /// Panics if the input `context` contains more than one context (the
+    /// bitfield contains more than 1 bit set) or no context at all (zero bit
+    /// set).
+    ///
+    /// Panics if the modifier doesn't support the context specified (that is,
+    /// `modifier.context()` returns a flag which doesn't include `context`).
+    ///
+    /// [`add_render_modifier()`]: crate::EffectAsset::add_render_modifier
+    pub fn add_modifier(mut self, context: ModifierContext, modifier: Box<dyn Modifier>) -> Self {
+        assert!(context == ModifierContext::Init || context == ModifierContext::Update);
+        assert!(modifier.context().contains(context));
+        if context == ModifierContext::Init {
+            self.init_modifiers.push(modifier);
+        } else {
+            self.update_modifiers.push(modifier);
+        }
         self
     }
 
     /// Add a render modifier to the effect.
     ///
-    /// [`with_property()`]: crate::EffectAsset::with_property
-    /// [`add_property()`]: crate::EffectAsset::add_property
+    /// # Panics
+    ///
+    /// Panics if the modifier doesn't support the render context (that is,
+    /// `modifier.context()` returns a flag which doesn't include
+    /// [`ModifierContext::Render`]).
     #[inline]
     pub fn render<M>(mut self, modifier: M) -> Self
     where
         M: RenderModifier + Send + Sync + 'static,
     {
+        assert!(modifier.context().contains(ModifierContext::Render));
         self.render_modifiers.push(Box::new(modifier));
         self
     }
 
+    /// Add a [`RenderModifier`] to the render context.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the modifier doesn't support the render context (that is,
+    /// `modifier.context()` returns a flag which doesn't include
+    /// [`ModifierContext::Render`]).
+    pub fn add_render_modifier(mut self, modifier: Box<dyn RenderModifier>) -> Self {
+        assert!(modifier.context().contains(ModifierContext::Render));
+        self.render_modifiers.push(modifier);
+        self
+    }
+
     /// Get a list of all the modifiers of this effect.
-    pub fn modifiers(&self) -> impl Iterator<Item = &BoxedModifier> {
+    pub fn modifiers(&self) -> impl Iterator<Item = &dyn Modifier> {
         self.init_modifiers
             .iter()
-            .chain(self.update_modifiers.iter())
-            .chain(self.render_modifiers.iter())
+            .map(|m| m.deref())
+            .chain(self.update_modifiers.iter().map(|m| m.deref()))
+            .chain(self.render_modifiers.iter().map(|m| m.as_modifier()))
     }
 
     /// Get a list of all the init modifiers of this effect.
@@ -425,8 +478,14 @@ impl EffectAsset {
     /// executing in the [`ModifierContext::Init`] context.
     ///
     /// [`ModifierContext::Init`]: crate::ModifierContext::Init
-    pub fn init_modifiers(&self) -> impl Iterator<Item = &dyn InitModifier> {
-        self.init_modifiers.iter().filter_map(|m| m.as_init())
+    pub fn init_modifiers(&self) -> impl Iterator<Item = &dyn Modifier> {
+        self.init_modifiers.iter().filter_map(|m| {
+            if m.context().contains(ModifierContext::Init) {
+                Some(m.deref())
+            } else {
+                None
+            }
+        })
     }
 
     /// Get a list of all the update modifiers of this effect.
@@ -435,8 +494,14 @@ impl EffectAsset {
     /// executing in the [`ModifierContext::Update`] context.
     ///
     /// [`ModifierContext::Update`]: crate::ModifierContext::Update
-    pub fn update_modifiers(&self) -> impl Iterator<Item = &dyn UpdateModifier> {
-        self.update_modifiers.iter().filter_map(|m| m.as_update())
+    pub fn update_modifiers(&self) -> impl Iterator<Item = &dyn Modifier> {
+        self.update_modifiers.iter().filter_map(|m| {
+            if m.context().contains(ModifierContext::Update) {
+                Some(m.deref())
+            } else {
+                None
+            }
+        })
     }
 
     /// Get a list of all the render modifiers of this effect.
@@ -562,6 +627,31 @@ mod tests {
     }
 
     #[test]
+    fn add_modifiers() {
+        let mut m = Module::default();
+        let expr = m.lit(3.);
+
+        for modifier_context in [ModifierContext::Init, ModifierContext::Update] {
+            let effect = EffectAsset::default().add_modifier(
+                modifier_context,
+                Box::new(SetAttributeModifier::new(Attribute::POSITION, expr)),
+            );
+            assert_eq!(effect.modifiers().count(), 1);
+            let m = effect.modifiers().next().unwrap();
+            assert!(m.context().contains(modifier_context));
+        }
+
+        {
+            let effect = EffectAsset::default().add_render_modifier(Box::new(SetColorModifier {
+                color: CpuValue::Single(Vec4::ONE),
+            }));
+            assert_eq!(effect.modifiers().count(), 1);
+            let m = effect.modifiers().next().unwrap();
+            assert!(m.context().contains(ModifierContext::Render));
+        }
+    }
+
+    #[test]
     fn test_apply_modifiers() {
         let mut module = Module::default();
         let origin = module.lit(Vec3::ZERO);
@@ -600,17 +690,16 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut init_context = InitContext::new(&property_layout, &particle_layout);
+        let mut init_context =
+            ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
         assert!(init_pos_sphere
-            .apply_init(&mut module, &mut init_context)
+            .apply(&mut module, &mut init_context)
             .is_ok());
         assert!(init_vel_sphere
-            .apply_init(&mut module, &mut init_context)
+            .apply(&mut module, &mut init_context)
             .is_ok());
-        assert!(init_age.apply_init(&mut module, &mut init_context).is_ok());
-        assert!(init_lifetime
-            .apply_init(&mut module, &mut init_context)
-            .is_ok());
+        assert!(init_age.apply(&mut module, &mut init_context).is_ok());
+        assert!(init_lifetime.apply(&mut module, &mut init_context).is_ok());
         // assert_eq!(effect., init_context.init_code);
 
         let mut module = Module::default();
@@ -618,15 +707,12 @@ mod tests {
         let drag_mod = LinearDragModifier::constant(&mut module, 3.5);
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut update_context = UpdateContext::new(&property_layout, &particle_layout);
-        assert!(accel_mod
-            .apply_update(&mut module, &mut update_context)
-            .is_ok());
-        assert!(drag_mod
-            .apply_update(&mut module, &mut update_context)
-            .is_ok());
+        let mut update_context =
+            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        assert!(accel_mod.apply(&mut module, &mut update_context).is_ok());
+        assert!(drag_mod.apply(&mut module, &mut update_context).is_ok());
         assert!(ConformToSphereModifier::new(origin, one, one, one, one)
-            .apply_update(&mut module, &mut update_context)
+            .apply(&mut module, &mut update_context)
             .is_ok());
         // assert_eq!(effect.update_layout, update_layout);
 
