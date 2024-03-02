@@ -2182,7 +2182,7 @@ impl WriterExpr {
     /// let x = w.lit(Vec3::ONE);
     ///
     /// // Inverse square root: `y = inverseSqrt(x) = 1.0 / sqrt(x);`
-    /// let y = x.inverseSqrt();
+    /// let y = x.inverse_sqrt();
     /// ```
     #[inline]
     pub fn inverse_sqrt(self) -> Self {
