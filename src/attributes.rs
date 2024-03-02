@@ -1576,10 +1576,7 @@ impl ParticleLayout {
 mod tests {
     use super::*;
 
-    use bevy::{
-        math::{Vec2, Vec3, Vec4},
-        reflect::TypeRegistration,
-    };
+    use bevy::reflect::TypeRegistration;
     use naga::{front::wgsl::Frontend, proc::Layouter};
 
     // Ensure the size and alignment of all types conforms to the WGSL spec by

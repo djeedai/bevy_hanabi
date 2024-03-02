@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     calc_func_id,
     graph::{BuiltInOperator, EvalContext, ExprError},
-    impl_mod_update, Attribute, ExprHandle, Module, UpdateContext, UpdateModifier,
+    Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module, ShaderWriter,
 };
 
 /// A modifier to apply a force to the particle which makes it conform ("stick")
@@ -159,18 +159,21 @@ impl ConformToSphereModifier {
     }
 }
 
-impl_mod_update!(
-    ConformToSphereModifier,
-    &[Attribute::POSITION, Attribute::VELOCITY]
-);
-
 #[typetag::serde]
-impl UpdateModifier for ConformToSphereModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
+impl Modifier for ConformToSphereModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::POSITION, Attribute::VELOCITY]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);
         let func_name = format!("force_field_{0:016X}", func_id);
 
@@ -230,7 +233,7 @@ impl UpdateModifier for ConformToSphereModifier {
             },
         )?;
 
-        context.update_code += &format!("{}(&particle);\n", func_name);
+        context.main_code += &format!("{}(&particle);\n", func_name);
 
         Ok(())
     }
@@ -266,15 +269,21 @@ impl LinearDragModifier {
     }
 }
 
-impl_mod_update!(LinearDragModifier, &[Attribute::VELOCITY]);
-
 #[typetag::serde]
-impl UpdateModifier for LinearDragModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
+impl Modifier for LinearDragModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::VELOCITY]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let m = module;
         let attr = m.attr(Attribute::VELOCITY);
         let dt = m.builtin(BuiltInOperator::DeltaTime);
@@ -285,14 +294,14 @@ impl UpdateModifier for LinearDragModifier {
         let expr = m.max(zero, one_minus_drag_dt);
         let attr = context.eval(m, attr)?;
         let expr = context.eval(m, expr)?;
-        context.update_code += &format!("{} *= {};", attr, expr);
+        context.main_code += &format!("{} *= {};", attr, expr);
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{ParticleLayout, PropertyLayout, UpdateContext};
+    use crate::{ParticleLayout, PropertyLayout};
 
     use super::*;
 
@@ -303,9 +312,10 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = UpdateContext::new(&property_layout, &particle_layout);
-        assert!(modifier.apply_update(&mut module, &mut context).is_ok());
+        let mut context =
+            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        assert!(modifier.apply(&mut module, &mut context).is_ok());
 
-        assert!(context.update_code.contains("3.5")); // TODO - less weak check
+        assert!(context.main_code.contains("3.5")); // TODO - less weak check
     }
 }

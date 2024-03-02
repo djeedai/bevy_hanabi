@@ -295,8 +295,6 @@ impl<'a, S, B, I: Batchable<S, B>> Batcher<'a, S, B, I> {
 
 #[cfg(test)]
 mod tests {
-    use crate::EffectShader;
-
     use super::*;
 
     // Test item to batch

@@ -42,7 +42,10 @@
 use std::fmt::Debug;
 
 use bevy::{
-    math::{BVec2, BVec3, BVec4, IVec2, IVec3, IVec4, Mat2, Mat3, Mat4, Vec2, Vec3, Vec3A, Vec4},
+    math::{
+        BVec2, BVec3, BVec4, IVec2, IVec3, IVec4, Mat2, Mat3, Mat4, UVec2, UVec3, UVec4, Vec2,
+        Vec3, Vec3A, Vec4,
+    },
     reflect::Reflect,
     utils::FloatOrd,
 };
@@ -191,13 +194,7 @@ impl ScalarValue {
     /// not guaranteed to be stable.
     fn as_storage(&self) -> u32 {
         match self {
-            ScalarValue::Bool(b) => {
-                if *b {
-                    Self::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                }
-            }
+            ScalarValue::Bool(b) => Self::BOOL_STORAGE[*b as usize],
             ScalarValue::Float(f) => bytemuck::cast::<f32, u32>(*f),
             ScalarValue::Int(i) => bytemuck::cast::<i32, u32>(*i),
             ScalarValue::Uint(u) => *u,
@@ -452,16 +449,8 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC2B,
             storage: [
-                if value.x {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.y {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
+                ScalarValue::BOOL_STORAGE[value.x as usize],
+                ScalarValue::BOOL_STORAGE[value.y as usize],
                 0u32,
                 0u32,
             ],
@@ -474,21 +463,9 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC3B,
             storage: [
-                if value.x {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.y {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.z {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
+                ScalarValue::BOOL_STORAGE[value.x as usize],
+                ScalarValue::BOOL_STORAGE[value.y as usize],
+                ScalarValue::BOOL_STORAGE[value.z as usize],
                 0u32,
             ],
         }
@@ -500,26 +477,10 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC4B,
             storage: [
-                if value.x {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.y {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.z {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
-                if value.w {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0u32
-                },
+                ScalarValue::BOOL_STORAGE[value.x as usize],
+                ScalarValue::BOOL_STORAGE[value.y as usize],
+                ScalarValue::BOOL_STORAGE[value.z as usize],
+                ScalarValue::BOOL_STORAGE[value.w as usize],
             ],
         }
     }
@@ -598,36 +559,27 @@ impl VectorValue {
         }
     }
 
-    /// Create a new [`VectorValue`] from a 2D vector of `u32`.
-    ///
-    /// Note that due to the lack of `UVec2` in glam, this method takes
-    /// individual vector components instead.
-    pub const fn new_uvec2(x: u32, y: u32) -> Self {
+    /// Workaround for `impl const From<UVec2>`.
+    pub const fn new_uvec2(v: UVec2) -> Self {
         Self {
             vector_type: VectorType::VEC2U,
-            storage: [x, y, 0, 0],
+            storage: [v.x, v.y, 0, 0],
         }
     }
 
-    /// Create a new [`VectorValue`] from a 3D vector of `u32`.
-    ///
-    /// Note that due to the lack of `UVec3` in glam, this method takes
-    /// individual vector components instead.
-    pub const fn new_uvec3(x: u32, y: u32, z: u32) -> Self {
+    /// Workaround for `impl const From<UVec3>`.
+    pub const fn new_uvec3(v: UVec3) -> Self {
         Self {
             vector_type: VectorType::VEC3U,
-            storage: [x, y, z, 0],
+            storage: [v.x, v.y, v.z, 0],
         }
     }
 
-    /// Create a new [`VectorValue`] from a 4D vector of `u32`.
-    ///
-    /// Note that due to the lack of `UVec4` in glam, this method takes
-    /// individual vector components instead.
-    pub const fn new_uvec4(x: u32, y: u32, z: u32, w: u32) -> Self {
+    /// Workaround for `impl const From<UVec4>`.
+    pub const fn new_uvec4(v: UVec4) -> Self {
         Self {
             vector_type: VectorType::VEC4U,
-            storage: [x, y, z, w],
+            storage: v.to_array(),
         }
     }
 
@@ -824,6 +776,36 @@ impl VectorValue {
     pub fn as_ivec4(&self) -> IVec4 {
         assert_eq!(self.vector_type, VectorType::VEC4I);
         IVec4::from_slice(bytemuck::cast_slice::<u32, i32>(&self.storage))
+    }
+
+    /// Cast this vector value to a [`UVec2`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the current vector type is not [`VectorType::VEC2U`].
+    pub fn as_uvec2(&self) -> UVec2 {
+        assert_eq!(self.vector_type, VectorType::VEC2U);
+        UVec2::from_slice(&self.storage)
+    }
+
+    /// Cast this vector value to a [`UVec3`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the current vector type is not [`VectorType::VEC3U`].
+    pub fn as_uvec3(&self) -> UVec3 {
+        assert_eq!(self.vector_type, VectorType::VEC3U);
+        UVec3::from_slice(&self.storage)
+    }
+
+    /// Cast this vector value to a [`UVec4`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the current vector type is not [`VectorType::VEC4U`].
+    pub fn as_uvec4(&self) -> UVec4 {
+        assert_eq!(self.vector_type, VectorType::VEC4U);
+        UVec4::from_slice(&self.storage)
     }
 
     /// Get the value as a binary blob ready for GPU upload.
@@ -1064,16 +1046,8 @@ impl From<BVec2> for VectorValue {
         Self {
             vector_type: VectorType::new(ScalarType::Bool, 2),
             storage: [
-                if value.x {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0
-                },
-                if value.y {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0
-                },
+                ScalarValue::BOOL_STORAGE[value.x as usize],
+                ScalarValue::BOOL_STORAGE[value.y as usize],
                 0,
                 0,
             ],
@@ -1086,21 +1060,9 @@ impl From<BVec3> for VectorValue {
         Self {
             vector_type: VectorType::new(ScalarType::Bool, 3),
             storage: [
-                if value.x {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0
-                },
-                if value.y {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0
-                },
-                if value.z {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0
-                },
+                ScalarValue::BOOL_STORAGE[value.x as usize],
+                ScalarValue::BOOL_STORAGE[value.y as usize],
+                ScalarValue::BOOL_STORAGE[value.z as usize],
                 0,
             ],
         }
@@ -1112,28 +1074,84 @@ impl From<BVec4> for VectorValue {
         Self {
             vector_type: VectorType::new(ScalarType::Bool, 4),
             storage: [
-                if value.x {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0
-                },
-                if value.y {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0
-                },
-                if value.z {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0
-                },
-                if value.w {
-                    ScalarValue::BOOL_TRUE_STORAGE
-                } else {
-                    0
-                },
+                ScalarValue::BOOL_STORAGE[value.x as usize],
+                ScalarValue::BOOL_STORAGE[value.y as usize],
+                ScalarValue::BOOL_STORAGE[value.z as usize],
+                ScalarValue::BOOL_STORAGE[value.w as usize],
             ],
         }
+    }
+}
+
+impl From<IVec2> for VectorValue {
+    fn from(value: IVec2) -> Self {
+        let mut s = Self {
+            vector_type: VectorType::VEC2I,
+            storage: [0u32; 4],
+        };
+        let v = bytemuck::cast_slice_mut::<u32, i32>(&mut s.storage);
+        value.write_to_slice(v);
+        s
+    }
+}
+
+impl From<IVec3> for VectorValue {
+    fn from(value: IVec3) -> Self {
+        let mut s = Self {
+            vector_type: VectorType::VEC3I,
+            storage: [0u32; 4],
+        };
+        let v = bytemuck::cast_slice_mut::<u32, i32>(&mut s.storage);
+        value.write_to_slice(v);
+        s
+    }
+}
+
+impl From<IVec4> for VectorValue {
+    fn from(value: IVec4) -> Self {
+        let mut s = Self {
+            vector_type: VectorType::VEC4I,
+            storage: [0u32; 4],
+        };
+        let v = bytemuck::cast_slice_mut::<u32, i32>(&mut s.storage);
+        value.write_to_slice(v);
+        s
+    }
+}
+
+impl From<UVec2> for VectorValue {
+    fn from(value: UVec2) -> Self {
+        let mut s = Self {
+            vector_type: VectorType::VEC2U,
+            storage: [0u32; 4],
+        };
+        let v = &mut s.storage;
+        value.write_to_slice(v);
+        s
+    }
+}
+
+impl From<UVec3> for VectorValue {
+    fn from(value: UVec3) -> Self {
+        let mut s = Self {
+            vector_type: VectorType::VEC3U,
+            storage: [0u32; 4],
+        };
+        let v = &mut s.storage;
+        value.write_to_slice(v);
+        s
+    }
+}
+
+impl From<UVec4> for VectorValue {
+    fn from(value: UVec4) -> Self {
+        let mut s = Self {
+            vector_type: VectorType::VEC4U,
+            storage: [0u32; 4],
+        };
+        let v = &mut s.storage;
+        value.write_to_slice(v);
+        s
     }
 }
 
@@ -1180,42 +1198,6 @@ impl From<Vec4> for VectorValue {
             storage: [0u32; 4],
         };
         let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
-        value.write_to_slice(v);
-        s
-    }
-}
-
-impl From<IVec2> for VectorValue {
-    fn from(value: IVec2) -> Self {
-        let mut s = Self {
-            vector_type: VectorType::VEC2I,
-            storage: [0u32; 4],
-        };
-        let v = bytemuck::cast_slice_mut::<u32, i32>(&mut s.storage);
-        value.write_to_slice(v);
-        s
-    }
-}
-
-impl From<IVec3> for VectorValue {
-    fn from(value: IVec3) -> Self {
-        let mut s = Self {
-            vector_type: VectorType::VEC3I,
-            storage: [0u32; 4],
-        };
-        let v = bytemuck::cast_slice_mut::<u32, i32>(&mut s.storage);
-        value.write_to_slice(v);
-        s
-    }
-}
-
-impl From<IVec4> for VectorValue {
-    fn from(value: IVec4) -> Self {
-        let mut s = Self {
-            vector_type: VectorType::VEC4I,
-            storage: [0u32; 4],
-        };
-        let v = bytemuck::cast_slice_mut::<u32, i32>(&mut s.storage);
         value.write_to_slice(v);
         s
     }
@@ -1594,6 +1576,9 @@ impl_vec_value!(Vec4, VEC4F, as_vec4);
 impl_vec_value!(IVec2, VEC2I, as_ivec2);
 impl_vec_value!(IVec3, VEC3I, as_ivec3);
 impl_vec_value!(IVec4, VEC4I, as_ivec4);
+impl_vec_value!(UVec2, VEC2U, as_uvec2);
+impl_vec_value!(UVec3, VEC3U, as_uvec3);
+impl_vec_value!(UVec4, VEC4U, as_uvec4);
 
 #[cfg(test)]
 mod tests {
@@ -1775,6 +1760,27 @@ mod tests {
 
     #[test]
     fn vector_value() {
+        let v = BVec2::new(false, true);
+        let vv = VectorValue::new_bvec2(v);
+        assert_eq!(ScalarValue::BOOL_FALSE_STORAGE, vv.storage[0]);
+        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
+        assert_eq!(0u32, vv.storage[2]);
+        assert_eq!(0u32, vv.storage[3]);
+
+        let v = BVec3::new(false, true, false);
+        let vv = VectorValue::new_bvec3(v);
+        assert_eq!(ScalarValue::BOOL_FALSE_STORAGE, vv.storage[0]);
+        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
+        assert_eq!(ScalarValue::BOOL_FALSE_STORAGE, vv.storage[2]);
+        assert_eq!(0u32, vv.storage[3]);
+
+        let v = BVec4::new(false, true, false, true);
+        let vv = VectorValue::new_bvec4(v);
+        assert_eq!(ScalarValue::BOOL_FALSE_STORAGE, vv.storage[0]);
+        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
+        assert_eq!(ScalarValue::BOOL_FALSE_STORAGE, vv.storage[2]);
+        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[3]);
+
         let v = Vec2::new(-3.2, 5.);
         let vv = VectorValue::new_vec2(v);
         assert_eq!(v.x.to_bits(), vv.storage[0]);
@@ -1796,26 +1802,77 @@ mod tests {
         assert_eq!(v.z.to_bits(), vv.storage[2]);
         assert_eq!(v.w.to_bits(), vv.storage[3]);
 
-        let v = BVec2::new(false, true);
-        let vv = VectorValue::new_bvec2(v);
-        assert_eq!(0u32, vv.storage[0]);
-        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
+        #[allow(unsafe_code)]
+        {
+            let v = IVec2::new(-3, 5);
+            let vv = VectorValue::new_ivec2(v);
+            assert_eq!(
+                unsafe { std::mem::transmute::<i32, u32>(v.x) },
+                vv.storage[0]
+            );
+            assert_eq!(
+                unsafe { std::mem::transmute::<i32, u32>(v.y) },
+                vv.storage[1]
+            );
+            assert_eq!(0u32, vv.storage[2]);
+            assert_eq!(0u32, vv.storage[3]);
+
+            let v = IVec3::new(-3, 5, 64);
+            let vv = VectorValue::new_ivec3(v);
+            assert_eq!(
+                unsafe { std::mem::transmute::<i32, u32>(v.x) },
+                vv.storage[0]
+            );
+            assert_eq!(
+                unsafe { std::mem::transmute::<i32, u32>(v.y) },
+                vv.storage[1]
+            );
+            assert_eq!(
+                unsafe { std::mem::transmute::<i32, u32>(v.z) },
+                vv.storage[2]
+            );
+            assert_eq!(0u32, vv.storage[3]);
+
+            let v = IVec4::new(-3, 5, 64, -42);
+            let vv = VectorValue::new_ivec4(v);
+            assert_eq!(
+                unsafe { std::mem::transmute::<i32, u32>(v.x) },
+                vv.storage[0]
+            );
+            assert_eq!(
+                unsafe { std::mem::transmute::<i32, u32>(v.y) },
+                vv.storage[1]
+            );
+            assert_eq!(
+                unsafe { std::mem::transmute::<i32, u32>(v.z) },
+                vv.storage[2]
+            );
+            assert_eq!(
+                unsafe { std::mem::transmute::<i32, u32>(v.w) },
+                vv.storage[3]
+            );
+        }
+
+        let v = UVec2::new(3, 5);
+        let vv = VectorValue::new_uvec2(v);
+        assert_eq!(v.x, vv.storage[0]);
+        assert_eq!(v.y, vv.storage[1]);
         assert_eq!(0u32, vv.storage[2]);
         assert_eq!(0u32, vv.storage[3]);
 
-        let v = BVec3::new(false, true, false);
-        let vv = VectorValue::new_bvec3(v);
-        assert_eq!(0u32, vv.storage[0]);
-        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
-        assert_eq!(0u32, vv.storage[2]);
+        let v = UVec3::new(3, 5, 64);
+        let vv = VectorValue::new_uvec3(v);
+        assert_eq!(v.x, vv.storage[0]);
+        assert_eq!(v.y, vv.storage[1]);
+        assert_eq!(v.z, vv.storage[2]);
         assert_eq!(0u32, vv.storage[3]);
 
-        let v = BVec4::new(false, true, false, true);
-        let vv = VectorValue::new_bvec4(v);
-        assert_eq!(0u32, vv.storage[0]);
-        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
-        assert_eq!(0u32, vv.storage[2]);
-        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[3]);
+        let v = UVec4::new(3, 5, 64, 42);
+        let vv = VectorValue::new_uvec4(v);
+        assert_eq!(v.x, vv.storage[0]);
+        assert_eq!(v.y, vv.storage[1]);
+        assert_eq!(v.z, vv.storage[2]);
+        assert_eq!(v.w, vv.storage[3]);
     }
 
     #[test]
@@ -1824,6 +1881,30 @@ mod tests {
         assert_eq!(Value::Scalar(ScalarValue::Float(0.)), 0_f32.into());
         assert_eq!(Value::Scalar(ScalarValue::Int(-42)), (-42_i32).into());
         assert_eq!(Value::Scalar(ScalarValue::Uint(0)), 0_u32.into());
+
+        let v = BVec2::new(false, true);
+        let vv: VectorValue = v.into();
+        assert_eq!(vv, VectorValue::new_bvec2(v));
+        assert_eq!(ScalarValue::BOOL_FALSE_STORAGE, vv.storage[0]);
+        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
+        assert_eq!(0, vv.storage[2]);
+        assert_eq!(0, vv.storage[3]);
+
+        let v = BVec3::new(false, true, false);
+        let vv: VectorValue = v.into();
+        assert_eq!(vv, VectorValue::new_bvec3(v));
+        assert_eq!(ScalarValue::BOOL_FALSE_STORAGE, vv.storage[0]);
+        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
+        assert_eq!(ScalarValue::BOOL_FALSE_STORAGE, vv.storage[2]);
+        assert_eq!(0, vv.storage[3]);
+
+        let v = BVec4::new(false, true, false, true);
+        let vv: VectorValue = v.into();
+        assert_eq!(vv, VectorValue::new_bvec4(v));
+        assert_eq!(ScalarValue::BOOL_FALSE_STORAGE, vv.storage[0]);
+        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
+        assert_eq!(ScalarValue::BOOL_FALSE_STORAGE, vv.storage[2]);
+        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[3]);
 
         assert_eq!(
             Value::Vector(VectorValue::new_vec2(Vec2::Y)),
@@ -1838,29 +1919,31 @@ mod tests {
             Vec4::W.into()
         );
 
-        let v = BVec2::new(false, true);
-        let vv: VectorValue = v.into();
-        assert_eq!(vv, VectorValue::new_bvec2(v));
-        assert_eq!(0, vv.storage[0]);
-        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
-        assert_eq!(0, vv.storage[2]);
-        assert_eq!(0, vv.storage[3]);
+        assert_eq!(
+            Value::Vector(VectorValue::new_ivec2(IVec2::Y)),
+            IVec2::Y.into()
+        );
+        assert_eq!(
+            Value::Vector(VectorValue::new_ivec3(IVec3::Z)),
+            IVec3::Z.into()
+        );
+        assert_eq!(
+            Value::Vector(VectorValue::new_ivec4(IVec4::W)),
+            IVec4::W.into()
+        );
 
-        let v = BVec3::new(false, true, false);
-        let vv: VectorValue = v.into();
-        assert_eq!(vv, VectorValue::new_bvec3(v));
-        assert_eq!(0, vv.storage[0]);
-        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
-        assert_eq!(0, vv.storage[2]);
-        assert_eq!(0, vv.storage[3]);
-
-        let v = BVec4::new(false, true, false, true);
-        let vv: VectorValue = v.into();
-        assert_eq!(vv, VectorValue::new_bvec4(v));
-        assert_eq!(0, vv.storage[0]);
-        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[1]);
-        assert_eq!(0, vv.storage[2]);
-        assert_eq!(ScalarValue::BOOL_TRUE_STORAGE, vv.storage[3]);
+        assert_eq!(
+            Value::Vector(VectorValue::new_uvec2(UVec2::Y)),
+            UVec2::Y.into()
+        );
+        assert_eq!(
+            Value::Vector(VectorValue::new_uvec3(UVec3::Z)),
+            UVec3::Z.into()
+        );
+        assert_eq!(
+            Value::Vector(VectorValue::new_uvec4(UVec4::W)),
+            UVec4::W.into()
+        );
     }
 
     fn calc_hash<H: Hash>(value: &H) -> u64 {
@@ -1932,7 +2015,7 @@ mod tests {
         let vecs = [
             VectorValue::new_vec2(Vec2::new(1., 0.)),
             VectorValue::new_ivec2(IVec2::new(1, 0)),
-            VectorValue::new_uvec2(1, 0),
+            VectorValue::new_uvec2(UVec2::new(1, 0)),
             VectorValue::new_bvec2(BVec2::new(true, false)),
         ];
         for i in 0..=3 {
@@ -1994,15 +2077,15 @@ mod tests {
         );
 
         assert_eq!(
-            calc_hash(&VectorValue::new_uvec2(3, 42)),
+            calc_hash(&VectorValue::new_uvec2(UVec2::new(3, 42))),
             calc_u32_vector_hash(VectorType::VEC2U, &[3, 42])
         );
         assert_eq!(
-            calc_hash(&VectorValue::new_uvec3(3, 42, 999)),
+            calc_hash(&VectorValue::new_uvec3(UVec3::new(3, 42, 999))),
             calc_u32_vector_hash(VectorType::VEC3U, &[3, 42, 999])
         );
         assert_eq!(
-            calc_hash(&VectorValue::new_uvec4(3, 42, 999, 1)),
+            calc_hash(&VectorValue::new_uvec4(UVec4::new(3, 42, 999, 1))),
             calc_u32_vector_hash(VectorType::VEC4U, &[3, 42, 999, 1])
         );
     }
