@@ -592,6 +592,8 @@ impl AssetLoader for EffectAssetLoader {
 
 #[cfg(test)]
 mod tests {
+    use ron::ser::PrettyConfig;
+
     use crate::*;
 
     use super::*;
@@ -734,15 +736,94 @@ mod tests {
 
     #[test]
     fn test_serde_ron() {
+        let w = ExprWriter::new();
+
+        let pos = w.lit(Vec3::new(1.2, -3.45, 87.54485));
+        let x = w.lit(BVec2::new(false, true));
+        let _ = x + pos.clone();
+        let mod_pos = SetAttributeModifier::new(Attribute::POSITION, pos.expr());
+
         let effect = EffectAsset {
             name: "Effect".into(),
             capacity: 4096,
             spawner: Spawner::rate(30.0.into()),
+            module: w.finish(),
             ..Default::default()
-        };
+        }
+        .with_property("my_prop", Vec3::new(1.2, -2.3, 55.32).into())
+        .init(mod_pos);
 
-        let s = ron::to_string(&effect).unwrap();
-        let _effect_serde: EffectAsset = ron::from_str(&s).unwrap();
-        // assert_eq!(effect, effect_serde);
+        let s = ron::ser::to_string_pretty(&effect, PrettyConfig::new().new_line("\n".to_string()))
+            .unwrap();
+        assert_eq!(
+            s,
+            r#"(
+    name: "Effect",
+    capacity: 4096,
+    spawner: (
+        num_particles: Single(30.0),
+        spawn_time: Single(1.0),
+        period: Single(1.0),
+        starts_active: true,
+        starts_immediately: true,
+    ),
+    z_layer_2d: 0.0,
+    simulation_space: Global,
+    simulation_condition: WhenVisible,
+    init_modifiers: [
+        {
+            "SetAttributeModifier": (
+                attribute: "position",
+                value: 1,
+            ),
+        },
+    ],
+    update_modifiers: [],
+    render_modifiers: [],
+    properties: [
+        (
+            name: "my_prop",
+            default_value: Vector(Vec3((1.2, -2.3, 55.32))),
+        ),
+    ],
+    motion_integration: PostUpdate,
+    module: [
+        Literal(Vector(Vec3((1.2, -3.45, 87.54485)))),
+        Literal(Vector(BVec2((false, true)))),
+        Binary(
+            op: Add,
+            left: 2,
+            right: 1,
+        ),
+    ],
+    alpha_mode: Blend,
+)"#
+        );
+        let effect_serde: EffectAsset = ron::from_str(&s).unwrap();
+        assert_eq!(effect.name, effect_serde.name);
+        assert_eq!(effect.capacity, effect_serde.capacity);
+        assert_eq!(effect.spawner, effect_serde.spawner);
+        assert_eq!(effect.z_layer_2d, effect_serde.z_layer_2d);
+        assert_eq!(effect.simulation_space, effect_serde.simulation_space);
+        assert_eq!(
+            effect.simulation_condition,
+            effect_serde.simulation_condition
+        );
+        assert_eq!(effect.properties, effect_serde.properties);
+        assert_eq!(effect.motion_integration, effect_serde.motion_integration);
+        assert_eq!(effect.module, effect_serde.module);
+        assert_eq!(effect.alpha_mode, effect_serde.alpha_mode);
+        assert_eq!(
+            effect.init_modifiers().count(),
+            effect_serde.init_modifiers().count()
+        );
+        assert_eq!(
+            effect.update_modifiers().count(),
+            effect_serde.update_modifiers().count()
+        );
+        assert_eq!(
+            effect.render_modifiers().count(),
+            effect_serde.render_modifiers().count()
+        );
     }
 }

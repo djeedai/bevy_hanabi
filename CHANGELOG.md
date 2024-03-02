@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Merged the `InitModifier` and `UpdateModifier` traits into the `Modifier` subtrait; see other changelog entries for details. This helps manage modifiers in a unified way, and generally simplifies writing and maintain modifiers compatible with both the init and update contexts.
 - `EffectAsset::init()` and `EffectAsset::update()` now take a `Modifier`-bound type, and validate its `ModifierContext` is compatible (and panics if not).
 - `EffectAsset::render()` now panics if the modifier is not compatible with the `ModifierContext::Render`. Note that this indicates a malformed render modifier, because all objects implementing `RenderModifier` must include `ModifierContext::Render` in their `Modifier::context()`.
+- Improved the serialization format to reduce verbosity, by making the following types `#[serde(transparent)]`: `ExprHandle`, `LiteralExpr`, `Module`.
 
 ### Removed
 
