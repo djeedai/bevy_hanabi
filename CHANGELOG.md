@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `RenderModifier::as_modifier()` to upcast a `RenderModifier` to a `Modifier`.
 - Added `RenderModifier::boxed_render_clone()` to clone a `RenderModifier` into a boxed self (instead of a `BoxedModifier`, as we can't upcast from `Box<dyn RenderModifier>` to `Box<dyn Modifier>`). Added `impl Clone for Box<dyn RenderModifier>` based on this.
 - Added `EffectAsset::add_modifier()` to add a pre-boxed `Modifier` (so, a `BoxedModifier`) to the init or update context, and added `EffectAsset::add_render_modifier()` to add a pre-boxed `RenderModifier` to the render context.
+- Added `sqrt` and `inverseSqrt` expressions to the Expression API.
 
 ### Changed
 

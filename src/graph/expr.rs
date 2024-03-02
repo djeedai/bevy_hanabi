@@ -266,6 +266,7 @@ impl Module {
     impl_module_unary!(exp2, Exp2);
     impl_module_unary!(floor, Floor);
     impl_module_unary!(fract, Fract);
+    impl_module_unary!(inverse_sqrt, InvSqrt);
     impl_module_unary!(length, Length);
     impl_module_unary!(log, Log);
     impl_module_unary!(log2, Log2);
@@ -275,6 +276,7 @@ impl Module {
     impl_module_unary!(saturate, Saturate);
     impl_module_unary!(sign, Sign);
     impl_module_unary!(sin, Sin);
+    impl_module_unary!(sqrt, Sqrt);
     impl_module_unary!(tan, Tan);
     impl_module_unary!(unpack4x8snorm, Unpack4x8snorm);
     impl_module_unary!(unpack4x8unorm, Unpack4x8unorm);
@@ -1291,6 +1293,12 @@ pub enum UnaryOperator {
     /// floor(x)`, component-wise for vectors.
     Fract,
 
+    /// Inverse square root operator.
+    ///
+    /// Return the inverse square root of the floating-point operand (`1.0 /
+    /// sqrt(x)`), component-wise for vectors.
+    InvSqrt,
+
     /// Length operator.
     ///
     /// Return the length of a floating point scalar or vector. The "length" of
@@ -1355,6 +1363,12 @@ pub enum UnaryOperator {
     /// Sine operator.
     Sin,
 
+    /// Square root operator.
+    ///
+    /// Return the square root of the floating-point operand, component-wise for
+    /// vectors.
+    Sqrt,
+
     /// Tangent operator.
     Tan,
 
@@ -1418,6 +1432,7 @@ impl ToWgslString for UnaryOperator {
             UnaryOperator::Exp2 => "exp2".to_string(),
             UnaryOperator::Floor => "floor".to_string(),
             UnaryOperator::Fract => "fract".to_string(),
+            UnaryOperator::InvSqrt => "inverseSqrt".to_string(),
             UnaryOperator::Length => "length".to_string(),
             UnaryOperator::Log => "log".to_string(),
             UnaryOperator::Log2 => "log2".to_string(),
@@ -1427,6 +1442,7 @@ impl ToWgslString for UnaryOperator {
             UnaryOperator::Saturate => "saturate".to_string(),
             UnaryOperator::Sign => "sign".to_string(),
             UnaryOperator::Sin => "sin".to_string(),
+            UnaryOperator::Sqrt => "sqrt".to_string(),
             UnaryOperator::Tan => "tan".to_string(),
             UnaryOperator::Unpack4x8snorm => "unpack4x8snorm".to_string(),
             UnaryOperator::Unpack4x8unorm => "unpack4x8unorm".to_string(),
@@ -2149,6 +2165,30 @@ impl WriterExpr {
         self.unary_op(UnaryOperator::Fract)
     }
 
+    /// Apply the "inverseSqrt" (inverse square root) operator to the current float scalar or
+    /// vector expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Inverse square root: `y = inverseSqrt(x) = 1.0 / sqrt(x);`
+    /// let y = x.inverse_sqrt();
+    /// ```
+    #[inline]
+    pub fn inverse_sqrt(self) -> Self {
+        self.unary_op(UnaryOperator::InvSqrt)
+    }
+
     /// Apply the "length" operator to the current float scalar or vector
     /// expression.
     ///
@@ -2336,6 +2376,30 @@ impl WriterExpr {
     #[inline]
     pub fn sin(self) -> Self {
         self.unary_op(UnaryOperator::Sin)
+    }
+
+    /// Apply the "sqrt" (square root) operator to the current float scalar or
+    /// vector expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Square root: `y = sqrt(x);`
+    /// let y = x.sqrt();
+    /// ```
+    #[inline]
+    pub fn sqrt(self) -> Self {
+        self.unary_op(UnaryOperator::Sqrt)
     }
 
     /// Apply the "tan" operator to the current float scalar or vector
@@ -3400,6 +3464,7 @@ mod tests {
         let exp2 = m.exp2(y);
         let floor = m.floor(y);
         let fract = m.fract(y);
+        let inv_sqrt = m.inverse_sqrt(y);
         let length = m.length(y);
         let log = m.log(y);
         let log2 = m.log2(y);
@@ -3409,6 +3474,7 @@ mod tests {
         let saturate = m.saturate(y);
         let sign = m.sign(y);
         let sin = m.sin(y);
+        let sqrt = m.sqrt(y);
         let tan = m.tan(y);
         let unpack4x8snorm = m.unpack4x8snorm(us);
         let unpack4x8unorm = m.unpack4x8unorm(uu);
@@ -3436,6 +3502,7 @@ mod tests {
             (exp2, "exp2", "vec3<f32>(1.,-3.1,6.99)"),
             (floor, "floor", "vec3<f32>(1.,-3.1,6.99)"),
             (fract, "fract", "vec3<f32>(1.,-3.1,6.99)"),
+            (inv_sqrt, "inverseSqrt", "vec3<f32>(1.,-3.1,6.99)"),
             (length, "length", "vec3<f32>(1.,-3.1,6.99)"),
             (log, "log", "vec3<f32>(1.,-3.1,6.99)"),
             (log2, "log2", "vec3<f32>(1.,-3.1,6.99)"),
@@ -3445,6 +3512,7 @@ mod tests {
             (saturate, "saturate", "vec3<f32>(1.,-3.1,6.99)"),
             (sign, "sign", "vec3<f32>(1.,-3.1,6.99)"),
             (sin, "sin", "vec3<f32>(1.,-3.1,6.99)"),
+            (sqrt, "sqrt", "vec3<f32>(1.,-3.1,6.99)"),
             (tan, "tan", "vec3<f32>(1.,-3.1,6.99)"),
             (unpack4x8snorm, "unpack4x8snorm", "0u"),
             (unpack4x8unorm, "unpack4x8unorm", "0u"),
