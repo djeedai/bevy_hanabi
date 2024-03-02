@@ -1,14 +1,12 @@
 #[cfg(feature = "2d")]
 use bevy::utils::FloatOrd;
 use bevy::{
-    asset::{AssetEvent, AssetId, Assets, Handle},
     core::{Pod, Zeroable},
     ecs::{
         prelude::*,
         system::{lifetimeless::*, SystemParam, SystemState},
     },
     log::trace,
-    math::{Mat4, Vec3},
     prelude::*,
     render::{
         render_asset::RenderAssets,
@@ -16,15 +14,13 @@ use bevy::{
         render_phase::{Draw, DrawFunctions, PhaseItem, RenderPhase, TrackedRenderPass},
         render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue},
-        texture::{BevyDefault, Image},
+        texture::BevyDefault,
         view::{
-            ExtractedView, InheritedVisibility, Msaa, ViewTarget, ViewUniform, ViewUniformOffset,
-            ViewUniforms, ViewVisibility, VisibleEntities,
+            ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms,
+            VisibleEntities,
         },
         Extract,
     },
-    time::Time,
-    transform::components::GlobalTransform,
     utils::HashMap,
 };
 use bitflags::bitflags;
