@@ -125,6 +125,7 @@ type Index = NonZeroU32;
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect, Serialize, Deserialize,
 )]
 #[repr(transparent)]
+#[serde(transparent)]
 pub struct ExprHandle {
     index: Index,
 }
@@ -161,6 +162,7 @@ impl ExprHandle {
 /// [`lit()`]: Module::lit
 /// [`attr()`]: Module::attr
 #[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Module {
     expressions: Vec<Expr>,
 }
@@ -872,6 +874,7 @@ impl Expr {
 ///
 /// [`is_const()`]: LiteralExpr::is_const
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct LiteralExpr {
     value: Value,
 }

@@ -437,6 +437,7 @@ impl ElemType for u32 {
 
 /// Variant storage for a vector value.
 #[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
+#[serde(from = "VectorValueEnum", into = "VectorValueEnum")]
 pub struct VectorValue {
     vector_type: VectorType,
     storage: [u32; 4],
@@ -1200,6 +1201,90 @@ impl From<Vec4> for VectorValue {
         let v = bytemuck::cast_slice_mut::<u32, f32>(&mut s.storage);
         value.write_to_slice(v);
         s
+    }
+}
+
+/// Helper used as placeholder instead of [`VectorValue`] for serialization.
+///
+/// This enables serializing [`VectorValue`] as a glam type enum, instead of the
+/// compressed binary runtime representation actually stored inside
+/// [`VectorValue`].
+#[derive(Serialize, Deserialize)]
+enum VectorValueEnum {
+    BVec2(BVec2),
+    BVec3(BVec3),
+    BVec4(BVec4),
+    IVec2(IVec2),
+    IVec3(IVec3),
+    IVec4(IVec4),
+    UVec2(UVec2),
+    UVec3(UVec3),
+    UVec4(UVec4),
+    Vec2(Vec2),
+    Vec3(Vec3),
+    Vec4(Vec4),
+}
+
+impl From<VectorValueEnum> for VectorValue {
+    fn from(value: VectorValueEnum) -> Self {
+        match value {
+            VectorValueEnum::BVec2(v) => VectorValue::new_bvec2(v),
+            VectorValueEnum::BVec3(v) => VectorValue::new_bvec3(v),
+            VectorValueEnum::BVec4(v) => VectorValue::new_bvec4(v),
+            VectorValueEnum::IVec2(v) => VectorValue::new_ivec2(v),
+            VectorValueEnum::IVec3(v) => VectorValue::new_ivec3(v),
+            VectorValueEnum::IVec4(v) => VectorValue::new_ivec4(v),
+            VectorValueEnum::UVec2(v) => VectorValue::new_uvec2(v),
+            VectorValueEnum::UVec3(v) => VectorValue::new_uvec3(v),
+            VectorValueEnum::UVec4(v) => VectorValue::new_uvec4(v),
+            VectorValueEnum::Vec2(v) => VectorValue::new_vec2(v),
+            VectorValueEnum::Vec3(v) => VectorValue::new_vec3(v),
+            VectorValueEnum::Vec4(v) => VectorValue::new_vec4(v),
+        }
+    }
+}
+
+impl From<VectorValue> for VectorValueEnum {
+    fn from(value: VectorValue) -> Self {
+        let count = value.vector_type.count();
+        match value.elem_type() {
+            ScalarType::Bool => {
+                if count == 2 {
+                    VectorValueEnum::BVec2(value.as_bvec2())
+                } else if count == 3 {
+                    VectorValueEnum::BVec3(value.as_bvec3())
+                } else {
+                    VectorValueEnum::BVec4(value.as_bvec4())
+                }
+            }
+            ScalarType::Int => {
+                if count == 2 {
+                    VectorValueEnum::IVec2(value.as_ivec2())
+                } else if count == 3 {
+                    VectorValueEnum::IVec3(value.as_ivec3())
+                } else {
+                    VectorValueEnum::IVec4(value.as_ivec4())
+                }
+            }
+            ScalarType::Uint => {
+                if count == 2 {
+                    VectorValueEnum::UVec2(value.as_uvec2())
+                } else if count == 3 {
+                    VectorValueEnum::UVec3(value.as_uvec3())
+                } else {
+                    VectorValueEnum::UVec4(value.as_uvec4())
+                }
+            }
+            ScalarType::Float => {
+                if count == 2 {
+                    VectorValueEnum::Vec2(value.as_vec2())
+                } else if count == 3 {
+                    VectorValueEnum::Vec3(value.as_vec3())
+                } else {
+                    VectorValueEnum::Vec4(value.as_vec4())
+                }
+            }
+        }
     }
 }
 
