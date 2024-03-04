@@ -14,6 +14,7 @@ use bevy::prelude::*;
 ///
 /// ```
 /// # use bevy_hanabi::*;
+/// # use bevy::prelude::*;
 /// fn my_system(mut time: ResMut<Time<EffectSimulation>>) {
 ///     // Pause the effects
 ///     time.pause();
