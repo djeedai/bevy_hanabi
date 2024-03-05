@@ -192,6 +192,7 @@ mod plugin;
 pub mod properties;
 mod render;
 mod spawn;
+mod time;
 
 #[cfg(test)]
 mod test_utils;
@@ -206,6 +207,7 @@ pub use plugin::HanabiPlugin;
 pub use properties::*;
 pub use render::{EffectSystems, LayoutFlags, ShaderCache};
 pub use spawn::{tick_spawners, CpuValue, EffectSpawner, Random, Spawner};
+pub use time::{EffectSimulation, EffectSimulationTime};
 
 #[allow(missing_docs)]
 pub mod prelude {

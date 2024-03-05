@@ -12,6 +12,7 @@ use bevy::{
         view::{prepare_view_uniforms, visibility::VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
+    time::{virtual_time_system, TimeSystem},
 };
 
 use crate::{
@@ -26,7 +27,9 @@ use crate::{
         VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
-    tick_spawners, update_properties_from_asset, ParticleEffect, RemovedEffectsEvent, Spawner,
+    tick_spawners,
+    time::effect_simulation_time_system,
+    update_properties_from_asset, EffectSimulation, ParticleEffect, RemovedEffectsEvent, Spawner,
 };
 
 pub mod main_graph {
@@ -97,6 +100,7 @@ impl Plugin for HanabiPlugin {
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<ShaderCache>()
             .init_asset_loader::<EffectAssetLoader>()
+            .init_resource::<Time<EffectSimulation>>()
             .configure_sets(
                 PostUpdate,
                 (
@@ -113,6 +117,12 @@ impl Plugin for HanabiPlugin {
                 EffectSystems::UpdatePropertiesFromAsset.after(bevy::asset::TrackAssets),
             )
             .add_systems(
+                First,
+                effect_simulation_time_system
+                    .after(virtual_time_system)
+                    .in_set(TimeSystem),
+            )
+            .add_systems(
                 PostUpdate,
                 (
                     tick_spawners.in_set(EffectSystems::TickSpawners),
@@ -126,7 +136,8 @@ impl Plugin for HanabiPlugin {
         app.register_type::<EffectAsset>()
             .register_type::<ParticleEffect>()
             .register_type::<EffectProperties>()
-            .register_type::<Spawner>();
+            .register_type::<Spawner>()
+            .register_type::<Time<EffectSimulation>>();
     }
 
     fn finish(&self, app: &mut App) {
