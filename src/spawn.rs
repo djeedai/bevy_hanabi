@@ -626,7 +626,7 @@ mod test {
     /// Make an `EffectSpawner` wrapping a `Spawner`.
     fn make_effect_spawner(spawner: Spawner) -> EffectSpawner {
         EffectSpawner::new(
-            &EffectAsset::new(256, spawner, Module::default()),
+            &EffectAsset::new(vec![256], spawner, Module::default()),
             &ParticleEffect::default(),
         )
     }
@@ -865,7 +865,8 @@ mod test {
 
                 // Add effect asset
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
-                let mut asset = EffectAsset::new(64, test_case.asset_spawner, Module::default());
+                let mut asset =
+                    EffectAsset::new(vec![64], test_case.asset_spawner, Module::default());
                 asset.simulation_condition = if test_case.visibility.is_some() {
                     SimulationCondition::WhenVisible
                 } else {

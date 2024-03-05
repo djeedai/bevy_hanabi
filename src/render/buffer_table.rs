@@ -221,6 +221,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
 
     /// Size of a single row in the table, in bytes, aligned to GPU constraints.
     #[inline]
+    #[allow(dead_code)]
     pub fn aligned_size(&self) -> usize {
         self.aligned_size
     }
@@ -311,6 +312,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     }
 
     /// Remove a row from the table.
+    #[allow(dead_code)]
     pub fn remove(&mut self, id: BufferTableId) {
         let index = id.0;
         assert!(index < self.active_size as u32);

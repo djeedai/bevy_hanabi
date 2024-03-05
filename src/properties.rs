@@ -47,7 +47,7 @@
 //! # use bevy::prelude::*;
 //! let spawner = Spawner::rate(5_f32.into());
 //! let module = Module::default();
-//! let effect = EffectAsset::new(4096, spawner, module)
+//! let effect = EffectAsset::new(vec![4096], spawner, module)
 //!     .with_property("my_color", Color::WHITE.as_rgba_u32().into());
 //! ```
 //!
@@ -812,16 +812,13 @@ impl PropertyLayout {
     ///
     /// If no property with the given name is found, this returns `None`.
     pub(crate) fn offset(&self, name: &str) -> Option<u32> {
-        self.layout
-            .iter()
-            .filter_map(|entry| {
-                if entry.property.name == name {
-                    Some(entry.offset)
-                } else {
-                    None
-                }
-            })
-            .next()
+        self.layout.iter().find_map(|entry| {
+            if entry.property.name == name {
+                Some(entry.offset)
+            } else {
+                None
+            }
+        })
     }
 }
 

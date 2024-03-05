@@ -150,7 +150,7 @@ fn setup(
     let rotation_attr = writer.attr(Attribute::F32_0).expr();
 
     let effect = effects.add(
-        EffectAsset::new(32768, Spawner::rate(64.0.into()), writer.finish())
+        EffectAsset::new(vec![32768], Spawner::rate(64.0.into()), writer.finish())
             .with_name("billboard")
             .with_alpha_mode(bevy_hanabi::AlphaMode::Mask(alpha_cutoff))
             .init(init_pos)

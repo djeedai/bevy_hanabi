@@ -40,6 +40,7 @@ use std::{
 
 pub mod accel;
 pub mod attr;
+pub mod clone;
 pub mod force;
 pub mod kill;
 pub mod output;
@@ -48,6 +49,7 @@ pub mod velocity;
 
 pub use accel::*;
 pub use attr::*;
+pub use clone::*;
 pub use force::*;
 pub use kill::*;
 pub use output::*;
@@ -164,6 +166,67 @@ impl Clone for BoxedModifier {
     }
 }
 
+/// A bitfield that describes which particle groups a modifier affects.
+///
+/// Bit N will be set if the modifier in question affects particle group N.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct ParticleGroupSet(pub u32);
+
+impl ParticleGroupSet {
+    /// Returns a new [`ParticleGroupSet`] that affects all particle groups.
+    #[inline]
+    pub fn all() -> ParticleGroupSet {
+        ParticleGroupSet(!0)
+    }
+
+    /// Returns a new [`ParticleGroupSet`] that affects no particle groups.
+    ///
+    /// Typically you'll want to add some groups to the resulting set with the
+    /// [`ParticleGroupSet::with_group`] method.
+    #[inline]
+    pub fn none() -> ParticleGroupSet {
+        ParticleGroupSet(0)
+    }
+
+    /// Returns a new set with the given particle group added.
+    #[inline]
+    pub fn with_group(mut self, group_index: u32) -> ParticleGroupSet {
+        self.0 |= 1 << group_index;
+        self
+    }
+
+    /// Returns a new [`ParticleGroupSet`] affecting a single group.
+    #[inline]
+    pub fn single(group_index: u32) -> ParticleGroupSet {
+        ParticleGroupSet::none().with_group(group_index)
+    }
+
+    /// Returns true if this set contains the group with the given index.
+    #[inline]
+    pub fn contains(&self, group_index: u32) -> bool {
+        (self.0 & (1 << group_index)) != 0
+    }
+}
+
+/// A [`Modifier`] that affects to one or more groups.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct GroupedModifier {
+    /// The modifier.
+    pub modifier: BoxedModifier,
+    /// The set of groups that this modifier affects.
+    pub groups: ParticleGroupSet,
+}
+
+impl GroupedModifier {
+    /// If this modifier describes a [`RenderModifier`], returns an immutable
+    /// reference to it.
+    #[inline]
+    pub fn as_render(&self) -> Option<&dyn RenderModifier> {
+        self.modifier.as_render()
+    }
+}
+
 /// Shader code writer.
 ///
 /// Writer utility to generate shader code. The writer works in a defined
@@ -193,7 +256,7 @@ pub struct ShaderWriter<'a> {
     var_counter: u32,
     /// Cache of evaluated expressions.
     expr_cache: HashMap<ExprHandle, String>,
-    /// Is the attriubute struct a pointer?
+    /// Is the attribute struct a pointer?
     is_attribute_pointer: bool,
 }
 

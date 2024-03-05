@@ -115,7 +115,7 @@ fn setup(
     // By default the asset spawns the particles at Z=0.
     let spawner = Spawner::rate(30.0.into());
     let effect = effects.add(
-        EffectAsset::new(4096, spawner, writer.finish())
+        EffectAsset::new(vec![4096], spawner, writer.finish())
             .with_name("2d")
             .init(init_pos)
             .init(init_vel)

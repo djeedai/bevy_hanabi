@@ -18,9 +18,7 @@ use bevy::{
     core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
-    render::{
-        camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
-    },
+    render::{render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin},
 };
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -80,12 +78,7 @@ struct RepulsorMarker(pub bool);
 
 #[cfg(feature = "examples_world_inspector")]
 mod inspector {
-    use bevy::{
-        ecs::system::{Local, Resource},
-        prelude::*,
-        reflect::Reflect,
-        window::PrimaryWindow,
-    };
+    use bevy::{ecs::system::Resource, prelude::*, reflect::Reflect, window::PrimaryWindow};
     use bevy_egui::EguiContext;
     use bevy_hanabi::EffectProperties;
     use bevy_inspector_egui::{inspector_options::std_options::NumberDisplay, prelude::*};
@@ -338,7 +331,7 @@ fn setup(
 
     // Force field effects
     let effect = effects.add(
-        EffectAsset::new(32768, spawner, writer.finish())
+        EffectAsset::new(vec![32768], spawner, writer.finish())
             .with_name("force_field")
             .with_property("repulsor_position", Value::Vector(REPULSOR_POS.into()))
             .with_property("attraction_accel", Value::Scalar(20.0.into()))

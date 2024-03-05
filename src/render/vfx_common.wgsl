@@ -14,11 +14,14 @@ struct SimParams {
     /// Real time in seconds since the start of simulation.
     real_time: f32,
 //#ifdef SIM_PARAMS_INDIRECT_DATA
-    /// Number of effects batched together.
-    num_effects: u32,
-    /// Stride in bytes of the RenderIndirect struct. Used to calculate
+    /// Number of groups batched together.
+    num_groups: u32,
+    /// Stride in bytes of the RenderEffectMetadata struct. Used to calculate
     /// the position of each effect's data into the buffer of a batch.
-    render_stride: u32,
+    render_effect_stride: u32,
+    /// Stride in bytes of the RenderGroupIndirect struct. Used to calculate
+    /// the position of each effect's data into the buffer of a batch.
+    render_group_stride: u32,
     /// Stride in bytes of the DispatchIndirect struct. Used to calculate
     /// the position of each effect's data into the buffer of a batch.
     dispatch_stride: u32,
@@ -35,6 +38,23 @@ struct Spawner {
 #ifdef SPAWNER_PADDING
     {{SPAWNER_PADDING}}
 #endif
+}
+
+struct ParticleGroup {
+    group_index: u32,
+    spawner_index: u32,
+    effect_index: u32,
+    // The index relative to the effect: e.g. 0 if this is the first group in
+    // the effect.
+    index_in_effect: u32,
+    // Index of the first element for this group in the indirect index buffer.
+    indirect_index: u32,
+    // The capacity of this group.
+    capacity: u32,
+    // The index of the first particle in this effect in the particle and
+    // indirect buffers.
+    effect_particle_offset: u32,
+    pad: u32,
 }
 
 struct IndirectBuffer {
@@ -67,41 +87,23 @@ struct DispatchIndirect {
 // as a raw array<u32>, so that we can avoid WGSL struct padding and keep data
 // more compact in the render indirect buffer. Each offset corresponds to a field
 // in the RenderIndirect struct.
-const RI_OFFSET_VERTEX_COUNT: u32 = 0u;
-const RI_OFFSET_INSTANCE_COUNT: u32 = 1u;
-const RI_OFFSET_BASE_INDEX: u32 = 2u;
-const RI_OFFSET_VERTEX_OFFSET: u32 = 3u;
-const RI_OFFSET_BASE_INSTANCE: u32 = 4u;
-const RI_OFFSET_ALIVE_COUNT: u32 = 5u;
-const RI_OFFSET_DEAD_COUNT: u32 = 6u;
-const RI_OFFSET_MAX_SPAWN: u32 = 7u;
-const RI_OFFSET_PING: u32 = 8u;
-const RI_OFFSET_MAX_UPDATE: u32 = 9u;
+const REM_OFFSET_MAX_SPAWN: u32 = 0u;
+const REM_OFFSET_PING: u32 = 1u;
 
-/// Render indirect parameters for GPU driven rendering.
-struct RenderIndirect {
-    /// Number of vertices in the particle mesh. Currently always 4 (quad mesh).
-    vertex_count: u32,
-    /// Number of mesh instances, equal to the number of particles.
-    instance_count: atomic<u32>,
-    /// Base index (always zero).
-    base_index: u32,
-    /// Vertex offset (always zero).
-    vertex_offset: i32,
-    /// Base instance (always zero).
-    base_instance: u32,
-    /// Number of particles alive after the init pass, used to calculate the number
-    /// of compute threads to spawn for the update pass and to cap those threads
-    /// via `max_update`.
-    alive_count: atomic<u32>,
-    /// Number of dead particles, decremented during the init pass as new particles
-    /// are spawned, and incremented during the update pass as existing particles die.
-    dead_count: atomic<u32>,
+const RGI_OFFSET_VERTEX_COUNT: u32 = 0u;
+const RGI_OFFSET_INSTANCE_COUNT: u32 = 1u;
+const RGI_OFFSET_VERTEX_OFFSET: u32 = 2u;
+const RGI_OFFSET_BASE_INSTANCE: u32 = 3u;
+const RGI_OFFSET_ALIVE_COUNT: u32 = 4u;
+const RGI_OFFSET_MAX_UPDATE: u32 = 5u;
+const RGI_OFFSET_DEAD_COUNT: u32 = 6u;
+
+struct RenderEffectMetadata {
     /// Maxmimum number of init threads to run on next frame. This is cached from
     /// `dead_count` during the indirect dispatch of the previous frame, so that the
     /// init compute pass can cap its thread count while also decrementing the actual
     /// `dead_count` as particles are spawned.
-#ifdef RI_MAX_SPAWN_ATOMIC
+#ifdef REM_MAX_SPAWN_ATOMIC
     max_spawn: atomic<u32>,
 #else
     max_spawn: u32,
@@ -110,11 +112,31 @@ struct RenderIndirect {
     /// always write into the ping buffer and read from the pong buffer. The buffers
     /// are swapped during the indirect dispatch.
     ping: u32,
+}
+
+/// Render indirect parameters for GPU driven rendering.
+struct RenderGroupIndirect {
+    /// Number of vertices in the particle mesh. Currently always 4 (quad mesh).
+    vertex_count: u32,
+    /// Number of mesh instances, equal to the number of particles.
+    instance_count: atomic<u32>,
+    /// Vertex offset (always zero).
+    vertex_offset: i32,
+    /// Base instance.
+    base_instance: u32,
+    /// Number of particles alive after the init pass, used to calculate the number
+    /// of compute threads to spawn for the update pass and to cap those threads
+    /// via `max_update`.
+    alive_count: atomic<u32>,
     /// Maximum number of update threads to run. This is cached from `alive_count`
     /// during the indirect dispatch, so that the update compute pass can cap its
     /// thread count while also modifying the actual `alive_count` if some particle
     /// dies during the update pass.
     max_update: u32,
+    /// Number of dead particles, decremented during the init pass as new particles
+    /// are spawned, and incremented during the update pass as existing particles die.
+    dead_count: atomic<u32>,
+    pad: u32,
 }
 
 var<private> seed : u32 = 0u;

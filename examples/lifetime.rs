@@ -117,7 +117,7 @@ fn setup(
     };
     let effect1 = effects.add(
         EffectAsset::new(
-            512,
+            vec![512],
             Spawner::burst(50.0.into(), period.into()),
             writer1.finish(),
         )
@@ -172,7 +172,7 @@ fn setup(
     };
     let effect2 = effects.add(
         EffectAsset::new(
-            512,
+            vec![512],
             Spawner::burst(50.0.into(), period.into()),
             writer2.finish(),
         )
@@ -227,7 +227,7 @@ fn setup(
     };
     let effect3 = effects.add(
         EffectAsset::new(
-            512,
+            vec![512],
             Spawner::burst(50.0.into(), period.into()),
             writer3.finish(),
         )

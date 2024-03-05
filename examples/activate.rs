@@ -11,10 +11,7 @@ use bevy::{
     log::LogPlugin,
     prelude::*,
     render::{
-        camera::{Projection, ScalingMode},
-        render_resource::WgpuFeatures,
-        settings::WgpuSettings,
-        RenderPlugin,
+        camera::ScalingMode, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
     },
 };
 #[cfg(feature = "examples_world_inspector")]
@@ -136,7 +133,7 @@ fn setup(
     };
 
     let effect = effects.add(
-        EffectAsset::new(32768, spawner, writer.finish())
+        EffectAsset::new(vec![32768], spawner, writer.finish())
             .with_name("activate")
             .init(init_pos)
             .init(init_vel)
