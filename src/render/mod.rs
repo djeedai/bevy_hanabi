@@ -40,7 +40,10 @@ use bevy::core_pipeline::core_3d::{AlphaMask3d, Transparent3d};
 use crate::{
     asset::EffectAsset,
     next_multiple_of,
-    render::{batch::BatchesInput, effect_cache::DispatchBufferIndices},
+    render::{
+        batch::{BatchesInput, EffectDrawBatch},
+        effect_cache::DispatchBufferIndices,
+    },
     spawn::EffectSpawner,
     CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation, HanabiPlugin,
     ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition,
@@ -60,7 +63,8 @@ pub use shader_cache::ShaderCache;
 
 use self::batch::EffectBatches;
 
-// Size of an indirect index (including both parts of the ping-pong buffer) in bytes.
+// Size of an indirect index (including both parts of the ping-pong buffer) in
+// bytes.
 const INDIRECT_INDEX_SIZE: u32 = 12;
 
 /// Labels for the Hanabi systems.
@@ -163,11 +167,11 @@ struct GpuSimParams {
     ///
     /// This is only used by the `vfx_indirect` compute shader.
     num_groups: u32,
-    /// Stride in bytes of an effect render indirect block, used to index the effect's
-    /// block based on its index.
+    /// Stride in bytes of an effect render indirect block, used to index the
+    /// effect's block based on its index.
     render_effect_stride: u32,
-    /// Stride in bytes of a group render indirect block, used to index the effect's
-    /// block based on its index.
+    /// Stride in bytes of a group render indirect block, used to index the
+    /// effect's block based on its index.
     render_group_stride: u32,
     /// Stride in bytes of a dispatch indirect block, used to index the effect's
     /// block based on its index.
@@ -353,7 +357,8 @@ pub struct GpuRenderGroupIndirect {
 pub struct GpuParticleGroup {
     /// The index of this particle group in the global particle group buffer.
     pub global_group_index: u32,
-    /// The index of the spawner.
+    /// The index of the spawner (for the first group only; will be the same
+    /// value for all groups).
     pub spawner_index: u32,
     /// The global index of the entire particle effect.
     pub effect_index: u32,
@@ -1686,12 +1691,6 @@ pub struct EffectsMeta {
     /// The pipeline for the indirect dispatch shader, which populates the
     /// indirect compute dispatch buffers.
     indirect_dispatch_pipeline: Option<ComputePipeline>,
-    /// A mapping from each render pipeline to the group index it's associated
-    /// with.
-    ///
-    /// This is a local group index (i.e. 0 for the first group in a particle
-    /// effect), not a global group index.
-    render_pipeline_to_group_index: HashMap<CachedRenderPipelineId, u32>,
     /// Various GPU limits and aligned sizes lazily allocated and cached for
     /// convenience.
     gpu_limits: GpuLimits,
@@ -1758,7 +1757,6 @@ impl EffectsMeta {
                 Some("hanabi:buffer:particle_group".to_string()),
             ),
             vertices,
-            render_pipeline_to_group_index: HashMap::new(),
             indirect_dispatch_pipeline: None,
             gpu_limits,
         }
@@ -1796,15 +1794,13 @@ impl EffectsMeta {
                     );
                     effect_bind_groups.particle_buffers.remove(&buffer_index);
 
-                    // NOTE: by convention (see assert below) the cache ID is also the table ID, as
-                    // those 3 data structures stay in sync.
-                    /*
-                    FIXME: Reenable!
-                    let table_id = BufferTableId(buffer_index);
-                    self.dispatch_indirect_buffer.remove(table_id);
-                    self.render_effect_dispatch_buffer.remove(table_id);
-                    self.render_group_dispatch_buffer.remove(table_id);
-                    */
+                    // NOTE: by convention (see assert below) the cache ID is
+                    // also the table ID, as those 3 data structures stay in
+                    // sync. FIXME: Reenable!
+                    // let table_id = BufferTableId(buffer_index);
+                    // self.dispatch_indirect_buffer.remove(table_id);
+                    // self.render_effect_dispatch_buffer.remove(table_id);
+                    // self.render_group_dispatch_buffer.remove(table_id);
                 }
             }
         }
@@ -1866,22 +1862,20 @@ impl EffectsMeta {
             let entity = added_effect.entity;
             self.entity_map.insert(entity, cache_id);
 
-            // Note: those effects are already in extracted_effects.effects because
-            // they were gathered by the same query as previously existing
-            // ones, during extraction.
+            // Note: those effects are already in extracted_effects.effects
+            // because they were gathered by the same query as
+            // previously existing ones, during extraction.
 
-            /*
-            let index = self.effect_cache.buffer_index(cache_id).unwrap();
-
-            let table_id = self
-                .dispatch_indirect_buffer
-                .insert(GpuDispatchIndirect::default());
-            assert_eq!(
-                table_id.0, index,
-                "Broken table invariant: buffer={} row={}",
-                index, table_id.0
-            );
-            */
+            // let index = self.effect_cache.buffer_index(cache_id).unwrap();
+            //
+            // let table_id = self
+            // .dispatch_indirect_buffer
+            // .insert(GpuDispatchIndirect::default());
+            // assert_eq!(
+            // table_id.0, index,
+            // "Broken table invariant: buffer={} row={}",
+            // index, table_id.0
+            // );
         }
 
         // Once all changes are applied, immediately schedule any GPU buffer
@@ -2044,16 +2038,16 @@ pub(crate) fn prepare_effects(
     // buffer and continuous slice ranges (the next slice start must be equal to
     // the previous start end, without gap). EffectSlice already contains both
     // information, and the proper ordering implementation.
-    //effect_entity_list.sort_by_key(|a| a.effect_slice.clone());
+    // effect_entity_list.sort_by_key(|a| a.effect_slice.clone());
 
     // Loop on all extracted effects in order and try to batch them together to
     // reduce draw calls
     effects_meta.spawner_buffer.clear();
     effects_meta.particle_group_buffer.clear();
     let mut total_group_count = 0;
-
     for (effect_index, input) in effect_entity_list.into_iter().enumerate() {
-        // Specialize the init pipeline based on the effect
+        // Specialize the init pipeline based on the effect. Note that this is shared by
+        // all effect groups of a same effect.
         trace!(
             "Specializing compute pipeline: init_shader={:?} particle_layout={:?}",
             input.effect_shader.init,
@@ -2077,9 +2071,9 @@ pub(crate) fn prepare_effects(
         );
         trace!("Init pipeline specialized: id={:?}", init_pipeline_id);
 
-        // Specialize the update pipeline based on the effect
+        // Specialize the update pipelines based on the effect
         trace!(
-            "Specializing update pipeline: update_shader={:?} particle_layout={:?} property_layout={:?}",
+            "Specializing update pipeline(s): update_shader(s)={:?} particle_layout={:?} property_layout={:?}",
             input.effect_shader.update,
             input.effect_slices.particle_layout,
             input.property_layout,
@@ -2101,7 +2095,7 @@ pub(crate) fn prepare_effects(
             })
             .collect();
         trace!(
-            "Update pipelines specialized: ids={:?}",
+            "Update pipeline(s) specialized: ids={:?}",
             update_pipeline_ids
         );
 
@@ -2109,10 +2103,10 @@ pub(crate) fn prepare_effects(
         trace!("init_shader = {:?}", init_shader);
 
         let update_shader = input.effect_shader.update.clone();
-        trace!("update_shader = {:?}", update_shader);
+        trace!("update_shader(s) = {:?}", update_shader);
 
         let render_shader = input.effect_shader.render.clone();
-        trace!("render_shader = {:?}", render_shader);
+        trace!("render_shader(s) = {:?}", render_shader);
 
         trace!("image_handle = {:?}", input.image_handle);
 
@@ -2151,6 +2145,7 @@ pub(crate) fn prepare_effects(
 
         // Create the particle group buffer entries.
         let mut first_particle_group_buffer_index = None;
+        let mut local_group_count = 0;
         for (group_index, range) in input.effect_slices.slices.windows(2).enumerate() {
             let particle_group_buffer_index =
                 effects_meta.particle_group_buffer.push(GpuParticleGroup {
@@ -2167,6 +2162,7 @@ pub(crate) fn prepare_effects(
                 first_particle_group_buffer_index = Some(particle_group_buffer_index as u32);
             }
             total_group_count += 1;
+            local_group_count += 1;
         }
 
         let effect_cache_id = *effects_meta.entity_map.get(&input.entity).unwrap();
@@ -2186,6 +2182,12 @@ pub(crate) fn prepare_effects(
             }
         }
 
+        #[cfg(feature = "2d")]
+        let z_sort_key_2d = input.z_sort_key_2d;
+
+        // Spawn one shared EffectBatches for all groups of this effect. This contains
+        // most of the data needed to drive rendering, except the per-group data.
+        // However this doesn't drive rendering; this is just storage.
         let batches = EffectBatches::from_input(
             input,
             spawner_base,
@@ -2195,7 +2197,19 @@ pub(crate) fn prepare_effects(
             dispatch_buffer_indices,
             first_particle_group_buffer_index.unwrap_or_default(),
         );
-        commands.spawn(batches);
+        let batches_entity = commands.spawn(batches).id();
+
+        // Spawn one EffectDrawBatch per group, to actually drive rendering. Each group
+        // renders with a different indirect call. These are the entities that the
+        // render phase items will receive.
+        for group_index in 0..local_group_count {
+            commands.spawn(EffectDrawBatch {
+                batches_entity,
+                group_index,
+                #[cfg(feature = "2d")]
+                z_sort_key_2d,
+            });
+        }
     }
 
     // Write the entire spawner buffer for this frame, for all effects combined
@@ -2283,9 +2297,11 @@ pub struct EffectBindGroups {
     images: HashMap<AssetId<Image>, BindGroup>,
     /// Map from effect index to its init particle buffer bind group (group 1).
     init_particle_buffer_bind_groups: HashMap<EffectCacheId, BindGroup>,
-    /// Map from effect index to its update particle buffer bind group (group 1).
+    /// Map from effect index to its update particle buffer bind group (group
+    /// 1).
     update_particle_buffer_bind_groups: HashMap<EffectCacheId, BindGroup>,
-    /// Map from effect index to its update render indirect bind group (group 3).
+    /// Map from effect index to its update render indirect bind group (group
+    /// 3).
     update_render_indirect_bind_groups: HashMap<EffectCacheId, BindGroup>,
 }
 
@@ -2316,8 +2332,8 @@ pub struct QueueEffectsReadOnlyParams<'w, 's> {
 fn emit_draw<T, F>(
     views: &mut Query<(&mut RenderPhase<T>, &VisibleEntities, &ExtractedView)>,
     effect_batches: &Query<(Entity, &mut EffectBatches)>,
+    effect_draw_batches: &Query<(Entity, &mut EffectDrawBatch)>,
     mut effect_bind_groups: Mut<EffectBindGroups>,
-    effects_meta: &mut EffectsMeta,
     gpu_images: &RenderAssets<Image>,
     render_device: RenderDevice,
     read_params: &QueueEffectsReadOnlyParams,
@@ -2329,7 +2345,7 @@ fn emit_draw<T, F>(
     use_alpha_mask: bool,
 ) where
     T: PhaseItem,
-    F: Fn(CachedRenderPipelineId, Entity, &EffectBatches, u32) -> T,
+    F: Fn(CachedRenderPipelineId, Entity, &EffectDrawBatch, u32) -> T,
 {
     for (mut render_phase, visible_entities, view) in views.iter_mut() {
         trace!("Process new view (use_alpha_mask={})", use_alpha_mask);
@@ -2343,10 +2359,23 @@ fn emit_draw<T, F>(
         // For each view, loop over all the effect batches to determine if the effect
         // needs to be rendered for that view, and enqueue a view-dependent
         // batch if so.
-        for (entity, batches) in effect_batches.iter() {
+        for (draw_entity, draw_batch) in effect_draw_batches.iter() {
             trace!(
-                "Process batch entity={:?} buffer_index={} spawner_base={} layout_flags={:?}",
-                entity,
+                "Process draw batch: draw_entity={:?} group_index={} batches_entity={:?}",
+                draw_entity,
+                draw_batch.group_index,
+                draw_batch.batches_entity,
+            );
+
+            // Get the EffectBatches this EffectDrawBatch is part of.
+            let Ok((batches_entity, batches)) = effect_batches.get(draw_batch.batches_entity)
+            else {
+                continue;
+            };
+
+            trace!(
+                "-> EffectBaches: entity={:?} buffer_index={} spawner_base={} layout_flags={:?}",
+                batches_entity,
                 batches.buffer_index,
                 batches.spawner_base,
                 batches.layout_flags,
@@ -2439,9 +2468,12 @@ fn emit_draw<T, F>(
             );
 
             // Add a draw pass for the effect batch
+            trace!("Emitting individual draws for batches and groups: group_batches.len()={} batches.render_shaders.len()={}", batches.group_batches.len(), batches.render_shaders.len());
             for (group_index, render_shader_source) in
                 (0..(batches.group_batches.len() as u32)).zip(batches.render_shaders.iter())
             {
+                trace!("Emit for group index #{}", group_index);
+
                 let render_pipeline_id = specialized_render_pipelines.specialize(
                     pipeline_cache,
                     &read_params.render_pipeline,
@@ -2459,17 +2491,17 @@ fn emit_draw<T, F>(
                     },
                 );
 
-                effects_meta
-                    .render_pipeline_to_group_index
-                    .insert(render_pipeline_id, group_index);
-
-                trace!("Render pipeline specialized: id={:?}", render_pipeline_id);
-                trace!("Add Transparent for batch on entity {:?}: buffer_index={} spawner_base={} handle={:?}", entity, batches.buffer_index, batches.spawner_base, batches.handle);
+                trace!(
+                    "+ Render pipeline specialized: id={:?} -> group_index={}",
+                    render_pipeline_id,
+                    group_index
+                );
+                trace!("+ Add Transparent for batch on draw_entity {:?}: buffer_index={} group_index={} spawner_base={} handle={:?}", draw_entity, batches.buffer_index, group_index, batches.spawner_base, batches.handle);
 
                 render_phase.add(make_phase_item(
                     render_pipeline_id,
-                    entity,
-                    batches,
+                    draw_entity,
+                    draw_batch,
                     group_index,
                 ));
             }
@@ -2501,6 +2533,7 @@ pub(crate) fn queue_effects(
     mut effect_bind_groups: ResMut<EffectBindGroups>,
     gpu_images: Res<RenderAssets<Image>>,
     effect_batches: Query<(Entity, &mut EffectBatches)>,
+    effect_draw_batches: Query<(Entity, &mut EffectDrawBatch)>,
     events: Res<EffectAssetEvents>,
     read_params: QueueEffectsReadOnlyParams,
     msaa: Res<Msaa>,
@@ -2931,8 +2964,6 @@ pub(crate) fn queue_effects(
             );
     }
 
-    effects_meta.render_pipeline_to_group_index.clear();
-
     // Loop over all 2D cameras/views that need to render effects
     #[cfg(feature = "2d")]
     {
@@ -2948,19 +2979,19 @@ pub(crate) fn queue_effects(
             emit_draw(
                 &mut views_2d,
                 &effect_batches,
+                &effect_draw_batches,
                 effect_bind_groups.reborrow(),
-                &mut effects_meta,
                 &gpu_images,
                 render_device.clone(),
                 &read_params,
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 msaa.samples(),
-                |id, entity, batch, _group| Transparent2d {
+                |id, entity, draw_batch, _group| Transparent2d {
                     draw_function: draw_effects_function_2d,
                     pipeline: id,
                     entity,
-                    sort_key: batch.z_sort_key_2d,
+                    sort_key: draw_batch.z_sort_key_2d,
                     batch_range: 0..1,
                     dynamic_offset: None,
                 },
@@ -2987,8 +3018,8 @@ pub(crate) fn queue_effects(
             emit_draw(
                 &mut views_3d,
                 &effect_batches,
+                &effect_draw_batches,
                 effect_bind_groups.reborrow(),
-                &mut effects_meta,
                 &gpu_images,
                 render_device.clone(),
                 &read_params,
@@ -3022,8 +3053,8 @@ pub(crate) fn queue_effects(
             emit_draw(
                 &mut views_alpha_mask,
                 &effect_batches,
+                &effect_draw_batches,
                 effect_bind_groups.reborrow(),
-                &mut effects_meta,
                 &gpu_images,
                 render_device.clone(),
                 &read_params,
@@ -3086,6 +3117,7 @@ type DrawEffectsSystemState = SystemState<(
     SRes<PipelineCache>,
     SQuery<Read<ViewUniformOffset>>,
     SQuery<Read<EffectBatches>>,
+    SQuery<Read<EffectDrawBatch>>,
 )>;
 
 /// Draw function for rendering all active effects for the current frame.
@@ -3115,11 +3147,13 @@ fn draw<'w>(
     pipeline_id: CachedRenderPipelineId,
     params: &mut DrawEffectsSystemState,
 ) {
-    let (effects_meta, effect_bind_groups, pipeline_cache, views, effects) = params.get(world);
+    let (effects_meta, effect_bind_groups, pipeline_cache, views, effects, effect_draw_batches) =
+        params.get(world);
     let view_uniform = views.get(view).unwrap();
     let effects_meta = effects_meta.into_inner();
     let effect_bind_groups = effect_bind_groups.into_inner();
-    let effect_batches = effects.get(entity).unwrap();
+    let effect_draw_batch = effect_draw_batches.get(entity).unwrap();
+    let effect_batches = effects.get(effect_draw_batch.batches_entity).unwrap();
 
     let gpu_limits = &effects_meta.gpu_limits;
 
@@ -3189,7 +3223,7 @@ fn draw<'w>(
     }
 
     let render_indirect_buffer = effects_meta.render_group_dispatch_buffer.buffer().unwrap();
-    let group_index = effects_meta.render_pipeline_to_group_index[&pipeline_id];
+    let group_index = effect_draw_batch.group_index;
     let effect_batch = &effect_batches.group_batches[group_index as usize];
 
     let render_group_dispatch_indirect_index = effect_batches
@@ -3200,11 +3234,12 @@ fn draw<'w>(
 
     trace!(
         "Draw {} particles with {} vertices per particle for batch from buffer #{} \
-            (render_group_dispatch_indirect_index={:?}).",
+            (render_group_dispatch_indirect_index={:?}, group_index={}).",
         effect_batch.slice.len(),
         effects_meta.vertices.len(),
         effect_batches.buffer_index,
         render_group_dispatch_indirect_index,
+        group_index,
     );
 
     pass.draw_indirect(

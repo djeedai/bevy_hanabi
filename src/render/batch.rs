@@ -55,10 +55,6 @@ pub(crate) struct EffectBatches {
     pub init_pipeline_id: CachedComputePipelineId,
     /// Update compute pipeline specialized for this batch.
     pub update_pipeline_ids: Vec<CachedComputePipelineId>,
-    /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
-    /// rendering.
-    #[cfg(feature = "2d")]
-    pub z_sort_key_2d: FloatOrd,
 }
 
 impl Index<u32> for EffectBatches {
@@ -67,6 +63,24 @@ impl Index<u32> for EffectBatches {
     fn index(&self, index: u32) -> &Self::Output {
         &self.group_batches[index as usize]
     }
+}
+
+/// Single effect batch to drive rendering.
+///
+/// This component is spawned into the render world during the prepare phase
+/// ([`prepare_effects()`]), once per effect batch per group. In turns it
+/// references an [`EffectBatches`] component containing all the shared data for
+/// all the groups of the effect.
+#[derive(Debug, Component)]
+pub(crate) struct EffectDrawBatch {
+    /// Group index of the batch.
+    pub group_index: u32,
+    /// Entity holding the [`EffectBatches`] this batch is part of.
+    pub batches_entity: Entity,
+    /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
+    /// rendering.
+    #[cfg(feature = "2d")]
+    pub z_sort_key_2d: FloatOrd,
 }
 
 /// Batch data specific to a single particle group.
@@ -109,8 +123,6 @@ impl EffectBatches {
             render_shaders: input.effect_shader.render,
             init_pipeline_id,
             update_pipeline_ids,
-            #[cfg(feature = "2d")]
-            z_sort_key_2d: input.z_sort_key_2d,
             entities: vec![input.entity.index()],
         }
     }

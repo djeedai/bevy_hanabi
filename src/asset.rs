@@ -393,7 +393,8 @@ impl EffectAsset {
         self
     }
 
-    /// Add an initialization modifier to the effect targeting only a subset of groups.
+    /// Add an initialization modifier to the effect targeting only a subset of
+    /// groups.
     ///
     /// [`with_property()`]: crate::EffectAsset::with_property
     /// [`add_property()`]: crate::EffectAsset::add_property
