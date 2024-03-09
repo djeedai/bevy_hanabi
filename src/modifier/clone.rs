@@ -15,10 +15,15 @@ use crate::{
 /// Spawners always spawn particles into group 0, so this is the primary way to
 /// place particles into groups other than 0. Typical uses of this modifier are
 /// to create trails.
+///
+/// All attributes are copied to the new particle, with the exception of
+/// [`Attribute::AGE`], which is reset to zero.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct CloneModifier {
     /// How many seconds must elapse before the particle will be duplicated.
-    pub rate: f32,
+    ///
+    /// If this is zero, particles will be duplicated every frame.
+    pub spawn_period: f32,
     /// The group that the new particle will be spawned into.
     pub destination_group: u32,
 }
@@ -48,9 +53,9 @@ impl Modifier for CloneModifier {
             module,
             &mut |_m: &mut Module, context: &mut dyn EvalContext| -> Result<String, ExprError> {
                 let age_reset_code = if context.particle_layout().contains(Attribute::AGE) {
-                    "particle_buffer.particles[index].age = 0.0;"
+                    format!("particle_buffer.particles[index].{} = 0.0;", Attribute::AGE.name())
                 } else {
-                    ""
+                    "".to_owned()
                 };
 
                 Ok(format!(
@@ -78,17 +83,17 @@ impl Modifier for CloneModifier {
             },
         )?;
 
-        if self.rate <= 0.0 {
+        if self.spawn_period <= 0.0 {
             context.main_code += &format!("{func}(&particle);", func = func_name);
         } else {
-            // Calculate the number of multiples of `rate` that fall between the
-            // last tick and this one, and spawn one particle for each such
-            // multiple.
+            // Calculate the number of multiples of `spawn_period` that fall
+            // between the last tick and this one, and spawn one particle for
+            // each such multiple.
             //
             // https://stackoverflow.com/a/31871205
             context.main_code += &format!(
                 r##"
-                let {multiple_count} = max(0, i32(floor({b} / f32({m}))) - i32(ceil(({b} - {delta}) / f32({m}))) + 1);
+                let {multiple_count} = max(0, i32(floor({b} / {m})) - i32(ceil(({b} - {delta}) / {m})) + 1);
                 for (var i = 0; i < {multiple_count}; i += 1) {{
                     {func}(&particle);
                 }}
@@ -97,7 +102,7 @@ impl Modifier for CloneModifier {
                 multiple_count = multiple_count_name,
                 b = "sim_params.time",
                 delta = "sim_params.delta_time",
-                m = self.rate
+                m = self.spawn_period
             );
         }
 
@@ -107,10 +112,10 @@ impl Modifier for CloneModifier {
 
 impl CloneModifier {
     /// Creates a new [`CloneModifier`] that will duplicate particles every
-    /// `rate` seconds into the `destination_group`.
-    pub fn new(rate: f32, destination_group: u32) -> CloneModifier {
+    /// `spawn_period` seconds into the `destination_group`.
+    pub fn new(spawn_period: f32, destination_group: u32) -> CloneModifier {
         CloneModifier {
-            rate,
+            spawn_period,
             destination_group,
         }
     }
@@ -123,7 +128,7 @@ impl Hash for CloneModifier {
     where
         H: Hasher,
     {
-        FloatOrd(self.rate).hash(state);
+        FloatOrd(self.spawn_period).hash(state);
         self.destination_group.hash(state);
     }
 }

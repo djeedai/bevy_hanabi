@@ -28,7 +28,6 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Retrieve the effect index from the spawner table
     let group_index = group_buffer[index].group_index;
-    let spawner_index = group_buffer[index].spawner_index;
     let effect_index = group_buffer[index].effect_index;
     let is_first_group = group_buffer[index].index_in_effect == 0u;
 

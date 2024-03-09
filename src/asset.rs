@@ -236,15 +236,18 @@ impl EffectAsset {
     /// Create a new effect asset.
     ///
     /// The effect assets requires 2 essential pieces:
-    /// - The capacity of the effect, which represents the maximum number of
-    ///   particles which can be stored and simulated at the same time. The
-    ///   capacity must be non-zero, and should be the smallest possible value
-    ///   which allows you to author the effect. This value directly impacts the
-    ///   GPU memory consumption of the effect, which will allocate some buffers
-    ///   to store that many particles for as long as the effect exists. The
-    ///   capacity of an effect is immutable. See also [`capacity()`] for more
-    ///   details.
-    /// - The [`Spawner`], which defines when particles are emitted.
+    /// - The capacities of the effect, which together represent the maximum
+    /// number of particles which can be stored and simulated at the same time
+    /// for each group. There will be one capacity value per group; thus, the
+    /// `capacities` array also specifies the number of groups. All capacities
+    /// must be non-zero and should be the smallest possible values which allow
+    /// you to author the effect. These values directly impact the GPU memory
+    /// consumption of the effect, which will allocate some buffers to store
+    /// that many particles for as long as the effect exists. The capacities of
+    /// an effect are immutable. See also [`capacities()`] for more details.
+    /// - The [`Spawner`], which defines when particles are emitted. All
+    /// spawners spawn particles into group 0. (To add particles to other
+    /// groups, use the [`crate::modifier::clone::CloneModifier`].)
     ///
     /// Additionally, if any modifier added to this effect uses some [`Expr`] to
     /// customize its behavior, then those [`Expr`] are stored into a [`Module`]
@@ -280,7 +283,7 @@ impl EffectAsset {
     /// let effect = EffectAsset::new(vec![32768], spawner, module);
     /// ```
     ///
-    /// [`capacity()`]: crate::EffectAsset::capacity
+    /// [`capacities()`]: crate::EffectAsset::capacities
     /// [`Expr`]: crate::graph::expr::Expr
     pub fn new(capacities: Vec<u32>, spawner: Spawner, module: Module) -> Self {
         Self {
@@ -291,22 +294,27 @@ impl EffectAsset {
         }
     }
 
-    /// Get the capacity of the effect, in number of particles.
+    /// Get the capacities of the effect, in number of particles per group.
     ///
-    /// This represents the number of particles stored in GPU memory at all
-    /// time, even if unused, so you should try to minimize this value. However,
-    /// the [`Spawner`] cannot emit more particles than this capacity. Whatever
-    /// the spanwer settings, if the number of particles reaches the capacity,
-    /// no new particle can be emitted. Setting an appropriate capacity for an
-    /// effect is therefore a compromise between more particles available for
-    /// visuals and more GPU memory usage.
+    /// For example, if this function returns `&[256, 512]`, then this effect
+    /// has two groups, the first of which has a maximum of 256 particles and
+    /// the second of which has a maximum of 512 particles.
+    ///
+    /// Each value in the array represents the number of particles stored in GPU
+    /// memory at all time for the group with the corresponding index, even if
+    /// unused, so you should try to minimize this value. However, the
+    /// [`Spawner`] cannot emit more particles than the capacity of group 0.
+    /// Whatever the spawner settings, if the number of particles reaches the
+    /// capacity, no new particle can be emitted. Setting an appropriate
+    /// capacity for an effect is therefore a compromise between more particles
+    /// available for visuals and more GPU memory usage.
     ///
     /// Common values range from 256 or less for smaller effects, to several
     /// hundreds of thousands for unique effects consuming a large portion of
     /// the GPU memory budget. Hanabi has been tested with over a million
     /// particles, however the performance will largely depend on the actual GPU
     /// hardware and available memory, so authors are encouraged not to go too
-    /// crazy with the capacity.
+    /// crazy with the capacities.
     pub fn capacities(&self) -> &[u32] {
         &self.capacities
     }
@@ -375,6 +383,10 @@ impl EffectAsset {
 
     /// Add an initialization modifier to the effect.
     ///
+    /// Initialization modifiers only apply to particles that are freshly
+    /// spawned. Currently, spawners can only spawn into group 0. Consequently,
+    /// the initialization modifiers will only affect particles in group 0.
+    ///
     /// # Panics
     ///
     /// Panics if the modifier doesn't support the init context (that is,
@@ -383,7 +395,7 @@ impl EffectAsset {
     #[inline]
     pub fn init<M>(mut self, modifier: M) -> Self
     where
-        M: Modifier + Send + Sync + 'static,
+        M: Modifier + Send + Sync,
     {
         assert!(modifier.context().contains(ModifierContext::Init));
         self.init_modifiers.push(GroupedModifier {
@@ -401,7 +413,7 @@ impl EffectAsset {
     #[inline]
     pub fn init_groups<M>(mut self, modifier: M, groups: ParticleGroupSet) -> Self
     where
-        M: Modifier + Send + Sync + 'static,
+        M: Modifier + Send + Sync,
     {
         assert!(modifier.context().contains(ModifierContext::Init));
         self.init_modifiers.push(GroupedModifier {
@@ -421,7 +433,7 @@ impl EffectAsset {
     #[inline]
     pub fn update<M>(mut self, modifier: M) -> Self
     where
-        M: Modifier + Send + Sync + 'static,
+        M: Modifier + Send + Sync,
     {
         assert!(modifier.context().contains(ModifierContext::Update));
         self.update_modifiers.push(GroupedModifier {
@@ -438,7 +450,7 @@ impl EffectAsset {
     #[inline]
     pub fn update_groups<M>(mut self, modifier: M, groups: ParticleGroupSet) -> Self
     where
-        M: Modifier + Send + Sync + 'static,
+        M: Modifier + Send + Sync,
     {
         self.update_modifiers.push(GroupedModifier {
             modifier: Box::new(modifier),
@@ -509,7 +521,7 @@ impl EffectAsset {
     #[inline]
     pub fn render<M>(mut self, modifier: M) -> Self
     where
-        M: RenderModifier + Send + Sync + 'static,
+        M: RenderModifier + Send + Sync,
     {
         assert!(modifier.context().contains(ModifierContext::Render));
         self.render_modifiers.push(GroupedModifier {
@@ -529,7 +541,7 @@ impl EffectAsset {
     #[inline]
     pub fn render_groups<M>(mut self, modifier: M, groups: ParticleGroupSet) -> Self
     where
-        M: RenderModifier + Send + Sync + 'static,
+        M: RenderModifier + Send + Sync,
     {
         assert!(modifier.context().contains(ModifierContext::Render));
         self.render_modifiers.push(GroupedModifier {

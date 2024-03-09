@@ -42,7 +42,6 @@ struct Spawner {
 
 struct ParticleGroup {
     group_index: u32,
-    spawner_index: u32,
     effect_index: u32,
     // The index relative to the effect: e.g. 0 if this is the first group in
     // the effect.
@@ -54,7 +53,8 @@ struct ParticleGroup {
     // The index of the first particle in this effect in the particle and
     // indirect buffers.
     effect_particle_offset: u32,
-    pad: u32,
+    pad_a: u32,
+    pad_b: u32,
 }
 
 struct IndirectBuffer {

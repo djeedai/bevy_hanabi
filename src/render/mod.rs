@@ -161,9 +161,9 @@ struct GpuSimParams {
     ///
     /// This is a lower-precision variant of [`SimParams::time`].
     real_time: f32,
-    /// Total number of effects to simulate this frame. Used by the indirect
+    /// Total number of groups to simulate this frame. Used by the indirect
     /// compute pipeline to cap the compute thread to the actual number of
-    /// effect to process.
+    /// groups to process.
     ///
     /// This is only used by the `vfx_indirect` compute shader.
     num_groups: u32,
@@ -273,7 +273,7 @@ pub(crate) struct GpuSpawnerParams {
     seed: u32,
     /// Current number of used particles.
     count: i32,
-    /// Index of the effect into the indirect dispatch and render buffers.
+    /// Index of the effect in the indirect dispatch and render buffers.
     effect_index: u32,
 }
 
@@ -357,9 +357,6 @@ pub struct GpuRenderGroupIndirect {
 pub struct GpuParticleGroup {
     /// The index of this particle group in the global particle group buffer.
     pub global_group_index: u32,
-    /// The index of the spawner (for the first group only; will be the same
-    /// value for all groups).
-    pub spawner_index: u32,
     /// The global index of the entire particle effect.
     pub effect_index: u32,
     /// The index of this effect in the group.
@@ -376,7 +373,9 @@ pub struct GpuParticleGroup {
     // indirect buffers.
     pub effect_particle_offset: u32,
     /// Padding.
-    pub __pad: u32,
+    pub __pad0: u32,
+    /// Padding.
+    pub __pad1: u32,
 }
 
 /// Compute pipeline to run the `vfx_indirect` dispatch workgroup calculation
@@ -2141,7 +2140,7 @@ pub(crate) fn prepare_effects(
             effect_index: input.effect_slices.buffer_index,
         };
         trace!("spawner_params = {:?}", spawner_params);
-        let spawner_index = effects_meta.spawner_buffer.push(spawner_params);
+        effects_meta.spawner_buffer.push(spawner_params);
 
         // Create the particle group buffer entries.
         let mut first_particle_group_buffer_index = None;
@@ -2150,13 +2149,13 @@ pub(crate) fn prepare_effects(
             let particle_group_buffer_index =
                 effects_meta.particle_group_buffer.push(GpuParticleGroup {
                     global_group_index: total_group_count,
-                    spawner_index: spawner_index as u32,
                     effect_index: effect_index as u32,
                     group_index_in_effect: group_index as u32,
                     indirect_index: range[0],
                     capacity: range[1] - range[0],
                     effect_particle_offset: input.effect_slices.slices[0],
-                    __pad: 0,
+                    __pad0: 0,
+                    __pad1: 0,
                 });
             if group_index == 0 {
                 first_particle_group_buffer_index = Some(particle_group_buffer_index as u32);
@@ -3589,8 +3588,8 @@ impl Node for VfxSimulateNode {
                     .get(&effect_cache_id)
                 else {
                     error!(
-                        "Failed to find update particle buffer bind group for entity {:?}",
-                        entity
+                        "Failed to find update particle buffer bind group for entity {:?}, effect cache ID {:?}",
+                        entity, effect_cache_id
                     );
                     continue;
                 };
