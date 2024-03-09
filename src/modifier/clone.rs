@@ -49,11 +49,47 @@ impl Modifier for CloneModifier {
 
         context.make_fn(
             &func_name,
-            "particle: ptr<function, Particle>",
+            "particle: ptr<function, Particle>, orig_index: u32",
             module,
             &mut |_m: &mut Module, context: &mut dyn EvalContext| -> Result<String, ExprError> {
                 let age_reset_code = if context.particle_layout().contains(Attribute::AGE) {
-                    format!("particle_buffer.particles[index].{} = 0.0;", Attribute::AGE.name())
+                    format!("new_particle.{} = 0.0;", Attribute::AGE.name())
+                } else {
+                    "".to_owned()
+                };
+
+                // If applicable, insert the particle into a linked list, either
+                // singly or doubly linked. This is typically used for ribbons.
+
+                let next_link_code = if context.particle_layout().contains(Attribute::NEXT) {
+                    format!("new_particle.{next} = orig_index;\n", next = Attribute::NEXT.name())
+                } else {
+                    "".to_owned()
+                };
+
+                let prev_link_code = if context.particle_layout().contains(Attribute::PREV) {
+                    format!(
+                        r##"
+                        new_particle.{prev} = (*particle).{prev};
+                        (*particle).{prev} = new_index;
+                        "##,
+                        prev = Attribute::PREV.name()
+                    )
+                } else {
+                    "".to_owned()
+                };
+
+                let double_link_code = if context.particle_layout().contains(Attribute::NEXT) &&
+                        context.particle_layout().contains(Attribute::PREV) {
+                    format!(
+                        r##"
+                        if (new_particle.{prev} < arrayLength(&particle_buffer.particles)) {{
+                            particle_buffer.particles[new_particle.{prev}].{next} = new_index;
+                        }}
+                        "##,
+                        next = Attribute::NEXT.name(),
+                        prev = Attribute::PREV.name()
+                    )
                 } else {
                     "".to_owned()
                 };
@@ -64,19 +100,28 @@ impl Modifier for CloneModifier {
 
                     // Recycle a dead particle.
                     let dead_index = atomicSub(&render_group_indirect[{dest}u].dead_count, 1u) - 1u;
-                    let index = indirect_buffer.indices[3u * (base_index + dead_index) + 2u];
+                    let new_index = indirect_buffer.indices[3u * (base_index + dead_index) + 2u];
 
-                    // Copy particle in.
-                    particle_buffer.particles[index] = *particle;
+                    // Initialize the new particle.
+                    var new_particle = *particle;
                     {age_reset_code}
 
-                    // Mark as alive.
+                    // Insert the particle between us and our current `prev`
+                    // node, if applicable.
+                    {next_link_code}
+                    {prev_link_code}
+                    {double_link_code}
+
+                    // Copy the new particle into the buffer.
+                    particle_buffer.particles[new_index] = new_particle;
+
+                    // Mark it as alive.
                     atomicAdd(&render_group_indirect[{dest}u].alive_count, 1u);
 
-                    // Add instance.
+                    // Add an instance.
                     let ping = render_effect_indirect.ping;
                     let indirect_index = atomicAdd(&render_group_indirect[{dest}u].instance_count, 1u);
-                    indirect_buffer.indices[3u * (base_index + indirect_index) + ping] = index;
+                    indirect_buffer.indices[3u * (base_index + indirect_index) + ping] = new_index;
                 "##,
                     dest = self.destination_group,
                 ))
@@ -95,7 +140,7 @@ impl Modifier for CloneModifier {
                 r##"
                 let {multiple_count} = max(0, i32(floor({b} / {m})) - i32(ceil(({b} - {delta}) / {m})) + 1);
                 for (var i = 0; i < {multiple_count}; i += 1) {{
-                    {func}(&particle);
+                    {func}(&particle, index);
                 }}
             "##,
                 func = func_name,
