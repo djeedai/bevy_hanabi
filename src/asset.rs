@@ -405,30 +405,6 @@ impl EffectAsset {
         self
     }
 
-    /// Add an initialization modifier to the effect targeting only a subset of
-    /// groups.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `groups` is not `ParticleGroupSet::single(0)`. Currently init
-    /// modifiers only apply to group #0.
-    ///
-    /// [`with_property()`]: crate::EffectAsset::with_property
-    /// [`add_property()`]: crate::EffectAsset::add_property
-    #[inline]
-    pub fn init_groups<M>(mut self, modifier: M, groups: ParticleGroupSet) -> Self
-    where
-        M: Modifier + Send + Sync,
-    {
-        assert!(modifier.context().contains(ModifierContext::Init));
-        assert_eq!(groups, ParticleGroupSet::single(0));
-        self.init_modifiers.push(GroupedModifier {
-            modifier: Box::new(modifier),
-            groups,
-        });
-        self
-    }
-
     /// Add an update modifier to the effect.
     ///
     /// # Panics
