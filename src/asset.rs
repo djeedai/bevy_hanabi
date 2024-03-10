@@ -400,7 +400,7 @@ impl EffectAsset {
         assert!(modifier.context().contains(ModifierContext::Init));
         self.init_modifiers.push(GroupedModifier {
             modifier: Box::new(modifier),
-            groups: ParticleGroupSet::all(),
+            groups: ParticleGroupSet::single(0),
         });
         self
     }
