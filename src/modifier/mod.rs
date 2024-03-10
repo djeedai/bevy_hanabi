@@ -169,7 +169,7 @@ impl Clone for BoxedModifier {
 /// A bitfield that describes which particle groups a modifier affects.
 ///
 /// Bit N will be set if the modifier in question affects particle group N.
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct ParticleGroupSet(pub u32);
 
