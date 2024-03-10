@@ -957,7 +957,7 @@ mod tests {
                     value: 1,
                 ),
             },
-            groups: (4294967295),
+            groups: (1),
         ),
     ],
     update_modifiers: [],
