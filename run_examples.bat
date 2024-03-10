@@ -18,5 +18,6 @@ REM 3D + PNG
 cargo r --example gradient --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d examples_world_inspector"
 cargo r --example circle --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d examples_world_inspector"
 cargo r --example billboard --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d examples_world_inspector"
+cargo r --example worms --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d examples_world_inspector"
 REM 2D
 cargo r --example 2d --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite 2d examples_world_inspector"

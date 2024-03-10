@@ -1082,7 +1082,8 @@ impl CastExpr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum BuiltInOperator {
     /// Current effect system simulation time since startup, in seconds.
-    /// This is based on the [`Time<EffectSimulation>`](crate::time::EffectSimulation) clock.
+    /// This is based on the
+    /// [`Time<EffectSimulation>`](crate::time::EffectSimulation) clock.
     Time,
     /// Delta time, in seconds, since last effect system update.
     DeltaTime,
@@ -1737,7 +1738,7 @@ impl ToWgslString for TernaryOperator {
 /// let init_modifier = SetAttributeModifier::new(Attribute::LIFETIME, expr);
 ///
 /// // Create an EffectAsset with the modifier and the Module from the writer
-/// let effect = EffectAsset::new(1024, Spawner::rate(32_f32.into()), w.finish())
+/// let effect = EffectAsset::new(vec![1024], Spawner::rate(32_f32.into()), w.finish())
 ///     .init(init_modifier);
 /// ```
 ///
@@ -1915,7 +1916,7 @@ impl ExprWriter {
     /// let mut w = ExprWriter::new();
     /// // [...]
     /// let module = w.finish();
-    /// let asset = EffectAsset::new(256, spawner, module);
+    /// let asset = EffectAsset::new(vec![256], spawner, module);
     /// ```
     ///
     /// [`EffectAsset::new()`]: crate::EffectAsset::new()
@@ -2187,8 +2188,8 @@ impl WriterExpr {
         self.unary_op(UnaryOperator::Fract)
     }
 
-    /// Apply the "inverseSqrt" (inverse square root) operator to the current float scalar or
-    /// vector expression.
+    /// Apply the "inverseSqrt" (inverse square root) operator to the current
+    /// float scalar or vector expression.
     ///
     /// This is a unary operator, which applies to float scalar or vector
     /// operand expressions to produce a float scalar or vector. It applies

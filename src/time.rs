@@ -2,12 +2,13 @@ use bevy::prelude::*;
 
 /// The effect simulation clock.
 ///
-/// This is a specialization of the [`Time`] structure and uses the virtual clock
-/// [`Time<Virtual>`](Virtual) as its base.
+/// This is a specialization of the [`Time`] structure and uses the virtual
+/// clock [`Time<Virtual>`](Virtual) as its base.
 ///
-/// The speed of this clock is therefore the product of the speed of the virtual clock and the
-/// speed of this clock itself. To change the speed of the entire app (including the effects),
-/// use [`Time<Virtual>`](Virtual). To influence only the speed of the effects, use
+/// The speed of this clock is therefore the product of the speed of the virtual
+/// clock and the speed of this clock itself. To change the speed of the entire
+/// app (including the effects), use [`Time<Virtual>`](Virtual). To influence
+/// only the speed of the effects, use
 /// [`Time<EffectSimulation>`](EffectSimulation).
 ///
 /// # Example
@@ -45,42 +46,48 @@ impl Default for EffectSimulation {
 
 /// All methods for the [`Time<EffectSimulation>`](EffectSimulation) clock.
 pub trait EffectSimulationTime {
-    /// Returns the speed the clock advances relative to the virtual clock, as [`f32`].
+    /// Returns the speed the clock advances relative to the virtual clock, as
+    /// [`f32`].
     fn relative_speed(&self) -> f32;
 
-    /// Returns the speed the clock advances relative to the virtual clock, as [`f64`].
+    /// Returns the speed the clock advances relative to the virtual clock, as
+    /// [`f64`].
     fn relative_speed_f64(&self) -> f64;
 
-    /// Returns the speed the clock advanced relative to your system clock in this update,
-    /// as [`f32`].
+    /// Returns the speed the clock advanced relative to your system clock in
+    /// this update, as [`f32`].
     ///
     /// Returns `0.0` if either the [`Time<Virtual>`](Virtual) or the
     /// [`Time<EffectSimulationTime>`](EffectSimulationTime) was paused
-    /// and otherwise the product of the `relative_speed` of the clocks at the start of the update.
+    /// and otherwise the product of the `relative_speed` of the clocks at the
+    /// start of the update.
     fn effective_speed(&self) -> f32;
 
-    /// Returns the speed the clock advanced relative to your system clock in this update,
-    /// as [`f64`].
+    /// Returns the speed the clock advanced relative to your system clock in
+    /// this update, as [`f64`].
     ///
     /// Returns `0.0` if either the [`Time<Virtual>`](Virtual) or the
     /// [`Time<EffectSimulationTime>`](EffectSimulationTime) was paused
-    /// and otherwise the product of the `relative_speed` of the clocks at the start of the update.
+    /// and otherwise the product of the `relative_speed` of the clocks at the
+    /// start of the update.
     fn effective_speed_f64(&self) -> f64;
 
-    /// Sets the speed the clock advances relative to the virtual clock, given as an [`f32`].
+    /// Sets the speed the clock advances relative to the virtual clock, given
+    /// as an [`f32`].
     ///
-    /// For example, setting this to `2.0` will make the clock advance twice as fast as the virtual
-    /// clock.
+    /// For example, setting this to `2.0` will make the clock advance twice as
+    /// fast as the virtual clock.
     ///
     /// # Panics
     ///
     /// Panics if `ratio` is negative or not finite.
     fn set_relative_speed(&mut self, ratio: f32);
 
-    /// Sets the speed the clock advances relative to the virtual clock, given as an [`f64`].
+    /// Sets the speed the clock advances relative to the virtual clock, given
+    /// as an [`f64`].
     ///
-    /// For example, setting this to `2.0` will make the clock advance twice as fast as the virtual
-    /// clock.
+    /// For example, setting this to `2.0` will make the clock advance twice as
+    /// fast as the virtual clock.
     ///
     /// # Panics
     ///
@@ -198,8 +205,9 @@ mod tests {
     #[test]
     #[allow(clippy::suboptimal_flops)]
     fn test_effect_simulation_time() {
-        // This is only used for floating point comparisons, inaccurate sleep times are always fine,
-        // as we only test for the relative values between the clocks.
+        // This is only used for floating point comparisons, inaccurate sleep times are
+        // always fine, as we only test for the relative values between the
+        // clocks.
         const EPSILON: f32 = 0.000001;
 
         let mut app = make_test_app();

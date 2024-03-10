@@ -110,7 +110,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     };
 
     let effect = EffectAsset::new(
-        32768,
+        vec![32768],
         Spawner::burst(2500.0.into(), 2.0.into()),
         writer.finish(),
     )

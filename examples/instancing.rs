@@ -253,7 +253,7 @@ fn setup(
     };
 
     let effect = effects.add(
-        EffectAsset::new(512, Spawner::rate(50.0.into()), writer.finish())
+        EffectAsset::new(vec![512], Spawner::rate(50.0.into()), writer.finish())
             .with_name("instancing")
             .init(init_pos)
             .init(init_vel)
