@@ -205,7 +205,9 @@ impl Plugin for HanabiPlugin {
                 Render,
                 (
                     prepare_effects.in_set(EffectSystems::PrepareEffectAssets),
-                    queue_effects.in_set(EffectSystems::QueueEffects),
+                    queue_effects
+                        .in_set(EffectSystems::QueueEffects)
+                        .after(prepare_effects),
                     prepare_resources
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         .after(prepare_view_uniforms),
