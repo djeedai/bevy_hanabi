@@ -331,6 +331,54 @@ impl Spawner {
         Self::new(count, 0.0.into(), period)
     }
 
+    /// Set the number of particles that are spawned each cycle.
+    pub fn with_count(mut self, count: CpuValue<f32>) -> Self {
+        self.num_particles = count;
+        self
+    }
+
+    /// Set the number of particles that are spawned each cycle.
+    pub fn set_count(&mut self, count: CpuValue<f32>) {
+        self.num_particles = count;
+    }
+
+    /// Get the number of particles that are spawned each cycle.
+    pub fn count(&self) -> CpuValue<f32> {
+        self.num_particles
+    }
+
+    /// Set the length of the spawn time each cycle.
+    pub fn with_spawn_time(mut self, spawn_time: CpuValue<f32>) -> Self {
+        self.spawn_time = spawn_time;
+        self
+    }
+
+    /// Set the length of the spawn time each cycle.
+    pub fn set_spawn_time(&mut self, spawn_time: CpuValue<f32>) {
+        self.spawn_time = spawn_time;
+    }
+
+    /// Get the length of spawn time each cycle.
+    pub fn spawn_time(&self) -> CpuValue<f32> {
+        self.spawn_time
+    }
+
+    /// Set the wait time between spawn cycles.
+    pub fn with_period(mut self, period: CpuValue<f32>) -> Self {
+        self.period = period;
+        self
+    }
+
+    /// Set the wait time between spawn cycles.
+    pub fn set_period(&mut self, period: CpuValue<f32>) {
+        self.period = period;
+    }
+
+    /// Get the wait time between spawn cycles
+    pub fn period(&self) -> CpuValue<f32> {
+        self.period
+    }
+
     /// Sets whether the spawner starts active when the effect is instantiated.
     ///
     /// This value will be transfered to the active state of the
