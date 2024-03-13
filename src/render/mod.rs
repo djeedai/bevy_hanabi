@@ -2468,42 +2468,47 @@ fn emit_draw<T, F>(
 
             // Add a draw pass for the effect batch
             trace!("Emitting individual draws for batches and groups: group_batches.len()={} batches.render_shaders.len()={}", batches.group_batches.len(), batches.render_shaders.len());
-            for (group_index, render_shader_source) in
-                (0..(batches.group_batches.len() as u32)).zip(batches.render_shaders.iter())
-            {
-                trace!("Emit for group index #{}", group_index);
+            let render_shader_source = &batches.render_shaders[draw_batch.group_index as usize];
+            trace!("Emit for group index #{}", draw_batch.group_index);
 
-                let render_pipeline_id = specialized_render_pipelines.specialize(
-                    pipeline_cache,
-                    &read_params.render_pipeline,
-                    ParticleRenderPipelineKey {
-                        shader: render_shader_source.clone(),
-                        particle_layout: batches.particle_layout.clone(),
-                        has_image,
-                        local_space_simulation,
-                        use_alpha_mask,
-                        flipbook,
-                        #[cfg(all(feature = "2d", feature = "3d"))]
-                        pipeline_mode,
-                        msaa_samples,
-                        hdr: view.hdr,
-                    },
-                );
+            let render_pipeline_id = specialized_render_pipelines.specialize(
+                pipeline_cache,
+                &read_params.render_pipeline,
+                ParticleRenderPipelineKey {
+                    shader: render_shader_source.clone(),
+                    particle_layout: batches.particle_layout.clone(),
+                    has_image,
+                    local_space_simulation,
+                    use_alpha_mask,
+                    flipbook,
+                    #[cfg(all(feature = "2d", feature = "3d"))]
+                    pipeline_mode,
+                    msaa_samples,
+                    hdr: view.hdr,
+                },
+            );
 
-                trace!(
-                    "+ Render pipeline specialized: id={:?} -> group_index={}",
-                    render_pipeline_id,
-                    group_index
-                );
-                trace!("+ Add Transparent for batch on draw_entity {:?}: buffer_index={} group_index={} spawner_base={} handle={:?}", draw_entity, batches.buffer_index, group_index, batches.spawner_base, batches.handle);
+            trace!(
+                "+ Render pipeline specialized: id={:?} -> group_index={}",
+                render_pipeline_id,
+                draw_batch.group_index
+            );
+            trace!(
+                "+ Add Transparent for batch on draw_entity {:?}: buffer_index={} \
+                group_index={} spawner_base={} handle={:?}",
+                draw_entity,
+                batches.buffer_index,
+                draw_batch.group_index,
+                batches.spawner_base,
+                batches.handle
+            );
 
-                render_phase.add(make_phase_item(
-                    render_pipeline_id,
-                    draw_entity,
-                    draw_batch,
-                    group_index,
-                ));
-            }
+            render_phase.add(make_phase_item(
+                render_pipeline_id,
+                draw_entity,
+                draw_batch,
+                draw_batch.group_index,
+            ));
         }
     }
 }
