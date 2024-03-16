@@ -1009,6 +1009,9 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// The effect is rendered with flipbook texture animation based on the
     /// sprite index of each particle.
     flipbook: bool,
+    /// Key: NEEDS_UV
+    /// The effect needs UVs.
+    needs_uv: bool,
     /// For dual-mode configurations only, the actual mode of the current render
     /// pipeline. Otherwise the mode is implicitly determined by the active
     /// feature.
@@ -1029,6 +1032,7 @@ impl Default for ParticleRenderPipelineKey {
             local_space_simulation: false,
             use_alpha_mask: false,
             flipbook: false,
+            needs_uv: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
             msaa_samples: Msaa::default().samples(),
@@ -1168,6 +1172,10 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         // Key: FLIPBOOK
         if key.flipbook {
             shader_defs.push("FLIPBOOK".into());
+        }
+
+        if key.needs_uv {
+            shader_defs.push("NEEDS_UV".into());
         }
 
         #[cfg(all(feature = "2d", feature = "3d"))]
@@ -1927,6 +1935,8 @@ bitflags! {
         const USE_ALPHA_MASK = (1 << 3);
         /// The effect is rendered with flipbook texture animation based on the [`Attribute::SPRITE_INDEX`] of each particle.
         const FLIPBOOK = (1 << 4);
+        /// The effect needs UVs.
+        const NEEDS_UV = (1 << 5);
     }
 }
 
@@ -2455,6 +2465,7 @@ fn emit_draw<T, F>(
                 .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
             let use_alpha_mask = batches.layout_flags.contains(LayoutFlags::USE_ALPHA_MASK);
             let flipbook = batches.layout_flags.contains(LayoutFlags::FLIPBOOK);
+            let needs_uv = batches.layout_flags.contains(LayoutFlags::NEEDS_UV);
 
             // Specialize the render pipeline based on the effect batch
             trace!(
@@ -2481,6 +2492,7 @@ fn emit_draw<T, F>(
                     local_space_simulation,
                     use_alpha_mask,
                     flipbook,
+                    needs_uv,
                     #[cfg(all(feature = "2d", feature = "3d"))]
                     pipeline_mode,
                     msaa_samples,

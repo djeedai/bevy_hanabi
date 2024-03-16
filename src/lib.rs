@@ -955,6 +955,10 @@ impl EffectShaderSource {
                     m.apply_render(&mut module, &mut render_context);
                 }
 
+                if render_context.needs_uv {
+                    layout_flags |= LayoutFlags::NEEDS_UV;
+                }
+
                 let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
                     render_context.eval(&module, *cutoff).unwrap_or_else(|err| {
                         error!(
@@ -977,6 +981,7 @@ impl EffectShaderSource {
                 let (flipbook_scale_code, flipbook_row_count_code) =
                     if let Some(grid_size) = render_context.sprite_grid_size {
                         layout_flags |= LayoutFlags::FLIPBOOK;
+                        // Note: row_count needs to be i32, not u32, because of sprite_index
                         let flipbook_row_count_code = (grid_size.x as i32).to_wgsl_string();
                         let flipbook_scale_code =
                             Vec2::new(1.0 / grid_size.x as f32, 1.0 / grid_size.y as f32)
@@ -1778,6 +1783,7 @@ else { return c1; }
             let mut shader_defs = std::collections::HashMap::<String, ShaderDefValue>::new();
             shader_defs.insert("LOCAL_SPACE_SIMULATION".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("PARTICLE_TEXTURE".into(), ShaderDefValue::Bool(true));
+            shader_defs.insert("NEEDS_UV".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("RENDER_NEEDS_SPAWNER".into(), ShaderDefValue::Bool(true));
             shader_defs.insert(
                 "PARTICLE_SCREEN_SPACE_SIZE".into(),

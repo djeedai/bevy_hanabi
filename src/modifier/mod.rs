@@ -385,6 +385,8 @@ pub struct RenderContext<'a> {
     pub gradients: HashMap<u64, Gradient<Vec4>>,
     /// Size gradients.
     pub size_gradients: HashMap<u64, Gradient<Vec2>>,
+    /// Needs uv
+    pub needs_uv: bool,
     /// Counter for unique variable names.
     var_counter: u32,
     /// Cache of evaluated expressions.
@@ -407,6 +409,7 @@ impl<'a> RenderContext<'a> {
             sprite_grid_size: None,
             gradients: HashMap::new(),
             size_gradients: HashMap::new(),
+            needs_uv: false,
             var_counter: 0,
             expr_cache: Default::default(),
             is_attribute_pointer: false,
@@ -414,8 +417,16 @@ impl<'a> RenderContext<'a> {
     }
 
     /// Set the main texture used to color particles.
+    ///
+    /// This implicitly sets `needs_uv`.
     fn set_particle_texture(&mut self, handle: Handle<Image>) {
         self.particle_texture = Some(handle);
+        self.needs_uv = true;
+    }
+
+    /// Mark the rendering shader as needing UVs.
+    fn set_needs_uv(&mut self) {
+        self.needs_uv = true;
     }
 
     /// Add a color gradient.

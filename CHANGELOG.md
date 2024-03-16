@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `Hash` derive for `Property`.
 - Added `Module::add_property()`, `Module::get_property()`, and `Module::properties()`.
 - Added a new `PropertyHandle`, which is to `Property` what the existing `ExprHandle` is to `Expr`: a unique handle into a owning `Module`.
+- Added a new `RoundModifier` that allows round particles to be constructed without having to create a texture.
 
 ### Changed
 
