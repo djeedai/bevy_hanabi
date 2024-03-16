@@ -221,7 +221,26 @@ pub struct EffectProperties {
 }
 
 impl EffectProperties {
-    /// Set some properties.
+    /// Create or set some properties.
+    ///
+    /// Add new properties or overwrite the value of existing ones. This
+    /// function takes an iterator of pairs of `(name, value)`, where `name`
+    /// defines the property name and `value` its value.
+    ///
+    /// If a property with the same name doesn't already exist, a new property
+    /// is created with a default value equal to the provided `value`.
+    ///
+    /// Conversely, if a property with the same name already exists in the
+    /// `EffectProperties`, it's overwritten with the new value, unless its
+    /// type mismatches in which case this function panics (to prevent
+    /// unexpected overwrites). However the property keeps the default value
+    /// initially set when first created.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a property with the same name already exists in the
+    /// `EffectProperties`, and the new property type, as derived from its
+    /// default value, is different from the type of the existing property.
     pub fn with_properties(
         mut self,
         properties: impl IntoIterator<Item = (String, Value)>,
@@ -229,6 +248,14 @@ impl EffectProperties {
         let iter = properties.into_iter();
         for (name, value) in iter {
             if let Some(index) = self.properties.iter().position(|p| p.def.name() == name) {
+                assert_eq!(
+                    self.properties[index].value.value_type(),
+                    value.value_type(),
+                    "Trying to overwrite existing property '{}' with value of type {:?}, but property has type {:?}",
+                    name,
+                    value.value_type(),
+                    self.properties[index].value.value_type()
+                );
                 self.properties[index].value = value;
             } else {
                 self.properties.push(PropertyInstance {
@@ -240,23 +267,29 @@ impl EffectProperties {
         self
     }
 
+    /// Get all properties currently stored in this component.
+    #[allow(dead_code)] // used in tests
+    pub(crate) fn properties(&self) -> &[PropertyInstance] {
+        &self.properties
+    }
+
     /// Get the value of a stored property.
     ///
     /// The property will be matched by name against the properties already
     /// stored in this [`EffectProperties`] component. If no property exists
     /// with that name, `None` is returned, which either indicates that the
-    /// [`EffectAsset`] does not declare such a property, or that the
-    /// [`EffectProperties`] component didn't observe the asset property yet.
-    /// This means that [`get_stored()`] is only relevant when called after a
+    /// [`Module`] of the effect does not declare such a property, or that the
+    /// [`EffectProperties`] component didn't observe the property yet. This
+    /// means that [`get_stored()`] is only relevant when called after a
     /// [`set()`] of the same property, or after the
     /// [`EffectSystems::UpdatePropertiesFromAsset`] stage has added any
-    /// property declared in the [`EffectAsset`] but missing in the
+    /// property declared in the [`Module`] of the effect but missing in the
     /// [`EffectProperties`]. This also means that [`get_stored()`] may
     /// return a property which was [`set()`] but is not in fact declared in
     /// the [`EffectAsset`].
     ///
     /// Note that this behavior is not symmetric with [`set()`], which allows
-    /// setting any property even if not declared on the asset.
+    /// setting any property even if not declared.
     ///
     /// [`EffectAsset`]: crate::asset::EffectAsset
     /// [`EffectSystems::UpdatePropertiesFromAsset`]: crate::EffectSystems::UpdatePropertiesFromAsset
@@ -1073,6 +1106,89 @@ mod tests {
     }
 
     #[test]
+    fn effect_properties_with_properties() {
+        let ep = EffectProperties::default()
+            .with_properties([
+                ("a".to_string(), 3.0.into()),
+                ("b".to_string(), Vec3::ZERO.into()),
+            ])
+            .with_properties([
+                ("a".to_string(), 7.0.into()),
+                ("c".to_string(), Vec2::ONE.into()),
+            ]);
+
+        assert_eq!(ep.properties.len(), 3);
+
+        assert_eq!(ep.properties[0].def.name(), "a");
+        // kept original 3.0 default
+        assert_eq!(
+            ep.properties[0].def.default_value(),
+            &Value::Scalar(3.0.into())
+        );
+        // overwrote current value as 7.0
+        assert_eq!(ep.properties[0].value, 7.0.into());
+
+        assert_eq!(ep.properties[1].def.name(), "b");
+        assert_eq!(
+            ep.properties[1].def.default_value(),
+            &Value::Vector(Vec3::ZERO.into())
+        );
+        assert_eq!(ep.properties[1].value, Vec3::ZERO.into());
+
+        assert_eq!(ep.properties[2].def.name(), "c");
+        assert_eq!(
+            ep.properties[2].def.default_value(),
+            &Value::Vector(Vec2::ONE.into())
+        );
+        assert_eq!(ep.properties[2].value, Vec2::ONE.into());
+    }
+
+    #[test]
+    #[should_panic]
+    fn effect_properties_with_properties_type_mismatch() {
+        let _ = EffectProperties::default()
+            .with_properties([("a".to_string(), 3.0.into())])
+            // Mismatching type for existing property; will panic
+            .with_properties([("a".to_string(), Vec2::ONE.into())]);
+    }
+
+    #[test]
+    fn effect_properties_get_stored() {
+        let ep = EffectProperties::default()
+            .with_properties([
+                ("a".to_string(), 3.0.into()),
+                ("b".to_string(), Vec3::ZERO.into()),
+            ])
+            .with_properties([
+                ("a".to_string(), 7.0.into()),
+                ("c".to_string(), Vec2::ONE.into()),
+            ]);
+
+        assert!(ep.get_stored("a").is_some());
+        assert!(ep.get_stored("b").is_some());
+        assert!(ep.get_stored("c").is_some());
+        assert!(ep.get_stored("x").is_none());
+    }
+
+    #[test]
+    fn effect_properties_set() {
+        let mut ep = EffectProperties::default().with_properties([
+            ("a".to_string(), 3.0.into()),
+            ("b".to_string(), Vec3::ZERO.into()),
+        ]);
+
+        ep.set("a", 7.0.into());
+        ep.set("x", 3.0.into());
+    }
+
+    #[test]
+    #[should_panic]
+    fn effect_properties_set_type_mismatch() {
+        let mut ep = EffectProperties::default().with_properties([("a".to_string(), 3.0.into())]);
+        ep.set("a", Vec3::ZERO.into());
+    }
+
+    #[test]
     fn effect_properties_update_empty() {
         // Empty asset vs. empty runtime == empty
         let mut ep = EffectProperties::default();
@@ -1175,5 +1291,34 @@ mod tests {
         assert_eq!(ep.properties[0].value, 5_f32.into());
         assert_eq!(ep.properties[1].def, asset_properties[1]);
         assert_eq!(last_changed, this_run); // changed (added missing property)
+    }
+
+    #[test]
+    fn effect_properties_serialize() {
+        let ep = EffectProperties::default().with_properties([
+            ("a".to_string(), 3.0.into()),
+            ("b".to_string(), Vec3::ONE.into()),
+        ]);
+        let layout = PropertyLayout::new(ep.properties().iter().map(|pi| &pi.def));
+        let blob = ep.serialize(&layout);
+        assert_eq!(blob.len(), layout.size() as usize);
+
+        let pi_a = &ep.properties()[0];
+        let size = pi_a.def.size();
+        assert_eq!(size, 4); // f32
+        let offset = layout.offset(pi_a.def.name()).unwrap() as usize;
+        let raw = &blob[offset..offset + size];
+        #[allow(unsafe_code)]
+        let raw_ref: &[u8; 4] = unsafe { std::mem::transmute(&[3.0_f32]) };
+        assert_eq!(raw, raw_ref);
+
+        let pi_b = &ep.properties()[1];
+        let size = pi_b.def.size();
+        assert_eq!(size, 12); // Vec3
+        let offset = layout.offset(pi_b.def.name()).unwrap() as usize;
+        let raw = &blob[offset..offset + size];
+        #[allow(unsafe_code)]
+        let raw_ref: &[u8; 12] = unsafe { std::mem::transmute(&[1_f32, 1_f32, 1_f32]) };
+        assert_eq!(raw, raw_ref);
     }
 }
