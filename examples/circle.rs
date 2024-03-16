@@ -145,7 +145,7 @@ fn setup(
 
     let effect = effects.add(
         EffectAsset::new(
-            32768,
+            vec![32768],
             Spawner::burst(32.0.into(), 8.0.into()),
             writer.finish(),
         )

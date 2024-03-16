@@ -8,7 +8,7 @@ use rand::{
 use rand_pcg::Pcg32;
 use serde::{Deserialize, Serialize};
 
-use crate::{EffectAsset, ParticleEffect, SimulationCondition};
+use crate::{EffectAsset, EffectSimulation, ParticleEffect, SimulationCondition};
 
 /// An RNG to be used in the CPU for the particle system engine
 pub(crate) fn new_rng() -> Pcg32 {
@@ -561,7 +561,7 @@ impl EffectSpawner {
 /// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
 pub fn tick_spawners(
     mut commands: Commands,
-    time: Res<Time>,
+    time: Res<Time<EffectSimulation>>,
     effects: Res<Assets<EffectAsset>>,
     mut rng: ResMut<Random>,
     mut query: Query<(
@@ -626,7 +626,7 @@ mod test {
     /// Make an `EffectSpawner` wrapping a `Spawner`.
     fn make_effect_spawner(spawner: Spawner) -> EffectSpawner {
         EffectSpawner::new(
-            &EffectAsset::new(256, spawner, Module::default()),
+            &EffectAsset::new(vec![256], spawner, Module::default()),
             &ParticleEffect::default(),
         )
     }
@@ -804,7 +804,7 @@ mod test {
         app.init_asset::<Mesh>();
         app.init_resource::<DeterministicRenderingConfig>();
         app.add_plugins(VisibilityPlugin);
-        app.init_resource::<Time>();
+        app.init_resource::<Time<EffectSimulation>>();
         app.insert_resource(Random(new_rng()));
         app.init_asset::<EffectAsset>();
         app.add_systems(
@@ -865,7 +865,8 @@ mod test {
 
                 // Add effect asset
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
-                let mut asset = EffectAsset::new(64, test_case.asset_spawner, Module::default());
+                let mut asset =
+                    EffectAsset::new(vec![64], test_case.asset_spawner, Module::default());
                 asset.simulation_condition = if test_case.visibility.is_some() {
                     SimulationCondition::WhenVisible
                 } else {
@@ -910,7 +911,7 @@ mod test {
                 // Note that `Time` has this weird behavior where the common quantities like
                 // `Time::delta_seconds()` only update after the *second* update. So we tick the
                 // `Time` twice here to enforce this.
-                let mut time = app.world.resource_mut::<Time>();
+                let mut time = app.world.resource_mut::<Time<EffectSimulation>>();
                 time.advance_by(Duration::from_millis(16));
                 time.elapsed()
             };

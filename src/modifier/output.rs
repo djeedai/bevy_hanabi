@@ -502,7 +502,7 @@ axis_z = cross(axis_x, axis_y);
 /// let sprite_index = writer.attr(Attribute::AGE).cast(ScalarType::Int).rem(writer.lit(4i32)).expr();
 /// let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
 ///
-/// let asset = EffectAsset::new(32768, Spawner::once(32.0.into(), true), writer.finish())
+/// let asset = EffectAsset::new(vec![32768], Spawner::once(32.0.into(), true), writer.finish())
 ///     .with_name("flipbook")
 ///     .init(init_age)
 ///     .init(init_lifetime)

@@ -112,22 +112,26 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let mut module = writer.finish();
     let round = RoundModifier::ellipse(&mut module);
 
-    let effect = EffectAsset::new(32768, Spawner::burst(2500.0.into(), 2.0.into()), module)
-        .with_name("firework")
-        .init(init_pos)
-        .init(init_vel)
-        .init(init_age)
-        .init(init_lifetime)
-        .update(update_drag)
-        .update(update_accel)
-        .render(ColorOverLifetimeModifier {
-            gradient: color_gradient1,
-        })
-        .render(SizeOverLifetimeModifier {
-            gradient: size_gradient1,
-            screen_space_size: false,
-        })
-        .render(round);
+    let effect = EffectAsset::new(
+        vec![32768],
+        Spawner::burst(2500.0.into(), 2.0.into()),
+        writer.finish(),
+    )
+    .with_name("firework")
+    .init(init_pos)
+    .init(init_vel)
+    .init(init_age)
+    .init(init_lifetime)
+    .update(update_drag)
+    .update(update_accel)
+    .render(ColorOverLifetimeModifier {
+        gradient: color_gradient1,
+    })
+    .render(SizeOverLifetimeModifier {
+        gradient: size_gradient1,
+        screen_space_size: false,
+    })
+    .render(round);
 
     let effect1 = effects.add(effect);
 

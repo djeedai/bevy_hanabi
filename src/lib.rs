@@ -3,11 +3,11 @@
     missing_copy_implementations,
     trivial_casts,
     trivial_numeric_casts,
+    missing_docs,
     unsafe_code,
     unstable_features,
     unused_import_braces,
     unused_qualifications,
-    missing_docs,
     clippy::suboptimal_flops,
     clippy::imprecise_flops,
     clippy::branches_sharing_code,
@@ -101,7 +101,7 @@
 //!   // Create the effect asset
 //!   let effect = EffectAsset::new(
 //!     // Maximum number of particles alive at a time
-//!     32768,
+//!     vec![32768],
 //!     // Spawn at a rate of 5 particles per second
 //!     Spawner::rate(5.0.into()),
 //!     // Move the expression module into the asset
@@ -192,6 +192,7 @@ mod plugin;
 pub mod properties;
 mod render;
 mod spawn;
+mod time;
 
 #[cfg(test)]
 mod test_utils;
@@ -206,6 +207,7 @@ pub use plugin::HanabiPlugin;
 pub use properties::*;
 pub use render::{EffectSystems, LayoutFlags, ShaderCache};
 pub use spawn::{tick_spawners, CpuValue, EffectSpawner, Random, Spawner};
+pub use time::{EffectSimulation, EffectSimulationTime};
 
 #[allow(missing_docs)]
 pub mod prelude {
@@ -695,8 +697,8 @@ impl ParticleEffect {
 #[derive(Debug, Default, Clone)]
 pub(crate) struct EffectShader {
     pub init: Handle<Shader>,
-    pub update: Handle<Shader>,
-    pub render: Handle<Shader>,
+    pub update: Vec<Handle<Shader>>,
+    pub render: Vec<Handle<Shader>>,
 }
 
 /// Source code (WGSL) of an effect.
@@ -708,8 +710,8 @@ pub(crate) struct EffectShader {
 #[derive(Debug)]
 struct EffectShaderSource {
     pub init: String,
-    pub update: String,
-    pub render: String,
+    pub update: Vec<String>,
+    pub render: Vec<String>,
     pub layout_flags: LayoutFlags,
     pub particle_texture: Option<Handle<Image>>,
 }
@@ -835,7 +837,7 @@ impl EffectShaderSource {
         let properties_binding_code = if property_layout.is_empty() {
             "// (no properties)".to_string()
         } else {
-            "@group(1) @binding(2) var<storage, read> properties : Properties;".to_string()
+            "@group(1) @binding(3) var<storage, read> properties : Properties;".to_string()
         };
 
         // Start from the base module containing the expressions actually serialized in
@@ -867,160 +869,6 @@ impl EffectShaderSource {
             )
         };
 
-        // Generate the shader code for the update shader
-        let (mut update_code, update_extra) = {
-            let mut update_context =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
-            for m in asset.update_modifiers() {
-                if let Err(err) = m.apply(&mut module, &mut update_context) {
-                    error!(
-                        "Failed to compile effect, error in udpate context: {:?}",
-                        err
-                    );
-                    return Err(ShaderGenerateError::Expr(err));
-                }
-            }
-            (update_context.main_code, update_context.extra_code)
-        };
-
-        // Insert Euler motion integration if needed.
-        let has_position = present_attributes.contains(&Attribute::POSITION);
-        let has_velocity = present_attributes.contains(&Attribute::VELOCITY);
-        if asset.motion_integration != MotionIntegration::None {
-            if has_position && has_velocity {
-                // Note the prepended "\n" to prevent appending to a comment line.
-                let code = format!(
-                    "\nparticle.{0} += particle.{1} * sim_params.delta_time;\n",
-                    Attribute::POSITION.name(),
-                    Attribute::VELOCITY.name()
-                );
-                if asset.motion_integration == MotionIntegration::PreUpdate {
-                    update_code.insert_str(0, &code);
-                } else {
-                    update_code += &code;
-                }
-            } else {
-                warn!(
-                    "Asset {} specifies motion integration but is missing {}.",
-                    asset.name,
-                    if has_position {
-                        "Attribute::VELOCITY"
-                    } else {
-                        "Attribute::POSITION"
-                    }
-                )
-            }
-        }
-
-        // Generate the shader code for the render shader
-        let (
-            vertex_code,
-            fragment_code,
-            render_extra,
-            alpha_cutoff_code,
-            particle_texture,
-            layout_flags,
-            flipbook_scale_code,
-            flipbook_row_count_code,
-            image_sample_mapping_code,
-        ) = {
-            let mut render_context = RenderContext::new(&property_layout, &particle_layout);
-            for m in asset.render_modifiers() {
-                m.apply_render(&mut module, &mut render_context);
-            }
-
-            let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
-                render_context.eval(&module, *cutoff).unwrap_or_else(|err| {
-                    error!(
-                        "Failed to evaluate the expression for AlphaMode::Mask, error: {:?}",
-                        err
-                    );
-
-                    // In Debug, show everything to help diagnosing
-                    #[cfg(debug_assertions)]
-                    return 1_f32.to_wgsl_string();
-
-                    // In Release, hide everything with an error
-                    #[cfg(not(debug_assertions))]
-                    return 0_f32.to_wgsl_string();
-                })
-            } else {
-                String::new()
-            };
-
-            let mut layout_flags = LayoutFlags::NONE;
-            if asset.simulation_space == SimulationSpace::Local {
-                layout_flags |= LayoutFlags::LOCAL_SPACE_SIMULATION;
-            }
-            if let AlphaMode::Mask(_) = &asset.alpha_mode {
-                layout_flags |= LayoutFlags::USE_ALPHA_MASK;
-            }
-            if render_context.needs_uv {
-                layout_flags |= LayoutFlags::NEEDS_UV;
-            }
-
-            let (flipbook_scale_code, flipbook_row_count_code) = if let Some(grid_size) =
-                render_context.sprite_grid_size
-            {
-                layout_flags |= LayoutFlags::FLIPBOOK;
-                // Note: row_count needs to be i32, not u32, because of sprite_index
-                let flipbook_row_count_code = (grid_size.x as i32).to_wgsl_string();
-                let flipbook_scale_code =
-                    Vec2::new(1.0 / grid_size.x as f32, 1.0 / grid_size.y as f32).to_wgsl_string();
-                (flipbook_scale_code, flipbook_row_count_code)
-            } else {
-                (String::new(), String::new())
-            };
-
-            (
-                render_context.vertex_code,
-                render_context.fragment_code,
-                render_context.render_extra,
-                alpha_cutoff_code,
-                render_context.particle_texture,
-                layout_flags,
-                flipbook_scale_code,
-                flipbook_row_count_code,
-                render_context.image_sample_mapping_code,
-            )
-        };
-
-        // Configure aging code
-        let has_age = present_attributes.contains(&Attribute::AGE);
-        let has_lifetime = present_attributes.contains(&Attribute::LIFETIME);
-        let alive_init_code = if has_age && has_lifetime {
-            format!(
-                "var is_alive = particle.{0} < particle.{1};",
-                Attribute::AGE.name(),
-                Attribute::LIFETIME.name()
-            )
-        } else {
-            // Since we're using a dead index buffer, all particles that make it to the
-            // update compute shader are guaranteed to be alive (we never
-            // simulate dead particles).
-            "var is_alive = true;".to_string()
-        };
-        let age_code = if has_age {
-            format!(
-                "particle.{0} = particle.{0} + sim_params.delta_time;",
-                Attribute::AGE.name()
-            )
-        } else {
-            "".to_string()
-        } + "\n    "
-            + &alive_init_code;
-
-        // Configure reaping code
-        let reap_code = if has_age && has_lifetime {
-            format!(
-                "is_alive = is_alive && (particle.{0} < particle.{1});",
-                Attribute::AGE.name(),
-                Attribute::LIFETIME.name()
-            )
-        } else {
-            "".to_string()
-        };
-
         // Configure the init shader template, and make sure a corresponding shader
         // asset exists
         let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
@@ -1035,41 +883,207 @@ impl EffectShaderSource {
             );
         trace!("Configured init shader:\n{}", init_shader_source);
 
-        // Configure the update shader template, and make sure a corresponding shader
-        // asset exists
-        let update_shader_source = PARTICLES_UPDATE_SHADER_TEMPLATE
-            .replace("{{ATTRIBUTES}}", &attributes_code)
-            .replace("{{AGE_CODE}}", &age_code)
-            .replace("{{REAP_CODE}}", &reap_code)
-            .replace("{{UPDATE_CODE}}", &update_code)
-            .replace("{{UPDATE_EXTRA}}", &update_extra)
-            .replace("{{PROPERTIES}}", &properties_code)
-            .replace("{{PROPERTIES_BINDING}}", &properties_binding_code);
-        trace!("Configured update shader:\n{}", update_shader_source);
+        let mut layout_flags = LayoutFlags::NONE;
+        if asset.simulation_space == SimulationSpace::Local {
+            layout_flags |= LayoutFlags::LOCAL_SPACE_SIMULATION;
+        }
+        if let AlphaMode::Mask(_) = &asset.alpha_mode {
+            layout_flags |= LayoutFlags::USE_ALPHA_MASK;
+        }
+        if render_context.needs_uv {
+            layout_flags |= LayoutFlags::NEEDS_UV;
+        }
 
-        // Configure the render shader template, and make sure a corresponding shader
-        // asset exists
-        let render_shader_source = PARTICLES_RENDER_SHADER_TEMPLATE
-            .replace("{{ATTRIBUTES}}", &attributes_code)
-            .replace("{{INPUTS}}", &inputs_code)
-            .replace("{{VERTEX_MODIFIERS}}", &vertex_code)
-            .replace("{{FRAGMENT_MODIFIERS}}", &fragment_code)
-            .replace("{{RENDER_EXTRA}}", &render_extra)
-            .replace("{{ALPHA_CUTOFF}}", &alpha_cutoff_code)
-            .replace("{{FLIPBOOK_SCALE}}", &flipbook_scale_code)
-            .replace("{{FLIPBOOK_ROW_COUNT}}", &flipbook_row_count_code)
-            .replace(
-                "{{PARTICLE_TEXTURE_SAMPLE_MAPPING}}",
-                &image_sample_mapping_code,
-            );
-        trace!("Configured render shader:\n{}", render_shader_source);
+        let mut effect_particle_texture = None;
+
+        let (mut update_shader_sources, mut render_shader_sources) = (vec![], vec![]);
+        for group_index in 0..(asset.capacities().len() as u32) {
+            // Generate the shader code for the update shader
+            let (mut update_code, update_extra) = {
+                let mut update_context =
+                    ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+                for m in asset.update_modifiers_for_group(group_index) {
+                    if let Err(err) = m.apply(&mut module, &mut update_context) {
+                        error!(
+                            "Failed to compile effect, error in update context: {:?}",
+                            err
+                        );
+                        return Err(ShaderGenerateError::Expr(err));
+                    }
+                }
+                (update_context.main_code, update_context.extra_code)
+            };
+
+            // Insert Euler motion integration if needed.
+            let has_position = present_attributes.contains(&Attribute::POSITION);
+            let has_velocity = present_attributes.contains(&Attribute::VELOCITY);
+            if asset.motion_integration != MotionIntegration::None {
+                if has_position && has_velocity {
+                    // Note the prepended "\n" to prevent appending to a comment line.
+                    let code = format!(
+                        "\nparticle.{0} += particle.{1} * sim_params.delta_time;\n",
+                        Attribute::POSITION.name(),
+                        Attribute::VELOCITY.name()
+                    );
+                    if asset.motion_integration == MotionIntegration::PreUpdate {
+                        update_code.insert_str(0, &code);
+                    } else {
+                        update_code += &code;
+                    }
+                } else {
+                    warn!(
+                        "Asset {} specifies motion integration but is missing {}.",
+                        asset.name,
+                        if has_position {
+                            "Attribute::VELOCITY"
+                        } else {
+                            "Attribute::POSITION"
+                        }
+                    )
+                }
+            }
+
+            // Generate the shader code for the render shader
+            let (
+                vertex_code,
+                fragment_code,
+                render_extra,
+                alpha_cutoff_code,
+                flipbook_scale_code,
+                flipbook_row_count_code,
+                image_sample_mapping_code,
+            ) = {
+                let mut render_context = RenderContext::new(&property_layout, &particle_layout);
+                for m in asset.render_modifiers_for_group(group_index) {
+                    m.apply_render(&mut module, &mut render_context);
+                }
+
+                let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
+                    render_context.eval(&module, *cutoff).unwrap_or_else(|err| {
+                        error!(
+                            "Failed to evaluate the expression for AlphaMode::Mask, error: {:?}",
+                            err
+                        );
+
+                        // In Debug, show everything to help diagnosing
+                        #[cfg(debug_assertions)]
+                        return 1_f32.to_wgsl_string();
+
+                        // In Release, hide everything with an error
+                        #[cfg(not(debug_assertions))]
+                        return 0_f32.to_wgsl_string();
+                    })
+                } else {
+                    String::new()
+                };
+
+                let (flipbook_scale_code, flipbook_row_count_code) =
+                    if let Some(grid_size) = render_context.sprite_grid_size {
+                        layout_flags |= LayoutFlags::FLIPBOOK;
+                        // Note: row_count needs to be i32, not u32, because of sprite_index
+                        let flipbook_row_count_code = (grid_size.x as i32).to_wgsl_string();
+                        let flipbook_scale_code =
+                            Vec2::new(1.0 / grid_size.x as f32, 1.0 / grid_size.y as f32)
+                                .to_wgsl_string();
+                        (flipbook_scale_code, flipbook_row_count_code)
+                    } else {
+                        (String::new(), String::new())
+                    };
+
+                // FIXME: What about multiple textures?
+                if let Some(particle_texture) = render_context.particle_texture {
+                    effect_particle_texture = Some(particle_texture);
+                }
+
+                (
+                    render_context.vertex_code,
+                    render_context.fragment_code,
+                    render_context.render_extra,
+                    alpha_cutoff_code,
+                    flipbook_scale_code,
+                    flipbook_row_count_code,
+                    render_context.image_sample_mapping_code,
+                )
+            };
+
+            // Configure aging code
+            let has_age = present_attributes.contains(&Attribute::AGE);
+            let has_lifetime = present_attributes.contains(&Attribute::LIFETIME);
+            let alive_init_code = if has_age && has_lifetime {
+                format!(
+                    "var is_alive = particle.{0} < particle.{1};",
+                    Attribute::AGE.name(),
+                    Attribute::LIFETIME.name()
+                )
+            } else {
+                // Since we're using a dead index buffer, all particles that make it to the
+                // update compute shader are guaranteed to be alive (we never
+                // simulate dead particles).
+                "var is_alive = true;".to_string()
+            };
+            let age_code = if has_age {
+                format!(
+                    "particle.{0} = particle.{0} + sim_params.delta_time;",
+                    Attribute::AGE.name()
+                )
+            } else {
+                "".to_string()
+            } + "\n    "
+                + &alive_init_code;
+
+            // Configure reaping code
+            let reap_code = if has_age && has_lifetime {
+                format!(
+                    "is_alive = is_alive && (particle.{0} < particle.{1});",
+                    Attribute::AGE.name(),
+                    Attribute::LIFETIME.name()
+                )
+            } else {
+                "".to_string()
+            };
+
+            let group_index_code = format!("{}", group_index);
+
+            // Configure the update shader template, and make sure a corresponding shader
+            // asset exists
+            let update_shader_source = PARTICLES_UPDATE_SHADER_TEMPLATE
+                .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{AGE_CODE}}", &age_code)
+                .replace("{{REAP_CODE}}", &reap_code)
+                .replace("{{UPDATE_CODE}}", &update_code)
+                .replace("{{UPDATE_EXTRA}}", &update_extra)
+                .replace("{{PROPERTIES}}", &properties_code)
+                .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
+                .replace("{{GROUP_INDEX}}", &group_index_code);
+            trace!("Configured update shader:\n{}", update_shader_source);
+
+            // Configure the render shader template, and make sure a corresponding shader
+            // asset exists
+            let render_shader_source = PARTICLES_RENDER_SHADER_TEMPLATE
+                .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{INPUTS}}", &inputs_code)
+                .replace("{{VERTEX_MODIFIERS}}", &vertex_code)
+                .replace("{{FRAGMENT_MODIFIERS}}", &fragment_code)
+                .replace("{{RENDER_EXTRA}}", &render_extra)
+                .replace("{{ALPHA_CUTOFF}}", &alpha_cutoff_code)
+                .replace("{{FLIPBOOK_SCALE}}", &flipbook_scale_code)
+                .replace("{{FLIPBOOK_ROW_COUNT}}", &flipbook_row_count_code)
+                .replace(
+                    "{{PARTICLE_TEXTURE_SAMPLE_MAPPING}}",
+                    &image_sample_mapping_code,
+                );
+            trace!("Configured render shader:\n{}", render_shader_source);
+
+            update_shader_sources.push(update_shader_source);
+            render_shader_sources.push(render_shader_source);
+        }
 
         Ok(EffectShaderSource {
             init: init_shader_source,
-            update: update_shader_source,
-            render: render_shader_source,
+            update: update_shader_sources,
+            render: render_shader_sources,
             layout_flags,
-            particle_texture,
+            particle_texture: effect_particle_texture,
         })
     }
 }
@@ -1181,14 +1195,22 @@ impl CompiledParticleEffect {
         self.layout_flags = shader_source.layout_flags;
 
         let init_shader = shader_cache.get_or_insert(&asset.name, &shader_source.init, shaders);
-        let update_shader = shader_cache.get_or_insert(&asset.name, &shader_source.update, shaders);
-        let render_shader = shader_cache.get_or_insert(&asset.name, &shader_source.render, shaders);
+        let update_shaders: Vec<_> = shader_source
+            .update
+            .iter()
+            .map(|update_source| shader_cache.get_or_insert(&asset.name, update_source, shaders))
+            .collect();
+        let render_shaders: Vec<_> = shader_source
+            .render
+            .iter()
+            .map(|render_source| shader_cache.get_or_insert(&asset.name, render_source, shaders))
+            .collect();
 
         trace!(
-            "CompiledParticleEffect::update(): init_shader={:?} update_shader={:?} render_shader={:?} has_image={} layout_flags={:?}",
+            "CompiledParticleEffect::update(): init_shader={:?} update_shaders={:?} render_shaders={:?} has_image={} layout_flags={:?}",
             init_shader,
-            update_shader,
-            render_shader,
+            update_shaders,
+            render_shaders,
             shader_source.particle_texture.is_some(),
             self.layout_flags,
         );
@@ -1202,8 +1224,8 @@ impl CompiledParticleEffect {
         // batched together.
         self.effect_shader = Some(EffectShader {
             init: init_shader,
-            update: update_shader,
-            render: render_shader,
+            update: update_shaders,
+            render: render_shaders,
         });
 
         self.particle_texture = shader_source.particle_texture;
@@ -1432,7 +1454,7 @@ fn gather_removed_effects(
 
 #[cfg(test)]
 mod tests {
-    use std::ops::DerefMut;
+    use std::{iter, ops::DerefMut};
 
     use bevy::{
         asset::{
@@ -1712,7 +1734,7 @@ else { return c1; }
     fn test_effect_shader_source() {
         // Empty particle layout
         let module = Module::default();
-        let asset = EffectAsset::new(256, Spawner::rate(32.0.into()), module)
+        let asset = EffectAsset::new(vec![256], Spawner::rate(32.0.into()), module)
             .with_simulation_space(SimulationSpace::Local);
         assert_eq!(asset.simulation_space, SimulationSpace::Local);
         let res = EffectShaderSource::generate(&asset);
@@ -1723,7 +1745,7 @@ else { return c1; }
         // Missing Attribute::POSITION, currently mandatory for all effects
         let mut module = Module::default();
         let zero = module.lit(Vec3::ZERO);
-        let asset = EffectAsset::new(256, Spawner::rate(32.0.into()), module)
+        let asset = EffectAsset::new(vec![256], Spawner::rate(32.0.into()), module)
             .init(SetAttributeModifier::new(Attribute::VELOCITY, zero));
         assert!(asset.particle_layout().size() > 0);
         let res = EffectShaderSource::generate(&asset);
@@ -1734,18 +1756,27 @@ else { return c1; }
         // Valid
         let mut module = Module::default();
         let zero = module.lit(Vec3::ZERO);
-        let asset = EffectAsset::new(256, Spawner::rate(32.0.into()), module)
+        let asset = EffectAsset::new(vec![256], Spawner::rate(32.0.into()), module)
             .with_simulation_space(SimulationSpace::Local)
             .init(SetAttributeModifier::new(Attribute::POSITION, zero));
         assert_eq!(asset.simulation_space, SimulationSpace::Local);
         let res = EffectShaderSource::generate(&asset);
         assert!(res.is_ok());
         let shader_source = res.unwrap();
-        for (name, code) in [
-            ("Init", &shader_source.init),
-            ("Update", &shader_source.update),
-            ("Render", &shader_source.render),
-        ] {
+        for (name, code) in iter::once(("Init", &shader_source.init))
+            .chain(
+                shader_source
+                    .update
+                    .iter()
+                    .map(|update_source| ("Update", update_source)),
+            )
+            .chain(
+                shader_source
+                    .render
+                    .iter()
+                    .map(|render_source| ("Render", render_source)),
+            )
+        {
             println!("{} shader:\n\n{}", name, code);
 
             let mut shader_defs = std::collections::HashMap::<String, ShaderDefValue>::new();
@@ -1758,7 +1789,7 @@ else { return c1; }
                 ShaderDefValue::Bool(true),
             );
             if name == "Update" {
-                shader_defs.insert("RI_MAX_SPAWN_ATOMIC".into(), ShaderDefValue::Bool(true));
+                shader_defs.insert("REM_MAX_SPAWN_ATOMIC".into(), ShaderDefValue::Bool(true));
             }
             let mut composer = Composer::default();
 
@@ -1840,7 +1871,7 @@ else { return c1; }
             let mut assets = world.resource_mut::<Assets<EffectAsset>>();
             let mut module = Module::default();
             let init_pos = module.lit(Vec3::ZERO);
-            let mut asset = EffectAsset::new(64, spawner, module)
+            let mut asset = EffectAsset::new(vec![64], spawner, module)
                 .init(SetAttributeModifier::new(Attribute::POSITION, init_pos));
             asset.simulation_condition = SimulationCondition::Always;
             let handle = assets.add(asset);
@@ -1937,7 +1968,7 @@ else { return c1; }
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
                 let mut module = Module::default();
                 let init_pos = module.lit(Vec3::ZERO);
-                let mut asset = EffectAsset::new(64, spawner, module)
+                let mut asset = EffectAsset::new(vec![64], spawner, module)
                     .init(SetAttributeModifier::new(Attribute::POSITION, init_pos));
                 asset.simulation_condition = if test_case.visibility.is_some() {
                     SimulationCondition::WhenVisible

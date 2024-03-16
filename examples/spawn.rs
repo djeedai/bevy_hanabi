@@ -135,9 +135,8 @@ fn setup(
     };
 
     let effect1 = effects.add(
-        EffectAsset::new(32768, Spawner::rate(500.0.into()), writer1.finish())
+        EffectAsset::new(vec![32768], Spawner::rate(500.0.into()), writer1.finish())
             .with_name("emit:rate")
-            .with_property("my_accel", Vec3::new(0., -3., 0.).into())
             .init(init_pos1)
             // Make spawned particles move away from the emitter origin
             .init(init_vel1)
@@ -198,15 +197,19 @@ fn setup(
         speed: writer2.lit(2.).expr(),
     };
     let effect2 = effects.add(
-        EffectAsset::new(32768, Spawner::once(1000.0.into(), true), writer2.finish())
-            .with_name("emit:once")
-            .init(init_pos2)
-            .init(init_vel2)
-            .init(init_age2)
-            .init(init_lifetime2)
-            .render(ColorOverLifetimeModifier {
-                gradient: gradient2,
-            }),
+        EffectAsset::new(
+            vec![32768],
+            Spawner::once(1000.0.into(), true),
+            writer2.finish(),
+        )
+        .with_name("emit:once")
+        .init(init_pos2)
+        .init(init_vel2)
+        .init(init_age2)
+        .init(init_lifetime2)
+        .render(ColorOverLifetimeModifier {
+            gradient: gradient2,
+        }),
     );
 
     commands
@@ -250,7 +253,8 @@ fn setup(
     let init_size3 = SetAttributeModifier::new(Attribute::SIZE, size3);
 
     // Add property-driven acceleration
-    let accel3 = writer3.prop("my_accel").expr();
+    let my_accel = writer3.add_property("my_accel", Vec3::new(0., -3., 0.).into());
+    let accel3 = writer3.prop(my_accel).expr();
     let update_accel3 = AccelModifier::new(accel3);
 
     let init_pos3 = SetPositionSphereModifier {
@@ -266,12 +270,11 @@ fn setup(
 
     let effect3 = effects.add(
         EffectAsset::new(
-            32768,
+            vec![32768],
             Spawner::burst(400.0.into(), 3.0.into()),
             writer3.finish(),
         )
         .with_name("emit:burst")
-        .with_property("my_accel", Vec3::new(0., -3., 0.).into())
         .init(init_pos3)
         .init(init_vel3)
         .init(init_age3)

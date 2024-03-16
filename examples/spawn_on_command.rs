@@ -138,10 +138,12 @@ fn setup(
     // when the particle spawns. The particle will keep that color afterward,
     // even if the property changes, because the color will be saved
     // per-particle (due to the Attribute::COLOR).
-    let color = writer.prop("spawn_color").expr();
+    let spawn_color = writer.add_property("spawn_color", 0xFFFFFFFFu32.into());
+    let color = writer.prop(spawn_color).expr();
     let init_color = SetAttributeModifier::new(Attribute::COLOR, color);
 
-    let normal = writer.prop("normal");
+    let normal = writer.add_property("normal", Vec3::ZERO.into());
+    let normal = writer.prop(normal);
 
     // Set the position to be the collision point, which in this example is always
     // the emitter position (0,0,0) at the ball center, minus the ball radius
@@ -168,10 +170,8 @@ fn setup(
     let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, velocity.expr());
 
     let effect = effects.add(
-        EffectAsset::new(32768, spawner, writer.finish())
+        EffectAsset::new(vec![32768], spawner, writer.finish())
             .with_name("spawn_on_command")
-            .with_property("spawn_color", 0xFFFFFFFFu32.into())
-            .with_property("normal", Vec3::ZERO.into())
             .init(init_pos)
             .init(init_vel)
             .init(init_age)

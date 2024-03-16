@@ -37,8 +37,10 @@ use crate::{
 /// let init_pos = SetAttributeModifier::new(Attribute::POSITION, pos);
 ///
 /// // Each frame, assign the value of the "my_velocity" property to the velocity
-/// // of the particle.
-/// let vel = module.prop("my_velocity");
+/// // of the particle. The property is assigned from CPU, and uploaded to GPU
+/// // automatically when its value changed.
+/// let my_velocity = module.add_property("my_velocity", Vec3::ZERO.into());
+/// let vel = module.prop(my_velocity);
 /// let update_vel = SetAttributeModifier::new(Attribute::VELOCITY, vel);
 /// ```
 ///

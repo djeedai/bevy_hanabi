@@ -100,7 +100,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let round = RoundModifier::constant(&mut module, 1.0 / 3.0);
 
     let effect1 = effects.add(
-        EffectAsset::new(32768, Spawner::rate(5000.0.into()), module)
+        EffectAsset::new(vec![16384, 16384], Spawner::rate(5000.0.into()), module)
             .with_name("portal")
             .init(init_pos)
             .init(init_age)

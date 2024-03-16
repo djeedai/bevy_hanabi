@@ -7,10 +7,9 @@ use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 
 use crate::{
-    graph::Value,
     modifier::{Modifier, RenderModifier},
-    BoxedModifier, ExprHandle, ModifierContext, Module, ParticleLayout, Property, PropertyLayout,
-    SimulationSpace, Spawner,
+    ExprHandle, GroupedModifier, ModifierContext, Module, ParticleGroupSet, ParticleLayout,
+    Property, PropertyLayout, SimulationSpace, Spawner,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -186,7 +185,7 @@ pub struct EffectAsset {
     /// the particle buffer itself. To prevent wasting GPU resources, users
     /// should keep this quantity as close as possible to the maximum number of
     /// particles they expect to render.
-    capacity: u32,
+    capacities: Vec<u32>,
     /// Spawner.
     pub spawner: Spawner,
     /// For 2D rendering, the Z coordinate used as the sort key.
@@ -205,25 +204,15 @@ pub struct EffectAsset {
     /// Init modifier defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    init_modifiers: Vec<BoxedModifier>,
+    init_modifiers: Vec<GroupedModifier>,
     /// update modifiers defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    update_modifiers: Vec<BoxedModifier>,
+    update_modifiers: Vec<GroupedModifier>,
     /// Render modifiers defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    render_modifiers: Vec<Box<dyn RenderModifier>>,
-    /// Properties of the effect.
-    ///
-    /// Properties must have a unique name. Manually adding two or more
-    /// properties with the same name will result in an invalid asset and
-    /// undefined behavior are runtime. Prefer using the [`with_property()`] and
-    /// [`add_property()`] methods for safety.
-    ///
-    /// [`with_property()`]: crate::EffectAsset::with_property
-    /// [`add_property()`]: crate::EffectAsset::add_property
-    properties: Vec<Property>,
+    render_modifiers: Vec<GroupedModifier>,
     /// Type of motion integration applied to the particles of a system.
     pub motion_integration: MotionIntegration,
     /// Expression module for this effect.
@@ -236,15 +225,18 @@ impl EffectAsset {
     /// Create a new effect asset.
     ///
     /// The effect assets requires 2 essential pieces:
-    /// - The capacity of the effect, which represents the maximum number of
-    ///   particles which can be stored and simulated at the same time. The
-    ///   capacity must be non-zero, and should be the smallest possible value
-    ///   which allows you to author the effect. This value directly impacts the
-    ///   GPU memory consumption of the effect, which will allocate some buffers
-    ///   to store that many particles for as long as the effect exists. The
-    ///   capacity of an effect is immutable. See also [`capacity()`] for more
-    ///   details.
-    /// - The [`Spawner`], which defines when particles are emitted.
+    /// - The capacities of the effect, which together represent the maximum
+    /// number of particles which can be stored and simulated at the same time
+    /// for each group. There will be one capacity value per group; thus, the
+    /// `capacities` array also specifies the number of groups. All capacities
+    /// must be non-zero and should be the smallest possible values which allow
+    /// you to author the effect. These values directly impact the GPU memory
+    /// consumption of the effect, which will allocate some buffers to store
+    /// that many particles for as long as the effect exists. The capacities of
+    /// an effect are immutable. See also [`capacities()`] for more details.
+    /// - The [`Spawner`], which defines when particles are emitted. All
+    /// spawners spawn particles into group 0. (To add particles to other
+    /// groups, use the [`crate::modifier::clone::CloneModifier`].)
     ///
     /// Additionally, if any modifier added to this effect uses some [`Expr`] to
     /// customize its behavior, then those [`Expr`] are stored into a [`Module`]
@@ -260,7 +252,7 @@ impl EffectAsset {
     /// # use bevy_hanabi::*;
     /// let spawner = Spawner::rate(5_f32.into()); // 5 particles per second
     /// let module = Module::default();
-    /// let effect = EffectAsset::new(32768, spawner, module);
+    /// let effect = EffectAsset::new(vec![32768], spawner, module);
     /// ```
     ///
     /// Create a new effect asset with a modifier holding an expression. The
@@ -277,38 +269,43 @@ impl EffectAsset {
     /// let lifetime = module.lit(10.); // literal value "10.0"
     /// let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
     ///
-    /// let effect = EffectAsset::new(32768, spawner, module);
+    /// let effect = EffectAsset::new(vec![32768], spawner, module);
     /// ```
     ///
-    /// [`capacity()`]: crate::EffectAsset::capacity
+    /// [`capacities()`]: crate::EffectAsset::capacities
     /// [`Expr`]: crate::graph::expr::Expr
-    pub fn new(capacity: u32, spawner: Spawner, module: Module) -> Self {
+    pub fn new(capacities: Vec<u32>, spawner: Spawner, module: Module) -> Self {
         Self {
-            capacity,
+            capacities,
             spawner,
             module,
             ..default()
         }
     }
 
-    /// Get the capacity of the effect, in number of particles.
+    /// Get the capacities of the effect, in number of particles per group.
     ///
-    /// This represents the number of particles stored in GPU memory at all
-    /// time, even if unused, so you should try to minimize this value. However,
-    /// the [`Spawner`] cannot emit more particles than this capacity. Whatever
-    /// the spanwer settings, if the number of particles reaches the capacity,
-    /// no new particle can be emitted. Setting an appropriate capacity for an
-    /// effect is therefore a compromise between more particles available for
-    /// visuals and more GPU memory usage.
+    /// For example, if this function returns `&[256, 512]`, then this effect
+    /// has two groups, the first of which has a maximum of 256 particles and
+    /// the second of which has a maximum of 512 particles.
+    ///
+    /// Each value in the array represents the number of particles stored in GPU
+    /// memory at all time for the group with the corresponding index, even if
+    /// unused, so you should try to minimize this value. However, the
+    /// [`Spawner`] cannot emit more particles than the capacity of group 0.
+    /// Whatever the spawner settings, if the number of particles reaches the
+    /// capacity, no new particle can be emitted. Setting an appropriate
+    /// capacity for an effect is therefore a compromise between more particles
+    /// available for visuals and more GPU memory usage.
     ///
     /// Common values range from 256 or less for smaller effects, to several
     /// hundreds of thousands for unique effects consuming a large portion of
     /// the GPU memory budget. Hanabi has been tested with over a million
     /// particles, however the performance will largely depend on the actual GPU
     /// hardware and available memory, so authors are encouraged not to go too
-    /// crazy with the capacity.
-    pub fn capacity(&self) -> u32 {
-        self.capacity
+    /// crazy with the capacities.
+    pub fn capacities(&self) -> &[u32] {
+        &self.capacities
     }
 
     /// Get the expression module storing all expressions in use by modifiers of
@@ -343,37 +340,18 @@ impl EffectAsset {
         self
     }
 
-    /// Add a new property to the asset.
-    ///
-    /// See [`Property`] for more details on what effect properties are.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a property with the same name already exists.
-    pub fn with_property(mut self, name: impl Into<String>, default_value: Value) -> Self {
-        self.add_property(name, default_value);
-        self
-    }
-
-    /// Add a new property to the asset.
-    ///
-    /// See [`Property`] for more details on what effect properties are.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a property with the same name already exists.
-    pub fn add_property(&mut self, name: impl Into<String>, default_value: Value) {
-        let name = name.into();
-        assert!(!self.properties.iter().any(|p| p.name() == name));
-        self.properties.push(Property::new(name, default_value));
-    }
-
     /// Get the list of existing properties.
+    ///
+    /// This is a shortcut for `self.module().properties()`.
     pub fn properties(&self) -> &[Property] {
-        &self.properties
+        self.module.properties()
     }
 
     /// Add an initialization modifier to the effect.
+    ///
+    /// Initialization modifiers only apply to particles that are freshly
+    /// spawned. Currently, spawners can only spawn into group 0. Consequently,
+    /// the initialization modifiers will only affect particles in group 0.
     ///
     /// # Panics
     ///
@@ -383,10 +361,13 @@ impl EffectAsset {
     #[inline]
     pub fn init<M>(mut self, modifier: M) -> Self
     where
-        M: Modifier + Send + Sync + 'static,
+        M: Modifier + Send + Sync,
     {
         assert!(modifier.context().contains(ModifierContext::Init));
-        self.init_modifiers.push(Box::new(modifier));
+        self.init_modifiers.push(GroupedModifier {
+            modifier: Box::new(modifier),
+            groups: ParticleGroupSet::single(0),
+        });
         self
     }
 
@@ -400,10 +381,29 @@ impl EffectAsset {
     #[inline]
     pub fn update<M>(mut self, modifier: M) -> Self
     where
-        M: Modifier + Send + Sync + 'static,
+        M: Modifier + Send + Sync,
     {
         assert!(modifier.context().contains(ModifierContext::Update));
-        self.update_modifiers.push(Box::new(modifier));
+        self.update_modifiers.push(GroupedModifier {
+            modifier: Box::new(modifier),
+            groups: ParticleGroupSet::all(),
+        });
+        self
+    }
+
+    /// Add an update modifier to the effect targeting only a subset of groups.
+    ///
+    /// [`with_property()`]: crate::EffectAsset::with_property
+    /// [`add_property()`]: crate::EffectAsset::add_property
+    #[inline]
+    pub fn update_groups<M>(mut self, modifier: M, groups: ParticleGroupSet) -> Self
+    where
+        M: Modifier + Send + Sync,
+    {
+        self.update_modifiers.push(GroupedModifier {
+            modifier: Box::new(modifier),
+            groups,
+        });
         self
     }
 
@@ -422,13 +422,39 @@ impl EffectAsset {
     /// `modifier.context()` returns a flag which doesn't include `context`).
     ///
     /// [`add_render_modifier()`]: crate::EffectAsset::add_render_modifier
-    pub fn add_modifier(mut self, context: ModifierContext, modifier: Box<dyn Modifier>) -> Self {
+    pub fn add_modifier(self, context: ModifierContext, modifier: Box<dyn Modifier>) -> Self {
+        self.add_modifier_to_groups(context, modifier, ParticleGroupSet::all())
+    }
+
+    /// Add a [`BoxedModifier`] to the specific context, in a specific set of
+    /// groups.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the context is [`ModifierContext::Render`]; use
+    /// [`add_render_modifier()`] instead.
+    ///
+    /// Panics if the input `context` contains more than one context (the
+    /// bitfield contains more than 1 bit set) or no context at all (zero bit
+    /// set).
+    ///
+    /// Panics if the modifier doesn't support the context specified (that is,
+    /// `modifier.context()` returns a flag which doesn't include `context`).
+    ///
+    /// [`add_render_modifier()`]: crate::EffectAsset::add_render_modifier
+    pub fn add_modifier_to_groups(
+        mut self,
+        context: ModifierContext,
+        modifier: Box<dyn Modifier>,
+        groups: ParticleGroupSet,
+    ) -> Self {
         assert!(context == ModifierContext::Init || context == ModifierContext::Update);
         assert!(modifier.context().contains(context));
+        let grouped_modifier = GroupedModifier { modifier, groups };
         if context == ModifierContext::Init {
-            self.init_modifiers.push(modifier);
+            self.init_modifiers.push(grouped_modifier);
         } else {
-            self.update_modifiers.push(modifier);
+            self.update_modifiers.push(grouped_modifier);
         }
         self
     }
@@ -443,10 +469,33 @@ impl EffectAsset {
     #[inline]
     pub fn render<M>(mut self, modifier: M) -> Self
     where
-        M: RenderModifier + Send + Sync + 'static,
+        M: RenderModifier + Send + Sync,
     {
         assert!(modifier.context().contains(ModifierContext::Render));
-        self.render_modifiers.push(Box::new(modifier));
+        self.render_modifiers.push(GroupedModifier {
+            modifier: Box::new(modifier),
+            groups: ParticleGroupSet::all(),
+        });
+        self
+    }
+
+    /// Add a render modifier to specific groups of this effect.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the modifier doesn't support the render context (that is,
+    /// `modifier.context()` returns a flag which doesn't include
+    /// [`ModifierContext::Render`]).
+    #[inline]
+    pub fn render_groups<M>(mut self, modifier: M, groups: ParticleGroupSet) -> Self
+    where
+        M: RenderModifier + Send + Sync,
+    {
+        assert!(modifier.context().contains(ModifierContext::Render));
+        self.render_modifiers.push(GroupedModifier {
+            modifier: Box::new(modifier),
+            groups,
+        });
         self
     }
 
@@ -459,7 +508,31 @@ impl EffectAsset {
     /// [`ModifierContext::Render`]).
     pub fn add_render_modifier(mut self, modifier: Box<dyn RenderModifier>) -> Self {
         assert!(modifier.context().contains(ModifierContext::Render));
-        self.render_modifiers.push(modifier);
+        self.render_modifiers.push(GroupedModifier {
+            modifier: modifier.boxed_clone(),
+            groups: ParticleGroupSet::all(),
+        });
+        self
+    }
+
+    /// Add a [`RenderModifier`] to the render context targeting a specific set
+    /// of groups.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the modifier doesn't support the render context (that is,
+    /// `modifier.context()` returns a flag which doesn't include
+    /// [`ModifierContext::Render`]).
+    pub fn add_render_modifier_to_groups(
+        mut self,
+        modifier: Box<dyn RenderModifier>,
+        groups: ParticleGroupSet,
+    ) -> Self {
+        assert!(modifier.context().contains(ModifierContext::Render));
+        self.render_modifiers.push(GroupedModifier {
+            modifier: modifier.boxed_clone(),
+            groups,
+        });
         self
     }
 
@@ -467,9 +540,17 @@ impl EffectAsset {
     pub fn modifiers(&self) -> impl Iterator<Item = &dyn Modifier> {
         self.init_modifiers
             .iter()
-            .map(|m| m.deref())
-            .chain(self.update_modifiers.iter().map(|m| m.deref()))
-            .chain(self.render_modifiers.iter().map(|m| m.as_modifier()))
+            .map(|grouped_modifier| &*grouped_modifier.modifier)
+            .chain(
+                self.update_modifiers
+                    .iter()
+                    .map(|grouped_modifier| &*grouped_modifier.modifier),
+            )
+            .chain(
+                self.render_modifiers
+                    .iter()
+                    .map(|grouped_modifier| &*grouped_modifier.modifier),
+            )
     }
 
     /// Get a list of all the init modifiers of this effect.
@@ -479,9 +560,9 @@ impl EffectAsset {
     ///
     /// [`ModifierContext::Init`]: crate::ModifierContext::Init
     pub fn init_modifiers(&self) -> impl Iterator<Item = &dyn Modifier> {
-        self.init_modifiers.iter().filter_map(|m| {
-            if m.context().contains(ModifierContext::Init) {
-                Some(m.deref())
+        self.init_modifiers.iter().filter_map(|gm| {
+            if gm.modifier.context().contains(ModifierContext::Init) {
+                Some(gm.modifier.deref())
             } else {
                 None
             }
@@ -495,9 +576,31 @@ impl EffectAsset {
     ///
     /// [`ModifierContext::Update`]: crate::ModifierContext::Update
     pub fn update_modifiers(&self) -> impl Iterator<Item = &dyn Modifier> {
-        self.update_modifiers.iter().filter_map(|m| {
-            if m.context().contains(ModifierContext::Update) {
-                Some(m.deref())
+        self.update_modifiers.iter().filter_map(|gm| {
+            if gm.modifier.context().contains(ModifierContext::Update) {
+                Some(gm.modifier.deref())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Get a list of all the update modifiers in a single group.
+    ///
+    /// This is a filtered list of all modifiers, retaining only modifiers
+    /// executing in the [`ModifierContext::Update`] context and affecting the
+    /// specified group.
+    ///
+    /// [`ModifierContext::Update`]: crate::ModifierContext::Update
+    pub fn update_modifiers_for_group(
+        &self,
+        group_index: u32,
+    ) -> impl Iterator<Item = &dyn Modifier> {
+        self.update_modifiers.iter().filter_map(move |gm| {
+            if gm.groups.contains(group_index)
+                && gm.modifier.context().contains(ModifierContext::Update)
+            {
+                Some(gm.modifier.deref())
             } else {
                 None
             }
@@ -512,6 +615,27 @@ impl EffectAsset {
     /// [`ModifierContext::Render`]: crate::ModifierContext::Render
     pub fn render_modifiers(&self) -> impl Iterator<Item = &dyn RenderModifier> {
         self.render_modifiers.iter().filter_map(|m| m.as_render())
+    }
+
+    /// Get a list of all the render modifiers of this effect that affect a
+    /// specific group.
+    ///
+    /// This is a filtered list of all modifiers, retaining only modifiers
+    /// executing in the [`ModifierContext::Render`] context and that affect the
+    /// given group.
+    ///
+    /// [`ModifierContext::Render`]: crate::ModifierContext::Render
+    pub fn render_modifiers_for_group(
+        &self,
+        group_index: u32,
+    ) -> impl Iterator<Item = &dyn RenderModifier> {
+        self.render_modifiers.iter().filter_map(move |m| {
+            if m.groups.contains(group_index) {
+                m.modifier.as_render()
+            } else {
+                None
+            }
+        })
     }
 
     /// Build the particle layout of the asset based on its modifiers.
@@ -542,7 +666,7 @@ impl EffectAsset {
     /// currently existing properties, and return it as a newly allocated
     /// [`PropertyLayout`] object.
     pub fn property_layout(&self) -> PropertyLayout {
-        PropertyLayout::new(self.properties.iter())
+        PropertyLayout::new(self.properties().iter())
     }
 }
 
@@ -592,39 +716,11 @@ impl AssetLoader for EffectAssetLoader {
 
 #[cfg(test)]
 mod tests {
+    use ron::ser::PrettyConfig;
+
     use crate::*;
 
     use super::*;
-
-    #[test]
-    fn property() {
-        let mut effect = EffectAsset {
-            name: "Effect".into(),
-            capacity: 4096,
-            spawner: Spawner::rate(30.0.into()),
-            ..Default::default()
-        }
-        .with_property("my_prop", graph::Value::Scalar(345_u32.into()));
-
-        effect.add_property(
-            "other_prop",
-            graph::Value::Vector(Vec3::new(3., -7.5, 42.42).into()),
-        );
-
-        assert!(effect.properties().iter().any(|p| p.name() == "my_prop"));
-        assert!(effect.properties().iter().any(|p| p.name() == "other_prop"));
-        assert!(!effect
-            .properties()
-            .iter()
-            .any(|p| p.name() == "do_not_exist"));
-
-        let layout = effect.property_layout();
-        assert_eq!(layout.size(), 16);
-        assert_eq!(layout.align(), 16);
-        assert_eq!(layout.offset("my_prop"), Some(12));
-        assert_eq!(layout.offset("other_prop"), Some(0));
-        assert_eq!(layout.offset("unknown"), None);
-    }
 
     #[test]
     fn add_modifiers() {
@@ -670,7 +766,7 @@ mod tests {
 
         let effect = EffectAsset {
             name: "Effect".into(),
-            capacity: 4096,
+            capacities: vec![4096],
             spawner: Spawner::rate(30.0.into()),
             ..Default::default()
         }
@@ -686,7 +782,7 @@ mod tests {
         .render(OrientModifier::new(OrientMode::FaceCameraPosition))
         .render(OrientModifier::new(OrientMode::AlongVelocity));
 
-        assert_eq!(effect.capacity, 4096);
+        assert_eq!(&effect.capacities, &[4096]);
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
@@ -734,15 +830,110 @@ mod tests {
 
     #[test]
     fn test_serde_ron() {
+        let w = ExprWriter::new();
+
+        let pos = w.lit(Vec3::new(1.2, -3.45, 87.54485));
+        let x = w.lit(BVec2::new(false, true));
+        let _ = x + pos.clone();
+        let mod_pos = SetAttributeModifier::new(Attribute::POSITION, pos.expr());
+
+        let mut module = w.finish();
+        let prop = module.add_property("my_prop", Vec3::new(1.2, -2.3, 55.32).into());
+        let prop = module.prop(prop);
+        let _ = module.abs(prop);
+
         let effect = EffectAsset {
             name: "Effect".into(),
-            capacity: 4096,
+            capacities: vec![4096],
             spawner: Spawner::rate(30.0.into()),
+            module,
             ..Default::default()
-        };
+        }
+        .init(mod_pos);
 
-        let s = ron::to_string(&effect).unwrap();
-        let _effect_serde: EffectAsset = ron::from_str(&s).unwrap();
-        // assert_eq!(effect, effect_serde);
+        let s = ron::ser::to_string_pretty(&effect, PrettyConfig::new().new_line("\n".to_string()))
+            .unwrap();
+        eprintln!("{}", s);
+        assert_eq!(
+            s,
+            r#"(
+    name: "Effect",
+    capacities: [
+        4096,
+    ],
+    spawner: (
+        num_particles: Single(30.0),
+        spawn_time: Single(1.0),
+        period: Single(1.0),
+        starts_active: true,
+        starts_immediately: true,
+    ),
+    z_layer_2d: 0.0,
+    simulation_space: Global,
+    simulation_condition: WhenVisible,
+    init_modifiers: [
+        (
+            modifier: {
+                "SetAttributeModifier": (
+                    attribute: "position",
+                    value: 1,
+                ),
+            },
+            groups: (1),
+        ),
+    ],
+    update_modifiers: [],
+    render_modifiers: [],
+    motion_integration: PostUpdate,
+    module: (
+        expressions: [
+            Literal(Vector(Vec3((1.2, -3.45, 87.54485)))),
+            Literal(Vector(BVec2((false, true)))),
+            Binary(
+                op: Add,
+                left: 2,
+                right: 1,
+            ),
+            Property(1),
+            Unary(
+                op: Abs,
+                expr: 4,
+            ),
+        ],
+        properties: [
+            (
+                name: "my_prop",
+                default_value: Vector(Vec3((1.2, -2.3, 55.32))),
+            ),
+        ],
+    ),
+    alpha_mode: Blend,
+)"#
+        );
+        let effect_serde: EffectAsset = ron::from_str(&s).unwrap();
+        assert_eq!(effect.name, effect_serde.name);
+        assert_eq!(effect.capacities, effect_serde.capacities);
+        assert_eq!(effect.spawner, effect_serde.spawner);
+        assert_eq!(effect.z_layer_2d, effect_serde.z_layer_2d);
+        assert_eq!(effect.simulation_space, effect_serde.simulation_space);
+        assert_eq!(
+            effect.simulation_condition,
+            effect_serde.simulation_condition
+        );
+        assert_eq!(effect.motion_integration, effect_serde.motion_integration);
+        assert_eq!(effect.module, effect_serde.module);
+        assert_eq!(effect.alpha_mode, effect_serde.alpha_mode);
+        assert_eq!(
+            effect.init_modifiers().count(),
+            effect_serde.init_modifiers().count()
+        );
+        assert_eq!(
+            effect.update_modifiers().count(),
+            effect_serde.update_modifiers().count()
+        );
+        assert_eq!(
+            effect.render_modifiers().count(),
+            effect_serde.render_modifiers().count()
+        );
     }
 }
