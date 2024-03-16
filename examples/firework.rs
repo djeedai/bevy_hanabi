@@ -109,9 +109,6 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         speed: (writer.rand(ScalarType::Float) * writer.lit(20.) + writer.lit(60.)).expr(),
     };
 
-    let mut module = writer.finish();
-    let round = RoundModifier::ellipse(&mut module);
-
     let effect = EffectAsset::new(
         vec![32768],
         Spawner::burst(2500.0.into(), 2.0.into()),
@@ -130,8 +127,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     .render(SizeOverLifetimeModifier {
         gradient: size_gradient1,
         screen_space_size: false,
-    })
-    .render(round);
+    });
 
     let effect1 = effects.add(effect);
 

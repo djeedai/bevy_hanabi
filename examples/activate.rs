@@ -132,8 +132,12 @@ fn setup(
         speed: writer.lit(0.1).expr(),
     };
 
+    let mut module = writer.finish();
+
+    let round = RoundModifier::constant(&mut module, 1.0);
+
     let effect = effects.add(
-        EffectAsset::new(vec![32768], spawner, writer.finish())
+        EffectAsset::new(vec![32768], spawner, module)
             .with_name("activate")
             .init(init_pos)
             .init(init_vel)
@@ -143,7 +147,8 @@ fn setup(
                 gradient: Gradient::constant(Vec2::splat(0.02)),
                 screen_space_size: false,
             })
-            .render(ColorOverLifetimeModifier { gradient }),
+            .render(ColorOverLifetimeModifier { gradient })
+            .render(round),
     );
 
     ball.with_children(|node| {
