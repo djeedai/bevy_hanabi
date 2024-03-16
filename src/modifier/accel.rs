@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     calc_func_id,
+    expr::PropertyHandle,
     graph::{BuiltInExpr, EvalContext, ExprError},
     Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module, ShaderWriter,
 };
@@ -46,9 +47,11 @@ impl AccelModifier {
     }
 
     /// Create a new modifier with an acceleration derived from a property.
-    pub fn via_property(module: &mut Module, property_name: impl Into<String>) -> Self {
+    ///
+    /// To create a new property, use [`Module::add_property()`].
+    pub fn via_property(module: &mut Module, property: PropertyHandle) -> Self {
         Self {
-            accel: module.prop(property_name),
+            accel: module.prop(property),
         }
     }
 
@@ -126,14 +129,12 @@ impl RadialAccelModifier {
     /// Create a new modifier with an acceleration derived from a property.
     ///
     /// The origin of the sphere defining the radial direction is constant.
-    pub fn via_property(
-        module: &mut Module,
-        origin: Vec3,
-        property_name: impl Into<String>,
-    ) -> Self {
+    ///
+    /// To create a new property, use [`Module::add_property()`].
+    pub fn via_property(module: &mut Module, origin: Vec3, property: PropertyHandle) -> Self {
         Self {
             origin: module.lit(origin),
-            accel: module.prop(property_name),
+            accel: module.prop(property),
         }
     }
 
@@ -241,16 +242,18 @@ impl TangentAccelModifier {
     /// Create a new modifier with an acceleration derived from a property.
     ///
     /// The origin and axis are constant.
+    ///
+    /// To create a new property, use [`Module::add_property()`].
     pub fn via_property(
         module: &mut Module,
         origin: Vec3,
         axis: Vec3,
-        property_name: impl Into<String>,
+        property: PropertyHandle,
     ) -> Self {
         Self {
             origin: module.lit(origin),
             axis: module.lit(axis),
-            accel: module.prop(property_name),
+            accel: module.prop(property),
         }
     }
 
@@ -344,7 +347,8 @@ mod tests {
         assert!(context.extra_code.contains(&accel.to_wgsl_string()));
 
         let origin = module.attr(Attribute::POSITION);
-        let accel = module.prop("my_prop");
+        let my_prop = module.add_property("my_prop", 3.0.into());
+        let accel = module.prop(my_prop);
         let modifier = RadialAccelModifier::new(origin, accel);
         let mut context =
             ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);

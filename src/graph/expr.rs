@@ -87,7 +87,8 @@
 //! let mut w = ExprWriter::new();
 //!
 //! // Build a complex expression: max(3.42, properties.my_prop)
-//! let expr = w.lit(3.42).max(w.prop("my_prop"));
+//! let prop = w.add_property("my_property", 3.0.into());
+//! let expr = w.lit(3.42).max(w.prop(prop));
 //!
 //! // Finalize the expression and write it into the Module. The returned handle can
 //! // be assign to a modifier input.
@@ -107,12 +108,14 @@ use bevy::{reflect::Reflect, utils::thiserror::Error};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Attribute, ModifierContext, ParticleLayout, PropertyLayout, ScalarType, ToWgslString, ValueType,
+    Attribute, ModifierContext, ParticleLayout, Property, PropertyLayout, ScalarType, ToWgslString,
+    ValueType,
 };
 
 use super::Value;
 
-type Index = NonZeroU32;
+/// A one-based ID into a collection of a [`Module`].
+type Id = NonZeroU32;
 
 /// Handle of an expression inside a given [`Module`].
 ///
@@ -127,18 +130,68 @@ type Index = NonZeroU32;
 #[repr(transparent)]
 #[serde(transparent)]
 pub struct ExprHandle {
-    index: Index,
+    id: Id,
 }
 
 impl ExprHandle {
-    /// Create a new handle from a 1-based [`Index`].
-    fn new(index: Index) -> Self {
-        Self { index }
+    /// Create a new handle from a 1-based [`Id`].
+    #[allow(dead_code)]
+    fn new(id: Id) -> Self {
+        Self { id }
+    }
+
+    /// Create a new handle from a 1-based [`Id`] as a `usize`, for cases where
+    /// the index is known to be non-zero already.
+    #[allow(unsafe_code)]
+    unsafe fn new_unchecked(id: usize) -> Self {
+        debug_assert!(id != 0);
+        Self {
+            id: NonZeroU32::new_unchecked(id as u32),
+        }
     }
 
     /// Get the zero-based index into the array of the module.
     fn index(&self) -> usize {
-        (self.index.get() - 1) as usize
+        (self.id.get() - 1) as usize
+    }
+}
+
+/// Handle of a property inside a given [`Module`].
+///
+/// A handle uniquely references a [`Property`] stored inside a [`Module`]. It's
+/// a lightweight representation, similar to a simple array index. For this
+/// reason, it's easily copyable. However it's also lacking any kind of error
+/// checking, and mixing handles to different modules produces undefined
+/// behaviors (like an index does when indexing the wrong array).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect, Serialize, Deserialize,
+)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub struct PropertyHandle {
+    id: Id,
+}
+
+impl PropertyHandle {
+    /// Create a new handle from a 1-based [`Id`].
+    #[allow(dead_code)]
+    fn new(id: Id) -> Self {
+        Self { id }
+    }
+
+    /// Create a new handle from a 1-based [`Id`] as a `usize`, for cases where
+    /// the index is known to be non-zero already.
+    #[allow(unsafe_code)]
+    unsafe fn new_unchecked(id: usize) -> Self {
+        debug_assert!(id != 0);
+        Self {
+            id: NonZeroU32::new_unchecked(id as u32),
+        }
+    }
+
+    /// Get the zero-based index into the array of the module.
+    fn index(&self) -> usize {
+        (self.id.get() - 1) as usize
     }
 }
 
@@ -162,9 +215,11 @@ impl ExprHandle {
 /// [`lit()`]: Module::lit
 /// [`attr()`]: Module::attr
 #[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
-#[serde(transparent)]
 pub struct Module {
+    /// Expressions defined in the module.
     expressions: Vec<Expr>,
+    /// Properties used as part of a [`PropertyExpr`].
+    properties: Vec<Property>,
 }
 
 macro_rules! impl_module_unary {
@@ -200,15 +255,71 @@ macro_rules! impl_module_ternary {
 impl Module {
     /// Create a new module from an existing collection of expressions.
     pub fn from_raw(expr: Vec<Expr>) -> Self {
-        Self { expressions: expr }
+        Self {
+            expressions: expr,
+            properties: vec![],
+        }
+    }
+
+    /// Add a new property to the module.
+    ///
+    /// See [`Property`] for more details on what effect properties are.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a property with the same name already exists.
+    pub fn add_property(
+        &mut self,
+        name: impl Into<String>,
+        default_value: Value,
+    ) -> PropertyHandle {
+        let name = name.into();
+        assert!(!self.properties.iter().any(|p| p.name() == name));
+        self.properties.push(Property::new(name, default_value));
+        // SAFETY - We just pushed a new property into the array, so its length is
+        // non-zero.
+        #[allow(unsafe_code)]
+        unsafe {
+            PropertyHandle::new_unchecked(self.properties.len())
+        }
+    }
+
+    /// Get an existing property by handle.
+    ///
+    /// Existing properties are properties previously created with
+    /// [`add_property()`].
+    ///
+    /// [`add_property()`]: crate::Module::add_property
+    pub fn get_property(&self, property: PropertyHandle) -> Option<&Property> {
+        self.properties.get(property.index())
+    }
+
+    /// Get an existing property by name.
+    ///
+    /// Existing properties are properties previously created with
+    /// [`add_property()`].
+    ///
+    /// [`add_property()`]: crate::Module::add_property
+    pub fn get_property_by_name(&self, name: &str) -> Option<PropertyHandle> {
+        self.properties
+            .iter()
+            .enumerate()
+            .find(|(_, prop)| prop.name() == name)
+            .map(|(index, _)| PropertyHandle::new(NonZeroU32::new(index as u32 + 1).unwrap()))
+    }
+
+    /// Get the list of existing properties.
+    pub fn properties(&self) -> &[Property] {
+        &self.properties
     }
 
     /// Append a new expression to the module.
     fn push(&mut self, expr: impl Into<Expr>) -> ExprHandle {
-        #[allow(unsafe_code)]
-        let index: Index = unsafe { NonZeroU32::new_unchecked(self.expressions.len() as u32 + 1) };
         self.expressions.push(expr.into());
-        ExprHandle::new(index)
+        #[allow(unsafe_code)]
+        unsafe {
+            ExprHandle::new_unchecked(self.expressions.len())
+        }
     }
 
     /// Build a literal expression and append it to the module.
@@ -227,9 +338,11 @@ impl Module {
     }
 
     /// Build a property expression and append it to the module.
+    ///
+    /// A property expression retrieves the value of the given property.
     #[inline]
-    pub fn prop(&mut self, property_name: impl Into<String>) -> ExprHandle {
-        self.push(Expr::Property(PropertyExpr::new(property_name)))
+    pub fn prop(&mut self, property: PropertyHandle) -> ExprHandle {
+        self.push(Expr::Property(PropertyExpr::new(property)))
     }
 
     /// Build a built-in expression and append it to the module.
@@ -591,7 +704,7 @@ pub trait EvalContext {
 }
 
 /// Language expression producing a value.
-#[derive(Debug, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub enum Expr {
     /// Built-in expression ([`BuiltInExpr`]).
     ///
@@ -677,13 +790,14 @@ impl Expr {
     ///
     /// ```
     /// # use bevy_hanabi::*;
-    /// # let module = Module::default();
+    /// # let mut module = Module::default();
     /// // Literals are always constant by definition.
     /// assert!(Expr::Literal(LiteralExpr::new(1.)).is_const(&module));
     ///
     /// // Properties and attributes are never constant, since they're by definition used
     /// // to provide runtime customization.
-    /// assert!(!Expr::Property(PropertyExpr::new("my_prop")).is_const(&module));
+    /// let prop = module.add_property("my_property", 3.0.into());
+    /// assert!(!Expr::Property(PropertyExpr::new(prop)).is_const(&module));
     /// assert!(!Expr::Attribute(AttributeExpr::new(Attribute::POSITION)).is_const(&module));
     /// ```
     pub fn is_const(&self, module: &Module) -> bool {
@@ -793,7 +907,7 @@ impl Expr {
         match self {
             Expr::BuiltIn(expr) => expr.eval(context),
             Expr::Literal(expr) => expr.eval(context),
-            Expr::Property(expr) => expr.eval(context),
+            Expr::Property(expr) => expr.eval(module, context),
             Expr::Attribute(expr) => expr.eval(context),
             Expr::Unary { op, expr } => {
                 // Recursively evaluate child expressions throught the context to ensure caching
@@ -974,18 +1088,25 @@ impl From<Attribute> for AttributeExpr {
 }
 
 /// Expression representing the value of a property of an effect.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+///
+/// A property expression represents the value of the property at the time the
+/// expression appears. In shader, the expression yields a read from the
+/// property memory location.
+///
+/// To create a property to reference with an expression, use
+/// [`Module::add_property()`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[repr(transparent)]
+#[serde(transparent)]
 pub struct PropertyExpr {
-    property_name: String,
+    property: PropertyHandle,
 }
 
 impl PropertyExpr {
     /// Create a new property expression.
     #[inline]
-    pub fn new(property_name: impl Into<String>) -> Self {
-        Self {
-            property_name: property_name.into(),
-        }
+    pub fn new(property: PropertyHandle) -> Self {
+        Self { property }
     }
 
     /// Is the expression resulting in a compile-time constant which can be
@@ -995,27 +1116,21 @@ impl PropertyExpr {
     }
 
     /// Evaluate the expression in the given context.
-    fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
-        if !context.property_layout().contains(&self.property_name) {
+    fn eval(&self, module: &Module, context: &dyn EvalContext) -> Result<String, ExprError> {
+        let prop = module
+            .get_property(self.property)
+            .ok_or(ExprError::PropertyError(format!(
+                "Unknown property handle {:?} in evaluation module.",
+                self.property
+            )))?;
+        if !context.property_layout().contains(prop.name()) {
             return Err(ExprError::PropertyError(format!(
-                "Unknown property '{}' in evaluation context.",
-                self.property_name
+                "Unknown property '{}' in evaluation layout.",
+                prop.name()
             )));
         }
 
-        Ok(self.to_wgsl_string())
-    }
-}
-
-impl ToWgslString for PropertyExpr {
-    fn to_wgsl_string(&self) -> String {
-        format!("properties.{}", self.property_name)
-    }
-}
-
-impl From<String> for PropertyExpr {
-    fn from(property_name: String) -> Self {
-        PropertyExpr::new(property_name)
+        Ok(format!("properties.{}", prop.name()))
     }
 }
 
@@ -1725,11 +1840,13 @@ impl ToWgslString for TernaryOperator {
 ///
 /// ```
 /// # use bevy_hanabi::*;
+/// # use bevy::prelude::*;
 /// // Create a writer
 /// let w = ExprWriter::new();
 ///
 /// // Create a new expression: max(5. + particle.position, properties.my_prop)
-/// let expr = (w.lit(5.) + w.attr(Attribute::POSITION)).max(w.prop("my_prop"));
+/// let prop = w.add_property("my_property", Vec3::ONE.into());
+/// let expr = (w.lit(5.) + w.attr(Attribute::POSITION)).max(w.prop(prop));
 ///
 /// // Finalize the expression and write it down into the `Module` as an `Expr`
 /// let expr: ExprHandle = expr.expr();
@@ -1776,6 +1893,17 @@ impl ExprWriter {
     /// [`EffectAsset`]: crate::EffectAsset
     pub fn from_module(module: Rc<RefCell<Module>>) -> Self {
         Self { module }
+    }
+
+    /// Add a new property.
+    ///
+    /// See [`Property`] for more details on what effect properties are.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a property with the same name already exists.
+    pub fn add_property(&self, name: impl Into<String>, default_value: Value) -> PropertyHandle {
+        self.module.borrow_mut().add_property(name, default_value)
     }
 
     /// Push a new expression into the writer.
@@ -1825,10 +1953,11 @@ impl ExprWriter {
     /// ```
     /// # use bevy_hanabi::*;
     /// let mut w = ExprWriter::new();
-    /// let x = w.prop("my_prop"); // x = properties.my_prop;
+    /// let prop = w.add_property("my_prop", 3.0.into());
+    /// let x = w.prop(prop); // x = properties.my_prop;
     /// ```
-    pub fn prop(&self, name: impl Into<String>) -> WriterExpr {
-        self.push(Expr::Property(PropertyExpr::new(name)))
+    pub fn prop(&self, handle: PropertyHandle) -> WriterExpr {
+        self.push(Expr::Property(PropertyExpr::new(handle)))
     }
 
     /// Create a new writer expression representing the current simulation time.
@@ -1954,9 +2083,10 @@ impl ExprWriter {
 /// ```
 /// # use bevy_hanabi::*;
 /// let mut w = ExprWriter::new();
+/// let my_prop = w.add_property("my_prop", 3.0.into());
 ///
 /// // x = max(-3.5 + 1., properties.my_prop) * 0.5 - particle.position;
-/// let x = (w.lit(-3.5) + w.lit(1.)).max(w.prop("my_prop")).mul(w.lit(0.5))
+/// let x = (w.lit(-3.5) + w.lit(1.)).max(w.prop(my_prop)).mul(w.lit(0.5))
 ///     .sub(w.attr(Attribute::POSITION));
 ///
 /// let handle: ExprHandle = x.expr();
@@ -3131,8 +3261,9 @@ impl WriterExpr {
     /// ```
     /// # use bevy_hanabi::*;
     /// # let mut w = ExprWriter::new();
+    /// let theta = w.add_property("theta", 0.0.into());
     /// // Convert the angular property `theta` to a 2D vector.
-    /// let (cos_theta, sin_theta) = (w.prop("theta").cos(), w.prop("theta").sin());
+    /// let (cos_theta, sin_theta) = (w.prop(theta).cos(), w.prop(theta).sin());
     /// let circle_pos = cos_theta.vec2(sin_theta);
     /// ```
     #[inline]
@@ -3147,8 +3278,9 @@ impl WriterExpr {
     /// ```
     /// # use bevy_hanabi::*;
     /// # let mut w = ExprWriter::new();
+    /// let theta = w.add_property("theta", 0.0.into());
     /// // Convert the angular property `theta` to a 3D vector in a flat plane.
-    /// let (cos_theta, sin_theta) = (w.prop("theta").cos(), w.prop("theta").sin());
+    /// let (cos_theta, sin_theta) = (w.prop(theta).cos(), w.prop(theta).sin());
     /// let circle_pos = cos_theta.vec3(w.lit(0.0), sin_theta);
     /// ```
     #[inline]
@@ -3248,7 +3380,7 @@ impl std::ops::Rem<WriterExpr> for WriterExpr {
 
 #[cfg(test)]
 mod tests {
-    use crate::{prelude::Property, MatrixType, ScalarValue, ShaderWriter, VectorType};
+    use crate::{MatrixType, ScalarValue, ShaderWriter, VectorType};
 
     use super::*;
     use bevy::{prelude::*, utils::HashSet};
@@ -3257,7 +3389,8 @@ mod tests {
     fn module() {
         let mut m = Module::default();
 
-        let unknown = ExprHandle::new(NonZeroU32::new(1).unwrap());
+        #[allow(unsafe_code)]
+        let unknown = unsafe { ExprHandle::new_unchecked(1) };
         assert!(m.get(unknown).is_none());
         assert!(m.get_mut(unknown).is_none());
         assert!(matches!(
@@ -3320,13 +3453,29 @@ mod tests {
     }
 
     #[test]
+    fn property() {
+        let mut m = Module::default();
+
+        let _my_prop = m.add_property("my_prop", Value::Scalar(345_u32.into()));
+        let _other_prop = m.add_property(
+            "other_prop",
+            Value::Vector(Vec3::new(3., -7.5, 42.42).into()),
+        );
+
+        assert!(m.properties().iter().any(|p| p.name() == "my_prop"));
+        assert!(m.properties().iter().any(|p| p.name() == "other_prop"));
+        assert!(!m.properties().iter().any(|p| p.name() == "do_not_exist"));
+    }
+
+    #[test]
     fn writer() {
         // Get a module and its writer
         let w = ExprWriter::new();
+        let my_prop = w.add_property("my_prop", 3.0.into());
 
         // Build some expression
         let x = w.lit(3.).abs().max(w.attr(Attribute::POSITION) * w.lit(2.))
-            + w.lit(-4.).min(w.prop("my_prop"));
+            + w.lit(-4.).min(w.prop(my_prop));
         let x = x.expr();
 
         // Create an evaluation context
@@ -3749,7 +3898,8 @@ mod tests {
         assert_eq!(c.value_type(), ValueType::Scalar(ScalarType::Bool));
         assert_eq!(c.is_valid(&m), Some(false)); // invalid cast vector -> scalar
 
-        let y = m.prop("my_prop");
+        let p = m.add_property("my_prop", 3.0.into());
+        let y = m.prop(p);
         let c = CastExpr::new(y, MatrixType::MAT2X3F);
         assert_eq!(c.value_type(), ValueType::Matrix(MatrixType::MAT2X3F));
         assert_eq!(c.is_valid(&m), None); // properties' value_type() is unknown

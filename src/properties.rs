@@ -9,60 +9,70 @@
 //! # Definition
 //!
 //! An effect property is represented by the [`Property`] type. Each
-//! [`EffectAsset`] can have zero or more properties.
+//! [`Module`] can have zero or more properties.
 //!
-//! The property has a name unique within the effect asset; different effects
-//! can have a property with the same name, but a single effect cannot have
-//! multiple properties with a duplicate name.
+//! The property has a name unique within the expression module; different
+//! effects can have a property with the same name, but a single effect cannot
+//! have multiple properties with a duplicate name (since each effect has a
+//! single expression module).
 //!
 //! The property is created with a default value used to initialize it. Like for
 //! attributes, this can be any [`Value`]. The type of the default value also
 //! defines the type of the property itself, which is immutable. Assigning a new
 //! value to the property requires assigning a value of the same type as the
-//! default value passed to  [`Property::new()`].
+//! default value passed to [`Module::add_property()`].
 //!
 //! # Use case
 //!
 //! Use properties to ensure a value from an [expression](crate::expr) can be
 //! mutated while the effect is instantiated, without having to destroy and
-//! re-create a new effect. Using properties is a bit more costly than using a
-//! hard-coded constant, so avoid using properties if a value doesn’t need to
-//! change dynamically at runtime, or changes very infrequently.
+//! re-create a new effect. Using properties is a bit more costly in terms of
+//! GPU processing than using a hard-coded constant, so avoid using properties
+//! if a value doesn’t need to change dynamically at runtime, or changes very
+//! infrequently.
 //!
 //! # Layout
 //!
 //! Like attributes, particle properties are tightly packed to be efficiently
-//! uploaded each frame from CPU to GPU. The [`PropertyLayout`] defines this
-//! layout, with the same rules as attributes. See the [attribute
-//! layout](crate::attributes#layout-1) section for more details.
+//! uploaded from CPU to GPU when a change is detected. The [`PropertyLayout`]
+//! defines this memory layout, with the same rules as attributes. See the
+//! [attribute layout](crate::attributes#layout-1) section for more details.
 //!
 //! # Usage
 //!
-//! To use properties, declare a new property on the [`EffectAsset`] using
-//! [`with_property()`] or [`add_property()`], giving it a unique name and a
-//! default value. The default value determines the type of the property.
+//! To use properties, create a new property using [`Module::add_property()`],
+//! giving it a unique name and a default value. The default value determines
+//! the type of the property.
 //!
 //! ```
 //! # use bevy_hanabi::*;
 //! # use bevy::prelude::*;
-//! let spawner = Spawner::rate(5_f32.into());
-//! let module = Module::default();
-//! let effect = EffectAsset::new(vec![4096], spawner, module)
-//!     .with_property("my_color", Color::WHITE.as_rgba_u32().into());
+//! let mut module = Module::default();
+//! module.add_property("my_color", Color::WHITE.as_rgba_u32().into());
 //! ```
 //!
-//! After that, you can manually add an [`EffectProperties`] component to the
-//! same entity containing the [`ParticleEffect`] component which is using that
-//! [`EffectAsset`]. Alternatively, you can let 🎆 Hanabi add it for you. One
-//! advantage of adding it manually is that you can override the initial value
-//! of some or all of the properties. Otherwise they will be assigned their
-//! default value. Note that the component is not added if the [`EffectAsset`]
-//! doesn't declare any property.
+//! Once the module is assigned to an [`EffectAsset`], any instance of that
+//! effect (that is, any [`ParticleEffect`] component referencing that
+//! [`EffectAsset`]) will have the defined a property.
 //!
-//! The [`EffectProperties`] component provides runtime storage for the values
-//! of the properties, and is the entry point to modifying properties while the
-//! effect is in use. Call [`set()`] or [`set_if_changed()`] to set a new value
-//! for an existing property.
+//! Property values are stored in the [`EffectProperties`] component, attached
+//! to the same entity containing the [`ParticleEffect`] component. This
+//! component can be mutated by a system you own to change the value of one or
+//! more properties; when doing so, the Bevy change detection mechanism will
+//! trigger a re-upload of the new property values from CPU to GPU. If the
+//! [`EffectProperties`] component is missing, and the effect has properties
+//! defined in the [`Module`] of its [`EffectAsset`], then 🎆 Hanabi will add
+//! the component automatically, using the default value of each property. One
+//! advantage of manually adding that component is that you can override the
+//! initial value of some or all of the properties. Note that the component is
+//! not automatically added if the [`Module`] doesn't declare any property.
+//!
+//! To change the value of a property, call [`EffectProperties::set()`] or
+//! [`EffectProperties::set_if_changed()`]. The former is easier to use but
+//! always triggers the change detection mechanism, even if the value assigned
+//! is the same as the previous one. [`EffectProperties::set_if_changed()`] on
+//! the other hand will compare the current value and only assign if different.
+//! This minimizes the need for a GPU re-upload.
 //!
 //! ```
 //! # use bevy_hanabi::*;
@@ -70,16 +80,16 @@
 //! fn change_property(mut query: Query<&mut EffectProperties>) {
 //!   let mut effect_properties = query.single_mut();
 //!   let color = Color::RED.as_rgba_u32();
+//!   // If the current color is not already Color::RED, it will be updated, and
+//!   // the properties will be re-uploaded to the GPU.
 //!   EffectProperties::set_if_changed(effect_properties, "my_color", color.into());
 //! }
 //! ```
 //!
+//! [`Module`]: crate::Module
 //! [`EffectAsset`]: crate::EffectAsset
-//! [`with_property()`]: crate::EffectAsset::with_property
-//! [`add_property()`]: crate::EffectAsset::add_property
+//! [`add_property()`]: crate::Module::add_property
 //! [`ParticleEffect`]: crate::ParticleEffect
-//! [`set()`]: crate::EffectProperties::set
-//! [`set_if_changed()`]: crate::EffectProperties::set_if_changed
 
 use std::num::NonZeroU64;
 
@@ -98,7 +108,7 @@ use crate::{graph::Value, next_multiple_of, ToWgslString, ValueType};
 /// See the [`properties`](crate::properties) module documentation for details.
 ///
 /// [`EffectAsset`]: crate::EffectAsset
-#[derive(Debug, Clone, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct Property {
     name: String,
     default_value: Value,
