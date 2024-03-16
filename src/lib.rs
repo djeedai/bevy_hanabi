@@ -977,7 +977,7 @@ impl EffectShaderSource {
                 let (flipbook_scale_code, flipbook_row_count_code) =
                     if let Some(grid_size) = render_context.sprite_grid_size {
                         layout_flags |= LayoutFlags::FLIPBOOK;
-                        let flipbook_row_count_code = grid_size.x.to_wgsl_string();
+                        let flipbook_row_count_code = (grid_size.x as i32).to_wgsl_string();
                         let flipbook_scale_code =
                             Vec2::new(1.0 / grid_size.x as f32, 1.0 / grid_size.y as f32)
                                 .to_wgsl_string();
