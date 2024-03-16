@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 
 use crate::{
-    graph::Value,
     modifier::{Modifier, RenderModifier},
     ExprHandle, GroupedModifier, ModifierContext, Module, ParticleGroupSet, ParticleLayout,
     Property, PropertyLayout, SimulationSpace, Spawner,
@@ -214,16 +213,6 @@ pub struct EffectAsset {
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
     render_modifiers: Vec<GroupedModifier>,
-    /// Properties of the effect.
-    ///
-    /// Properties must have a unique name. Manually adding two or more
-    /// properties with the same name will result in an invalid asset and
-    /// undefined behavior are runtime. Prefer using the [`with_property()`] and
-    /// [`add_property()`] methods for safety.
-    ///
-    /// [`with_property()`]: crate::EffectAsset::with_property
-    /// [`add_property()`]: crate::EffectAsset::add_property
-    properties: Vec<Property>,
     /// Type of motion integration applied to the particles of a system.
     pub motion_integration: MotionIntegration,
     /// Expression module for this effect.
@@ -351,34 +340,11 @@ impl EffectAsset {
         self
     }
 
-    /// Add a new property to the asset.
-    ///
-    /// See [`Property`] for more details on what effect properties are.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a property with the same name already exists.
-    pub fn with_property(mut self, name: impl Into<String>, default_value: Value) -> Self {
-        self.add_property(name, default_value);
-        self
-    }
-
-    /// Add a new property to the asset.
-    ///
-    /// See [`Property`] for more details on what effect properties are.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a property with the same name already exists.
-    pub fn add_property(&mut self, name: impl Into<String>, default_value: Value) {
-        let name = name.into();
-        assert!(!self.properties.iter().any(|p| p.name() == name));
-        self.properties.push(Property::new(name, default_value));
-    }
-
     /// Get the list of existing properties.
+    ///
+    /// This is a shortcut for `self.module().properties()`.
     pub fn properties(&self) -> &[Property] {
-        &self.properties
+        self.module.properties()
     }
 
     /// Add an initialization modifier to the effect.
@@ -700,7 +666,7 @@ impl EffectAsset {
     /// currently existing properties, and return it as a newly allocated
     /// [`PropertyLayout`] object.
     pub fn property_layout(&self) -> PropertyLayout {
-        PropertyLayout::new(self.properties.iter())
+        PropertyLayout::new(self.properties().iter())
     }
 }
 
@@ -755,36 +721,6 @@ mod tests {
     use crate::*;
 
     use super::*;
-
-    #[test]
-    fn property() {
-        let mut effect = EffectAsset {
-            name: "Effect".into(),
-            capacities: vec![4096],
-            spawner: Spawner::rate(30.0.into()),
-            ..Default::default()
-        }
-        .with_property("my_prop", graph::Value::Scalar(345_u32.into()));
-
-        effect.add_property(
-            "other_prop",
-            graph::Value::Vector(Vec3::new(3., -7.5, 42.42).into()),
-        );
-
-        assert!(effect.properties().iter().any(|p| p.name() == "my_prop"));
-        assert!(effect.properties().iter().any(|p| p.name() == "other_prop"));
-        assert!(!effect
-            .properties()
-            .iter()
-            .any(|p| p.name() == "do_not_exist"));
-
-        let layout = effect.property_layout();
-        assert_eq!(layout.size(), 16);
-        assert_eq!(layout.align(), 16);
-        assert_eq!(layout.offset("my_prop"), Some(12));
-        assert_eq!(layout.offset("other_prop"), Some(0));
-        assert_eq!(layout.offset("unknown"), None);
-    }
 
     #[test]
     fn add_modifiers() {
@@ -901,14 +837,18 @@ mod tests {
         let _ = x + pos.clone();
         let mod_pos = SetAttributeModifier::new(Attribute::POSITION, pos.expr());
 
+        let mut module = w.finish();
+        let prop = module.add_property("my_prop", Vec3::new(1.2, -2.3, 55.32).into());
+        let prop = module.prop(prop);
+        let _ = module.abs(prop);
+
         let effect = EffectAsset {
             name: "Effect".into(),
             capacities: vec![4096],
             spawner: Spawner::rate(30.0.into()),
-            module: w.finish(),
+            module,
             ..Default::default()
         }
-        .with_property("my_prop", Vec3::new(1.2, -2.3, 55.32).into())
         .init(mod_pos);
 
         let s = ron::ser::to_string_pretty(&effect, PrettyConfig::new().new_line("\n".to_string()))
@@ -944,22 +884,29 @@ mod tests {
     ],
     update_modifiers: [],
     render_modifiers: [],
-    properties: [
-        (
-            name: "my_prop",
-            default_value: Vector(Vec3((1.2, -2.3, 55.32))),
-        ),
-    ],
     motion_integration: PostUpdate,
-    module: [
-        Literal(Vector(Vec3((1.2, -3.45, 87.54485)))),
-        Literal(Vector(BVec2((false, true)))),
-        Binary(
-            op: Add,
-            left: 2,
-            right: 1,
-        ),
-    ],
+    module: (
+        expressions: [
+            Literal(Vector(Vec3((1.2, -3.45, 87.54485)))),
+            Literal(Vector(BVec2((false, true)))),
+            Binary(
+                op: Add,
+                left: 2,
+                right: 1,
+            ),
+            Property(1),
+            Unary(
+                op: Abs,
+                expr: 4,
+            ),
+        ],
+        properties: [
+            (
+                name: "my_prop",
+                default_value: Vector(Vec3((1.2, -2.3, 55.32))),
+            ),
+        ],
+    ),
     alpha_mode: Blend,
 )"#
         );
@@ -973,7 +920,6 @@ mod tests {
             effect.simulation_condition,
             effect_serde.simulation_condition
         );
-        assert_eq!(effect.properties, effect_serde.properties);
         assert_eq!(effect.motion_integration, effect_serde.motion_integration);
         assert_eq!(effect.module, effect_serde.module);
         assert_eq!(effect.alpha_mode, effect_serde.alpha_mode);

@@ -306,9 +306,12 @@ fn setup(
 
     // Sphere repulsor pushing particles away. The acceleration is negative to
     // repulse partices.
-    let repulsor_accel = writer.prop("repulsor_accel");
+    let repulsor_accel = writer.add_property("repulsor_accel", Value::Scalar((-15.0).into()));
+    let repulsor_position =
+        writer.add_property("repulsor_position", Value::Vector(REPULSOR_POS.into()));
+    let repulsor_accel = writer.prop(repulsor_accel);
     let update_repulsor = ConformToSphereModifier {
-        origin: writer.prop("repulsor_position").expr(),
+        origin: writer.prop(repulsor_position).expr(),
         radius: writer.lit(BALL_RADIUS).expr(),
         influence_dist: writer.lit(BALL_RADIUS * 10.).expr(),
         attraction_accel: repulsor_accel.expr(),
@@ -319,26 +322,26 @@ fn setup(
 
     // Sphere attractor with conforming. The particles are attracted to the sphere
     // surface, and tend to "stick" onto it.
+    let attraction_accel = writer.add_property("attraction_accel", Value::Scalar(20.0.into()));
+    let max_attraction_speed =
+        writer.add_property("max_attraction_speed", Value::Scalar(5.0.into()));
+    let sticky_factor = writer.add_property("sticky_factor", Value::Scalar(2.0.into()));
+    let shell_half_thickness =
+        writer.add_property("shell_half_thickness", Value::Scalar(0.1.into()));
     let update_attractor = ConformToSphereModifier {
         origin: writer.lit(ATTRACTOR_POS).expr(),
         radius: writer.lit(BALL_RADIUS * 6.).expr(),
         influence_dist: writer.lit(BALL_RADIUS * 100.).expr(),
-        attraction_accel: writer.prop("attraction_accel").expr(),
-        max_attraction_speed: writer.prop("max_attraction_speed").expr(),
-        sticky_factor: Some(writer.prop("sticky_factor").expr()),
-        shell_half_thickness: Some(writer.prop("shell_half_thickness").expr()),
+        attraction_accel: writer.prop(attraction_accel).expr(),
+        max_attraction_speed: writer.prop(max_attraction_speed).expr(),
+        sticky_factor: Some(writer.prop(sticky_factor).expr()),
+        shell_half_thickness: Some(writer.prop(shell_half_thickness).expr()),
     };
 
     // Force field effects
     let effect = effects.add(
         EffectAsset::new(vec![32768], spawner, writer.finish())
             .with_name("force_field")
-            .with_property("repulsor_position", Value::Vector(REPULSOR_POS.into()))
-            .with_property("attraction_accel", Value::Scalar(20.0.into()))
-            .with_property("max_attraction_speed", Value::Scalar(5.0.into()))
-            .with_property("sticky_factor", Value::Scalar(2.0.into()))
-            .with_property("shell_half_thickness", Value::Scalar(0.1.into()))
-            .with_property("repulsor_accel", Value::Scalar((-15.0).into()))
             .init(init_pos)
             .init(init_vel)
             .init(init_age)

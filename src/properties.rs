@@ -9,60 +9,70 @@
 //! # Definition
 //!
 //! An effect property is represented by the [`Property`] type. Each
-//! [`EffectAsset`] can have zero or more properties.
+//! [`Module`] can have zero or more properties.
 //!
-//! The property has a name unique within the effect asset; different effects
-//! can have a property with the same name, but a single effect cannot have
-//! multiple properties with a duplicate name.
+//! The property has a name unique within the expression module; different
+//! effects can have a property with the same name, but a single effect cannot
+//! have multiple properties with a duplicate name (since each effect has a
+//! single expression module).
 //!
 //! The property is created with a default value used to initialize it. Like for
 //! attributes, this can be any [`Value`]. The type of the default value also
 //! defines the type of the property itself, which is immutable. Assigning a new
 //! value to the property requires assigning a value of the same type as the
-//! default value passed to  [`Property::new()`].
+//! default value passed to [`Module::add_property()`].
 //!
 //! # Use case
 //!
 //! Use properties to ensure a value from an [expression](crate::expr) can be
 //! mutated while the effect is instantiated, without having to destroy and
-//! re-create a new effect. Using properties is a bit more costly than using a
-//! hard-coded constant, so avoid using properties if a value doesn’t need to
-//! change dynamically at runtime, or changes very infrequently.
+//! re-create a new effect. Using properties is a bit more costly in terms of
+//! GPU processing than using a hard-coded constant, so avoid using properties
+//! if a value doesn’t need to change dynamically at runtime, or changes very
+//! infrequently.
 //!
 //! # Layout
 //!
 //! Like attributes, particle properties are tightly packed to be efficiently
-//! uploaded each frame from CPU to GPU. The [`PropertyLayout`] defines this
-//! layout, with the same rules as attributes. See the [attribute
-//! layout](crate::attributes#layout-1) section for more details.
+//! uploaded from CPU to GPU when a change is detected. The [`PropertyLayout`]
+//! defines this memory layout, with the same rules as attributes. See the
+//! [attribute layout](crate::attributes#layout-1) section for more details.
 //!
 //! # Usage
 //!
-//! To use properties, declare a new property on the [`EffectAsset`] using
-//! [`with_property()`] or [`add_property()`], giving it a unique name and a
-//! default value. The default value determines the type of the property.
+//! To use properties, create a new property using [`Module::add_property()`],
+//! giving it a unique name and a default value. The default value determines
+//! the type of the property.
 //!
 //! ```
 //! # use bevy_hanabi::*;
 //! # use bevy::prelude::*;
-//! let spawner = Spawner::rate(5_f32.into());
-//! let module = Module::default();
-//! let effect = EffectAsset::new(vec![4096], spawner, module)
-//!     .with_property("my_color", Color::WHITE.as_rgba_u32().into());
+//! let mut module = Module::default();
+//! module.add_property("my_color", Color::WHITE.as_rgba_u32().into());
 //! ```
 //!
-//! After that, you can manually add an [`EffectProperties`] component to the
-//! same entity containing the [`ParticleEffect`] component which is using that
-//! [`EffectAsset`]. Alternatively, you can let 🎆 Hanabi add it for you. One
-//! advantage of adding it manually is that you can override the initial value
-//! of some or all of the properties. Otherwise they will be assigned their
-//! default value. Note that the component is not added if the [`EffectAsset`]
-//! doesn't declare any property.
+//! Once the module is assigned to an [`EffectAsset`], any instance of that
+//! effect (that is, any [`ParticleEffect`] component referencing that
+//! [`EffectAsset`]) will have the defined a property.
 //!
-//! The [`EffectProperties`] component provides runtime storage for the values
-//! of the properties, and is the entry point to modifying properties while the
-//! effect is in use. Call [`set()`] or [`set_if_changed()`] to set a new value
-//! for an existing property.
+//! Property values are stored in the [`EffectProperties`] component, attached
+//! to the same entity containing the [`ParticleEffect`] component. This
+//! component can be mutated by a system you own to change the value of one or
+//! more properties; when doing so, the Bevy change detection mechanism will
+//! trigger a re-upload of the new property values from CPU to GPU. If the
+//! [`EffectProperties`] component is missing, and the effect has properties
+//! defined in the [`Module`] of its [`EffectAsset`], then 🎆 Hanabi will add
+//! the component automatically, using the default value of each property. One
+//! advantage of manually adding that component is that you can override the
+//! initial value of some or all of the properties. Note that the component is
+//! not automatically added if the [`Module`] doesn't declare any property.
+//!
+//! To change the value of a property, call [`EffectProperties::set()`] or
+//! [`EffectProperties::set_if_changed()`]. The former is easier to use but
+//! always triggers the change detection mechanism, even if the value assigned
+//! is the same as the previous one. [`EffectProperties::set_if_changed()`] on
+//! the other hand will compare the current value and only assign if different.
+//! This minimizes the need for a GPU re-upload.
 //!
 //! ```
 //! # use bevy_hanabi::*;
@@ -70,16 +80,16 @@
 //! fn change_property(mut query: Query<&mut EffectProperties>) {
 //!   let mut effect_properties = query.single_mut();
 //!   let color = Color::RED.as_rgba_u32();
+//!   // If the current color is not already Color::RED, it will be updated, and
+//!   // the properties will be re-uploaded to the GPU.
 //!   EffectProperties::set_if_changed(effect_properties, "my_color", color.into());
 //! }
 //! ```
 //!
+//! [`Module`]: crate::Module
 //! [`EffectAsset`]: crate::EffectAsset
-//! [`with_property()`]: crate::EffectAsset::with_property
-//! [`add_property()`]: crate::EffectAsset::add_property
+//! [`add_property()`]: crate::Module::add_property
 //! [`ParticleEffect`]: crate::ParticleEffect
-//! [`set()`]: crate::EffectProperties::set
-//! [`set_if_changed()`]: crate::EffectProperties::set_if_changed
 
 use std::num::NonZeroU64;
 
@@ -98,7 +108,7 @@ use crate::{graph::Value, next_multiple_of, ToWgslString, ValueType};
 /// See the [`properties`](crate::properties) module documentation for details.
 ///
 /// [`EffectAsset`]: crate::EffectAsset
-#[derive(Debug, Clone, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct Property {
     name: String,
     default_value: Value,
@@ -211,7 +221,26 @@ pub struct EffectProperties {
 }
 
 impl EffectProperties {
-    /// Set some properties.
+    /// Create or set some properties.
+    ///
+    /// Add new properties or overwrite the value of existing ones. This
+    /// function takes an iterator of pairs of `(name, value)`, where `name`
+    /// defines the property name and `value` its value.
+    ///
+    /// If a property with the same name doesn't already exist, a new property
+    /// is created with a default value equal to the provided `value`.
+    ///
+    /// Conversely, if a property with the same name already exists in the
+    /// `EffectProperties`, it's overwritten with the new value, unless its
+    /// type mismatches in which case this function panics (to prevent
+    /// unexpected overwrites). However the property keeps the default value
+    /// initially set when first created.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a property with the same name already exists in the
+    /// `EffectProperties`, and the new property type, as derived from its
+    /// default value, is different from the type of the existing property.
     pub fn with_properties(
         mut self,
         properties: impl IntoIterator<Item = (String, Value)>,
@@ -219,6 +248,14 @@ impl EffectProperties {
         let iter = properties.into_iter();
         for (name, value) in iter {
             if let Some(index) = self.properties.iter().position(|p| p.def.name() == name) {
+                assert_eq!(
+                    self.properties[index].value.value_type(),
+                    value.value_type(),
+                    "Trying to overwrite existing property '{}' with value of type {:?}, but property has type {:?}",
+                    name,
+                    value.value_type(),
+                    self.properties[index].value.value_type()
+                );
                 self.properties[index].value = value;
             } else {
                 self.properties.push(PropertyInstance {
@@ -230,23 +267,29 @@ impl EffectProperties {
         self
     }
 
+    /// Get all properties currently stored in this component.
+    #[allow(dead_code)] // used in tests
+    pub(crate) fn properties(&self) -> &[PropertyInstance] {
+        &self.properties
+    }
+
     /// Get the value of a stored property.
     ///
     /// The property will be matched by name against the properties already
     /// stored in this [`EffectProperties`] component. If no property exists
     /// with that name, `None` is returned, which either indicates that the
-    /// [`EffectAsset`] does not declare such a property, or that the
-    /// [`EffectProperties`] component didn't observe the asset property yet.
-    /// This means that [`get_stored()`] is only relevant when called after a
+    /// [`Module`] of the effect does not declare such a property, or that the
+    /// [`EffectProperties`] component didn't observe the property yet. This
+    /// means that [`get_stored()`] is only relevant when called after a
     /// [`set()`] of the same property, or after the
     /// [`EffectSystems::UpdatePropertiesFromAsset`] stage has added any
-    /// property declared in the [`EffectAsset`] but missing in the
+    /// property declared in the [`Module`] of the effect but missing in the
     /// [`EffectProperties`]. This also means that [`get_stored()`] may
     /// return a property which was [`set()`] but is not in fact declared in
     /// the [`EffectAsset`].
     ///
     /// Note that this behavior is not symmetric with [`set()`], which allows
-    /// setting any property even if not declared on the asset.
+    /// setting any property even if not declared.
     ///
     /// [`EffectAsset`]: crate::asset::EffectAsset
     /// [`EffectSystems::UpdatePropertiesFromAsset`]: crate::EffectSystems::UpdatePropertiesFromAsset
@@ -1063,6 +1106,89 @@ mod tests {
     }
 
     #[test]
+    fn effect_properties_with_properties() {
+        let ep = EffectProperties::default()
+            .with_properties([
+                ("a".to_string(), 3.0.into()),
+                ("b".to_string(), Vec3::ZERO.into()),
+            ])
+            .with_properties([
+                ("a".to_string(), 7.0.into()),
+                ("c".to_string(), Vec2::ONE.into()),
+            ]);
+
+        assert_eq!(ep.properties.len(), 3);
+
+        assert_eq!(ep.properties[0].def.name(), "a");
+        // kept original 3.0 default
+        assert_eq!(
+            ep.properties[0].def.default_value(),
+            &Value::Scalar(3.0.into())
+        );
+        // overwrote current value as 7.0
+        assert_eq!(ep.properties[0].value, 7.0.into());
+
+        assert_eq!(ep.properties[1].def.name(), "b");
+        assert_eq!(
+            ep.properties[1].def.default_value(),
+            &Value::Vector(Vec3::ZERO.into())
+        );
+        assert_eq!(ep.properties[1].value, Vec3::ZERO.into());
+
+        assert_eq!(ep.properties[2].def.name(), "c");
+        assert_eq!(
+            ep.properties[2].def.default_value(),
+            &Value::Vector(Vec2::ONE.into())
+        );
+        assert_eq!(ep.properties[2].value, Vec2::ONE.into());
+    }
+
+    #[test]
+    #[should_panic]
+    fn effect_properties_with_properties_type_mismatch() {
+        let _ = EffectProperties::default()
+            .with_properties([("a".to_string(), 3.0.into())])
+            // Mismatching type for existing property; will panic
+            .with_properties([("a".to_string(), Vec2::ONE.into())]);
+    }
+
+    #[test]
+    fn effect_properties_get_stored() {
+        let ep = EffectProperties::default()
+            .with_properties([
+                ("a".to_string(), 3.0.into()),
+                ("b".to_string(), Vec3::ZERO.into()),
+            ])
+            .with_properties([
+                ("a".to_string(), 7.0.into()),
+                ("c".to_string(), Vec2::ONE.into()),
+            ]);
+
+        assert!(ep.get_stored("a").is_some());
+        assert!(ep.get_stored("b").is_some());
+        assert!(ep.get_stored("c").is_some());
+        assert!(ep.get_stored("x").is_none());
+    }
+
+    #[test]
+    fn effect_properties_set() {
+        let mut ep = EffectProperties::default().with_properties([
+            ("a".to_string(), 3.0.into()),
+            ("b".to_string(), Vec3::ZERO.into()),
+        ]);
+
+        ep.set("a", 7.0.into());
+        ep.set("x", 3.0.into());
+    }
+
+    #[test]
+    #[should_panic]
+    fn effect_properties_set_type_mismatch() {
+        let mut ep = EffectProperties::default().with_properties([("a".to_string(), 3.0.into())]);
+        ep.set("a", Vec3::ZERO.into());
+    }
+
+    #[test]
     fn effect_properties_update_empty() {
         // Empty asset vs. empty runtime == empty
         let mut ep = EffectProperties::default();
@@ -1165,5 +1291,34 @@ mod tests {
         assert_eq!(ep.properties[0].value, 5_f32.into());
         assert_eq!(ep.properties[1].def, asset_properties[1]);
         assert_eq!(last_changed, this_run); // changed (added missing property)
+    }
+
+    #[test]
+    fn effect_properties_serialize() {
+        let ep = EffectProperties::default().with_properties([
+            ("a".to_string(), 3.0.into()),
+            ("b".to_string(), Vec3::ONE.into()),
+        ]);
+        let layout = PropertyLayout::new(ep.properties().iter().map(|pi| &pi.def));
+        let blob = ep.serialize(&layout);
+        assert_eq!(blob.len(), layout.size() as usize);
+
+        let pi_a = &ep.properties()[0];
+        let size = pi_a.def.size();
+        assert_eq!(size, 4); // f32
+        let offset = layout.offset(pi_a.def.name()).unwrap() as usize;
+        let raw = &blob[offset..offset + size];
+        #[allow(unsafe_code)]
+        let raw_ref: &[u8; 4] = unsafe { std::mem::transmute(&[3.0_f32]) };
+        assert_eq!(raw, raw_ref);
+
+        let pi_b = &ep.properties()[1];
+        let size = pi_b.def.size();
+        assert_eq!(size, 12); // Vec3
+        let offset = layout.offset(pi_b.def.name()).unwrap() as usize;
+        let raw = &blob[offset..offset + size];
+        #[allow(unsafe_code)]
+        let raw_ref: &[u8; 12] = unsafe { std::mem::transmute(&[1_f32, 1_f32, 1_f32]) };
+        assert_eq!(raw, raw_ref);
     }
 }

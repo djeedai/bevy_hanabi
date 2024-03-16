@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `RenderModifier::boxed_render_clone()` to clone a `RenderModifier` into a boxed self (instead of a `BoxedModifier`, as we can't upcast from `Box<dyn RenderModifier>` to `Box<dyn Modifier>`). Added `impl Clone for Box<dyn RenderModifier>` based on this.
 - Added `EffectAsset::add_modifier()` to add a pre-boxed `Modifier` (so, a `BoxedModifier`) to the init or update context, and added `EffectAsset::add_render_modifier()` to add a pre-boxed `RenderModifier` to the render context.
 - Added `sqrt` and `inverseSqrt` expressions to the Expression API.
+- Added `Hash` derive for `Property`.
+- Added `Module::add_property()`, `Module::get_property()`, and `Module::properties()`.
+- Added a new `PropertyHandle`, which is to `Property` what the existing `ExprHandle` is to `Expr`: a unique handle into a owning `Module`.
 
 ### Changed
 
@@ -27,7 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Merged the `InitModifier` and `UpdateModifier` traits into the `Modifier` subtrait; see other changelog entries for details. This helps manage modifiers in a unified way, and generally simplifies writing and maintain modifiers compatible with both the init and update contexts.
 - `EffectAsset::init()` and `EffectAsset::update()` now take a `Modifier`-bound type, and validate its `ModifierContext` is compatible (and panics if not).
 - `EffectAsset::render()` now panics if the modifier is not compatible with the `ModifierContext::Render`. Note that this indicates a malformed render modifier, because all objects implementing `RenderModifier` must include `ModifierContext::Render` in their `Modifier::context()`.
-- Improved the serialization format to reduce verbosity, by making the following types `#[serde(transparent)]`: `ExprHandle`, `LiteralExpr`, `Module`.
+- Improved the serialization format to reduce verbosity, by making the following types `#[serde(transparent)]`: `ExprHandle`, `LiteralExpr`, `PropertyExpr`.
+- Moved properties from [`EffectAsset`] to [`Module`].
+- `Module::prop()` and `PropertyExpr::new()` now take a `PropertyHandle` instead of a property name (string).
+- The following modifiers' `via_property()` function now takes a `PropertyHandle` instead of a property name: `AccelModifier`, `RadialAccelModifier`, `TangentAccelModifier`.
+- `Expr` is now `Copy`, making it even more lightweight.
+- `ExprWriter::prop()` now panics if the property doesn't exist. This ensures the created `WriterExpr` is well-formed, which was impossible to validate at expression write time previously.
 
 ### Removed
 
@@ -37,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `InitModifer` and `UpdateModifer`. Modifiers for the init and update contexts now only need to implement the base `Modifier` trait.
 - Removed downcast methods from `Modifier` (`as_init()`, `as_init_mut()`, `as_update()`, `as_update_mut()`).
 - Removed the various helper macros `impl_mod_xxx!()` to implement modifier traits; simply implement the trait by hand instead.
+- Removed `EffectAsset::with_property()` and `EffectAsset::add_property()`; use `Module::add_property()` instead.
+- `PropertyExpr` doesn't implement anymore `ToWgslString` nor `From<String>`. To create a `PropertyExpr`, you need a valid `PropertyHandle`, which would have been created via `Module::add_property()` with a default value enforcing a type. This ensures property expressions are well-formed on creation, and cannot reference non-existent properties.
 
 ### Fixed
 
