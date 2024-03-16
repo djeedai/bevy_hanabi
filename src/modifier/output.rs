@@ -668,6 +668,14 @@ impl RenderModifier for RoundModifier {
             roundness
         );
     }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(*self)
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
+    }
 }
 
 impl RoundModifier {
