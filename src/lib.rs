@@ -890,9 +890,6 @@ impl EffectShaderSource {
         if let AlphaMode::Mask(_) = &asset.alpha_mode {
             layout_flags |= LayoutFlags::USE_ALPHA_MASK;
         }
-        if render_context.needs_uv {
-            layout_flags |= LayoutFlags::NEEDS_UV;
-        }
 
         let mut effect_particle_texture = None;
 
@@ -956,6 +953,10 @@ impl EffectShaderSource {
                 let mut render_context = RenderContext::new(&property_layout, &particle_layout);
                 for m in asset.render_modifiers_for_group(group_index) {
                     m.apply_render(&mut module, &mut render_context);
+                }
+
+                if render_context.needs_uv {
+                    layout_flags |= LayoutFlags::NEEDS_UV;
                 }
 
                 let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
