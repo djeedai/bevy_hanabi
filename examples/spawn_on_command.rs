@@ -187,7 +187,7 @@ fn setup(
 
     commands
         .spawn((
-            ParticleEffectBundle::new(effect).with_spawner(spawner),
+            ParticleEffectBundle::new(effect),
             EffectProperties::default(),
         ))
         .insert(Name::new("effect"));

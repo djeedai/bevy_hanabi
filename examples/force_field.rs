@@ -358,7 +358,7 @@ fn setup(
     );
 
     commands.spawn((
-        ParticleEffectBundle::new(effect).with_spawner(spawner),
+        ParticleEffectBundle::new(effect),
         // Note: regression as of 0.10, we need to explicitly add this component with the correct
         // properties.
         EffectProperties::default().with_properties([
