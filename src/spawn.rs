@@ -424,7 +424,7 @@ pub struct EffectSpawner {
 impl EffectSpawner {
     /// Create a new spawner state from an asset definition.
     pub fn new(asset: &EffectAsset) -> Self {
-        let spawner = asset.spawner.clone();
+        let spawner = asset.spawner;
         Self {
             spawner,
             time: if spawner.is_once() && !spawner.starts_immediately {
