@@ -146,12 +146,16 @@ impl<T: Copy + FromReflect + FloatHash> Hash for CpuValue<T> {
 /// Spawner defining how new particles are emitted.
 ///
 /// The spawner defines how new particles are emitted and when. Each time the
-/// spawner ticks, once per frame by the [`tick_spawners()`] system, it
-/// calculates a number of particles to emit for this frame. This spawn count is
-/// passed to the GPU for the init compute pass to actually allocate the new
-/// particles and initialize them. The number of particles to spawn is stored as
-/// a floating-point number, and any remainder accumulates for the next
-/// emitting.
+/// spawner ticks, it calculates a number of particles to emit for this frame.
+/// This spawn count is passed to the GPU for the init compute pass to actually
+/// allocate the new particles and initialize them. The number of particles to
+/// spawn is stored as a floating-point number, and any remainder accumulates
+/// for the next emitting.
+///
+/// The spawner itself is embedded into the [`EffectSpawner`] component. Once
+/// per frame the [`tick_spawners()`] system will add the component if it's
+/// missing, cloning the [`Spawner`] from the source [`EffectAsset`], then tick
+/// the [`Spawner`] stored in the [`EffectSpawner`].
 #[derive(Debug, Copy, Clone, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Default)]
 pub struct Spawner {
@@ -364,9 +368,19 @@ impl Spawner {
 ///
 /// This component is automatically added to the same [`Entity`] as the
 /// [`ParticleEffect`] it's associated with, during [`tick_spawners()`], if not
-/// already present on the entity. The spawer configuration is derived from the
-/// [`ParticleEffect`] itself, or as fallback from the underlying
-/// [`EffectAsset`] associated with the particle effect instance.
+/// already present on the entity. In that case, the spawner configuration is
+/// cloned from the underlying [`EffectAsset`] associated with the particle
+/// effect instance.
+///
+/// You can manually add this component in advance to override its [`Spawner`].
+/// In that case [`tick_spawners()`] will use the existing component you added.
+///
+/// Each frame, the component will automatically calculate the number of
+/// particles to spawn, via its internal [`Spawner`], and store it into
+/// [`spawn_count`]. You can manually override that value if you want, to create
+/// more complex spawning sequences.
+///
+/// [`spawn_count`]: crate::EffectSpawner::spawn_count
 #[derive(Default, Clone, Copy, PartialEq, Component)]
 pub struct EffectSpawner {
     /// The spawner configuration extracted either from the [`EffectAsset`], or
@@ -382,12 +396,25 @@ pub struct EffectSpawner {
     /// Time limit until next spawn.
     limit: f32,
 
-    /// Number of particles to spawn, as calculated by last [`tick()`] call.
+    /// Number of particles to spawn this frame.
+    ///
+    /// This value is normally updated by calling [`tick()`], which
+    /// automatically happens once per frame when the [`tick_spawners()`] system
+    /// runs in the [`PostUpdate`] schedule.
+    ///
+    /// You can manually assign this value to override the one calculated by
+    /// [`tick()`]. Note in this case that you need to override the value after
+    /// the automated one was calculated, by ordering your system
+    /// after [`tick_spawners()`] or [`EffectSystems::TickSpawners`].
     ///
     /// [`tick()`]: crate::EffectSpawner::tick
-    spawn_count: u32,
+    /// [`EffectSystems::TickSpawners`]: crate::EffectSystems::TickSpawners
+    pub spawn_count: u32,
 
     /// Fractional remainder of particle count to spawn.
+    ///
+    /// This will be accumulated with the new count next tick, and the integral
+    /// part will be stored in `spawn_count`.
     spawn_remainder: f32,
 
     /// Whether the system is active. Defaults to `true`.
@@ -395,12 +422,9 @@ pub struct EffectSpawner {
 }
 
 impl EffectSpawner {
-    /// Create a new spawner state from an asset and an instance.
-    ///
-    /// The spawner data is cloned from the instance if the instance has an
-    /// override. Otherwise it's cloned from the asset.
-    pub fn new(asset: &EffectAsset, instance: &ParticleEffect) -> Self {
-        let spawner = *instance.spawner.as_ref().unwrap_or(&asset.spawner);
+    /// Create a new spawner state from an asset definition.
+    pub fn new(asset: &EffectAsset) -> Self {
+        let spawner = asset.spawner.clone();
         Self {
             spawner,
             time: if spawner.is_once() && !spawner.starts_immediately {
@@ -524,18 +548,6 @@ impl EffectSpawner {
         self.spawn_count
     }
 
-    /// Get the particle spawn count calculated by the last [`tick()`] call.
-    ///
-    /// This corresponds to the number of particles that will be (or have been,
-    /// depending on the instant at which this is called inside the frame)
-    /// spawned this frame.
-    ///
-    /// [`tick()`]: crate::EffectSpawner::tick
-    #[inline]
-    pub fn spawn_count(&self) -> u32 {
-        self.spawn_count
-    }
-
     /// Resamples the spawn time and period.
     fn resample(&mut self, rng: &mut Pcg32) {
         self.limit = self.spawner.period.sample(rng);
@@ -543,7 +555,8 @@ impl EffectSpawner {
     }
 }
 
-/// Tick all the spawners of the visible [`ParticleEffect`] components.
+/// Tick all the [`EffectSpawner`] components of the simulated
+/// [`ParticleEffect`] components.
 ///
 /// This system runs in the [`PostUpdate`] stage, after the visibility system
 /// has updated the [`InheritedVisibility`] of each effect instance (see
@@ -556,6 +569,11 @@ impl EffectSpawner {
 /// even though some are "visible" (active) in the [`World`]. The actual
 /// per-view culling of invisible (not in view) effects is performed later on
 /// the render world.
+///
+/// Once the system determined that the effect instance needs to be simulated
+/// this frame, it ticks the spawner by calling [`EffectSpawner::tick()`],
+/// adding a new [`EffectSpawner`] component if it doesn't already exist on the
+/// same entity as the [`ParticleEffect`].
 ///
 /// [`VisibilitySystems::VisibilityPropagate`]: bevy::render::view::VisibilitySystems::VisibilityPropagate
 /// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
@@ -593,7 +611,7 @@ pub fn tick_spawners(
         if let Some(mut spawner) = maybe_spawner {
             spawner.tick(dt, &mut rng.0);
         } else {
-            let mut spawner = EffectSpawner::new(asset, effect);
+            let mut spawner = EffectSpawner::new(asset);
             spawner.tick(dt, &mut rng.0);
             commands.entity(entity).insert(spawner);
         }
@@ -625,10 +643,7 @@ mod test {
 
     /// Make an `EffectSpawner` wrapping a `Spawner`.
     fn make_effect_spawner(spawner: Spawner) -> EffectSpawner {
-        EffectSpawner::new(
-            &EffectAsset::new(vec![256], spawner, Module::default()),
-            &ParticleEffect::default(),
-        )
+        EffectSpawner::new(&EffectAsset::new(vec![256], spawner, Module::default()))
     }
 
     #[test]
@@ -823,22 +838,13 @@ mod test {
 
         /// Spawner assigned to the `EffectAsset`.
         asset_spawner: Spawner,
-
-        /// Optional spawner assigned to the `ParticleEffect` instance, which
-        /// overrides the asset one.
-        instance_spawner: Option<Spawner>,
     }
 
     impl TestCase {
-        fn new(
-            visibility: Option<Visibility>,
-            asset_spawner: Spawner,
-            instance_spawner: Option<Spawner>,
-        ) -> Self {
+        fn new(visibility: Option<Visibility>, asset_spawner: Spawner) -> Self {
             Self {
                 visibility,
                 asset_spawner,
-                instance_spawner,
             }
         }
     }
@@ -846,17 +852,11 @@ mod test {
     #[test]
     fn test_tick_spawners() {
         let asset_spawner = Spawner::once(32.0.into(), true);
-        let instance_spawner = Spawner::once(64.0.into(), true);
 
         for test_case in &[
-            TestCase::new(None, asset_spawner, None),
-            TestCase::new(Some(Visibility::Hidden), asset_spawner, None),
-            TestCase::new(Some(Visibility::Visible), asset_spawner, None),
-            TestCase::new(
-                Some(Visibility::Visible),
-                asset_spawner,
-                Some(instance_spawner),
-            ),
+            TestCase::new(None, asset_spawner),
+            TestCase::new(Some(Visibility::Hidden), asset_spawner),
+            TestCase::new(Some(Visibility::Visible), asset_spawner),
         ] {
             let mut app = make_test_app();
 
@@ -882,7 +882,6 @@ mod test {
                             InheritedVisibility::default(),
                             ParticleEffect {
                                 handle: handle.clone(),
-                                spawner: test_case.instance_spawner,
                                 #[cfg(feature = "2d")]
                                 z_layer_2d: None,
                             },
@@ -892,7 +891,6 @@ mod test {
                     world
                         .spawn((ParticleEffect {
                             handle: handle.clone(),
-                            spawner: test_case.instance_spawner,
                             #[cfg(feature = "2d")]
                             z_layer_2d: None,
                         },))
@@ -953,16 +951,8 @@ mod test {
                     assert_eq!(effect_spawner.spawn_remainder, 0.);
                     assert_eq!(effect_spawner.time, cur_time.as_secs_f32());
 
-                    // Check the spawner is actually the one we expect from the override rule
-                    if let Some(instance_spawner) = &test_case.instance_spawner {
-                        // If there's a per-instance spawner override, it should be the one used
-                        assert_eq!(*actual_spawner, *instance_spawner);
-                        assert_eq!(effect_spawner.spawn_count, 64);
-                    } else {
-                        // Otherwise the asset spawner should be used
-                        assert_eq!(*actual_spawner, test_case.asset_spawner);
-                        assert_eq!(effect_spawner.spawn_count, 32);
-                    }
+                    assert_eq!(*actual_spawner, test_case.asset_spawner);
+                    assert_eq!(effect_spawner.spawn_count, 32);
                 } else {
                     // If not visible, `tick_spawners()` skips the effect entirely so won't spawn an
                     // `EffectSpawner` for it
@@ -988,16 +978,8 @@ mod test {
                 assert_eq!(effect_spawner.spawn_remainder, 0.);
                 assert_eq!(effect_spawner.time, cur_time.as_secs_f32());
 
-                // Check the spawner is actually the one we expect from the override rule
-                if let Some(instance_spawner) = &test_case.instance_spawner {
-                    // If there's a per-instance spawner override, it should be the one used
-                    assert_eq!(*actual_spawner, *instance_spawner);
-                    assert_eq!(effect_spawner.spawn_count, 64);
-                } else {
-                    // Otherwise the asset spawner should be used
-                    assert_eq!(*actual_spawner, test_case.asset_spawner);
-                    assert_eq!(effect_spawner.spawn_count, 32);
-                }
+                assert_eq!(*actual_spawner, test_case.asset_spawner);
+                assert_eq!(effect_spawner.spawn_count, 32);
             }
         }
     }

@@ -1,4 +1,4 @@
-use crate::{CompiledParticleEffect, EffectAsset, ParticleEffect, Spawner};
+use crate::{CompiledParticleEffect, EffectAsset, ParticleEffect};
 use bevy::prelude::*;
 
 /// A component bundle for a particle effect.
@@ -94,19 +94,6 @@ impl ParticleEffectBundle {
             view_visibility: ViewVisibility::default(),
         }
     }
-
-    /// Override the particle spawner of this instance.
-    ///
-    /// By default the [`ParticleEffect`] instance will inherit the [`Spawner`]
-    /// configuration of the [`EffectAsset`]. With this method, you can override
-    /// that configuration for the current effect instance alone.
-    ///
-    /// This method is a convenience helper, and is equivalent to assigning the
-    /// [`ParticleEffect::spawner`] field.
-    pub fn with_spawner(mut self, spawner: Spawner) -> Self {
-        self.effect.spawner = Some(spawner);
-        self
-    }
 }
 
 #[cfg(test)]
@@ -125,13 +112,5 @@ mod tests {
         let handle = Handle::default();
         let bundle = ParticleEffectBundle::new(handle.clone());
         assert_eq!(bundle.effect.handle, handle);
-    }
-
-    #[test]
-    fn bundle_with_spawner() {
-        let spawner = Spawner::once(5.0.into(), true);
-        let bundle = ParticleEffectBundle::default().with_spawner(spawner);
-        assert!(bundle.effect.spawner.is_some());
-        assert_eq!(bundle.effect.spawner.unwrap(), spawner);
     }
 }

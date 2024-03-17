@@ -118,7 +118,7 @@
 //!   .render(ColorOverLifetimeModifier { gradient });
 //!
 //!   // Insert into the asset system
-//!   let effect_handle = effects.add(effect);
+//!   let effect_asset = effects.add(effect);
 //! }
 //! ```
 //!
@@ -131,20 +131,14 @@
 //! # use bevy::prelude::*;
 //! # use bevy_hanabi::prelude::*;
 //! # fn spawn_effect(mut commands: Commands) {
-//! #   let effect_handle = Handle::<EffectAsset>::default();
-//! // Configure the emitter to spawn 100 particles / second
-//! let spawner = Spawner::rate(100_f32.into());
-//!
-//! commands
-//!     .spawn((
-//!         Name::new("MyEffectInstance"),
-//!         ParticleEffectBundle {
-//!             effect: ParticleEffect::new(effect_handle)
-//!                 .with_spawner(spawner),
-//!             transform: Transform::from_translation(Vec3::Y),
-//!             ..Default::default()
-//!         },
-//!     ));
+//! #   let effect_asset = Handle::<EffectAsset>::default();
+//! commands.spawn(
+//!     ParticleEffectBundle {
+//!         effect: ParticleEffect::new(effect_asset),
+//!         transform: Transform::from_translation(Vec3::Y),
+//!         ..Default::default()
+//!     },
+//! );
 //! # }
 //! ```
 //!
@@ -625,22 +619,18 @@ pub struct ParticleEffect {
     /// Handle of the effect to instantiate.
     pub handle: Handle<EffectAsset>,
     /// For 2D rendering, override the value of the Z coordinate of the layer at
-    /// which the particles are rendered present in the effect asset.
+    /// which the particles are rendered.
     ///
     /// This value is passed to the render pipeline and used when sorting
     /// transparent items to render, to order them. As a result, effects
     /// with different Z values cannot be batched together, which may
     /// negatively affect performance.
     ///
+    /// Note that this value is shared by all particles of the effect instance.
+    ///
     /// This is only available with the `2d` feature.
     #[cfg(feature = "2d")]
     pub z_layer_2d: Option<f32>,
-    /// Optional particle spawner override for this instance.
-    ///
-    /// If set, this overrides the spawner configured in the [`EffectAsset`].
-    /// Otherwise the spawner from the effect asset will be copied here when the
-    /// component is first processed.
-    pub spawner: Option<Spawner>,
 }
 
 impl ParticleEffect {
@@ -650,7 +640,6 @@ impl ParticleEffect {
             handle,
             #[cfg(feature = "2d")]
             z_layer_2d: None,
-            spawner: None,
         }
     }
 
@@ -677,16 +666,6 @@ impl ParticleEffect {
     #[cfg(feature = "2d")]
     pub fn with_z_layer_2d(mut self, z_layer_2d: Option<f32>) -> Self {
         self.z_layer_2d = z_layer_2d;
-        self
-    }
-
-    /// Set the spawner of this particle effect instance.
-    ///
-    /// By default particle effect instances inherit the spawner of the
-    /// [`EffectAsset`] they're derived from. This allows overriding the spawner
-    /// configuration per instance.
-    pub fn with_spawner(mut self, spawner: Spawner) -> Self {
-        self.spawner = Some(spawner);
         self
     }
 }

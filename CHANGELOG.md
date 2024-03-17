@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the various helper macros `impl_mod_xxx!()` to implement modifier traits; simply implement the trait by hand instead.
 - Removed `EffectAsset::with_property()` and `EffectAsset::add_property()`; use `Module::add_property()` instead.
 - `PropertyExpr` doesn't implement anymore `ToWgslString` nor `From<String>`. To create a `PropertyExpr`, you need a valid `PropertyHandle`, which would have been created via `Module::add_property()` with a default value enforcing a type. This ensures property expressions are well-formed on creation, and cannot reference non-existent properties.
+- Removed `ParticleEffect::spawner`, which was used as a per-instance override of `EffectAsset::spawner`. Manual spawn an `EffectSpawner` component with overridden values to achieve the same feature.
 
 ### Fixed
 
