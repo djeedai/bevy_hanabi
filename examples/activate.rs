@@ -152,7 +152,7 @@ fn setup(
     );
 
     ball.with_children(|node| {
-        node.spawn(ParticleEffectBundle::new(effect).with_spawner(spawner))
+        node.spawn(ParticleEffectBundle::new(effect))
             .insert(Name::new("effect"));
     });
 }

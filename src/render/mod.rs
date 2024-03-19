@@ -1274,6 +1274,7 @@ pub(crate) struct ExtractedEffect {
     /// [`property_layout`]: crate::render::ExtractedEffect::property_layout
     pub property_data: Option<Vec<u8>>,
     /// Number of particles to spawn this frame for the effect.
+    ///
     /// Obtained from calling [`EffectSpawner::tick()`] on the source effect
     /// instance.
     ///
@@ -1475,9 +1476,6 @@ pub(crate) fn extract_effects(
             continue;
         }
 
-        // Retrieve other values from the compiled effect
-        let spawn_count = spawner.spawn_count();
-
         // Check if asset is available, otherwise silently ignore
         let Some(asset) = effects.get(&effect.asset) else {
             trace!(
@@ -1530,7 +1528,7 @@ pub(crate) fn extract_effects(
                 particle_layout: asset.particle_layout().clone(),
                 property_layout,
                 property_data,
-                spawn_count,
+                spawn_count: spawner.spawn_count,
                 transform: transform.compute_matrix(),
                 // TODO - more efficient/correct way than inverse()?
                 inverse_transform: transform.compute_matrix().inverse(),
