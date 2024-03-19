@@ -1184,7 +1184,8 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             PipelineMode::Camera2d => None,
             PipelineMode::Camera3d => Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
-                depth_write_enabled: false,
+                // Use depth buffer with alpha-masked particles, not with transparent ones
+                depth_write_enabled: key.use_alpha_mask,
                 // Bevy uses reverse-Z, so Greater really means closer
                 depth_compare: CompareFunction::Greater,
                 stencil: StencilState::default(),
@@ -1198,7 +1199,8 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         #[cfg(all(feature = "3d", not(feature = "2d")))]
         let depth_stencil = Some(DepthStencilState {
             format: TextureFormat::Depth32Float,
-            depth_write_enabled: false,
+            // Use depth buffer with alpha-masked particles, not with transparent ones
+            depth_write_enabled: key.use_alpha_mask,
             // Bevy uses reverse-Z, so Greater really means closer
             depth_compare: CompareFunction::Greater,
             stencil: StencilState::default(),
