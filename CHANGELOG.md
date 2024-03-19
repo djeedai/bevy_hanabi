@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The following modifiers' `via_property()` function now takes a `PropertyHandle` instead of a property name: `AccelModifier`, `RadialAccelModifier`, `TangentAccelModifier`.
 - `Expr` is now `Copy`, making it even more lightweight.
 - `ExprWriter::prop()` now panics if the property doesn't exist. This ensures the created `WriterExpr` is well-formed, which was impossible to validate at expression write time previously.
+- Effects rendered with `AlphaMode::Mask` now write to the depth buffer. Other effects continue to not write to it. This fixes particle flickering for alpha masked effects only.
 
 ### Removed
 
@@ -54,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed a panic in rendering randomly occurring when no effect is present.
 - Fixed invalid WGSL being generated for large `u32` values.
+- Fixed particle flickering, only for particles rendered through the `AlphaMask3d` render pass (`EffectAsset::alpha_mode == AlphaMode::Mask`). (#183)
 
 ## [0.10.0] 2024-02-24
 
