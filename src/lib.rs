@@ -1084,7 +1084,7 @@ impl EffectShaderSource {
 /// ([`Visibility::Visible`]).
 #[derive(Debug, Clone, Component)]
 pub struct CompiledParticleEffect {
-    /// Weak handle to the underlying asset.
+    /// Handle to the underlying asset.
     asset: Handle<EffectAsset>,
     /// Cached simulation condition, to avoid having to query the asset each
     /// time we need it.
@@ -1115,12 +1115,19 @@ impl Default for CompiledParticleEffect {
 }
 
 impl CompiledParticleEffect {
+    /// Clear the compiled data from this component.
+    pub(crate) fn clear(&mut self) {
+        self.asset = Handle::default();
+        self.effect_shader = None;
+        self.particle_texture = None;
+    }
+
     /// Update the compiled effect from its asset and instance.
     pub(crate) fn update(
         &mut self,
         rebuild: bool,
         #[cfg(feature = "2d")] z_layer_2d: FloatOrd,
-        weak_handle: Handle<EffectAsset>,
+        handle: Handle<EffectAsset>,
         asset: &EffectAsset,
         shaders: &mut ResMut<Assets<Shader>>,
         shader_cache: &mut ResMut<ShaderCache>,
@@ -1129,16 +1136,21 @@ impl CompiledParticleEffect {
             "Updating (rebuild:{}) compiled particle effect '{}' ({:?})",
             rebuild,
             asset.name,
-            weak_handle
+            handle
         );
 
-        debug_assert!(weak_handle.is_weak());
+        // #289 - Panic in fn extract_effects
+        // We now keep a strong handle. Since CompiledParticleEffect is kept in sync
+        // with the source ParticleEffect, this shouldn't produce any strong cyclic
+        // dependency.
+        debug_assert!(handle.is_strong());
+
         // Note: if something marked the ParticleEffect as changed (via Mut for example)
         // but didn't actually change anything, or at least didn't change the asset,
         // then we may end up here with the same asset handle. Don't try to be
         // too smart, and rebuild everything anyway, it's easier than trying to
         // diff what may or may not have changed.
-        self.asset = weak_handle;
+        self.asset = handle;
         self.simulation_condition = asset.simulation_condition;
 
         // Check if the instance changed. If so, rebuild some data from this compiled
@@ -1365,11 +1377,18 @@ fn compile_effects(
             need_rebuild,
             #[cfg(feature = "2d")]
             z_layer_2d,
-            effect.handle.clone_weak(),
+            effect.handle.clone(),
             asset,
             &mut shaders,
             &mut shader_cache,
         );
+    }
+
+    // Clear removed effects, to allow them to be released by the asset server
+    for (_, effect, mut compiled_effect) in q_effects.iter_mut() {
+        if effects.get(&effect.handle).is_none() {
+            compiled_effect.clear();
+        }
     }
 }
 
