@@ -2,7 +2,7 @@
 #import bevy_hanabi::vfx_common::{
     DispatchIndirect, IndirectBuffer, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
-    rand_uniform, proj
+    rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4, proj
 }
 
 struct Particle {
@@ -138,9 +138,7 @@ fn vertex(
     // Expand particle mesh vertex based on particle position ("origin"), and local
     // orientation and size of the particle mesh (currently: only quad).
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
-    let sim_position = particle.position
-        + axis_x * vpos.x
-        + axis_y * vpos.y;
+    let sim_position = position + axis_x * vpos.x + axis_y * vpos.y;
     out.position = transform_position_simulation_to_clip(sim_position);
 
     out.color = color;

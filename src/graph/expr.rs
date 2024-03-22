@@ -928,8 +928,8 @@ impl Expr {
             }
             Expr::Binary { op, left, right } => {
                 // Recursively evaluate child expressions throught the context to ensure caching
-                let left = context.eval(module, *left)?;
-                let right = context.eval(module, *right)?;
+                let compiled_left = context.eval(module, *left)?;
+                let compiled_right = context.eval(module, *right)?;
 
                 // if !self.input.value_type().is_vector() {
                 //     return Err(ExprError::TypeError(format!(
@@ -938,11 +938,60 @@ impl Expr {
                 //     )));
                 // }
 
-                Ok(if op.is_functional() {
-                    format!("{}({}, {})", op.to_wgsl_string(), left, right)
+                if op.is_functional() {
+                    if op.needs_type_suffix() {
+                        let lhs_type = module.get(*left).and_then(|arg| arg.value_type());
+                        let rhs_type = module.get(*right).and_then(|arg| arg.value_type());
+                        if lhs_type.is_none() || rhs_type.is_none() {
+                            return Err(ExprError::TypeError(
+                                "Can't determine the type of the operand".to_string(),
+                            ));
+                        }
+                        if lhs_type != rhs_type {
+                            return Err(ExprError::TypeError("Mismatched types".to_string()));
+                        }
+                        let value_type = lhs_type.unwrap();
+                        let suffix = match value_type {
+                            ValueType::Scalar(ScalarType::Float) => "f",
+                            ValueType::Vector(vector_type)
+                                if vector_type.elem_type() == ScalarType::Float =>
+                            {
+                                match vector_type.count() {
+                                    2 => "vec2",
+                                    3 => "vec3",
+                                    4 => "vec4",
+                                    _ => unreachable!(),
+                                }
+                            }
+                            _ => {
+                                // Add more types here as needed.
+                                return Err(ExprError::TypeError("Unsupported type".to_string()));
+                            }
+                        };
+
+                        Ok(format!(
+                            "{}_{}({}, {})",
+                            op.to_wgsl_string(),
+                            suffix,
+                            compiled_left,
+                            compiled_right
+                        ))
+                    } else {
+                        Ok(format!(
+                            "{}({}, {})",
+                            op.to_wgsl_string(),
+                            compiled_left,
+                            compiled_right
+                        ))
+                    }
                 } else {
-                    format!("({}) {} ({})", left, op.to_wgsl_string(), right)
-                })
+                    Ok(format!(
+                        "({}) {} ({})",
+                        compiled_left,
+                        op.to_wgsl_string(),
+                        compiled_right
+                    ))
+                }
             }
             Expr::Ternary {
                 op,
@@ -1748,6 +1797,16 @@ impl BinaryOperator {
             | BinaryOperator::UniformRand
             | BinaryOperator::Vec2 => true,
         }
+    }
+
+    /// Check if a binary operator needs a type suffix.
+    ///
+    /// This is currently just for `rand_uniform`
+    /// (`BinaryOperator::UniformRand`), which is a function we define
+    /// ourselves. WGSL doesn't support user-defined function overloading, so
+    /// we need a suffix to disambiguate the types.
+    pub fn needs_type_suffix(&self) -> bool {
+        *self == BinaryOperator::UniformRand
     }
 }
 

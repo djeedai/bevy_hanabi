@@ -22,6 +22,9 @@ default = ["2d", "3d", "gpu_tests", "examples_world_inspector"]
 # Enable support for rendering through a 3D camera (Camera3dBundle)
 3d = []
 
+# Enable tracing annotations
+trace = []
+
 # Special feature to enable GPU-based tests, which otherwise fail
 # on a CI machine without a graphic adapter or without proper drivers.
 # This is a testing-only feature, which has no effect on the build.
@@ -37,6 +40,7 @@ examples_world_inspector = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
+fixedbitset = "0.4"
 copyless = "0.1"
 rand = "0.8"
 rand_pcg = "0.3"
@@ -147,6 +151,10 @@ required-features = [ "bevy/bevy_winit", "bevy/bevy_sprite", "2d" ]
 [[example]]
 name = "worms"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d" ]
+
+[[example]]
+name = "ribbon"
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
 [workspace]
 resolver = "2"

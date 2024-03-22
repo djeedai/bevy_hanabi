@@ -200,8 +200,20 @@ fn frand4() -> vec4<f32> {
     return vec4<f32>(x, y, z, w);
 }
 
-fn rand_uniform(a: f32, b: f32) -> f32 {
+fn rand_uniform_f(a: f32, b: f32) -> f32 {
     return a + frand() * (b - a);
+}
+
+fn rand_uniform_vec2(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
+    return a + frand2() * (b - a);
+}
+
+fn rand_uniform_vec3(a: vec3<f32>, b: vec3<f32>) -> vec3<f32> {
+    return a + frand3() * (b - a);
+}
+
+fn rand_uniform_vec4(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
+    return a + frand4() * (b - a);
 }
 
 fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {

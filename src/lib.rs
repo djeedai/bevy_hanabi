@@ -834,6 +834,18 @@ impl EffectShaderSource {
                     return Err(ShaderGenerateError::Expr(err));
                 }
             }
+
+            // If there are linked list attributes, clear them out.
+            // Not doing this is always a bug, so we might as well save the user
+            // some trouble.
+            for attribute in [Attribute::PREV, Attribute::NEXT] {
+                if particle_layout.contains(attribute) {
+                    init_context
+                        .main_code
+                        .push_str(&format!("particle.{} = 0xffffffffu;", attribute.name()));
+                }
+            }
+
             let sim_space_transform_code = match asset.simulation_space.eval(&init_context) {
                 Ok(s) => s,
                 Err(err) => {
