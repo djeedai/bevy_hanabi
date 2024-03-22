@@ -2939,7 +2939,7 @@ pub(crate) fn prepare_bind_groups(
         // TODO - move this creation in RenderSet::PrepareBindGroups
         effect_buffer.create_sim_bind_group(
             effect_batches.buffer_index,
-            &*render_device,
+            &render_device,
             group_binding,
         );
 

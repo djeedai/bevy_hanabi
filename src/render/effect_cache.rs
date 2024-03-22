@@ -435,11 +435,11 @@ impl EffectBuffer {
     /// The `buffer_index` must be the index of the current [`EffectBuffer`]
     /// inside the [`EffectCache`]. The `group_binding` is the binding resource
     /// for the particle groups of this buffer.
-    pub fn create_sim_bind_group<'a>(
+    pub fn create_sim_bind_group(
         &mut self,
         buffer_index: u32,
         render_device: &RenderDevice,
-        group_binding: BufferBinding<'a>,
+        group_binding: BufferBinding,
     ) {
         if self.simulate_bind_group.is_some() {
             return;
