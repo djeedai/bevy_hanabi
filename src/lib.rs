@@ -1909,7 +1909,7 @@ else { return c1; }
 
             // `compile_effects()` always updates the CompiledParticleEffect
             assert_eq!(compiled_particle_effect.asset, handle);
-            assert!(compiled_particle_effect.asset.is_weak());
+            assert!(compiled_particle_effect.asset.is_strong());
             assert!(compiled_particle_effect.effect_shader.is_some());
         }
 
@@ -1944,7 +1944,7 @@ else { return c1; }
 
             // `compile_effects()` always updates the CompiledParticleEffect
             assert_eq!(compiled_particle_effect.asset, handle);
-            assert!(compiled_particle_effect.asset.is_weak());
+            assert!(compiled_particle_effect.asset.is_strong());
             assert!(compiled_particle_effect.effect_shader.is_some());
         }
     }
@@ -2047,7 +2047,7 @@ else { return c1; }
                 // `compile_effects()` always updates the CompiledParticleEffect of new effects,
                 // even if hidden
                 assert_eq!(compiled_particle_effect.asset, handle);
-                assert!(compiled_particle_effect.asset.is_weak());
+                assert!(compiled_particle_effect.asset.is_strong());
                 assert!(compiled_particle_effect.effect_shader.is_some());
 
                 // Toggle visibility and tick once more; this shouldn't panic (regression; #182)
@@ -2075,7 +2075,7 @@ else { return c1; }
 
                 // `compile_effects()` always updates the CompiledParticleEffect
                 assert_eq!(compiled_particle_effect.asset, handle);
-                assert!(compiled_particle_effect.asset.is_weak());
+                assert!(compiled_particle_effect.asset.is_strong());
                 assert!(compiled_particle_effect.effect_shader.is_some());
             }
         }
