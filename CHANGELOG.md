@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `Module::add_property()`, `Module::get_property()`, and `Module::properties()`.
 - Added a new `PropertyHandle`, which is to `Property` what the existing `ExprHandle` is to `Expr`: a unique handle into a owning `Module`.
 - Added a new `RoundModifier` that allows round particles to be constructed without having to create a texture.
+- Added a new `trace` feature enabling some `span_info!()` profiling annotations.
 
 ### Changed
 
@@ -38,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Expr` is now `Copy`, making it even more lightweight.
 - `ExprWriter::prop()` now panics if the property doesn't exist. This ensures the created `WriterExpr` is well-formed, which was impossible to validate at expression write time previously.
 - Effects rendered with `AlphaMode::Mask` now write to the depth buffer. Other effects continue to not write to it. This fixes particle flickering for alpha masked effects only.
+git
+- Bind groups for effect rendering are now created in a separate system in the `EffectSystems::PrepareBindGroups` set, itself part of Bevy's `RenderSet::PrepareBindGroups`. They're also cached, which increases the performance of rendering many effects.
+- Merged the init and update pass bind groups for the particle buffer and associated resources in `EffectBfufer`. The new unified resources use the `_sim` (simulation) suffix.
 
 ### Removed
 
