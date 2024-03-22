@@ -148,7 +148,13 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
         index
     }
 
-    pub fn reserve(&mut self, capacity: usize, device: &RenderDevice) {
+    /// Reserve some capacity into the buffer.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the buffer was (re)allocated, or `false` if an existing buffer
+    /// was reused which already had enough capacity.
+    pub fn reserve(&mut self, capacity: usize, device: &RenderDevice) -> bool {
         if capacity > self.capacity {
             let size = self.aligned_size * capacity;
             trace!(
@@ -165,12 +171,20 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
                 mapped_at_creation: false,
             }));
             // FIXME - this discards the old content if any!!!
+            true
+        } else {
+            false
         }
     }
 
-    pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) {
+    /// Schedule the buffer write to GPU.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the buffer was (re)allocated, `false` otherwise.
+    pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
         if self.values.is_empty() {
-            return;
+            return false;
         }
         trace!(
             "write_buffer: values.len={} item_size={} aligned_size={}",
@@ -178,7 +192,7 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
             self.item_size,
             self.aligned_size
         );
-        self.reserve(self.values.len(), device);
+        let buffer_changed = self.reserve(self.values.len(), device);
         if let Some(buffer) = &self.buffer {
             let aligned_size = self.aligned_size * self.values.len();
             trace!("aligned_buffer: size={}", aligned_size);
@@ -194,6 +208,7 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
             let bytes: &[u8] = cast_slice(&aligned_buffer);
             queue.write_buffer(buffer, 0, bytes);
         }
+        buffer_changed
     }
 
     pub fn clear(&mut self) {

@@ -20,11 +20,11 @@ use crate::{
     compile_effects, gather_removed_effects,
     properties::EffectProperties,
     render::{
-        extract_effect_events, extract_effects, prepare_effects, prepare_resources, queue_effects,
-        DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems,
-        EffectsMeta, ExtractedEffects, GpuSpawnerParams, ParticlesInitPipeline,
-        ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache, SimParams,
-        VfxSimulateDriverNode, VfxSimulateNode,
+        extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects,
+        prepare_resources, queue_effects, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents,
+        EffectBindGroups, EffectCache, EffectSystems, EffectsMeta, ExtractedEffects,
+        GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline,
+        ShaderCache, SimParams, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,
@@ -173,12 +173,14 @@ impl Plugin for HanabiPlugin {
             assets.insert(HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
         }
 
-        let effects_meta = EffectsMeta::new(render_device);
+        let effects_meta = EffectsMeta::new(render_device.clone());
+        let effect_cache = EffectCache::new(render_device);
 
         // Register the custom render pipeline
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .insert_resource(effects_meta)
+            .insert_resource(effect_cache)
             .init_resource::<EffectBindGroups>()
             .init_resource::<DispatchIndirectPipeline>()
             .init_resource::<ParticlesInitPipeline>()
@@ -196,6 +198,7 @@ impl Plugin for HanabiPlugin {
                     EffectSystems::PrepareEffectAssets.in_set(RenderSet::PrepareAssets),
                     EffectSystems::QueueEffects.in_set(RenderSet::Queue),
                     EffectSystems::PrepareEffectGpuResources.in_set(RenderSet::Prepare),
+                    EffectSystems::PrepareBindGroups.in_set(RenderSet::PrepareBindGroups),
                 ),
             )
             .edit_schedule(ExtractSchedule, |schedule| {
@@ -211,6 +214,9 @@ impl Plugin for HanabiPlugin {
                     prepare_resources
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         .after(prepare_view_uniforms),
+                    prepare_bind_groups
+                        .in_set(EffectSystems::PrepareBindGroups)
+                        .after(queue_effects),
                 ),
             );
 
