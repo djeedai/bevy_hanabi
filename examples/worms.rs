@@ -97,6 +97,7 @@ fn setup(
 
     // Update modifiers
 
+    // Clone the particle every so often. This creates the trail.
     let clone_modifier = CloneModifier::new(1.0 / 8.0, 1);
 
     // Make the particle wiggle, following a sine wave.

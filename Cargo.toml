@@ -148,6 +148,10 @@ required-features = [ "bevy/bevy_winit", "bevy/bevy_sprite", "2d" ]
 name = "worms"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d" ]
 
+[[example]]
+name = "ribbon"
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+
 [workspace]
 resolver = "2"
 members = ["."]

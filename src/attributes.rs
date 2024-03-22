@@ -536,6 +536,16 @@ impl AttributeInner {
         Value::Vector(VectorValue::new_vec2(Vec2::ONE)),
     );
 
+    pub const PREV: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("prev"),
+        Value::Scalar(ScalarValue::Uint(!0u32)),
+    );
+
+    pub const NEXT: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("next"),
+        Value::Scalar(ScalarValue::Uint(!0u32)),
+    );
+
     pub const AXIS_X: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("axis_x"),
         Value::Vector(VectorValue::new_vec3(Vec3::X)),
@@ -949,6 +959,30 @@ impl Attribute {
     /// [`VectorType::VEC2F`] representing the XY sizes of the particle.
     pub const SIZE2: Attribute = Attribute(AttributeInner::SIZE2);
 
+    /// The previous particle in the ribbon chain.
+    ///
+    /// # Name
+    ///
+    /// `prev`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Uint`] representing the index of the previous particle in
+    /// the chain.
+    pub const PREV: Attribute = Attribute(AttributeInner::PREV);
+
+    /// The next particle in the ribbon chain.
+    ///
+    /// # Name
+    ///
+    /// `next`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Uint`] representing the index of the next particle in the
+    /// chain.
+    pub const NEXT: Attribute = Attribute(AttributeInner::NEXT);
+
     /// The local X axis of the particle.
     ///
     /// This attribute stores a per-particle X axis, which defines the
@@ -1096,7 +1130,7 @@ impl Attribute {
     declare_custom_attr_pub!(F32X4_3, "f32x4_3", 4, VEC4F);
 
     /// Collection of all the existing particle attributes.
-    const ALL: [Attribute; 29] = [
+    const ALL: [Attribute; 31] = [
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,
@@ -1106,6 +1140,8 @@ impl Attribute {
         Attribute::ALPHA,
         Attribute::SIZE,
         Attribute::SIZE2,
+        Attribute::PREV,
+        Attribute::NEXT,
         Attribute::AXIS_X,
         Attribute::AXIS_Y,
         Attribute::AXIS_Z,
