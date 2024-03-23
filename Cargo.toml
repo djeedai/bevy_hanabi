@@ -76,10 +76,6 @@ noise = "0.8"
 
 futures = "0.3"
 
-# Bug in 0.13, need explicit dependency
-bevy_gizmos_macros = "0.13"
-bevy_sprite = "0.13"
-
 [[example]]
 name = "firework"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
