@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     calc_func_id,
+    expr::MathFunction,
     graph::{BuiltInOperator, EvalContext, ExprError},
     Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module, ShaderWriter,
 };
@@ -291,7 +292,7 @@ impl Modifier for LinearDragModifier {
         let one = m.lit(1.);
         let one_minus_drag_dt = m.sub(one, drag_dt);
         let zero = m.lit(0.);
-        let expr = m.max(zero, one_minus_drag_dt);
+        let expr = m.math_fn(MathFunction::Max, &[zero, one_minus_drag_dt]);
         let attr = context.eval(m, attr)?;
         let expr = context.eval(m, expr)?;
         context.main_code += &format!("{} *= {};", attr, expr);

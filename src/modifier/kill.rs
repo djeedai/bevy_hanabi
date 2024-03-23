@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    expr::MathFunction,
     graph::{EvalContext, ExprError},
     Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module, ShaderWriter,
 };
@@ -77,7 +78,7 @@ impl Modifier for KillSphereModifier {
     fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let pos = module.attr(Attribute::POSITION);
         let diff = module.sub(pos, self.center);
-        let sqr_dist = module.dot(diff, diff);
+        let sqr_dist = module.math_fn(MathFunction::Dot, &[diff, diff]);
         let cmp = if self.kill_inside {
             module.lt(sqr_dist, self.sqr_radius)
         } else {
@@ -158,16 +159,16 @@ impl Modifier for KillAabbModifier {
     fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let pos = module.attr(Attribute::POSITION);
         let diff = module.sub(pos, self.center);
-        let dist = module.abs(diff);
+        let dist = module.math_fn(MathFunction::Abs, &[diff]);
         let cmp = if self.kill_inside {
             module.lt(dist, self.half_size)
         } else {
             module.gt(dist, self.half_size)
         };
         let reduce = if self.kill_inside {
-            module.all(cmp)
+            module.math_fn(MathFunction::All, &[cmp])
         } else {
-            module.any(cmp)
+            module.math_fn(MathFunction::Any, &[cmp])
         };
         let expr = context.eval(module, reduce)?;
 

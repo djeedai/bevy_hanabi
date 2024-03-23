@@ -24,7 +24,9 @@
 
 use std::num::NonZeroU32;
 
-use crate::{Attribute, BuiltInOperator, ExprError, ExprHandle, Module, ValueType};
+use crate::{
+    expr::MathFunction, Attribute, BuiltInOperator, ExprError, ExprHandle, Module, ValueType,
+};
 
 /// Identifier of a node in a graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -764,7 +766,7 @@ equal to one."
             ));
         }
         let input = inputs.into_iter().next().unwrap();
-        let norm = module.normalize(input);
+        let norm = module.math_fn(MathFunction::Normalize, &[input]);
         Ok(vec![norm])
     }
 }

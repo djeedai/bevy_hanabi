@@ -7,10 +7,10 @@
 //!
 //! - **Init modifiers** influence the initializing of particles when they
 //!   spawn. They typically configure the initial position and/or velocity of
-//!   particles. Init modifiers implement the [`InitModifier`] trait.
+//!   particles. Init modifiers implement the [`Modifier`] trait.
 //! - **Update modifiers** influence the particle update loop each frame. For
 //!   example, an update modifier can apply a gravity force to all particles.
-//!   Update modifiers implement the [`UpdateModifier`] trait.
+//!   Update modifiers implement the [`Modifier`] trait.
 //! - **Render modifiers** influence the rendering of each particle. They can
 //!   change the particle's color, or orient it to face the camera. Render
 //!   modifiers implement the [`RenderModifier`] trait.
@@ -20,8 +20,7 @@
 //! attribute on spawning, or to assign a value to that attribute each frame
 //! during simulation (update).
 //!
-//! [`InitModifier`]: crate::modifier::InitModifier
-//! [`UpdateModifier`]: crate::modifier::UpdateModifier
+//! [`Modifier`]: crate::modifier::Modifier
 //! [`RenderModifier`]: crate::modifier::RenderModifier
 
 use bevy::{

@@ -102,14 +102,17 @@
 //! [`Modifier`]: crate::Modifier
 //! [`EffectAsset`]: crate::EffectAsset
 
-use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
-
-use bevy::{reflect::Reflect, utils::thiserror::Error};
+use bevy::{
+    reflect::{FromReflect, Reflect},
+    utils::thiserror::Error,
+};
 use serde::{Deserialize, Serialize};
+use std::{cell::RefCell, hash::Hash, num::NonZeroU32, rc::Rc};
 
 use crate::{
-    Attribute, ModifierContext, ParticleLayout, Property, PropertyLayout, ScalarType, ToWgslString,
-    ValueType,
+    calc_func_id, gradient::Lerp, Attribute, Gradient, GradientKey, ModifierContext,
+    ParticleLayout, Property, PropertyLayout, ScalarType, ToWgslString, ValueType, ValueTypeOf,
+    VectorType,
 };
 
 use super::Value;
@@ -195,6 +198,43 @@ impl PropertyHandle {
     }
 }
 
+/// Handle of a function inside a given [`Module`].
+///
+/// A handle uniquely references a [`Func`] stored inside a [`Module`]. It's a
+/// lightweight representation, similar to a simple array index. For this
+/// reason, it's easily copyable. However it's also lacking any kind of error
+/// checking, and mixing handles to different modules produces undefined
+/// behaviors (like an index does when indexing the wrong array).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect, Serialize, Deserialize,
+)]
+#[repr(transparent)]
+pub struct FuncHandle {
+    id: Id,
+}
+
+impl FuncHandle {
+    /// Create a new handle from a 1-based [`Id`].
+    fn new(id: Id) -> Self {
+        Self { id }
+    }
+
+    /// Create a new handle from a 1-based [`Id`] as a `usize`, for cases where
+    /// the index is known to be non-zero already.
+    #[allow(unsafe_code)]
+    unsafe fn new_unchecked(id: usize) -> Self {
+        debug_assert!(id != 0);
+        Self {
+            id: NonZeroU32::new_unchecked(id as u32),
+        }
+    }
+
+    /// Get the zero-based index into the array of the module.
+    fn index(&self) -> usize {
+        (self.id.get() - 1) as usize
+    }
+}
+
 /// Container for expressions.
 ///
 /// A module represents a storage for a set of expressions used in a single
@@ -220,6 +260,8 @@ pub struct Module {
     expressions: Vec<Expr>,
     /// Properties used as part of a [`PropertyExpr`].
     properties: Vec<Property>,
+    /// Functions used by the module.
+    functions: Vec<Func>,
 }
 
 macro_rules! impl_module_unary {
@@ -242,22 +284,13 @@ macro_rules! impl_module_binary {
     };
 }
 
-macro_rules! impl_module_ternary {
-    ($t: ident, $T: ident) => {
-        #[doc = concat!("Build a [`TernaryOperator::", stringify!($T), "`](crate::graph::expr::TernaryOperator::", stringify!($T),") ternary expression and append it to the module.\n\nThis is a shortcut for [`ternary(TernaryOperator::", stringify!($T), ", first, second, third)`](crate::graph::expr::Module::ternary).")]
-        #[inline]
-        pub fn $t(&mut self, first: ExprHandle, second: ExprHandle, third: ExprHandle) -> ExprHandle {
-            self.ternary(TernaryOperator::$T, first, second, third)
-        }
-    };
-}
-
 impl Module {
     /// Create a new module from an existing collection of expressions.
     pub fn from_raw(expr: Vec<Expr>) -> Self {
         Self {
             expressions: expr,
             properties: vec![],
+            functions: vec![],
         }
     }
 
@@ -345,10 +378,70 @@ impl Module {
         self.push(Expr::Property(PropertyExpr::new(property)))
     }
 
+    /// Build an analytical gradient sampling function and append it to the
+    /// module.
+    ///
+    /// This is only supported for gradients of `f32`, `Vec2`, and `Vec3`. The
+    /// function generated accepts a single parameter `x: f32` representing the
+    /// sampling point of the gradient, and returns the value of the gradient
+    /// sampled at that point. The function is a pure function with no side
+    /// effect.
+    #[inline]
+    pub fn gradient<T>(&mut self, gradient: &Gradient<T>) -> FuncHandle
+    where
+        T: Lerp + FromReflect + Default + ToWgslString + ValueTypeOf,
+        GradientKey<T>: Hash,
+    {
+        let func_id = calc_func_id(gradient);
+        let func_name = format!("sample_gradient_{0:016X}", func_id);
+
+        let mut body = String::new();
+        for key in gradient.keys() {
+            if !body.is_empty() {
+                body += &"else ";
+            }
+            body += &format!(
+                "if x <= {} {{ {} }}",
+                key.ratio(),
+                key.value.to_wgsl_string()
+            );
+        }
+        let body = self.raw_code(body, Some(ValueType::Scalar(ScalarType::Float)));
+
+        let parameters = vec![FuncParam {
+            name: "x".to_string(),
+            value_type: ScalarType::Float.into(),
+        }];
+
+        self.add_fn(&func_name, parameters, Some(T::value_type()), move |_| {
+            Ok(body)
+        })
+        .expect(&format!(
+            "Body generator for function {} returned an error.",
+            func_name
+        ))
+    }
+
     /// Build a built-in expression and append it to the module.
     #[inline]
     pub fn builtin(&mut self, op: BuiltInOperator) -> ExprHandle {
         self.push(Expr::BuiltIn(BuiltInExpr::new(op)))
+    }
+
+    /// Build a math function call expression and append it to the module.
+    ///
+    /// The expression calls a [`MathFunction`] with the given arguments. The
+    /// number of arguments required depends on the actual function.
+    #[inline]
+    pub fn math_fn(&mut self, func: MathFunction, args: &[ExprHandle]) -> ExprHandle {
+        assert!(args.len() >= 1 && args.len() <= 4);
+        self.push(Expr::Math(MathExpr {
+            func,
+            arg0: args[0],
+            arg1: args.get(1).cloned(),
+            arg2: args.get(2).cloned(),
+            arg3: args.get(3).cloned(),
+        }))
     }
 
     /// Build a unary expression and append it to the module.
@@ -372,29 +465,6 @@ impl Module {
         self.push(Expr::Unary { op, expr: inner })
     }
 
-    impl_module_unary!(abs, Abs);
-    impl_module_unary!(all, All);
-    impl_module_unary!(any, Any);
-    impl_module_unary!(ceil, Ceil);
-    impl_module_unary!(cos, Cos);
-    impl_module_unary!(exp, Exp);
-    impl_module_unary!(exp2, Exp2);
-    impl_module_unary!(floor, Floor);
-    impl_module_unary!(fract, Fract);
-    impl_module_unary!(inverse_sqrt, InvSqrt);
-    impl_module_unary!(length, Length);
-    impl_module_unary!(log, Log);
-    impl_module_unary!(log2, Log2);
-    impl_module_unary!(normalize, Normalize);
-    impl_module_unary!(pack4x8snorm, Pack4x8snorm);
-    impl_module_unary!(pack4x8unorm, Pack4x8unorm);
-    impl_module_unary!(saturate, Saturate);
-    impl_module_unary!(sign, Sign);
-    impl_module_unary!(sin, Sin);
-    impl_module_unary!(sqrt, Sqrt);
-    impl_module_unary!(tan, Tan);
-    impl_module_unary!(unpack4x8snorm, Unpack4x8snorm);
-    impl_module_unary!(unpack4x8unorm, Unpack4x8unorm);
     impl_module_unary!(w, W);
     impl_module_unary!(x, X);
     impl_module_unary!(y, Y);
@@ -428,59 +498,16 @@ impl Module {
     }
 
     impl_module_binary!(add, Add);
-    impl_module_binary!(cross, Cross);
-    impl_module_binary!(distance, Distance);
     impl_module_binary!(div, Div);
-    impl_module_binary!(dot, Dot);
     impl_module_binary!(ge, GreaterThanOrEqual);
     impl_module_binary!(gt, GreaterThan);
     impl_module_binary!(le, LessThanOrEqual);
     impl_module_binary!(lt, LessThan);
-    impl_module_binary!(max, Max);
-    impl_module_binary!(min, Min);
     impl_module_binary!(mul, Mul);
     impl_module_binary!(rem, Remainder);
-    impl_module_binary!(step, Step);
     impl_module_binary!(sub, Sub);
     impl_module_binary!(uniform, UniformRand);
     impl_module_binary!(vec2, Vec2);
-
-    /// Build a ternary expression and append it to the module.
-    ///
-    /// The handles to the expressions representing the three operands of the
-    /// ternary operation must be valid, that is reference expressions
-    /// contained in the current [`Module`].
-    ///
-    /// # Panics
-    ///
-    /// Panics in some cases if any of the operand handles do not reference
-    /// existing expressions in the current module. Note however
-    /// that this check can miss some invalid handles (false negative), so only
-    /// represents an extra safety net that users shouldn't rely exclusively on
-    /// to ensure the operand handles are valid. Instead, it's the
-    /// responsibility of the user to ensure handles reference existing
-    /// expressions in the current [`Module`].
-    #[inline]
-    pub fn ternary(
-        &mut self,
-        op: TernaryOperator,
-        first: ExprHandle,
-        second: ExprHandle,
-        third: ExprHandle,
-    ) -> ExprHandle {
-        assert!(first.index() < self.expressions.len());
-        assert!(second.index() < self.expressions.len());
-        assert!(third.index() < self.expressions.len());
-        self.push(Expr::Ternary {
-            op,
-            first,
-            second,
-            third,
-        })
-    }
-
-    impl_module_ternary!(mix, Mix);
-    impl_module_ternary!(smoothstep, SmoothStep);
 
     /// Build a cast expression and append it to the module.
     ///
@@ -569,6 +596,255 @@ impl Module {
         let expr = self.get(expr).unwrap();
         expr.has_side_effect(self)
     }
+
+    /// Add a new function definition to the module.
+    ///
+    /// The function body is generated with the `gen_body` closure.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the module already contains a function with the same
+    /// `func_name`.
+    ///
+    /// Panics if the `gen_body` closure returns an error.
+    pub fn add_fn(
+        &mut self,
+        func_name: &str,
+        parameters: Vec<FuncParam>,
+        return_type: Option<ValueType>,
+        gen_body: impl FnOnce(&mut Module) -> Result<ExprHandle, ExprError>,
+    ) -> Result<FuncHandle, ExprError> {
+        assert!(
+            self.functions
+                .iter()
+                .find(|f| f.name == func_name)
+                .is_none(),
+            "Cannot add duplicate function named {} to Module.",
+            func_name
+        );
+
+        let body = gen_body(self)?;
+
+        self.functions.push(Func {
+            name: func_name.to_string(),
+            parameters,
+            return_type,
+            body: Some(body),
+            kind: FunctionKind::User,
+        });
+
+        #[allow(unsafe_code)]
+        let id: Id = unsafe { NonZeroU32::new_unchecked(self.functions.len() as u32) };
+
+        Ok(FuncHandle::new(id))
+    }
+
+    fn add_builtin_function(
+        &mut self,
+        func_name: &str,
+        parameters: Vec<FuncParam>,
+        return_type: Option<ValueType>,
+    ) -> FuncHandle {
+        // Built-in function may be generic (like abs(f32) -> f32 vs. abs(i32) -> i32)
+        // so we skip any unicity check on the name.
+
+        let func = Func {
+            name: func_name.to_string(),
+            parameters,
+            return_type,
+            body: None, // built-in
+            kind: FunctionKind::Builtin,
+        };
+
+        assert!(!self.functions.iter().any(|f| *f == func));
+
+        self.functions.push(func);
+
+        #[allow(unsafe_code)]
+        let id: Id = unsafe { NonZeroU32::new_unchecked(self.functions.len() as u32) };
+
+        FuncHandle::new(id)
+    }
+
+    fn get_builtin_func(&self, func_name: &str, parameters: &[ValueType]) -> Option<FuncHandle> {
+        self.functions
+            .iter()
+            .position(|f| {
+                f.name == func_name
+                    // Compare the value type of parameters, which form the function signature.
+                    // Ignore the parameter name, which is only used in the definition.
+                    // The return type in theory is part of the signature, but two functions
+                    // cannot differ only by it, so it can be ignored
+                    && f.parameters
+                        .iter()
+                        .map(|p| p.value_type)
+                        .eq(parameters.iter().cloned())
+            })
+            .map(|index| {
+                #[allow(unsafe_code)]
+                unsafe {
+                    FuncHandle::new_unchecked(index + 1)
+                }
+            })
+    }
+
+    fn get_or_create_builtin_function(
+        &mut self,
+        func_name: &str,
+        parameters: &[ValueType],
+    ) -> FuncHandle {
+        if let Some(func) = self.get_builtin_func(func_name, parameters) {
+            return func;
+        }
+
+        match func_name {
+            // logical operators on vec<bool>
+            "all" | "any" => self.add_builtin_function(
+                func_name,
+                vec![FuncParam::new("e", parameters[0])],
+                Some(ScalarType::Bool.into()),
+            ),
+            // single-argument numeric scalar and component-wise vector
+            "abs" | "sign" => self.add_builtin_function(
+                func_name,
+                vec![FuncParam::new("e", parameters[0])],
+                Some(parameters[0]),
+            ),
+            // single-argument floating-point scalar and component-wise vector
+            "acos" | "acosh" | "asin" | "asinh" | "atan" | "atanh" | "ceil" | "cos" | "cosh"
+            | "degrees" | "exp" | "exp2" | "floor" | "fract" | "inverseSqrt" | "length" | "log"
+            | "log2" | "saturate" | "sqrt" => self.add_builtin_function(
+                func_name,
+                vec![FuncParam::new("e", parameters[0])],
+                Some(parameters[0]),
+            ),
+            // two-argument numeric scalar and component-wise vector returning a scalar
+            "distance" => self.add_builtin_function(
+                func_name,
+                vec![
+                    FuncParam::new("e1", parameters[0]),
+                    FuncParam::new("e2", parameters[1]),
+                ],
+                Some(ScalarType::Float.into()),
+            ),
+            // atan2(y, x) for f32 or vecX<f32>
+            "atan2" => self.add_builtin_function(
+                func_name,
+                vec![
+                    // atan2(y, x) conventionally because it's atan(y/x)
+                    FuncParam::new("y", parameters[0]),
+                    FuncParam::new("x", parameters[1]),
+                ],
+                Some(parameters[0]),
+            ),
+            // cross(vec3, vec3) -> vec3
+            "cross" => self.add_builtin_function(
+                func_name,
+                vec![
+                    FuncParam::new("e1", VectorType::VEC3F),
+                    FuncParam::new("e2", VectorType::VEC3F),
+                ],
+                Some(VectorType::VEC3F.into()),
+            ),
+            // three-argument numeric scalar and component-wise vector
+            "clamp" => self.add_builtin_function(
+                func_name,
+                vec![
+                    FuncParam::new("e", parameters[0]),
+                    FuncParam::new("low", parameters[1]),
+                    FuncParam::new("high", parameters[2]),
+                ],
+                Some(parameters[0]),
+            ),
+            // dot(vec<numeric>, vec<numeric>) -> numeric
+            "dot" => self.add_builtin_function(
+                func_name,
+                vec![
+                    FuncParam::new("e1", parameters[0]),
+                    FuncParam::new("e2", parameters[1]),
+                ],
+                Some(parameters[0]),
+            ),
+            // dot4U8Packed(u32, u32) -> u32
+            "dot4U8Packed" => self.add_builtin_function(
+                func_name,
+                vec![
+                    FuncParam::new("e1", ScalarType::Uint),
+                    FuncParam::new("e2", ScalarType::Uint),
+                ],
+                Some(ScalarType::Uint.into()),
+            ),
+            // dot4I8Packed(u32, u32) -> i32
+            "dot4I8Packed" => self.add_builtin_function(
+                func_name,
+                vec![
+                    FuncParam::new("e1", ScalarType::Uint),
+                    FuncParam::new("e2", ScalarType::Uint),
+                ],
+                Some(ScalarType::Int.into()),
+            ),
+            // extractBits(i32/vec<i32>, u32, u32) -> i32/vec<i32>
+            // extractBits(u32/vec<u32>, u32, u32) -> u32/vec<u32>
+            "extractBits " => self.add_builtin_function(
+                func_name,
+                vec![
+                    FuncParam::new("e", parameters[0]),
+                    FuncParam::new("offset", ScalarType::Uint),
+                    FuncParam::new("count", ScalarType::Uint),
+                ],
+                Some(parameters[0]),
+            ),
+            // normalize(vec<f32>) -> vec<f32>
+            "normalize" => self.add_builtin_function(
+                func_name,
+                vec![FuncParam::new("e", ScalarType::Float)],
+                Some(ScalarType::Float.into()),
+            ),
+            // pack4x8snorm(vec4<f32>) -> u32
+            // pack4x8unorm(vec4<f32>) -> u32
+            "pack4x8snorm" | "pack4x8unorm" => self.add_builtin_function(
+                func_name,
+                vec![FuncParam::new("e", VectorType::VEC4F)],
+                Some(ScalarType::Uint.into()),
+            ),
+            // unpack4x8snorm(u32) -> vec4<f32>
+            // unpack4x8unorm(u32) -> vec4<f32>
+            "unpack4x8snorm" | "unpack4x8unorm" => self.add_builtin_function(
+                func_name,
+                vec![FuncParam::new("e", ScalarType::Uint)],
+                Some(VectorType::VEC4F.into()),
+            ),
+            // "countLeadingZeros" | "countOneBits" | "countTrailingZeros" | "determinant"
+            _ => unimplemented!("Built-in function {} not implemented.", func_name),
+        }
+    }
+
+    /// Get an existing function from its handle.
+    #[inline]
+    pub fn get_fn(&self, func: FuncHandle) -> Option<&Func> {
+        let index = func.index();
+        self.functions.get(index)
+    }
+
+    /// Build a function call expression and append it to the module.
+    #[inline]
+    pub fn call_fn(&mut self, func: FuncHandle, args: &[ExprHandle]) -> ExprHandle {
+        let func_def = self.get_fn(func).expect("Unknown function handle.");
+        // TODO - more validation...
+        self.push(Expr::Call(CallExpr {
+            func,
+            args: args.to_vec(),
+            return_type: func_def.return_type,
+        }))
+    }
+
+    /// Build a raw code block expression and append it to the module.
+    ///
+    /// The raw `code` is expected to produce a value of type `value_type`, or
+    /// no value if `None`.
+    pub fn raw_code(&mut self, code: String, value_type: Option<ValueType>) -> ExprHandle {
+        self.push(Expr::RawCode(RawCodeExpr { code, value_type }))
+    }
 }
 
 /// Errors raised when manipulating expressions [`Expr`] and node graphs
@@ -595,11 +871,7 @@ pub enum ExprError {
     ///
     /// An unknown property was not defined in the evaluation context, which
     /// usually means that the property was not defined
-    /// with [`EffectAsset::with_property()`] or
-    /// [`EffectAsset::add_property()`].
-    ///
-    /// [`EffectAsset::with_property()`]: crate::EffectAsset::with_property
-    /// [`EffectAsset::add_property()`]: crate::EffectAsset::add_property
+    /// with [`Module::add_property()`].
     #[error("Property error: {0:?}")]
     PropertyError(String),
 
@@ -703,18 +975,189 @@ pub trait EvalContext {
     fn is_attribute_pointer(&self) -> bool;
 }
 
+/// Built-in WGSL shader function.
+///
+/// This is similar to [`naga::MathFunction`], but includes some relational
+/// functions (`all()`, `any()`) and excludes functions not supported by WGSL.
+/// This enum is also reflected (implements Bevy's [`Reflect`] trait).
+///
+/// [`Reflect`]: bevy::reflect::Reflect
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
+#[allow(missing_docs)]
+pub enum MathFunction {
+    // comparison
+    Abs,
+    Min,
+    Max,
+    Clamp,
+    Saturate,
+    // trigonometry
+    Cos,
+    Cosh,
+    Sin,
+    Sinh,
+    Tan,
+    Tanh,
+    Acos,
+    Asin,
+    Atan,
+    Atan2,
+    Asinh,
+    Acosh,
+    Atanh,
+    Radians,
+    Degrees,
+    // decomposition
+    Ceil,
+    Floor,
+    Round,
+    Fract,
+    Trunc,
+    Modf,
+    Frexp,
+    Ldexp,
+    // exponent
+    Exp,
+    Exp2,
+    Log,
+    Log2,
+    Pow,
+    // geometry
+    Dot,
+    Cross,
+    Distance,
+    Length,
+    Normalize,
+    FaceForward,
+    Reflect,
+    Refract,
+    // computational
+    Sign,
+    Fma,
+    Mix,
+    Step,
+    SmoothStep,
+    Sqrt,
+    InverseSqrt,
+    Transpose,
+    Determinant,
+    // bits
+    CountTrailingZeros,
+    CountLeadingZeros,
+    CountOneBits,
+    ReverseBits,
+    ExtractBits,
+    InsertBits,
+    FindLsb,
+    FindMsb,
+    // data packing
+    Pack4x8snorm,
+    Pack4x8unorm,
+    Pack2x16snorm,
+    Pack2x16unorm,
+    Pack2x16float,
+    // data unpacking
+    Unpack4x8snorm,
+    Unpack4x8unorm,
+    Unpack2x16snorm,
+    Unpack2x16unorm,
+    Unpack2x16float,
+    // relational
+    All,
+    Any,
+}
+
+impl ToWgslString for MathFunction {
+    fn to_wgsl_string(&self) -> String {
+        match *self {
+            MathFunction::Abs => "abs",
+            MathFunction::Acos => "acos",
+            MathFunction::Acosh => "acosh",
+            MathFunction::All => "all",
+            MathFunction::Any => "any",
+            MathFunction::Asin => "asin",
+            MathFunction::Asinh => "asinh",
+            MathFunction::Atan => "atan",
+            MathFunction::Atan2 => "atan2",
+            MathFunction::Atanh => "atanh",
+            MathFunction::Ceil => "ceil",
+            MathFunction::Clamp => "clamp",
+            MathFunction::CountLeadingZeros => "countLeadingZeros",
+            MathFunction::CountOneBits => "countOneBits",
+            MathFunction::CountTrailingZeros => "countTrailingZeros",
+            MathFunction::Cos => "cos",
+            MathFunction::Cosh => "cosh",
+            MathFunction::Cross => "cross",
+            MathFunction::Degrees => "degrees",
+            MathFunction::Determinant => "determinant",
+            MathFunction::Distance => "distance",
+            MathFunction::Dot => "dot",
+            MathFunction::Exp => "exp",
+            MathFunction::Exp2 => "exp2",
+            MathFunction::ExtractBits => "extractBits",
+            MathFunction::FaceForward => "faceForward",
+            MathFunction::FindLsb => "findLsb",
+            MathFunction::FindMsb => "findMsb",
+            MathFunction::Floor => "floor",
+            MathFunction::Fma => "fma",
+            MathFunction::Fract => "fract",
+            MathFunction::Frexp => "frexp",
+            MathFunction::InsertBits => "insertBits",
+            MathFunction::InverseSqrt => "inverseSqrt",
+            MathFunction::Ldexp => "ldexp",
+            MathFunction::Length => "length",
+            MathFunction::Log => "log",
+            MathFunction::Log2 => "log2",
+            MathFunction::Max => "max",
+            MathFunction::Min => "min",
+            MathFunction::Mix => "mix",
+            MathFunction::Modf => "modf",
+            MathFunction::Normalize => "normalize",
+            MathFunction::Pack2x16float => "pack2x16float",
+            MathFunction::Pack2x16snorm => "pack2x16snorm",
+            MathFunction::Pack2x16unorm => "pack2x16unorm",
+            MathFunction::Pack4x8snorm => "pack4x8snorm",
+            MathFunction::Pack4x8unorm => "pack4x8unorm",
+            MathFunction::Pow => "pow",
+            MathFunction::Radians => "radians",
+            MathFunction::Reflect => "reflect",
+            MathFunction::Refract => "refract",
+            MathFunction::ReverseBits => "reverseBits",
+            MathFunction::Round => "round",
+            MathFunction::Saturate => "saturate",
+            MathFunction::Sign => "sign",
+            MathFunction::Sin => "sin",
+            MathFunction::Sinh => "sinh",
+            MathFunction::SmoothStep => "smoothstep",
+            MathFunction::Sqrt => "sqrt",
+            MathFunction::Step => "step",
+            MathFunction::Tan => "tan",
+            MathFunction::Tanh => "tanh",
+            MathFunction::Transpose => "transpose",
+            MathFunction::Trunc => "trunc",
+            MathFunction::Unpack2x16float => "unpack2x16float",
+            MathFunction::Unpack2x16snorm => "unpack2x16snorm",
+            MathFunction::Unpack2x16unorm => "unpack2x16unorm",
+            MathFunction::Unpack4x8snorm => "unpack4x8snorm",
+            MathFunction::Unpack4x8unorm => "unpack4x8unorm",
+        }
+        .to_string()
+    }
+}
+
 /// Language expression producing a value.
-#[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub enum Expr {
     /// Built-in expression ([`BuiltInExpr`]).
     ///
     /// A built-in expression provides access to some internal
-    /// quantities like the simulation time.
+    /// quantities like the simulation time, or built-in functions like `max()`.
     BuiltIn(BuiltInExpr),
 
     /// Literal expression ([`LiteralExpr`]).
     ///
-    /// A literal expression represents a shader constants.
+    /// A literal expression represents a shader constant, like `3.0` or
+    /// `vec3<f32>(-5.0, 2.5, 3.2)`.
     Literal(LiteralExpr),
 
     /// Property expression ([`PropertyExpr`]).
@@ -730,6 +1173,11 @@ pub enum Expr {
     /// An attribute expression represents the value of an attribute for a
     /// particle, like its position or velocity.
     Attribute(AttributeExpr),
+
+    /// Call to a [`MathFunction`].
+    ///
+    /// Math functions are built-in functions provided by the WGSL language.
+    Math(MathExpr),
 
     /// Unary operation expression.
     ///
@@ -771,6 +1219,18 @@ pub enum Expr {
     ///
     /// An expression to cast an expression to another type.
     Cast(CastExpr),
+
+    /// Function call expression.
+    ///
+    /// An expression to call a function with some arguments, and optionally
+    /// retrieve a result.
+    Call(CallExpr),
+
+    /// Raw code expression.
+    ///
+    /// An expression encapsulating a raw WGSL block of code. This acts as an
+    /// escape hatch for features not yet supported.
+    RawCode(RawCodeExpr),
 }
 
 impl Expr {
@@ -806,6 +1266,7 @@ impl Expr {
             Expr::Literal(expr) => expr.is_const(),
             Expr::Property(expr) => expr.is_const(),
             Expr::Attribute(expr) => expr.is_const(),
+            Expr::Math(expr) => expr.is_const(module),
             Expr::Unary { expr, .. } => module.is_const(*expr),
             Expr::Binary { left, right, .. } => module.is_const(*left) && module.is_const(*right),
             Expr::Ternary {
@@ -815,6 +1276,8 @@ impl Expr {
                 ..
             } => module.is_const(*first) && module.is_const(*second) && module.is_const(*third),
             Expr::Cast(expr) => module.is_const(expr.inner),
+            Expr::Call(_) => false, // TODO - handle pure functions with const arguments?
+            Expr::RawCode(_) => false,
         }
     }
 
@@ -829,6 +1292,7 @@ impl Expr {
             Expr::Literal(_) => false,
             Expr::Property(_) => false,
             Expr::Attribute(_) => false,
+            Expr::Math { .. } => true, // TODO - handle pure functions?
             Expr::Unary { expr, .. } => module.has_side_effect(*expr),
             Expr::Binary { left, right, op } => {
                 (*op == BinaryOperator::UniformRand)
@@ -846,35 +1310,38 @@ impl Expr {
                     || module.has_side_effect(*third)
             }
             Expr::Cast(expr) => module.has_side_effect(expr.inner),
+            Expr::Call(_) => true, // TODO - handle pure functions?
+            Expr::RawCode(_) => true,
         }
     }
 
     /// The type of the value produced by the expression.
     ///
-    /// If the type is variable and depends on the runtime evaluation context,
-    /// this returns `None`. In that case the type needs to be obtained by
-    /// evaluating the expression with [`eval()`].
+    /// If the expression produced no value, like for example an `Expr::Call` to
+    /// a function without a return value, then this returns `None`.
     ///
     /// # Example
     ///
     /// ```
     /// # use bevy_hanabi::*;
+    /// # let mut module = Module::default();
     /// // Literal expressions always have a constant, build-time value type.
     /// let expr = Expr::Literal(LiteralExpr::new(1.));
-    /// assert_eq!(expr.value_type(), Some(ValueType::Scalar(ScalarType::Float)));
+    /// assert_eq!(expr.value_type(&module), Some(ValueType::Scalar(ScalarType::Float)));
     /// ```
-    ///
-    /// [`eval()`]: crate::graph::Expr::eval
-    pub fn value_type(&self) -> Option<ValueType> {
+    pub fn value_type(&self, module: &Module) -> Option<ValueType> {
         match self {
             Expr::BuiltIn(expr) => Some(expr.value_type()),
             Expr::Literal(expr) => Some(expr.value_type()),
-            Expr::Property(_) => None,
+            Expr::Property(expr) => Some(expr.value_type(module)),
             Expr::Attribute(expr) => Some(expr.value_type()),
-            Expr::Unary { .. } => None,
-            Expr::Binary { .. } => None,
-            Expr::Ternary { .. } => None,
+            Expr::Math(expr) => Some(expr.value_type(module)),
+            Expr::Unary { expr, .. } => module.get(*expr).unwrap().value_type(module),
+            Expr::Binary { left, .. } => module.get(*left).unwrap().value_type(module),
+            Expr::Ternary { first, .. } => module.get(*first).unwrap().value_type(module),
             Expr::Cast(expr) => Some(expr.value_type()),
+            Expr::Call(expr) => expr.return_type,
+            Expr::RawCode(expr) => expr.value_type,
         }
     }
 
@@ -909,6 +1376,7 @@ impl Expr {
             Expr::Literal(expr) => expr.eval(context),
             Expr::Property(expr) => expr.eval(module, context),
             Expr::Attribute(expr) => expr.eval(context),
+            Expr::Math(expr) => expr.eval(module, context),
             Expr::Unary { op, expr } => {
                 // Recursively evaluate child expressions throught the context to ensure caching
                 let expr = context.eval(module, *expr)?;
@@ -940,8 +1408,8 @@ impl Expr {
 
                 if op.is_functional() {
                     if op.needs_type_suffix() {
-                        let lhs_type = module.get(*left).and_then(|arg| arg.value_type());
-                        let rhs_type = module.get(*right).and_then(|arg| arg.value_type());
+                        let lhs_type = module.get(*left).and_then(|arg| arg.value_type(module));
+                        let rhs_type = module.get(*right).and_then(|arg| arg.value_type(module));
                         if lhs_type.is_none() || rhs_type.is_none() {
                             return Err(ExprError::TypeError(
                                 "Can't determine the type of the operand".to_string(),
@@ -1025,6 +1493,8 @@ impl Expr {
 
                 Ok(format!("{}({})", expr.target.to_wgsl_string(), inner))
             }
+            Expr::Call(expr) => expr.eval(module, context),
+            Expr::RawCode(expr) => Ok(expr.code.clone()),
         }
     }
 }
@@ -1136,6 +1606,132 @@ impl From<Attribute> for AttributeExpr {
     }
 }
 
+/// Expression representing a call to a built-in [`MathFunction`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct MathExpr {
+    /// Function to call.
+    pub func: MathFunction,
+    /// First function argument.
+    pub arg0: ExprHandle,
+    /// Optional second function argument.
+    pub arg1: Option<ExprHandle>,
+    /// Optional third function argument.
+    pub arg2: Option<ExprHandle>,
+    /// Optional fourth function argument.
+    pub arg3: Option<ExprHandle>,
+}
+
+impl MathExpr {
+    /// Is the expression resulting in a compile-time constant which can be
+    /// hard-coded into a shader's code?
+    pub fn is_const(&self, module: &Module) -> bool {
+        // All math functions are pure functions, so the output is const if all inputs
+        // are
+        module.is_const(self.arg0)
+            && self.arg1.map(|expr| module.is_const(expr)).unwrap_or(false)
+            && self.arg2.map(|expr| module.is_const(expr)).unwrap_or(false)
+            && self.arg3.map(|expr| module.is_const(expr)).unwrap_or(false)
+    }
+
+    /// Get the value type of the expression.
+    pub fn value_type(&self, module: &Module) -> ValueType {
+        match self.func {
+            // Note: we list explicitly to make sure we don't forget any
+            MathFunction::Abs
+            | MathFunction::Acos
+            | MathFunction::Acosh
+            | MathFunction::Asin
+            | MathFunction::Asinh
+            | MathFunction::Atan
+            | MathFunction::Atan2
+            | MathFunction::Atanh
+            | MathFunction::Ceil
+            | MathFunction::Clamp
+            | MathFunction::CountLeadingZeros
+            | MathFunction::CountOneBits
+            | MathFunction::CountTrailingZeros
+            | MathFunction::Cos
+            | MathFunction::Cosh
+            | MathFunction::Degrees
+            | MathFunction::Dot
+            | MathFunction::Exp
+            | MathFunction::Exp2
+            | MathFunction::ExtractBits
+            | MathFunction::FaceForward
+            | MathFunction::FindLsb
+            | MathFunction::FindMsb
+            | MathFunction::Floor
+            | MathFunction::Fma
+            | MathFunction::Fract
+            | MathFunction::InsertBits
+            | MathFunction::InverseSqrt
+            | MathFunction::Ldexp
+            | MathFunction::Length
+            | MathFunction::Log
+            | MathFunction::Log2
+            | MathFunction::Max
+            | MathFunction::Min
+            | MathFunction::Mix
+            | MathFunction::Pow
+            | MathFunction::Radians
+            | MathFunction::Reflect
+            | MathFunction::Refract
+            | MathFunction::ReverseBits
+            | MathFunction::Round
+            | MathFunction::Saturate
+            | MathFunction::Sign
+            | MathFunction::Sin
+            | MathFunction::Sinh
+            | MathFunction::SmoothStep
+            | MathFunction::Sqrt
+            | MathFunction::Step
+            | MathFunction::Tan
+            | MathFunction::Tanh
+            | MathFunction::Trunc => module.get(self.arg0).unwrap().value_type(module).unwrap(),
+            MathFunction::All | MathFunction::Any => ScalarType::Bool.into(),
+            MathFunction::Cross => VectorType::VEC3F.into(),
+            MathFunction::Normalize => ScalarType::Float.into(),
+            MathFunction::Pack4x8snorm
+            | MathFunction::Pack4x8unorm
+            | MathFunction::Pack2x16snorm
+            | MathFunction::Pack2x16unorm
+            | MathFunction::Pack2x16float => ScalarType::Uint.into(),
+            MathFunction::Unpack4x8snorm | MathFunction::Unpack4x8unorm => VectorType::VEC4F.into(),
+            MathFunction::Unpack2x16float
+            | MathFunction::Unpack2x16snorm
+            | MathFunction::Unpack2x16unorm => VectorType::VEC2F.into(),
+            MathFunction::Determinant => todo!(),
+            MathFunction::Distance => todo!(),
+            MathFunction::Transpose => todo!(),
+            MathFunction::Modf | MathFunction::Frexp => unimplemented!(
+                "Can't implement right now, this returns an implementation-defined type"
+            ),
+        }
+    }
+
+    /// Evaluate the expression in the given context.
+    pub fn eval(
+        &self,
+        module: &Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
+        let mut args = context.eval(module, self.arg0)?;
+        if let Some(arg1) = self.arg1 {
+            args += &", ";
+            args += &context.eval(module, arg1)?;
+        }
+        if let Some(arg2) = self.arg2 {
+            args += &", ";
+            args += &context.eval(module, arg2)?;
+        }
+        if let Some(arg3) = self.arg3 {
+            args += &", ";
+            args += &context.eval(module, arg3)?;
+        }
+        Ok(format!("{}({})", self.func.to_wgsl_string(), args))
+    }
+}
+
 /// Expression representing the value of a property of an effect.
 ///
 /// A property expression represents the value of the property at the time the
@@ -1162,6 +1758,10 @@ impl PropertyExpr {
     /// hard-coded into a shader's code?
     fn is_const(&self) -> bool {
         false
+    }
+
+    fn value_type(&self, module: &Module) -> ValueType {
+        module.get_property(self.property).unwrap().value_type()
     }
 
     /// Evaluate the expression in the given context.
@@ -1221,7 +1821,7 @@ impl CastExpr {
         let Some(inner) = module.get(self.inner) else {
             return Some(false);
         };
-        if let Some(inner_type) = inner.value_type() {
+        if let Some(inner_type) = inner.value_type(module) {
             match self.target {
                 ValueType::Scalar(_) => {
                     // scalar -> scalar only
@@ -1240,6 +1840,61 @@ impl CastExpr {
             None
         }
     }
+}
+
+/// Expression representing a call to a function.
+///
+/// The call expressions represents a single call to the given function,
+/// represented by its [`FuncHandle`]. The function must be declared first via
+/// [`Module::add_fn()`].
+///
+/// The function call takes the given arguments, and optionally return a result,
+/// depending on the actual function signature.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct CallExpr {
+    /// Function to call.
+    pub func: FuncHandle,
+    /// Arguments.
+    pub args: Vec<ExprHandle>,
+    /// Type of the value return by the function, if any.
+    pub return_type: Option<ValueType>,
+}
+
+impl CallExpr {
+    /// Evaluate the expression in the given context.
+    fn eval(&self, module: &Module, context: &mut dyn EvalContext) -> Result<String, ExprError> {
+        // Recursively evaluate argument expressions throught the context to ensure
+        // caching
+        let args = self.args.iter().try_fold(String::new(), |mut acc, arg| {
+            let str = context.eval(module, *arg)?;
+            if !acc.is_empty() {
+                acc += &", ";
+            }
+            acc += &str;
+            Ok(acc)
+        })?;
+
+        let func = module
+            .get_fn(self.func)
+            .ok_or(ExprError::InvalidExprHandleError(
+                "Unknown function".to_string(),
+            ))?;
+
+        Ok(format!("{}({})", func.name(), args))
+    }
+}
+
+/// Expression representing a raw WGSL code block.
+///
+/// This acts as an escape hatch for any feature not otherwise implemented as an
+/// expression, but should be used as last resort as there's no validation
+/// whatsoever that the emitted code is well formed.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct RawCodeExpr {
+    /// WGSL code.
+    pub code: String,
+    /// Type of the value produced by the expresion, if any.
+    pub value_type: Option<ValueType>,
 }
 
 /// Built-in operators.
@@ -1429,149 +2084,6 @@ impl ToWgslString for BuiltInExpr {
 /// depend on the operator itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum UnaryOperator {
-    /// Absolute value operator.
-    ///
-    /// Return the absolute value of the operand, component-wise for vectors.
-    /// Only valid for numeric operands.
-    Abs,
-
-    /// Logical ALL operator for bool vectors.
-    ///
-    /// Return `true` if all the components of the bool vector operand are
-    /// `true`. Invalid for any other type of operand.
-    All,
-
-    /// Logical ANY operator for bool vectors.
-    ///
-    /// Return `true` if any component of the bool vector operand is `true`.
-    /// Invalid for any other type of operand.
-    Any,
-
-    /// Ceiling operator.
-    ///
-    /// Return the unique integral number `k` such that `k-1 < x <= k`, where
-    /// `x` is the operand which the operator applies to.
-    Ceil,
-
-    /// Cosine operator.
-    Cos,
-
-    /// Natural exponent operator.
-    ///
-    /// Return the natural exponentiation of the operand (`e^x`), component-wise
-    /// for vectors.
-    Exp,
-
-    /// Base-2 exponent operator.
-    ///
-    /// Return two raised to the power of the operand (`2^x`), component-wise
-    /// for vectors.
-    Exp2,
-
-    /// Floor operator.
-    ///
-    /// Return the unique integral number `k` such that `k <= x < k+1`, where
-    /// `x` is the operand which the operator applies to.
-    Floor,
-
-    /// Fractional part operator.
-    ///
-    /// Return the fractional part of the operand, which is equal to `x -
-    /// floor(x)`, component-wise for vectors.
-    Fract,
-
-    /// Inverse square root operator.
-    ///
-    /// Return the inverse square root of the floating-point operand (`1.0 /
-    /// sqrt(x)`), component-wise for vectors.
-    InvSqrt,
-
-    /// Length operator.
-    ///
-    /// Return the length of a floating point scalar or vector. The "length" of
-    /// a scalar is taken as its absolute value. The length of a vector is the
-    /// Euclidian distance `sqrt(x^2 + ...)` (square root of the sum of the
-    /// squared components).
-    ///
-    /// The output is always a floating point scalar.
-    Length,
-
-    /// Natural logarithm operator.
-    ///
-    /// Return the natural logarithm of the operand (`log(x)`), component-wise
-    /// for vectors.
-    Log,
-
-    /// Base-2 logarithm operator.
-    ///
-    /// Return the base-2 logarithm of the operand (`log2(x)`), component-wise
-    /// for vectors.
-    Log2,
-
-    /// Vector normalizing operator.
-    ///
-    /// Normalize the given numeric vector. Only valid for numeric vector
-    /// operands.
-    Normalize,
-
-    /// Packing operator from `vec4<f32>` to `u32` (signed normalized).
-    ///
-    /// Convert the four components of a signed normalized floating point vector
-    /// into a signed integral `i8` value in `[-128:127]`, then pack those
-    /// four values into a single `u32`. Each vector component should be in
-    /// `[-1:1]` before packing; values outside this range are clamped.
-    Pack4x8snorm,
-
-    /// Packing operator from `vec4<f32>` to `u32` (unsigned normalized).
-    ///
-    /// Convert the four components of an unsigned normalized floating point
-    /// vector into an unsigned integral `u8` value in `[0:255]`, then pack
-    /// those four values into a single `u32`. Each vector component should
-    /// be in `[0:1]` before packing; values outside this range are clamped.
-    Pack4x8unorm,
-
-    /// Saturate operator.
-    ///
-    /// Clamp the value of the operand to the \[0:1\] range, component-wise for
-    /// vectors.
-    Saturate,
-
-    /// Sign operator.
-    ///
-    /// Return a value representing the sign of a floating point scalar or
-    /// vector input:
-    /// - `1.` if the operand is > 0
-    /// - `0.` if the operand is = 0
-    /// - `-1.` if the operand is < 0
-    ///
-    /// Applies component-wise for vectors.
-    Sign,
-
-    /// Sine operator.
-    Sin,
-
-    /// Square root operator.
-    ///
-    /// Return the square root of the floating-point operand, component-wise for
-    /// vectors.
-    Sqrt,
-
-    /// Tangent operator.
-    Tan,
-
-    /// Unpacking operator from `u32` to `vec4<f32>` (signed normalized).
-    ///
-    /// Unpack the `u32` into four signed integral `i8` value in `[-128:127]`,
-    /// then convert each value to a signed normalized `f32` value in `[-1:1]`.
-    Unpack4x8snorm,
-
-    /// Unpacking operator from `u32` to `vec4<f32>` (unsigned normalized).
-    ///
-    /// Unpack the `u32` into four unsigned integral `u8` value in `[0:255]`,
-    /// then convert each value to an unsigned normalized `f32` value in
-    /// `[0:1]`.
-    Unpack4x8unorm,
-
     /// Get the fourth component of a vector.
     ///
     /// This is only valid for vectors of rank 4.
@@ -1610,29 +2122,6 @@ impl UnaryOperator {
 impl ToWgslString for UnaryOperator {
     fn to_wgsl_string(&self) -> String {
         match *self {
-            UnaryOperator::Abs => "abs".to_string(),
-            UnaryOperator::All => "all".to_string(),
-            UnaryOperator::Any => "any".to_string(),
-            UnaryOperator::Ceil => "ceil".to_string(),
-            UnaryOperator::Cos => "cos".to_string(),
-            UnaryOperator::Exp => "exp".to_string(),
-            UnaryOperator::Exp2 => "exp2".to_string(),
-            UnaryOperator::Floor => "floor".to_string(),
-            UnaryOperator::Fract => "fract".to_string(),
-            UnaryOperator::InvSqrt => "inverseSqrt".to_string(),
-            UnaryOperator::Length => "length".to_string(),
-            UnaryOperator::Log => "log".to_string(),
-            UnaryOperator::Log2 => "log2".to_string(),
-            UnaryOperator::Normalize => "normalize".to_string(),
-            UnaryOperator::Pack4x8snorm => "pack4x8snorm".to_string(),
-            UnaryOperator::Pack4x8unorm => "pack4x8unorm".to_string(),
-            UnaryOperator::Saturate => "saturate".to_string(),
-            UnaryOperator::Sign => "sign".to_string(),
-            UnaryOperator::Sin => "sin".to_string(),
-            UnaryOperator::Sqrt => "sqrt".to_string(),
-            UnaryOperator::Tan => "tan".to_string(),
-            UnaryOperator::Unpack4x8snorm => "unpack4x8snorm".to_string(),
-            UnaryOperator::Unpack4x8unorm => "unpack4x8unorm".to_string(),
             UnaryOperator::W => "w".to_string(),
             UnaryOperator::X => "x".to_string(),
             UnaryOperator::Y => "y".to_string(),
@@ -1653,30 +2142,11 @@ pub enum BinaryOperator {
     /// Returns the sum of its operands. Only valid for numeric operands.
     Add,
 
-    /// Cross product operator.
-    ///
-    /// Returns the cross product of the left and right operands. Only valid for
-    /// vector type operands of size 3. Always produce a vector result of the
-    /// same size.
-    Cross,
-
-    /// Distance operator.
-    ///
-    /// Returns the distance between two floating point scalar or vectors, that
-    /// is `length(right - left)`.
-    Distance,
-
     /// Division operator.
     ///
     /// Returns the left operand divided by the right operand. Only valid for
     /// numeric operands.
     Div,
-
-    /// Dot product operator.
-    ///
-    /// Returns the dot product of the left and right operands. Only valid for
-    /// vector type operands. Always produce a scalar floating-point result.
-    Dot,
 
     /// Greater-than operator.
     ///
@@ -1710,22 +2180,6 @@ pub enum BinaryOperator {
     /// that rank.
     LessThanOrEqual,
 
-    /// Maximum operator.
-    ///
-    /// Returns the maximum value of its left and right operands. Only valid for
-    /// numeric types. If the operands are vectors, they must be of the same
-    /// rank, and the result is a vector of that rank and same element
-    /// scalar type.
-    Max,
-
-    /// Minimum operator.
-    ///
-    /// Returns the minimum value of its left and right operands. Only valid for
-    /// numeric types. If the operands are vectors, they must be of the same
-    /// rank, and the result is a vector of that rank and same element
-    /// scalar type.
-    Min,
-
     /// Multiply operator.
     ///
     /// Returns the product of its operands. Only valid for numeric operands.
@@ -1738,13 +2192,6 @@ pub enum BinaryOperator {
     /// they must be of the same rank, and the result is a vector of that
     /// rank and same element scalar type.
     Remainder,
-
-    /// Stepping operator.
-    ///
-    /// Returns `1.0` if the left operand is less than or equal to the right
-    /// operand, or `0.0` otherwise. Only valid for floating scalar or vectors
-    /// of the same rank, and applied component-wise for vectors.
-    Step,
 
     /// Subtraction operator.
     ///
@@ -1788,14 +2235,7 @@ impl BinaryOperator {
             | BinaryOperator::Mul
             | BinaryOperator::Remainder
             | BinaryOperator::Sub => false,
-            BinaryOperator::Cross
-            | BinaryOperator::Distance
-            | BinaryOperator::Dot
-            | BinaryOperator::Max
-            | BinaryOperator::Min
-            | BinaryOperator::Step
-            | BinaryOperator::UniformRand
-            | BinaryOperator::Vec2 => true,
+            BinaryOperator::UniformRand | BinaryOperator::Vec2 => true,
         }
     }
 
@@ -1813,24 +2253,19 @@ impl BinaryOperator {
 impl ToWgslString for BinaryOperator {
     fn to_wgsl_string(&self) -> String {
         match *self {
-            BinaryOperator::Add => "+".to_string(),
-            BinaryOperator::Cross => "cross".to_string(),
-            BinaryOperator::Distance => "distance".to_string(),
-            BinaryOperator::Div => "/".to_string(),
-            BinaryOperator::Dot => "dot".to_string(),
-            BinaryOperator::GreaterThan => ">".to_string(),
-            BinaryOperator::GreaterThanOrEqual => ">=".to_string(),
-            BinaryOperator::LessThan => "<".to_string(),
-            BinaryOperator::LessThanOrEqual => "<=".to_string(),
-            BinaryOperator::Max => "max".to_string(),
-            BinaryOperator::Min => "min".to_string(),
-            BinaryOperator::Mul => "*".to_string(),
-            BinaryOperator::Remainder => "%".to_string(),
-            BinaryOperator::Step => "step".to_string(),
-            BinaryOperator::Sub => "-".to_string(),
-            BinaryOperator::UniformRand => "rand_uniform".to_string(),
-            BinaryOperator::Vec2 => "vec2".to_string(),
+            BinaryOperator::Add => "+",
+            BinaryOperator::Div => "/",
+            BinaryOperator::GreaterThan => ">",
+            BinaryOperator::GreaterThanOrEqual => ">=",
+            BinaryOperator::LessThan => "<",
+            BinaryOperator::LessThanOrEqual => "<=",
+            BinaryOperator::Mul => "*",
+            BinaryOperator::Remainder => "%",
+            BinaryOperator::Sub => "-",
+            BinaryOperator::UniformRand => "rand_uniform",
+            BinaryOperator::Vec2 => "vec2",
         }
+        .to_string()
     }
 }
 
@@ -1841,31 +2276,6 @@ impl ToWgslString for BinaryOperator {
 /// operator itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum TernaryOperator {
-    /// Linear blend ("mix") operator.
-    ///
-    /// Returns the linear blend between the first and second argument, based on
-    /// the fraction of the third argument. If the operands are vectors, they
-    /// must be of the same rank, and the result is a vector of that rank
-    /// and same element scalar type.
-    ///
-    /// The linear blend of `x` and `y` with fraction `t` is equivalent to `x *
-    /// (1 - t) + y * t`.
-    Mix,
-
-    /// Smooth stepping operator.
-    ///
-    /// Returns the smooth Hermitian interpolation between the first and second
-    /// argument, calculated at the third argument. If the operands are vectors,
-    /// they must be of the same rank, and the result is a vector of that
-    /// rank and same element scalar type.
-    ///
-    /// The smooth stepping of `low` and `high` at position `x` is equivalent to
-    /// `t * t * (3. - 2. * t)` where `t = clamp((x - low) / (high - low))`
-    /// represents the fractional position of `x` between `low` and `high`.
-    ///
-    /// The result is always a floating point scalar in \[0:1\].
-    SmoothStep,
-
     /// Constructor for 3-element vectors.
     ///
     /// Given three scalar elements `x`, `y`, and `z`, returns the vector
@@ -1876,8 +2286,6 @@ pub enum TernaryOperator {
 impl ToWgslString for TernaryOperator {
     fn to_wgsl_string(&self) -> String {
         match *self {
-            TernaryOperator::Mix => "mix".to_string(),
-            TernaryOperator::SmoothStep => "smoothstep".to_string(),
             TernaryOperator::Vec3 => "vec3".to_string(),
         }
     }
@@ -1887,13 +2295,15 @@ impl ToWgslString for TernaryOperator {
 ///
 /// Utility to write expressions with a simple functional syntax. Expressions
 /// created with the writer are gatherned into a [`Module`] which can be
-/// transfered once [`finish()`]ed to initialize an [`EffectAsset`].
+/// retrieved with [`finish()`] once done, for example to initialize an
+/// [`EffectAsset`].
 ///
 /// Because an [`EffectAsset`] contains a single [`Module`], you generally want
 /// to keep using the same [`ExprWriter`] to write all the expressions used by
 /// all the [`Modifer`]s assigned to a given [`EffectAsset`], and only then once
 /// done call [`finish()`] to recover the [`ExprWriter`]'s underlying [`Module`]
-/// to assign it to the [`EffectAsset`].
+/// to assign it to the [`EffectAsset`]. Alternatively, you can re-wrap an
+/// existing [`Module`] with `From<Module>`.
 ///
 /// # Example
 ///
@@ -1913,8 +2323,11 @@ impl ToWgslString for TernaryOperator {
 /// // Create a modifier and assign the expression to one of its input(s)
 /// let init_modifier = SetAttributeModifier::new(Attribute::LIFETIME, expr);
 ///
+/// // Finalize the writer and release the written module
+/// let module = w.finish();
+///
 /// // Create an EffectAsset with the modifier and the Module from the writer
-/// let effect = EffectAsset::new(vec![1024], Spawner::rate(32_f32.into()), w.finish())
+/// let effect = EffectAsset::new(vec![1024], Spawner::rate(32_f32.into()), module)
 ///     .init(init_modifier);
 /// ```
 ///
@@ -1931,8 +2344,15 @@ impl ExprWriter {
     /// Create a new writer.
     ///
     /// The writer owns a new [`Module`] internally, and write all expressions
-    /// to it. The module can be released to the user with [`finish()`] once
-    /// done using the writer.
+    /// to it. The module can be released with [`finish()`] once done using the
+    /// writer.
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut w = ExprWriter::new();
+    /// // [...]
+    /// let module = w.finish();
+    /// ```
     ///
     /// [`finish()`]: ExprWriter::finish
     pub fn new() -> Self {
@@ -1949,6 +2369,9 @@ impl ExprWriter {
     /// same [`ExprWriter`] to write all expressions of the same
     /// [`EffectAsset`].
     ///
+    /// Alternatively, use `From<Module>` to wrap an existing [`Module`] into a
+    /// new [`ExprWriter`].
+    ///
     /// [`EffectAsset`]: crate::EffectAsset
     pub fn from_module(module: Rc<RefCell<Module>>) -> Self {
         Self { module }
@@ -1956,7 +2379,8 @@ impl ExprWriter {
 
     /// Add a new property.
     ///
-    /// See [`Property`] for more details on what effect properties are.
+    /// Declare a new property and add it to the underlying [`Module`]. See
+    /// [`Property`] for more details on what effect properties are.
     ///
     /// # Panics
     ///
@@ -2113,6 +2537,14 @@ impl ExprWriter {
     }
 }
 
+impl From<Module> for ExprWriter {
+    fn from(value: Module) -> Self {
+        Self {
+            module: Rc::new(RefCell::new(value)),
+        }
+    }
+}
+
 /// Intermediate expression from an [`ExprWriter`].
 ///
 /// A writer expression [`WriterExpr`] is equivalent to an [`ExprHandle`], but
@@ -2168,6 +2600,65 @@ impl WriterExpr {
         }
     }
 
+    fn unary_math_fn(self, func: MathFunction) -> Self {
+        let expr = self.module.borrow_mut().math_fn(func, &[self.expr]);
+        WriterExpr {
+            expr,
+            module: self.module,
+        }
+    }
+
+    fn binary_math_fn(self, func: MathFunction, arg1: Self) -> Self {
+        assert_eq!(self.module, arg1.module);
+        let arg0 = self.expr;
+        let arg1 = arg1.expr;
+        let expr = self.module.borrow_mut().math_fn(func, &[arg0, arg1]);
+        WriterExpr {
+            expr,
+            module: self.module,
+        }
+    }
+
+    fn ternary_math_fn(self, func: MathFunction, arg1: Self, arg2: Self) -> Self {
+        assert_eq!(self.module, arg1.module);
+        assert_eq!(self.module, arg2.module);
+        let arg0 = self.expr;
+        let arg1 = arg1.expr;
+        let arg2 = arg2.expr;
+        let expr = self.module.borrow_mut().math_fn(func, &[arg0, arg1, arg2]);
+        WriterExpr {
+            expr,
+            module: self.module,
+        }
+    }
+
+    /// Call a single-argument function with the given name.
+    ///
+    /// The argument is the expression contained in this [`WriterExpr`]. Its
+    /// value type determines the function overload called.
+    #[allow(dead_code)]
+    fn call_unary_fn(self, func_name: &str) -> Self {
+        let inner_type = {
+            let m = self.module.borrow();
+            let inner = m.get(self.expr).unwrap();
+            inner.value_type(&*m).unwrap()
+        };
+        let func = self
+            .module
+            .borrow_mut()
+            .get_or_create_builtin_function(func_name, &[inner_type]);
+        let return_type = self.module.borrow().get_fn(func).unwrap().return_type();
+        let expr = self.module.borrow_mut().push(Expr::Call(CallExpr {
+            func,
+            args: vec![self.expr],
+            return_type,
+        }));
+        WriterExpr {
+            expr,
+            module: self.module,
+        }
+    }
+
     /// Take the absolute value of the current expression.
     ///
     /// This is a unary operator, which applies component-wise to vector and
@@ -2186,7 +2677,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn abs(self) -> Self {
-        self.unary_op(UnaryOperator::Abs)
+        self.unary_math_fn(MathFunction::Abs)
     }
 
     /// Apply the logical operator "all" to the current bool vector expression.
@@ -2208,7 +2699,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn all(self) -> Self {
-        self.unary_op(UnaryOperator::All)
+        self.unary_math_fn(MathFunction::All)
     }
 
     /// Apply the logical operator "any" to the current bool vector expression.
@@ -2230,7 +2721,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn any(self) -> Self {
-        self.unary_op(UnaryOperator::Any)
+        self.unary_math_fn(MathFunction::Any)
     }
 
     /// Apply the "ceil" operator to the current float scalar or vector
@@ -2254,7 +2745,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn ceil(self) -> Self {
-        self.unary_op(UnaryOperator::Ceil)
+        self.unary_math_fn(MathFunction::Ceil)
     }
 
     /// Apply the "cos" operator to the current float scalar or vector
@@ -2278,7 +2769,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn cos(self) -> Self {
-        self.unary_op(UnaryOperator::Cos)
+        self.unary_math_fn(MathFunction::Cos)
     }
 
     /// Apply the "exp" operator to the current float scalar or vector
@@ -2302,7 +2793,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn exp(self) -> Self {
-        self.unary_op(UnaryOperator::Exp)
+        self.unary_math_fn(MathFunction::Exp)
     }
 
     /// Apply the "exp2" operator to the current float scalar or vector
@@ -2326,7 +2817,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn exp2(self) -> Self {
-        self.unary_op(UnaryOperator::Exp2)
+        self.unary_math_fn(MathFunction::Exp2)
     }
 
     /// Apply the "floor" operator to the current float scalar or vector
@@ -2350,7 +2841,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn floor(self) -> Self {
-        self.unary_op(UnaryOperator::Floor)
+        self.unary_math_fn(MathFunction::Floor)
     }
 
     /// Apply the "fract" operator to the current float scalar or vector
@@ -2374,7 +2865,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn fract(self) -> Self {
-        self.unary_op(UnaryOperator::Fract)
+        self.unary_math_fn(MathFunction::Fract)
     }
 
     /// Apply the "inverseSqrt" (inverse square root) operator to the current
@@ -2398,7 +2889,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn inverse_sqrt(self) -> Self {
-        self.unary_op(UnaryOperator::InvSqrt)
+        self.unary_math_fn(MathFunction::InverseSqrt)
     }
 
     /// Apply the "length" operator to the current float scalar or vector
@@ -2422,7 +2913,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn length(self) -> Self {
-        self.unary_op(UnaryOperator::Length)
+        self.unary_math_fn(MathFunction::Length)
     }
 
     /// Apply the "log" operator to the current float scalar or vector
@@ -2446,7 +2937,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn log(self) -> Self {
-        self.unary_op(UnaryOperator::Log)
+        self.unary_math_fn(MathFunction::Log)
     }
 
     /// Apply the "log2" operator to the current float scalar or vector
@@ -2470,7 +2961,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn log2(self) -> Self {
-        self.unary_op(UnaryOperator::Log2)
+        self.unary_math_fn(MathFunction::Log2)
     }
 
     /// Apply the "normalize" operator to the current float vector expression.
@@ -2493,7 +2984,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn normalized(self) -> Self {
-        self.unary_op(UnaryOperator::Normalize)
+        self.unary_math_fn(MathFunction::Normalize)
     }
 
     /// Apply the "pack4x8snorm" operator to the current 4-component float
@@ -2516,7 +3007,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn pack4x8snorm(self) -> Self {
-        self.unary_op(UnaryOperator::Pack4x8snorm)
+        self.unary_math_fn(MathFunction::Pack4x8snorm)
     }
 
     /// Apply the "pack4x8unorm" operator to the current 4-component float
@@ -2539,7 +3030,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn pack4x8unorm(self) -> Self {
-        self.unary_op(UnaryOperator::Pack4x8unorm)
+        self.unary_math_fn(MathFunction::Pack4x8unorm)
     }
 
     /// Apply the "sign" operator to the current float scalar or vector
@@ -2563,7 +3054,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn sign(self) -> Self {
-        self.unary_op(UnaryOperator::Sign)
+        self.unary_math_fn(MathFunction::Sign)
     }
 
     /// Apply the "sin" operator to the current float scalar or vector
@@ -2587,7 +3078,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn sin(self) -> Self {
-        self.unary_op(UnaryOperator::Sin)
+        self.unary_math_fn(MathFunction::Sin)
     }
 
     /// Apply the "sqrt" (square root) operator to the current float scalar or
@@ -2611,7 +3102,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn sqrt(self) -> Self {
-        self.unary_op(UnaryOperator::Sqrt)
+        self.unary_math_fn(MathFunction::Sqrt)
     }
 
     /// Apply the "tan" operator to the current float scalar or vector
@@ -2635,7 +3126,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn tan(self) -> Self {
-        self.unary_op(UnaryOperator::Tan)
+        self.unary_math_fn(MathFunction::Tan)
     }
 
     /// Apply the "unpack4x8snorm" operator to the current `u32` scalar
@@ -2659,7 +3150,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn unpack4x8snorm(self) -> Self {
-        self.unary_op(UnaryOperator::Unpack4x8snorm)
+        self.unary_math_fn(MathFunction::Unpack4x8snorm)
     }
 
     /// Apply the "unpack4x8unorm" operator to the current `u32` scalar
@@ -2683,7 +3174,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn unpack4x8unorm(self) -> Self {
-        self.unary_op(UnaryOperator::Unpack4x8unorm)
+        self.unary_math_fn(MathFunction::Unpack4x8unorm)
     }
 
     /// Apply the "saturate" operator to the current float scalar or vector
@@ -2707,7 +3198,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn saturate(self) -> Self {
-        self.unary_op(UnaryOperator::Saturate)
+        self.unary_math_fn(MathFunction::Saturate)
     }
 
     /// Get the first component of a scalar or vector.
@@ -2808,6 +3299,10 @@ impl WriterExpr {
     /// You can also use the [`std::ops::Add`] trait directly, via the `+`
     /// symbol, as an alternative to calling this method directly.
     ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
+    ///
     /// # Example
     ///
     /// ```
@@ -2831,11 +3326,41 @@ impl WriterExpr {
         self.binary_op(other, BinaryOperator::Add)
     }
 
+    /// Angle in radians, in the \[-π,π\] interval, whose tangent is `y / x`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x` is from a different [`Module`] than self.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// let x = w.lit(3.);
+    /// let y = w.lit(5.);
+    /// // z = atan2(y, x)
+    /// let z = y.atan2(x);
+    /// ```
+    ///
+    /// # WGSL spec
+    ///
+    /// See <https://www.w3.org/TR/WGSL/#atan2-builtin> for details.
+    #[inline]
+    pub fn atan2(self, x: WriterExpr) -> Self {
+        self.binary_math_fn(MathFunction::Atan2, x)
+    }
+
     /// Calculate the cross product of the current expression by another
     /// expression.
     ///
     /// This is a binary operator, which applies to vector operands of size 3
     /// only, and always produces a vector of the same size.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
     ///
     /// # Example
     ///
@@ -2854,7 +3379,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn cross(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::Cross)
+        self.binary_math_fn(MathFunction::Cross, other)
     }
 
     /// Calculate the dot product of the current expression by another
@@ -2862,6 +3387,10 @@ impl WriterExpr {
     ///
     /// This is a binary operator, which applies to vector operands of same size
     /// only, and always produces a floating point scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
     ///
     /// # Example
     ///
@@ -2880,13 +3409,17 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn dot(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::Dot)
+        self.binary_math_fn(MathFunction::Dot, other)
     }
 
     /// Calculate the distance between the current expression and another
     /// expression.
     ///
     /// This is a binary operator.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
     ///
     /// # Example
     ///
@@ -2905,7 +3438,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn distance(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::Distance)
+        self.binary_math_fn(MathFunction::Distance, other)
     }
 
     /// Divide the current expression by another expression.
@@ -2915,6 +3448,10 @@ impl WriterExpr {
     ///
     /// You can also use the [`std::ops::Div`] trait directly, via the `/`
     /// symbol, as an alternative to calling this method directly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
     ///
     /// # Example
     ///
@@ -2945,6 +3482,10 @@ impl WriterExpr {
     /// This is a binary operator, which applies component-wise to vector
     /// operand expressions.
     ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
+    ///
     /// # Example
     ///
     /// ```
@@ -2970,6 +3511,10 @@ impl WriterExpr {
     ///
     /// This is a binary operator, which applies component-wise to vector
     /// operand expressions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
     ///
     /// # Example
     ///
@@ -2997,6 +3542,10 @@ impl WriterExpr {
     /// This is a binary operator, which applies component-wise to vector
     /// operand expressions.
     ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
+    ///
     /// # Example
     ///
     /// ```
@@ -3023,6 +3572,10 @@ impl WriterExpr {
     /// This is a binary operator, which applies component-wise to vector
     /// operand expressions.
     ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
+    ///
     /// # Example
     ///
     /// ```
@@ -3048,6 +3601,10 @@ impl WriterExpr {
     /// This is a binary operator, which applies component-wise to vector
     /// operand expressions.
     ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
+    ///
     /// # Example
     ///
     /// ```
@@ -3065,13 +3622,17 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn max(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::Max)
+        self.binary_math_fn(MathFunction::Max, other)
     }
 
     /// Take the minimum value of the current expression and another expression.
     ///
     /// This is a binary operator, which applies component-wise to vector
     /// operand expressions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
     ///
     /// # Example
     ///
@@ -3090,7 +3651,7 @@ impl WriterExpr {
     /// ```
     #[inline]
     pub fn min(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::Min)
+        self.binary_math_fn(MathFunction::Min, other)
     }
 
     /// Multiply the current expression with another expression.
@@ -3100,6 +3661,10 @@ impl WriterExpr {
     ///
     /// You can also use the [`std::ops::Mul`] trait directly, via the `*`
     /// symbol, as an alternative to calling this method directly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
     ///
     /// # Example
     ///
@@ -3129,6 +3694,10 @@ impl WriterExpr {
     ///
     /// This is a binary operator.
     ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
+    ///
     /// # Example
     ///
     /// ```
@@ -3155,6 +3724,13 @@ impl WriterExpr {
     /// This is a binary operator, which applies component-wise to vector
     /// operand expressions.
     ///
+    /// Returns `0.0` before the edge  (`x < edge`) and `1.0` after it (`x >=
+    /// edge`).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `edge` is from a different [`Module`] than self.
+    ///
     /// # Example
     ///
     /// ```
@@ -3170,11 +3746,14 @@ impl WriterExpr {
     /// // The step value
     /// let s = x.step(e); // == vec3<f32>(1., 0., 1.)
     /// ```
-    #[allow(clippy::should_implement_trait)]
+    ///
+    /// # WGSL spec
+    ///
+    /// See <https://www.w3.org/TR/WGSL/#step-builtin> for details.
     #[inline]
     pub fn step(self, edge: Self) -> Self {
-        // Note: order is step(edge, x) but x.step(edge)
-        edge.binary_op(self, BinaryOperator::Step)
+        // Note: order is step(edge, x) but called as x.step(edge)
+        edge.binary_math_fn(MathFunction::Step, self)
     }
 
     /// Subtract another expression from the current expression.
@@ -3184,6 +3763,10 @@ impl WriterExpr {
     ///
     /// You can also use the [`std::ops::Sub`] trait directly, via the `-`
     /// symbol, as an alternative to calling this method directly.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `other` is from a different [`Module`] than self.
     ///
     /// # Example
     ///
@@ -3254,11 +3837,31 @@ impl WriterExpr {
         }
     }
 
+    /// Clamp a value in a given range.
+    ///
+    /// Returns `min(max(e, low), high)`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any argument is from a different [`Module`] than self.
+    ///
+    /// # WGSL spec
+    ///
+    /// See <https://www.w3.org/TR/WGSL/#clamp> for details.
+    #[inline]
+    pub fn clamp(self, low: WriterExpr, high: WriterExpr) -> Self {
+        self.ternary_math_fn(MathFunction::Clamp, low, high)
+    }
+
     /// Blending linearly ("mix") two expressions with the fraction provided by
     /// a third expression.
     ///
     /// This is a ternary operator, which applies component-wise to vector
     /// operand expressions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any argument is from a different [`Module`] than self.
     ///
     /// # Example
     ///
@@ -3278,9 +3881,13 @@ impl WriterExpr {
     /// // The linear blend of x and y via t: z = (1 - t) * x + y * t
     /// let z = x.mix(y, t); // == vec2<f32>(2.5, -0.5)
     /// ```
+    ///
+    /// # WGSL spec
+    ///
+    /// See <https://www.w3.org/TR/WGSL/#mix-builtin> for details.
     #[inline]
     pub fn mix(self, other: Self, fraction: Self) -> Self {
-        self.ternary_op(other, fraction, TernaryOperator::Mix)
+        self.ternary_math_fn(MathFunction::Mix, other, fraction)
     }
 
     /// Calculate the smooth Hermite interpolation in \[0:1\] of the current
@@ -3288,6 +3895,13 @@ impl WriterExpr {
     ///
     /// This is a ternary operator, which applies component-wise to vector
     /// operand expressions.
+    ///
+    /// Returns `t * t * (3.0 - 2.0 * t)`, where `t = saturate((x - low) / (high
+    /// - low))`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any argument is from a different [`Module`] than self.
     ///
     /// # Example
     ///
@@ -3307,10 +3921,46 @@ impl WriterExpr {
     /// // The smooth Hermite interpolation: `t = smoothstep(low, high, x)`
     /// let t = x.smoothstep(low, high); // == 0.5
     /// ```
+    ///
+    /// # WGSL spec
+    ///
+    /// See <https://www.w3.org/TR/WGSL/#smoothstep-builtin> for details.
     #[inline]
     pub fn smoothstep(self, low: Self, high: Self) -> Self {
         // Note: order is smoothstep(low, high, x) but x.smoothstep(low, high)
-        low.ternary_op(high, self, TernaryOperator::SmoothStep)
+        low.ternary_math_fn(MathFunction::SmoothStep, high, self)
+    }
+
+    /// Insert bits from one integer into the other.
+    ///
+    /// Select `count` bits from `new_bits` starting at offset `offset`, and
+    /// copy other bits from `e`. Return the masked copy.
+    ///
+    /// See <https://www.w3.org/TR/WGSL/#insertBits-builtin> for details.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any argument is from a different [`Module`] than self.
+    ///
+    /// # WGSL spec
+    ///
+    /// See <https://www.w3.org/TR/WGSL/#insertBits-builtin> for details.
+    #[inline]
+    pub fn insert_bits(self, new_bits: WriterExpr, offset: WriterExpr, count: WriterExpr) -> Self {
+        assert_eq!(self.module, new_bits.module);
+        assert_eq!(self.module, offset.module);
+        assert_eq!(self.module, count.module);
+        let new_bits = new_bits.expr;
+        let offset = offset.expr;
+        let count = count.expr;
+        let expr = self.module.borrow_mut().math_fn(
+            MathFunction::InsertBits,
+            &[self.expr, new_bits, offset, count],
+        );
+        WriterExpr {
+            expr,
+            module: self.module,
+        }
     }
 
     /// Construct a `Vec2` from two scalars.
@@ -3434,6 +4084,83 @@ impl std::ops::Rem<WriterExpr> for WriterExpr {
     #[inline]
     fn rem(self, rhs: WriterExpr) -> Self::Output {
         self.rem(rhs)
+    }
+}
+
+/// Shader function parameter.
+///
+/// Defines the name and type of a single parameter to a [`Func`].
+#[derive(Debug, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
+pub struct FuncParam {
+    /// Parameter name.
+    pub name: String,
+    /// Parameter value.
+    pub value_type: ValueType,
+}
+
+impl FuncParam {
+    /// Create a new function parameter.
+    #[inline]
+    pub fn new(name: impl Into<String>, value_type: impl Into<ValueType>) -> Self {
+        Self {
+            name: name.into(),
+            value_type: value_type.into(),
+        }
+    }
+}
+
+/// Kind of a [`Func`] function of a [`Module`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub enum FunctionKind {
+    /// Built-in function defined in the WGSL language.
+    Builtin,
+    /// Function defined by Hanabi through modifiers.
+    Modifier,
+    /// User-defined function.
+    User,
+}
+
+/// Shader function.
+#[derive(Debug, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
+pub struct Func {
+    /// Function name.
+    name: String,
+    /// List of parameters, possibly empty.
+    parameters: Vec<FuncParam>,
+    /// Optional return type of the function.
+    return_type: Option<ValueType>,
+    /// Expression representing the function body.
+    ///
+    /// This is `None` for built-in functions provided by the WGSL language.
+    body: Option<ExprHandle>,
+    /// Function kind
+    kind: FunctionKind,
+}
+
+impl Func {
+    /// Get the function name.
+    ///
+    /// The function name is the WGSL identifier used to call the function.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Get the kind of this function.
+    pub fn kind(&self) -> FunctionKind {
+        self.kind
+    }
+
+    /// Get the function parameters.
+    pub fn params(&self) -> &[FuncParam] {
+        &self.parameters[..]
+    }
+
+    /// Get the function return type, if any.
+    ///
+    /// This returns the type of the function return value, or `None` if the
+    /// function has no return value.
+    pub fn return_type(&self) -> Option<ValueType> {
+        self.return_type
     }
 }
 
@@ -3675,44 +4402,74 @@ mod tests {
     }
 
     #[test]
-    fn unary_expr() {
+    fn module_unary_expr() {
         let mut m = Module::default();
 
-        let x = m.attr(Attribute::POSITION);
-        let y = m.lit(Vec3::new(1., -3.1, 6.99));
-        let z = m.lit(BVec3::new(false, true, false));
         let w = m.lit(Vec4::W);
-        let v = m.lit(Vec4::new(-1., 1., 0., 7.2));
-        let us = m.lit(0x0u32);
-        let uu = m.lit(0x0u32);
-
-        let abs = m.abs(x);
-        let all = m.all(z);
-        let any = m.any(z);
-        let ceil = m.ceil(y);
-        let cos = m.cos(y);
-        let exp = m.exp(y);
-        let exp2 = m.exp2(y);
-        let floor = m.floor(y);
-        let fract = m.fract(y);
-        let inv_sqrt = m.inverse_sqrt(y);
-        let length = m.length(y);
-        let log = m.log(y);
-        let log2 = m.log2(y);
-        let norm = m.normalize(y);
-        let pack4x8snorm = m.pack4x8snorm(v);
-        let pack4x8unorm = m.pack4x8unorm(v);
-        let saturate = m.saturate(y);
-        let sign = m.sign(y);
-        let sin = m.sin(y);
-        let sqrt = m.sqrt(y);
-        let tan = m.tan(y);
-        let unpack4x8snorm = m.unpack4x8snorm(us);
-        let unpack4x8unorm = m.unpack4x8unorm(uu);
         let comp_x = m.x(w);
         let comp_y = m.y(w);
         let comp_z = m.z(w);
         let comp_w = m.w(w);
+
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let mut ctx =
+            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+
+        for (expr, op, inner) in [
+            (comp_x, "x", "vec4<f32>(0.,0.,0.,1.)"),
+            (comp_y, "y", "vec4<f32>(0.,0.,0.,1.)"),
+            (comp_z, "z", "vec4<f32>(0.,0.,0.,1.)"),
+            (comp_w, "w", "vec4<f32>(0.,0.,0.,1.)"),
+        ] {
+            let expr = ctx.eval(&m, expr);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            assert_eq!(expr, format!("{}.{}", inner, op));
+        }
+    }
+
+    #[test]
+    fn writer_unary_math() {
+        let w = ExprWriter::new();
+
+        let x = w.attr(Attribute::POSITION);
+        let y = w.lit(Vec3::new(1., -3.1, 6.99));
+        let z = w.lit(BVec3::new(false, true, false));
+        let ww = w.lit(Vec4::W);
+        let v = w.lit(Vec4::new(-1., 1., 0., 7.2));
+        let us = w.lit(0x0u32);
+        let uu = w.lit(0x0u32);
+
+        let abs = x.abs().expr();
+        let all = z.clone().all().expr();
+        let any = z.any().expr();
+        let ceil = y.clone().ceil().expr();
+        let cos = y.clone().cos().expr();
+        let exp = y.clone().exp().expr();
+        let exp2 = y.clone().exp2().expr();
+        let floor = y.clone().floor().expr();
+        let fract = y.clone().fract().expr();
+        let inv_sqrt = y.clone().inverse_sqrt().expr();
+        let length = y.clone().length().expr();
+        let log = y.clone().log().expr();
+        let log2 = y.clone().log2().expr();
+        let norm = y.clone().normalized().expr();
+        let pack4x8snorm = v.clone().pack4x8snorm().expr();
+        let pack4x8unorm = v.clone().pack4x8unorm().expr();
+        let saturate = y.clone().saturate().expr();
+        let sign = y.clone().sign().expr();
+        let sin = y.clone().sin().expr();
+        let sqrt = y.clone().sqrt().expr();
+        let tan = y.tan().expr();
+        let unpack4x8snorm = us.unpack4x8snorm().expr();
+        let unpack4x8unorm = uu.unpack4x8unorm().expr();
+        let comp_x = ww.clone().x().expr();
+        let comp_y = ww.clone().y().expr();
+        let comp_z = ww.clone().z().expr();
+        let comp_w = ww.w().expr();
+
+        let module = w.finish();
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
@@ -3748,7 +4505,7 @@ mod tests {
             (unpack4x8snorm, "unpack4x8snorm", "0u"),
             (unpack4x8unorm, "unpack4x8unorm", "0u"),
         ] {
-            let expr = ctx.eval(&m, expr);
+            let expr = ctx.eval(&module, expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
             assert_eq!(expr, format!("{}({})", op, inner));
@@ -3760,7 +4517,7 @@ mod tests {
             (comp_z, "z", "vec4<f32>(0.,0.,0.,1.)"),
             (comp_w, "w", "vec4<f32>(0.,0.,0.,1.)"),
         ] {
-            let expr = ctx.eval(&m, expr);
+            let expr = ctx.eval(&module, expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
             assert_eq!(expr, format!("{}.{}", inner, op));
@@ -3768,18 +4525,20 @@ mod tests {
     }
 
     #[test]
-    fn binary_expr() {
-        let mut m = Module::default();
+    fn writer_binary_math() {
+        let w = ExprWriter::new();
 
-        let x = m.attr(Attribute::POSITION);
-        let y = m.lit(Vec3::ONE);
+        let x = w.attr(Attribute::POSITION);
+        let y = w.lit(Vec3::ONE);
 
-        let cross = m.cross(x, y);
-        let dist = m.distance(x, y);
-        let dot = m.dot(x, y);
-        let min = m.min(x, y);
-        let max = m.max(x, y);
-        let step = m.step(x, y);
+        let cross = x.clone().cross(y.clone()).expr();
+        let dist = x.clone().distance(y.clone()).expr();
+        let dot = x.clone().dot(y.clone()).expr();
+        let min = x.clone().min(y.clone()).expr();
+        let max = x.clone().max(y.clone()).expr();
+        let step = x.step(y).expr();
+
+        let module = w.finish();
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
@@ -3794,41 +4553,50 @@ mod tests {
             (max, "max"),
             (step, "step"),
         ] {
-            let expr = ctx.eval(&m, expr);
+            let expr = ctx.eval(&module, expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
-            assert_eq!(
-                expr,
+            let expected = if op == "step" {
+                // swapped: x.step(edge) yields step(edge, x)
+                format!(
+                    "{}(vec3<f32>(1.,1.,1.), particle.{})",
+                    op,
+                    Attribute::POSITION.name(),
+                )
+            } else {
                 format!(
                     "{}(particle.{}, vec3<f32>(1.,1.,1.))",
                     op,
                     Attribute::POSITION.name(),
                 )
-            );
+            };
+            assert_eq!(expr, expected);
         }
     }
 
     #[test]
-    fn ternary_expr() {
-        let mut m = Module::default();
+    fn writer_ternary_math() {
+        let w = ExprWriter::new();
 
-        let x = m.attr(Attribute::POSITION);
-        let y = m.lit(Vec3::ONE);
-        let t = m.lit(0.3);
+        let x = w.attr(Attribute::POSITION);
+        let y = w.lit(Vec3::ONE);
+        let t = w.lit(0.3);
 
-        let mix = m.mix(x, y, t);
-        let smoothstep = m.smoothstep(x, y, x);
+        let mix = x.clone().mix(y.clone(), t.clone()).expr();
+        let smoothstep = x.clone().smoothstep(x.clone(), y).expr();
+
+        let module = w.finish();
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
         let mut ctx =
             ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
 
-        for (expr, op, third) in [(mix, "mix", t), (smoothstep, "smoothstep", x)] {
-            let expr = ctx.eval(&m, expr);
+        for (expr, op, third) in [(mix, "mix", t.expr()), (smoothstep, "smoothstep", x.expr())] {
+            let expr = ctx.eval(&module, expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
-            let third = ctx.eval(&m, third).unwrap();
+            let third = ctx.eval(&module, third).unwrap();
             assert_eq!(
                 expr,
                 format!(
@@ -3874,6 +4642,42 @@ mod tests {
             let cast = cast.unwrap();
             assert_eq!(cast, format!("{}({})", target.to_wgsl_string(), expr));
         }
+    }
+
+    #[test]
+    fn func() {
+        let mut m = Module::default();
+
+        let func_name = "my_func";
+        let parameters = vec![
+            FuncParam::new("x", ScalarType::Float),
+            FuncParam::new("other", VectorType::VEC3F),
+        ];
+        let return_type = Some(ValueType::Scalar(ScalarType::Bool));
+        let handle = m.add_fn(func_name, parameters.clone(), return_type, |m| {
+            Ok(m.raw_code("".to_string(), return_type))
+        });
+
+        assert!(handle.is_ok());
+        let handle = handle.unwrap();
+        let func = m.get_fn(handle);
+        assert!(func.is_some());
+        let func = func.unwrap();
+        assert_eq!(func.name, func_name);
+        assert_eq!(func.parameters, parameters);
+        assert_eq!(func.return_type, return_type);
+
+        let pt = m.lit(0.75);
+        let call = m.call_fn(handle, &[pt]);
+
+        let property_layout = PropertyLayout::empty();
+        let particle_layout = ParticleLayout::new().build();
+        let mut ctx =
+            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let s = ctx
+            .eval(&m, call)
+            .expect("Failed to evaluate function call");
+        assert_eq!(s, format!("{}(0.75)", func_name));
     }
 
     #[test]
@@ -3961,12 +4765,12 @@ mod tests {
         let y = m.prop(p);
         let c = CastExpr::new(y, MatrixType::MAT2X3F);
         assert_eq!(c.value_type(), ValueType::Matrix(MatrixType::MAT2X3F));
-        assert_eq!(c.is_valid(&m), None); // properties' value_type() is unknown
+        assert_eq!(c.is_valid(&m), Some(false)); // invalid cast * -> matrix
     }
 
     #[test]
     fn side_effect() {
-        let mut m = Module::default();
+        let w = ExprWriter::new();
 
         // Adding the same cloned expression with side effect to itself should yield
         // twice the value, and not two separate evaluations of the expression.
@@ -3976,19 +4780,24 @@ mod tests {
         // INCORRECT:
         //   frand() + frand()
 
-        let r = m.builtin(BuiltInOperator::Rand(ScalarType::Float.into()));
-        let r2 = r;
-        let r3 = r2;
-        let a = m.add(r, r2);
-        let b = m.mix(r, r2, r3);
-        let c = m.abs(a);
+        let r = w.push(Expr::BuiltIn(BuiltInExpr::new(BuiltInOperator::Rand(
+            ScalarType::Float.into(),
+        ))));
+        let r2 = r.clone();
+        let r3 = r2.clone();
+        let a = r.clone().add(r2.clone());
+        let b = r.mix(r2, r3).expr();
+        let c = a.clone().abs().expr();
+        let a = a.expr();
+
+        let module = w.finish();
 
         {
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
             let mut ctx =
                 ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
-            let value = ctx.eval(&m, a).unwrap();
+            let value = ctx.eval(&module, a).unwrap();
             assert_eq!(value, "(var0) + (var0)");
             assert_eq!(ctx.main_code, "let var0 = frand();\n");
         }
@@ -3998,7 +4807,7 @@ mod tests {
             let particle_layout = ParticleLayout::default();
             let mut ctx =
                 ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
-            let value = ctx.eval(&m, b).unwrap();
+            let value = ctx.eval(&module, b).unwrap();
             assert_eq!(value, "mix(var0, var0, var0)");
             assert_eq!(ctx.main_code, "let var0 = frand();\n");
         }
@@ -4008,7 +4817,7 @@ mod tests {
             let particle_layout = ParticleLayout::default();
             let mut ctx =
                 ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
-            let value = ctx.eval(&m, c).unwrap();
+            let value = ctx.eval(&module, c).unwrap();
             assert_eq!(value, "abs((var0) + (var0))");
             assert_eq!(ctx.main_code, "let var0 = frand();\n");
         }

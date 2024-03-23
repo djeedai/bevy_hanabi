@@ -8,8 +8,8 @@ use std::ops::Deref;
 
 use crate::{
     modifier::{Modifier, RenderModifier},
-    ExprHandle, GroupedModifier, ModifierContext, Module, ParticleGroupSet, ParticleLayout,
-    Property, PropertyLayout, SimulationSpace, Spawner,
+    BoxedModifier, ExprHandle, GroupedModifier, ModifierContext, Module, ParticleGroupSet,
+    ParticleLayout, Property, PropertyLayout, SimulationSpace, Spawner,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -422,7 +422,7 @@ impl EffectAsset {
     /// `modifier.context()` returns a flag which doesn't include `context`).
     ///
     /// [`add_render_modifier()`]: crate::EffectAsset::add_render_modifier
-    pub fn add_modifier(self, context: ModifierContext, modifier: Box<dyn Modifier>) -> Self {
+    pub fn add_modifier(self, context: ModifierContext, modifier: BoxedModifier) -> Self {
         self.add_modifier_to_groups(context, modifier, ParticleGroupSet::all())
     }
 
@@ -445,7 +445,7 @@ impl EffectAsset {
     pub fn add_modifier_to_groups(
         mut self,
         context: ModifierContext,
-        modifier: Box<dyn Modifier>,
+        modifier: BoxedModifier,
         groups: ParticleGroupSet,
     ) -> Self {
         assert!(context == ModifierContext::Init || context == ModifierContext::Update);
@@ -840,7 +840,7 @@ mod tests {
         let mut module = w.finish();
         let prop = module.add_property("my_prop", Vec3::new(1.2, -2.3, 55.32).into());
         let prop = module.prop(prop);
-        let _ = module.abs(prop);
+        let _ = module.math_fn(expr::MathFunction::Abs, &[prop]);
 
         let effect = EffectAsset {
             name: "Effect".into(),
@@ -895,10 +895,13 @@ mod tests {
                 right: 1,
             ),
             Property(1),
-            Unary(
-                op: Abs,
-                expr: 4,
-            ),
+            Math((
+                func: Abs,
+                arg0: 4,
+                arg1: None,
+                arg2: None,
+                arg3: None,
+            )),
         ],
         properties: [
             (
@@ -906,6 +909,7 @@ mod tests {
                 default_value: Vector(Vec3((1.2, -2.3, 55.32))),
             ),
         ],
+        functions: [],
     ),
     alpha_mode: Blend,
 )"#
