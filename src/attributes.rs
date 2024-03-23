@@ -124,7 +124,7 @@
 use std::{any::Any, borrow::Cow, num::NonZeroU64};
 
 use bevy::{
-    math::{Vec2, Vec3, Vec4},
+    math::*,
     reflect::{
         utility::{GenericTypePathCell, NonGenericTypeInfoCell},
         DynamicStruct, FieldIter, FromReflect, NamedField, Reflect, ReflectMut, ReflectOwned,
@@ -462,6 +462,69 @@ impl ToWgslString for ValueType {
         }
     }
 }
+
+/// Trait to determine the [`ValueType`] of a Rust type at build time.
+///
+/// # Example
+///
+/// ```
+/// # use bevy_hanabi::*;
+/// assert_eq!(<i32 as ValueTypeOf>::value_type(), ValueType::Scalar(ScalarType::Int));
+/// ```
+pub trait ValueTypeOf {
+    /// Get the [`ValueType`] of this Rust type.
+    fn value_type() -> ValueType;
+}
+
+macro_rules! impl_value_type_of {
+    ($rust: ty, $value: expr) => {
+        impl ValueTypeOf for $rust {
+            fn value_type() -> ValueType {
+                $value
+            }
+        }
+    };
+}
+
+macro_rules! impl_scalar_value_type_of {
+    ($rust: ty, $value: ident) => {
+        impl_value_type_of!($rust, $crate::ValueType::Scalar(ScalarType::$value));
+    };
+}
+
+impl_scalar_value_type_of!(bool, Bool);
+impl_scalar_value_type_of!(f32, Float);
+impl_scalar_value_type_of!(i32, Int);
+impl_scalar_value_type_of!(u32, Uint);
+
+macro_rules! impl_vector_value_type_of {
+    ($rust: ty, $value: ident) => {
+        impl_value_type_of!($rust, $crate::ValueType::Vector(VectorType::$value));
+    };
+}
+
+impl_vector_value_type_of!(BVec2, VEC2B);
+impl_vector_value_type_of!(BVec3, VEC3B);
+impl_vector_value_type_of!(BVec4, VEC4B);
+impl_vector_value_type_of!(Vec2, VEC2F);
+impl_vector_value_type_of!(Vec3, VEC3F);
+impl_vector_value_type_of!(Vec4, VEC4F);
+impl_vector_value_type_of!(IVec2, VEC2I);
+impl_vector_value_type_of!(IVec3, VEC3I);
+impl_vector_value_type_of!(IVec4, VEC4I);
+impl_vector_value_type_of!(UVec2, VEC2U);
+impl_vector_value_type_of!(UVec3, VEC3U);
+impl_vector_value_type_of!(UVec4, VEC4U);
+
+macro_rules! impl_matrix_value_type_of {
+    ($rust: ty, $value: ident) => {
+        impl_value_type_of!($rust, $crate::ValueType::Matrix(MatrixType::$value));
+    };
+}
+
+impl_matrix_value_type_of!(Mat2, MAT2X2F);
+impl_matrix_value_type_of!(Mat3, MAT3X3F);
+impl_matrix_value_type_of!(Mat4, MAT4X4F);
 
 #[derive(Debug, Clone, Reflect)]
 pub(crate) struct AttributeInner {

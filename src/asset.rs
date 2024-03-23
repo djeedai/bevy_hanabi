@@ -895,10 +895,13 @@ mod tests {
                 right: 1,
             ),
             Property(1),
-            Unary(
-                op: Abs,
-                expr: 4,
-            ),
+            Math((
+                func: Abs,
+                arg0: 4,
+                arg1: None,
+                arg2: None,
+                arg3: None,
+            )),
         ],
         properties: [
             (
@@ -906,6 +909,7 @@ mod tests {
                 default_value: Vector(Vec3((1.2, -2.3, 55.32))),
             ),
         ],
+        functions: [],
     ),
     alpha_mode: Blend,
 )"#
