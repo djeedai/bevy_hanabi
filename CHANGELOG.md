@@ -39,9 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Expr` is now `Copy`, making it even more lightweight.
 - `ExprWriter::prop()` now panics if the property doesn't exist. This ensures the created `WriterExpr` is well-formed, which was impossible to validate at expression write time previously.
 - Effects rendered with `AlphaMode::Mask` now write to the depth buffer. Other effects continue to not write to it. This fixes particle flickering for alpha masked effects only.
-git
 - Bind groups for effect rendering are now created in a separate system in the `EffectSystems::PrepareBindGroups` set, itself part of Bevy's `RenderSet::PrepareBindGroups`. They're also cached, which increases the performance of rendering many effects.
 - Merged the init and update pass bind groups for the particle buffer and associated resources in `EffectBfufer`. The new unified resources use the `_sim` (simulation) suffix.
+- `CompiledParticleEffect` now holds a strong handle to the same `EffectAsset` as the `ParticleEffect` it's compiled from. This ensures the asset is not unloaded while in use during the frame. To allow an `EffectAsset` to unload, clear the handle of the `ParticleEffect`, then allow the `CompiledParticleEffect` to observe the change and clear its own handle too.
 
 ### Removed
 
