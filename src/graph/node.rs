@@ -199,7 +199,7 @@ impl Slot {
 
     /// Link this output slot to an input slot.
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if this slot's direction is `SlotDir::Input`.
     fn link_to(&mut self, input: SlotId) {
