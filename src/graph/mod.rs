@@ -586,7 +586,7 @@ impl VectorValue {
 
     /// Create a new vector by "splatting" a scalar value into all components.
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the component `count` is not 2/3/4.
     pub fn splat(value: &ScalarValue, count: u8) -> Self {
@@ -672,7 +672,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`BVec2`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC2B`].
     pub fn as_bvec2(&self) -> BVec2 {
@@ -682,7 +682,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`BVec3`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC3B`].
     pub fn as_bvec3(&self) -> BVec3 {
@@ -696,7 +696,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`BVec4`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC4B`].
     pub fn as_bvec4(&self) -> BVec4 {
@@ -711,7 +711,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`Vec2`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC2F`].
     pub fn as_vec2(&self) -> Vec2 {
@@ -721,7 +721,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`Vec3`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC3F`].
     pub fn as_vec3(&self) -> Vec3 {
@@ -731,7 +731,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`Vec3A`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC3F`].
     pub fn as_vec3a(&self) -> Vec3A {
@@ -741,7 +741,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`Vec4`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC4F`].
     pub fn as_vec4(&self) -> Vec4 {
@@ -751,7 +751,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`IVec2`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC2I`].
     pub fn as_ivec2(&self) -> IVec2 {
@@ -761,7 +761,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`IVec3`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC3I`].
     pub fn as_ivec3(&self) -> IVec3 {
@@ -771,7 +771,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`IVec4`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC4I`].
     pub fn as_ivec4(&self) -> IVec4 {
@@ -781,7 +781,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`UVec2`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC2U`].
     pub fn as_uvec2(&self) -> UVec2 {
@@ -791,7 +791,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`UVec3`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC3U`].
     pub fn as_uvec3(&self) -> UVec3 {
@@ -801,7 +801,7 @@ impl VectorValue {
 
     /// Cast this vector value to a [`UVec4`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the current vector type is not [`VectorType::VEC4U`].
     pub fn as_uvec4(&self) -> UVec4 {
@@ -1294,10 +1294,61 @@ pub struct MatrixValue {
     /// Matrix type.
     matrix_type: MatrixType,
     /// Raw storage for up to 16 values. Actual usage depends on matrix size.
+    /// Note that data is stored pre-aligned according to WGSL rules, so that we
+    /// can directly return a slice to it.
     storage: [f32; 16],
 }
 
 impl MatrixValue {
+    /// Create a new CxR matrix value from raw data.
+    ///
+    /// The matrix can be of any dimension `2..=4`, with data. The `data` slice
+    /// needs to be of length `cols * rows` exactly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let m = MatrixValue::new(3, 2, &[0., 1., 2., 1., 2., 3.]);
+    /// assert_eq!(m.matrix_type().cols(), 3);
+    /// assert_eq!(m.matrix_type().rows(), 2);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics if either `cols` or `rows` is not 2/3/4.
+    ///
+    /// Panics if `data.len() != cols * rows`.
+    pub fn new(cols: usize, rows: usize, data: &[f32]) -> Self {
+        assert!(cols >= 2 && cols <= 4);
+        assert!(rows >= 2 && rows <= 4);
+        assert_eq!(data.len(), cols * rows);
+        if rows != 3 {
+            // Easy; just copy, there's no padding
+            let mut s = Self {
+                matrix_type: MatrixType::new(cols as u8, rows as u8),
+                storage: [0.0; 16],
+            };
+            let num = cols * rows;
+            let dst = &mut s.storage[0..num];
+            dst.copy_from_slice(&data[0..num]);
+            s
+        } else {
+            // Need to pad each row vec3 -> vec4
+            let mut s = Self {
+                matrix_type: MatrixType::new(cols as u8, rows as u8),
+                storage: [0.0; 16],
+            };
+            for col in 0..cols {
+                let dst_offset = col * 4;
+                let dst = &mut s.storage[dst_offset..dst_offset + rows];
+                let src_offset = col * 3;
+                dst.copy_from_slice(&data[src_offset..src_offset + rows]);
+            }
+            s
+        }
+    }
+
     /// Scalar type of the elements of the matrix.
     ///
     /// This always returns [`ScalarType::Float`]. This method is provided for
@@ -1354,8 +1405,13 @@ impl MatrixValue {
     }
 
     /// Get the value as a binary blob ready for GPU upload.
+    ///
+    /// The slice has a size aligned with the requirements of WGSL, and can
+    /// contain gaps where no actual matrix data is stored. See
+    /// <https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size> for details.
     pub fn as_bytes(&self) -> &[u8] {
-        let count = self.matrix_type.rows() * self.matrix_type.cols();
+        // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
+        let count = self.matrix_type.cols() * self.matrix_type.align() / 4;
         bytemuck::cast_slice::<f32, u8>(&self.storage[..count])
     }
 
@@ -1494,7 +1550,7 @@ impl Value {
 
     /// Cast this value to a [`ScalarValue`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if this value is not a [`ScalarValue`].
     pub fn as_scalar(&self) -> &ScalarValue {
@@ -1506,7 +1562,7 @@ impl Value {
 
     /// Cast this value to a [`VectorValue`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if this value is not a [`VectorValue`].
     pub fn as_vector(&self) -> &VectorValue {
@@ -1518,7 +1574,7 @@ impl Value {
 
     /// Cast this value to a [`MatrixValue`].
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if this value is not a [`MatrixValue`].
     pub fn as_matrix(&self) -> &MatrixValue {
@@ -1711,6 +1767,106 @@ mod tests {
                 0u8, 0xa0u8, 0xc0u8
             ]
         ); // 0xc0000000 0x40400000 0x40800000 0xc0a00000
+
+        let v = Value::Matrix(Mat2::IDENTITY.into());
+        let b = v.as_bytes();
+        assert_eq!(b.len(), v.value_type().align() * 2);
+        assert_eq!(b.len(), 16);
+        let v = Value::Matrix(Mat3::IDENTITY.into());
+        let b = v.as_bytes();
+        assert_eq!(b.len(), v.value_type().align() * 3);
+        assert_eq!(b.len(), 48); // sizeof(vec4) * 3
+        let v = Value::Matrix(Mat4::IDENTITY.into());
+        let b = v.as_bytes();
+        assert_eq!(b.len(), v.value_type().align() * 4);
+        assert_eq!(b.len(), 64);
+
+        // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
+        assert_eq!(ScalarValue::Float(0.0).as_bytes().len(), 4);
+        assert_eq!(ScalarValue::Float(0.0).scalar_type().size(), 4);
+        assert_eq!(ScalarValue::Float(0.0).scalar_type().align(), 4);
+        assert_eq!(ScalarValue::Int(0).as_bytes().len(), 4);
+        assert_eq!(ScalarValue::Int(0).scalar_type().size(), 4);
+        assert_eq!(ScalarValue::Int(0).scalar_type().align(), 4);
+        assert_eq!(ScalarValue::Uint(0).as_bytes().len(), 4);
+        assert_eq!(ScalarValue::Uint(0).scalar_type().size(), 4);
+        assert_eq!(ScalarValue::Uint(0).scalar_type().align(), 4);
+        assert_eq!(VectorValue::new_vec2(Vec2::ZERO).as_bytes().len(), 8);
+        assert_eq!(VectorValue::new_vec2(Vec2::ZERO).vector_type().size(), 8);
+        assert_eq!(VectorValue::new_vec2(Vec2::ZERO).vector_type().align(), 8);
+        assert_eq!(VectorValue::new_vec3(Vec3::ZERO).as_bytes().len(), 12);
+        assert_eq!(VectorValue::new_vec3(Vec3::ZERO).vector_type().size(), 12);
+        assert_eq!(VectorValue::new_vec3(Vec3::ZERO).vector_type().align(), 16); // padding!
+        assert_eq!(VectorValue::new_vec4(Vec4::ZERO).as_bytes().len(), 16);
+        assert_eq!(VectorValue::new_vec4(Vec4::ZERO).vector_type().size(), 16);
+        assert_eq!(VectorValue::new_vec4(Vec4::ZERO).vector_type().align(), 16);
+        assert_eq!(VectorValue::new_ivec2(IVec2::ZERO).as_bytes().len(), 8);
+        assert_eq!(VectorValue::new_ivec2(IVec2::ZERO).vector_type().size(), 8);
+        assert_eq!(VectorValue::new_ivec2(IVec2::ZERO).vector_type().align(), 8);
+        assert_eq!(VectorValue::new_ivec3(IVec3::ZERO).as_bytes().len(), 12);
+        assert_eq!(VectorValue::new_ivec3(IVec3::ZERO).vector_type().size(), 12);
+        assert_eq!(
+            VectorValue::new_ivec3(IVec3::ZERO).vector_type().align(),
+            16
+        ); // padding!
+        assert_eq!(VectorValue::new_ivec4(IVec4::ZERO).as_bytes().len(), 16);
+        assert_eq!(VectorValue::new_ivec4(IVec4::ZERO).vector_type().size(), 16);
+        assert_eq!(
+            VectorValue::new_ivec4(IVec4::ZERO).vector_type().align(),
+            16
+        );
+        assert_eq!(VectorValue::new_uvec2(UVec2::ZERO).as_bytes().len(), 8);
+        assert_eq!(VectorValue::new_uvec2(UVec2::ZERO).vector_type().size(), 8);
+        assert_eq!(VectorValue::new_uvec2(UVec2::ZERO).vector_type().align(), 8);
+        assert_eq!(VectorValue::new_uvec3(UVec3::ZERO).as_bytes().len(), 12);
+        assert_eq!(VectorValue::new_uvec3(UVec3::ZERO).vector_type().size(), 12);
+        assert_eq!(
+            VectorValue::new_uvec3(UVec3::ZERO).vector_type().align(),
+            16
+        ); // padding!
+        assert_eq!(VectorValue::new_uvec4(UVec4::ZERO).as_bytes().len(), 16);
+        assert_eq!(VectorValue::new_uvec4(UVec4::ZERO).vector_type().size(), 16);
+        assert_eq!(
+            VectorValue::new_uvec4(UVec4::ZERO).vector_type().align(),
+            16
+        );
+        assert_eq!(ScalarValue::Int(0).as_bytes().len(), 4);
+        assert_eq!(ScalarValue::Uint(0).as_bytes().len(), 4);
+        assert_eq!(MatrixValue::new(2, 2, &[0.0; 4]).as_bytes().len(), 16);
+        assert_eq!(MatrixValue::new(3, 2, &[0.0; 6]).as_bytes().len(), 24);
+        assert_eq!(MatrixValue::new(4, 2, &[0.0; 8]).as_bytes().len(), 32);
+        assert_eq!(MatrixValue::new(2, 3, &[0.0; 6]).as_bytes().len(), 32); // padding!
+        assert_eq!(MatrixValue::new(3, 3, &[0.0; 9]).as_bytes().len(), 48); // padding!
+        assert_eq!(MatrixValue::new(4, 3, &[0.0; 12]).as_bytes().len(), 64); // padding!
+        assert_eq!(MatrixValue::new(2, 4, &[0.0; 8]).as_bytes().len(), 32);
+        assert_eq!(MatrixValue::new(3, 4, &[0.0; 12]).as_bytes().len(), 48);
+        assert_eq!(MatrixValue::new(4, 4, &[0.0; 16]).as_bytes().len(), 64);
+
+        // MatrixValue
+        let f: [f32; 16] = [
+            0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15.,
+        ];
+        let expected24: &[u8] = bytemuck::cast_slice(&f[..]);
+        // R=3 requires extra padding to AlignOf(vec4) = 16
+        let expected3: &[f32] = &[
+            0., 1., 2., 0., 3., 4., 5., 0., 6., 7., 8., 0., 9., 10., 11., 0.,
+        ];
+        let expected3: &[u8] = bytemuck::cast_slice(expected3);
+        for j in 2..=4 {
+            for i in 2..=4 {
+                let v = MatrixValue::new(i, j, &f[..i * j]);
+                assert_eq!(v.matrix_type().cols(), i);
+                assert_eq!(v.matrix_type().rows(), j);
+
+                let b = v.as_bytes();
+                assert_eq!(b.len(), v.matrix_type().align() * i);
+                if j != 3 {
+                    assert_eq!(b, &expected24[..b.len()], "(i={},j={})", i, j);
+                } else {
+                    assert_eq!(b, &expected3[..b.len()], "(i={},j={})", i, j);
+                }
+            }
+        }
     }
 
     #[test]

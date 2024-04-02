@@ -60,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a panic in rendering randomly occurring when no effect is present.
 - Fixed invalid WGSL being generated for large `u32` values.
 - Fixed particle flickering, only for particles rendered through the `AlphaMask3d` render pass (`EffectAsset::alpha_mode == AlphaMode::Mask`). (#183)
+- Fixed invalid layout of all `mat3xR<f32>` returned by `MatrixValue::as_bytes()`, which was missing padding. (#310)
 
 ## [0.10.0] 2024-02-24
 

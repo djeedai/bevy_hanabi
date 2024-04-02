@@ -236,7 +236,7 @@ impl VectorType {
 
     /// Create a new vector type.
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the component `count` is not 2/3/4.
     pub const fn new(elem_type: ScalarType, count: u8) -> Self {
@@ -321,7 +321,7 @@ impl MatrixType {
 
     /// Create a new matrix type.
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the number of columns or rows is not 2, 3, or 4.
     pub const fn new(cols: u8, rows: u8) -> Self {
