@@ -1320,33 +1320,28 @@ impl MatrixValue {
     ///
     /// Panics if `data.len() != cols * rows`.
     pub fn new(cols: usize, rows: usize, data: &[f32]) -> Self {
-        assert!(cols >= 2 && cols <= 4);
-        assert!(rows >= 2 && rows <= 4);
+        assert!((2..=4).contains(&cols));
+        assert!((2..=4).contains(&rows));
         assert_eq!(data.len(), cols * rows);
+        let mut s = Self {
+            matrix_type: MatrixType::new(cols as u8, rows as u8),
+            storage: [0.0; 16],
+        };
         if rows != 3 {
             // Easy; just copy, there's no padding
-            let mut s = Self {
-                matrix_type: MatrixType::new(cols as u8, rows as u8),
-                storage: [0.0; 16],
-            };
             let num = cols * rows;
             let dst = &mut s.storage[0..num];
             dst.copy_from_slice(&data[0..num]);
-            s
         } else {
             // Need to pad each row vec3 -> vec4
-            let mut s = Self {
-                matrix_type: MatrixType::new(cols as u8, rows as u8),
-                storage: [0.0; 16],
-            };
             for col in 0..cols {
                 let dst_offset = col * 4;
                 let dst = &mut s.storage[dst_offset..dst_offset + rows];
                 let src_offset = col * 3;
                 dst.copy_from_slice(&data[src_offset..src_offset + rows]);
             }
-            s
         }
+        s
     }
 
     /// Scalar type of the elements of the matrix.
