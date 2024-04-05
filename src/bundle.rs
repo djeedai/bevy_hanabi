@@ -1,4 +1,4 @@
-use crate::{CompiledParticleEffect, EffectAsset, ParticleEffect};
+use crate::{CompiledParticleEffect, EffectAsset, EffectProperties, ParticleEffect};
 use bevy::prelude::*;
 
 /// A component bundle for a particle effect.
@@ -6,11 +6,6 @@ use bevy::prelude::*;
 /// This bundle contains all necessary components for a [`ParticleEffect`] to
 /// function correctly, and is the preferred method for spawning a new
 /// [`ParticleEffect`].
-///
-/// If the effect uses properties, you can additionally spawn an
-/// [`EffectProperties`] component and insert initial values for some or all its
-/// properties. This bundle however doesn't add that component by default, to
-/// allow skipping effects without properties where possible.
 ///
 /// [`EffectProperties`]: crate::EffectProperties
 #[derive(Bundle, Clone)]
@@ -23,6 +18,11 @@ pub struct ParticleEffectBundle {
     /// for the effect to work. This is split from the [`ParticleEffect`] itself
     /// mainly for change detection reasons, as well as for semantic.
     pub compiled_effect: CompiledParticleEffect,
+    /// Runtime storage for effect properties.
+    ///
+    /// Stores the current property values, before they're uploaded to GPU. Can
+    /// be modified manually to set a new property value.
+    pub effect_properties: EffectProperties,
     /// Transform of the entity, representing the frame of reference for the
     /// particle emission.
     ///
@@ -87,6 +87,7 @@ impl ParticleEffectBundle {
         Self {
             effect: ParticleEffect::new(handle),
             compiled_effect: CompiledParticleEffect::default(),
+            effect_properties: EffectProperties::default(),
             transform: Default::default(),
             global_transform: Default::default(),
             visibility: Default::default(),

@@ -197,9 +197,9 @@ pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use graph::*;
 pub use modifier::*;
-pub use plugin::HanabiPlugin;
+pub use plugin::{EffectSystems, HanabiPlugin};
 pub use properties::*;
-pub use render::{EffectSystems, LayoutFlags, ShaderCache};
+pub use render::{LayoutFlags, ShaderCache};
 pub use spawn::{tick_spawners, CpuValue, EffectSpawner, Random, Spawner};
 pub use time::{EffectSimulation, EffectSimulationTime};
 

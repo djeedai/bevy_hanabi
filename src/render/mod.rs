@@ -68,58 +68,6 @@ use self::batch::EffectBatches;
 // bytes.
 const INDIRECT_INDEX_SIZE: u32 = 12;
 
-/// Labels for the Hanabi systems.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
-pub enum EffectSystems {
-    /// Tick all effect instances to generate particle spawn counts.
-    ///
-    /// This system runs during the [`PostUpdate`] schedule. Any system which
-    /// modifies an effect spawner should run before this set to ensure the
-    /// spawner takes into account the newly set values during its ticking.
-    TickSpawners,
-
-    /// Compile the effect instances, updating the [`CompiledParticleEffect`]
-    /// components.
-    ///
-    /// This system runs during the [`PostUpdate`] schedule. This is largely an
-    /// internal task which can be ignored by most users.
-    CompileEffects,
-
-    /// Update the properties of the effect instance based on the declared
-    /// properties in the [`EffectAsset`], updating the associated
-    /// [`EffectProperties`] component.
-    ///
-    /// This system runs during Bevy's own [`UpdateAssets`] schedule, after the
-    /// assets have been updated. Any system which modifies an
-    /// [`EffectAsset`]'s declared properties should run before [`UpdateAssets`]
-    /// in order for changes to be taken into account in the same frame.
-    ///
-    /// [`UpdateAssets`]: bevy::asset::UpdateAssets
-    UpdatePropertiesFromAsset,
-
-    /// Gather all removed [`ParticleEffect`] components during the
-    /// [`PostUpdate`] set, to be able to clean-up GPU resources.
-    ///
-    /// Systems deleting entities with a [`ParticleEffect`] component should run
-    /// before this set if they want the particle effect is cleaned-up during
-    /// the same frame.
-    ///
-    /// [`ParticleEffect`]: crate::ParticleEffect
-    GatherRemovedEffects,
-
-    /// Prepare effect assets for the extracted effects.
-    PrepareEffectAssets,
-
-    /// Queue the GPU commands for the extracted effects.
-    QueueEffects,
-
-    /// Prepare GPU data for the queued effects.
-    PrepareEffectGpuResources,
-
-    /// Prepare the bind groups.
-    PrepareBindGroups,
-}
-
 /// Simulation parameters, available to all shaders of all effects.
 #[derive(Debug, Default, Clone, Copy, Resource)]
 pub(crate) struct SimParams {
@@ -1503,7 +1451,11 @@ pub(crate) fn extract_effects(
         let property_layout = asset.property_layout();
 
         let property_data = if let Some(properties) = maybe_properties {
-            if properties.is_changed() {
+            // Note: must check that property layout is not empty, because the
+            // EffectProperties component is marked as changed when added but contains an
+            // empty Vec if there's no property, which would later raise an error if we
+            // don't return None here.
+            if properties.is_changed() && !property_layout.is_empty() {
                 trace!("Detected property change, re-serializing...");
                 Some(properties.serialize(&property_layout))
             } else {
