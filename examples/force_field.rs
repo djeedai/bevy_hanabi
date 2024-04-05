@@ -59,7 +59,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init_resource::<inspector::Configuration>()
         .register_type::<inspector::Configuration>()
         .add_systems(Update, inspector::inspector_ui)
-        .add_systems(PostUpdate, inspector::apply_tweaks);
+        .add_systems(
+            PostUpdate,
+            inspector::apply_tweaks.after(EffectSystems::UpdatePropertiesFromAsset),
+        );
 
     app.add_systems(Startup, setup)
         .add_systems(
@@ -357,28 +360,7 @@ fn setup(
             .render(ColorOverLifetimeModifier { gradient }),
     );
 
-    commands.spawn((
-        ParticleEffectBundle::new(effect),
-        // Note: regression as of 0.10, we need to explicitly add this component with the correct
-        // properties.
-        EffectProperties::default().with_properties([
-            (
-                "repulsor_position".to_string(),
-                Value::Vector(REPULSOR_POS.into()),
-            ),
-            ("attraction_accel".to_string(), Value::Scalar(20.0.into())),
-            (
-                "max_attraction_speed".to_string(),
-                Value::Scalar(5.0.into()),
-            ),
-            ("sticky_factor".to_string(), Value::Scalar(2.0.into())),
-            (
-                "shell_half_thickness".to_string(),
-                Value::Scalar(0.1.into()),
-            ),
-            ("repulsor_accel".to_string(), Value::Scalar((-15.0).into())),
-        ]),
-    ));
+    commands.spawn(ParticleEffectBundle::new(effect));
 }
 
 fn spawn_on_click(

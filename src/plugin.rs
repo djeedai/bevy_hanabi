@@ -22,15 +22,68 @@ use crate::{
     render::{
         extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects,
         prepare_resources, queue_effects, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents,
-        EffectBindGroups, EffectCache, EffectSystems, EffectsMeta, ExtractedEffects,
-        GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline,
-        ShaderCache, SimParams, VfxSimulateDriverNode, VfxSimulateNode,
+        EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects, GpuSpawnerParams,
+        ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache,
+        SimParams, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,
     time::effect_simulation_time_system,
     update_properties_from_asset, EffectSimulation, ParticleEffect, RemovedEffectsEvent, Spawner,
 };
+
+/// Labels for the Hanabi systems.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
+pub enum EffectSystems {
+    /// Tick all effect instances to generate particle spawn counts.
+    ///
+    /// This system runs during the [`PostUpdate`] schedule. Any system which
+    /// modifies an effect spawner should run before this set to ensure the
+    /// spawner takes into account the newly set values during its ticking.
+    TickSpawners,
+
+    /// Compile the effect instances, updating the [`CompiledParticleEffect`]
+    /// components.
+    ///
+    /// This system runs during the [`PostUpdate`] schedule. This is largely an
+    /// internal task which can be ignored by most users.
+    CompileEffects,
+
+    /// Update the properties of the effect instance based on the declared
+    /// properties in the [`EffectAsset`], updating the associated
+    /// [`EffectProperties`] component.
+    ///
+    /// This system runs during Bevy's own [`UpdateAssets`] schedule, after the
+    /// assets have been updated. Any system which modifies an
+    /// [`EffectAsset`]'s declared properties should run before [`UpdateAssets`]
+    /// in order for changes to be taken into account in the same frame.
+    ///
+    /// [`UpdateAssets`]: bevy::asset::UpdateAssets
+    UpdatePropertiesFromAsset,
+
+    /// Gather all removed [`ParticleEffect`] components during the
+    /// [`PostUpdate`] set, to clean-up unused GPU resources.
+    ///
+    /// Systems deleting entities with a [`ParticleEffect`] component should run
+    /// before this set if they want the particle effect is cleaned-up during
+    /// the same frame.
+    ///
+    /// [`ParticleEffect`]: crate::ParticleEffect
+    GatherRemovedEffects,
+
+    /// Prepare effect assets for the extracted effects.
+    PrepareEffectAssets,
+
+    /// Queue the GPU commands for the extracted effects.
+    QueueEffects,
+
+    /// Prepare GPU data for the queued effects.
+    PrepareEffectGpuResources,
+
+    /// Prepare the GPU bind groups once all buffers have been (re-)allocated
+    /// and won't change this frame.
+    PrepareBindGroups,
+}
 
 pub mod main_graph {
     pub mod node {

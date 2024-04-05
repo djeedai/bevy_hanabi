@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bind groups for effect rendering are now created in a separate system in the `EffectSystems::PrepareBindGroups` set, itself part of Bevy's `RenderSet::PrepareBindGroups`. They're also cached, which increases the performance of rendering many effects.
 - Merged the init and update pass bind groups for the particle buffer and associated resources in `EffectBfufer`. The new unified resources use the `_sim` (simulation) suffix.
 - `CompiledParticleEffect` now holds a strong handle to the same `EffectAsset` as the `ParticleEffect` it's compiled from. This ensures the asset is not unloaded while in use during the frame. To allow an `EffectAsset` to unload, clear the handle of the `ParticleEffect`, then allow the `CompiledParticleEffect` to observe the change and clear its own handle too.
+- The `EffectProperties` component is now mandatory, and has been added to the `ParticleEffectBundle`. (#309)
 
 ### Removed
 
@@ -61,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed invalid WGSL being generated for large `u32` values.
 - Fixed particle flickering, only for particles rendered through the `AlphaMask3d` render pass (`EffectAsset::alpha_mode == AlphaMode::Mask`). (#183)
 - Fixed invalid layout of all `mat3xR<f32>` returned by `MatrixValue::as_bytes()`, which was missing padding. (#310)
+- Fixed a regression where declaring properties but not adding an `EffectProperties` component would prevent properties from being uploaded to GPU. The `EffectProperties` component is now mandatory, even if the effect doesn't use any property. However there's still no GPU resource allocated if no property is used. (#309)
 
 ## [0.10.0] 2024-02-24
 
