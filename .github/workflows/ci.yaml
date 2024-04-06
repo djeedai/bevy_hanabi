@@ -44,6 +44,8 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
             target/
           key: ${{ runner.os }}-cargo-build-${{ matrix.dimensions }}-stable-${{ hashFiles('**/Cargo.toml') }}
       - uses: dtolnay/rust-toolchain@stable
@@ -94,13 +96,13 @@ jobs:
           DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
             libasound2-dev libudev-dev;
         if: runner.os == 'linux'
-      - name: Install graphic drivers
-        run: |
-          sudo apt-get update -y -qq
-          sudo add-apt-repository ppa:kisak/kisak-mesa -y
-          sudo apt-get update
-          sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
-        if: runner.os == 'linux'
+      # - name: Install graphic drivers
+      #   run: |
+      #     sudo apt-get update -y -qq
+      #     sudo add-apt-repository ppa:kisak/kisak-mesa -y
+      #     sudo apt-get update
+      #     sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+      #   if: runner.os == 'linux'
       - uses: actions/checkout@v4
       - uses: actions/cache@v2
         with:
@@ -109,13 +111,13 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
             target/
           key: ${{ runner.os }}-cargo-build-all-stable-${{ hashFiles('**/Cargo.toml') }}
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           components: rustfmt, clippy
-          override: true
       - name: Build & run examples (Linux)
         run: |
           for example in .github/example-run/3d/*.ron; do
@@ -181,13 +183,13 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
             target/
           key: ${{ runner.os }}-cargo-build-all-stable-${{ hashFiles('**/Cargo.toml') }}
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           components: rustfmt, clippy
-          override: true
       - name: Check format
         run: cargo fmt --all -- --check
         env:
@@ -199,14 +201,15 @@ jobs:
 
   coverage:
     name: Coverage
-    runs-on: ubuntu-latest
+    #runs-on: ubuntu-latest
+    runs-on: macos-latest
     permissions:
       actions: read
       checks: write
     steps:
-      - name: Install Bevy dependencies
-        run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
-        if: runner.os == 'linux'
+      # - name: Install Bevy dependencies
+      #   run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      #   if: runner.os == 'linux'
       - uses: actions/checkout@v4
       - uses: actions/cache@v2
         with:
@@ -219,17 +222,16 @@ jobs:
             ~/.cargo/.crates2.json
             target/
           key: ${{ runner.os }}-cargo-build-all-stable-${{ hashFiles('**/Cargo.toml') }}
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
-      - name: Install graphic drivers
-        run: |
-          sudo apt-get update -y -qq
-          sudo add-apt-repository ppa:kisak/kisak-mesa -y
-          sudo apt-get update
-          sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
-        if: runner.os == 'linux'
+          components: rustfmt, clippy
+      # - name: Install graphic drivers
+      #   run: |
+      #     sudo apt-get update -y -qq
+      #     sudo add-apt-repository ppa:kisak/kisak-mesa -y
+      #     sudo apt-get update
+      #     sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
+      #   if: runner.os == 'linux'
       - name: Install cargo-tarpaulin
         run: |
           RUST_BACKTRACE=1 cargo install --version 0.22.0 cargo-tarpaulin
