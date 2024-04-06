@@ -84,7 +84,7 @@ jobs:
         run: WGPU_BACKEND=metal cargo test --no-default-features --features "2d 3d gpu_tests"
         env:
           CARGO_INCREMENTAL: 0
-        if: runner.os == 'macos' && matrix.dimensions != 'all'
+        if: runner.os == 'macos' && matrix.dimensions == 'all'
 
   run-examples:
     #runs-on: ubuntu-latest # Bug: Library libxkbcommon-x11.so could not be loaded.
