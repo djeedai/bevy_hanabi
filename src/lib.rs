@@ -160,12 +160,13 @@
 //!    reflected to its instances, although not all changes are supported. In
 //!    general, avoid changing an [`EffectAsset`] while it's in use by one or
 //!    more [`ParticleEffect`].
-//! 3. Optionally spawn an [`EffectProperties`] component on the same entity, if
-//!    the effect uses properties. See [properties] for more details.
-//! 4. If using properties, update them through the [`EffectProperties`] at any
-//!    time while the effect is active. This allows some moderate CPU-side
-//!    control over the simulation and rendering of the effect, without having
-//!    to destroy the effect and re-create a new one.
+//! 3. Also spawn an [`EffectProperties`] component on the same entity. This is
+//!    required even if the effect doesn't use properties. See [properties] for
+//!    more details.
+//! 4. If actually using properties, update them through the
+//!    [`EffectProperties`] at any time while the effect is active. This allows
+//!    some moderate CPU-side control over the simulation and rendering of the
+//!    effect, without having to destroy the effect and re-create a new one.
 
 #[cfg(feature = "2d")]
 use bevy::utils::FloatOrd;

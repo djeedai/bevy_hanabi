@@ -1,4 +1,4 @@
-//! Effect attributes.
+//! Effect attributes, like the position or velocity of a particle.
 //!
 //! An _effect attribute_ is a quantity stored per particle for all particles.
 //! Unlike [properties](crate::properties), each particle can have a different

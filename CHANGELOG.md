@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a new `PropertyHandle`, which is to `Property` what the existing `ExprHandle` is to `Expr`: a unique handle into a owning `Module`.
 - Added a new `RoundModifier` that allows round particles to be constructed without having to create a texture.
 - Added a new `trace` feature enabling some `span_info!()` profiling annotations.
+- Added the ability to make particle trails, via the `CloneModifier` and the addition of separate particle groups. See the `worms.rs` example for usage.
+- Added the ability to stitch trail particles together to form ribbons with the `RibbonModifier`.
 
 ### Changed
 
@@ -33,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `EffectAsset::init()` and `EffectAsset::update()` now take a `Modifier`-bound type, and validate its `ModifierContext` is compatible (and panics if not).
 - `EffectAsset::render()` now panics if the modifier is not compatible with the `ModifierContext::Render`. Note that this indicates a malformed render modifier, because all objects implementing `RenderModifier` must include `ModifierContext::Render` in their `Modifier::context()`.
 - Improved the serialization format to reduce verbosity, by making the following types `#[serde(transparent)]`: `ExprHandle`, `LiteralExpr`, `PropertyExpr`.
-- Moved properties from [`EffectAsset`] to [`Module`].
+- Moved properties from `EffectAsset` to `Module`.
 - `Module::prop()` and `PropertyExpr::new()` now take a `PropertyHandle` instead of a property name (string).
 - The following modifiers' `via_property()` function now takes a `PropertyHandle` instead of a property name: `AccelModifier`, `RadialAccelModifier`, `TangentAccelModifier`.
 - `Expr` is now `Copy`, making it even more lightweight.
