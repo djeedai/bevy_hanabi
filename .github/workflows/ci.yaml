@@ -27,7 +27,6 @@ jobs:
     strategy:
       matrix:
         dimensions: [2d, 3d, all]
-        toolchain: [stable] #, nightly]
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -36,13 +35,6 @@ jobs:
           sudo apt-get update;
           DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
             libasound2-dev libudev-dev;
-        if: runner.os == 'linux'
-      - name: Install graphic drivers
-        run: |
-          sudo apt-get update -y -qq
-          sudo add-apt-repository ppa:kisak/kisak-mesa -y
-          sudo apt-get update
-          sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
         if: runner.os == 'linux'
       - uses: actions/checkout@v4
       - uses: actions/cache@v2
@@ -53,22 +45,21 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-build-${{ matrix.dimensions }}-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.toml') }}
-      - uses: actions-rs/toolchain@v1
+          key: ${{ runner.os }}-cargo-build-${{ matrix.dimensions }}-stable-${{ hashFiles('**/Cargo.toml') }}
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: ${{ matrix.toolchain }}
           components: rustfmt, clippy
-          override: true
       - name: Build & run tests
         run: cargo test --no-default-features --features ${{ matrix.dimensions }}
         env:
           CARGO_INCREMENTAL: 0
         if: matrix.dimensions != 'all'
-      - name: Build & run GPU tests
-        run: cargo test --no-default-features --features ${{ matrix.dimensions }} --features gpu_tests
+      - name: Build & run GPU tests (DX12)
+        shell: bash
+        run: WGPU_BACKEND=dx12 cargo test --no-default-features --features ${{ matrix.dimensions }} --features gpu_tests
         env:
           CARGO_INCREMENTAL: 0
-        if: runner.os == 'linux' && matrix.dimensions != 'all'
+        if: runner.os == 'windows' && matrix.dimensions != 'all'
       - name: Build & run tests
         run: cargo test --no-default-features --features="2d 3d"
         env:
