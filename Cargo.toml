@@ -110,7 +110,7 @@ required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "activate"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/bevy_ui", "bevy/default_font", "3d" ]
 
 [[example]]
 name = "force_field"

@@ -202,7 +202,7 @@ cargo run --example multicam --features="bevy/bevy_winit bevy/bevy_pbr 3d"
 
 ### Activate
 
-This example demonstrates manual activation and deactivation of a spawner, from code (CPU). The circle bobs up and down in the water, spawning square bubbles when in the water only.
+This example demonstrates manual activation and deactivation of a `Spawner`, from code (CPU). The circle bobs up and down in the water, spawning bubbles when in the water only. The bubble particles are constrained to the water with a `KillAabbModifier`, and a small vertical acceleration simulate some pseudo buoyancy.
 
 ```shell
 cargo run --example activate --features="bevy/bevy_winit bevy/bevy_pbr 3d"
