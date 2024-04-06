@@ -67,7 +67,7 @@ jobs:
           CARGO_INCREMENTAL: 0
         if: runner.os == 'macos' && matrix.dimensions != 'all'
       - name: Build & run tests (all no GPU)
-        run: cargo test --no-default-features --features "2d 3d gpu_tests"
+        run: cargo test --no-default-features --features "2d 3d"
         env:
           CARGO_INCREMENTAL: 0
         if: runner.os == 'linux' && matrix.dimensions == 'all'
