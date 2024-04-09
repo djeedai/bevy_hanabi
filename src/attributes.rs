@@ -1116,10 +1116,10 @@ impl Attribute {
     /// [`ScalarType::Float`]
     pub const F32_3: Attribute = Attribute(AttributeInner::F32_3);
 
-    declare_custom_attr_pub!(F32X2_0, "f32x2_0", 4, VEC2F);
-    declare_custom_attr_pub!(F32X2_1, "f32x2_1", 4, VEC2F);
-    declare_custom_attr_pub!(F32X2_2, "f32x2_2", 4, VEC2F);
-    declare_custom_attr_pub!(F32X2_3, "f32x2_3", 4, VEC2F);
+    declare_custom_attr_pub!(F32X2_0, "f32x2_0", 2, VEC2F);
+    declare_custom_attr_pub!(F32X2_1, "f32x2_1", 2, VEC2F);
+    declare_custom_attr_pub!(F32X2_2, "f32x2_2", 2, VEC2F);
+    declare_custom_attr_pub!(F32X2_3, "f32x2_3", 2, VEC2F);
     declare_custom_attr_pub!(F32X3_0, "f32x3_0", 3, VEC3F);
     declare_custom_attr_pub!(F32X3_1, "f32x3_1", 3, VEC3F);
     declare_custom_attr_pub!(F32X3_2, "f32x3_2", 3, VEC3F);
