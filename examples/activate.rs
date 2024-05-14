@@ -1,20 +1,21 @@
-//! A circle bobs up and down in the water, spawning square bubbles when in the
-//! water.
+//! A circle bobs up and down in the water, spawning bubbles when in the water.
 //!
 //! This example demonstrates the use of [`Spawner::set_active()`] to enable or
 //! disable particle spawning, under the control of the application. This is
 //! similar to the `spawn_on_command.rs` example, where [`Spawner::reset()`] is
 //! used instead to spawn a single burst of particles.
+//!
+//! A small vertical acceleration simulate a pseudo-buoyancy making the bubbles
+//! slowly move upward toward the surface. The example uses a
+//! [`KillAabbModifier`] to ensure the bubble particles never escape water, and
+//! are despawned when reaching the surface.
 
 use bevy::{
     core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
     prelude::*,
     render::{
-        camera::{Projection, ScalingMode},
-        render_resource::WgpuFeatures,
-        settings::WgpuSettings,
-        RenderPlugin,
+        camera::ScalingMode, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
     },
 };
 #[cfg(feature = "examples_world_inspector")]
@@ -62,6 +63,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[derive(Component)]
+struct StatusText;
+
+#[derive(Component)]
 struct Ball {
     velocity_y: f32,
 }
@@ -83,6 +87,7 @@ fn setup(
     camera.projection = Projection::Orthographic(projection);
     commands.spawn(camera);
 
+    // Blue rectangle mesh for "water"
     commands
         .spawn(PbrBundle {
             mesh: meshes.add(Rectangle {
@@ -135,29 +140,65 @@ fn setup(
         speed: writer.lit(0.1).expr(),
     };
 
+    let buoyancy = writer.lit(Vec3::Y * 0.2).expr();
+    let update_buoyancy = AccelModifier::new(buoyancy);
+
+    // Kill particles getting out of water
+    let center = writer.lit(Vec3::Y * -2.02).expr();
+    let half_size = writer.lit(Vec3::splat(2.0)).expr();
+    let allow_zone = KillAabbModifier::new(center, half_size);
+
+    let mut module = writer.finish();
+
+    let round = RoundModifier::constant(&mut module, 1.0);
+
     let effect = effects.add(
-        EffectAsset::new(32768, spawner, writer.finish())
+        EffectAsset::new(vec![32768], spawner, module)
             .with_name("activate")
             .init(init_pos)
             .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
-            .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant(Vec2::splat(0.02)),
-                screen_space_size: false,
+            .update(update_buoyancy)
+            .update(allow_zone)
+            .render(SetSizeModifier {
+                size: Vec2::splat(0.02).into(),
             })
-            .render(ColorOverLifetimeModifier { gradient }),
+            .render(ColorOverLifetimeModifier { gradient })
+            .render(round),
     );
 
     ball.with_children(|node| {
-        node.spawn(ParticleEffectBundle::new(effect).with_spawner(spawner))
+        node.spawn(ParticleEffectBundle::new(effect))
             .insert(Name::new("effect"));
     });
+
+    commands.spawn((
+        TextBundle {
+            style: Style {
+                position_type: PositionType::Absolute,
+                top: Val::Px(30.),
+                right: Val::Px(30.),
+                ..default()
+            },
+            text: Text::from_section(
+                "Active",
+                TextStyle {
+                    font_size: 60.0,
+                    color: Color::WHITE,
+                    ..default()
+                },
+            ),
+            ..default()
+        },
+        StatusText,
+    ));
 }
 
 fn update(
     mut q_balls: Query<(&mut Ball, &mut Transform, &Children)>,
     mut q_spawner: Query<&mut EffectSpawner>,
+    mut q_text: Query<&mut Text, With<StatusText>>,
     time: Res<Time>,
 ) {
     const ACCELERATION: f32 = 1.0;
@@ -173,8 +214,12 @@ fn update(
         // Note: On first frame where the effect spawns, EffectSpawner is spawned during
         // CoreSet::PostUpdate, so will not be available yet. Ignore for a frame
         // if so.
+        let is_active = transform.translation.y < 0.0;
         if let Ok(mut spawner) = q_spawner.get_mut(children[0]) {
-            spawner.set_active(transform.translation.y < 0.0);
+            spawner.set_active(is_active);
         }
+
+        let mut text = q_text.single_mut();
+        text.sections[0].value = (if is_active { "Active" } else { "Inactive" }).to_string();
     }
 }

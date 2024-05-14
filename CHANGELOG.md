@@ -8,10 +8,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added a new `ScreenSpaceSizeModifier` which negates the effect of perspective projection, and makes the particle's size a pixel size in screen space, instead of a Bevy world unit size. This replaces the hard-coded behavior previously available on the `SetSizeModifier`.
+- Added a new `ConformToSphereModifier` acting as an attractor applying a force toward a point (sphere center) to all particles in range, and making particles conform ("stick") to the sphere surface.
+- Added `vec2` and `vec3` functions that allow construction of vectors from dynamic parts.
+- Added missing `VectorValue::as_uvecX()` and `impl From<UVecX> for VectorValue` for all `X=2,3,4`.
+- Added a new `ShaderWriter` helper, common to the init and update modifier contexts, and which replaces the `InitContext` and `UpdateContext`.
+- Added a simple `impl Display for ModifierContext`.
+- Added `Modifier::apply()` which replaces the now deleted `InitModifier::apply_init()` and `UdpdateModifier::apply_update()`.
+- Added `RenderModifier::as_modifier()` to upcast a `RenderModifier` to a `Modifier`.
+- Added `RenderModifier::boxed_render_clone()` to clone a `RenderModifier` into a boxed self (instead of a `BoxedModifier`, as we can't upcast from `Box<dyn RenderModifier>` to `Box<dyn Modifier>`). Added `impl Clone for Box<dyn RenderModifier>` based on this.
+- Added `EffectAsset::add_modifier()` to add a pre-boxed `Modifier` (so, a `BoxedModifier`) to the init or update context, and added `EffectAsset::add_render_modifier()` to add a pre-boxed `RenderModifier` to the render context.
+- Added `sqrt` and `inverseSqrt` expressions to the Expression API.
+- Added `Hash` derive for `Property`.
+- Added `Module::add_property()`, `Module::get_property()`, and `Module::properties()`.
+- Added a new `PropertyHandle`, which is to `Property` what the existing `ExprHandle` is to `Expr`: a unique handle into a owning `Module`.
+- Added a new `RoundModifier` that allows round particles to be constructed without having to create a texture.
+- Added a new `trace` feature enabling some `span_info!()` profiling annotations.
+
+### Changed
+
+- `ExprHandle` is now `#[repr(transparent)]`, which guarantees that `Option<ExprHandle>` has the same size as `ExprHandle` itself (4 bytes).
+- `EffectProperties::set_if_changed()` now returns the `Mut` variable it takes as input, to allow subsequent calls.
+- `VectorValue::new_uvecX()` now take a `UVecX` instead of individual components, like for all other scalar types.
+- Merged the `InitModifier` and `UpdateModifier` traits into the `Modifier` subtrait; see other changelog entries for details. This helps manage modifiers in a unified way, and generally simplifies writing and maintain modifiers compatible with both the init and update contexts.
+- `EffectAsset::init()` and `EffectAsset::update()` now take a `Modifier`-bound type, and validate its `ModifierContext` is compatible (and panics if not).
+- `EffectAsset::render()` now panics if the modifier is not compatible with the `ModifierContext::Render`. Note that this indicates a malformed render modifier, because all objects implementing `RenderModifier` must include `ModifierContext::Render` in their `Modifier::context()`.
+- Improved the serialization format to reduce verbosity, by making the following types `#[serde(transparent)]`: `ExprHandle`, `LiteralExpr`, `PropertyExpr`.
+- Moved properties from [`EffectAsset`] to [`Module`].
+- `Module::prop()` and `PropertyExpr::new()` now take a `PropertyHandle` instead of a property name (string).
+- The following modifiers' `via_property()` function now takes a `PropertyHandle` instead of a property name: `AccelModifier`, `RadialAccelModifier`, `TangentAccelModifier`.
+- `Expr` is now `Copy`, making it even more lightweight.
+- `ExprWriter::prop()` now panics if the property doesn't exist. This ensures the created `WriterExpr` is well-formed, which was impossible to validate at expression write time previously.
+- Effects rendered with `AlphaMode::Mask` now write to the depth buffer. Other effects continue to not write to it. This fixes particle flickering for alpha masked effects only.
+- Bind groups for effect rendering are now created in a separate system in the `EffectSystems::PrepareBindGroups` set, itself part of Bevy's `RenderSet::PrepareBindGroups`. They're also cached, which increases the performance of rendering many effects.
+- Merged the init and update pass bind groups for the particle buffer and associated resources in `EffectBfufer`. The new unified resources use the `_sim` (simulation) suffix.
+- `CompiledParticleEffect` now holds a strong handle to the same `EffectAsset` as the `ParticleEffect` it's compiled from. This ensures the asset is not unloaded while in use during the frame. To allow an `EffectAsset` to unload, clear the handle of the `ParticleEffect`, then allow the `CompiledParticleEffect` to observe the change and clear its own handle too.
+- The `EffectProperties` component is now mandatory, and has been added to the `ParticleEffectBundle`. (#309)
 
 ### Removed
 
 - Removed the `screen_space_size` field from the `SetSizeModifier`. Use the new `ScreenSpaceSizeModifier` to use a screen-space size.
+- Removed the built-in `ForceFieldSource` and associated `ForceFieldModifier`. Use the new `ConformToSphereModifer` instead. The behavior might change a bit as the conforming code is not strictly identical; use the `force_field.rs` example with the `examples_world_inspector` feature to tweak the parameters in real time and observe how they work and change the effect.
+- Removed `InitContext` and `UpdateContext`; they're replaced with `ShaderWriter`.
+- Removed `InitModifer` and `UpdateModifer`. Modifiers for the init and update contexts now only need to implement the base `Modifier` trait.
+- Removed downcast methods from `Modifier` (`as_init()`, `as_init_mut()`, `as_update()`, `as_update_mut()`).
+- Removed the various helper macros `impl_mod_xxx!()` to implement modifier traits; simply implement the trait by hand instead.
+- Removed `EffectAsset::with_property()` and `EffectAsset::add_property()`; use `Module::add_property()` instead.
+- `PropertyExpr` doesn't implement anymore `ToWgslString` nor `From<String>`. To create a `PropertyExpr`, you need a valid `PropertyHandle`, which would have been created via `Module::add_property()` with a default value enforcing a type. This ensures property expressions are well-formed on creation, and cannot reference non-existent properties.
+- Removed `ParticleEffect::spawner`, which was used as a per-instance override of `EffectAsset::spawner`. Manual spawn an `EffectSpawner` component with overridden values to achieve the same feature.
+
+### Fixed
+
+- Fixed a panic in rendering randomly occurring when no effect is present.
+- Fixed invalid WGSL being generated for large `u32` values.
+- Fixed particle flickering, only for particles rendered through the `AlphaMask3d` render pass (`EffectAsset::alpha_mode == AlphaMode::Mask`). (#183)
+- Fixed invalid layout of all `mat3xR<f32>` returned by `MatrixValue::as_bytes()`, which was missing padding. (#310)
+- Fixed a regression where declaring properties but not adding an `EffectProperties` component would prevent properties from being uploaded to GPU. The `EffectProperties` component is now mandatory, even if the effect doesn't use any property. However there's still no GPU resource allocated if no property is used. (#309)
 
 ## [0.10.0] 2024-02-24
 

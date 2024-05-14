@@ -110,12 +110,16 @@ fn setup(
         speed: writer.lit(0.1).expr(),
     };
 
+    let mut module = writer.finish();
+
+    let round = RoundModifier::constant(&mut module, 2.0 / 3.0);
+
     // Create a new effect asset spawning 30 particles per second from a circle
     // and slowly fading from blue-ish to transparent over their lifetime.
     // By default the asset spawns the particles at Z=0.
     let spawner = Spawner::rate(30.0.into());
     let effect = effects.add(
-        EffectAsset::new(4096, spawner, writer.finish())
+        EffectAsset::new(vec![4096], spawner, module)
             .with_name("2d")
             .init(init_pos)
             .init(init_vel)
@@ -125,7 +129,8 @@ fn setup(
                 gradient: Gradient::constant(Vec2::splat(0.02)),
                 screen_space_size: false,
             })
-            .render(ColorOverLifetimeModifier { gradient }),
+            .render(ColorOverLifetimeModifier { gradient })
+            .render(round),
     );
 
     // Spawn an instance of the particle effect, and override its Z layer to

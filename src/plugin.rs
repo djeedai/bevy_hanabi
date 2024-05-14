@@ -12,6 +12,7 @@ use bevy::{
         view::{prepare_view_uniforms, visibility::VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
+    time::{virtual_time_system, TimeSystem},
 };
 
 use crate::{
@@ -19,15 +20,70 @@ use crate::{
     compile_effects, gather_removed_effects,
     properties::EffectProperties,
     render::{
-        extract_effect_events, extract_effects, prepare_effects, prepare_resources, queue_effects,
-        DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectSystems,
-        EffectsMeta, ExtractedEffects, GpuSpawnerParams, ParticlesInitPipeline,
-        ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache, SimParams,
-        VfxSimulateDriverNode, VfxSimulateNode,
+        extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects,
+        prepare_resources, queue_effects, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents,
+        EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects, GpuSpawnerParams,
+        ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache,
+        SimParams, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
-    tick_spawners, update_properties_from_asset, ParticleEffect, RemovedEffectsEvent, Spawner,
+    tick_spawners,
+    time::effect_simulation_time_system,
+    update_properties_from_asset, EffectSimulation, ParticleEffect, RemovedEffectsEvent, Spawner,
 };
+
+/// Labels for the Hanabi systems.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
+pub enum EffectSystems {
+    /// Tick all effect instances to generate particle spawn counts.
+    ///
+    /// This system runs during the [`PostUpdate`] schedule. Any system which
+    /// modifies an effect spawner should run before this set to ensure the
+    /// spawner takes into account the newly set values during its ticking.
+    TickSpawners,
+
+    /// Compile the effect instances, updating the [`CompiledParticleEffect`]
+    /// components.
+    ///
+    /// This system runs during the [`PostUpdate`] schedule. This is largely an
+    /// internal task which can be ignored by most users.
+    CompileEffects,
+
+    /// Update the properties of the effect instance based on the declared
+    /// properties in the [`EffectAsset`], updating the associated
+    /// [`EffectProperties`] component.
+    ///
+    /// This system runs during Bevy's own [`UpdateAssets`] schedule, after the
+    /// assets have been updated. Any system which modifies an
+    /// [`EffectAsset`]'s declared properties should run before [`UpdateAssets`]
+    /// in order for changes to be taken into account in the same frame.
+    ///
+    /// [`UpdateAssets`]: bevy::asset::UpdateAssets
+    UpdatePropertiesFromAsset,
+
+    /// Gather all removed [`ParticleEffect`] components during the
+    /// [`PostUpdate`] set, to clean-up unused GPU resources.
+    ///
+    /// Systems deleting entities with a [`ParticleEffect`] component should run
+    /// before this set if they want the particle effect is cleaned-up during
+    /// the same frame.
+    ///
+    /// [`ParticleEffect`]: crate::ParticleEffect
+    GatherRemovedEffects,
+
+    /// Prepare effect assets for the extracted effects.
+    PrepareEffectAssets,
+
+    /// Queue the GPU commands for the extracted effects.
+    QueueEffects,
+
+    /// Prepare GPU data for the queued effects.
+    PrepareEffectGpuResources,
+
+    /// Prepare the GPU bind groups once all buffers have been (re-)allocated
+    /// and won't change this frame.
+    PrepareBindGroups,
+}
 
 pub mod main_graph {
     pub mod node {
@@ -97,6 +153,7 @@ impl Plugin for HanabiPlugin {
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<ShaderCache>()
             .init_asset_loader::<EffectAssetLoader>()
+            .init_resource::<Time<EffectSimulation>>()
             .configure_sets(
                 PostUpdate,
                 (
@@ -113,6 +170,12 @@ impl Plugin for HanabiPlugin {
                 EffectSystems::UpdatePropertiesFromAsset.after(bevy::asset::TrackAssets),
             )
             .add_systems(
+                First,
+                effect_simulation_time_system
+                    .after(virtual_time_system)
+                    .in_set(TimeSystem),
+            )
+            .add_systems(
                 PostUpdate,
                 (
                     tick_spawners.in_set(EffectSystems::TickSpawners),
@@ -126,7 +189,8 @@ impl Plugin for HanabiPlugin {
         app.register_type::<EffectAsset>()
             .register_type::<ParticleEffect>()
             .register_type::<EffectProperties>()
-            .register_type::<Spawner>();
+            .register_type::<Spawner>()
+            .register_type::<Time<EffectSimulation>>();
     }
 
     fn finish(&self, app: &mut App) {
@@ -162,12 +226,14 @@ impl Plugin for HanabiPlugin {
             assets.insert(HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
         }
 
-        let effects_meta = EffectsMeta::new(render_device);
+        let effects_meta = EffectsMeta::new(render_device.clone());
+        let effect_cache = EffectCache::new(render_device);
 
         // Register the custom render pipeline
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .insert_resource(effects_meta)
+            .insert_resource(effect_cache)
             .init_resource::<EffectBindGroups>()
             .init_resource::<DispatchIndirectPipeline>()
             .init_resource::<ParticlesInitPipeline>()
@@ -185,6 +251,7 @@ impl Plugin for HanabiPlugin {
                     EffectSystems::PrepareEffectAssets.in_set(RenderSet::PrepareAssets),
                     EffectSystems::QueueEffects.in_set(RenderSet::Queue),
                     EffectSystems::PrepareEffectGpuResources.in_set(RenderSet::Prepare),
+                    EffectSystems::PrepareBindGroups.in_set(RenderSet::PrepareBindGroups),
                 ),
             )
             .edit_schedule(ExtractSchedule, |schedule| {
@@ -194,10 +261,15 @@ impl Plugin for HanabiPlugin {
                 Render,
                 (
                     prepare_effects.in_set(EffectSystems::PrepareEffectAssets),
-                    queue_effects.in_set(EffectSystems::QueueEffects),
+                    queue_effects
+                        .in_set(EffectSystems::QueueEffects)
+                        .after(prepare_effects),
                     prepare_resources
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         .after(prepare_view_uniforms),
+                    prepare_bind_groups
+                        .in_set(EffectSystems::PrepareBindGroups)
+                        .after(queue_effects),
                 ),
             );
 

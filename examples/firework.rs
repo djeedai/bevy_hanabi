@@ -13,6 +13,10 @@
 //!   the core of the "explosion" effect.
 //! - An [`AccelModifier`] to pull particles down once they slow down, for
 //!   increased realism. This is a subtle effect, but of importance.
+//!
+//! The particles also have a trail, created with the [`CloneModifier`]. The
+//! trail particles are stitched together to form an arc using the
+//! [`RibbonModifier`].
 
 use bevy::{
     core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
@@ -64,18 +68,21 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             tonemapping: Tonemapping::None,
             ..default()
         },
-        BloomSettings::default(),
+        BloomSettings {
+            intensity: 0.2,
+            ..default()
+        },
     ));
 
     let mut color_gradient1 = Gradient::new();
     color_gradient1.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
     color_gradient1.add_key(0.1, Vec4::new(4.0, 4.0, 0.0, 1.0));
-    color_gradient1.add_key(0.9, Vec4::new(4.0, 0.0, 0.0, 1.0));
+    color_gradient1.add_key(0.6, Vec4::new(4.0, 0.0, 0.0, 1.0));
     color_gradient1.add_key(1.0, Vec4::new(4.0, 0.0, 0.0, 0.0));
 
     let mut size_gradient1 = Gradient::new();
-    size_gradient1.add_key(0.0, Vec2::splat(0.1));
-    size_gradient1.add_key(0.3, Vec2::splat(0.1));
+    size_gradient1.add_key(0.0, Vec2::splat(0.05));
+    size_gradient1.add_key(0.3, Vec2::splat(0.05));
     size_gradient1.add_key(1.0, Vec2::splat(0.0));
 
     let writer = ExprWriter::new();
@@ -89,17 +96,21 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
+    // Lifetime for trails
+    let init_lifetime_trails =
+        SetAttributeModifier::new(Attribute::LIFETIME, writer.lit(0.2).expr());
+
     // Add constant downward acceleration to simulate gravity
-    let accel = writer.lit(Vec3::Y * -8.).expr();
+    let accel = writer.lit(Vec3::Y * -16.).expr();
     let update_accel = AccelModifier::new(accel);
 
     // Add drag to make particles slow down a bit after the initial explosion
-    let drag = writer.lit(5.).expr();
+    let drag = writer.lit(4.).expr();
     let update_drag = LinearDragModifier::new(drag);
 
     let init_pos = SetPositionSphereModifier {
         center: writer.lit(Vec3::ZERO).expr(),
-        radius: writer.lit(2.).expr(),
+        radius: writer.lit(0.1).expr(),
         dimension: ShapeDimension::Volume,
     };
 
@@ -109,9 +120,18 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         speed: (writer.rand(ScalarType::Float) * writer.lit(20.) + writer.lit(60.)).expr(),
     };
 
+    // Clear the trail velocity so trail particles just stay in place as they fade
+    // away
+    let init_vel_trail =
+        SetAttributeModifier::new(Attribute::VELOCITY, writer.lit(Vec3::ZERO).expr());
+
+    let lead = ParticleGroupSet::single(0);
+    let trail = ParticleGroupSet::single(1);
+
     let effect = EffectAsset::new(
-        32768,
-        Spawner::burst(2500.0.into(), 2.0.into()),
+        // 2k lead particles, with 32 trail particles each
+        vec![2048, 2048 * 32],
+        Spawner::burst(2048.0.into(), 2.0.into()),
         writer.finish(),
     )
     .with_name("firework")
@@ -119,15 +139,43 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     .init(init_vel)
     .init(init_age)
     .init(init_lifetime)
-    .update(update_drag)
-    .update(update_accel)
-    .render(ColorOverLifetimeModifier {
-        gradient: color_gradient1,
-    })
-    .render(SizeOverLifetimeModifier {
-        gradient: size_gradient1,
-        screen_space_size: false,
-    });
+    .update_groups(CloneModifier::new(1.0 / 64.0, 1), lead)
+    .update_groups(update_drag, lead)
+    .update_groups(update_accel, lead)
+    // Currently the init pass doesn't run on cloned particles, so we have to use an update modifier
+    // to init the lifetime of trails. This will overwrite the value each frame, so can only be used
+    // for constant values.
+    .update_groups(init_lifetime_trails, trail)
+    .update_groups(init_vel_trail, trail)
+    .render_groups(
+        ColorOverLifetimeModifier {
+            gradient: color_gradient1.clone(),
+        },
+        lead,
+    )
+    .render_groups(
+        SizeOverLifetimeModifier {
+            gradient: size_gradient1.clone(),
+            screen_space_size: false,
+        },
+        lead,
+    )
+    .render_groups(
+        ColorOverLifetimeModifier {
+            gradient: color_gradient1,
+        },
+        trail,
+    )
+    .render_groups(
+        SizeOverLifetimeModifier {
+            gradient: size_gradient1,
+            screen_space_size: false,
+        },
+        trail,
+    )
+    // Tie together trail particles to make arcs. This way we don't need a lot of them, yet there's
+    // a continuity between them.
+    .render_groups(RibbonModifier, trail);
 
     let effect1 = effects.add(effect);
 

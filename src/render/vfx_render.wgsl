@@ -1,8 +1,8 @@
 #import bevy_render::view::View
 #import bevy_hanabi::vfx_common::{
-    DispatchIndirect, ForceFieldSource, IndirectBuffer, SimParams, Spawner,
+    DispatchIndirect, IndirectBuffer, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
-    rand_uniform, proj
+    rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4, proj
 }
 
 struct Particle {
@@ -16,7 +16,7 @@ struct ParticleBuffer {
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
-#ifdef PARTICLE_TEXTURE
+#ifdef NEEDS_UV
     @location(1) uv: vec2<f32>,
 #endif
 }
@@ -111,7 +111,7 @@ fn transform_position_simulation_to_clip(sim_position: vec3<f32>) -> vec4<f32> {
 fn vertex(
     @builtin(instance_index) instance_index: u32,
     @location(0) vertex_position: vec3<f32>,
-#ifdef PARTICLE_TEXTURE
+#ifdef NEEDS_UV
     @location(1) vertex_uv: vec2<f32>,
 #endif
     // @location(1) vertex_color: u32,
@@ -121,7 +121,7 @@ fn vertex(
     let index = indirect_buffer.indices[3u * instance_index + pong];
     var particle = particle_buffer.particles[index];
     var out: VertexOutput;
-#ifdef PARTICLE_TEXTURE
+#ifdef NEEDS_UV
     var uv = vertex_uv;
 #ifdef FLIPBOOK
     let row_count = {{FLIPBOOK_ROW_COUNT}};
@@ -129,7 +129,7 @@ fn vertex(
     uv = (ij + uv) * {{FLIPBOOK_SCALE}};
 #endif
     out.uv = uv;
-#endif
+#endif  // NEEDS_UV
 
 {{INPUTS}}
 
@@ -138,9 +138,7 @@ fn vertex(
     // Expand particle mesh vertex based on particle position ("origin"), and local
     // orientation and size of the particle mesh (currently: only quad).
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
-    let sim_position = particle.position
-        + axis_x * vpos.x
-        + axis_y * vpos.y;
+    let sim_position = position + axis_x * vpos.x + axis_y * vpos.y;
     out.position = transform_position_simulation_to_clip(sim_position);
 
     out.color = color;

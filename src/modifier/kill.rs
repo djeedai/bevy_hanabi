@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::{EvalContext, ExprError},
-    impl_mod_update, Attribute, ExprHandle, Module, UpdateContext, UpdateModifier,
+    Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module, ShaderWriter,
 };
 
 /// A modifier killing all particles that enter or exit a sphere.
@@ -60,15 +60,21 @@ impl KillSphereModifier {
     }
 }
 
-impl_mod_update!(KillSphereModifier, &[Attribute::POSITION]);
-
 #[typetag::serde]
-impl UpdateModifier for KillSphereModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
+impl Modifier for KillSphereModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::POSITION]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let pos = module.attr(Attribute::POSITION);
         let diff = module.sub(pos, self.center);
         let sqr_dist = module.dot(diff, diff);
@@ -79,7 +85,7 @@ impl UpdateModifier for KillSphereModifier {
         };
         let expr = context.eval(module, cmp)?;
 
-        context.update_code += &format!(
+        context.main_code += &format!(
             r#"if ({}) {{
     is_alive = false;
 }}
@@ -135,15 +141,21 @@ impl KillAabbModifier {
     }
 }
 
-impl_mod_update!(KillAabbModifier, &[Attribute::POSITION]);
-
 #[typetag::serde]
-impl UpdateModifier for KillAabbModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
+impl Modifier for KillAabbModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::POSITION]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let pos = module.attr(Attribute::POSITION);
         let diff = module.sub(pos, self.center);
         let dist = module.abs(diff);
@@ -159,7 +171,7 @@ impl UpdateModifier for KillAabbModifier {
         };
         let expr = context.eval(module, reduce)?;
 
-        context.update_code += &format!(
+        context.main_code += &format!(
             r#"if ({}) {{
     is_alive = false;
 }}
@@ -173,7 +185,7 @@ impl UpdateModifier for KillAabbModifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Module, ParticleLayout, PropertyLayout};
+    use crate::{ParticleLayout, PropertyLayout};
 
     use super::*;
 
@@ -186,9 +198,11 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = UpdateContext::new(&property_layout, &particle_layout);
-        assert!(modifier.apply_update(&mut module, &mut context).is_ok());
+        let mut context =
+            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        assert!(modifier.apply(&mut module, &mut context).is_ok());
 
-        assert!(context.update_code.contains("is_alive = false")); // TODO - less weak check
+        assert!(context.main_code.contains("is_alive = false")); // TODO - less
+                                                                 // weak check
     }
 }

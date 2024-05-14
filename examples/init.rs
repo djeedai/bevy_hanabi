@@ -65,22 +65,26 @@ const SIZE: Vec2 = Vec2::splat(0.1);
 
 fn base_effect<M, F>(name: impl Into<String>, mut make_modifier: F) -> EffectAsset
 where
-    M: InitModifier + Send + Sync + 'static,
+    M: Modifier + Send + Sync + 'static,
     F: FnMut(&ExprWriter) -> M,
 {
     let writer = ExprWriter::new();
 
     let init = make_modifier(&writer);
 
-    EffectAsset::new(32768, Spawner::once(COUNT.into(), true), writer.finish())
-        .with_name(name)
-        .with_simulation_space(SimulationSpace::Local)
-        .init(init)
-        .render(OrientModifier::new(OrientMode::FaceCameraPosition))
-        .render(SetColorModifier {
-            color: COLOR.into(),
-        })
-        .render(SetSizeModifier { size: SIZE.into() })
+    EffectAsset::new(
+        vec![32768],
+        Spawner::once(COUNT.into(), true),
+        writer.finish(),
+    )
+    .with_name(name)
+    .with_simulation_space(SimulationSpace::Local)
+    .init(init)
+    .render(OrientModifier::new(OrientMode::FaceCameraPosition))
+    .render(SetColorModifier {
+        color: COLOR.into(),
+    })
+    .render(SetSizeModifier { size: SIZE.into() })
 }
 
 fn spawn_effect(

@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 
 use crate::{
-    impl_mod_render, Attribute, BoxedModifier, CpuValue, EvalContext, ExprHandle, Gradient,
-    Modifier, ModifierContext, Module, RenderContext, RenderModifier, ShaderCode, ToWgslString,
+    impl_mod_render, Attribute, BoxedModifier, CpuValue, EvalContext, ExprError, ExprHandle,
+    Gradient, Modifier, ModifierContext, Module, RenderContext, RenderModifier, ShaderCode,
+    ShaderWriter, ToWgslString,
 };
 
 /// Mapping of the sample read from a texture image to the base particle color.
@@ -81,6 +82,14 @@ impl RenderModifier for ParticleTextureModifier {
         context.set_particle_texture(self.texture.clone());
         context.image_sample_mapping_code = self.sample_mapping.to_wgsl_string();
     }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(self.clone())
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
+    }
 }
 
 /// A modifier to set the rendering color of all particles.
@@ -104,6 +113,14 @@ impl_mod_render!(SetColorModifier, &[]);
 impl RenderModifier for SetColorModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.vertex_code += &format!("color = {0};\n", self.color.to_wgsl_string());
+    }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(*self)
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
     }
 }
 
@@ -147,6 +164,14 @@ impl RenderModifier for ColorOverLifetimeModifier {
             Attribute::LIFETIME.name()
         );
     }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(self.clone())
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
+    }
 }
 
 /// A modifier to set the size of all particles.
@@ -173,6 +198,14 @@ impl_mod_render!(SetSizeModifier, &[]);
 impl RenderModifier for SetSizeModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.vertex_code += &format!("size = {0};\n", self.size.to_wgsl_string());
+    }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(*self)
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
     }
 }
 
@@ -219,6 +252,14 @@ impl RenderModifier for SizeOverLifetimeModifier {
             Attribute::AGE.name(),
             Attribute::LIFETIME.name()
         );
+    }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(self.clone())
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
     }
 }
 
@@ -346,6 +387,10 @@ impl Modifier for OrientModifier {
     fn boxed_clone(&self) -> BoxedModifier {
         Box::new(*self)
     }
+
+    fn apply(&self, _module: &mut Module, _context: &mut ShaderWriter) -> Result<(), ExprError> {
+        Err(ExprError::TypeError("Wrong modifier context".to_string()))
+    }
 }
 
 #[typetag::serde]
@@ -405,6 +450,14 @@ axis_z = cross(axis_x, axis_y);
             }
         }
     }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(*self)
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
+    }
 }
 
 /// A modifier to render particles using flipbook animation.
@@ -449,7 +502,7 @@ axis_z = cross(axis_x, axis_y);
 /// let sprite_index = writer.attr(Attribute::AGE).cast(ScalarType::Int).rem(writer.lit(4i32)).expr();
 /// let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
 ///
-/// let asset = EffectAsset::new(32768, Spawner::once(32.0.into(), true), writer.finish())
+/// let asset = EffectAsset::new(vec![32768], Spawner::once(32.0.into(), true), writer.finish())
 ///     .with_name("flipbook")
 ///     .init(init_age)
 ///     .init(init_lifetime)
@@ -502,6 +555,14 @@ impl RenderModifier for FlipbookModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.sprite_grid_size = Some(self.sprite_grid_size);
     }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(*self)
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
+    }
 }
 
 /// A modifier to interpret the size of all particles in screen-space pixels.
@@ -550,6 +611,87 @@ impl RenderModifier for ScreenSpaceSizeModifier {
             let projection_scale = vec2<f32>(view.projection[0][0], view.projection[1][1]);\n
             size = (size * w_cs * 2.0) / min(screen_size_pixels.x * projection_scale.x, screen_size_pixels.y * projection_scale.y);\n",
             Attribute::POSITION.name());
+    }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(*self)
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
+    }
+}
+
+/// Makes particles round.
+///
+/// The shape of each particle is a [squircle] (like a rounded rectangle, but
+/// faster to evaluate). The `roundness` parameter specifies how round the shape
+/// is. At 0.0, the particle is a rectangle; at 1.0, the particle is an
+/// ellipse.
+///
+/// Given x and y from (-1, 1), the equation of the shape of the particle is
+/// |x|ⁿ + |y|ⁿ = 1, where n = 2 / `roundness``.
+///
+/// Note that this modifier is presently incompatible with the
+/// [`FlipbookModifier`]. Attempts to use them together will produce unexpected
+/// results.
+///
+/// [squircle]: https://en.wikipedia.org/wiki/Squircle
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+pub struct RoundModifier {
+    /// How round the particle is.
+    ///
+    /// This ranges from 0.0 for a perfect rectangle to 1.0 for a perfect
+    /// ellipse. 1/3 produces a nice rounded rectangle shape.
+    ///
+    /// n in the squircle formula is calculated as (2 / roundness).
+    pub roundness: ExprHandle,
+}
+
+impl_mod_render!(RoundModifier, &[]);
+
+#[typetag::serde]
+impl RenderModifier for RoundModifier {
+    fn apply_render(&self, module: &mut Module, context: &mut RenderContext) {
+        context.set_needs_uv();
+
+        let roundness = context.eval(module, self.roundness).unwrap();
+        context.fragment_code += &format!(
+            "let roundness = {};
+            if (roundness > 0.0f) {{
+                let n = 2.0f / roundness;
+                if (pow(abs(1.0f - 2.0f * in.uv.x), n) +
+                        pow(abs(1.0f - 2.0f * in.uv.y), n) > 1.0f) {{
+                    discard;
+                }}
+            }}",
+            roundness
+        );
+    }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(*self)
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
+    }
+}
+
+impl RoundModifier {
+    /// Creates a new [`RoundModifier`] with the given roundness.
+    ///
+    /// The `roundness` parameter varies from 0.0 to 1.0.
+    pub fn constant(module: &mut Module, roundness: f32) -> RoundModifier {
+        RoundModifier {
+            roundness: module.lit(roundness),
+        }
+    }
+
+    /// Creates a new [`RoundModifier`] that describes an ellipse.
+    #[doc(alias = "circle")]
+    pub fn ellipse(module: &mut Module) -> RoundModifier {
+        RoundModifier::constant(module, 1.0)
     }
 }
 

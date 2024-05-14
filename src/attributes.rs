@@ -236,7 +236,7 @@ impl VectorType {
 
     /// Create a new vector type.
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// Panics if the component `count` is not 2/3/4.
     pub const fn new(elem_type: ScalarType, count: u8) -> Self {
@@ -280,10 +280,8 @@ impl VectorType {
         // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
         if self.count >= 3 {
             4 * self.elem_type.align()
-        } else if self.count == 2 {
-            2 * self.elem_type.align()
         } else {
-            self.elem_type.align()
+            2 * self.elem_type.align()
         }
     }
 }
@@ -323,10 +321,12 @@ impl MatrixType {
 
     /// Create a new matrix type.
     ///
-    /// # Panic
+    /// # Panics
     ///
-    /// Panics if the number of columns or rows is not 2/3/4.
+    /// Panics if the number of columns or rows is not 2, 3, or 4.
     pub const fn new(cols: u8, rows: u8) -> Self {
+        assert!(cols >= 2 && cols <= 4);
+        assert!(rows >= 2 && rows <= 4);
         Self { cols, rows }
     }
 
@@ -348,9 +348,9 @@ impl MatrixType {
         // SizeOf(array<vecR, C>), which means matCx3 and matCx4 have same size
         // https://gpuweb.github.io/gpuweb/wgsl/#alignment-and-size
         if self.rows >= 3 {
-            self.cols() * 4 * ScalarType::Float.size()
+            self.cols() * VectorType::VEC4F.size()
         } else {
-            self.cols() * self.rows() * ScalarType::Float.size()
+            self.cols() * VectorType::VEC2F.size()
         }
     }
 
@@ -534,6 +534,16 @@ impl AttributeInner {
     pub const SIZE2: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("size2"),
         Value::Vector(VectorValue::new_vec2(Vec2::ONE)),
+    );
+
+    pub const PREV: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("prev"),
+        Value::Scalar(ScalarValue::Uint(!0u32)),
+    );
+
+    pub const NEXT: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("next"),
+        Value::Scalar(ScalarValue::Uint(!0u32)),
     );
 
     pub const AXIS_X: &'static AttributeInner = &AttributeInner::new(
@@ -949,6 +959,30 @@ impl Attribute {
     /// [`VectorType::VEC2F`] representing the XY sizes of the particle.
     pub const SIZE2: Attribute = Attribute(AttributeInner::SIZE2);
 
+    /// The previous particle in the ribbon chain.
+    ///
+    /// # Name
+    ///
+    /// `prev`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Uint`] representing the index of the previous particle in
+    /// the chain.
+    pub const PREV: Attribute = Attribute(AttributeInner::PREV);
+
+    /// The next particle in the ribbon chain.
+    ///
+    /// # Name
+    ///
+    /// `next`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Uint`] representing the index of the next particle in the
+    /// chain.
+    pub const NEXT: Attribute = Attribute(AttributeInner::NEXT);
+
     /// The local X axis of the particle.
     ///
     /// This attribute stores a per-particle X axis, which defines the
@@ -1096,7 +1130,7 @@ impl Attribute {
     declare_custom_attr_pub!(F32X4_3, "f32x4_3", 4, VEC4F);
 
     /// Collection of all the existing particle attributes.
-    const ALL: [Attribute; 29] = [
+    const ALL: [Attribute; 31] = [
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,
@@ -1106,6 +1140,8 @@ impl Attribute {
         Attribute::ALPHA,
         Attribute::SIZE,
         Attribute::SIZE2,
+        Attribute::PREV,
+        Attribute::NEXT,
         Attribute::AXIS_X,
         Attribute::AXIS_Y,
         Attribute::AXIS_Z,
@@ -1576,10 +1612,7 @@ impl ParticleLayout {
 mod tests {
     use super::*;
 
-    use bevy::{
-        math::{Vec2, Vec3, Vec4},
-        reflect::TypeRegistration,
-    };
+    use bevy::reflect::TypeRegistration;
     use naga::{front::wgsl::Frontend, proc::Layouter};
 
     // Ensure the size and alignment of all types conforms to the WGSL spec by
@@ -1662,6 +1695,178 @@ mod tests {
                 align,
                 naga::proc::Alignment::new(value_type.align() as u32).unwrap()
             );
+        }
+    }
+
+    #[test]
+    fn value_type_is_numeric() {
+        assert!(!ScalarType::Bool.is_numeric());
+        assert!(ScalarType::Float.is_numeric());
+        assert!(ScalarType::Int.is_numeric());
+        assert!(ScalarType::Uint.is_numeric());
+
+        assert!(!VectorType::VEC2B.is_numeric());
+        assert!(!VectorType::VEC3B.is_numeric());
+        assert!(!VectorType::VEC4B.is_numeric());
+        assert!(VectorType::VEC2F.is_numeric());
+        assert!(VectorType::VEC3F.is_numeric());
+        assert!(VectorType::VEC4F.is_numeric());
+        assert!(VectorType::VEC2I.is_numeric());
+        assert!(VectorType::VEC3I.is_numeric());
+        assert!(VectorType::VEC4I.is_numeric());
+        assert!(VectorType::VEC2U.is_numeric());
+        assert!(VectorType::VEC3U.is_numeric());
+        assert!(VectorType::VEC4U.is_numeric());
+
+        assert!(!ValueType::Scalar(ScalarType::Bool).is_numeric());
+        assert!(ValueType::Scalar(ScalarType::Float).is_numeric());
+        assert!(ValueType::Scalar(ScalarType::Int).is_numeric());
+        assert!(ValueType::Scalar(ScalarType::Uint).is_numeric());
+
+        assert!(!ValueType::Vector(VectorType::VEC2B).is_numeric());
+        assert!(!ValueType::Vector(VectorType::VEC3B).is_numeric());
+        assert!(!ValueType::Vector(VectorType::VEC4B).is_numeric());
+        assert!(ValueType::Vector(VectorType::VEC2F).is_numeric());
+        assert!(ValueType::Vector(VectorType::VEC3F).is_numeric());
+        assert!(ValueType::Vector(VectorType::VEC4F).is_numeric());
+        assert!(ValueType::Vector(VectorType::VEC2I).is_numeric());
+        assert!(ValueType::Vector(VectorType::VEC3I).is_numeric());
+        assert!(ValueType::Vector(VectorType::VEC4I).is_numeric());
+        assert!(ValueType::Vector(VectorType::VEC2U).is_numeric());
+        assert!(ValueType::Vector(VectorType::VEC3U).is_numeric());
+        assert!(ValueType::Vector(VectorType::VEC4U).is_numeric());
+
+        assert!(ValueType::Matrix(MatrixType::MAT2X2F).is_numeric());
+        assert!(ValueType::Matrix(MatrixType::MAT3X2F).is_numeric());
+        assert!(ValueType::Matrix(MatrixType::MAT4X2F).is_numeric());
+        assert!(ValueType::Matrix(MatrixType::MAT2X3F).is_numeric());
+        assert!(ValueType::Matrix(MatrixType::MAT3X3F).is_numeric());
+        assert!(ValueType::Matrix(MatrixType::MAT4X3F).is_numeric());
+        assert!(ValueType::Matrix(MatrixType::MAT2X4F).is_numeric());
+        assert!(ValueType::Matrix(MatrixType::MAT3X4F).is_numeric());
+        assert!(ValueType::Matrix(MatrixType::MAT4X4F).is_numeric());
+    }
+
+    #[test]
+    #[should_panic]
+    fn vector_type_invalid_rank_1() {
+        let _ = VectorType::new(ScalarType::Float, 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn vector_type_invalid_rank_5() {
+        let _ = VectorType::new(ScalarType::Float, 5);
+    }
+
+    #[test]
+    #[should_panic]
+    fn matrix_type_invalid_cols_1() {
+        let _ = MatrixType::new(1, 3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn matrix_type_invalid_cols_5() {
+        let _ = MatrixType::new(5, 3);
+    }
+
+    #[test]
+    #[should_panic]
+    fn matrix_type_invalid_rows_1() {
+        let _ = MatrixType::new(3, 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn matrix_type_invalid_rows_5() {
+        let _ = MatrixType::new(3, 5);
+    }
+
+    #[test]
+    fn matrix_type_size() {
+        assert_eq!(MatrixType::MAT2X2F.size(), 16);
+        assert_eq!(MatrixType::MAT3X2F.size(), 24);
+        assert_eq!(MatrixType::MAT4X2F.size(), 32);
+
+        // vec3 rows are aligned on 16 bytes
+        assert_eq!(MatrixType::MAT2X3F.size(), 32);
+        assert_eq!(MatrixType::MAT3X3F.size(), 48);
+        assert_eq!(MatrixType::MAT4X3F.size(), 64);
+
+        assert_eq!(MatrixType::MAT2X4F.size(), 32);
+        assert_eq!(MatrixType::MAT3X4F.size(), 48);
+        assert_eq!(MatrixType::MAT4X4F.size(), 64);
+    }
+
+    #[test]
+    fn matrix_type_align() {
+        assert_eq!(MatrixType::MAT2X2F.align(), 8);
+        assert_eq!(MatrixType::MAT3X2F.align(), 8);
+        assert_eq!(MatrixType::MAT4X2F.align(), 8);
+
+        // vec3 rows are aligned on 16 bytes
+        assert_eq!(MatrixType::MAT2X3F.align(), 16);
+        assert_eq!(MatrixType::MAT3X3F.align(), 16);
+        assert_eq!(MatrixType::MAT4X3F.align(), 16);
+
+        assert_eq!(MatrixType::MAT2X4F.align(), 16);
+        assert_eq!(MatrixType::MAT3X4F.align(), 16);
+        assert_eq!(MatrixType::MAT4X4F.align(), 16);
+    }
+
+    #[test]
+    fn value_type_is_type() {
+        for t in [
+            ScalarType::Bool,
+            ScalarType::Float,
+            ScalarType::Int,
+            ScalarType::Uint,
+        ] {
+            assert!(ValueType::Scalar(t).is_scalar());
+            assert!(!ValueType::Scalar(t).is_vector());
+            assert!(!ValueType::Scalar(t).is_matrix());
+            assert_eq!(ValueType::Scalar(t).size(), t.size());
+            assert_eq!(ValueType::Scalar(t).align(), t.align());
+        }
+
+        for t in [
+            VectorType::VEC2B,
+            VectorType::VEC3B,
+            VectorType::VEC4B,
+            VectorType::VEC2F,
+            VectorType::VEC3F,
+            VectorType::VEC4F,
+            VectorType::VEC2I,
+            VectorType::VEC3I,
+            VectorType::VEC4I,
+            VectorType::VEC2U,
+            VectorType::VEC3U,
+            VectorType::VEC4U,
+        ] {
+            assert!(!ValueType::Vector(t).is_scalar());
+            assert!(ValueType::Vector(t).is_vector());
+            assert!(!ValueType::Vector(t).is_matrix());
+            assert_eq!(ValueType::Vector(t).size(), t.size());
+            assert_eq!(ValueType::Vector(t).align(), t.align());
+        }
+
+        for t in [
+            MatrixType::MAT2X2F,
+            MatrixType::MAT3X2F,
+            MatrixType::MAT4X2F,
+            MatrixType::MAT2X3F,
+            MatrixType::MAT3X3F,
+            MatrixType::MAT4X3F,
+            MatrixType::MAT2X4F,
+            MatrixType::MAT3X4F,
+            MatrixType::MAT4X4F,
+        ] {
+            assert!(!ValueType::Matrix(t).is_scalar());
+            assert!(!ValueType::Matrix(t).is_vector());
+            assert!(ValueType::Matrix(t).is_matrix());
+            assert_eq!(ValueType::Matrix(t).size(), t.size());
+            assert_eq!(ValueType::Matrix(t).align(), t.align());
         }
     }
 

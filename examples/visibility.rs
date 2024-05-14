@@ -119,7 +119,7 @@ fn setup(
     };
 
     let mut asset = EffectAsset::new(
-        4096,
+        vec![4096],
         Spawner::burst(50.0.into(), 15.0.into()),
         writer.finish(),
     )

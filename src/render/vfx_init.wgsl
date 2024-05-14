@@ -1,7 +1,7 @@
 #import bevy_hanabi::vfx_common::{
-    ForceFieldSource, IndirectBuffer, RenderIndirect, SimParams, Spawner,
+    IndirectBuffer, ParticleGroup, RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
-    rand_uniform, proj
+    rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4, proj
 }
 
 struct Particle {
@@ -17,9 +17,11 @@ struct ParticleBuffer {
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
+@group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
 {{PROPERTIES_BINDING}}
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as update
-@group(3) @binding(0) var<storage, read_write> render_indirect : RenderIndirect;
+@group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
+@group(3) @binding(1) var<storage, read_write> render_group_indirect : RenderGroupIndirect;
 
 {{INIT_EXTRA}}
 
@@ -29,7 +31,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap to max number of dead particles, copied from dead_count at the end of the
     // previous iteration, and constant during this pass (unlike dead_count).
-    if (index >= render_indirect.max_spawn) {
+    if (index >= render_effect_indirect.max_spawn) {
         return;
     }
 
@@ -40,9 +42,10 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
-    // Recycle a dead particle
-    let dead_index = atomicSub(&render_indirect.dead_count, 1u) - 1u;
-    index = indirect_buffer.indices[3u * dead_index + 2u];
+    // Recycle a dead particle from the first group
+    let base_index = particle_groups[0].effect_particle_offset;
+    let dead_index = atomicSub(&render_group_indirect.dead_count, 1u) - 1u;
+    index = indirect_buffer.indices[3u * (base_index + dead_index) + 2u];
 
     // Update PRNG seed
     seed = pcg_hash(index ^ spawner.seed);
@@ -64,14 +67,14 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     {{SIMULATION_SPACE_TRANSFORM_PARTICLE}}
 
     // Count as alive
-    atomicAdd(&render_indirect.alive_count, 1u);
+    atomicAdd(&render_group_indirect.alive_count, 1u);
 
     // Always write into ping, read from pong
-    let ping = render_indirect.ping;
+    let ping = render_effect_indirect.ping;
 
     // Add to alive list
-    let indirect_index = atomicAdd(&render_indirect.instance_count, 1u);
-    indirect_buffer.indices[3u * indirect_index + ping] = index;
+    let indirect_index = atomicAdd(&render_group_indirect.instance_count, 1u);
+    indirect_buffer.indices[3u * (base_index + indirect_index) + ping] = index;
 
     // Write back spawned particle
     particle_buffer.particles[index] = particle;

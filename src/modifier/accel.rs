@@ -12,9 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     calc_func_id,
+    expr::PropertyHandle,
     graph::{BuiltInExpr, EvalContext, ExprError},
-    impl_mod_update, Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module,
-    UpdateContext, UpdateModifier,
+    Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module, ShaderWriter,
 };
 
 /// A modifier to apply a uniform acceleration to all particles each frame, to
@@ -47,9 +47,11 @@ impl AccelModifier {
     }
 
     /// Create a new modifier with an acceleration derived from a property.
-    pub fn via_property(module: &mut Module, property_name: impl Into<String>) -> Self {
+    ///
+    /// To create a new property, use [`Module::add_property()`].
+    pub fn via_property(module: &mut Module, property: PropertyHandle) -> Self {
         Self {
-            accel: module.prop(property_name),
+            accel: module.prop(property),
         }
     }
 
@@ -67,14 +69,6 @@ impl Modifier for AccelModifier {
         ModifierContext::Update
     }
 
-    fn as_update(&self) -> Option<&dyn UpdateModifier> {
-        Some(self)
-    }
-
-    fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
-        Some(self)
-    }
-
     fn attributes(&self) -> &[Attribute] {
         &[Attribute::VELOCITY]
     }
@@ -82,20 +76,13 @@ impl Modifier for AccelModifier {
     fn boxed_clone(&self) -> BoxedModifier {
         Box::new(*self)
     }
-}
 
-#[typetag::serde]
-impl UpdateModifier for AccelModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let attr = module.attr(Attribute::VELOCITY);
         let attr = context.eval(module, attr)?;
         let expr = context.eval(module, self.accel)?;
         let dt = BuiltInExpr::new(crate::graph::BuiltInOperator::DeltaTime).eval(context)?;
-        context.update_code += &format!("{} += ({}) * {};", attr, expr, dt);
+        context.main_code += &format!("{} += ({}) * {};", attr, expr, dt);
         Ok(())
     }
 }
@@ -142,14 +129,12 @@ impl RadialAccelModifier {
     /// Create a new modifier with an acceleration derived from a property.
     ///
     /// The origin of the sphere defining the radial direction is constant.
-    pub fn via_property(
-        module: &mut Module,
-        origin: Vec3,
-        property_name: impl Into<String>,
-    ) -> Self {
+    ///
+    /// To create a new property, use [`Module::add_property()`].
+    pub fn via_property(module: &mut Module, origin: Vec3, property: PropertyHandle) -> Self {
         Self {
             origin: module.lit(origin),
-            accel: module.prop(property_name),
+            accel: module.prop(property),
         }
     }
 
@@ -162,18 +147,21 @@ impl RadialAccelModifier {
     }
 }
 
-impl_mod_update!(
-    RadialAccelModifier,
-    &[Attribute::POSITION, Attribute::VELOCITY]
-);
-
 #[typetag::serde]
-impl UpdateModifier for RadialAccelModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
+impl Modifier for RadialAccelModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::POSITION, Attribute::VELOCITY]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);
         let func_name = format!("radial_accel_{0:016X}", func_id);
 
@@ -197,7 +185,7 @@ impl UpdateModifier for RadialAccelModifier {
             },
         )?;
 
-        context.update_code += &format!("{}(&particle);\n", func_name);
+        context.main_code += &format!("{}(&particle);\n", func_name);
 
         Ok(())
     }
@@ -254,16 +242,18 @@ impl TangentAccelModifier {
     /// Create a new modifier with an acceleration derived from a property.
     ///
     /// The origin and axis are constant.
+    ///
+    /// To create a new property, use [`Module::add_property()`].
     pub fn via_property(
         module: &mut Module,
         origin: Vec3,
         axis: Vec3,
-        property_name: impl Into<String>,
+        property: PropertyHandle,
     ) -> Self {
         Self {
             origin: module.lit(origin),
             axis: module.lit(axis),
-            accel: module.prop(property_name),
+            accel: module.prop(property),
         }
     }
 
@@ -277,18 +267,21 @@ impl TangentAccelModifier {
     }
 }
 
-impl_mod_update!(
-    TangentAccelModifier,
-    &[Attribute::POSITION, Attribute::VELOCITY]
-);
-
 #[typetag::serde]
-impl UpdateModifier for TangentAccelModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
+impl Modifier for TangentAccelModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::POSITION, Attribute::VELOCITY]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let func_id = calc_func_id(self);
         let func_name = format!("tangent_accel_{0:016X}", func_id);
 
@@ -296,7 +289,7 @@ impl UpdateModifier for TangentAccelModifier {
         let axis = context.eval(module, self.axis)?;
         let accel = context.eval(module, self.accel)?;
 
-        context.update_extra += &format!(
+        context.extra_code += &format!(
             r##"fn {}(particle: ptr<function, Particle>) {{
     let radial = normalize((*particle).{} - {});
     let tangent = normalize(cross({}, radial));
@@ -311,7 +304,7 @@ impl UpdateModifier for TangentAccelModifier {
             accel,
         );
 
-        context.update_code += &format!("{}(&particle);\n", func_name);
+        context.main_code += &format!("{}(&particle);\n", func_name);
 
         Ok(())
     }
@@ -331,10 +324,11 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = UpdateContext::new(&property_layout, &particle_layout);
-        assert!(modifier.apply_update(&mut module, &mut context).is_ok());
+        let mut context =
+            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        assert!(modifier.apply(&mut module, &mut context).is_ok());
 
-        assert!(context.update_code.contains(&accel.to_wgsl_string()));
+        assert!(context.main_code.contains(&accel.to_wgsl_string()));
     }
 
     #[test]
@@ -346,19 +340,22 @@ mod tests {
         let origin = Vec3::new(-1.2, 5.3, -8.5);
         let accel = 6.;
         let modifier = RadialAccelModifier::constant(&mut module, origin, accel);
-        let mut context = UpdateContext::new(&property_layout, &particle_layout);
-        assert!(modifier.apply_update(&mut module, &mut context).is_ok());
+        let mut context =
+            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        assert!(modifier.apply(&mut module, &mut context).is_ok());
         // TODO: less weak check...
-        assert!(context.update_extra.contains(&accel.to_wgsl_string()));
+        assert!(context.extra_code.contains(&accel.to_wgsl_string()));
 
         let origin = module.attr(Attribute::POSITION);
-        let accel = module.prop("my_prop");
+        let my_prop = module.add_property("my_prop", 3.0.into());
+        let accel = module.prop(my_prop);
         let modifier = RadialAccelModifier::new(origin, accel);
-        let mut context = UpdateContext::new(&property_layout, &particle_layout);
-        assert!(modifier.apply_update(&mut module, &mut context).is_ok());
+        let mut context =
+            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        assert!(modifier.apply(&mut module, &mut context).is_ok());
         // TODO: less weak check...
-        assert!(context.update_extra.contains(Attribute::POSITION.name()));
-        assert!(context.update_extra.contains("my_prop"));
+        assert!(context.extra_code.contains(Attribute::POSITION.name()));
+        assert!(context.extra_code.contains("my_prop"));
     }
 
     #[test]
@@ -371,10 +368,11 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = UpdateContext::new(&property_layout, &particle_layout);
-        assert!(modifier.apply_update(&mut module, &mut context).is_ok());
+        let mut context =
+            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        assert!(modifier.apply(&mut module, &mut context).is_ok());
 
         // TODO: less weak check...
-        assert!(context.update_extra.contains(&accel.to_wgsl_string()));
+        assert!(context.extra_code.contains(&accel.to_wgsl_string()));
     }
 }

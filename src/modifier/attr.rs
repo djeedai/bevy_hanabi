@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::{EvalContext, ExprError},
-    Attribute, BoxedModifier, ExprHandle, InitContext, InitModifier, Modifier, ModifierContext,
-    Module, UpdateContext, UpdateModifier,
+    Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module, ShaderWriter,
 };
 
 /// A modifier to assign a value to a particle attribute.
@@ -38,8 +37,10 @@ use crate::{
 /// let init_pos = SetAttributeModifier::new(Attribute::POSITION, pos);
 ///
 /// // Each frame, assign the value of the "my_velocity" property to the velocity
-/// // of the particle.
-/// let vel = module.prop("my_velocity");
+/// // of the particle. The property is assigned from CPU, and uploaded to GPU
+/// // automatically when its value changed.
+/// let my_velocity = module.add_property("my_velocity", Vec3::ZERO.into());
+/// let vel = module.prop(my_velocity);
 /// let update_vel = SetAttributeModifier::new(Attribute::VELOCITY, vel);
 /// ```
 ///
@@ -99,22 +100,6 @@ impl Modifier for SetAttributeModifier {
         ModifierContext::Init | ModifierContext::Update
     }
 
-    fn as_init(&self) -> Option<&dyn InitModifier> {
-        Some(self)
-    }
-
-    fn as_init_mut(&mut self) -> Option<&mut dyn InitModifier> {
-        Some(self)
-    }
-
-    fn as_update(&self) -> Option<&dyn UpdateModifier> {
-        Some(self)
-    }
-
-    fn as_update_mut(&mut self) -> Option<&mut dyn UpdateModifier> {
-        Some(self)
-    }
-
     fn attributes(&self) -> &[Attribute] {
         std::slice::from_ref(&self.attribute)
     }
@@ -122,26 +107,10 @@ impl Modifier for SetAttributeModifier {
     fn boxed_clone(&self) -> BoxedModifier {
         Box::new(*self)
     }
-}
 
-#[typetag::serde]
-impl InitModifier for SetAttributeModifier {
-    fn apply_init(&self, module: &mut Module, context: &mut InitContext) -> Result<(), ExprError> {
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
         let code = self.eval(module, context)?;
-        context.init_code += &code;
-        Ok(())
-    }
-}
-
-#[typetag::serde]
-impl UpdateModifier for SetAttributeModifier {
-    fn apply_update(
-        &self,
-        module: &mut Module,
-        context: &mut UpdateContext,
-    ) -> Result<(), ExprError> {
-        let code = self.eval(module, context)?;
-        context.update_code += &code;
+        context.main_code += &code;
         Ok(())
     }
 }

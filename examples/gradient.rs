@@ -102,7 +102,7 @@ fn setup(
     };
 
     let effect = effects.add(
-        EffectAsset::new(32768, Spawner::rate(1000.0.into()), writer.finish())
+        EffectAsset::new(vec![32768], Spawner::rate(1000.0.into()), writer.finish())
             .with_name("gradient")
             .init(init_pos)
             .init(init_vel)
