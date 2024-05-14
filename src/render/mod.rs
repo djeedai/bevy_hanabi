@@ -205,6 +205,18 @@ impl From<&Mat4> for GpuCompressedTransform {
     }
 }
 
+impl From<&GpuCompressedTransform> for Mat4 {
+    fn from(value: &GpuCompressedTransform) -> Self {
+        let mat4 = Mat4 {
+            x_axis: value.x_row,
+            y_axis: value.y_row,
+            z_axis: value.z_row,
+            w_axis: Vec4::W,
+        };
+        mat4.transpose()
+    }
+}
+
 /// GPU representation of spawner parameters.
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
@@ -2154,6 +2166,14 @@ pub(crate) fn prepare_effects(
         #[cfg(feature = "2d")]
         let z_sort_key_2d = input.z_sort_key_2d;
 
+        #[cfg(feature = "3d")]
+        let translation_3d = {
+            let (_scale, _rotation, translation) =
+                Mat4::from(&input.transform).to_scale_rotation_translation();
+            // dbg!(&translation);
+            translation
+        };
+
         // Spawn one shared EffectBatches for all groups of this effect. This contains
         // most of the data needed to drive rendering, except the per-group data.
         // However this doesn't drive rendering; this is just storage.
@@ -2177,6 +2197,8 @@ pub(crate) fn prepare_effects(
                 group_index,
                 #[cfg(feature = "2d")]
                 z_sort_key_2d,
+                #[cfg(feature = "3d")]
+                translation_3d,
             });
         }
     }
@@ -2312,7 +2334,7 @@ fn emit_draw<T, F>(
     use_alpha_mask: bool,
 ) where
     T: PhaseItem,
-    F: Fn(CachedRenderPipelineId, Entity, &EffectDrawBatch, u32) -> T,
+    F: Fn(CachedRenderPipelineId, Entity, &EffectDrawBatch, u32, &ExtractedView) -> T,
 {
     for (mut render_phase, visible_entities, view) in views.iter_mut() {
         trace!("Process new view (use_alpha_mask={})", use_alpha_mask);
@@ -2437,12 +2459,12 @@ fn emit_draw<T, F>(
                 batches.spawner_base,
                 batches.handle
             );
-
             render_phase.add(make_phase_item(
                 render_pipeline_id,
                 draw_entity,
                 draw_batch,
                 draw_batch.group_index,
+                view,
             ));
         }
     }
@@ -2527,7 +2549,7 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 msaa.samples(),
-                |id, entity, draw_batch, _group| Transparent2d {
+                |id, entity, draw_batch, _group, _view| Transparent2d {
                     draw_function: draw_effects_function_2d,
                     pipeline: id,
                     entity,
@@ -2567,11 +2589,17 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 msaa.samples(),
-                |id, entity, _batch, _group| Transparent3d {
+                |id, entity, batch, _group, view| Transparent3d {
                     draw_function: draw_effects_function_3d,
                     pipeline: id,
                     entity,
-                    distance: 0.0, // TODO
+                    distance: {
+                        dbg!(view
+                            .rangefinder3d()
+                            .distance_translation(&batch.translation_3d));
+                        view.rangefinder3d()
+                            .distance_translation(&batch.translation_3d)
+                    },
                     batch_range: 0..1,
                     dynamic_offset: None,
                 },
@@ -2603,11 +2631,13 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 msaa.samples(),
-                |id, entity, _batch, _group| AlphaMask3d {
+                |id, entity, batch, _group, view| AlphaMask3d {
                     draw_function: draw_effects_function_alpha_mask,
                     pipeline: id,
                     entity,
-                    distance: 0.0, // TODO
+                    distance: view
+                        .rangefinder3d()
+                        .distance_translation(&batch.translation_3d),
                     batch_range: 0..1,
                     dynamic_offset: None,
                 },

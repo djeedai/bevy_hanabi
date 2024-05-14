@@ -81,6 +81,10 @@ pub(crate) struct EffectDrawBatch {
     /// rendering.
     #[cfg(feature = "2d")]
     pub z_sort_key_2d: FloatOrd,
+    /// For 3d rendering, the distance from the camera used for ordering.
+    /// Ignored for 2D rendering.
+    #[cfg(feature = "3d")]
+    pub translation_3d: Vec3,
 }
 
 /// Batch data specific to a single particle group.

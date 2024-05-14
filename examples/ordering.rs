@@ -8,6 +8,7 @@ use bevy::{
 };
 
 use bevy_hanabi::prelude::*;
+#[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,6 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .add_systems(Update, bevy::window::close_on_esc)
     .add_plugins(HanabiPlugin);
 
+    #[cfg(feature = "examples_world_inspector")]
     app.add_plugins(WorldInspectorPlugin::default());
 
     app.add_systems(Startup, setup).run();
@@ -81,8 +83,9 @@ fn make_firework() -> EffectAsset {
     };
 
     EffectAsset::new(
-        32768,
-        Spawner::burst(2500.0.into(), 2.0.into()),
+        // 2k lead particles, with 32 trail particles each
+        vec![2048, 2048 * 32],
+        Spawner::burst(2048.0.into(), 2.0.into()),
         writer.finish(),
     )
     .with_name("firework")
@@ -127,13 +130,15 @@ fn setup(
         Name::new("firework"),
         ParticleEffectBundle {
             effect: ParticleEffect::new(effect1),
-            transform: Transform::IDENTITY,
-            ..Default::default()
+            transform: Transform {
+                translation: Vec3::Z,
+                ..default()
+            },
+            ..default()
         },
     ));
 
-    // Object partially obscured by the blue square to show that PBR objects
-    // are occluded.
+    // Background square at origin.
     commands.spawn(PbrBundle {
         mesh: meshes.add(Mesh::from(Rectangle {
             half_size: Vec2 { x: 0.5, y: 0.5 },
@@ -144,18 +149,13 @@ fn setup(
             ..default()
         }),
         transform: Transform {
-            translation: Vec3 {
-                x: 10.,
-                y: 0.,
-                z: 0.,
-            },
             scale: Vec3::splat(10.),
             ..default()
         },
         ..default()
     });
 
-    // Blue square that SHOULD occlude the particles.
+    // Blue square in front of particles with AlphaMode::Blend.
     commands.spawn(PbrBundle {
         mesh: meshes.add(Mesh::from(Rectangle {
             half_size: Vec2 { x: 0.5, y: 0.5 },
@@ -166,18 +166,14 @@ fn setup(
             ..default()
         }),
         transform: Transform {
-            translation: Vec3 {
-                x: 3.,
-                y: 3.,
-                z: 30.,
-            },
-            scale: Vec3::splat(3.),
+            translation: Vec3::Y * 5. + Vec3::Z * 25.,
+            scale: Vec3::splat(5.),
             ..default()
         },
         ..default()
     });
 
-    // Green square that SHOULD occlude the particles.
+    // Green square in front of particles with AlphaMode::Opaque.
     commands.spawn(PbrBundle {
         mesh: meshes.add(Mesh::from(Rectangle {
             half_size: Vec2 { x: 0.5, y: 0.5 },
@@ -188,12 +184,8 @@ fn setup(
             ..default()
         }),
         transform: Transform {
-            translation: Vec3 {
-                x: 3.,
-                y: -3.,
-                z: 30.,
-            },
-            scale: Vec3::splat(3.),
+            translation: Vec3::Y * -5. + Vec3::Z * 25.,
+            scale: Vec3::splat(5.),
             ..default()
         },
         ..default()
