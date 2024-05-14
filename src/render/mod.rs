@@ -2170,7 +2170,6 @@ pub(crate) fn prepare_effects(
         let translation_3d = {
             let (_scale, _rotation, translation) =
                 Mat4::from(&input.transform).to_scale_rotation_translation();
-            // dbg!(&translation);
             translation
         };
 
@@ -2593,13 +2592,9 @@ pub(crate) fn queue_effects(
                     draw_function: draw_effects_function_3d,
                     pipeline: id,
                     entity,
-                    distance: {
-                        dbg!(view
-                            .rangefinder3d()
-                            .distance_translation(&batch.translation_3d));
-                        view.rangefinder3d()
-                            .distance_translation(&batch.translation_3d)
-                    },
+                    distance: view
+                        .rangefinder3d()
+                        .distance_translation(&batch.translation_3d),
                     batch_range: 0..1,
                     dynamic_offset: None,
                 },
