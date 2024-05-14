@@ -142,6 +142,10 @@ required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d" ]
 name = "2d"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_sprite", "2d" ]
 
+[[example]]
+name = "ordering"
+required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+
 [workspace]
 resolver = "2"
 members = ["."]
