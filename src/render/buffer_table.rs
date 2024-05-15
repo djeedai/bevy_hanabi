@@ -167,7 +167,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             item_size
         };
         trace!(
-            "BufferTable: item_size={} aligned_size={}",
+            "BufferTable[\"{}\"]: item_size={} aligned_size={}",
+            label.as_ref().unwrap_or(&String::new()),
             item_size,
             aligned_size
         );

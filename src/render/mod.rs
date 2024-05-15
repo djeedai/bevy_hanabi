@@ -297,8 +297,36 @@ pub struct GpuRenderGroupIndirect {
     pub alive_count: u32,
     pub max_update: u32,
     pub dead_count: u32,
-    pub __pad1: u32,
-    // FIXME - min_storage_buffer_offset_alignment
+}
+
+impl GpuRenderGroupIndirect {
+    /// Get the aligned size of this type based on the given alignment in bytes.
+    pub fn aligned_size(align_size: usize) -> usize {
+        next_multiple_of(
+            GpuRenderGroupIndirect::min_size().get() as usize,
+            align_size,
+        )
+    }
+
+    /// Get the WGSL padding code to append to the GPU struct to align it.
+    pub fn padding_code(align_size: usize) -> String {
+        let aligned_size = GpuRenderGroupIndirect::aligned_size(align_size);
+        trace!(
+            "Aligning spawner params to {} bytes as device limits requires. Aligned size: {} bytes.",
+            align_size,
+            aligned_size
+        );
+
+        // We need to pad the RenderGroupIndirect WGSL struct based on the device padding so that we
+        // can use it as an array element but also has a direct struct binding.
+        if GpuRenderGroupIndirect::min_size().get() as usize != aligned_size {
+            let padding_size = aligned_size - GpuRenderGroupIndirect::min_size().get() as usize;
+            assert!(padding_size % 4 == 0);
+            format!("padding: array<u32, {}>", padding_size / 4)
+        } else {
+            "".to_string()
+        }
+    }
 }
 
 /// Stores metadata about each particle group.
@@ -431,8 +459,13 @@ GpuDispatchIndirect: min_size={}",
         // We need to pad the Spawner WGSL struct based on the device padding so that we
         // can use it as an array element but also has a direct struct binding.
         let spawner_padding_code = GpuSpawnerParams::padding_code(item_align);
-        let indirect_code =
-            include_str!("vfx_indirect.wgsl").replace("{{SPAWNER_PADDING}}", &spawner_padding_code);
+        let render_group_indirect_padding_code = GpuRenderGroupIndirect::padding_code(item_align);
+        let indirect_code = include_str!("vfx_indirect.wgsl")
+            .replace("{{SPAWNER_PADDING}}", &spawner_padding_code)
+            .replace(
+                "{{RENDER_GROUP_INDIRECT_PADDING}}",
+                &render_group_indirect_padding_code,
+            );
 
         // Resolve imports. Because we don't insert this shader into Bevy' pipeline
         // cache, we don't get that part "for free", so we have to do it manually here.
@@ -543,10 +576,13 @@ impl FromWorld for ParticlesInitPipeline {
             }],
         );
 
+        let padded_size = GpuRenderGroupIndirect::aligned_size(
+            limits.min_storage_buffer_offset_alignment as usize,
+        ) as u64;
         trace!(
             "GpuRenderEffectMetadata: min_size={}, GpuRenderGroupIndirect: min_size={}",
             GpuRenderEffectMetadata::min_size(),
-            GpuRenderGroupIndirect::min_size(),
+            padded_size,
         );
         let render_indirect_layout = render_device.create_bind_group_layout(
             "hanabi:bind_group_layout:init_render_indirect",
@@ -567,7 +603,7 @@ impl FromWorld for ParticlesInitPipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: true,
-                        min_binding_size: Some(GpuRenderGroupIndirect::min_size()),
+                        min_binding_size: Some(NonZeroU64::new(padded_size).unwrap()),
                     },
                     count: None,
                 },
@@ -731,10 +767,10 @@ impl FromWorld for ParticlesUpdatePipeline {
             }],
         );
 
-        trace!(
-            "GpuRenderGroupIndirect: min_size={}",
-            GpuRenderGroupIndirect::min_size()
+        let padded_size = GpuRenderGroupIndirect::aligned_size(
+            limits.min_storage_buffer_offset_alignment as usize,
         );
+        trace!("GpuRenderGroupIndirect: min_size={}", padded_size);
         let render_indirect_layout = render_device.create_bind_group_layout(
             "hanabi:update_render_indirect_layout",
             &[
@@ -754,7 +790,8 @@ impl FromWorld for ParticlesUpdatePipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(GpuRenderGroupIndirect::min_size()),
+                        // Array; needs padded size
+                        min_binding_size: Some(NonZeroU64::new(padded_size as u64).unwrap()),
                     },
                     count: None,
                 },
@@ -1577,22 +1614,27 @@ impl GpuLimits {
         }
     }
 
+    /// Byte alignment for any storage buffer binding.
     pub fn storage_buffer_align(&self) -> NonZeroU32 {
         self.storage_buffer_align
     }
 
+    /// Byte alignment for [`GpuDispatchIndirect`].
     pub fn dispatch_indirect_offset(&self, buffer_index: u32) -> u32 {
         self.dispatch_indirect_aligned_size.get() * buffer_index
     }
 
+    /// Byte alignment for [`GpuRenderEffectMetadata`].
     pub fn render_effect_indirect_offset(&self, buffer_index: u32) -> u64 {
         self.render_effect_indirect_aligned_size.get() as u64 * buffer_index as u64
     }
 
+    /// Byte alignment for [`GpuRenderGroupIndirect`].
     pub fn render_group_indirect_offset(&self, buffer_index: u32) -> u64 {
         self.render_group_indirect_aligned_size.get() as u64 * buffer_index as u64
     }
 
+    /// Byte alignment for [`GpuParticleGroup`].
     pub fn particle_group_offset(&self, buffer_index: u32) -> u32 {
         self.particle_group_aligned_size.get() * buffer_index
     }
@@ -2753,6 +2795,9 @@ pub(crate) fn prepare_bind_groups(
         ));
 
         // Create the bind group for the indirect render buffer use in the init shader
+        let padded_size = GpuRenderGroupIndirect::aligned_size(
+            effects_meta.gpu_limits.storage_buffer_align.get() as usize,
+        ) as u64;
         effects_meta.init_render_indirect_bind_group = Some(render_device.create_bind_group(
             "hanabi:bind_group_init_render_dispatch",
             &init_pipeline.render_indirect_layout,
@@ -2769,8 +2814,9 @@ pub(crate) fn prepare_bind_groups(
                     binding: 1,
                     resource: BindingResource::Buffer(BufferBinding {
                         buffer: effects_meta.render_group_dispatch_buffer.buffer().unwrap(),
+                        // Always bind the first array element of the buffer, corresponding to the first effect group, as only the first group has an init pass.
                         offset: 0,
-                        size: Some(GpuRenderGroupIndirect::min_size()),
+                        size: Some(NonZeroU64::new(padded_size).unwrap()),
                     }),
                 },
             ],
@@ -2906,6 +2952,9 @@ pub(crate) fn prepare_bind_groups(
                 ..
             } = effect_batches.dispatch_buffer_indices;
 
+            let padded_size = GpuRenderGroupIndirect::aligned_size(
+                effects_meta.gpu_limits.storage_buffer_align.get() as usize,
+            ) as u64;
             let particles_buffer_layout_update_render_indirect = render_device.create_bind_group(
                 "hanabi:bind_group_update_render_group_dispatch",
                 &update_pipeline.render_indirect_layout,
@@ -2928,8 +2977,7 @@ pub(crate) fn prepare_bind_groups(
                                 first_render_group_dispatch_buffer_index.0,
                             ),
                             size: NonZeroU64::new(
-                                u64::from(GpuRenderGroupIndirect::min_size())
-                                    * effect_batches.group_batches.len() as u64,
+                                padded_size * effect_batches.group_batches.len() as u64,
                             ),
                         }),
                     },
@@ -3120,7 +3168,7 @@ fn draw<'w>(
         + group_index;
 
     trace!(
-        "Draw {} particles with {} vertices per particle for batch from buffer #{} \
+        "Draw up to {} particles with {} vertices per particle for batch from buffer #{} \
             (render_group_dispatch_indirect_index={:?}, group_index={}).",
         effect_batch.slice.len(),
         effects_meta.vertices.len(),

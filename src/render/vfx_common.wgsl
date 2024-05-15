@@ -136,7 +136,7 @@ struct RenderGroupIndirect {
     /// Number of dead particles, decremented during the init pass as new particles
     /// are spawned, and incremented during the update pass as existing particles die.
     dead_count: atomic<u32>,
-    pad: u32,
+    {{RENDER_GROUP_INDIRECT_PADDING}}
 }
 
 var<private> seed : u32 = 0u;
