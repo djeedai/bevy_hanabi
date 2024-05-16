@@ -100,6 +100,12 @@ impl Modifier for CloneModifier {
 
                     // Recycle a dead particle.
                     let dead_index = atomicSub(&render_group_indirect[{dest}u].dead_count, 1u) - 1u;
+                    // HACK - we have no limiter for dead_count, so could go negative (wrap around).
+                    // Assume that any value above 2^31 is a wrap around, undo the atomic op and return.
+                    if (dead_index >= 0xF0000000) {{
+                        atomicAdd(&render_group_indirect[{dest}u].dead_count, 1u);
+                        return;
+                    }}
                     let new_index = indirect_buffer.indices[3u * (base_index + dead_index) + 2u];
 
                     // Initialize the new particle.

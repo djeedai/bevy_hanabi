@@ -2340,6 +2340,7 @@ pub(crate) fn prepare_effects(
         let storage_align = effects_meta.gpu_limits.storage_buffer_align().get() as usize;
         let render_effect_stride =
             effects_meta.gpu_limits.render_effect_indirect_size().get() as u32;
+        let render_group_stride = effects_meta.gpu_limits.render_group_indirect_size().get() as u32;
 
         let gpu_sim_params = effects_meta.sim_params_uniforms.get_mut();
         let sim_params = *sim_params;
@@ -2351,6 +2352,7 @@ pub(crate) fn prepare_effects(
         // GPU adapter limits (so, fixed while the app runs). Stop wasting uniform
         // storage and hardcode into shader instead.
         gpu_sim_params.render_effect_stride = render_effect_stride;
+        gpu_sim_params.render_group_stride = render_group_stride;
         gpu_sim_params.dispatch_stride = next_multiple_of(
             GpuDispatchIndirect::min_size().get() as usize,
             storage_align,
