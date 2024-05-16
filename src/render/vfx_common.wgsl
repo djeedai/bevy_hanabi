@@ -40,7 +40,9 @@ struct Spawner {
 #endif
 }
 
+// Per-group data for a single particle effect group inside an effect.
 struct ParticleGroup {
+    // Index of the group, generally zero unless CloneModifier is used.
     group_index: u32,
     effect_index: u32,
     // The index relative to the effect: e.g. 0 if this is the first group in
@@ -111,6 +113,7 @@ struct RenderEffectMetadata {
     /// always write into the ping buffer and read from the pong buffer. The buffers
     /// are swapped during the indirect dispatch.
     ping: u32,
+    {{RENDER_EFFECT_INDIRECT_PADDING}}
 }
 
 /// Render indirect parameters for GPU driven rendering.

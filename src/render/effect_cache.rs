@@ -239,8 +239,12 @@ impl EffectBuffer {
 
         // TODO - Cache particle_layout and associated bind group layout, instead of
         // creating one bind group layout per buffer using that layout...
-        let padded_size = GpuParticleGroup::aligned_size(render_device.limits().min_storage_buffer_offset_alignment as usize);
+        let particle_group_size = NonZeroU64::new(GpuParticleGroup::aligned_size(
+            render_device.limits().min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
         let mut entries = vec![
+            // @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer
             BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
@@ -251,6 +255,7 @@ impl EffectBuffer {
                 },
                 count: None,
             },
+            // @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer
             BindGroupLayoutEntry {
                 binding: 1,
                 visibility: ShaderStages::COMPUTE,
@@ -261,6 +266,7 @@ impl EffectBuffer {
                 },
                 count: None,
             },
+            // @binding(2) var<storage, read> particle_groups : array<ParticleGroup>
             BindGroupLayoutEntry {
                 binding: 2,
                 visibility: ShaderStages::COMPUTE,
@@ -269,7 +275,7 @@ impl EffectBuffer {
                     has_dynamic_offset: false,
                     // Despite no dynamic offset, we do bind a non-zero offset sometimes,
                     // so keep this aligned
-                    min_binding_size: Some(NonZeroU64::new(padded_size as u64).unwrap()),
+                    min_binding_size: Some(particle_group_size),
                 },
                 count: None,
             },
