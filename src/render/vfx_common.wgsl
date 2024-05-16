@@ -53,8 +53,7 @@ struct ParticleGroup {
     // The index of the first particle in this effect in the particle and
     // indirect buffers.
     effect_particle_offset: u32,
-    pad_a: u32,
-    pad_b: u32,
+    {{PARTICLE_GROUP_PADDING}}
 }
 
 struct IndirectBuffer {
