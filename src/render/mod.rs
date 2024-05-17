@@ -205,15 +205,14 @@ impl From<&Mat4> for GpuCompressedTransform {
     }
 }
 
-impl From<&GpuCompressedTransform> for Mat4 {
-    fn from(value: &GpuCompressedTransform) -> Self {
-        let mat4 = Mat4 {
-            x_axis: value.x_row,
-            y_axis: value.y_row,
-            z_axis: value.z_row,
-            w_axis: Vec4::W,
-        };
-        mat4.transpose()
+impl GpuCompressedTransform {
+    /// Returns the translation as represented by this transform.
+    pub fn translation(&self) -> Vec3 {
+        Vec3 {
+            x: self.x_row.w,
+            y: self.y_row.w,
+            z: self.z_row.w,
+        }
     }
 }
 
@@ -2167,11 +2166,7 @@ pub(crate) fn prepare_effects(
         let z_sort_key_2d = input.z_sort_key_2d;
 
         #[cfg(feature = "3d")]
-        let translation_3d = {
-            let (_scale, _rotation, translation) =
-                Mat4::from(&input.transform).to_scale_rotation_translation();
-            translation
-        };
+        let translation_3d = input.transform.translation();
 
         // Spawn one shared EffectBatches for all groups of this effect. This contains
         // most of the data needed to drive rendering, except the per-group data.
