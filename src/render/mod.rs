@@ -239,7 +239,7 @@ impl GpuSpawnerParams {
     pub fn padding_code(align_size: usize) -> String {
         let aligned_size = GpuSpawnerParams::aligned_size(align_size);
         trace!(
-            "Aligning spawner params to {} bytes as device limits requires. Aligned size: {} bytes.",
+            "Aligning GpuSpawnerParams to {} bytes as device limits requires. Aligned size: {} bytes.",
             align_size,
             aligned_size
         );
@@ -273,6 +273,33 @@ impl Default for GpuDispatchIndirect {
             y: 1,
             z: 1,
             pong: 0,
+        }
+    }
+}
+
+impl GpuDispatchIndirect {
+    /// Get the aligned size of this type based on the given alignment in bytes.
+    pub fn aligned_size(align_size: usize) -> usize {
+        next_multiple_of(GpuDispatchIndirect::min_size().get() as usize, align_size)
+    }
+
+    /// Get the WGSL padding code to append to the GPU struct to align it.
+    pub fn padding_code(align_size: usize) -> String {
+        let aligned_size = GpuDispatchIndirect::aligned_size(align_size);
+        trace!(
+            "Aligning GpuDispatchIndirect to {} bytes as device limits requires. Aligned size: {} bytes.",
+            align_size,
+            aligned_size
+        );
+
+        // We need to pad the Spawner WGSL struct based on the device padding so that we
+        // can use it as an array element but also has a direct struct binding.
+        if GpuDispatchIndirect::min_size().get() as usize != aligned_size {
+            let padding_size = aligned_size - GpuDispatchIndirect::min_size().get() as usize;
+            assert!(padding_size % 4 == 0);
+            format!("padding: array<u32, {}>", padding_size / 4)
+        } else {
+            "".to_string()
         }
     }
 }
@@ -444,6 +471,10 @@ impl FromWorld for DispatchIndirectPipeline {
             render_device.limits().min_storage_buffer_offset_alignment as usize,
         ) as u64)
         .unwrap();
+        let dispatch_indirect_size = NonZeroU64::new(GpuDispatchIndirect::aligned_size(
+            render_device.limits().min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
         let particle_group_size = NonZeroU64::new(GpuParticleGroup::aligned_size(
             render_device.limits().min_storage_buffer_offset_alignment as usize,
         ) as u64)
@@ -451,10 +482,10 @@ impl FromWorld for DispatchIndirectPipeline {
 
         trace!(
             "GpuRenderEffectMetadata: min_size={} padded_size={} | GpuRenderGroupIndirect: min_size={} padded_size={} | \
-GpuDispatchIndirect: min_size={} | GpuParticleGroup: min_size={} padded_size={}",
+GpuDispatchIndirect: min_size={} padded_size={} | GpuParticleGroup: min_size={} padded_size={}",
             GpuRenderEffectMetadata::min_size(),render_effect_indirect_size,
             GpuRenderGroupIndirect::min_size(),render_group_indirect_size,
-            GpuDispatchIndirect::min_size(),
+            GpuDispatchIndirect::min_size(), dispatch_indirect_size,
             GpuParticleGroup::min_size(), particle_group_size
         );
         let dispatch_indirect_layout = render_device.create_bind_group_layout(
@@ -486,7 +517,7 @@ GpuDispatchIndirect: min_size={} | GpuParticleGroup: min_size={} padded_size={}"
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(GpuDispatchIndirect::min_size()),
+                        min_binding_size: Some(dispatch_indirect_size),
                     },
                     count: None,
                 },
@@ -1166,6 +1197,12 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             ],
         };
 
+        let dispatch_indirect_size = NonZeroU64::new(GpuDispatchIndirect::aligned_size(
+            self.render_device
+                .limits()
+                .min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
         let mut entries = vec![
             BindGroupLayoutEntry {
                 binding: 0,
@@ -1193,7 +1230,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: true,
-                    min_binding_size: Some(GpuDispatchIndirect::min_size()),
+                    min_binding_size: Some(dispatch_indirect_size),
                 },
                 count: None,
             },
@@ -1738,6 +1775,10 @@ impl GpuLimits {
     }
 }
 
+struct CacheEntry {
+    cache_id: EffectCacheId,
+}
+
 /// Global resource containing the GPU data to draw all the particle effects in
 /// all views.
 ///
@@ -1751,7 +1792,7 @@ pub struct EffectsMeta {
     /// to the associated effect slice allocated in the [`EffectCache`].
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
-    entity_map: HashMap<Entity, EffectCacheId>,
+    entity_map: HashMap<Entity, CacheEntry>,
     /// Bind group for the camera view, containing the camera projection and
     /// other uniform values related to the camera.
     view_bind_group: Option<BindGroup>,
@@ -1881,27 +1922,47 @@ impl EffectsMeta {
         );
         for entity in &removed_effect_entities {
             trace!("Removing ParticleEffect on entity {:?}", entity);
-            if let Some(id) = self.entity_map.remove(entity) {
+            if let Some(entry) = self.entity_map.remove(entity) {
                 trace!(
                     "=> ParticleEffect on entity {:?} had cache ID {:?}, removing...",
                     entity,
-                    id
+                    entry.cache_id
                 );
-                if let Some(buffer_index) = effect_cache.remove(id) {
+                if let Some(cached_effect_indices) = effect_cache.remove(entry.cache_id) {
                     // Clear bind groups associated with the removed buffer
                     trace!(
                         "=> GPU buffer #{} gone, destroying its bind groups...",
-                        buffer_index
+                        cached_effect_indices.buffer_index
                     );
-                    effect_bind_groups.particle_buffers.remove(&buffer_index);
+                    effect_bind_groups
+                        .particle_buffers
+                        .remove(&cached_effect_indices.buffer_index);
 
-                    // NOTE: by convention (see assert below) the cache ID is
-                    // also the table ID, as those 3 data structures stay in
-                    // sync. FIXME: Reenable!
-                    // let table_id = BufferTableId(buffer_index);
-                    // self.dispatch_indirect_buffer.remove(table_id);
-                    // self.render_effect_dispatch_buffer.remove(table_id);
-                    // self.render_group_dispatch_buffer.remove(table_id);
+                    let slices_ref = &cached_effect_indices.slices;
+                    debug_assert!(slices_ref.ranges.len() >= 2);
+                    let group_count = (slices_ref.ranges.len() - 1) as u32;
+
+                    let first_row = slices_ref
+                        .dispatch_buffer_indices
+                        .first_update_group_dispatch_buffer_index
+                        .0;
+                    for table_id in first_row..(first_row + group_count) {
+                        self.dispatch_indirect_buffer
+                            .remove(BufferTableId(table_id));
+                    }
+                    self.render_effect_dispatch_buffer.remove(
+                        slices_ref
+                            .dispatch_buffer_indices
+                            .render_effect_metadata_buffer_index,
+                    );
+                    let first_row = slices_ref
+                        .dispatch_buffer_indices
+                        .first_render_group_dispatch_buffer_index
+                        .0;
+                    for table_id in first_row..(first_row + group_count) {
+                        self.render_group_dispatch_buffer
+                            .remove(BufferTableId(table_id));
+                    }
                 }
             }
         }
@@ -1921,7 +1982,7 @@ impl EffectsMeta {
                 iter::repeat(GpuDispatchIndirect::default()).take(added_effect.capacities.len()),
             );
 
-            let render_effect_dispatch_buffer_index =
+            let render_effect_dispatch_buffer_id =
                 self.render_effect_dispatch_buffer
                     .insert(GpuRenderEffectMetadata {
                         max_spawn: total_capacity,
@@ -1945,7 +2006,7 @@ impl EffectsMeta {
 
             let dispatch_buffer_indices = DispatchBufferIndices {
                 first_update_group_dispatch_buffer_index,
-                render_effect_metadata_buffer_index: render_effect_dispatch_buffer_index,
+                render_effect_metadata_buffer_index: render_effect_dispatch_buffer_id,
                 first_render_group_dispatch_buffer_index,
             };
 
@@ -1959,7 +2020,7 @@ impl EffectsMeta {
             );
 
             let entity = added_effect.entity;
-            self.entity_map.insert(entity, cache_id);
+            self.entity_map.insert(entity, CacheEntry { cache_id });
 
             // Note: those effects are already in extracted_effects.effects
             // because they were gathered by the same query as
@@ -2119,7 +2180,7 @@ pub(crate) fn prepare_effects(
     let effect_entity_list = effects
         .into_iter()
         .map(|(entity, extracted_effect)| {
-            let id = *effects_meta.entity_map.get(&entity).unwrap();
+            let id = effects_meta.entity_map.get(&entity).unwrap().cache_id;
             let property_buffer = effect_cache.get_property_buffer(id).cloned(); // clone handle for lifetime
             let effect_slices = effect_cache.get_slices(id);
 
@@ -2274,7 +2335,7 @@ pub(crate) fn prepare_effects(
             local_group_count += 1;
         }
 
-        let effect_cache_id = *effects_meta.entity_map.get(&input.entity).unwrap();
+        let effect_cache_id = effects_meta.entity_map.get(&input.entity).unwrap().cache_id;
         let dispatch_buffer_indices = effect_cache.get_dispatch_buffer_indices(effect_cache_id);
 
         // Write properties for this effect if they were modified.
@@ -2952,6 +3013,10 @@ pub(crate) fn prepare_bind_groups(
                     buffer.property_layout(),
                 );
 
+                let dispatch_indirect_size = NonZeroU64::new(GpuDispatchIndirect::aligned_size(
+                    render_device.limits().min_storage_buffer_offset_alignment as usize,
+                ) as u64)
+                .unwrap();
                 let mut entries = vec![
                     BindGroupEntry {
                         binding: 0,
@@ -2966,7 +3031,7 @@ pub(crate) fn prepare_bind_groups(
                         resource: BindingResource::Buffer(BufferBinding {
                             buffer: &indirect_buffer,
                             offset: 0,
-                            size: Some(GpuDispatchIndirect::min_size()),
+                            size: Some(dispatch_indirect_size),
                         }),
                     },
                 ];
@@ -3727,6 +3792,7 @@ impl Node for VfxSimulateNode {
     }
 }
 
+// FIXME - Remove this, handle it properly with a BufferTable::insert_many() or so...
 fn allocate_sequential_buffers<T, I>(
     buffer_table: &mut BufferTable<T>,
     iterator: I,

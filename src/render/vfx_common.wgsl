@@ -82,6 +82,7 @@ struct DispatchIndirect {
     /// as an indirect draw source so cannot also be bound as regular storage
     /// buffer for reading.
     pong: u32,
+    {{DISPATCH_INDIRECT_PADDING}}
 }
 
 // Render indirect array offsets. Used when accessing an array of RenderIndirect
