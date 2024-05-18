@@ -2861,6 +2861,10 @@ pub(crate) fn prepare_bind_groups(
     render_pipeline: Res<ParticlesRenderPipeline>,
     gpu_images: Res<RenderAssets<Image>>,
 ) {
+    if effects_meta.spawner_buffer.is_empty() || effects_meta.spawner_buffer.buffer().is_none() {
+        return;
+    }
+
     {
         #[cfg(feature = "trace")]
         let _span = bevy::utils::tracing::info_span!("shared_bind_groups").entered();
