@@ -81,8 +81,8 @@ pub(crate) struct EffectDrawBatch {
     /// rendering.
     #[cfg(feature = "2d")]
     pub z_sort_key_2d: FloatOrd,
-    /// For 3d rendering, the position of the emitter so we can compute distance to camera.
-    /// Ignored for 2D rendering.
+    /// For 3d rendering, the position of the emitter so we can compute distance
+    /// to camera. Ignored for 2D rendering.
     #[cfg(feature = "3d")]
     pub translation_3d: Vec3,
 }

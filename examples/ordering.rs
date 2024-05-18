@@ -1,6 +1,14 @@
 //! Ordering
 //!
-//! This example demonstrates occluding particle effects behind partially transparent objects.
+//! This example demonstrates occluding particle effects behind opaque and
+//! partially transparent objects. The occlusion is based on the built-in Bevy
+//! ordering of transparent objects, which are sorted by their distance to the
+//! camera, and therefore only works for non-overlapping objects. For Hanabi
+//! effects, the origin of the emitter (the Entity with the ParticleEffect
+//! component) is used as the origin of the object, and therefore the point from
+//! which the distance to the camera is calculated. In this example, we
+//! therefore ensure that the rectangles in front and behind the particle effect
+//! do not overlap the bounding box of the effect itself.
 use bevy::{
     core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
     log::LogPlugin,
@@ -39,17 +47,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Create the firework particle effect which will be rendered in-between other
+/// PBR objects.
 fn make_firework() -> EffectAsset {
+    // Set the particles bright white (HDR; value=4.) so we can see the effect of
+    // any colored object covering them.
     let mut color_gradient1 = Gradient::new();
     color_gradient1.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
-    color_gradient1.add_key(0.1, Vec4::new(4.0, 4.0, 0.0, 1.0));
-    color_gradient1.add_key(0.9, Vec4::new(4.0, 0.0, 0.0, 1.0));
-    color_gradient1.add_key(1.0, Vec4::new(4.0, 0.0, 0.0, 0.0));
+    color_gradient1.add_key(1.0, Vec4::new(4.0, 4.0, 4.0, 0.0));
 
+    // Keep the size large so we can more visibly see the particles for longer, and
+    // see the effect of alpha blending.
     let mut size_gradient1 = Gradient::new();
-    size_gradient1.add_key(0.0, Vec2::splat(0.1));
-    size_gradient1.add_key(0.3, Vec2::splat(0.1));
-    size_gradient1.add_key(1.0, Vec2::splat(0.0));
+    size_gradient1.add_key(0.0, Vec2::ONE);
+    size_gradient1.add_key(0.1, Vec2::ONE);
+    size_gradient1.add_key(1.0, Vec2::ZERO);
 
     let writer = ExprWriter::new();
 
@@ -59,7 +71,7 @@ fn make_firework() -> EffectAsset {
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     // Give a bit of variation by randomizing the lifetime per particle
-    let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
+    let lifetime = writer.lit(2.).uniform(writer.lit(3.)).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     // Add constant downward acceleration to simulate gravity
@@ -82,26 +94,23 @@ fn make_firework() -> EffectAsset {
         speed: (writer.rand(ScalarType::Float) * writer.lit(20.) + writer.lit(60.)).expr(),
     };
 
-    EffectAsset::new(
-        // 2k lead particles, with 32 trail particles each
-        vec![2048, 2048 * 32],
-        Spawner::burst(2048.0.into(), 2.0.into()),
-        writer.finish(),
-    )
-    .with_name("firework")
-    .init(init_pos)
-    .init(init_vel)
-    .init(init_age)
-    .init(init_lifetime)
-    .update(update_drag)
-    .update(update_accel)
-    .render(ColorOverLifetimeModifier {
-        gradient: color_gradient1,
-    })
-    .render(SizeOverLifetimeModifier {
-        gradient: size_gradient1,
-        screen_space_size: false,
-    })
+    EffectAsset::new(vec![2048], Spawner::rate(128.0.into()), writer.finish())
+        .with_name("firework")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_age)
+        .init(init_lifetime)
+        .update(update_drag)
+        .update(update_accel)
+        // Note: we (ab)use the ColorOverLifetimeModifier to set a fixed color hard-coded in the
+        // render shader, without having to store a per-particle color. This is an optimization.
+        .render(ColorOverLifetimeModifier {
+            gradient: color_gradient1,
+        })
+        .render(SizeOverLifetimeModifier {
+            gradient: size_gradient1,
+            screen_space_size: false,
+        })
 }
 
 fn setup(
@@ -138,42 +147,44 @@ fn setup(
         },
     ));
 
-    // Background square at origin.
+    // Red background at origin, with alpha blending
     commands.spawn(PbrBundle {
         mesh: meshes.add(Mesh::from(Rectangle {
             half_size: Vec2 { x: 0.5, y: 0.5 },
         })),
         material: materials.add(StandardMaterial {
-            base_color: Color::RED,
+            base_color: Color::rgba(1., 0., 0., 0.5),
             alpha_mode: bevy::pbr::AlphaMode::Blend,
             ..default()
         }),
         transform: Transform {
+            scale: Vec3::splat(50.),
+            ..default()
+        },
+        ..default()
+    });
+
+    // Blue rectangle in front of particles, with alpha blending
+    commands.spawn(PbrBundle {
+        mesh: meshes.add(Mesh::from(Rectangle {
+            half_size: Vec2 { x: 0.5, y: 0.5 },
+        })),
+        material: materials.add(StandardMaterial {
+            // Keep the alpha quite high, because the particles are very bright (HDR, value=4.)
+            // so otherwise we can't see the attenuation of the blue box over the white particles.
+            base_color: Color::rgba(0., 0., 1., 0.95),
+            alpha_mode: bevy::pbr::AlphaMode::Blend,
+            ..default()
+        }),
+        transform: Transform {
+            translation: Vec3::Y * 6. + Vec3::Z * 40.,
             scale: Vec3::splat(10.),
             ..default()
         },
         ..default()
     });
 
-    // Blue square in front of particles with AlphaMode::Blend.
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(Rectangle {
-            half_size: Vec2 { x: 0.5, y: 0.5 },
-        })),
-        material: materials.add(StandardMaterial {
-            base_color: Color::BLUE,
-            alpha_mode: bevy::pbr::AlphaMode::Blend,
-            ..default()
-        }),
-        transform: Transform {
-            translation: Vec3::Y * 5. + Vec3::Z * 25.,
-            scale: Vec3::splat(5.),
-            ..default()
-        },
-        ..default()
-    });
-
-    // Green square in front of particles with AlphaMode::Opaque.
+    // Green square in front of particles, without alpha blending
     commands.spawn(PbrBundle {
         mesh: meshes.add(Mesh::from(Rectangle {
             half_size: Vec2 { x: 0.5, y: 0.5 },
@@ -184,8 +195,8 @@ fn setup(
             ..default()
         }),
         transform: Transform {
-            translation: Vec3::Y * -5. + Vec3::Z * 25.,
-            scale: Vec3::splat(5.),
+            translation: Vec3::Y * -6. + Vec3::Z * 40.,
+            scale: Vec3::splat(10.),
             ..default()
         },
         ..default()

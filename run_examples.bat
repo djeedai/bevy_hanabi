@@ -14,6 +14,7 @@ cargo r --example force_field --no-default-features --features="bevy/bevy_winit 
 cargo r --example init --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d examples_world_inspector"
 cargo r --example lifetime --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d examples_world_inspector"
 cargo r --example instancing --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d examples_world_inspector"
+cargo r --example ordering --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d examples_world_inspector"
 cargo r --example ribbon --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d examples_world_inspector"
 REM 3D + PNG
 cargo r --example gradient --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d examples_world_inspector"
