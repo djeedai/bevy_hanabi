@@ -207,6 +207,7 @@ impl From<&Mat4> for GpuCompressedTransform {
 
 impl GpuCompressedTransform {
     /// Returns the translation as represented by this transform.
+    #[allow(dead_code)]
     pub fn translation(&self) -> Vec3 {
         Vec3 {
             x: self.x_row.w,
