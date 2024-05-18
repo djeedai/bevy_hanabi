@@ -22,7 +22,8 @@ use crate::{
     render::{
         extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects,
         prepare_resources, queue_effects, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents,
-        EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects, GpuSpawnerParams,
+        EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects, GpuDispatchIndirect,
+        GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect, GpuSpawnerParams,
         ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache,
         SimParams, VfxSimulateDriverNode, VfxSimulateNode,
     },
@@ -129,8 +130,29 @@ impl HanabiPlugin {
     pub(crate) fn make_common_shader(min_storage_buffer_offset_alignment: usize) -> Shader {
         let spawner_padding_code =
             GpuSpawnerParams::padding_code(min_storage_buffer_offset_alignment);
+        let dispatch_indirect_padding_code =
+            GpuDispatchIndirect::padding_code(min_storage_buffer_offset_alignment);
+        let render_effect_indirect_padding_code =
+            GpuRenderEffectMetadata::padding_code(min_storage_buffer_offset_alignment);
+        let render_group_indirect_padding_code =
+            GpuRenderGroupIndirect::padding_code(min_storage_buffer_offset_alignment);
+        let particle_group_padding_code =
+            GpuParticleGroup::padding_code(min_storage_buffer_offset_alignment);
         let common_code = include_str!("render/vfx_common.wgsl")
-            .replace("{{SPAWNER_PADDING}}", &spawner_padding_code);
+            .replace("{{SPAWNER_PADDING}}", &spawner_padding_code)
+            .replace(
+                "{{DISPATCH_INDIRECT_PADDING}}",
+                &dispatch_indirect_padding_code,
+            )
+            .replace(
+                "{{RENDER_EFFECT_INDIRECT_PADDING}}",
+                &render_effect_indirect_padding_code,
+            )
+            .replace(
+                "{{RENDER_GROUP_INDIRECT_PADDING}}",
+                &render_group_indirect_padding_code,
+            )
+            .replace("{{PARTICLE_GROUP_PADDING}}", &particle_group_padding_code);
         Shader::from_wgsl(
             common_code,
             std::path::Path::new(file!())

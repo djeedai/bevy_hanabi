@@ -239,7 +239,7 @@ impl GpuSpawnerParams {
     pub fn padding_code(align_size: usize) -> String {
         let aligned_size = GpuSpawnerParams::aligned_size(align_size);
         trace!(
-            "Aligning spawner params to {} bytes as device limits requires. Aligned size: {} bytes.",
+            "Aligning GpuSpawnerParams to {} bytes as device limits requires. Aligned size: {} bytes.",
             align_size,
             aligned_size
         );
@@ -277,13 +277,69 @@ impl Default for GpuDispatchIndirect {
     }
 }
 
+impl GpuDispatchIndirect {
+    /// Get the aligned size of this type based on the given alignment in bytes.
+    pub fn aligned_size(align_size: usize) -> usize {
+        next_multiple_of(GpuDispatchIndirect::min_size().get() as usize, align_size)
+    }
+
+    /// Get the WGSL padding code to append to the GPU struct to align it.
+    pub fn padding_code(align_size: usize) -> String {
+        let aligned_size = GpuDispatchIndirect::aligned_size(align_size);
+        trace!(
+            "Aligning GpuDispatchIndirect to {} bytes as device limits requires. Aligned size: {} bytes.",
+            align_size,
+            aligned_size
+        );
+
+        // We need to pad the Spawner WGSL struct based on the device padding so that we
+        // can use it as an array element but also has a direct struct binding.
+        if GpuDispatchIndirect::min_size().get() as usize != aligned_size {
+            let padding_size = aligned_size - GpuDispatchIndirect::min_size().get() as usize;
+            assert!(padding_size % 4 == 0);
+            format!("padding: array<u32, {}>", padding_size / 4)
+        } else {
+            "".to_string()
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct GpuRenderEffectMetadata {
     pub max_spawn: u32,
     pub ping: u32,
-    pub __pad1: u32,
-    pub __pad2: u32,
+}
+
+impl GpuRenderEffectMetadata {
+    /// Get the aligned size of this type based on the given alignment in bytes.
+    pub fn aligned_size(align_size: usize) -> usize {
+        next_multiple_of(
+            GpuRenderEffectMetadata::min_size().get() as usize,
+            align_size,
+        )
+    }
+
+    /// Get the WGSL padding code to append to the GPU struct to align it.
+    pub fn padding_code(align_size: usize) -> String {
+        let aligned_size = GpuRenderEffectMetadata::aligned_size(align_size);
+        trace!(
+            "Aligning GpuRenderEffectMetadata to {} bytes as device limits requires. Aligned size: {} bytes.",
+            align_size,
+            aligned_size
+        );
+
+        // We need to pad the RenderGroupIndirect WGSL struct based on the device
+        // padding so that we can use it as an array element but also has a
+        // direct struct binding.
+        if GpuRenderEffectMetadata::min_size().get() as usize != aligned_size {
+            let padding_size = aligned_size - GpuRenderEffectMetadata::min_size().get() as usize;
+            assert!(padding_size % 4 == 0);
+            format!("padding: array<u32, {}>", padding_size / 4)
+        } else {
+            "".to_string()
+        }
+    }
 }
 
 #[repr(C)]
@@ -297,8 +353,37 @@ pub struct GpuRenderGroupIndirect {
     pub alive_count: u32,
     pub max_update: u32,
     pub dead_count: u32,
-    pub __pad1: u32,
-    // FIXME - min_storage_buffer_offset_alignment
+}
+
+impl GpuRenderGroupIndirect {
+    /// Get the aligned size of this type based on the given alignment in bytes.
+    pub fn aligned_size(align_size: usize) -> usize {
+        next_multiple_of(
+            GpuRenderGroupIndirect::min_size().get() as usize,
+            align_size,
+        )
+    }
+
+    /// Get the WGSL padding code to append to the GPU struct to align it.
+    pub fn padding_code(align_size: usize) -> String {
+        let aligned_size = GpuRenderGroupIndirect::aligned_size(align_size);
+        trace!(
+            "Aligning GpuRenderGroupIndirect to {} bytes as device limits requires. Aligned size: {} bytes.",
+            align_size,
+            aligned_size
+        );
+
+        // We need to pad the RenderGroupIndirect WGSL struct based on the device
+        // padding so that we can use it as an array element but also has a
+        // direct struct binding.
+        if GpuRenderGroupIndirect::min_size().get() as usize != aligned_size {
+            let padding_size = aligned_size - GpuRenderGroupIndirect::min_size().get() as usize;
+            assert!(padding_size % 4 == 0);
+            format!("padding: array<u32, {}>", padding_size / 4)
+        } else {
+            "".to_string()
+        }
+    }
 }
 
 /// Stores metadata about each particle group.
@@ -324,10 +409,34 @@ pub struct GpuParticleGroup {
     // The index of the first particle in this effect in the particle and
     // indirect buffers.
     pub effect_particle_offset: u32,
-    /// Padding.
-    pub __pad0: u32,
-    /// Padding.
-    pub __pad1: u32,
+}
+
+impl GpuParticleGroup {
+    /// Get the aligned size of this type based on the given alignment in bytes.
+    pub fn aligned_size(align_size: usize) -> usize {
+        next_multiple_of(GpuParticleGroup::min_size().get() as usize, align_size)
+    }
+
+    /// Get the WGSL padding code to append to the GPU struct to align it.
+    pub fn padding_code(align_size: usize) -> String {
+        let aligned_size = GpuParticleGroup::aligned_size(align_size);
+        trace!(
+            "Aligning GpuParticleGroup to {} bytes as device limits requires. Aligned size: {} bytes.",
+            align_size,
+            aligned_size
+        );
+
+        // We need to pad the RenderGroupIndirect WGSL struct based on the device
+        // padding so that we can use it as an array element but also has a
+        // direct struct binding.
+        if GpuParticleGroup::min_size().get() as usize != aligned_size {
+            let padding_size = aligned_size - GpuParticleGroup::min_size().get() as usize;
+            assert!(padding_size % 4 == 0);
+            format!("padding: array<u32, {}>", padding_size / 4)
+        } else {
+            "".to_string()
+        }
+    }
 }
 
 /// Compute pipeline to run the `vfx_indirect` dispatch workgroup calculation
@@ -349,17 +458,35 @@ impl FromWorld for DispatchIndirectPipeline {
         let item_align = render_device.limits().min_uniform_buffer_offset_alignment as usize;
         let spawner_aligned_size = GpuSpawnerParams::aligned_size(item_align);
         trace!(
-            "Aligning spawner params to {} bytes as device limits requires. Size: {} bytes.",
+            "Aligning spawner params to {} bytes as device limits requires for uniform buffer. Size: {} bytes.",
             item_align,
             spawner_aligned_size
         );
 
+        let render_effect_indirect_size = NonZeroU64::new(GpuRenderEffectMetadata::aligned_size(
+            render_device.limits().min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
+        let render_group_indirect_size = NonZeroU64::new(GpuRenderGroupIndirect::aligned_size(
+            render_device.limits().min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
+        let dispatch_indirect_size = NonZeroU64::new(GpuDispatchIndirect::aligned_size(
+            render_device.limits().min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
+        let particle_group_size = NonZeroU64::new(GpuParticleGroup::aligned_size(
+            render_device.limits().min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
+
         trace!(
-            "GpuRenderEffectMetadata: min_size={} | GpuRenderGroupIndirect: min_size={} | \
-GpuDispatchIndirect: min_size={}",
-            GpuRenderEffectMetadata::min_size(),
-            GpuRenderGroupIndirect::min_size(),
-            GpuDispatchIndirect::min_size()
+            "GpuRenderEffectMetadata: min_size={} padded_size={} | GpuRenderGroupIndirect: min_size={} padded_size={} | \
+GpuDispatchIndirect: min_size={} padded_size={} | GpuParticleGroup: min_size={} padded_size={}",
+            GpuRenderEffectMetadata::min_size(),render_effect_indirect_size,
+            GpuRenderGroupIndirect::min_size(),render_group_indirect_size,
+            GpuDispatchIndirect::min_size(), dispatch_indirect_size,
+            GpuParticleGroup::min_size(), particle_group_size
         );
         let dispatch_indirect_layout = render_device.create_bind_group_layout(
             "hanabi:bind_group_layout:dispatch_indirect_dispatch_indirect",
@@ -370,7 +497,7 @@ GpuDispatchIndirect: min_size={}",
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(GpuRenderEffectMetadata::min_size()),
+                        min_binding_size: Some(render_effect_indirect_size),
                     },
                     count: None,
                 },
@@ -380,7 +507,7 @@ GpuDispatchIndirect: min_size={}",
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(GpuRenderGroupIndirect::min_size()),
+                        min_binding_size: Some(render_group_indirect_size),
                     },
                     count: None,
                 },
@@ -390,7 +517,7 @@ GpuDispatchIndirect: min_size={}",
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(GpuDispatchIndirect::min_size()),
+                        min_binding_size: Some(dispatch_indirect_size),
                     },
                     count: None,
                 },
@@ -400,7 +527,7 @@ GpuDispatchIndirect: min_size={}",
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(GpuParticleGroup::min_size()),
+                        min_binding_size: Some(particle_group_size),
                     },
                     count: None,
                 },
@@ -428,11 +555,7 @@ GpuDispatchIndirect: min_size={}",
             push_constant_ranges: &[],
         });
 
-        // We need to pad the Spawner WGSL struct based on the device padding so that we
-        // can use it as an array element but also has a direct struct binding.
-        let spawner_padding_code = GpuSpawnerParams::padding_code(item_align);
-        let indirect_code =
-            include_str!("vfx_indirect.wgsl").replace("{{SPAWNER_PADDING}}", &spawner_padding_code);
+        let indirect_code = include_str!("vfx_indirect.wgsl");
 
         // Resolve imports. Because we don't insert this shader into Bevy' pipeline
         // cache, we don't get that part "for free", so we have to do it manually here.
@@ -441,7 +564,9 @@ GpuDispatchIndirect: min_size={}",
 
             // Import bevy_hanabi::vfx_common
             {
-                let common_shader = HanabiPlugin::make_common_shader(item_align);
+                let common_shader = HanabiPlugin::make_common_shader(
+                    render_device.limits().min_storage_buffer_offset_alignment as usize,
+                );
                 let mut desc: naga_oil::compose::ComposableModuleDescriptor<'_> =
                     (&common_shader).into();
                 desc.shader_defs.insert(
@@ -455,7 +580,7 @@ GpuDispatchIndirect: min_size={}",
             let shader_defs = default();
 
             match composer.make_naga_module(NagaModuleDescriptor {
-                source: &indirect_code,
+                source: indirect_code,
                 file_path: "vfx_indirect.wgsl",
                 shader_defs,
                 ..Default::default()
@@ -543,31 +668,44 @@ impl FromWorld for ParticlesInitPipeline {
             }],
         );
 
+        let render_effect_indirect_size = NonZeroU64::new(GpuRenderEffectMetadata::aligned_size(
+            limits.min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
+        let render_group_indirect_size = NonZeroU64::new(GpuRenderGroupIndirect::aligned_size(
+            limits.min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
         trace!(
-            "GpuRenderEffectMetadata: min_size={}, GpuRenderGroupIndirect: min_size={}",
+            "GpuRenderEffectMetadata: min_size={} padded_size={}, GpuRenderGroupIndirect: min_size={} padded_size={}",
             GpuRenderEffectMetadata::min_size(),
+            render_effect_indirect_size,
             GpuRenderGroupIndirect::min_size(),
+            render_group_indirect_size,
         );
         let render_indirect_layout = render_device.create_bind_group_layout(
             "hanabi:bind_group_layout:init_render_indirect",
             &[
+                // @binding(0) var<storage, read_write> render_effect_indirect :
+                // RenderEffectMetadata
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: true,
-                        min_binding_size: Some(GpuRenderEffectMetadata::min_size()),
+                        min_binding_size: Some(render_effect_indirect_size),
                     },
                     count: None,
                 },
+                // @binding(1) var<storage, read_write> render_group_indirect : RenderGroupIndirect
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: true,
-                        min_binding_size: Some(GpuRenderGroupIndirect::min_size()),
+                        min_binding_size: Some(render_group_indirect_size),
                     },
                     count: None,
                 },
@@ -630,13 +768,18 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
             count: None,
         });
         // (1,2) array<ParticleGroup>
+        let padded_size = GpuParticleGroup::aligned_size(
+            self.render_device
+                .limits()
+                .min_storage_buffer_offset_alignment as usize,
+        );
         entries.push(BindGroupLayoutEntry {
             binding: 2,
             visibility: ShaderStages::COMPUTE,
             ty: BindingType::Buffer {
                 ty: BufferBindingType::Storage { read_only: true },
                 has_dynamic_offset: false,
-                min_binding_size: Some(GpuParticleGroup::min_size()),
+                min_binding_size: Some(NonZeroU64::new(padded_size as u64).unwrap()),
             },
             count: None,
         });
@@ -731,10 +874,17 @@ impl FromWorld for ParticlesUpdatePipeline {
             }],
         );
 
-        trace!(
-            "GpuRenderGroupIndirect: min_size={}",
-            GpuRenderGroupIndirect::min_size()
-        );
+        let render_effect_indirect_size = NonZeroU64::new(GpuRenderEffectMetadata::aligned_size(
+            limits.min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
+        let render_group_indirect_size = NonZeroU64::new(GpuRenderGroupIndirect::aligned_size(
+            limits.min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
+        trace!("GpuRenderEffectMetadata: min_size={} padded_size={} | GpuRenderGroupIndirect: min_size={} padded_size={}",
+         GpuRenderEffectMetadata::min_size(), render_effect_indirect_size,
+         GpuRenderGroupIndirect::min_size(), render_group_indirect_size);
         let render_indirect_layout = render_device.create_bind_group_layout(
             "hanabi:update_render_indirect_layout",
             &[
@@ -744,7 +894,7 @@ impl FromWorld for ParticlesUpdatePipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(GpuRenderEffectMetadata::min_size()),
+                        min_binding_size: Some(render_effect_indirect_size),
                     },
                     count: None,
                 },
@@ -754,7 +904,8 @@ impl FromWorld for ParticlesUpdatePipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(GpuRenderGroupIndirect::min_size()),
+                        // Array; needs padded size
+                        min_binding_size: Some(render_group_indirect_size),
                     },
                     count: None,
                 },
@@ -794,7 +945,13 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             },
         );
 
+        let padded_size = GpuParticleGroup::aligned_size(
+            self.render_device
+                .limits()
+                .min_storage_buffer_offset_alignment as usize,
+        );
         let mut entries = vec![
+            // @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer
             BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
@@ -805,6 +962,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
                 },
                 count: None,
             },
+            // @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer
             BindGroupLayoutEntry {
                 binding: 1,
                 visibility: ShaderStages::COMPUTE,
@@ -815,18 +973,20 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
                 },
                 count: None,
             },
+            // @binding(2) var<storage, read> particle_groups : array<ParticleGroup>
             BindGroupLayoutEntry {
                 binding: 2,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
-                    min_binding_size: Some(GpuParticleGroup::min_size()),
+                    min_binding_size: Some(NonZeroU64::new(padded_size as u64).unwrap()),
                 },
                 count: None,
             },
         ];
         if !key.property_layout.is_empty() {
+            // @binding(3) var<storage, read> properties : Properties
             entries.push(BindGroupLayoutEntry {
                 binding: 3,
                 visibility: ShaderStages::COMPUTE,
@@ -1037,6 +1197,12 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             ],
         };
 
+        let dispatch_indirect_size = NonZeroU64::new(GpuDispatchIndirect::aligned_size(
+            self.render_device
+                .limits()
+                .min_storage_buffer_offset_alignment as usize,
+        ) as u64)
+        .unwrap();
         let mut entries = vec![
             BindGroupLayoutEntry {
                 binding: 0,
@@ -1064,7 +1230,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: true,
-                    min_binding_size: Some(GpuDispatchIndirect::min_size()),
+                    min_binding_size: Some(dispatch_indirect_size),
                 },
                 count: None,
             },
@@ -1577,25 +1743,40 @@ impl GpuLimits {
         }
     }
 
+    /// Byte alignment for any storage buffer binding.
     pub fn storage_buffer_align(&self) -> NonZeroU32 {
         self.storage_buffer_align
     }
 
+    /// Byte alignment for [`GpuDispatchIndirect`].
     pub fn dispatch_indirect_offset(&self, buffer_index: u32) -> u32 {
         self.dispatch_indirect_aligned_size.get() * buffer_index
     }
 
+    /// Byte alignment for [`GpuRenderEffectMetadata`].
     pub fn render_effect_indirect_offset(&self, buffer_index: u32) -> u64 {
         self.render_effect_indirect_aligned_size.get() as u64 * buffer_index as u64
     }
+    pub fn render_effect_indirect_size(&self) -> NonZeroU64 {
+        NonZeroU64::new(self.render_effect_indirect_aligned_size.get() as u64).unwrap()
+    }
 
+    /// Byte alignment for [`GpuRenderGroupIndirect`].
     pub fn render_group_indirect_offset(&self, buffer_index: u32) -> u64 {
         self.render_group_indirect_aligned_size.get() as u64 * buffer_index as u64
     }
+    pub fn render_group_indirect_size(&self) -> NonZeroU64 {
+        NonZeroU64::new(self.render_group_indirect_aligned_size.get() as u64).unwrap()
+    }
 
+    /// Byte alignment for [`GpuParticleGroup`].
     pub fn particle_group_offset(&self, buffer_index: u32) -> u32 {
         self.particle_group_aligned_size.get() * buffer_index
     }
+}
+
+struct CacheEntry {
+    cache_id: EffectCacheId,
 }
 
 /// Global resource containing the GPU data to draw all the particle effects in
@@ -1611,7 +1792,7 @@ pub struct EffectsMeta {
     /// to the associated effect slice allocated in the [`EffectCache`].
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
-    entity_map: HashMap<Entity, EffectCacheId>,
+    entity_map: HashMap<Entity, CacheEntry>,
     /// Bind group for the camera view, containing the camera projection and
     /// other uniform values related to the camera.
     view_bind_group: Option<BindGroup>,
@@ -1741,27 +1922,47 @@ impl EffectsMeta {
         );
         for entity in &removed_effect_entities {
             trace!("Removing ParticleEffect on entity {:?}", entity);
-            if let Some(id) = self.entity_map.remove(entity) {
+            if let Some(entry) = self.entity_map.remove(entity) {
                 trace!(
                     "=> ParticleEffect on entity {:?} had cache ID {:?}, removing...",
                     entity,
-                    id
+                    entry.cache_id
                 );
-                if let Some(buffer_index) = effect_cache.remove(id) {
+                if let Some(cached_effect_indices) = effect_cache.remove(entry.cache_id) {
                     // Clear bind groups associated with the removed buffer
                     trace!(
                         "=> GPU buffer #{} gone, destroying its bind groups...",
-                        buffer_index
+                        cached_effect_indices.buffer_index
                     );
-                    effect_bind_groups.particle_buffers.remove(&buffer_index);
+                    effect_bind_groups
+                        .particle_buffers
+                        .remove(&cached_effect_indices.buffer_index);
 
-                    // NOTE: by convention (see assert below) the cache ID is
-                    // also the table ID, as those 3 data structures stay in
-                    // sync. FIXME: Reenable!
-                    // let table_id = BufferTableId(buffer_index);
-                    // self.dispatch_indirect_buffer.remove(table_id);
-                    // self.render_effect_dispatch_buffer.remove(table_id);
-                    // self.render_group_dispatch_buffer.remove(table_id);
+                    let slices_ref = &cached_effect_indices.slices;
+                    debug_assert!(slices_ref.ranges.len() >= 2);
+                    let group_count = (slices_ref.ranges.len() - 1) as u32;
+
+                    let first_row = slices_ref
+                        .dispatch_buffer_indices
+                        .first_update_group_dispatch_buffer_index
+                        .0;
+                    for table_id in first_row..(first_row + group_count) {
+                        self.dispatch_indirect_buffer
+                            .remove(BufferTableId(table_id));
+                    }
+                    self.render_effect_dispatch_buffer.remove(
+                        slices_ref
+                            .dispatch_buffer_indices
+                            .render_effect_metadata_buffer_index,
+                    );
+                    let first_row = slices_ref
+                        .dispatch_buffer_indices
+                        .first_render_group_dispatch_buffer_index
+                        .0;
+                    for table_id in first_row..(first_row + group_count) {
+                        self.render_group_dispatch_buffer
+                            .remove(BufferTableId(table_id));
+                    }
                 }
             }
         }
@@ -1781,7 +1982,7 @@ impl EffectsMeta {
                 iter::repeat(GpuDispatchIndirect::default()).take(added_effect.capacities.len()),
             );
 
-            let render_effect_dispatch_buffer_index =
+            let render_effect_dispatch_buffer_id =
                 self.render_effect_dispatch_buffer
                     .insert(GpuRenderEffectMetadata {
                         max_spawn: total_capacity,
@@ -1805,7 +2006,7 @@ impl EffectsMeta {
 
             let dispatch_buffer_indices = DispatchBufferIndices {
                 first_update_group_dispatch_buffer_index,
-                render_effect_metadata_buffer_index: render_effect_dispatch_buffer_index,
+                render_effect_metadata_buffer_index: render_effect_dispatch_buffer_id,
                 first_render_group_dispatch_buffer_index,
             };
 
@@ -1819,7 +2020,7 @@ impl EffectsMeta {
             );
 
             let entity = added_effect.entity;
-            self.entity_map.insert(entity, cache_id);
+            self.entity_map.insert(entity, CacheEntry { cache_id });
 
             // Note: those effects are already in extracted_effects.effects
             // because they were gathered by the same query as
@@ -1979,7 +2180,7 @@ pub(crate) fn prepare_effects(
     let effect_entity_list = effects
         .into_iter()
         .map(|(entity, extracted_effect)| {
-            let id = *effects_meta.entity_map.get(&entity).unwrap();
+            let id = effects_meta.entity_map.get(&entity).unwrap().cache_id;
             let property_buffer = effect_cache.get_property_buffer(id).cloned(); // clone handle for lifetime
             let effect_slices = effect_cache.get_slices(id);
 
@@ -2126,8 +2327,6 @@ pub(crate) fn prepare_effects(
                     indirect_index: range[0],
                     capacity: range[1] - range[0],
                     effect_particle_offset: input.effect_slices.slices[0],
-                    __pad0: 0,
-                    __pad1: 0,
                 });
             if group_index == 0 {
                 first_particle_group_buffer_index = Some(particle_group_buffer_index as u32);
@@ -2136,7 +2335,7 @@ pub(crate) fn prepare_effects(
             local_group_count += 1;
         }
 
-        let effect_cache_id = *effects_meta.entity_map.get(&input.entity).unwrap();
+        let effect_cache_id = effects_meta.entity_map.get(&input.entity).unwrap().cache_id;
         let dispatch_buffer_indices = effect_cache.get_dispatch_buffer_indices(effect_cache_id);
 
         // Write properties for this effect if they were modified.
@@ -2200,6 +2399,9 @@ pub(crate) fn prepare_effects(
         .set(GpuSimParams::default());
     {
         let storage_align = effects_meta.gpu_limits.storage_buffer_align().get() as usize;
+        let render_effect_stride =
+            effects_meta.gpu_limits.render_effect_indirect_size().get() as u32;
+        let render_group_stride = effects_meta.gpu_limits.render_group_indirect_size().get() as u32;
 
         let gpu_sim_params = effects_meta.sim_params_uniforms.get_mut();
         let sim_params = *sim_params;
@@ -2210,14 +2412,8 @@ pub(crate) fn prepare_effects(
         // FIXME - Those are shader compile time constants, which only change with the
         // GPU adapter limits (so, fixed while the app runs). Stop wasting uniform
         // storage and hardcode into shader instead.
-        gpu_sim_params.render_effect_stride = next_multiple_of(
-            GpuRenderEffectMetadata::min_size().get() as usize,
-            storage_align,
-        ) as u32;
-        gpu_sim_params.render_group_stride = next_multiple_of(
-            GpuRenderGroupIndirect::min_size().get() as usize,
-            storage_align,
-        ) as u32;
+        gpu_sim_params.render_effect_stride = render_effect_stride;
+        gpu_sim_params.render_group_stride = render_group_stride;
         gpu_sim_params.dispatch_stride = next_multiple_of(
             GpuDispatchIndirect::min_size().get() as usize,
             storage_align,
@@ -2762,15 +2958,17 @@ pub(crate) fn prepare_bind_groups(
                     resource: BindingResource::Buffer(BufferBinding {
                         buffer: effects_meta.render_effect_dispatch_buffer.buffer().unwrap(),
                         offset: 0,
-                        size: Some(GpuRenderEffectMetadata::min_size()),
+                        size: Some(effects_meta.gpu_limits.render_effect_indirect_size()),
                     }),
                 },
                 BindGroupEntry {
                     binding: 1,
                     resource: BindingResource::Buffer(BufferBinding {
                         buffer: effects_meta.render_group_dispatch_buffer.buffer().unwrap(),
+                        // Always bind the first array element of the buffer, corresponding to the
+                        // first effect group, as only the first group has an init pass.
                         offset: 0,
-                        size: Some(GpuRenderGroupIndirect::min_size()),
+                        size: Some(effects_meta.gpu_limits.render_group_indirect_size()),
                     }),
                 },
             ],
@@ -2815,6 +3013,10 @@ pub(crate) fn prepare_bind_groups(
                     buffer.property_layout(),
                 );
 
+                let dispatch_indirect_size = NonZeroU64::new(GpuDispatchIndirect::aligned_size(
+                    render_device.limits().min_storage_buffer_offset_alignment as usize,
+                ) as u64)
+                .unwrap();
                 let mut entries = vec![
                     BindGroupEntry {
                         binding: 0,
@@ -2829,7 +3031,7 @@ pub(crate) fn prepare_bind_groups(
                         resource: BindingResource::Buffer(BufferBinding {
                             buffer: &indirect_buffer,
                             offset: 0,
-                            size: Some(GpuDispatchIndirect::min_size()),
+                            size: Some(dispatch_indirect_size),
                         }),
                     },
                 ];
@@ -2906,6 +3108,18 @@ pub(crate) fn prepare_bind_groups(
                 ..
             } = effect_batches.dispatch_buffer_indices;
 
+            let render_effect_indirect_size =
+                NonZeroU64::new(GpuRenderEffectMetadata::aligned_size(
+                    effects_meta.gpu_limits.storage_buffer_align.get() as usize,
+                ) as u64)
+                .unwrap();
+            let render_group_indirect_size = NonZeroU64::new(
+                GpuRenderGroupIndirect::aligned_size(
+                    effects_meta.gpu_limits.storage_buffer_align.get() as usize,
+                ) as u64
+                    * effect_batches.group_batches.len() as u64,
+            )
+            .unwrap();
             let particles_buffer_layout_update_render_indirect = render_device.create_bind_group(
                 "hanabi:bind_group_update_render_group_dispatch",
                 &update_pipeline.render_indirect_layout,
@@ -2917,7 +3131,7 @@ pub(crate) fn prepare_bind_groups(
                             offset: effects_meta.gpu_limits.render_effect_indirect_offset(
                                 render_effect_dispatch_buffer_index.0,
                             ),
-                            size: Some(GpuRenderEffectMetadata::min_size()),
+                            size: Some(render_effect_indirect_size),
                         }),
                     },
                     BindGroupEntry {
@@ -2927,10 +3141,7 @@ pub(crate) fn prepare_bind_groups(
                             offset: effects_meta.gpu_limits.render_group_indirect_offset(
                                 first_render_group_dispatch_buffer_index.0,
                             ),
-                            size: NonZeroU64::new(
-                                u64::from(GpuRenderGroupIndirect::min_size())
-                                    * effect_batches.group_batches.len() as u64,
-                            ),
+                            size: Some(render_group_indirect_size),
                         }),
                     },
                 ],
@@ -3120,7 +3331,7 @@ fn draw<'w>(
         + group_index;
 
     trace!(
-        "Draw {} particles with {} vertices per particle for batch from buffer #{} \
+        "Draw up to {} particles with {} vertices per particle for batch from buffer #{} \
             (render_group_dispatch_indirect_index={:?}, group_index={}).",
         effect_batch.slice.len(),
         effects_meta.vertices.len(),
@@ -3581,6 +3792,7 @@ impl Node for VfxSimulateNode {
     }
 }
 
+// FIXME - Remove this, handle it properly with a BufferTable::insert_many() or so...
 fn allocate_sequential_buffers<T, I>(
     buffer_table: &mut BufferTable<T>,
     iterator: I,

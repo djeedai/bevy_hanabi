@@ -40,7 +40,9 @@ struct Spawner {
 #endif
 }
 
+// Per-group data for a single particle effect group inside an effect.
 struct ParticleGroup {
+    // Index of the group, generally zero unless CloneModifier is used.
     group_index: u32,
     effect_index: u32,
     // The index relative to the effect: e.g. 0 if this is the first group in
@@ -53,8 +55,7 @@ struct ParticleGroup {
     // The index of the first particle in this effect in the particle and
     // indirect buffers.
     effect_particle_offset: u32,
-    pad_a: u32,
-    pad_b: u32,
+    {{PARTICLE_GROUP_PADDING}}
 }
 
 struct IndirectBuffer {
@@ -81,6 +82,7 @@ struct DispatchIndirect {
     /// as an indirect draw source so cannot also be bound as regular storage
     /// buffer for reading.
     pong: u32,
+    {{DISPATCH_INDIRECT_PADDING}}
 }
 
 // Render indirect array offsets. Used when accessing an array of RenderIndirect
@@ -112,6 +114,7 @@ struct RenderEffectMetadata {
     /// always write into the ping buffer and read from the pong buffer. The buffers
     /// are swapped during the indirect dispatch.
     ping: u32,
+    {{RENDER_EFFECT_INDIRECT_PADDING}}
 }
 
 /// Render indirect parameters for GPU driven rendering.
@@ -136,7 +139,7 @@ struct RenderGroupIndirect {
     /// Number of dead particles, decremented during the init pass as new particles
     /// are spawned, and incremented during the update pass as existing particles die.
     dead_count: atomic<u32>,
-    pad: u32,
+    {{RENDER_GROUP_INDIRECT_PADDING}}
 }
 
 var<private> seed : u32 = 0u;
