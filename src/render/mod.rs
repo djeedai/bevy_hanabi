@@ -580,7 +580,7 @@ GpuDispatchIndirect: min_size={} padded_size={} | GpuParticleGroup: min_size={} 
             let shader_defs = default();
 
             match composer.make_naga_module(NagaModuleDescriptor {
-                source: &indirect_code,
+                source: indirect_code,
                 file_path: "vfx_indirect.wgsl",
                 shader_defs,
                 ..Default::default()

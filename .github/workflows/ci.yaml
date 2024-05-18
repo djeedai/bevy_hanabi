@@ -147,19 +147,19 @@ jobs:
           for example in .github/example-run/3d/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/bevy_ci_testing"
+            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_ui bevy/default_font 3d bevy/bevy_ci_testing"
             sleep 10
           done
           for example in .github/example-run/3dpng/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d bevy/bevy_ci_testing"
+            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_ui bevy/default_font bevy/png 3d bevy/bevy_ci_testing"
             sleep 10
           done
           for example in .github/example-run/2d/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite 2d bevy/bevy_ci_testing"
+            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite bevy/bevy_ui bevy/default_font 2d bevy/bevy_ci_testing"
             sleep 10
           done
         env:
