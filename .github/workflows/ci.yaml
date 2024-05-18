@@ -234,7 +234,7 @@ jobs:
       #   if: runner.os == 'linux'
       - name: Install cargo-tarpaulin
         run: |
-          RUST_BACKTRACE=1 cargo install --version 0.22.0 cargo-tarpaulin
+          RUST_BACKTRACE=1 cargo install --version 0.30.0 cargo-tarpaulin
       - name: Generate code coverage
         run: |
           RUST_BACKTRACE=1 cargo tarpaulin --engine llvm --verbose --timeout 120 --out Lcov --workspace --all-features
