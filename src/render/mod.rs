@@ -3374,7 +3374,7 @@ impl Node for VfxSimulateNode {
             .write_buffer(render_context.command_encoder());
 
         // Compute init pass
-        let mut num_batches = 0;
+        let mut total_group_count = 0;
         {
             let mut compute_pass =
                 render_context
@@ -3396,7 +3396,10 @@ impl Node for VfxSimulateNode {
                         .dispatch_buffer_indices
                         .first_render_group_dispatch_buffer_index;
 
-                    num_batches += 1;
+                    // FIXME - Currently we unconditionally count all groups because the dispatch
+                    // pass always runs on all groups. We should consider if it's worth skipping
+                    // e.g. dormant or finished effects at the cost of extra complexity.
+                    total_group_count += batches.group_batches.len() as u32;
 
                     let Some(init_pipeline) =
                         pipeline_cache.get_compute_pipeline(batches.init_pipeline_id)
@@ -3515,7 +3518,7 @@ impl Node for VfxSimulateNode {
                 trace!("record commands for indirect dispatch pipeline...");
 
                 const WORKGROUP_SIZE: u32 = 64;
-                let workgroup_count = (num_batches + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+                let workgroup_count = (total_group_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
 
                 // Setup compute pass
                 compute_pass.set_pipeline(indirect_dispatch_pipeline);
@@ -3534,7 +3537,7 @@ impl Node for VfxSimulateNode {
                 compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
                 trace!(
                     "indirect dispatch compute dispatched: num_batches={} workgroup_count={}",
-                    num_batches,
+                    total_group_count,
                     workgroup_count
                 );
             }

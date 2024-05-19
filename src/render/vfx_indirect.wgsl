@@ -19,13 +19,13 @@ const DISPATCH_INDIRECT_STRIDE: u32 = {{DISPATCH_INDIRECT_STRIDE}} / 4u;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
-    // Cap at maximum number of effect to process
+    // Cap at maximum number of groups to process
     let index = global_invocation_id.x;
     if (index >= sim_params.num_groups) {
         return;
     }
 
-    // Cap at spawner array size, just for safety
+    // Cap at group array size, just for safety
     if (index >= arrayLength(&group_buffer)) {
         return;
     }
