@@ -25,7 +25,7 @@ use crate::{
         EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects, GpuDispatchIndirect,
         GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect, GpuSpawnerParams,
         ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache,
-        SimParams, VfxSimulateDriverNode, VfxSimulateNode,
+        SimParams, StorageType as _, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,
@@ -127,7 +127,7 @@ impl HanabiPlugin {
     /// This creates a new [`Shader`] from the `vfx_common.wgsl` code, by
     /// applying the given alignment for storage buffers. This produces a shader
     /// ready for the specific GPU device associated with that alignment.
-    pub(crate) fn make_common_shader(min_storage_buffer_offset_alignment: usize) -> Shader {
+    pub(crate) fn make_common_shader(min_storage_buffer_offset_alignment: u32) -> Shader {
         let spawner_padding_code =
             GpuSpawnerParams::padding_code(min_storage_buffer_offset_alignment);
         let dispatch_indirect_padding_code =
@@ -242,7 +242,7 @@ impl Plugin for HanabiPlugin {
         // for init/update/render shaders (but not the indirect one).
         {
             let common_shader = HanabiPlugin::make_common_shader(
-                render_device.limits().min_storage_buffer_offset_alignment as usize,
+                render_device.limits().min_storage_buffer_offset_alignment,
             );
             let mut assets = app.world.resource_mut::<Assets<Shader>>();
             assets.insert(HANABI_COMMON_TEMPLATE_HANDLE, common_shader);

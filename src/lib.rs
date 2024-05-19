@@ -1822,7 +1822,7 @@ else { return c1; }
 
             // Import bevy_hanabi::vfx_common
             {
-                let min_storage_buffer_offset_alignment = 256usize;
+                let min_storage_buffer_offset_alignment = 256;
                 let common_shader =
                     HanabiPlugin::make_common_shader(min_storage_buffer_offset_alignment);
                 let res = composer.add_composable_module((&common_shader).into());
