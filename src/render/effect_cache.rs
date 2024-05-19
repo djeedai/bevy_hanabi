@@ -15,7 +15,9 @@ use std::{
 
 use crate::{
     asset::EffectAsset,
-    render::{GpuDispatchIndirect, GpuParticleGroup, GpuSpawnerParams, LayoutFlags},
+    render::{
+        GpuDispatchIndirect, GpuParticleGroup, GpuSpawnerParams, LayoutFlags, StorageType as _,
+    },
     ParticleLayout, PropertyLayout,
 };
 
@@ -239,10 +241,9 @@ impl EffectBuffer {
 
         // TODO - Cache particle_layout and associated bind group layout, instead of
         // creating one bind group layout per buffer using that layout...
-        let particle_group_size = NonZeroU64::new(GpuParticleGroup::aligned_size(
-            render_device.limits().min_storage_buffer_offset_alignment as usize,
-        ) as u64)
-        .unwrap();
+        let particle_group_size = GpuParticleGroup::aligned_size(
+            render_device.limits().min_storage_buffer_offset_alignment,
+        );
         let mut entries = vec![
             // @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer
             BindGroupLayoutEntry {
@@ -301,10 +302,9 @@ impl EffectBuffer {
         let particles_buffer_layout_sim = render_device.create_bind_group_layout(label, &entries);
 
         // Create the render layout.
-        let dispatch_indirect_size = NonZeroU64::new(GpuDispatchIndirect::aligned_size(
-            render_device.limits().min_storage_buffer_offset_alignment as usize,
-        ) as u64)
-        .unwrap();
+        let dispatch_indirect_size = GpuDispatchIndirect::aligned_size(
+            render_device.limits().min_storage_buffer_offset_alignment,
+        );
         let mut entries = vec![
             BindGroupLayoutEntry {
                 binding: 0,
