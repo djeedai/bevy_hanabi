@@ -47,7 +47,7 @@ use crate::{
     },
     spawn::EffectSpawner,
     CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation, HanabiPlugin,
-    ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition,
+    ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition, ToWgslString,
 };
 
 mod aligned_buffer_vec;
@@ -119,17 +119,6 @@ struct GpuSimParams {
     ///
     /// This is only used by the `vfx_indirect` compute shader.
     num_groups: u32,
-    /// Stride in bytes of an effect render indirect block, used to index the
-    /// effect's block based on its index.
-    render_effect_stride: u32,
-    /// Stride in bytes of a group render indirect block, used to index the
-    /// effect's block based on its index.
-    render_group_stride: u32,
-    /// Stride in bytes of a dispatch indirect block, used to index the effect's
-    /// block based on its index.
-    ///
-    /// This is only used by the `vfx_indirect` compute shader.
-    dispatch_stride: u32,
 }
 
 impl Default for GpuSimParams {
@@ -142,9 +131,6 @@ impl Default for GpuSimParams {
             real_delta_time: 0.04,
             real_time: 0.0,
             num_groups: 0,
-            render_effect_stride: 0, // invalid
-            render_group_stride: 0,  // invalid
-            dispatch_stride: 0,      // invalid
         }
     }
 }
@@ -444,7 +430,24 @@ impl FromWorld for DispatchIndirectPipeline {
             push_constant_ranges: &[],
         });
 
-        let indirect_code = include_str!("vfx_indirect.wgsl");
+        let render_effect_indirect_stride_code =
+            (render_effect_indirect_size.get() as u32).to_wgsl_string();
+        let render_group_indirect_stride_code =
+            (render_group_indirect_size.get() as u32).to_wgsl_string();
+        let dispatch_indirect_stride_code = (dispatch_indirect_size.get() as u32).to_wgsl_string();
+        let indirect_code = include_str!("vfx_indirect.wgsl")
+            .replace(
+                "{{RENDER_EFFECT_INDIRECT_STRIDE}}",
+                &render_effect_indirect_stride_code,
+            )
+            .replace(
+                "{{RENDER_GROUP_INDIRECT_STRIDE}}",
+                &render_group_indirect_stride_code,
+            )
+            .replace(
+                "{{DISPATCH_INDIRECT_STRIDE}}",
+                &dispatch_indirect_stride_code,
+            );
 
         // Resolve imports. Because we don't insert this shader into Bevy' pipeline
         // cache, we don't get that part "for free", so we have to do it manually here.
@@ -469,7 +472,7 @@ impl FromWorld for DispatchIndirectPipeline {
             let shader_defs = default();
 
             match composer.make_naga_module(NagaModuleDescriptor {
-                source: indirect_code,
+                source: &indirect_code,
                 file_path: "vfx_indirect.wgsl",
                 shader_defs,
                 ..Default::default()
@@ -2283,31 +2286,15 @@ pub(crate) fn prepare_effects(
         .sim_params_uniforms
         .set(GpuSimParams::default());
     {
-        let storage_align = effects_meta.gpu_limits.storage_buffer_align().get() as usize;
-        let render_effect_stride =
-            effects_meta.gpu_limits.render_effect_indirect_size().get() as u32;
-        let render_group_stride = effects_meta.gpu_limits.render_group_indirect_size().get() as u32;
-
         let gpu_sim_params = effects_meta.sim_params_uniforms.get_mut();
         let sim_params = *sim_params;
         *gpu_sim_params = sim_params.into();
 
         gpu_sim_params.num_groups = total_group_count;
 
-        // FIXME - Those are shader compile time constants, which only change with the
-        // GPU adapter limits (so, fixed while the app runs). Stop wasting uniform
-        // storage and hardcode into shader instead.
-        gpu_sim_params.render_effect_stride = render_effect_stride;
-        gpu_sim_params.render_group_stride = render_group_stride;
-        gpu_sim_params.dispatch_stride = next_multiple_of(
-            GpuDispatchIndirect::min_size().get() as usize,
-            storage_align,
-        ) as u32;
-
         trace!(
             "Simulation parameters: time={} delta_time={} virtual_time={} \
-                virtual_delta_time={} real_time={} real_delta_time={} num_groups={} \
-                render_effect_stride={} render_group_stride={} dispatch_stride={}",
+                virtual_delta_time={} real_time={} real_delta_time={} num_groups={}",
             gpu_sim_params.time,
             gpu_sim_params.delta_time,
             gpu_sim_params.virtual_time,
@@ -2315,9 +2302,6 @@ pub(crate) fn prepare_effects(
             gpu_sim_params.real_time,
             gpu_sim_params.real_delta_time,
             gpu_sim_params.num_groups,
-            gpu_sim_params.render_effect_stride,
-            gpu_sim_params.render_group_stride,
-            gpu_sim_params.dispatch_stride,
         );
     }
     // FIXME - There's no simple way to tell if write_buffer() reallocates...

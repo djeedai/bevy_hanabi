@@ -13,19 +13,8 @@ struct SimParams {
     real_delta_time: f32,
     /// Real time in seconds since the start of simulation.
     real_time: f32,
-//#ifdef SIM_PARAMS_INDIRECT_DATA
     /// Number of groups batched together.
     num_groups: u32,
-    /// Stride in bytes of the RenderEffectMetadata struct. Used to calculate
-    /// the position of each effect's data into the buffer of a batch.
-    render_effect_stride: u32,
-    /// Stride in bytes of the RenderGroupIndirect struct. Used to calculate
-    /// the position of each effect's data into the buffer of a batch.
-    render_group_stride: u32,
-    /// Stride in bytes of the DispatchIndirect struct. Used to calculate
-    /// the position of each effect's data into the buffer of a batch.
-    dispatch_stride: u32,
-//#endif
 }
 
 struct Spawner {

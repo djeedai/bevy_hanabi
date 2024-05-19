@@ -5,6 +5,10 @@
     REM_OFFSET_MAX_SPAWN, RGI_OFFSET_INSTANCE_COUNT, REM_OFFSET_PING
 }
 
+const RENDER_EFFECT_INDIRECT_STRIDE: u32 = {{RENDER_EFFECT_INDIRECT_STRIDE}} / 4u;
+const RENDER_GROUP_INDIRECT_STRIDE: u32 = {{RENDER_GROUP_INDIRECT_STRIDE}} / 4u;
+const DISPATCH_INDIRECT_STRIDE: u32 = {{DISPATCH_INDIRECT_STRIDE}} / 4u;
+
 @group(0) @binding(0) var<storage, read_write> render_effect_indirect_buffer : array<u32>;
 @group(0) @binding(1) var<storage, read_write> render_group_indirect_buffer : array<u32>;
 @group(0) @binding(2) var<storage, read_write> dispatch_indirect_buffer : array<u32>;
@@ -33,8 +37,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Calculate the base offset (in number of u32 items) into the render indirect and
     // dispatch indirect arrays.
-    let rgi_base = sim_params.render_group_stride * group_index / 4u;
-    let di_base = sim_params.dispatch_stride * group_index / 4u;
+    let rgi_base = RENDER_GROUP_INDIRECT_STRIDE * group_index;
+    let di_base = DISPATCH_INDIRECT_STRIDE * group_index;
 
     // Clear the rendering instance count, which will be upgraded by the update pass
     // with the particles actually alive at the end of their update (after aged).
@@ -52,7 +56,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     render_group_indirect_buffer[rgi_base + RGI_OFFSET_MAX_UPDATE] = alive_count;
 
     if (is_first_group) {
-        let rem_base = sim_params.render_effect_stride * effect_index / 4u;
+        let rem_base = RENDER_EFFECT_INDIRECT_STRIDE * effect_index;
 
         // Copy the number of dead particles to a constant location, so that the
         // init pass on next frame can atomically modify dead_count in parallel
