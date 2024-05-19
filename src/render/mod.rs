@@ -430,15 +430,24 @@ impl FromWorld for DispatchIndirectPipeline {
             push_constant_ranges: &[],
         });
 
-        
-
-        let render_effect_indirect_stride_code = (render_effect_indirect_size.get() as u32).to_wgsl_string();
-        let render_group_indirect_stride_code = (render_group_indirect_size.get() as u32).to_wgsl_string();
+        let render_effect_indirect_stride_code =
+            (render_effect_indirect_size.get() as u32).to_wgsl_string();
+        let render_group_indirect_stride_code =
+            (render_group_indirect_size.get() as u32).to_wgsl_string();
         let dispatch_indirect_stride_code = (dispatch_indirect_size.get() as u32).to_wgsl_string();
         let indirect_code = include_str!("vfx_indirect.wgsl")
-            .replace("{{RENDER_EFFECT_INDIRECT_STRIDE}}", &render_effect_indirect_stride_code)
-            .replace("{{RENDER_GROUP_INDIRECT_STRIDE}}", &render_group_indirect_stride_code)
-            .replace("{{DISPATCH_INDIRECT_STRIDE}}", &dispatch_indirect_stride_code);
+            .replace(
+                "{{RENDER_EFFECT_INDIRECT_STRIDE}}",
+                &render_effect_indirect_stride_code,
+            )
+            .replace(
+                "{{RENDER_GROUP_INDIRECT_STRIDE}}",
+                &render_group_indirect_stride_code,
+            )
+            .replace(
+                "{{DISPATCH_INDIRECT_STRIDE}}",
+                &dispatch_indirect_stride_code,
+            );
 
         // Resolve imports. Because we don't insert this shader into Bevy' pipeline
         // cache, we don't get that part "for free", so we have to do it manually here.
