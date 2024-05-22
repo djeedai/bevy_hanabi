@@ -19,6 +19,7 @@ use bevy_hanabi::prelude::*;
 #[derive(Default, Resource)]
 struct InstanceManager {
     effect: Handle<EffectAsset>,
+    alt_effect: Handle<EffectAsset>,
     mesh: Handle<Mesh>,
     material: Handle<StandardMaterial>,
     instances: Vec<Option<Entity>>,
@@ -35,6 +36,7 @@ impl InstanceManager {
         instances.resize(count, None);
         Self {
             effect: default(),
+            alt_effect: default(),
             mesh: default(),
             material: default(),
             instances,
@@ -55,7 +57,7 @@ impl InstanceManager {
     /// determines both the position in the global effect array and the
     /// associated 2D grid position. If a particle effect already exists at this
     /// index / grid position, the call is ignored.
-    pub fn spawn_index(&mut self, index: i32, commands: &mut Commands) {
+    pub fn spawn_index(&mut self, index: i32, commands: &mut Commands, alt: bool) {
         if self.count >= self.instances.len() {
             return;
         }
@@ -78,7 +80,11 @@ impl InstanceManager {
                 .spawn((
                     Name::new(format!("{:?}", pos)),
                     ParticleEffectBundle {
-                        effect: ParticleEffect::new(self.effect.clone()),
+                        effect: ParticleEffect::new(if alt {
+                            self.alt_effect.clone()
+                        } else {
+                            self.effect.clone()
+                        }),
                         transform: Transform::from_translation(Vec3::new(
                             pos.x as f32 * 10.,
                             pos.y as f32 * 10.,
@@ -106,7 +112,7 @@ impl InstanceManager {
 
     /// Spawn a particle effect at a random free position in the grid. The
     /// effect is always spawned, unless the grid is full.
-    pub fn spawn_random(&mut self, commands: &mut Commands) {
+    pub fn spawn_random(&mut self, commands: &mut Commands, alt: bool) {
         if self.count >= self.instances.len() {
             return;
         }
@@ -121,7 +127,7 @@ impl InstanceManager {
             .filter(|(_, entity)| entity.is_none())
             .nth(index)
             .unwrap();
-        self.spawn_index(index as i32, commands);
+        self.spawn_index(index as i32, commands, alt);
     }
 
     /// Despawn the n-th existing particle effect.
@@ -203,6 +209,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut my_effect: ResMut<InstanceManager>,
+    loader: Res<AssetServer>,
 ) {
     info!("Usage: Press the SPACE key to spawn more instances, and the DELETE key to remove an existing instance.");
 
@@ -262,14 +269,56 @@ fn setup(
             .render(ColorOverLifetimeModifier { gradient }),
     );
 
-    // Store the effect for later reference
-    my_effect.effect = effect.clone();
-    my_effect.mesh = mesh.clone();
-    my_effect.material = mat.clone();
+    let mut gradient = Gradient::new();
+    gradient.add_key(0.0, Vec4::new(1., 0., 0., 0.));
+    gradient.add_key(0.1, Vec4::new(1., 0., 0., 1.));
+    gradient.add_key(1.0, Vec4::new(1., 0., 0., 0.));
+    let texture = loader.load("circle.png");
+
+    let writer = ExprWriter::new();
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let init_pos = SetPositionSphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        radius: writer.lit(7.).expr(),
+        dimension: ShapeDimension::Volume,
+    };
+
+    let init_vel = SetVelocityTangentModifier {
+        origin: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::Z).expr(),
+        speed: writer.lit(4.).expr(),
+    };
+
+    let radial_accel =
+        RadialAccelModifier::new(writer.lit(Vec3::ZERO).expr(), writer.lit(-3).expr());
+
+    let alt_effect = effects.add(
+        EffectAsset::new(vec![512], Spawner::rate(102.0.into()), writer.finish())
+            .with_simulation_space(SimulationSpace::Local)
+            .with_name("alternate instancing")
+            .init(init_pos)
+            .init(init_vel)
+            .init(init_lifetime)
+            .update(radial_accel)
+            .render(ParticleTextureModifier {
+                texture,
+                ..default()
+            })
+            .render(ColorOverLifetimeModifier { gradient }),
+    );
+
+    // Store the effects for later reference
+    my_effect.effect = effect;
+    my_effect.alt_effect = alt_effect;
+    my_effect.mesh = mesh;
+    my_effect.material = mat;
 
     // Spawn a few effects as example; others can be added/removed with keyboard
-    for _ in 0..45 {
-        my_effect.spawn_random(&mut commands);
+    for i in 0..45 {
+        my_effect.spawn_random(&mut commands, (i % 15) == 14);
     }
 }
 
@@ -281,7 +330,7 @@ fn keyboard_input_system(
     my_effect.frame += 1;
 
     if keyboard_input.just_pressed(KeyCode::Space) {
-        my_effect.spawn_random(&mut commands);
+        my_effect.spawn_random(&mut commands, keyboard_input.pressed(KeyCode::ShiftLeft));
     } else if keyboard_input.just_pressed(KeyCode::Delete)
         || keyboard_input.just_pressed(KeyCode::Backspace)
     {
@@ -302,7 +351,7 @@ fn stress_test(mut commands: Commands, mut my_effect: ResMut<InstanceManager>) {
     if r < 0.45 {
         let spawn_count = (r * 10.) as i32 + 1;
         for _ in 0..spawn_count {
-            my_effect.spawn_random(&mut commands);
+            my_effect.spawn_random(&mut commands, false);
         }
     } else if r < 0.9 {
         let despawn_count = ((r - 0.45) * 10.) as i32 + 1;
