@@ -21,9 +21,14 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap at maximum number of groups to process
     let index = global_invocation_id.x;
-    if (index >= sim_params.num_groups) {
-        return;
-    }
+
+    // FIXME - the group_buffer array has gaps, we can't limit to the number of effects in use
+    // otherwise we'll miss some and process the unused gaps instead of some active ones.
+    // Since all writes below are idempotent, except the ping/pong one, there's no harm updating
+    // unused effect rows.
+    // if (index >= sim_params.num_groups) {
+    //     return;
+    // }
 
     // Cap at group array size, just for safety
     if (index >= arrayLength(&group_buffer)) {
