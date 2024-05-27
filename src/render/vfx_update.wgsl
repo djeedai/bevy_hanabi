@@ -51,6 +51,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     var particle: Particle = particle_buffer.particles[index];
 
+    // Update PRNG seed
+    seed = pcg_hash(index ^ spawner.seed);
+
     {{AGE_CODE}}
     {{UPDATE_CODE}}
     {{REAP_CODE}}
