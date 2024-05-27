@@ -65,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed particle flickering, only for particles rendered through the `AlphaMask3d` render pass (`EffectAsset::alpha_mode == AlphaMode::Mask`). (#183)
 - Fixed invalid layout of all `mat3xR<f32>` returned by `MatrixValue::as_bytes()`, which was missing padding. (#310)
 - Fixed a regression where declaring properties but not adding an `EffectProperties` component would prevent properties from being uploaded to GPU. The `EffectProperties` component is now mandatory, even if the effect doesn't use any property. However there's still no GPU resource allocated if no property is used. (#309)
+- Fixed the missing PRNG seeding per particle effect instance in the update pass. (#333)
 
 ## [0.10.0] 2024-02-24
 
