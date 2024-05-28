@@ -48,6 +48,8 @@ pub enum EffectSystems {
     ///
     /// This system runs during the [`PostUpdate`] schedule. This is largely an
     /// internal task which can be ignored by most users.
+    ///
+    /// [`CompiledParticleEffect`]: crate::CompiledParticleEffect
     CompileEffects,
 
     /// Update the properties of the effect instance based on the declared

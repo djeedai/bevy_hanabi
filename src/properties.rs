@@ -87,6 +87,7 @@
 //! ```
 //!
 //! [`Module`]: crate::Module
+//! [`Module::add_property()`]: crate::Module::add_property
 //! [`EffectAsset`]: crate::EffectAsset
 //! [`add_property()`]: crate::Module::add_property
 //! [`ParticleEffect`]: crate::ParticleEffect
@@ -118,12 +119,10 @@ impl Property {
     /// Create a new property.
     ///
     /// In general properties are created internally by the [`EffectAsset`]
-    /// they're defined on, when calling [`EffectAsset::with_property()`] or
-    /// [`EffectAsset::add_property()`].
+    /// they're defined on, when calling [`Module::add_property()`].
     ///
     /// [`EffectAsset`]: crate::EffectAsset
-    /// [`EffectAsset::with_property()`]: crate::EffectAsset::with_property
-    /// [`EffectAsset::add_property()`]: crate::EffectAsset::add_property
+    /// [`Module::add_property()`]: crate::Module::add_property
     #[inline]
     pub fn new(name: impl Into<String>, default_value: impl Into<Value>) -> Self {
         Self {
@@ -291,6 +290,7 @@ impl EffectProperties {
     /// Note that this behavior is not symmetric with [`set()`], which allows
     /// setting any property even if not declared.
     ///
+    /// [`Module`]: crate::Module
     /// [`EffectAsset`]: crate::asset::EffectAsset
     /// [`EffectSystems::UpdatePropertiesFromAsset`]: crate::EffectSystems::UpdatePropertiesFromAsset
     /// [`get_stored()`]: crate::EffectProperties::get_stored
