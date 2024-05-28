@@ -594,12 +594,8 @@ pub enum ExprError {
     /// Error resolving a property.
     ///
     /// An unknown property was not defined in the evaluation context, which
-    /// usually means that the property was not defined
-    /// with [`EffectAsset::with_property()`] or
-    /// [`EffectAsset::add_property()`].
-    ///
-    /// [`EffectAsset::with_property()`]: crate::EffectAsset::with_property
-    /// [`EffectAsset::add_property()`]: crate::EffectAsset::add_property
+    /// usually means that the property was not defined with
+    /// [`Module::add_property()`].
     #[error("Property error: {0:?}")]
     PropertyError(String),
 

@@ -1891,10 +1891,7 @@ else { return c1; }
             // Spawn particle effect
             let entity = world
                 .spawn((
-                    ParticleEffect {
-                        handle: handle.clone(),
-                        ..default()
-                    },
+                    ParticleEffect::new(handle.clone()),
                     CompiledParticleEffect::default(),
                 ))
                 .id();
@@ -1998,20 +1995,14 @@ else { return c1; }
                         .spawn((
                             visibility,
                             InheritedVisibility::default(),
-                            ParticleEffect {
-                                handle: handle.clone(),
-                                ..default()
-                            },
+                            ParticleEffect::new(handle.clone()),
                             CompiledParticleEffect::default(),
                         ))
                         .id()
                 } else {
                     world
                         .spawn((
-                            ParticleEffect {
-                                handle: handle.clone(),
-                                ..default()
-                            },
+                            ParticleEffect::new(handle.clone()),
                             CompiledParticleEffect::default(),
                         ))
                         .id()

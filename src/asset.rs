@@ -421,6 +421,7 @@ impl EffectAsset {
     /// Panics if the modifier doesn't support the context specified (that is,
     /// `modifier.context()` returns a flag which doesn't include `context`).
     ///
+    /// [`BoxedModifier`]: crate::BoxedModifier
     /// [`add_render_modifier()`]: crate::EffectAsset::add_render_modifier
     pub fn add_modifier(self, context: ModifierContext, modifier: Box<dyn Modifier>) -> Self {
         self.add_modifier_to_groups(context, modifier, ParticleGroupSet::all())
@@ -441,6 +442,7 @@ impl EffectAsset {
     /// Panics if the modifier doesn't support the context specified (that is,
     /// `modifier.context()` returns a flag which doesn't include `context`).
     ///
+    /// [`BoxedModifier`]: crate::BoxedModifier
     /// [`add_render_modifier()`]: crate::EffectAsset::add_render_modifier
     pub fn add_modifier_to_groups(
         mut self,
