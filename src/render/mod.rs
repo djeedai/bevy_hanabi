@@ -2435,6 +2435,7 @@ fn emit_draw<T, F>(
                 .iter()
                 .any(|index| view_entities.contains(*index as usize));
             if !has_visible_entity {
+                trace!("No visible entity for view, not emitting any draw call.");
                 continue;
             }
             #[cfg(feature = "trace")]
@@ -3374,7 +3375,7 @@ impl Node for VfxSimulateNode {
             .write_buffer(render_context.command_encoder());
 
         // Compute init pass
-        //let mut total_group_count = 0;
+        // let mut total_group_count = 0;
         {
             let mut compute_pass =
                 render_context
@@ -3399,11 +3400,16 @@ impl Node for VfxSimulateNode {
                     // FIXME - Currently we unconditionally count all groups because the dispatch
                     // pass always runs on all groups. We should consider if it's worth skipping
                     // e.g. dormant or finished effects at the cost of extra complexity.
-                    //total_group_count += batches.group_batches.len() as u32;
+                    // total_group_count += batches.group_batches.len() as u32;
 
                     let Some(init_pipeline) =
                         pipeline_cache.get_compute_pipeline(batches.init_pipeline_id)
                     else {
+                        error!(
+                            "Failed to find init pipeline #{} for effect {:?}",
+                            batches.init_pipeline_id.id(),
+                            entity
+                        );
                         continue;
                     };
 
@@ -3468,7 +3474,6 @@ impl Node for VfxSimulateNode {
                     );
 
                     // Setup compute pass
-                    // compute_pass.set_pipeline(&effect_group.init_pipeline);
                     compute_pass.set_pipeline(init_pipeline);
                     compute_pass.set_bind_group(
                         0,
@@ -3517,9 +3522,10 @@ impl Node for VfxSimulateNode {
             if let Some(indirect_dispatch_pipeline) = &effects_meta.indirect_dispatch_pipeline {
                 trace!("record commands for indirect dispatch pipeline...");
 
-                // FIXME - The `vfx_indirect` shader assumes a contiguous array of ParticleGroup structures.
-                // So we need to pass the full array size, and we just update the unused groups for nothing.
-                // Otherwise we might update some unused group and miss some used ones, if there's any gap
+                // FIXME - The `vfx_indirect` shader assumes a contiguous array of ParticleGroup
+                // structures. So we need to pass the full array size, and we
+                // just update the unused groups for nothing. Otherwise we might
+                // update some unused group and miss some used ones, if there's any gap
                 // in the array.
                 const WORKGROUP_SIZE: u32 = 64;
                 let total_group_count = effects_meta.particle_group_buffer.len() as u32;
@@ -3586,8 +3592,7 @@ impl Node for VfxSimulateNode {
                     .get(&effect_cache_id)
                 else {
                     error!(
-                        "Failed to find update render indirect bind group for effect cache ID: \
-                        {:?}, IDs present: {:?}",
+                        "Failed to find update render indirect bind group for effect cache ID: {:?}, IDs present: {:?}",
                         effect_cache_id,
                         effect_bind_groups
                             .update_render_indirect_bind_groups
@@ -3604,8 +3609,10 @@ impl Node for VfxSimulateNode {
                         pipeline_cache.get_compute_pipeline(*update_pipeline_id)
                     else {
                         error!(
-                            "Failed to find update pipeline for effect {:?}, group {}",
-                            entity, group_index
+                            "Failed to find update pipeline #{} for effect {:?}, group {}",
+                            update_pipeline_id.id(),
+                            entity,
+                            group_index
                         );
                         continue;
                     };
