@@ -32,7 +32,10 @@ pub(crate) struct EffectBatches {
     pub effect_cache_id: EffectCacheId,
     /// The indices within the various indirect dispatch buffers.
     pub dispatch_buffer_indices: DispatchBufferIndices,
-    /// The index of the first [`GpuParticleGroup`] structure in its buffer.
+    /// The index of the first [`GpuParticleGroup`] structure in the global
+    /// [`EffectsMeta::particle_group_buffer`] buffer. The buffer is currently
+    /// re-created each frame, so the rows for multiple groups of an effect are
+    /// guaranteed to be contiguous.
     pub first_particle_group_buffer_index: u32,
     /// Particle layout.
     pub particle_layout: ParticleLayout,
