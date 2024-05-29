@@ -27,7 +27,7 @@ Add the `bevy_hanabi` dependency to `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_hanabi = "0.10"
+bevy_hanabi = "0.11"
 ```
 
 See also [Features](#features) below for the list of supported features.
@@ -353,8 +353,8 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
     - [x] Trails / Ribbons
   - [x] Camera support
     - [x] Render layers
-    - [x] 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.10.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) only
-    - [x] 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.10.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) only
+    - [x] 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.13.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) only
+    - [x] 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.13.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) only
     - [x] Simultaneous dual 2D/3D cameras
     - [x] Multiple viewports (split screen)
     - [x] HDR camera and bloom
@@ -376,13 +376,13 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
 
 | Feature | Default | Description |
 |---|:-:|---|
-| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.10.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) |
-| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.10.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) |
+| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.13.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) |
+| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.13.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) |
 
 For optimization purpose, users of a single type of camera can disable the other type by skipping default features in their `Cargo.toml`. For example to use only the 3D mode:
 
 ```toml
-bevy_hanabi = { version = "0.10", default-features = false, features = [ "3d" ] }
+bevy_hanabi = { version = "0.11", default-features = false, features = [ "3d" ] }
 ```
 
 ## Compatible Bevy versions
@@ -393,7 +393,7 @@ Compatibility of `bevy_hanabi` versions:
 
 | `bevy_hanabi` | `bevy` |
 | :--           | :--    |
-| `0.10`        | `0.13` |
+| `0.10`-`0.11` | `0.13` |
 | `0.8`-`0.9`   | `0.12` |
 | `0.7`         | `0.11` |
 | `0.6`         | `0.10` |

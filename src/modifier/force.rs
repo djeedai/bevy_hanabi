@@ -36,7 +36,7 @@ use crate::{
 /// influence of the modifier but too far from the surface, or to make it stick
 /// to the surface if it's already in its vicinity.
 ///
-/// ![Conform to sphere](../../../../../docs/conform-to-sphere.png)
+/// ![Conform to sphere](https://raw.githubusercontent.com/djeedai/bevy_hanabi/fa23246e8430e0f29ed0a180d8ea6916b3534789/docs/conform-to-sphere.png)
 ///
 /// When inside the area of influence defined by [`influence_dist`], particles
 /// are accelerated by the [`attraction_accel`] alongside the radial direction
