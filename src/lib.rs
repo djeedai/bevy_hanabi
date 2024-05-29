@@ -190,7 +190,7 @@ mod time;
 #[cfg(test)]
 mod test_utils;
 
-pub use asset::{AlphaMode, EffectAsset, MotionIntegration, SimulationCondition};
+pub use asset::{AlphaMode, BlendingMode, EffectAsset, MotionIntegration, SimulationCondition};
 pub use attributes::*;
 pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
@@ -1109,6 +1109,8 @@ pub struct CompiledParticleEffect {
     z_layer_2d: FloatOrd,
     /// Layout flags.
     layout_flags: LayoutFlags,
+    /// Blending mode.
+    blending_mode: BlendingMode,
 }
 
 impl Default for CompiledParticleEffect {
@@ -1121,6 +1123,7 @@ impl Default for CompiledParticleEffect {
             #[cfg(feature = "2d")]
             z_layer_2d: FloatOrd(0.0),
             layout_flags: LayoutFlags::NONE,
+            blending_mode: default(),
         }
     }
 }
@@ -1196,6 +1199,7 @@ impl CompiledParticleEffect {
         };
 
         self.layout_flags = shader_source.layout_flags;
+        self.blending_mode = asset.blending_mode;
 
         let init_shader = shader_cache.get_or_insert(&asset.name, &shader_source.init, shaders);
         let update_shaders: Vec<_> = shader_source

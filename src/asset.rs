@@ -163,6 +163,24 @@ pub enum AlphaMode {
     Mask(ExprHandle),
 }
 
+/// Blending mode for rendering an effect.
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Reflect, Serialize, Deserialize, Hash)]
+#[non_exhaustive]
+pub enum BlendingMode {
+    #[default]
+    /// The base color alpha value defines the opacity of the color.
+    /// Standard alpha-blending is used to blend the fragment’s color with the color behind it.
+    Alpha,
+
+    /// Similar to AlphaMode::Blend, however assumes RGB channel values are premultiplied.
+    Premultiply,
+
+    /// This blend mode simply adds pixel values of one layer with the other.
+    /// In case of values above 1 (in the case of RGB), white is displayed.
+    /// This is useful for glow effects, like those you might use for fire or magic spells.
+    Additive,
+}
+
 /// Asset describing a visual effect.
 ///
 /// The effect can be instanciated with a [`ParticleEffect`] component, or a
@@ -220,6 +238,8 @@ pub struct EffectAsset {
     module: Module,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
+    /// Blending mode.
+    pub blending_mode: BlendingMode,
 }
 
 impl EffectAsset {
@@ -338,6 +358,12 @@ impl EffectAsset {
     /// Set the alpha mode.
     pub fn with_alpha_mode(mut self, alpha_mode: AlphaMode) -> Self {
         self.alpha_mode = alpha_mode;
+        self
+    }
+
+    /// Set the blending mode.
+    pub fn with_blending_mode(mut self, blending_mode: BlendingMode) -> Self {
+        self.blending_mode = blending_mode;
         self
     }
 

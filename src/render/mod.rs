@@ -41,6 +41,7 @@ use rand::random;
 use crate::{
     asset::EffectAsset,
     next_multiple_of,
+    prelude::BlendingMode,
     render::{
         batch::{BatchesInput, EffectDrawBatch},
         effect_cache::DispatchBufferIndices,
@@ -1016,6 +1017,8 @@ pub(crate) struct ParticleRenderPipelineKey {
     msaa_samples: u32,
     /// Is the camera using an HDR render target?
     hdr: bool,
+    /// Controls how the color of the particle blends with the background.
+    blending_mode: BlendingMode,
 }
 
 impl Default for ParticleRenderPipelineKey {
@@ -1032,6 +1035,7 @@ impl Default for ParticleRenderPipelineKey {
             pipeline_mode: PipelineMode::Camera3d,
             msaa_samples: Msaa::default().samples(),
             hdr: false,
+            blending_mode: BlendingMode::Alpha,
         }
     }
 }
@@ -1213,6 +1217,23 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             TextureFormat::bevy_default()
         };
 
+        let blend_state = match key.blending_mode {
+            BlendingMode::Alpha => BlendState::ALPHA_BLENDING,
+            BlendingMode::Premultiply => BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            BlendingMode::Additive => BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::SrcAlpha,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+                alpha: BlendComponent {
+                    src_factor: BlendFactor::One,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+            },
+        };
+
         RenderPipelineDescriptor {
             vertex: VertexState {
                 shader: key.shader.clone(),
@@ -1226,7 +1247,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 entry_point: "fragment".into(),
                 targets: vec![Some(ColorTargetState {
                     format,
-                    blend: Some(BlendState::ALPHA_BLENDING),
+                    blend: Some(blend_state),
                     write_mask: ColorWrites::ALL,
                 })],
             }),
@@ -1290,6 +1311,8 @@ pub(crate) struct ExtractedEffect {
     pub inverse_transform: Mat4,
     /// Layout flags.
     pub layout_flags: LayoutFlags,
+    /// Blending mode.
+    pub blending_mode: BlendingMode,
     /// Texture to modulate the particle color.
     pub image_handle: Handle<Image>,
     /// Effect shader.
@@ -1518,6 +1541,8 @@ pub(crate) fn extract_effects(
             layout_flags |= LayoutFlags::PARTICLE_TEXTURE;
         }
 
+        let blending_mode = effect.blending_mode;
+
         trace!(
             "Extracted instance of effect '{}' on entity {:?}: image_handle={:?} has_image={} layout_flags={:?}",
             asset.name,
@@ -1539,6 +1564,7 @@ pub(crate) fn extract_effects(
                 // TODO - more efficient/correct way than inverse()?
                 inverse_transform: transform.compute_matrix().inverse(),
                 layout_flags,
+                blending_mode,
                 image_handle,
                 effect_shader,
                 #[cfg(feature = "2d")]
@@ -2073,6 +2099,7 @@ pub(crate) fn prepare_effects(
                 property_layout: extracted_effect.property_layout.clone(),
                 effect_shader: extracted_effect.effect_shader.clone(),
                 layout_flags: extracted_effect.layout_flags,
+                blending_mode: extracted_effect.blending_mode,
                 image_handle: extracted_effect.image_handle,
                 spawn_count: extracted_effect.spawn_count,
                 transform: extracted_effect.transform.into(),
@@ -2483,6 +2510,7 @@ fn emit_draw<T, F>(
                     pipeline_mode,
                     msaa_samples,
                     hdr: view.hdr,
+                    blending_mode: batches.blending_mode,
                 },
             );
             #[cfg(feature = "trace")]
