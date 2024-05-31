@@ -1236,7 +1236,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                     operation: BlendOperation::Add,
                 },
                 alpha: BlendComponent {
-                    src_factor: BlendFactor::One,
+                    src_factor: BlendFactor::Zero,
                     dst_factor: BlendFactor::One,
                     operation: BlendOperation::Add,
                 },
