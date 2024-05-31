@@ -41,14 +41,14 @@ use rand::random;
 use crate::{
     asset::EffectAsset,
     next_multiple_of,
-    prelude::BlendingMode,
     render::{
         batch::{BatchesInput, EffectDrawBatch},
         effect_cache::DispatchBufferIndices,
     },
     spawn::EffectSpawner,
-    CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation, HanabiPlugin,
-    ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition, ToWgslString,
+    AlphaMode, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
+    HanabiPlugin, ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition,
+    ToWgslString,
 };
 
 mod aligned_buffer_vec;
@@ -983,6 +983,15 @@ enum PipelineMode {
     Camera3d,
 }
 
+#[cfg(all(feature = "2d", feature = "3d"))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+enum AlphaBlendMode {
+    Alpha,
+    Premultiply,
+    Add,
+    Multiply,
+}
+
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct ParticleRenderPipelineKey {
     /// Render shader, with snippets applied, but not preprocessed yet.
@@ -1001,6 +1010,8 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// Key: USE_ALPHA_MASK
     /// The effect is rendered with alpha masking.
     use_alpha_mask: bool,
+    /// The effect needs Alpha blend.
+    alpha_blend_mode: AlphaBlendMode,
     /// Key: FLIPBOOK
     /// The effect is rendered with flipbook texture animation based on the
     /// sprite index of each particle.
@@ -1017,8 +1028,6 @@ pub(crate) struct ParticleRenderPipelineKey {
     msaa_samples: u32,
     /// Is the camera using an HDR render target?
     hdr: bool,
-    /// Controls how the color of the particle blends with the background.
-    blending_mode: BlendingMode,
 }
 
 impl Default for ParticleRenderPipelineKey {
@@ -1029,13 +1038,13 @@ impl Default for ParticleRenderPipelineKey {
             has_image: false,
             local_space_simulation: false,
             use_alpha_mask: false,
+            alpha_blend_mode: AlphaBlendMode::Alpha,
             flipbook: false,
             needs_uv: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
             msaa_samples: Msaa::default().samples(),
             hdr: false,
-            blending_mode: BlendingMode::Alpha,
         }
     }
 }
@@ -1217,10 +1226,10 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             TextureFormat::bevy_default()
         };
 
-        let blend_state = match key.blending_mode {
-            BlendingMode::Alpha => BlendState::ALPHA_BLENDING,
-            BlendingMode::Premultiply => BlendState::PREMULTIPLIED_ALPHA_BLENDING,
-            BlendingMode::Additive => BlendState {
+        let blend_state = match key.alpha_blend_mode {
+            AlphaBlendMode::Alpha => BlendState::ALPHA_BLENDING,
+            AlphaBlendMode::Premultiply => BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            AlphaBlendMode::Add => BlendState {
                 color: BlendComponent {
                     src_factor: BlendFactor::SrcAlpha,
                     dst_factor: BlendFactor::One,
@@ -1231,6 +1240,14 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                     dst_factor: BlendFactor::One,
                     operation: BlendOperation::Add,
                 },
+            },
+            AlphaBlendMode::Multiply => BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::Dst,
+                    dst_factor: BlendFactor::OneMinusSrcAlpha,
+                    operation: BlendOperation::Add,
+                },
+                alpha: BlendComponent::OVER,
             },
         };
 
@@ -1311,8 +1328,8 @@ pub(crate) struct ExtractedEffect {
     pub inverse_transform: Mat4,
     /// Layout flags.
     pub layout_flags: LayoutFlags,
-    /// Blending mode.
-    pub blending_mode: BlendingMode,
+    /// Alpha mode.
+    pub alpha_mode: AlphaMode,
     /// Texture to modulate the particle color.
     pub image_handle: Handle<Image>,
     /// Effect shader.
@@ -1541,7 +1558,7 @@ pub(crate) fn extract_effects(
             layout_flags |= LayoutFlags::PARTICLE_TEXTURE;
         }
 
-        let blending_mode = effect.blending_mode;
+        let alpha_mode = effect.alpha_mode;
 
         trace!(
             "Extracted instance of effect '{}' on entity {:?}: image_handle={:?} has_image={} layout_flags={:?}",
@@ -1564,7 +1581,7 @@ pub(crate) fn extract_effects(
                 // TODO - more efficient/correct way than inverse()?
                 inverse_transform: transform.compute_matrix().inverse(),
                 layout_flags,
-                blending_mode,
+                alpha_mode,
                 image_handle,
                 effect_shader,
                 #[cfg(feature = "2d")]
@@ -2099,7 +2116,7 @@ pub(crate) fn prepare_effects(
                 property_layout: extracted_effect.property_layout.clone(),
                 effect_shader: extracted_effect.effect_shader.clone(),
                 layout_flags: extracted_effect.layout_flags,
-                blending_mode: extracted_effect.blending_mode,
+                alpha_mode: extracted_effect.alpha_mode,
                 image_handle: extracted_effect.image_handle,
                 spawn_count: extracted_effect.spawn_count,
                 transform: extracted_effect.transform.into(),
@@ -2493,6 +2510,14 @@ fn emit_draw<T, F>(
             let render_shader_source = &batches.render_shaders[draw_batch.group_index as usize];
             trace!("Emit for group index #{}", draw_batch.group_index);
 
+            let alpha_blend_mode = match batches.alpha_mode {
+                AlphaMode::Blend => AlphaBlendMode::Alpha,
+                AlphaMode::Premultiply => AlphaBlendMode::Premultiply,
+                AlphaMode::Add => AlphaBlendMode::Add,
+                AlphaMode::Multiply => AlphaBlendMode::Multiply,
+                _ => AlphaBlendMode::Alpha,
+            };
+
             #[cfg(feature = "trace")]
             let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
             let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2504,13 +2529,13 @@ fn emit_draw<T, F>(
                     has_image,
                     local_space_simulation,
                     use_alpha_mask,
+                    alpha_blend_mode,
                     flipbook,
                     needs_uv,
                     #[cfg(all(feature = "2d", feature = "3d"))]
                     pipeline_mode,
                     msaa_samples,
                     hdr: view.hdr,
-                    blending_mode: batches.blending_mode,
                 },
             );
             #[cfg(feature = "trace")]

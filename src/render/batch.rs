@@ -39,8 +39,8 @@ pub(crate) struct EffectBatches {
     pub particle_layout: ParticleLayout,
     /// Flags describing the render layout.
     pub layout_flags: LayoutFlags,
-    /// Blending mode.
-    pub blending_mode: BlendingMode,
+    /// Alpha mode.
+    pub alpha_mode: AlphaMode,
     /// Entities holding the source [`ParticleEffect`] instances which were
     /// batched into this single batch. Used to determine visibility per view.
     ///
@@ -126,7 +126,7 @@ impl EffectBatches {
                 .collect(),
             handle: input.handle,
             layout_flags: input.layout_flags,
-            blending_mode: input.blending_mode,
+            alpha_mode: input.alpha_mode,
             image_handle: input.image_handle,
             render_shaders: input.effect_shader.render,
             init_pipeline_id,
@@ -152,8 +152,8 @@ pub(crate) struct BatchesInput {
     pub effect_shader: EffectShader,
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
-    /// Blending mode for particle renderer.
-    pub blending_mode: BlendingMode,
+    /// Alpha mode.
+    pub alpha_mode: AlphaMode,
     /// Texture to modulate the particle color.
     pub image_handle: Handle<Image>,
     /// Number of particles to spawn for this effect.

@@ -104,7 +104,7 @@ fn setup(
     let effect = effects.add(
         EffectAsset::new(vec![32768], Spawner::rate(5.0.into()), writer.finish())
             .with_name("additive")
-            .with_blending_mode(BlendingMode::Additive)
+            .with_alpha_mode(bevy_hanabi::AlphaMode::Blend)
             .init(init_pos)
             .init(init_vel)
             .init(init_age)

@@ -127,6 +127,33 @@ pub enum AlphaMode {
     #[default]
     Blend,
 
+    /// Similar to [`AlphaMode::Blend`], however assumes RGB channel values are
+    /// [premultiplied](https://en.wikipedia.org/wiki/Alpha_compositing#Straight_versus_premultiplied).
+    ///
+    /// For otherwise constant RGB values, behaves more like [`AlphaMode::Blend`] for
+    /// alpha values closer to 1.0, and more like [`AlphaMode::Add`] for
+    /// alpha values closer to 0.0.
+    ///
+    /// Can be used to avoid “border” or “outline” artifacts that can occur
+    /// when using plain alpha-blended textures.
+    Premultiply,
+
+    /// Combines the color of the fragments with the colors behind them in an
+    /// additive process, (i.e. like light) producing lighter results.
+    ///
+    /// Black produces no effect. Alpha values can be used to modulate the result.
+    ///
+    /// Useful for effects like holograms, ghosts, lasers and other energy beams.
+    Add,
+
+    /// Combines the color of the fragments with the colors behind them in a
+    /// multiplicative process, (i.e. like pigments) producing darker results.
+    ///
+    /// White produces no effect. Alpha values can be used to modulate the result.
+    ///
+    /// Useful for effects like stained glass, window tint film and some colored liquids.
+    Multiply,
+
     /// Render the effect with alpha masking.
     ///
     /// With this mode, the final alpha value computed per particle fragment is
@@ -161,24 +188,6 @@ pub enum AlphaMode {
     ///
     /// [`AlphaMask3d`]: bevy::core_pipeline::core_3d::AlphaMask3d
     Mask(ExprHandle),
-}
-
-/// Blending mode for rendering an effect.
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Reflect, Serialize, Deserialize, Hash)]
-#[non_exhaustive]
-pub enum BlendingMode {
-    #[default]
-    /// The base color alpha value defines the opacity of the color.
-    /// Standard alpha-blending is used to blend the fragment’s color with the color behind it.
-    Alpha,
-
-    /// Similar to AlphaMode::Blend, however assumes RGB channel values are premultiplied.
-    Premultiply,
-
-    /// This blend mode simply adds pixel values of one layer with the other.
-    /// In case of values above 1 (in the case of RGB), white is displayed.
-    /// This is useful for glow effects, like those you might use for fire or magic spells.
-    Additive,
 }
 
 /// Asset describing a visual effect.
@@ -238,8 +247,6 @@ pub struct EffectAsset {
     module: Module,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
-    /// Blending mode.
-    pub blending_mode: BlendingMode,
 }
 
 impl EffectAsset {
@@ -358,12 +365,6 @@ impl EffectAsset {
     /// Set the alpha mode.
     pub fn with_alpha_mode(mut self, alpha_mode: AlphaMode) -> Self {
         self.alpha_mode = alpha_mode;
-        self
-    }
-
-    /// Set the blending mode.
-    pub fn with_blending_mode(mut self, blending_mode: BlendingMode) -> Self {
-        self.blending_mode = blending_mode;
         self
     }
 
