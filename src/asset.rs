@@ -103,7 +103,7 @@ pub enum SimulationCondition {
 /// rendered during the [`Transparent2d`] render phase.
 ///
 /// [`Transparent2d`]: bevy::core_pipeline::core_2d::Transparent2d
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Reflect, Serialize, Deserialize, Hash)]
 #[non_exhaustive]
 pub enum AlphaMode {
     /// Render the effect with alpha blending.

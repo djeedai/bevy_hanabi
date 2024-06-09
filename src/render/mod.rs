@@ -983,15 +983,6 @@ enum PipelineMode {
     Camera3d,
 }
 
-#[cfg(all(feature = "2d", feature = "3d"))]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-enum AlphaBlendMode {
-    Alpha,
-    Premultiply,
-    Add,
-    Multiply,
-}
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct ParticleRenderPipelineKey {
     /// Render shader, with snippets applied, but not preprocessed yet.
@@ -1011,7 +1002,7 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// The effect is rendered with alpha masking.
     use_alpha_mask: bool,
     /// The effect needs Alpha blend.
-    alpha_blend_mode: AlphaBlendMode,
+    alpha_mode: AlphaMode,
     /// Key: FLIPBOOK
     /// The effect is rendered with flipbook texture animation based on the
     /// sprite index of each particle.
@@ -1038,7 +1029,7 @@ impl Default for ParticleRenderPipelineKey {
             has_image: false,
             local_space_simulation: false,
             use_alpha_mask: false,
-            alpha_blend_mode: AlphaBlendMode::Alpha,
+            alpha_mode: AlphaMode::Blend,
             flipbook: false,
             needs_uv: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
@@ -1226,10 +1217,10 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             TextureFormat::bevy_default()
         };
 
-        let blend_state = match key.alpha_blend_mode {
-            AlphaBlendMode::Alpha => BlendState::ALPHA_BLENDING,
-            AlphaBlendMode::Premultiply => BlendState::PREMULTIPLIED_ALPHA_BLENDING,
-            AlphaBlendMode::Add => BlendState {
+        let blend_state = match key.alpha_mode {
+            AlphaMode::Blend => BlendState::ALPHA_BLENDING,
+            AlphaMode::Premultiply => BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            AlphaMode::Add => BlendState {
                 color: BlendComponent {
                     src_factor: BlendFactor::SrcAlpha,
                     dst_factor: BlendFactor::One,
@@ -1241,7 +1232,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                     operation: BlendOperation::Add,
                 },
             },
-            AlphaBlendMode::Multiply => BlendState {
+            AlphaMode::Multiply => BlendState {
                 color: BlendComponent {
                     src_factor: BlendFactor::Dst,
                     dst_factor: BlendFactor::OneMinusSrcAlpha,
@@ -1249,6 +1240,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 },
                 alpha: BlendComponent::OVER,
             },
+            _ => BlendState::ALPHA_BLENDING,
         };
 
         RenderPipelineDescriptor {
@@ -2510,13 +2502,7 @@ fn emit_draw<T, F>(
             let render_shader_source = &batches.render_shaders[draw_batch.group_index as usize];
             trace!("Emit for group index #{}", draw_batch.group_index);
 
-            let alpha_blend_mode = match batches.alpha_mode {
-                AlphaMode::Blend => AlphaBlendMode::Alpha,
-                AlphaMode::Premultiply => AlphaBlendMode::Premultiply,
-                AlphaMode::Add => AlphaBlendMode::Add,
-                AlphaMode::Multiply => AlphaBlendMode::Multiply,
-                _ => AlphaBlendMode::Alpha,
-            };
+            let alpha_mode = batches.alpha_mode;
 
             #[cfg(feature = "trace")]
             let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
@@ -2529,7 +2515,7 @@ fn emit_draw<T, F>(
                     has_image,
                     local_space_simulation,
                     use_alpha_mask,
-                    alpha_blend_mode,
+                    alpha_mode,
                     flipbook,
                     needs_uv,
                     #[cfg(all(feature = "2d", feature = "3d"))]
