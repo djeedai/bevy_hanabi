@@ -12,7 +12,7 @@ use bevy::{
         view::{prepare_view_uniforms, visibility::VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
-    time::{virtual_time_system, TimeSystem},
+    time::{update_virtual_time, TimeSystem},
 };
 
 use crate::{
@@ -190,13 +190,13 @@ impl Plugin for HanabiPlugin {
                 ),
             )
             .configure_sets(
-                bevy::asset::UpdateAssets,
+                PreUpdate,
                 EffectSystems::UpdatePropertiesFromAsset.after(bevy::asset::TrackAssets),
             )
             .add_systems(
                 First,
                 effect_simulation_time_system
-                    .after(virtual_time_system)
+                    .after(update_virtual_time)
                     .in_set(TimeSystem),
             )
             .add_systems(
@@ -220,7 +220,7 @@ impl Plugin for HanabiPlugin {
     fn finish(&self, app: &mut App) {
         let render_device = app
             .sub_app(RenderApp)
-            .world
+            .world()
             .resource::<RenderDevice>()
             .clone();
 
@@ -246,7 +246,7 @@ impl Plugin for HanabiPlugin {
             let common_shader = HanabiPlugin::make_common_shader(
                 render_device.limits().min_storage_buffer_offset_alignment,
             );
-            let mut assets = app.world.resource_mut::<Assets<Shader>>();
+            let mut assets = app.world_mut().resource_mut::<Assets<Shader>>();
             assets.insert(HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
         }
 
@@ -303,9 +303,9 @@ impl Plugin for HanabiPlugin {
         // have been recorded).
         #[cfg(feature = "2d")]
         {
-            let draw_particles = DrawEffects::new(&mut render_app.world);
+            let draw_particles = DrawEffects::new(&mut render_app.world_mut());
             render_app
-                .world
+                .world()
                 .get_resource::<DrawFunctions<Transparent2d>>()
                 .unwrap()
                 .write()
@@ -313,17 +313,17 @@ impl Plugin for HanabiPlugin {
         }
         #[cfg(feature = "3d")]
         {
-            let draw_particles = DrawEffects::new(&mut render_app.world);
+            let draw_particles = DrawEffects::new(&mut render_app.world_mut());
             render_app
-                .world
+                .world()
                 .get_resource::<DrawFunctions<Transparent3d>>()
                 .unwrap()
                 .write()
                 .add(draw_particles);
 
-            let draw_particles = DrawEffects::new(&mut render_app.world);
+            let draw_particles = DrawEffects::new(&mut render_app.world_mut());
             render_app
-                .world
+                .world()
                 .get_resource::<DrawFunctions<AlphaMask3d>>()
                 .unwrap()
                 .write()
@@ -333,9 +333,12 @@ impl Plugin for HanabiPlugin {
         // Add the simulation sub-graph. This render graph runs once per frame no matter
         // how many cameras/views are active (view-independent).
         let mut simulate_graph = RenderGraph::default();
-        let simulate_node = VfxSimulateNode::new(&mut render_app.world);
+        let simulate_node = VfxSimulateNode::new(&mut render_app.world_mut());
         simulate_graph.add_node(simulate_graph::node::HanabiSimulateNode, simulate_node);
-        let mut graph = render_app.world.get_resource_mut::<RenderGraph>().unwrap();
+        let mut graph = render_app
+            .world_mut()
+            .get_resource_mut::<RenderGraph>()
+            .unwrap();
         graph.add_sub_graph(simulate_graph::HanabiSimulateGraph, simulate_graph);
 
         // Add the simulation driver node which executes the simulation sub-graph. It

@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use bevy::{ecs::system::Resource, prelude::*, reflect::Reflect, utils::FloatOrd};
+use bevy::{ecs::system::Resource, math::FloatOrd, prelude::*, reflect::Reflect};
 use rand::{
     distributions::{uniform::SampleUniform, Distribution, Uniform},
     SeedableRng,
@@ -678,10 +678,7 @@ mod test {
             },
             AssetServerMode,
         },
-        render::{
-            deterministic::DeterministicRenderingConfig,
-            view::{VisibilityPlugin, VisibilitySystems},
-        },
+        render::view::{VisibilityPlugin, VisibilitySystems},
         tasks::{IoTaskPool, TaskPoolBuilder},
     };
 
@@ -852,7 +849,7 @@ mod test {
 
         let watch_for_changes = false;
         let mut builders = app
-            .world
+            .world_mut()
             .get_resource_or_insert_with::<AssetSourceBuilders>(Default::default);
         let dir = Dir::default();
         let dummy_builder = AssetSourceBuilder::default()
@@ -865,7 +862,6 @@ mod test {
         app.insert_resource(asset_server);
         // app.add_plugins(DefaultPlugins);
         app.init_asset::<Mesh>();
-        app.init_resource::<DeterministicRenderingConfig>();
         app.add_plugins(VisibilityPlugin);
         app.init_resource::<Time<EffectSimulation>>();
         app.insert_resource(Random(new_rng()));
@@ -909,7 +905,7 @@ mod test {
             let mut app = make_test_app();
 
             let (effect_entity, handle) = {
-                let world = &mut app.world;
+                let world = app.world_mut();
 
                 // Add effect asset
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
@@ -957,13 +953,13 @@ mod test {
                 // Note that `Time` has this weird behavior where the common quantities like
                 // `Time::delta_seconds()` only update after the *second* update. So we tick the
                 // `Time` twice here to enforce this.
-                let mut time = app.world.resource_mut::<Time<EffectSimulation>>();
+                let mut time = app.world_mut().resource_mut::<Time<EffectSimulation>>();
                 time.advance_by(Duration::from_millis(16));
                 time.elapsed()
             };
             app.update();
 
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             // Check the state of the components after `tick_spawners()` ran
             if let Some(test_visibility) = test_case.visibility {

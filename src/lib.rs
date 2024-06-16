@@ -169,13 +169,11 @@
 //!    effect, without having to destroy the effect and re-create a new one.
 
 #[cfg(feature = "2d")]
-use bevy::utils::FloatOrd;
-use bevy::{
-    prelude::*,
-    utils::{thiserror::Error, HashSet},
-};
+use bevy::math::FloatOrd;
+use bevy::{prelude::*, utils::HashSet};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _; // import without risk of name clashing
+use thiserror::Error;
 
 mod asset;
 pub mod attributes;
@@ -1476,10 +1474,7 @@ mod tests {
             },
             AssetServerMode,
         },
-        render::{
-            deterministic::DeterministicRenderingConfig,
-            view::{VisibilityPlugin, VisibilitySystems},
-        },
+        render::view::{VisibilityPlugin, VisibilitySystems},
         tasks::{IoTaskPool, TaskPoolBuilder},
     };
     use naga_oil::compose::{Composer, NagaModuleDescriptor, ShaderDefValue};
@@ -1702,7 +1697,7 @@ else { return c1; }
 
         let watch_for_changes = false;
         let mut builders = app
-            .world
+            .world_mut()
             .get_resource_or_insert_with::<AssetSourceBuilders>(Default::default);
         let dir = Dir::default();
         let dummy_builder = AssetSourceBuilder::default()
@@ -1716,7 +1711,6 @@ else { return c1; }
         // app.add_plugins(DefaultPlugins);
         app.init_asset::<Mesh>();
         app.init_asset::<Shader>();
-        app.init_resource::<DeterministicRenderingConfig>();
         app.add_plugins(VisibilityPlugin);
         app.init_resource::<ShaderCache>();
         app.insert_resource(Random(new_rng()));
@@ -1814,7 +1808,7 @@ else { return c1; }
                 let mut dummy_app = App::new();
                 dummy_app.init_resource::<Assets<Shader>>();
                 dummy_app.add_plugins(bevy::render::view::ViewPlugin);
-                let shaders = dummy_app.world.get_resource::<Assets<Shader>>().unwrap();
+                let shaders = dummy_app.world().get_resource::<Assets<Shader>>().unwrap();
                 let view_shader = shaders.get(bevy::render::view::VIEW_TYPE_HANDLE).unwrap();
 
                 let res = composer.add_composable_module(view_shader.into());
@@ -1907,7 +1901,7 @@ else { return c1; }
 
         // Check
         {
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             let (entity, particle_effect, compiled_particle_effect) = world
                 .query::<(Entity, &ParticleEffect, &CompiledParticleEffect)>()

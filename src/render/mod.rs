@@ -1,7 +1,7 @@
 #[cfg(feature = "2d")]
-use bevy::utils::FloatOrd;
+use bevy::math::FloatOrd;
 use bevy::{
-    core::{Pod, Zeroable},
+    core_pipeline::prepass::OpaqueNoLightmap3dBinKey,
     ecs::{
         prelude::*,
         system::{lifetimeless::*, SystemParam, SystemState},
@@ -11,7 +11,10 @@ use bevy::{
     render::{
         render_asset::RenderAssets,
         render_graph::{Node, NodeRunError, RenderGraphContext, SlotInfo},
-        render_phase::{Draw, DrawFunctions, PhaseItem, RenderPhase, TrackedRenderPass},
+        render_phase::{
+            Draw, DrawFunctions, PhaseItem, PhaseItemExtraIndex, SortedRenderPhase,
+            TrackedRenderPass,
+        },
         render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue},
         texture::BevyDefault,
@@ -24,6 +27,7 @@ use bevy::{
     utils::HashMap,
 };
 use bitflags::bitflags;
+use bytemuck::{Pod, Zeroable};
 use fixedbitset::FixedBitSet;
 use naga_oil::compose::{Composer, NagaModuleDescriptor};
 use rand::random;
@@ -342,7 +346,6 @@ pub(crate) struct DispatchIndirectPipeline {
 
 impl FromWorld for DispatchIndirectPipeline {
     fn from_world(world: &mut World) -> Self {
-        let world = world.cell();
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
         let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
@@ -497,6 +500,7 @@ impl FromWorld for DispatchIndirectPipeline {
             layout: Some(&pipeline_layout),
             module: &shader_module,
             entry_point: "main",
+            compilation_options: Default::default(),
         });
 
         Self {
@@ -517,7 +521,6 @@ pub(crate) struct ParticlesInitPipeline {
 
 impl FromWorld for ParticlesInitPipeline {
     fn from_world(world: &mut World) -> Self {
-        let world = world.cell();
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
         let limits = render_device.limits();
@@ -718,7 +721,6 @@ pub(crate) struct ParticlesUpdatePipeline {
 
 impl FromWorld for ParticlesUpdatePipeline {
     fn from_world(world: &mut World) -> Self {
-        let world = world.cell();
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
         let limits = render_device.limits();
@@ -917,7 +919,6 @@ pub(crate) struct ParticlesRenderPipeline {
 
 impl FromWorld for ParticlesRenderPipeline {
     fn from_world(world: &mut World) -> Self {
-        let world = world.cell();
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
         let view_layout = render_device.create_bind_group_layout(
@@ -1712,7 +1713,7 @@ pub struct EffectsMeta {
     /// The mesh is later scaled during rendering by the "particle size".
     // FIXME - This is a per-effect thing, unless we merge all meshes into a single buffer (makes
     // sense) but in that case we need a vertex slice too to know which mesh to draw per effect.
-    vertices: BufferVec<GpuParticleVertex>,
+    vertices: RawBufferVec<GpuParticleVertex>,
     /// The pipeline for the indirect dispatch shader, which populates the
     /// indirect compute dispatch buffers.
     indirect_dispatch_pipeline: Option<ComputePipeline>,
@@ -1723,7 +1724,7 @@ pub struct EffectsMeta {
 
 impl EffectsMeta {
     pub fn new(device: RenderDevice) -> Self {
-        let mut vertices = BufferVec::new(BufferUsages::VERTEX);
+        let mut vertices = RawBufferVec::new(BufferUsages::VERTEX);
         for v in QUAD_VERTEX_POSITIONS {
             let uv = v.truncate() + 0.5;
             let v = *v * Vec3::new(1.0, 1.0, 1.0);
@@ -2364,7 +2365,7 @@ pub struct QueueEffectsReadOnlyParams<'w, 's> {
 }
 
 fn emit_draw<T, F>(
-    views: &mut Query<(&mut RenderPhase<T>, &VisibleEntities, &ExtractedView)>,
+    views: &mut Query<(&mut SortedRenderPhase<T>, &VisibleEntities, &ExtractedView)>,
     view_entities: &mut FixedBitSet,
     effect_batches: &Query<(Entity, &mut EffectBatches)>,
     effect_draw_batches: &Query<(Entity, &mut EffectDrawBatch)>,
@@ -2517,17 +2518,17 @@ fn emit_draw<T, F>(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn queue_effects(
     #[cfg(feature = "2d")] mut views_2d: Query<(
-        &mut RenderPhase<Transparent2d>,
+        &mut SortedRenderPhase<Transparent2d>,
         &VisibleEntities,
         &ExtractedView,
     )>,
     #[cfg(feature = "3d")] mut views_3d: Query<(
-        &mut RenderPhase<Transparent3d>,
+        &mut SortedRenderPhase<Transparent3d>,
         &VisibleEntities,
         &ExtractedView,
     )>,
     #[cfg(feature = "3d")] mut views_alpha_mask: Query<(
-        &mut RenderPhase<AlphaMask3d>,
+        &mut SortedRenderPhase<AlphaMask3d>,
         &VisibleEntities,
         &ExtractedView,
     )>,
@@ -2599,7 +2600,7 @@ pub(crate) fn queue_effects(
                     entity,
                     sort_key: draw_batch.z_sort_key_2d,
                     batch_range: 0..1,
-                    dynamic_offset: None,
+                    extra_index: PhaseItemExtraIndex::NONE,
                 },
                 #[cfg(feature = "3d")]
                 PipelineMode::Camera2d,
@@ -2641,7 +2642,7 @@ pub(crate) fn queue_effects(
                         .rangefinder3d()
                         .distance_translation(&batch.translation_3d),
                     batch_range: 0..1,
-                    dynamic_offset: None,
+                    extra_index: PhaseItemExtraIndex::NONE,
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
@@ -2671,15 +2672,25 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 msaa.samples(),
-                |id, entity, batch, _group, view| AlphaMask3d {
-                    draw_function: draw_effects_function_alpha_mask,
-                    pipeline: id,
-                    entity,
-                    distance: view
-                        .rangefinder3d()
-                        .distance_translation(&batch.translation_3d),
-                    batch_range: 0..1,
-                    dynamic_offset: None,
+                |id, entity, batch, _group, view| {
+                    let key = OpaqueNoLightmap3dBinKey {
+                        pipeline: id,
+                        draw_function: draw_effects_function_alpha_mask,
+                        asset_id: todo!(),
+                        material_bind_group_id: todo!(),
+                    };
+                    AlphaMask3d {
+                        draw_function: draw_effects_function_alpha_mask,
+                        pipeline: id,
+                        entity,
+                        distance: view
+                            .rangefinder3d()
+                            .distance_translation(&batch.translation_3d),
+                        batch_range: 0..1,
+                        extra_index: PhaseItemExtraIndex::NONE,
+                        key,
+                        representative_entity: todo!(),
+                    }
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,

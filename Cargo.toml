@@ -10,7 +10,17 @@ documentation = "https://docs.rs/bevy_hanabi"
 keywords = ["bevy", "particle-system", "particles", "vfx"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-exclude = ["docs/*.svg", "docs/*.png", "examples/*.gif", "examples/*.png", ".github", "release.md", "run_examples.bat", "run_examples.sh", "deny.toml"]
+exclude = [
+    "docs/*.svg",
+    "docs/*.png",
+    "examples/*.gif",
+    "examples/*.png",
+    ".github",
+    "release.md",
+    "run_examples.bat",
+    "run_examples.sh",
+    "deny.toml",
+]
 autoexamples = false
 
 [features]
@@ -40,7 +50,7 @@ examples_world_inspector = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
-fixedbitset = "0.4"
+fixedbitset = "0.5"
 copyless = "0.1"
 rand = "0.8"
 rand_pcg = "0.3"
@@ -51,25 +61,27 @@ bitflags = "2.3"
 typetag = "0.2"
 thiserror = "1.0"
 # Same versions as Bevy 0.13 (bevy_render)
-naga = "0.19"
-naga_oil = { version = "0.13", default-features = false, features = ["test_shader"] }
+naga = "0.20"
+naga_oil = { version = "0.14", default-features = false, features = [
+    "test_shader",
+] }
 
 [dependencies.bevy]
-version = "0.13"
+version = "0.14.0-rc.3"
 default-features = false
-features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
+features = ["bevy_core_pipeline", "bevy_render", "bevy_asset", "x11"]
 
 [package.metadata.docs.rs]
 all-features = true
 
 [dev-dependencies]
-# Same versions as Bevy 0.13 (bevy_render)
-wgpu = "0.19.1"
+# Same versions as Bevy 0.14 (bevy_render)
+wgpu = "0.20.1"
 
 # For world inspector; required if "examples_world_inspector" is used.
-bevy-inspector-egui = "0.23"
-bevy_egui = "0.25"
-egui = "0.26"
+bevy-inspector-egui = "0.24"
+bevy_egui = "0.27"
+egui = "0.27"
 
 # For procedural texture generation in examples
 noise = "0.8"
@@ -78,83 +90,89 @@ futures = "0.3"
 
 [[example]]
 name = "firework"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "portal"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "expr"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "spawn"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "multicam"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "visibility"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "random"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "spawn_on_command"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "activate"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/bevy_ui", "bevy/default_font", "3d" ]
+required-features = [
+    "bevy/bevy_winit",
+    "bevy/bevy_pbr",
+    "bevy/bevy_ui",
+    "bevy/default_font",
+    "3d",
+]
 
 [[example]]
 name = "force_field"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "lifetime"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "init"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "instancing"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d"]
 
 [[example]]
 name = "gradient"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d"]
 
 [[example]]
 name = "circle"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d"]
 
 [[example]]
 name = "billboard"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d"]
 
 [[example]]
 name = "2d"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_sprite", "2d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_sprite", "2d"]
 
 [[example]]
 name = "worms"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "bevy/png", "3d"]
 
 [[example]]
 name = "ribbon"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [[example]]
 name = "ordering"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+required-features = ["bevy/bevy_winit", "bevy/bevy_pbr", "3d"]
 
 [workspace]
 resolver = "2"

@@ -1,10 +1,11 @@
 use bevy::{
     asset::{io::Reader, Asset, AssetLoader, AsyncReadExt, LoadContext},
     reflect::Reflect,
-    utils::{default, thiserror::Error, BoxedFuture, HashSet},
+    utils::{default, BoxedFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
+use thiserror::Error;
 
 use crate::{
     modifier::{Modifier, RenderModifier},

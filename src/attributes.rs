@@ -793,6 +793,10 @@ impl Reflect for Attribute {
     fn reflect_owned(self: Box<Self>) -> ReflectOwned {
         ReflectOwned::Struct(self)
     }
+
+    fn try_apply(&mut self, value: &dyn Reflect) -> Result<(), bevy::reflect::ApplyError> {
+        todo!()
+    }
 }
 
 impl FromReflect for Attribute {

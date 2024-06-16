@@ -3,7 +3,10 @@
 #[cfg(feature = "gpu_tests")]
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 
-use bevy::prelude::{Quat, Vec2, Vec3, Vec4};
+use bevy::{
+    prelude::{Quat, Vec2, Vec3, Vec4},
+    render::renderer::WgpuWrapper,
+};
 use std::ops::Sub;
 
 /// Utility trait to compare floating-point values with a tolerance.
@@ -187,7 +190,7 @@ impl MockRenderer {
 
         // Turn into Bevy objects
         let device = RenderDevice::from(device);
-        let queue = RenderQueue(std::sync::Arc::new(queue));
+        let queue = RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue)));
 
         Self {
             instance,

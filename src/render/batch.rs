@@ -6,7 +6,7 @@ use bevy::{
 };
 
 #[cfg(feature = "2d")]
-use bevy::utils::FloatOrd;
+use bevy::math::FloatOrd;
 
 use crate::{EffectAsset, EffectShader, ParticleLayout, PropertyLayout};
 
