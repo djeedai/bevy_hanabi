@@ -1,7 +1,7 @@
 use bevy::{
     asset::{io::Reader, Asset, AssetLoader, AsyncReadExt, LoadContext},
     reflect::Reflect,
-    utils::{default, BoxedFuture, HashSet},
+    utils::{default, ConditionalSendFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
@@ -703,7 +703,7 @@ impl AssetLoader for EffectAssetLoader {
         reader: &'a mut Reader,
         _settings: &'a Self::Settings,
         _load_context: &'a mut LoadContext,
-    ) -> BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
+    ) -> impl ConditionalSendFuture<Output = Result<Self::Asset, Self::Error>> {
         Box::pin(async move {
             let mut bytes = Vec::new();
             reader.read_to_end(&mut bytes).await?;

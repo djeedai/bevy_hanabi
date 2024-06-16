@@ -127,8 +127,8 @@ use bevy::{
     math::{Vec2, Vec3, Vec4},
     reflect::{
         utility::{GenericTypePathCell, NonGenericTypeInfoCell},
-        DynamicStruct, FieldIter, FromReflect, NamedField, Reflect, ReflectMut, ReflectOwned,
-        ReflectRef, Struct, StructInfo, TypeInfo, TypePath, Typed,
+        DynamicStruct, FieldIter, FromReflect, GetTypeRegistration, NamedField, Reflect,
+        ReflectMut, ReflectOwned, ReflectRef, Struct, StructInfo, TypeInfo, TypePath, Typed,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -794,7 +794,7 @@ impl Reflect for Attribute {
         ReflectOwned::Struct(self)
     }
 
-    fn try_apply(&mut self, value: &dyn Reflect) -> Result<(), bevy::reflect::ApplyError> {
+    fn try_apply(&mut self, _value: &dyn Reflect) -> Result<(), bevy::reflect::ApplyError> {
         todo!()
     }
 }
@@ -806,6 +806,12 @@ impl FromReflect for Attribute {
         } else {
             None
         }
+    }
+}
+
+impl GetTypeRegistration for Attribute {
+    fn get_type_registration() -> bevy::reflect::TypeRegistration {
+        todo!()
     }
 }
 

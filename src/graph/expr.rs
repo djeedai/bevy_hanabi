@@ -104,8 +104,9 @@
 
 use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
 
-use bevy::{reflect::Reflect, utils::thiserror::Error};
+use bevy::reflect::Reflect;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
     Attribute, ModifierContext, ParticleLayout, Property, PropertyLayout, ScalarType, ToWgslString,

@@ -1809,7 +1809,7 @@ else { return c1; }
                 dummy_app.init_resource::<Assets<Shader>>();
                 dummy_app.add_plugins(bevy::render::view::ViewPlugin);
                 let shaders = dummy_app.world().get_resource::<Assets<Shader>>().unwrap();
-                let view_shader = shaders.get(bevy::render::view::VIEW_TYPE_HANDLE).unwrap();
+                let view_shader = shaders.get(&bevy::render::view::VIEW_TYPE_HANDLE).unwrap();
 
                 let res = composer.add_composable_module(view_shader.into());
                 assert!(res.is_ok());
@@ -1871,7 +1871,7 @@ else { return c1; }
         let mut app = make_test_app();
 
         let (effect_entity, handle) = {
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             // Add effect asset
             let mut assets = world.resource_mut::<Assets<EffectAsset>>();
@@ -1919,7 +1919,7 @@ else { return c1; }
 
         // Mark as changed without actually changing anything
         {
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             let mut particle_effect = world
                 .query::<&mut ParticleEffect>()
@@ -1936,7 +1936,7 @@ else { return c1; }
 
         // Check again, nothing changed
         {
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             let (entity, particle_effect, compiled_particle_effect) = world
                 .query::<(Entity, &ParticleEffect, &CompiledParticleEffect)>()
@@ -1965,7 +1965,7 @@ else { return c1; }
             let mut app = make_test_app();
 
             let (effect_entity, handle) = {
-                let world = &mut app.world;
+                let world = app.world_mut();
 
                 // Add effect asset
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
@@ -2011,7 +2011,7 @@ else { return c1; }
             // Tick once
             app.update();
 
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             // Check the state of the components after `tick_spawners()` ran
             if let Some(test_visibility) = test_case.visibility {

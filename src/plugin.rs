@@ -12,7 +12,7 @@ use bevy::{
         view::{prepare_view_uniforms, visibility::VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
-    time::{update_virtual_time, TimeSystem},
+    time::{time_system, TimeSystem},
 };
 
 use crate::{
@@ -196,7 +196,7 @@ impl Plugin for HanabiPlugin {
             .add_systems(
                 First,
                 effect_simulation_time_system
-                    .after(update_virtual_time)
+                    .after(time_system)
                     .in_set(TimeSystem),
             )
             .add_systems(
@@ -225,7 +225,7 @@ impl Plugin for HanabiPlugin {
             .clone();
 
         let adapter_name = app
-            .world
+            .world()
             .get_resource::<RenderAdapterInfo>()
             .map(|ai| &ai.name[..])
             .unwrap_or("<unknown>");
@@ -247,7 +247,7 @@ impl Plugin for HanabiPlugin {
                 render_device.limits().min_storage_buffer_offset_alignment,
             );
             let mut assets = app.world_mut().resource_mut::<Assets<Shader>>();
-            assets.insert(HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
+            assets.insert(&HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
         }
 
         let effects_meta = EffectsMeta::new(render_device.clone());
