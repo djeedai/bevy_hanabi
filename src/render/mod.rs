@@ -3405,11 +3405,16 @@ impl Node for VfxSimulateNode {
                     let Some(init_pipeline) =
                         pipeline_cache.get_compute_pipeline(batches.init_pipeline_id)
                     else {
-                        error!(
-                            "Failed to find init pipeline #{} for effect {:?}",
-                            batches.init_pipeline_id.id(),
-                            entity
-                        );
+                        if let CachedPipelineState::Err(err) =
+                            pipeline_cache.get_compute_pipeline_state(batches.init_pipeline_id)
+                        {
+                            error!(
+                                "Failed to find init pipeline #{} for effect {:?}: {:?}",
+                                batches.init_pipeline_id.id(),
+                                entity,
+                                err
+                            );
+                        }
                         continue;
                     };
 
@@ -3608,12 +3613,17 @@ impl Node for VfxSimulateNode {
                     let Some(update_pipeline) =
                         pipeline_cache.get_compute_pipeline(*update_pipeline_id)
                     else {
-                        error!(
-                            "Failed to find update pipeline #{} for effect {:?}, group {}",
-                            update_pipeline_id.id(),
-                            entity,
-                            group_index
-                        );
+                        if let CachedPipelineState::Err(err) =
+                            pipeline_cache.get_compute_pipeline_state(*update_pipeline_id)
+                        {
+                            error!(
+                                "Failed to find update pipeline #{} for effect {:?}, group {}: {:?}",
+                                update_pipeline_id.id(),
+                                entity,
+                                group_index,
+                                err
+                            );
+                        }
                         continue;
                     };
 

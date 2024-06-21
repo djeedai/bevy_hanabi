@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 #[cfg(feature = "gpu_tests")]
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 

@@ -492,8 +492,8 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC2F,
             storage: [
-                unsafe { std::mem::transmute(value.x) },
-                unsafe { std::mem::transmute(value.y) },
+                unsafe { std::mem::transmute::<f32, u32>(value.x) },
+                unsafe { std::mem::transmute::<f32, u32>(value.y) },
                 0u32,
                 0u32,
             ],
@@ -506,9 +506,9 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC3F,
             storage: [
-                unsafe { std::mem::transmute(value.x) },
-                unsafe { std::mem::transmute(value.y) },
-                unsafe { std::mem::transmute(value.z) },
+                unsafe { std::mem::transmute::<f32, u32>(value.x) },
+                unsafe { std::mem::transmute::<f32, u32>(value.y) },
+                unsafe { std::mem::transmute::<f32, u32>(value.z) },
                 0u32,
             ],
         }
@@ -519,7 +519,7 @@ impl VectorValue {
     pub const fn new_vec4(value: Vec4) -> Self {
         Self {
             vector_type: VectorType::VEC4F,
-            storage: unsafe { std::mem::transmute(value.to_array()) },
+            storage: unsafe { std::mem::transmute::<[f32; 4], [u32; 4]>(value.to_array()) },
         }
     }
 
@@ -529,8 +529,8 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC2I,
             storage: [
-                unsafe { std::mem::transmute(value.x) },
-                unsafe { std::mem::transmute(value.y) },
+                unsafe { std::mem::transmute::<i32, u32>(value.x) },
+                unsafe { std::mem::transmute::<i32, u32>(value.y) },
                 0u32,
                 0u32,
             ],
@@ -543,9 +543,9 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC3I,
             storage: [
-                unsafe { std::mem::transmute(value.x) },
-                unsafe { std::mem::transmute(value.y) },
-                unsafe { std::mem::transmute(value.z) },
+                unsafe { std::mem::transmute::<i32, u32>(value.x) },
+                unsafe { std::mem::transmute::<i32, u32>(value.y) },
+                unsafe { std::mem::transmute::<i32, u32>(value.z) },
                 0u32,
             ],
         }
@@ -556,7 +556,7 @@ impl VectorValue {
     pub const fn new_ivec4(value: IVec4) -> Self {
         Self {
             vector_type: VectorType::VEC4I,
-            storage: unsafe { std::mem::transmute(value.to_array()) },
+            storage: unsafe { std::mem::transmute::<[i32; 4], [u32; 4]>(value.to_array()) },
         }
     }
 
