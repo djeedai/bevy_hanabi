@@ -20,6 +20,11 @@
 //! attribute on spawning, or to assign a value to that attribute each frame
 //! during simulation (update).
 
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
+
 use bevy::{
     asset::Handle,
     math::{UVec2, Vec2, Vec4},
@@ -29,10 +34,6 @@ use bevy::{
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
 
 pub mod accel;
 pub mod attr;
@@ -598,9 +599,8 @@ mod tests {
     use bevy::prelude::*;
     use naga::front::wgsl::Frontend;
 
-    use crate::{BuiltInOperator, ExprWriter, ScalarType};
-
     use super::*;
+    use crate::{BuiltInOperator, ExprWriter, ScalarType};
 
     fn make_test_modifier() -> SetPositionSphereModifier {
         // We use a dummy module here because we don't care about the values and won't

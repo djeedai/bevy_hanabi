@@ -486,7 +486,7 @@ impl std::hash::Hash for AttributeInner {
 }
 
 macro_rules! declare_custom_attr_inner {
-    ($t: ident, $T: ty, $name: literal, $new_fn: ident) => {
+    ($t:ident, $T:ty, $name:literal, $new_fn:ident) => {
         pub const $t: &'static AttributeInner = &AttributeInner::new(
             Cow::Borrowed($name),
             Value::Vector(VectorValue::$new_fn(<$T>::ZERO)),
@@ -1289,9 +1289,7 @@ impl ParticleLayoutBuilder {
     ///
     /// ```
     /// # use bevy_hanabi::*;
-    /// let layout = ParticleLayout::new()
-    ///     .append(Attribute::POSITION)
-    ///     .build();
+    /// let layout = ParticleLayout::new().append(Attribute::POSITION).build();
     /// ```
     pub fn build(mut self) -> ParticleLayout {
         // Remove duplicates
@@ -1575,9 +1573,7 @@ impl ParticleLayout {
     ///
     /// ```
     /// # use bevy_hanabi::*;
-    /// let layout = ParticleLayout::new()
-    ///     .append(Attribute::SIZE)
-    ///     .build();
+    /// let layout = ParticleLayout::new().append(Attribute::SIZE).build();
     /// let has_size = layout.contains(Attribute::SIZE);
     /// assert!(has_size);
     /// ```
@@ -1610,10 +1606,10 @@ impl ParticleLayout {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use bevy::reflect::TypeRegistration;
     use naga::{front::wgsl::Frontend, proc::Layouter};
+
+    use super::*;
 
     // Ensure the size and alignment of all types conforms to the WGSL spec by
     // querying naga as a reference.

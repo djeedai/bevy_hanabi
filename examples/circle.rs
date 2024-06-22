@@ -11,10 +11,9 @@ use bevy::{
     prelude::*,
     render::{render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin},
 };
+use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-
-use bevy_hanabi::prelude::*;
 
 mod texutils;
 

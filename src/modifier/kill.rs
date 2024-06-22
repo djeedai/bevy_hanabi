@@ -185,9 +185,8 @@ impl Modifier for KillAabbModifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ParticleLayout, PropertyLayout};
-
     use super::*;
+    use crate::{ParticleLayout, PropertyLayout};
 
     #[test]
     fn mod_kill_aabb() {

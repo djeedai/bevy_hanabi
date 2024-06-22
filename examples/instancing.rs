@@ -10,11 +10,10 @@
 #![allow(dead_code)]
 
 use bevy::{core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*};
+use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use rand::Rng;
-
-use bevy_hanabi::prelude::*;
 
 #[derive(Default, Resource)]
 struct InstanceManager {

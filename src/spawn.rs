@@ -685,9 +685,8 @@ mod test {
         tasks::{IoTaskPool, TaskPoolBuilder},
     };
 
-    use crate::Module;
-
     use super::*;
+    use crate::Module;
 
     /// Make an `EffectSpawner` wrapping a `Spawner`.
     fn make_effect_spawner(spawner: Spawner) -> EffectSpawner {

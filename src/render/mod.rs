@@ -1,3 +1,13 @@
+use std::{
+    borrow::Cow,
+    num::{NonZeroU32, NonZeroU64},
+};
+use std::{iter, marker::PhantomData};
+
+#[cfg(feature = "2d")]
+use bevy::core_pipeline::core_2d::Transparent2d;
+#[cfg(feature = "3d")]
+use bevy::core_pipeline::core_3d::{AlphaMask3d, Transparent3d};
 #[cfg(feature = "2d")]
 use bevy::utils::FloatOrd;
 use bevy::{
@@ -27,16 +37,6 @@ use bitflags::bitflags;
 use fixedbitset::FixedBitSet;
 use naga_oil::compose::{Composer, NagaModuleDescriptor};
 use rand::random;
-use std::{
-    borrow::Cow,
-    num::{NonZeroU32, NonZeroU64},
-};
-use std::{iter, marker::PhantomData};
-
-#[cfg(feature = "2d")]
-use bevy::core_pipeline::core_2d::Transparent2d;
-#[cfg(feature = "3d")]
-use bevy::core_pipeline::core_3d::{AlphaMask3d, Transparent3d};
 
 use crate::{
     asset::EffectAsset,
@@ -59,7 +59,6 @@ mod shader_cache;
 use aligned_buffer_vec::AlignedBufferVec;
 use buffer_table::{BufferTable, BufferTableId};
 pub(crate) use effect_cache::{EffectCache, EffectCacheId};
-
 pub use shader_cache::ShaderCache;
 
 use self::batch::EffectBatches;

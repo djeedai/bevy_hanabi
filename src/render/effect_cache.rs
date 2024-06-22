@@ -1,3 +1,10 @@
+use std::{
+    cmp::Ordering,
+    num::NonZeroU64,
+    ops::Range,
+    sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
+};
+
 use bevy::{
     asset::Handle,
     ecs::system::Resource,
@@ -6,13 +13,8 @@ use bevy::{
     utils::HashMap,
 };
 use bytemuck::cast_slice_mut;
-use std::{
-    cmp::Ordering,
-    num::NonZeroU64,
-    ops::Range,
-    sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
-};
 
+use super::buffer_table::BufferTableId;
 use crate::{
     asset::EffectAsset,
     render::{
@@ -20,8 +22,6 @@ use crate::{
     },
     ParticleLayout, PropertyLayout,
 };
-
-use super::buffer_table::BufferTableId;
 
 /// Describes all particle groups' slices of particles in the particle buffer
 /// for a single effect.
@@ -901,13 +901,12 @@ mod gpu_tests {
 
     use bevy::math::Vec4;
 
+    use super::*;
     use crate::{
         graph::{Value, VectorValue},
         test_utils::MockRenderer,
         Attribute, AttributeInner,
     };
-
-    use super::*;
 
     #[test]
     fn effect_slice_ord() {

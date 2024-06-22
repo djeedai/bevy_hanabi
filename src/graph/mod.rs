@@ -1619,7 +1619,7 @@ impl From<MatrixValue> for Value {
 }
 
 macro_rules! impl_scalar_value {
-    ($t: ty, $sv: ident) => {
+    ($t:ty, $sv:ident) => {
         impl From<$t> for Value {
             fn from(value: $t) -> Self {
                 Self::Scalar(value.into())
@@ -1663,7 +1663,7 @@ impl_scalar_value!(i32, Int);
 impl_scalar_value!(u32, Uint);
 
 macro_rules! impl_vec_value {
-    ($t: ty, $vt: ident, $cast: tt) => {
+    ($t:ty, $vt:ident, $cast:tt) => {
         impl From<$t> for Value {
             fn from(value: $t) -> Self {
                 Self::Vector(value.into())
@@ -1718,11 +1718,12 @@ impl_vec_value!(UVec4, VEC4U, as_uvec4);
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::{
         collections::hash_map::DefaultHasher,
         hash::{Hash, Hasher},
     };
+
+    use super::*;
 
     #[test]
     fn as_bytes() {

@@ -773,9 +773,8 @@ equal to one."
 mod tests {
     use bevy::prelude::*;
 
-    use crate::{EvalContext, ModifierContext, ParticleLayout, PropertyLayout, ShaderWriter};
-
     use super::*;
+    use crate::{EvalContext, ModifierContext, ParticleLayout, PropertyLayout, ShaderWriter};
 
     #[test]
     fn add() {

@@ -1,10 +1,11 @@
+use std::hash::{Hash, Hasher};
+
 use bevy::{
     math::{Quat, Vec2, Vec3, Vec3A, Vec4},
     reflect::{FromReflect, Reflect},
     utils::FloatOrd,
 };
 use serde::{Deserialize, Serialize};
-use std::hash::{Hash, Hasher};
 
 /// Describes a type that can be linearly interpolated between two keys.
 ///
@@ -484,9 +485,8 @@ mod tests {
     use bevy::reflect::{ReflectRef, Struct};
     use rand::{distributions::Standard, prelude::Distribution, rngs::ThreadRng, thread_rng, Rng};
 
-    use crate::test_utils::*;
-
     use super::*;
+    use crate::test_utils::*;
 
     const RED: Vec4 = Vec4::new(1., 0., 0., 1.);
     const BLUE: Vec4 = Vec4::new(0., 0., 1., 1.);
