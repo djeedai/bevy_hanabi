@@ -8,7 +8,7 @@ use bevy::prelude::*;
 /// [`ParticleEffect`].
 ///
 /// [`EffectProperties`]: crate::EffectProperties
-#[derive(Bundle, Clone)]
+#[derive(Default, Bundle, Clone)]
 pub struct ParticleEffectBundle {
     /// The particle effect instance itself.
     pub effect: ParticleEffect,
@@ -73,12 +73,6 @@ pub struct ParticleEffectBundle {
     ///
     /// [`SimulationCondition::Always`]: crate::SimulationCondition::Always
     pub view_visibility: ViewVisibility,
-}
-
-impl Default for ParticleEffectBundle {
-    fn default() -> Self {
-        Self::new(Handle::<EffectAsset>::default())
-    }
 }
 
 impl ParticleEffectBundle {

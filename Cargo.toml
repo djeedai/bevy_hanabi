@@ -156,6 +156,11 @@ required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 name = "ordering"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 
+[[test]]
+name = "empty_effect"
+path = "gpu_tests/empty_effect.rs"
+harness = false
+
 [workspace]
 resolver = "2"
 members = ["."]

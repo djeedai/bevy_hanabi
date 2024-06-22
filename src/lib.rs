@@ -1869,6 +1869,46 @@ else { return c1; }
         }
     }
 
+    // Regression test for #343
+    #[test]
+    fn test_compile_effect_invalid_handle() {
+        let mut app = make_test_app();
+
+        let effect_entity = {
+            let world = &mut app.world;
+
+            // Spawn particle effect
+            let entity = world
+                .spawn(ParticleEffectBundle::default())
+                .id();
+
+            // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
+            world.spawn(Camera3dBundle::default());
+
+            entity
+        };
+
+        // Tick once
+        app.update();
+
+        // Check
+        {
+            let world = &mut app.world;
+
+            let (entity, particle_effect, compiled_particle_effect) = world
+                .query::<(Entity, &ParticleEffect, &CompiledParticleEffect)>()
+                .iter(world)
+                .next()
+                .unwrap();
+            assert_eq!(entity, effect_entity);
+            assert_eq!(particle_effect.handle, Handle::<EffectAsset>::default());
+
+            // `compile_effects()` cannot update the CompiledParticleEffect because the asset is invalid
+            assert_eq!(compiled_particle_effect.asset, Handle::<EffectAsset>::default());
+            assert!(compiled_particle_effect.effect_shader.is_none());
+        }
+    }
+
     // Regression test for #228
     #[test]
     fn test_compile_effect_changed() {
