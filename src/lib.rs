@@ -168,12 +168,10 @@
 use std::fmt::Write as _;
 
 #[cfg(feature = "2d")]
-use bevy::utils::FloatOrd;
-use bevy::{
-    prelude::*,
-    utils::{thiserror::Error, HashSet},
-};
+use bevy::math::FloatOrd;
+use bevy::{prelude::*, utils::HashSet};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 mod asset;
 pub mod attributes;
@@ -1474,10 +1472,7 @@ mod tests {
             },
             AssetServerMode,
         },
-        render::{
-            deterministic::DeterministicRenderingConfig,
-            view::{VisibilityPlugin, VisibilitySystems},
-        },
+        render::view::{VisibilityPlugin, VisibilitySystems},
         tasks::{IoTaskPool, TaskPoolBuilder},
     };
     use naga_oil::compose::{Composer, NagaModuleDescriptor, ShaderDefValue};
@@ -1699,7 +1694,7 @@ else { return c1; }
 
         let watch_for_changes = false;
         let mut builders = app
-            .world
+            .world_mut()
             .get_resource_or_insert_with::<AssetSourceBuilders>(Default::default);
         let dir = Dir::default();
         let dummy_builder = AssetSourceBuilder::default()
@@ -1713,7 +1708,6 @@ else { return c1; }
         // app.add_plugins(DefaultPlugins);
         app.init_asset::<Mesh>();
         app.init_asset::<Shader>();
-        app.init_resource::<DeterministicRenderingConfig>();
         app.add_plugins(VisibilityPlugin);
         app.init_resource::<ShaderCache>();
         app.insert_resource(Random(new_rng()));
@@ -1811,8 +1805,8 @@ else { return c1; }
                 let mut dummy_app = App::new();
                 dummy_app.init_resource::<Assets<Shader>>();
                 dummy_app.add_plugins(bevy::render::view::ViewPlugin);
-                let shaders = dummy_app.world.get_resource::<Assets<Shader>>().unwrap();
-                let view_shader = shaders.get(bevy::render::view::VIEW_TYPE_HANDLE).unwrap();
+                let shaders = dummy_app.world().get_resource::<Assets<Shader>>().unwrap();
+                let view_shader = shaders.get(&bevy::render::view::VIEW_TYPE_HANDLE).unwrap();
 
                 let res = composer.add_composable_module(view_shader.into());
                 assert!(res.is_ok());
@@ -1872,7 +1866,7 @@ else { return c1; }
         let mut app = make_test_app();
 
         let effect_entity = {
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             // Spawn particle effect
             let entity = world.spawn(ParticleEffectBundle::default()).id();
@@ -1888,7 +1882,7 @@ else { return c1; }
 
         // Check
         {
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             let (entity, particle_effect, compiled_particle_effect) = world
                 .query::<(Entity, &ParticleEffect, &CompiledParticleEffect)>()
@@ -1916,7 +1910,7 @@ else { return c1; }
         let mut app = make_test_app();
 
         let (effect_entity, handle) = {
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             // Add effect asset
             let mut assets = world.resource_mut::<Assets<EffectAsset>>();
@@ -1946,7 +1940,7 @@ else { return c1; }
 
         // Check
         {
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             let (entity, particle_effect, compiled_particle_effect) = world
                 .query::<(Entity, &ParticleEffect, &CompiledParticleEffect)>()
@@ -1964,7 +1958,7 @@ else { return c1; }
 
         // Mark as changed without actually changing anything
         {
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             let mut particle_effect = world
                 .query::<&mut ParticleEffect>()
@@ -1981,7 +1975,7 @@ else { return c1; }
 
         // Check again, nothing changed
         {
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             let (entity, particle_effect, compiled_particle_effect) = world
                 .query::<(Entity, &ParticleEffect, &CompiledParticleEffect)>()
@@ -2010,7 +2004,7 @@ else { return c1; }
             let mut app = make_test_app();
 
             let (effect_entity, handle) = {
-                let world = &mut app.world;
+                let world = app.world_mut();
 
                 // Add effect asset
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
@@ -2056,7 +2050,7 @@ else { return c1; }
             // Tick once
             app.update();
 
-            let world = &mut app.world;
+            let world = app.world_mut();
 
             // Check the state of the components after `tick_spawners()` ran
             if let Some(test_visibility) = test_case.visibility {

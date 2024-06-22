@@ -3,9 +3,10 @@ use std::ops::Deref;
 use bevy::{
     asset::{io::Reader, Asset, AssetLoader, AsyncReadExt, LoadContext},
     reflect::Reflect,
-    utils::{default, thiserror::Error, BoxedFuture, HashSet},
+    utils::{default, HashSet},
 };
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
     modifier::{Modifier, RenderModifier},
@@ -698,18 +699,16 @@ impl AssetLoader for EffectAssetLoader {
 
     type Error = EffectAssetLoaderError;
 
-    fn load<'a>(
+    async fn load<'a>(
         &'a self,
-        reader: &'a mut Reader,
+        reader: &'a mut Reader<'_>,
         _settings: &'a Self::Settings,
-        _load_context: &'a mut LoadContext,
-    ) -> BoxedFuture<'a, Result<Self::Asset, Self::Error>> {
-        Box::pin(async move {
-            let mut bytes = Vec::new();
-            reader.read_to_end(&mut bytes).await?;
-            let custom_asset = ron::de::from_bytes::<EffectAsset>(&bytes)?;
-            Ok(custom_asset)
-        })
+        _load_context: &'a mut LoadContext<'_>,
+    ) -> Result<Self::Asset, Self::Error> {
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).await?;
+        let custom_asset = ron::de::from_bytes::<EffectAsset>(&bytes)?;
+        Ok(custom_asset)
     }
 
     fn extensions(&self) -> &[&str] {

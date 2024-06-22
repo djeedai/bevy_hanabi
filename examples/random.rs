@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,random=trace".to_string(),
-                    update_subscriber: None,
+                     custom_layer: default(),
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),

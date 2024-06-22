@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugins(DefaultPlugins.set(LogPlugin {
             level: bevy::log::Level::INFO,
             filter: "bevy_hanabi=debug".to_string(),
-            update_subscriber: None,
+             custom_layer: default(),
         }))
         .add_plugins(HanabiPlugin)
         .init_resource::<Frame>()

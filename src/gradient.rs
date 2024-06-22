@@ -1,9 +1,8 @@
 use std::hash::{Hash, Hasher};
 
 use bevy::{
-    math::{Quat, Vec2, Vec3, Vec3A, Vec4},
+    math::{FloatOrd, Quat, Vec2, Vec3, Vec3A, Vec4},
     reflect::{FromReflect, Reflect},
-    utils::FloatOrd,
 };
 use serde::{Deserialize, Serialize};
 

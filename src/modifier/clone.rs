@@ -2,7 +2,7 @@
 
 use std::hash::{Hash, Hasher};
 
-use bevy::{prelude::*, utils::FloatOrd};
+use bevy::{prelude::*, math::FloatOrd};
 use serde::{Deserialize, Serialize};
 
 use crate::{

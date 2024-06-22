@@ -180,7 +180,7 @@ fn main() {
             .set(LogPlugin {
                 level: bevy::log::Level::WARN,
                 filter: "bevy_hanabi=warn,instancing=trace".to_string(),
-                update_subscriber: None,
+                 custom_layer: default(),
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {

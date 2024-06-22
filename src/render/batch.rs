@@ -1,7 +1,7 @@
 use std::ops::{Index, Range};
 
 #[cfg(feature = "2d")]
-use bevy::utils::FloatOrd;
+use bevy::math::FloatOrd;
 use bevy::{
     prelude::*,
     render::render_resource::{Buffer, CachedComputePipelineId},

@@ -1,6 +1,6 @@
 use std::ops::Sub;
 
-use bevy::prelude::{Quat, Vec2, Vec3, Vec4};
+use bevy::{prelude::{Quat, Vec2, Vec3, Vec4}, render::renderer::WgpuWrapper};
 #[cfg(feature = "gpu_tests")]
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 
@@ -185,7 +185,7 @@ impl MockRenderer {
 
         // Turn into Bevy objects
         let device = RenderDevice::from(device);
-        let queue = RenderQueue(std::sync::Arc::new(queue));
+        let queue = RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue)));
 
         Self {
             instance,
