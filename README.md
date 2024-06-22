@@ -401,3 +401,14 @@ Compatibility of `bevy_hanabi` versions:
 | `0.3`-`0.4`   | `0.8`  |
 | `0.2`         | `0.7`  |
 | `0.1`         | `0.6`  |
+
+## License
+
+🎆 Hanabi is dual-licensed under either:
+
+* MIT License ([`LICENSE-MIT`](./LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+* Apache License, Version 2.0 ([`LICENSE-APACHE2`](./LICENSE-APACHE2) or <http://www.apache.org/licenses/LICENSE-2.0>)
+
+at your option.
+
+`SPDX-License-Identifier: MIT OR Apache-2.0`
