@@ -1428,9 +1428,9 @@ pub(crate) fn extract_effects(
     extracted_effects.added_effects = query
         .p1()
         .iter()
-        .map(|(entity, effect)| {
+        .filter_map(|(entity, effect)| {
             let handle = effect.asset.clone_weak();
-            let asset = effects.get(&effect.asset).unwrap();
+            let asset = effects.get(&effect.asset)?;
             let particle_layout = asset.particle_layout();
             assert!(
                 particle_layout.size() > 0,
@@ -1441,14 +1441,14 @@ pub(crate) fn extract_effects(
             let property_layout = asset.property_layout();
 
             trace!("Found new effect: entity {:?} | capacities {:?} | particle_layout {:?} | property_layout {:?} | layout_flags {:?}", entity, asset.capacities(), particle_layout, property_layout, effect.layout_flags);
-            AddedEffect {
+            Some(AddedEffect {
                 entity,
                 capacities: asset.capacities().to_vec(),
                 particle_layout,
                 property_layout,
                 layout_flags: effect.layout_flags,
                 handle,
-            }
+            })
         })
         .collect();
 
