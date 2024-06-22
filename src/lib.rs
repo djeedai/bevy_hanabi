@@ -1878,9 +1878,7 @@ else { return c1; }
             let world = &mut app.world;
 
             // Spawn particle effect
-            let entity = world
-                .spawn(ParticleEffectBundle::default())
-                .id();
+            let entity = world.spawn(ParticleEffectBundle::default()).id();
 
             // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
             world.spawn(Camera3dBundle::default());
@@ -1904,7 +1902,10 @@ else { return c1; }
             assert_eq!(particle_effect.handle, Handle::<EffectAsset>::default());
 
             // `compile_effects()` cannot update the CompiledParticleEffect because the asset is invalid
-            assert_eq!(compiled_particle_effect.asset, Handle::<EffectAsset>::default());
+            assert_eq!(
+                compiled_particle_effect.asset,
+                Handle::<EffectAsset>::default()
+            );
             assert!(compiled_particle_effect.effect_shader.is_none());
         }
     }
