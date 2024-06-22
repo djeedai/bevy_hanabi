@@ -183,9 +183,11 @@ pub(crate) fn effect_simulation_time_system(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use bevy::time::{virtual_time_system, TimePlugin, TimeSystem};
     use std::{thread::sleep, time::Duration};
+
+    use bevy::time::{virtual_time_system, TimePlugin, TimeSystem};
+
+    use super::*;
 
     fn make_test_app() -> App {
         let mut app = App::new();

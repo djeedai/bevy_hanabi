@@ -1,5 +1,6 @@
-use crate::{CompiledParticleEffect, EffectAsset, EffectProperties, ParticleEffect};
 use bevy::prelude::*;
+
+use crate::{CompiledParticleEffect, EffectAsset, EffectProperties, ParticleEffect};
 
 /// A component bundle for a particle effect.
 ///

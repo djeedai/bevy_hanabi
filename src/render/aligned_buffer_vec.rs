@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use bevy::{
     core::{cast_slice, Pod},
     log::trace,
@@ -9,7 +11,6 @@ use bevy::{
     },
 };
 use copyless::VecHelper;
-use std::num::NonZeroU64;
 
 use crate::next_multiple_of;
 
@@ -348,9 +349,10 @@ mod tests {
 
 #[cfg(all(test, feature = "gpu_tests"))]
 mod gpu_tests {
+    use tests::*;
+
     use super::*;
     use crate::test_utils::MockRenderer;
-    use tests::*;
 
     #[test]
     fn abv_write() {

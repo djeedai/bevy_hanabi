@@ -107,12 +107,11 @@ use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
 use bevy::{reflect::Reflect, utils::thiserror::Error};
 use serde::{Deserialize, Serialize};
 
+use super::Value;
 use crate::{
     Attribute, ModifierContext, ParticleLayout, Property, PropertyLayout, ScalarType, ToWgslString,
     ValueType,
 };
-
-use super::Value;
 
 /// A one-based ID into a collection of a [`Module`].
 type Id = NonZeroU32;
@@ -857,7 +856,10 @@ impl Expr {
     /// # use bevy_hanabi::*;
     /// // Literal expressions always have a constant, build-time value type.
     /// let expr = Expr::Literal(LiteralExpr::new(1.));
-    /// assert_eq!(expr.value_type(), Some(ValueType::Scalar(ScalarType::Float)));
+    /// assert_eq!(
+    ///     expr.value_type(),
+    ///     Some(ValueType::Scalar(ScalarType::Float))
+    /// );
     /// ```
     ///
     /// [`eval()`]: crate::graph::Expr::eval
@@ -1910,8 +1912,8 @@ impl ToWgslString for TernaryOperator {
 /// let init_modifier = SetAttributeModifier::new(Attribute::LIFETIME, expr);
 ///
 /// // Create an EffectAsset with the modifier and the Module from the writer
-/// let effect = EffectAsset::new(vec![1024], Spawner::rate(32_f32.into()), w.finish())
-///     .init(init_modifier);
+/// let effect =
+///     EffectAsset::new(vec![1024], Spawner::rate(32_f32.into()), w.finish()).init(init_modifier);
 /// ```
 ///
 /// [`finish()`]: ExprWriter::finish
@@ -2141,7 +2143,9 @@ impl ExprWriter {
 /// let my_prop = w.add_property("my_prop", 3.0.into());
 ///
 /// // x = max(-3.5 + 1., properties.my_prop) * 0.5 - particle.position;
-/// let x = (w.lit(-3.5) + w.lit(1.)).max(w.prop(my_prop)).mul(w.lit(0.5))
+/// let x = (w.lit(-3.5) + w.lit(1.))
+///     .max(w.prop(my_prop))
+///     .mul(w.lit(0.5))
 ///     .sub(w.attr(Attribute::POSITION));
 ///
 /// let handle: ExprHandle = x.expr();
@@ -2818,8 +2822,8 @@ impl WriterExpr {
     ///
     /// // The sum of both vectors `z = x + y;`.
     /// let z = x.add(y); // == vec2<f32>(4., 3.)
-    /// // -OR-
-    /// // let z = x + y;
+    ///                   // -OR-
+    ///                   // let z = x + y;
     /// ```
     #[allow(clippy::should_implement_trait)]
     #[inline]
@@ -2926,8 +2930,8 @@ impl WriterExpr {
     ///
     /// // The quotient of both vectors `z = x / y;`.
     /// let z = x.div(y); // == vec2<f32>(3., -0.4)
-    /// // -OR-
-    /// // let z = x / y;
+    ///                   // -OR-
+    ///                   // let z = x / y;
     /// ```
     #[allow(clippy::should_implement_trait)]
     #[inline]
@@ -3111,8 +3115,8 @@ impl WriterExpr {
     ///
     /// // The product of both vectors `z = x * y;`.
     /// let z = x.mul(y); // == vec2<f32>(3., -10.)
-    /// // -OR-
-    /// // let z = x * y;
+    ///                   // -OR-
+    ///                   // let z = x * y;
     /// ```
     #[allow(clippy::should_implement_trait)]
     #[inline]
@@ -3195,8 +3199,8 @@ impl WriterExpr {
     ///
     /// // The difference of both vectors `z = x - y;`.
     /// let z = x.sub(y); // == vec2<f32>(2., -7.)
-    /// // -OR-
-    /// // let z = x - y;
+    ///                   // -OR-
+    ///                   // let z = x - y;
     /// ```
     #[allow(clippy::should_implement_trait)]
     #[inline]
@@ -3435,10 +3439,10 @@ impl std::ops::Rem<WriterExpr> for WriterExpr {
 
 #[cfg(test)]
 mod tests {
-    use crate::{MatrixType, ScalarValue, ShaderWriter, VectorType};
+    use bevy::{prelude::*, utils::HashSet};
 
     use super::*;
-    use bevy::{prelude::*, utils::HashSet};
+    use crate::{MatrixType, ScalarValue, ShaderWriter, VectorType};
 
     #[test]
     fn module() {

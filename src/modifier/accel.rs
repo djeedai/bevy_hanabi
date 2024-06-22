@@ -312,9 +312,8 @@ impl Modifier for TangentAccelModifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ParticleLayout, Property, PropertyLayout, ToWgslString};
-
     use super::*;
+    use crate::{ParticleLayout, Property, PropertyLayout, ToWgslString};
 
     #[test]
     fn mod_accel() {

@@ -1,7 +1,6 @@
 //! Test that an empty (invalid) bundle doesn't produce any error.
 
 use bevy::{app::AppExit, core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*};
-
 use bevy_hanabi::prelude::*;
 
 #[derive(Default, Resource)]

@@ -1,3 +1,5 @@
+use std::f32::consts::PI;
+
 use bevy::{
     core_pipeline::tonemapping::Tonemapping,
     log::LogPlugin,
@@ -6,11 +8,9 @@ use bevy::{
         render_resource::WgpuFeatures, settings::WgpuSettings, view::RenderLayers, RenderPlugin,
     },
 };
+use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use std::f32::consts::PI;
-
-use bevy_hanabi::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut wgpu_settings = WgpuSettings::default();

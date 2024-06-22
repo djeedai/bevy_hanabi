@@ -18,10 +18,9 @@ use bevy::{
         camera::ScalingMode, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
     },
 };
+use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-
-use bevy_hanabi::prelude::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut wgpu_settings = WgpuSettings::default();

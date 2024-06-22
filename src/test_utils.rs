@@ -1,8 +1,8 @@
-#[cfg(feature = "gpu_tests")]
-use bevy::render::renderer::{RenderDevice, RenderQueue};
+use std::ops::Sub;
 
 use bevy::prelude::{Quat, Vec2, Vec3, Vec4};
-use std::ops::Sub;
+#[cfg(feature = "gpu_tests")]
+use bevy::render::renderer::{RenderDevice, RenderQueue};
 
 /// Utility trait to compare floating-point values with a tolerance.
 pub(crate) trait AbsDiffEq {
@@ -90,7 +90,7 @@ impl AbsDiffEq for Quat {
 ///
 /// ```
 /// let x = 3.500009;
-/// assert_approx_eq!(x, 3.5);       // default tolerance 1e-5
+/// assert_approx_eq!(x, 3.5); // default tolerance 1e-5
 ///
 /// let x = 3.509;
 /// assert_approx_eq!(x, 3.5, 0.01); // explicit tolerance

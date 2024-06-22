@@ -1,8 +1,9 @@
 //! Modifiers to influence the output (rendering) of each particle.
 
+use std::hash::Hash;
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::hash::Hash;
 
 use crate::{
     impl_mod_render, Attribute, BoxedModifier, CpuValue, EvalContext, ExprError, ExprHandle,
@@ -499,21 +500,29 @@ axis_z = cross(axis_x, axis_y);
 /// let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 ///
 /// // sprite_index = i32(particle.age) % 4;
-/// let sprite_index = writer.attr(Attribute::AGE).cast(ScalarType::Int).rem(writer.lit(4i32)).expr();
+/// let sprite_index = writer
+///     .attr(Attribute::AGE)
+///     .cast(ScalarType::Int)
+///     .rem(writer.lit(4i32))
+///     .expr();
 /// let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
 ///
-/// let asset = EffectAsset::new(vec![32768], Spawner::once(32.0.into(), true), writer.finish())
-///     .with_name("flipbook")
-///     .init(init_age)
-///     .init(init_lifetime)
-///     .update(update_sprite_index)
-///     .render(ParticleTextureModifier {
-///         texture,
-///         sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
-///     })
-///     .render(FlipbookModifier {
-///         sprite_grid_size: UVec2::new(2, 2), // 4 frames
-///     });
+/// let asset = EffectAsset::new(
+///     vec![32768],
+///     Spawner::once(32.0.into(), true),
+///     writer.finish(),
+/// )
+/// .with_name("flipbook")
+/// .init(init_age)
+/// .init(init_lifetime)
+/// .update(update_sprite_index)
+/// .render(ParticleTextureModifier {
+///     texture,
+///     sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
+/// })
+/// .render(FlipbookModifier {
+///     sprite_grid_size: UVec2::new(2, 2), // 4 frames
+/// });
 /// ```
 ///
 /// # Attributes
@@ -697,9 +706,8 @@ impl RoundModifier {
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
-
     use super::*;
+    use crate::*;
 
     #[test]
     fn mod_particle_texture() {

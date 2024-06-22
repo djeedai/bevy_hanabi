@@ -7,10 +7,9 @@ use bevy::{
         RenderPlugin,
     },
 };
+use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-
-use bevy_hanabi::prelude::*;
 
 /// Set this to `true` to enable WGPU downlevel constraints. This is disabled by
 /// default to prevent the example from failing to start on devices with a

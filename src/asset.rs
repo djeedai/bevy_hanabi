@@ -1,10 +1,11 @@
+use std::ops::Deref;
+
 use bevy::{
     asset::{io::Reader, Asset, AssetLoader, AsyncReadExt, LoadContext},
     reflect::Reflect,
     utils::{default, thiserror::Error, BoxedFuture, HashSet},
 };
 use serde::{Deserialize, Serialize};
-use std::ops::Deref;
 
 use crate::{
     modifier::{Modifier, RenderModifier},
@@ -720,9 +721,8 @@ impl AssetLoader for EffectAssetLoader {
 mod tests {
     use ron::ser::PrettyConfig;
 
-    use crate::*;
-
     use super::*;
+    use crate::*;
 
     #[test]
     fn add_modifiers() {
