@@ -1314,7 +1314,7 @@ pub enum BuiltInOperator {
     /// [`Attribute::AGE`] and   [`Attribute::LIFETIME`], then the flag is
     /// re-evaluated as:
     ///
-    /// ```
+    /// ```wgsl
     /// is_alive = is_alive && (particle.age < particle.lifetime);
     /// ```
     ///
