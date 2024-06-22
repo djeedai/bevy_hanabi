@@ -3,6 +3,18 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added `BuiltInOperator::IsAlive` exposing the current state of the `is_alive` particle flag,
+  which represents whether a particle is still alive or will be deallocated at the end of the update pass.
+
+### Fixed
+
+- Prevented an error from being emitted when a GPU pipeline is still being created. (#341)
+- Fixed a panic when a particle effect as an invalid asset handle. (#343)
+
 ## [0.11.0] 2024-05-29
 
 ### Added

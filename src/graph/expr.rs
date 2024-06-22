@@ -1244,20 +1244,35 @@ impl CastExpr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum BuiltInOperator {
     /// Current effect system simulation time since startup, in seconds.
+    ///
     /// This is based on the
     /// [`Time<EffectSimulation>`](crate::time::EffectSimulation) clock.
+    ///
+    /// Type: `f32`
     Time,
     /// Delta time, in seconds, since last effect system update.
+    ///
+    /// Type: `f32`
     DeltaTime,
     /// Current virtual time since startup, in seconds.
+    ///
     /// This is based on the [`Time<Virtual>`](bevy::time::Virtual) clock.
+    ///
+    /// Type: `f32`
     VirtualTime,
     /// Virtual delta time, in seconds, since last effect system update.
+    ///
+    /// Type: `f32`
     VirtualDeltaTime,
     /// Current real time since startup, in seconds.
+    ///
     /// This is based on the [`Time<Time>`](bevy::time::Real) clock.
+    ///
+    /// Type: `f32`
     RealTime,
     /// Real delta time, in seconds, since last effect system update.
+    ///
+    /// Type: `f32`
     RealDeltaTime,
     /// Random unit value of the given type.
     ///
@@ -1268,6 +1283,8 @@ pub enum BuiltInOperator {
     /// The random number generator is from [the PCG family] of PRNGs, and is
     /// implemented directly inside the shader, and running on the GPU
     /// exclusively. It's seeded by the [`Spawner`].
+    ///
+    /// Type: Same as its [`ValueType`].
     ///
     /// [the PCG family]: https://www.pcg-random.org/
     /// [`Spawner`]: crate::Spawner
@@ -1281,8 +1298,34 @@ pub enum BuiltInOperator {
     /// The value is initalized at the beginning of the fragment shader to the
     /// expression stored in [`AlphaMode::Mask`].
     ///
+    /// Type: `f32`
+    ///
     /// [`AlphaMode::Mask`]: crate::AlphaMode::Mask
     AlphaCutoff,
+    /// Alive flag for the particle.
+    ///
+    /// The alive flag is initialized at the beginning of the update pass:
+    /// - If the particle has both the [`Attribute::AGE`] and
+    ///   [`Attribute::LIFETIME`], then the initial value at the beginning of
+    ///   the update pass is `age < lifetime`.
+    /// - Otherwise, the initial value is `true`.
+    ///
+    /// At the end of the update pass, if the particle has both the
+    /// [`Attribute::AGE`] and   [`Attribute::LIFETIME`], then the flag is
+    /// re-evaluated as:
+    ///
+    /// ```
+    /// is_alive = is_alive && (particle.age < particle.lifetime);
+    /// ```
+    ///
+    /// If the flag is `false` after that, the particle is considered dead and
+    /// it's deallocated.
+    ///
+    /// This flag is only available in the update pass. Attempting to use it
+    /// inside either the init or render passes will generate an invalid shader.
+    ///
+    /// Type: `bool`
+    IsAlive,
 }
 
 impl BuiltInOperator {
@@ -1322,6 +1365,7 @@ impl BuiltInOperator {
                 ValueType::Matrix(_) => panic!("Invalid BuiltInOperator::Rand(ValueType::Matrix)."),
             },
             BuiltInOperator::AlphaCutoff => "alpha_cutoff",
+            BuiltInOperator::IsAlive => "is_alive",
         }
     }
 
@@ -1336,6 +1380,7 @@ impl BuiltInOperator {
             BuiltInOperator::RealDeltaTime => ValueType::Scalar(ScalarType::Float),
             BuiltInOperator::Rand(value_type) => *value_type,
             BuiltInOperator::AlphaCutoff => ValueType::Scalar(ScalarType::Float),
+            BuiltInOperator::IsAlive => ValueType::Scalar(ScalarType::Bool),
         }
     }
 
@@ -1351,6 +1396,7 @@ impl ToWgslString for BuiltInOperator {
     fn to_wgsl_string(&self) -> String {
         match self {
             BuiltInOperator::Rand(_) => format!("{}()", self.name()),
+            BuiltInOperator::IsAlive => "is_alive".to_string(),
             _ => format!("sim_params.{}", self.name()),
         }
     }
@@ -3614,7 +3660,15 @@ mod tests {
     fn builtin_expr() {
         let mut m = Module::default();
 
-        for op in [BuiltInOperator::Time, BuiltInOperator::DeltaTime] {
+        // Simulation parameters
+        for op in [
+            BuiltInOperator::Time,
+            BuiltInOperator::DeltaTime,
+            BuiltInOperator::VirtualTime,
+            BuiltInOperator::VirtualDeltaTime,
+            BuiltInOperator::RealTime,
+            BuiltInOperator::RealDeltaTime,
+        ] {
             let value = m.builtin(op);
 
             let property_layout = PropertyLayout::default();
@@ -3626,6 +3680,21 @@ mod tests {
             assert!(expr.is_ok());
             let expr = expr.unwrap();
             assert_eq!(expr, format!("sim_params.{}", op.name()));
+        }
+
+        // is_alive
+        {
+            let value = m.builtin(BuiltInOperator::IsAlive);
+
+            let property_layout = PropertyLayout::default();
+            let particle_layout = ParticleLayout::default();
+            let mut ctx =
+                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+
+            let expr = ctx.eval(&m, value);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            assert_eq!(expr, "is_alive");
         }
 
         // BuiltInOperator::Rand (which has side effect)
