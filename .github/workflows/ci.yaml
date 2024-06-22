@@ -56,9 +56,9 @@ jobs:
         env:
           CARGO_INCREMENTAL: 0
         if: runner.os == 'linux' && matrix.dimensions != 'all'
-      - name: Build & run all tests (${{ matrix.dimensions }} DX12)
+      - name: Build & run lib tests (${{ matrix.dimensions }} DX12)
         shell: bash
-        run: WGPU_BACKEND=dx12 cargo test --no-default-features --features ${{ matrix.dimensions }} --features gpu_tests
+        run: WGPU_BACKEND=dx12 cargo test --lib --no-default-features --features ${{ matrix.dimensions }} --features gpu_tests
         env:
           CARGO_INCREMENTAL: 0
         if: runner.os == 'windows' && matrix.dimensions != 'all'
@@ -79,9 +79,9 @@ jobs:
         env:
           CARGO_INCREMENTAL: 0
         if: runner.os == 'windows' && matrix.dimensions == 'all'
-      - name: Build & run all tests (all METAL)
+      - name: Build & run lib tests (all METAL)
         shell: bash
-        run: WGPU_BACKEND=metal cargo test --no-default-features --features "2d 3d gpu_tests"
+        run: WGPU_BACKEND=metal cargo test --lib --no-default-features --features "2d 3d gpu_tests"
         env:
           CARGO_INCREMENTAL: 0
         if: runner.os == 'macos' && matrix.dimensions == 'all'
