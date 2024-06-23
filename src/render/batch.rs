@@ -11,7 +11,7 @@ use super::{
     effect_cache::{DispatchBufferIndices, EffectSlices},
     EffectCacheId, GpuCompressedTransform, LayoutFlags,
 };
-use crate::{BlendingMode, EffectAsset, EffectShader, ParticleLayout, PropertyLayout};
+use crate::{AlphaMode, EffectAsset, EffectShader, ParticleLayout, PropertyLayout};
 
 /// Data needed to render all batches pertaining to a specific effect.
 #[derive(Debug, Component)]
