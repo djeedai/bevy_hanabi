@@ -41,6 +41,8 @@ use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
+mod utils;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut wgpu_settings = WgpuSettings::default();
     wgpu_settings
@@ -48,13 +50,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
 
     let mut app = App::default();
-    app.insert_resource(ClearColor(Color::DARK_GRAY))
+    app.insert_resource(ClearColor(Color::BLACK))
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,billboard=trace".to_string(),
-                     custom_layer: default(),
+                    ..default()
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
@@ -74,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.add_plugins(WorldInspectorPlugin::default());
 
     app.add_systems(Startup, setup)
-        .add_systems(Update, (bevy::window::close_on_esc, rotate_camera))
+        .add_systems(Update, (utils::close_on_esc, rotate_camera))
         .run();
 
     Ok(())
@@ -178,7 +180,7 @@ fn setup(
             mesh: meshes.add(Rectangle {
                 half_size: Vec2::splat(2.0),
             }),
-            material: materials.add(Color::BLUE),
+            material: materials.add(utils::COLOR_BLUE),
             transform: Transform::from_xyz(0.0, -0.5, 0.0)
                 * Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
             ..Default::default()

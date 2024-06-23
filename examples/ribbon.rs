@@ -10,6 +10,8 @@ use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
+mod utils;
+
 // These determine the shape of the Spirograph:
 // https://en.wikipedia.org/wiki/Spirograph#Mathematical_basis
 const K: f32 = 0.64;
@@ -30,7 +32,7 @@ fn main() {
         ..default()
     }))
     .add_plugins(HanabiPlugin)
-    .add_systems(Update, bevy::window::close_on_esc)
+    .add_systems(Update, utils::close_on_esc)
     .add_systems(Startup, setup)
     .add_systems(Update, move_particle_effect);
 

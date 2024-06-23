@@ -95,9 +95,9 @@ pub enum SimulationCondition {
 /// are multiple alpha blending techniques available, producing different
 /// results.
 ///
-/// This is very similar to the `bevy::pbr::AlphaMode` of the `bevy_pbr` crate,
-/// except that a different set of values is supported which reflects what this
-/// library currently supports.
+/// This is very similar to the `bevy::prelude::AlphaMode` of the `bevy_pbr`
+/// crate, except that a different set of values is supported which reflects
+/// what this library currently supports.
 ///
 /// The alpha mode only affects the render phase that particles are rendered
 /// into when rendering 3D views. For 2D views, all particle effects are

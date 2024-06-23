@@ -15,6 +15,8 @@ use bevy_hanabi::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use rand::Rng;
 
+mod utils;
+
 #[derive(Default, Resource)]
 struct InstanceManager {
     effect: Handle<EffectAsset>,
@@ -180,7 +182,7 @@ fn main() {
             .set(LogPlugin {
                 level: bevy::log::Level::WARN,
                 filter: "bevy_hanabi=warn,instancing=trace".to_string(),
-                 custom_layer: default(),
+                ..default()
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
@@ -197,7 +199,7 @@ fn main() {
 
     app.insert_resource(InstanceManager::new(5, 4))
         .add_systems(Startup, setup)
-        .add_systems(Update, (bevy::window::close_on_esc, keyboard_input_system))
+        .add_systems(Update, (utils::close_on_esc, keyboard_input_system))
         //.add_system(stress_test.after(keyboard_input_system))
         .run();
 }
@@ -233,7 +235,7 @@ fn setup(
     let mesh = meshes.add(Cuboid {
         half_size: Vec3::splat(0.5),
     });
-    let mat = materials.add(Color::PURPLE);
+    let mat = materials.add(utils::COLOR_PURPLE);
 
     let mut gradient = Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));

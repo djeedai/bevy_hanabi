@@ -8,11 +8,11 @@ struct Frame(pub u32);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::default();
-    app.insert_resource(ClearColor(Color::DARK_GRAY))
+    app.insert_resource(ClearColor(Color::BLACK))
         .add_plugins(DefaultPlugins.set(LogPlugin {
             level: bevy::log::Level::INFO,
             filter: "bevy_hanabi=debug".to_string(),
-             custom_layer: default(),
+            ..default()
         }))
         .add_plugins(HanabiPlugin)
         .init_resource::<Frame>()
@@ -35,6 +35,6 @@ fn timeout(mut frame: ResMut<Frame>, mut ev_app_exit: EventWriter<AppExit>) {
     frame.0 += 1;
     if frame.0 >= 10 {
         info!("SUCCESS!");
-        ev_app_exit.send(AppExit);
+        ev_app_exit.send(AppExit::Success);
     }
 }

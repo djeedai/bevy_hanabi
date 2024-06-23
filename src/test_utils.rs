@@ -1,8 +1,11 @@
 use std::ops::Sub;
 
-use bevy::{prelude::{Quat, Vec2, Vec3, Vec4}, render::renderer::WgpuWrapper};
 #[cfg(feature = "gpu_tests")]
 use bevy::render::renderer::{RenderDevice, RenderQueue};
+use bevy::{
+    prelude::{Quat, Vec2, Vec3, Vec4},
+    render::renderer::WgpuWrapper,
+};
 
 /// Utility trait to compare floating-point values with a tolerance.
 pub(crate) trait AbsDiffEq {

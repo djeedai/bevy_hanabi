@@ -126,7 +126,10 @@ use std::{any::Any, borrow::Cow, num::NonZeroU64};
 use bevy::{
     math::{Vec2, Vec3, Vec4},
     reflect::{
-        utility::{GenericTypePathCell, NonGenericTypeInfoCell}, DynamicStruct, FieldIter, FromReflect, FromType, GetTypeRegistration, NamedField, Reflect, ReflectDeserialize, ReflectFromReflect, ReflectMut, ReflectOwned, ReflectRef, ReflectSerialize, Struct, StructInfo, TypeInfo, TypePath, TypeRegistration, Typed
+        utility::{GenericTypePathCell, NonGenericTypeInfoCell},
+        DynamicStruct, FieldIter, FromReflect, FromType, GetTypeRegistration, NamedField, Reflect,
+        ReflectDeserialize, ReflectFromReflect, ReflectMut, ReflectOwned, ReflectRef,
+        ReflectSerialize, Struct, StructInfo, TypeInfo, TypePath, TypeRegistration, Typed,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -801,7 +804,7 @@ impl Reflect for Attribute {
     fn reflect_owned(self: Box<Self>) -> ReflectOwned {
         ReflectOwned::Struct(self)
     }
-    
+
     fn try_apply(&mut self, _value: &dyn Reflect) -> Result<(), bevy::reflect::ApplyError> {
         todo!()
     }

@@ -9,7 +9,7 @@ use bevy::{
         render_phase::DrawFunctions,
         render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
         renderer::{RenderAdapterInfo, RenderDevice},
-        view::{prepare_view_uniforms, visibility::VisibilitySystems},
+        view::{check_visibility, prepare_view_uniforms, visibility::VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
     time::{time_system, TimeSystem},
@@ -30,7 +30,8 @@ use crate::{
     spawn::{self, Random},
     tick_spawners,
     time::effect_simulation_time_system,
-    update_properties_from_asset, EffectSimulation, ParticleEffect, RemovedEffectsEvent, Spawner,
+    update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
+    RemovedEffectsEvent, Spawner,
 };
 
 /// Labels for the Hanabi systems.
@@ -169,6 +170,10 @@ impl HanabiPlugin {
     }
 }
 
+/// A convenient alias for `With<Handle<CompiledParticleEffect>>`, for use with
+/// [`bevy_render::view::VisibleEntities`].
+pub type WithCompiledParticleEffect = With<CompiledParticleEffect>;
+
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
         // Register asset
@@ -206,6 +211,8 @@ impl Plugin for HanabiPlugin {
                     compile_effects.in_set(EffectSystems::CompileEffects),
                     update_properties_from_asset.in_set(EffectSystems::UpdatePropertiesFromAsset),
                     gather_removed_effects.in_set(EffectSystems::GatherRemovedEffects),
+                    check_visibility::<WithCompiledParticleEffect>
+                        .in_set(VisibilitySystems::CheckVisibility),
                 ),
             );
 
@@ -335,7 +342,10 @@ impl Plugin for HanabiPlugin {
         let mut simulate_graph = RenderGraph::default();
         let simulate_node = VfxSimulateNode::new(render_app.world_mut());
         simulate_graph.add_node(simulate_graph::node::HanabiSimulateNode, simulate_node);
-        let mut graph = render_app.world().get_resource_mut::<RenderGraph>().unwrap();
+        let mut graph = render_app
+            .world_mut()
+            .get_resource_mut::<RenderGraph>()
+            .unwrap();
         graph.add_sub_graph(simulate_graph::HanabiSimulateGraph, simulate_graph);
 
         // Add the simulation driver node which executes the simulation sub-graph. It

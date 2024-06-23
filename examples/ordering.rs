@@ -18,6 +18,8 @@ use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
+mod utils;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::default();
     app.add_plugins(
@@ -25,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .set(LogPlugin {
                 level: bevy::log::Level::WARN,
                 filter: "bevy_hanabi=warn,firework=trace".to_string(),
-                 custom_layer: default(),
+                ..default()
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
@@ -35,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..default()
             }),
     )
-    .add_systems(Update, bevy::window::close_on_esc)
+    .add_systems(Update, utils::close_on_esc)
     .add_plugins(HanabiPlugin);
 
     #[cfg(feature = "examples_world_inspector")]
@@ -152,8 +154,8 @@ fn setup(
             half_size: Vec2 { x: 0.5, y: 0.5 },
         })),
         material: materials.add(StandardMaterial {
-            base_color: Color::rgba(1., 0., 0., 0.5),
-            alpha_mode: bevy::pbr::AlphaMode::Blend,
+            base_color: Color::linear_rgba(1., 0., 0., 0.5),
+            alpha_mode: bevy::prelude::AlphaMode::Blend,
             ..default()
         }),
         transform: Transform {
@@ -171,8 +173,8 @@ fn setup(
         material: materials.add(StandardMaterial {
             // Keep the alpha quite high, because the particles are very bright (HDR, value=4.)
             // so otherwise we can't see the attenuation of the blue box over the white particles.
-            base_color: Color::rgba(0., 0., 1., 0.95),
-            alpha_mode: bevy::pbr::AlphaMode::Blend,
+            base_color: Color::linear_rgba(0., 0., 1., 0.95),
+            alpha_mode: bevy::prelude::AlphaMode::Blend,
             ..default()
         }),
         transform: Transform {
@@ -189,8 +191,8 @@ fn setup(
             half_size: Vec2 { x: 0.5, y: 0.5 },
         })),
         material: materials.add(StandardMaterial {
-            base_color: Color::GREEN,
-            alpha_mode: bevy::pbr::AlphaMode::Opaque,
+            base_color: utils::COLOR_GREEN,
+            alpha_mode: bevy::prelude::AlphaMode::Opaque,
             ..default()
         }),
         transform: Transform {

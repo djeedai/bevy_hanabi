@@ -79,8 +79,8 @@
 //! # use bevy::prelude::*;
 //! fn change_property(mut query: Query<&mut EffectProperties>) {
 //!     let mut effect_properties = query.single_mut();
-//!     let color = Color::RED.as_rgba_u32();
-//!     // If the current color is not already Color::RED, it will be updated, and
+//!     let color = LinearRgba::rgb(1., 0., 0.).as_u32();
+//!     // If the current color is not already red, it will be updated, and
 //!     // the properties will be re-uploaded to the GPU.
 //!     EffectProperties::set_if_changed(effect_properties, "my_color", color.into());
 //! }

@@ -22,6 +22,8 @@ use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
+mod utils;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut wgpu_settings = WgpuSettings::default();
     wgpu_settings
@@ -29,13 +31,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
 
     let mut app = App::default();
-    app.insert_resource(ClearColor(Color::DARK_GRAY))
+    app.insert_resource(ClearColor(Color::BLACK))
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,visibility=trace".to_string(),
-                     custom_layer: default(),
+                    ..default()
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
@@ -55,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.add_plugins(WorldInspectorPlugin::default());
 
     app.add_systems(Startup, setup)
-        .add_systems(Update, (bevy::window::close_on_esc, update))
+        .add_systems(Update, (utils::close_on_esc, update))
         .run();
 
     Ok(())
@@ -88,7 +90,7 @@ fn setup(
     let cube = meshes.add(Cuboid {
         half_size: Vec3::splat(0.5),
     });
-    let mat = materials.add(Color::PURPLE);
+    let mat = materials.add(utils::COLOR_PURPLE);
 
     let mut gradient = Gradient::new();
     gradient.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
