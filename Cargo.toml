@@ -161,6 +161,8 @@ required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 name = "empty_effect"
 path = "gpu_tests/empty_effect.rs"
 harness = false
+# Bug in 0.14-rc.2+: https://github.com/bevyengine/bevy/issues/13728
+required-features = [ "bevy/ktx2" ]
 
 [workspace]
 resolver = "2"

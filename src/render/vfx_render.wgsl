@@ -39,7 +39,7 @@ struct VertexOutput {
 // #endif
 
 fn get_camera_position_effect_space() -> vec3<f32> {
-    let view_pos = view.view[3].xyz;
+    let view_pos = view.world_from_view[3].xyz;
 #ifdef LOCAL_SPACE_SIMULATION
     let inverse_transform = transpose(
         mat3x3(
@@ -55,7 +55,7 @@ fn get_camera_position_effect_space() -> vec3<f32> {
 }
 
 fn get_camera_rotation_effect_space() -> mat3x3<f32> {
-    let view_rot = mat3x3(view.view[0].xyz, view.view[1].xyz, view.view[2].xyz);
+    let view_rot = mat3x3(view.world_from_view[0].xyz, view.world_from_view[1].xyz, view.world_from_view[2].xyz);
 #ifdef LOCAL_SPACE_SIMULATION
     let inverse_transform = transpose(
         mat3x3(
@@ -102,7 +102,7 @@ fn transform_position_simulation_to_world(sim_position: vec3<f32>) -> vec4<f32> 
 /// The clip space is the final [-1:1]^3 space output from the vertex shader, before
 /// perspective divide and viewport transform are applied.
 fn transform_position_simulation_to_clip(sim_position: vec3<f32>) -> vec4<f32> {
-    return view.view_proj * transform_position_simulation_to_world(sim_position);
+    return view.clip_from_world * transform_position_simulation_to_world(sim_position);
 }
 
 {{RENDER_EXTRA}}

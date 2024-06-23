@@ -428,7 +428,7 @@ axis_z = cam_rot[2].xyz;
 let particle_rot_in_cam_space = {};
 let particle_rot_in_cam_space_cos = cos(particle_rot_in_cam_space);
 let particle_rot_in_cam_space_sin = sin(particle_rot_in_cam_space);
-let axis_x0 = normalize(cross(view.view[1].xyz, axis_z));
+let axis_x0 = normalize(cross(view.world_from_view[1].xyz, axis_z));
 let axis_y0 = cross(axis_z, axis_x0);
 axis_x = axis_x0 * particle_rot_in_cam_space_cos + axis_y0 * particle_rot_in_cam_space_sin;
 axis_y = axis_x0 * particle_rot_in_cam_space_sin - axis_y0 * particle_rot_in_cam_space_cos;
@@ -437,7 +437,7 @@ axis_y = axis_x0 * particle_rot_in_cam_space_sin - axis_y0 * particle_rot_in_cam
                     );
                 } else {
                     context.vertex_code += r#"axis_z = normalize(get_camera_position_effect_space() - position);
-axis_x = normalize(cross(view.view[1].xyz, axis_z));
+axis_x = normalize(cross(view.world_from_view[1].xyz, axis_z));
 axis_y = cross(axis_z, axis_x);
 "#;
                 }
@@ -617,7 +617,7 @@ impl RenderModifier for ScreenSpaceSizeModifier {
         context.vertex_code += &format!(
             "let w_cs = transform_position_simulation_to_clip(particle.{0}).w;\n
             let screen_size_pixels = view.viewport.zw;\n
-            let projection_scale = vec2<f32>(view.projection[0][0], view.projection[1][1]);\n
+            let projection_scale = vec2<f32>(view.clip_from_view[0][0], view.clip_from_view[1][1]);\n
             size = (size * w_cs * 2.0) / min(screen_size_pixels.x * projection_scale.x, screen_size_pixels.y * projection_scale.y);\n",
             Attribute::POSITION.name());
     }

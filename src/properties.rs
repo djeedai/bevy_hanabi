@@ -48,7 +48,7 @@
 //! # use bevy_hanabi::*;
 //! # use bevy::prelude::*;
 //! let mut module = Module::default();
-//! module.add_property("my_color", Color::WHITE.as_rgba_u32().into());
+//! module.add_property("my_color", LinearRgba::WHITE.as_u32().into());
 //! ```
 //!
 //! Once the module is assigned to an [`EffectAsset`], any instance of that
