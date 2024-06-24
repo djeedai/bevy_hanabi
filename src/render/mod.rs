@@ -2385,8 +2385,10 @@ fn emit_sorted_draw<T, F>(
     T: SortedPhaseItem,
     F: Fn(CachedRenderPipelineId, Entity, &EffectDrawBatch, u32, &ExtractedView) -> T,
 {
+    trace!("emit_sorted_draw() {} views", views.iter().len());
+
     for (view_entity, visible_entities, view) in views.iter() {
-        trace!("Process new view");
+        trace!("Process new sorted view");
 
         let Some(render_phase) = render_phases.get_mut(&view_entity) else {
             continue;
@@ -2547,8 +2549,10 @@ fn emit_binned_draw<T, F>(
     T: BinnedPhaseItem,
     F: Fn(CachedRenderPipelineId, &EffectDrawBatch, u32, &ExtractedView) -> T::BinKey,
 {
+    trace!("emit_binned_draw() {} views", views.iter().len());
+
     for (view_entity, visible_entities, view) in views.iter() {
-        trace!("Process new view (use_alpha_mask={})", use_alpha_mask);
+        trace!("Process new binned view (use_alpha_mask={})", use_alpha_mask);
 
         let Some(render_phase) = render_phases.get_mut(&view_entity) else {
             continue;

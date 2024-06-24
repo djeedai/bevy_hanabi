@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
 
     let mut app = App::default();
-    app.insert_resource(ClearColor(Color::BLACK))
+    app.insert_resource(ClearColor(Color::linear_rgb(0.1, 0.1, 0.1)))
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {

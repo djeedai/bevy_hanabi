@@ -150,17 +150,21 @@ fn setup(
         ));
     }
 
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
-            color: Color::WHITE,
-            // Crank the illuminance way (too) high to make the reference cube clearly visible
-            illuminance: 100000.,
-            shadows_enabled: false,
+    commands.spawn((
+        DirectionalLightBundle {
+            directional_light: DirectionalLight {
+                color: Color::WHITE,
+                // Crank the illuminance way (too) high to make the reference cube clearly visible
+                illuminance: 100000.,
+                shadows_enabled: false,
+                ..Default::default()
+            },
+            transform: Transform::from_rotation(Quat::from_euler(EulerRot::ZYX, 1.7, 2.4, 0.)),
             ..Default::default()
         },
-        transform: Transform::from_rotation(Quat::from_euler(EulerRot::ZYX, 1.7, 2.4, 0.)),
-        ..Default::default()
-    });
+        // The light affects all the views
+        RenderLayers::from_layers(&[0, 1, 2, 3]),
+    ));
 
     let cube = meshes.add(Cuboid {
         half_size: Vec3::splat(0.5),
