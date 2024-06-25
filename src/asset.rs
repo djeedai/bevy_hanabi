@@ -103,7 +103,7 @@ pub enum SimulationCondition {
 /// rendered during the [`Transparent2d`] render phase.
 ///
 /// [`Transparent2d`]: bevy::core_pipeline::core_2d::Transparent2d
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Reflect, Serialize, Deserialize, Hash)]
 #[non_exhaustive]
 pub enum AlphaMode {
     /// Render the effect with alpha blending.
@@ -126,6 +126,33 @@ pub enum AlphaMode {
     /// [`Transparent3d`]: bevy::core_pipeline::core_3d::Transparent3d
     #[default]
     Blend,
+
+    /// Similar to [`AlphaMode::Blend`], however assumes RGB channel values are
+    /// [premultiplied](https://en.wikipedia.org/wiki/Alpha_compositing#Straight_versus_premultiplied).
+    ///
+    /// For otherwise constant RGB values, behaves more like [`AlphaMode::Blend`] for
+    /// alpha values closer to 1.0, and more like [`AlphaMode::Add`] for
+    /// alpha values closer to 0.0.
+    ///
+    /// Can be used to avoid “border” or “outline” artifacts that can occur
+    /// when using plain alpha-blended textures.
+    Premultiply,
+
+    /// Combines the color of the fragments with the colors behind them in an
+    /// additive process, (i.e. like light) producing lighter results.
+    ///
+    /// Black produces no effect. Alpha values can be used to modulate the result.
+    ///
+    /// Useful for effects like holograms, ghosts, lasers and other energy beams.
+    Add,
+
+    /// Combines the color of the fragments with the colors behind them in a
+    /// multiplicative process, (i.e. like pigments) producing darker results.
+    ///
+    /// White produces no effect. Alpha values can be used to modulate the result.
+    ///
+    /// Useful for effects like stained glass, window tint film and some colored liquids.
+    Multiply,
 
     /// Render the effect with alpha masking.
     ///

@@ -11,7 +11,7 @@ use super::{
     effect_cache::{DispatchBufferIndices, EffectSlices},
     EffectCacheId, GpuCompressedTransform, LayoutFlags,
 };
-use crate::{EffectAsset, EffectShader, ParticleLayout, PropertyLayout};
+use crate::{AlphaMode, EffectAsset, EffectShader, ParticleLayout, PropertyLayout};
 
 /// Data needed to render all batches pertaining to a specific effect.
 #[derive(Debug, Component)]
@@ -39,6 +39,8 @@ pub(crate) struct EffectBatches {
     pub particle_layout: ParticleLayout,
     /// Flags describing the render layout.
     pub layout_flags: LayoutFlags,
+    /// Alpha mode.
+    pub alpha_mode: AlphaMode,
     /// Entities holding the source [`ParticleEffect`] instances which were
     /// batched into this single batch. Used to determine visibility per view.
     ///
@@ -124,6 +126,7 @@ impl EffectBatches {
                 .collect(),
             handle: input.handle,
             layout_flags: input.layout_flags,
+            alpha_mode: input.alpha_mode,
             image_handle: input.image_handle,
             render_shaders: input.effect_shader.render,
             init_pipeline_id,
@@ -149,6 +152,8 @@ pub(crate) struct BatchesInput {
     pub effect_shader: EffectShader,
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
+    /// Alpha mode.
+    pub alpha_mode: AlphaMode,
     /// Texture to modulate the particle color.
     pub image_handle: Handle<Image>,
     /// Number of particles to spawn for this effect.
