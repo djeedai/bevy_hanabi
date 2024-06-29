@@ -58,7 +58,7 @@ naga_oil = { version = "0.14", default-features = false, features = ["test_shade
 #version = "0.14.0-rc.3"
 git = "https://github.com/bevyengine/bevy.git"
 default-features = false
-features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11", "bevy_pbr" ]
+features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -161,8 +161,6 @@ required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 name = "empty_effect"
 path = "gpu_tests/empty_effect.rs"
 harness = false
-# Bug in 0.14-rc.2+: https://github.com/bevyengine/bevy/issues/13728
-required-features = [ "bevy/ktx2" ]
 
 [workspace]
 resolver = "2"
