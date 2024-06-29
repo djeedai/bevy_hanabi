@@ -2549,10 +2549,15 @@ fn emit_binned_draw<T, F>(
     T: BinnedPhaseItem,
     F: Fn(CachedRenderPipelineId, &EffectDrawBatch, u32, &ExtractedView) -> T::BinKey,
 {
+    use bevy::render::render_phase::BinnedRenderPhaseType;
+
     trace!("emit_binned_draw() {} views", views.iter().len());
 
     for (view_entity, visible_entities, view) in views.iter() {
-        trace!("Process new binned view (use_alpha_mask={})", use_alpha_mask);
+        trace!(
+            "Process new binned view (use_alpha_mask={})",
+            use_alpha_mask
+        );
 
         let Some(render_phase) = render_phases.get_mut(&view_entity) else {
             continue;
@@ -2686,7 +2691,7 @@ fn emit_binned_draw<T, F>(
             render_phase.add(
                 make_bin_key(render_pipeline_id, draw_batch, draw_batch.group_index, view),
                 draw_entity,
-                false,
+                BinnedRenderPhaseType::NonMesh,
             );
         }
     }
@@ -2848,9 +2853,7 @@ pub(crate) fn queue_effects(
                 |id, _batch, _group, _view| OpaqueNoLightmap3dBinKey {
                     pipeline: id,
                     draw_function: draw_effects_function_alpha_mask,
-                    // FIXME - Use a fake mesh ID to ensure all effects are binned together?
-                    asset_id: default(), /* unused; mesh particles not currently supported for
-                                          * Hanabi */
+                    asset_id: AssetId::<Image>::default().untyped(),
                     material_bind_group_id: None,
                     // },
                     // distance: view
