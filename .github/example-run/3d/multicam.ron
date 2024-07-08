@@ -1,3 +1,5 @@
 (
-    exit_after: Some(10)
+    events: [
+        (600, AppExit),
+    ]
 )

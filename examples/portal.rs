@@ -20,6 +20,8 @@ use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
+mod utils;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::default();
     app.add_plugins(
@@ -27,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .set(LogPlugin {
                 level: bevy::log::Level::WARN,
                 filter: "bevy_hanabi=warn,portal=trace".to_string(),
-                update_subscriber: None,
+                ..default()
             })
             .set(WindowPlugin {
                 primary_window: Some(Window {
@@ -37,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..default()
             }),
     )
-    .add_systems(Update, bevy::window::close_on_esc)
+    .add_systems(Update, utils::close_on_esc)
     .add_plugins(HanabiPlugin);
 
     #[cfg(feature = "examples_world_inspector")]

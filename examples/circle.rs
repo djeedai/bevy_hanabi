@@ -16,6 +16,7 @@ use bevy_hanabi::prelude::*;
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod texutils;
+mod utils;
 
 use texutils::make_anim_img;
 
@@ -26,13 +27,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
 
     let mut app = App::default();
-    app.insert_resource(ClearColor(Color::DARK_GRAY))
+    app.insert_resource(ClearColor(Color::BLACK))
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,circle=trace".to_string(),
-                    update_subscriber: None,
+                    ..default()
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
@@ -46,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..default()
                 }),
         )
-        .add_systems(Update, bevy::window::close_on_esc)
+        .add_systems(Update, utils::close_on_esc)
         .add_plugins(HanabiPlugin);
 
     #[cfg(feature = "examples_world_inspector")]
@@ -172,7 +173,7 @@ fn setup(
             mesh: meshes.add(Rectangle {
                 half_size: Vec2::splat(2.0),
             }),
-            material: materials.add(Color::BLUE),
+            material: materials.add(utils::COLOR_BLUE),
             transform: Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
             ..Default::default()
         })
@@ -182,7 +183,7 @@ fn setup(
     commands
         .spawn(PbrBundle {
             mesh: meshes.add(Sphere { radius: 1.0 }),
-            material: materials.add(Color::CYAN),
+            material: materials.add(utils::COLOR_CYAN),
             transform: Transform::from_translation(Vec3::Y),
             ..Default::default()
         })

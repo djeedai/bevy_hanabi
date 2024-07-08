@@ -9,10 +9,10 @@ use bevy::{
         render_phase::DrawFunctions,
         render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
         renderer::{RenderAdapterInfo, RenderDevice},
-        view::{prepare_view_uniforms, visibility::VisibilitySystems},
+        view::{check_visibility, prepare_view_uniforms, visibility::VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
-    time::{virtual_time_system, TimeSystem},
+    time::{time_system, TimeSystem},
 };
 
 use crate::{
@@ -30,7 +30,8 @@ use crate::{
     spawn::{self, Random},
     tick_spawners,
     time::effect_simulation_time_system,
-    update_properties_from_asset, EffectSimulation, ParticleEffect, RemovedEffectsEvent, Spawner,
+    update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
+    RemovedEffectsEvent, Spawner,
 };
 
 /// Labels for the Hanabi systems.
@@ -169,6 +170,10 @@ impl HanabiPlugin {
     }
 }
 
+/// A convenient alias for `With<Handle<CompiledParticleEffect>>`, for use with
+/// [`bevy_render::view::VisibleEntities`].
+pub type WithCompiledParticleEffect = With<CompiledParticleEffect>;
+
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
         // Register asset
@@ -190,13 +195,13 @@ impl Plugin for HanabiPlugin {
                 ),
             )
             .configure_sets(
-                bevy::asset::UpdateAssets,
+                PreUpdate,
                 EffectSystems::UpdatePropertiesFromAsset.after(bevy::asset::TrackAssets),
             )
             .add_systems(
                 First,
                 effect_simulation_time_system
-                    .after(virtual_time_system)
+                    .after(time_system)
                     .in_set(TimeSystem),
             )
             .add_systems(
@@ -206,6 +211,8 @@ impl Plugin for HanabiPlugin {
                     compile_effects.in_set(EffectSystems::CompileEffects),
                     update_properties_from_asset.in_set(EffectSystems::UpdatePropertiesFromAsset),
                     gather_removed_effects.in_set(EffectSystems::GatherRemovedEffects),
+                    check_visibility::<WithCompiledParticleEffect>
+                        .in_set(VisibilitySystems::CheckVisibility),
                 ),
             );
 
@@ -220,12 +227,12 @@ impl Plugin for HanabiPlugin {
     fn finish(&self, app: &mut App) {
         let render_device = app
             .sub_app(RenderApp)
-            .world
+            .world()
             .resource::<RenderDevice>()
             .clone();
 
         let adapter_name = app
-            .world
+            .world()
             .get_resource::<RenderAdapterInfo>()
             .map(|ai| &ai.name[..])
             .unwrap_or("<unknown>");
@@ -246,8 +253,8 @@ impl Plugin for HanabiPlugin {
             let common_shader = HanabiPlugin::make_common_shader(
                 render_device.limits().min_storage_buffer_offset_alignment,
             );
-            let mut assets = app.world.resource_mut::<Assets<Shader>>();
-            assets.insert(HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
+            let mut assets = app.world_mut().resource_mut::<Assets<Shader>>();
+            assets.insert(&HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
         }
 
         let effects_meta = EffectsMeta::new(render_device.clone());
@@ -303,9 +310,9 @@ impl Plugin for HanabiPlugin {
         // have been recorded).
         #[cfg(feature = "2d")]
         {
-            let draw_particles = DrawEffects::new(&mut render_app.world);
+            let draw_particles = DrawEffects::new(render_app.world_mut());
             render_app
-                .world
+                .world()
                 .get_resource::<DrawFunctions<Transparent2d>>()
                 .unwrap()
                 .write()
@@ -313,17 +320,17 @@ impl Plugin for HanabiPlugin {
         }
         #[cfg(feature = "3d")]
         {
-            let draw_particles = DrawEffects::new(&mut render_app.world);
+            let draw_particles = DrawEffects::new(render_app.world_mut());
             render_app
-                .world
+                .world()
                 .get_resource::<DrawFunctions<Transparent3d>>()
                 .unwrap()
                 .write()
                 .add(draw_particles);
 
-            let draw_particles = DrawEffects::new(&mut render_app.world);
+            let draw_particles = DrawEffects::new(render_app.world_mut());
             render_app
-                .world
+                .world()
                 .get_resource::<DrawFunctions<AlphaMask3d>>()
                 .unwrap()
                 .write()
@@ -333,9 +340,12 @@ impl Plugin for HanabiPlugin {
         // Add the simulation sub-graph. This render graph runs once per frame no matter
         // how many cameras/views are active (view-independent).
         let mut simulate_graph = RenderGraph::default();
-        let simulate_node = VfxSimulateNode::new(&mut render_app.world);
+        let simulate_node = VfxSimulateNode::new(render_app.world_mut());
         simulate_graph.add_node(simulate_graph::node::HanabiSimulateNode, simulate_node);
-        let mut graph = render_app.world.get_resource_mut::<RenderGraph>().unwrap();
+        let mut graph = render_app
+            .world_mut()
+            .get_resource_mut::<RenderGraph>()
+            .unwrap();
         graph.add_sub_graph(simulate_graph::HanabiSimulateGraph, simulate_graph);
 
         // Add the simulation driver node which executes the simulation sub-graph. It

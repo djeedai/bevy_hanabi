@@ -1,7 +1,6 @@
 use std::num::NonZeroU64;
 
 use bevy::{
-    core::{cast_slice, Pod},
     log::trace,
     render::{
         render_resource::{
@@ -10,6 +9,7 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
     },
 };
+use bytemuck::{cast_slice, Pod};
 use copyless::VecHelper;
 
 use crate::next_multiple_of;

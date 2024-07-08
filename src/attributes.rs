@@ -127,8 +127,9 @@ use bevy::{
     math::{Vec2, Vec3, Vec4},
     reflect::{
         utility::{GenericTypePathCell, NonGenericTypeInfoCell},
-        DynamicStruct, FieldIter, FromReflect, NamedField, Reflect, ReflectMut, ReflectOwned,
-        ReflectRef, Struct, StructInfo, TypeInfo, TypePath, Typed,
+        DynamicStruct, FieldIter, FromReflect, FromType, GetTypeRegistration, NamedField, Reflect,
+        ReflectDeserialize, ReflectFromReflect, ReflectMut, ReflectOwned, ReflectRef,
+        ReflectSerialize, Struct, StructInfo, TypeInfo, TypePath, TypeRegistration, Typed,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -726,6 +727,16 @@ impl Struct for Attribute {
     }
 }
 
+impl GetTypeRegistration for Attribute {
+    fn get_type_registration() -> TypeRegistration {
+        let mut registration = TypeRegistration::of::<Self>();
+        registration.insert::<ReflectDeserialize>(FromType::<Self>::from_type());
+        registration.insert::<ReflectSerialize>(FromType::<Self>::from_type());
+        registration.insert::<ReflectFromReflect>(FromType::<Self>::from_type());
+        registration
+    }
+}
+
 impl Reflect for Attribute {
     fn get_represented_type_info(&self) -> Option<&'static TypeInfo> {
         Some(<Self as Typed>::type_info())
@@ -792,6 +803,10 @@ impl Reflect for Attribute {
 
     fn reflect_owned(self: Box<Self>) -> ReflectOwned {
         ReflectOwned::Struct(self)
+    }
+
+    fn try_apply(&mut self, _value: &dyn Reflect) -> Result<(), bevy::reflect::ApplyError> {
+        todo!()
     }
 }
 

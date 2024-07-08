@@ -24,6 +24,8 @@ use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
+mod utils;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut wgpu_settings = WgpuSettings::default();
     wgpu_settings
@@ -31,13 +33,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
 
     let mut app = App::default();
-    app.insert_resource(ClearColor(Color::DARK_GRAY))
+    app.insert_resource(ClearColor(Color::BLACK))
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,force_field=trace".to_string(),
-                    update_subscriber: None,
+                    ..default()
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
@@ -64,10 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
     app.add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (bevy::window::close_on_esc, spawn_on_click, move_repulsor),
-        )
+        .add_systems(Update, (utils::close_on_esc, spawn_on_click, move_repulsor))
         .run();
 
     Ok(())
@@ -213,7 +212,7 @@ fn setup(
             radius: BALL_RADIUS * 2.0,
         })),
         material: materials.add(StandardMaterial {
-            base_color: Color::YELLOW,
+            base_color: utils::COLOR_YELLOW,
             unlit: false,
             ..Default::default()
         }),
@@ -228,7 +227,7 @@ fn setup(
                 radius: BALL_RADIUS * 1.0,
             }),
             material: materials.add(StandardMaterial {
-                base_color: Color::PURPLE,
+                base_color: utils::COLOR_PURPLE,
                 unlit: false,
                 ..Default::default()
             }),
@@ -242,9 +241,9 @@ fn setup(
     commands.spawn(PbrBundle {
         mesh: meshes.add(Cuboid::new(6., 4., 6.)),
         material: materials.add(StandardMaterial {
-            base_color: Color::rgba(0., 0.7, 0., 0.3),
+            base_color: Color::linear_rgba(0., 0.7, 0., 0.3),
             unlit: true,
-            alpha_mode: bevy::pbr::AlphaMode::Blend,
+            alpha_mode: bevy::prelude::AlphaMode::Blend,
             ..Default::default()
         }),
         ..Default::default()
@@ -254,9 +253,9 @@ fn setup(
     commands.spawn(PbrBundle {
         mesh: meshes.add(Sphere { radius: 0.6 }),
         material: materials.add(StandardMaterial {
-            base_color: Color::rgba(0.7, 0., 0., 0.3),
+            base_color: Color::linear_rgba(0.7, 0., 0., 0.3),
             unlit: true,
-            alpha_mode: bevy::pbr::AlphaMode::Blend,
+            alpha_mode: bevy::prelude::AlphaMode::Blend,
             ..Default::default()
         }),
         transform: Transform::from_translation(Vec3::new(-2., -1., 0.1)),

@@ -12,6 +12,8 @@ use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
+mod utils;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut wgpu_settings = WgpuSettings::default();
     wgpu_settings
@@ -25,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .set(LogPlugin {
                     level: bevy::log::Level::WARN,
                     filter: "bevy_hanabi=warn,gradient=trace".to_string(),
-                    update_subscriber: None,
+                    ..default()
                 })
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
@@ -45,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.add_plugins(WorldInspectorPlugin::default());
 
     app.add_systems(Startup, setup)
-        .add_systems(Update, (bevy::window::close_on_esc, update))
+        .add_systems(Update, (utils::close_on_esc, update))
         .run();
 
     Ok(())
@@ -128,7 +130,7 @@ fn setup(
                 mesh: meshes.add(Cuboid {
                     half_size: Vec3::splat(0.5),
                 }),
-                material: materials.add(Color::RED),
+                material: materials.add(utils::COLOR_RED),
                 ..Default::default()
             });
         });
