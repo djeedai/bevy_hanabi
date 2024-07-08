@@ -1,5 +1,6 @@
 (
-    setup: (
-        fixed_frame_time: Some(10.0),
-    ),
+    events: [
+        (250, Screenshot),
+        (600, AppExit),
+    ]
 )
