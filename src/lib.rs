@@ -1107,6 +1107,8 @@ pub struct CompiledParticleEffect {
     z_layer_2d: FloatOrd,
     /// Layout flags.
     layout_flags: LayoutFlags,
+    /// Alpha mode.
+    alpha_mode: AlphaMode,
 }
 
 impl Default for CompiledParticleEffect {
@@ -1119,6 +1121,7 @@ impl Default for CompiledParticleEffect {
             #[cfg(feature = "2d")]
             z_layer_2d: FloatOrd(0.0),
             layout_flags: LayoutFlags::NONE,
+            alpha_mode: default(),
         }
     }
 }
@@ -1194,6 +1197,7 @@ impl CompiledParticleEffect {
         };
 
         self.layout_flags = shader_source.layout_flags;
+        self.alpha_mode = asset.alpha_mode;
 
         let init_shader = shader_cache.get_or_insert(&asset.name, &shader_source.init, shaders);
         let update_shaders: Vec<_> = shader_source

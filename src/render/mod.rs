@@ -56,8 +56,9 @@ use crate::{
         effect_cache::DispatchBufferIndices,
     },
     spawn::EffectSpawner,
-    CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation, HanabiPlugin,
-    ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition, ToWgslString,
+    AlphaMode, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
+    HanabiPlugin, ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition,
+    ToWgslString,
 };
 
 mod aligned_buffer_vec;
@@ -1007,6 +1008,8 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// Key: USE_ALPHA_MASK
     /// The effect is rendered with alpha masking.
     use_alpha_mask: bool,
+    /// The effect needs Alpha blend.
+    alpha_mode: AlphaMode,
     /// Key: FLIPBOOK
     /// The effect is rendered with flipbook texture animation based on the
     /// sprite index of each particle.
@@ -1033,6 +1036,7 @@ impl Default for ParticleRenderPipelineKey {
             has_image: false,
             local_space_simulation: false,
             use_alpha_mask: false,
+            alpha_mode: AlphaMode::Blend,
             flipbook: false,
             needs_uv: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
@@ -1220,6 +1224,32 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             TextureFormat::bevy_default()
         };
 
+        let blend_state = match key.alpha_mode {
+            AlphaMode::Blend => BlendState::ALPHA_BLENDING,
+            AlphaMode::Premultiply => BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            AlphaMode::Add => BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::SrcAlpha,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+                alpha: BlendComponent {
+                    src_factor: BlendFactor::Zero,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+            },
+            AlphaMode::Multiply => BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::Dst,
+                    dst_factor: BlendFactor::OneMinusSrcAlpha,
+                    operation: BlendOperation::Add,
+                },
+                alpha: BlendComponent::OVER,
+            },
+            _ => BlendState::ALPHA_BLENDING,
+        };
+
         RenderPipelineDescriptor {
             vertex: VertexState {
                 shader: key.shader.clone(),
@@ -1233,7 +1263,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 entry_point: "fragment".into(),
                 targets: vec![Some(ColorTargetState {
                     format,
-                    blend: Some(BlendState::ALPHA_BLENDING),
+                    blend: Some(blend_state),
                     write_mask: ColorWrites::ALL,
                 })],
             }),
@@ -1297,6 +1327,8 @@ pub(crate) struct ExtractedEffect {
     pub inverse_transform: Mat4,
     /// Layout flags.
     pub layout_flags: LayoutFlags,
+    /// Alpha mode.
+    pub alpha_mode: AlphaMode,
     /// Texture to modulate the particle color.
     pub image_handle: Handle<Image>,
     /// Effect shader.
@@ -1525,6 +1557,8 @@ pub(crate) fn extract_effects(
             layout_flags |= LayoutFlags::PARTICLE_TEXTURE;
         }
 
+        let alpha_mode = effect.alpha_mode;
+
         trace!(
             "Extracted instance of effect '{}' on entity {:?}: image_handle={:?} has_image={} layout_flags={:?}",
             asset.name,
@@ -1546,6 +1580,7 @@ pub(crate) fn extract_effects(
                 // TODO - more efficient/correct way than inverse()?
                 inverse_transform: transform.compute_matrix().inverse(),
                 layout_flags,
+                alpha_mode,
                 image_handle,
                 effect_shader,
                 #[cfg(feature = "2d")]
@@ -2080,6 +2115,7 @@ pub(crate) fn prepare_effects(
                 property_layout: extracted_effect.property_layout.clone(),
                 effect_shader: extracted_effect.effect_shader.clone(),
                 layout_flags: extracted_effect.layout_flags,
+                alpha_mode: extracted_effect.alpha_mode,
                 image_handle: extracted_effect.image_handle,
                 spawn_count: extracted_effect.spawn_count,
                 transform: extracted_effect.transform.into(),
@@ -2484,6 +2520,8 @@ fn emit_sorted_draw<T, F>(
             let render_shader_source = &batches.render_shaders[draw_batch.group_index as usize];
             trace!("Emit for group index #{}", draw_batch.group_index);
 
+            let alpha_mode = batches.alpha_mode;
+
             #[cfg(feature = "trace")]
             let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
             let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2495,6 +2533,7 @@ fn emit_sorted_draw<T, F>(
                     has_image,
                     local_space_simulation,
                     use_alpha_mask,
+                    alpha_mode,
                     flipbook,
                     needs_uv,
                     #[cfg(all(feature = "2d", feature = "3d"))]
