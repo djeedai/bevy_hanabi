@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `BuiltInOperator::IsAlive` exposing the current state of the `is_alive` particle flag,
   which represents whether a particle is still alive or will be deallocated at the end of the update pass.
 
+### Changed
+
+- Compatible with Bevy 0.14.
+
 ### Fixed
 
 - Prevented an error from being emitted when a GPU pipeline is still being created. (#341)

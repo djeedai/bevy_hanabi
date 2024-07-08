@@ -27,7 +27,7 @@
 //! _Note: This library makes heavy use of compute shaders to offload work to
 //! the GPU in a performant way. Support for compute shaders on the `wasm`
 //! target (WebAssembly) via WebGPU is only available in Bevy in general since
-//! the newly-released Bevy v0.11, and is not yet available in this library.
+//! the Bevy v0.11, and is not yet available in this library.
 //! See [#41](https://github.com/djeedai/bevy_hanabi/issues/41) for details on
 //! progress._
 //!

@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.12.0-rc"
+version = "0.12.0"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 description = "Hanabi GPU particle system for the Bevy game engine"
@@ -14,7 +14,7 @@ exclude = ["docs/*.svg", "docs/*.png", "examples/*.gif", "examples/*.png", ".git
 autoexamples = false
 
 [features]
-default = ["2d", "3d", "gpu_tests"] #, "examples_world_inspector"]
+default = ["2d", "3d", "gpu_tests", "examples_world_inspector"]
 
 # Enable support for rendering through a 2D camera (Camera2dBundle)
 2d = []
@@ -55,8 +55,7 @@ naga = "0.20"
 naga_oil = { version = "0.14", default-features = false, features = ["test_shader"] }
 
 [dependencies.bevy]
-#version = "0.14.0-rc.3"
-git = "https://github.com/bevyengine/bevy.git"
+version = "0.14.0"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 
@@ -68,12 +67,14 @@ all-features = true
 wgpu = "0.20"
 
 # For world inspector; required if "examples_world_inspector" is used.
-bevy-inspector-egui = "0.23"
-bevy_egui = "0.25"
-egui = "0.26"
+bevy-inspector-egui = "0.25"
+bevy_egui = { version = "0.28", default-features = false, features = [
+    "manage_clipboard", "open_url"
+] }
+egui = "0.28"
 
 # For procedural texture generation in examples
-noise = "0.8"
+noise = "0.9"
 
 futures = "0.3"
 
