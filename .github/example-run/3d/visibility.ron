@@ -1,6 +1,5 @@
 (
     events: [
-        (250, Screenshot),
         (300, AppExit),
     ]
 )
