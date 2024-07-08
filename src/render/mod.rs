@@ -2691,6 +2691,8 @@ fn emit_binned_draw<T, F>(
             let render_shader_source = &batches.render_shaders[draw_batch.group_index as usize];
             trace!("Emit for group index #{}", draw_batch.group_index);
 
+            let alpha_mode = batches.alpha_mode;
+
             #[cfg(feature = "trace")]
             let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
             let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2702,6 +2704,7 @@ fn emit_binned_draw<T, F>(
                     has_image,
                     local_space_simulation,
                     use_alpha_mask,
+                    alpha_mode,
                     flipbook,
                     needs_uv,
                     #[cfg(all(feature = "2d", feature = "3d"))]
