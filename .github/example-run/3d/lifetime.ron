@@ -1,3 +1,5 @@
 (
-    exit_after: Some(7)
+    setup: (
+        fixed_frame_time: Some(7.0),
+    ),
 )
