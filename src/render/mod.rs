@@ -2902,7 +2902,7 @@ pub(crate) fn queue_effects(
                     //     .rangefinder3d()
                     //     .distance_translation(&batch.translation_3d),
                     // batch_range: 0..1,
-                    //extra_index: PhaseItemExtraIndex::NONE,
+                    // extra_index: PhaseItemExtraIndex::NONE,
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,

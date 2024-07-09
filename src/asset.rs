@@ -131,9 +131,9 @@ pub enum AlphaMode {
     /// Similar to [`AlphaMode::Blend`], however assumes RGB channel values are
     /// [premultiplied](https://en.wikipedia.org/wiki/Alpha_compositing#Straight_versus_premultiplied).
     ///
-    /// For otherwise constant RGB values, behaves more like [`AlphaMode::Blend`] for
-    /// alpha values closer to 1.0, and more like [`AlphaMode::Add`] for
-    /// alpha values closer to 0.0.
+    /// For otherwise constant RGB values, behaves more like
+    /// [`AlphaMode::Blend`] for alpha values closer to 1.0, and more like
+    /// [`AlphaMode::Add`] for alpha values closer to 0.0.
     ///
     /// Can be used to avoid “border” or “outline” artifacts that can occur
     /// when using plain alpha-blended textures.
@@ -142,17 +142,21 @@ pub enum AlphaMode {
     /// Combines the color of the fragments with the colors behind them in an
     /// additive process, (i.e. like light) producing lighter results.
     ///
-    /// Black produces no effect. Alpha values can be used to modulate the result.
+    /// Black produces no effect. Alpha values can be used to modulate the
+    /// result.
     ///
-    /// Useful for effects like holograms, ghosts, lasers and other energy beams.
+    /// Useful for effects like holograms, ghosts, lasers and other energy
+    /// beams.
     Add,
 
     /// Combines the color of the fragments with the colors behind them in a
     /// multiplicative process, (i.e. like pigments) producing darker results.
     ///
-    /// White produces no effect. Alpha values can be used to modulate the result.
+    /// White produces no effect. Alpha values can be used to modulate the
+    /// result.
     ///
-    /// Useful for effects like stained glass, window tint film and some colored liquids.
+    /// Useful for effects like stained glass, window tint film and some colored
+    /// liquids.
     Multiply,
 
     /// Render the effect with alpha masking.

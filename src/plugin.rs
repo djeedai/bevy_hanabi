@@ -57,12 +57,10 @@ pub enum EffectSystems {
     /// properties in the [`EffectAsset`], updating the associated
     /// [`EffectProperties`] component.
     ///
-    /// This system runs during Bevy's own [`UpdateAssets`] schedule, after the
-    /// assets have been updated. Any system which modifies an
-    /// [`EffectAsset`]'s declared properties should run before [`UpdateAssets`]
-    /// in order for changes to be taken into account in the same frame.
-    ///
-    /// [`UpdateAssets`]: bevy::asset::UpdateAssets
+    /// This system runs during the [`PostUpdate`] schedule, after the assets
+    /// have been updated. Any system which modifies an [`EffectAsset`]'s
+    /// declared properties should run before this set in order for changes to
+    /// be taken into account in the same frame.
     UpdatePropertiesFromAsset,
 
     /// Gather all removed [`ParticleEffect`] components during the
