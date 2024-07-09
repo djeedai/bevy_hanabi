@@ -909,11 +909,9 @@ impl Attribute {
     /// encoded as `0xAABBGGRR`, with a single byte per component, where the
     /// alpha value is stored in the most significant byte and the red value in
     /// the least significant byte. Note that this representation is the
-    /// same as the one returned by [`Color::as_rgba_u32()`] and
-    /// [`Color::as_linear_rgba_u32()`].
+    /// same as the one returned by [`LinearRgba::as_u32()`].
     ///
-    /// [`Color::as_rgba_u32()`]: bevy::render::color::Color::as_rgba_u32
-    /// [`Color::as_linear_rgba_u32()`]: bevy::render::color::Color::as_linear_rgba_u32
+    /// [`LinearRgba::as_u32()`]: bevy::color::LinearRgba::as_u32
     pub const COLOR: Attribute = Attribute(AttributeInner::COLOR);
 
     /// The particle's base color (HDR).
