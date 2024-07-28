@@ -50,7 +50,7 @@ pub struct AlignedBufferVec<T: Pod + ShaderSize> {
 
 impl<T: Pod + ShaderType + ShaderSize> Default for AlignedBufferVec<T> {
     fn default() -> Self {
-        let item_size = std::mem::size_of::<T>();
+        let item_size = size_of::<T>();
         let aligned_size = <T as ShaderSize>::SHADER_SIZE.get() as usize;
         assert!(aligned_size >= item_size);
         Self {
@@ -263,12 +263,12 @@ mod tests {
     #[test]
     fn abv_sizes() {
         // Rust
-        assert_eq!(std::mem::size_of::<GpuDummy>(), 12);
-        assert_eq!(std::mem::align_of::<GpuDummy>(), 4);
-        assert_eq!(std::mem::size_of::<GpuDummyComposed>(), 16); // tight packing
-        assert_eq!(std::mem::align_of::<GpuDummyComposed>(), 4);
-        assert_eq!(std::mem::size_of::<GpuDummyLarge>(), 132 * 4); // tight packing
-        assert_eq!(std::mem::align_of::<GpuDummyLarge>(), 4);
+        assert_eq!(size_of::<GpuDummy>(), 12);
+        assert_eq!(align_of::<GpuDummy>(), 4);
+        assert_eq!(size_of::<GpuDummyComposed>(), 16); // tight packing
+        assert_eq!(align_of::<GpuDummyComposed>(), 4);
+        assert_eq!(size_of::<GpuDummyLarge>(), 132 * 4); // tight packing
+        assert_eq!(align_of::<GpuDummyLarge>(), 4);
 
         // GPU
         assert_eq!(<GpuDummy as ShaderType>::min_size().get(), 16); // Vec3 gets padded to 16 bytes
@@ -420,7 +420,7 @@ mod gpu_tests {
         for i in 0..3 {
             let offset = i * final_align as usize;
             let dummy_composed: &[GpuDummyComposed] =
-                cast_slice(&view[offset..offset + std::mem::size_of::<GpuDummyComposed>()]);
+                cast_slice(&view[offset..offset + size_of::<GpuDummyComposed>()]);
             assert_eq!(dummy_composed[0].tag, (i + 1) as u32);
         }
     }

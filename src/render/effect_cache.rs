@@ -322,7 +322,7 @@ impl EffectBuffer {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
+                    min_binding_size: BufferSize::new(size_of::<u32>() as u64),
                 },
                 count: None,
             },
