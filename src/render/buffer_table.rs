@@ -116,7 +116,7 @@ pub struct BufferTable<T: Pod + ShaderSize> {
 
 impl<T: Pod + ShaderSize> Default for BufferTable<T> {
     fn default() -> Self {
-        let item_size = std::mem::size_of::<T>();
+        let item_size = size_of::<T>();
         let aligned_size = <T as ShaderSize>::SHADER_SIZE.get() as usize;
         assert!(aligned_size >= item_size);
         Self {
@@ -553,12 +553,12 @@ mod tests {
     #[test]
     fn table_sizes() {
         // Rust
-        assert_eq!(std::mem::size_of::<GpuDummy>(), 12);
-        assert_eq!(std::mem::align_of::<GpuDummy>(), 4);
-        assert_eq!(std::mem::size_of::<GpuDummyComposed>(), 16); // tight packing
-        assert_eq!(std::mem::align_of::<GpuDummyComposed>(), 4);
-        assert_eq!(std::mem::size_of::<GpuDummyLarge>(), 132 * 4); // tight packing
-        assert_eq!(std::mem::align_of::<GpuDummyLarge>(), 4);
+        assert_eq!(size_of::<GpuDummy>(), 12);
+        assert_eq!(align_of::<GpuDummy>(), 4);
+        assert_eq!(size_of::<GpuDummyComposed>(), 16); // tight packing
+        assert_eq!(align_of::<GpuDummyComposed>(), 4);
+        assert_eq!(size_of::<GpuDummyLarge>(), 132 * 4); // tight packing
+        assert_eq!(align_of::<GpuDummyLarge>(), 4);
 
         // GPU
         assert_eq!(<GpuDummy as ShaderType>::min_size().get(), 16); // Vec3 gets padded to 16 bytes
@@ -815,7 +815,7 @@ mod gpu_tests {
                 assert_eq!(view.len(), final_align as usize * table.capacity());
                 for i in 0..len {
                     let offset = i * final_align as usize;
-                    let item_size = std::mem::size_of::<GpuDummyComposed>();
+                    let item_size = size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];
                     println!("{}", to_hex_string(src));
                     let dummy_composed: &[GpuDummyComposed] =
@@ -884,7 +884,7 @@ mod gpu_tests {
                 assert_eq!(view.len(), final_align as usize * table.capacity());
                 for i in 0..len {
                     let offset = i * final_align as usize;
-                    let item_size = std::mem::size_of::<GpuDummyComposed>();
+                    let item_size = size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];
                     println!("{}", to_hex_string(src));
                     let dummy_composed: &[GpuDummyComposed] =
@@ -938,7 +938,7 @@ mod gpu_tests {
                 assert!(view.len() >= final_align as usize * table.capacity()); // note the >=, the buffer is over-allocated
                 for i in 0..len {
                     let offset = i * final_align as usize;
-                    let item_size = std::mem::size_of::<GpuDummyComposed>();
+                    let item_size = size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];
                     println!("{}", to_hex_string(src));
                     let dummy_composed: &[GpuDummyComposed] =
@@ -992,7 +992,7 @@ mod gpu_tests {
                 assert!(view.len() >= final_align as usize * table.capacity()); // note the >=, the buffer is over-allocated
                 for i in 0..len {
                     let offset = i * final_align as usize;
-                    let item_size = std::mem::size_of::<GpuDummyComposed>();
+                    let item_size = size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];
                     println!("{}", to_hex_string(src));
                     if i > 0 {
@@ -1053,7 +1053,7 @@ mod gpu_tests {
                 assert!(view.len() >= final_align as usize * table.capacity());
                 for i in 0..len {
                     let offset = i * final_align as usize;
-                    let item_size = std::mem::size_of::<GpuDummyComposed>();
+                    let item_size = size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];
                     println!("{}", to_hex_string(src));
                     let dummy_composed: &[GpuDummyComposed] =
@@ -1112,7 +1112,7 @@ mod gpu_tests {
                 assert!(view.len() >= final_align as usize * table.capacity());
                 for i in 0..len {
                     let offset = i * final_align as usize;
-                    let item_size = std::mem::size_of::<GpuDummyComposed>();
+                    let item_size = size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];
                     println!("{}", to_hex_string(src));
                     let dummy_composed: &[GpuDummyComposed] =
