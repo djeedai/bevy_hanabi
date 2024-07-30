@@ -1154,7 +1154,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             .create_bind_group_layout("hanabi:buffer_layout_render", &entries);
 
         let mut layout = vec![self.view_layout.clone(), particles_buffer_layout];
-        let mut shader_defs = vec![];
+        let mut shader_defs = vec!["SPAWNER_READONLY".into()];
 
         // Key: PARTICLE_TEXTURE
         if key.has_image {
