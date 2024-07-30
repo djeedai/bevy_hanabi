@@ -16,7 +16,7 @@ use bevy::{
 };
 
 use crate::{
-    asset::{EffectAsset, EffectAssetLoader},
+    asset::EffectAsset,
     compile_effects, gather_removed_effects,
     properties::EffectProperties,
     render::{
@@ -33,6 +33,9 @@ use crate::{
     update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
     RemovedEffectsEvent, Spawner,
 };
+
+#[cfg(feature = "serde")]
+use crate::asset::EffectAssetLoader;
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
@@ -179,7 +182,6 @@ impl Plugin for HanabiPlugin {
             .add_event::<RemovedEffectsEvent>()
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<ShaderCache>()
-            .init_asset_loader::<EffectAssetLoader>()
             .init_resource::<Time<EffectSimulation>>()
             .configure_sets(
                 PostUpdate,
@@ -213,6 +215,9 @@ impl Plugin for HanabiPlugin {
                         .in_set(VisibilitySystems::CheckVisibility),
                 ),
             );
+
+        #[cfg(feature = "serde")]
+        app.init_asset_loader::<EffectAssetLoader>();
 
         // Register types with reflection
         app.register_type::<EffectAsset>()

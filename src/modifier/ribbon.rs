@@ -18,7 +18,7 @@ pub struct RibbonModifier;
 
 impl_mod_render!(RibbonModifier, &[Attribute::PREV, Attribute::NEXT]);
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for RibbonModifier {
     fn apply_render(&self, _: &mut Module, context: &mut RenderContext) {
         context.vertex_code += r##"

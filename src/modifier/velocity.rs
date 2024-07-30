@@ -80,7 +80,7 @@ impl SetVelocityCircleModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for SetVelocityCircleModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update
@@ -140,7 +140,7 @@ impl SetVelocitySphereModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for SetVelocitySphereModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update
@@ -225,7 +225,7 @@ impl SetVelocityTangentModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for SetVelocityTangentModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update
