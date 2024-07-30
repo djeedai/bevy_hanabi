@@ -22,7 +22,12 @@ struct Spawner {
     inverse_transform: mat3x4<f32>, // transposed (row-major)
     spawn: i32,
     seed: u32,
+    // Can't use storage<read> with atomics
+#ifdef SPAWNER_READONLY
+    count: i32,
+#else
     count: atomic<i32>,
+#endif
     effect_index: u32,
 #ifdef SPAWNER_PADDING
     {{SPAWNER_PADDING}}
