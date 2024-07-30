@@ -60,7 +60,7 @@ impl KillSphereModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for KillSphereModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update
@@ -141,7 +141,7 @@ impl KillAabbModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for KillAabbModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update

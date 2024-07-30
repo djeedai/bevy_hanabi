@@ -130,7 +130,7 @@ impl std::fmt::Display for ModifierContext {
 }
 
 /// Trait describing a modifier customizing an effect pipeline.
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 pub trait Modifier: Reflect + Send + Sync + 'static {
     /// Get the context this modifier applies to.
     fn context(&self) -> ModifierContext;
@@ -209,7 +209,8 @@ impl ParticleGroupSet {
 }
 
 /// A [`Modifier`] that affects to one or more groups.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct GroupedModifier {
     /// The modifier.
     pub modifier: BoxedModifier,
@@ -535,7 +536,7 @@ impl<'a> EvalContext for RenderContext<'a> {
 }
 
 /// Trait to customize the rendering of alive particles each frame.
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 pub trait RenderModifier: Modifier {
     /// Apply the rendering code.
     fn apply_render(&self, module: &mut Module, context: &mut RenderContext);
@@ -556,7 +557,7 @@ impl Clone for Box<dyn RenderModifier> {
 /// Macro to implement the [`Modifier`] trait for a render modifier.
 macro_rules! impl_mod_render {
     ($t:ty, $attrs:expr) => {
-        #[typetag::serde]
+        #[cfg_attr(feature = "serde", typetag::serde)]
         impl $crate::Modifier for $t {
             fn context(&self) -> $crate::ModifierContext {
                 $crate::ModifierContext::Render
@@ -648,6 +649,7 @@ mod tests {
         assert_eq!(*m_reflect, m);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn serde() {
         let m = make_test_modifier();

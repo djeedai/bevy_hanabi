@@ -77,7 +77,7 @@ pub struct ParticleTextureModifier {
 
 impl_mod_render!(ParticleTextureModifier, &[]); // TODO - should require some UV maybe?
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for ParticleTextureModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.set_particle_texture(self.texture.clone());
@@ -110,7 +110,7 @@ pub struct SetColorModifier {
 
 impl_mod_render!(SetColorModifier, &[]);
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for SetColorModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.vertex_code += &format!("color = {0};\n", self.color.to_wgsl_string());
@@ -144,7 +144,7 @@ impl_mod_render!(
     &[Attribute::AGE, Attribute::LIFETIME]
 );
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for ColorOverLifetimeModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         let func_name = context.add_color_gradient(self.gradient.clone());
@@ -195,7 +195,7 @@ pub struct SetSizeModifier {
 
 impl_mod_render!(SetSizeModifier, &[]);
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for SetSizeModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.vertex_code += &format!("size = {0};\n", self.size.to_wgsl_string());
@@ -233,7 +233,7 @@ impl_mod_render!(
     &[Attribute::AGE, Attribute::LIFETIME]
 );
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for SizeOverLifetimeModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         let func_name = context.add_size_gradient(self.gradient.clone());
@@ -360,7 +360,7 @@ impl OrientModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for OrientModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Render
@@ -394,7 +394,7 @@ impl Modifier for OrientModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for OrientModifier {
     fn apply_render(&self, module: &mut Module, context: &mut RenderContext) {
         match self.mode {
@@ -559,7 +559,7 @@ impl Default for FlipbookModifier {
 
 impl_mod_render!(FlipbookModifier, &[Attribute::SPRITE_INDEX]);
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for FlipbookModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         context.sprite_grid_size = Some(self.sprite_grid_size);
@@ -602,7 +602,7 @@ impl_mod_render!(
     &[Attribute::POSITION, Attribute::SIZE]
 );
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for ScreenSpaceSizeModifier {
     fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
         // Get perspective divide factor from clip space position. This is the "average"
@@ -659,7 +659,7 @@ pub struct RoundModifier {
 
 impl_mod_render!(RoundModifier, &[]);
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for RoundModifier {
     fn apply_render(&self, module: &mut Module, context: &mut RenderContext) {
         context.set_needs_uv();

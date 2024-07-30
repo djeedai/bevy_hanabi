@@ -28,7 +28,7 @@ pub struct CloneModifier {
     pub destination_group: u32,
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for CloneModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update

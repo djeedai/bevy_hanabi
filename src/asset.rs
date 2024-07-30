@@ -1,12 +1,17 @@
 use std::ops::Deref;
 
 use bevy::{
-    asset::{io::Reader, Asset, AssetLoader, AsyncReadExt, LoadContext},
+    asset::Asset,
     reflect::Reflect,
     utils::{default, HashSet},
 };
-use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "serde")]
+use bevy::asset::{io::Reader, AssetLoader, AsyncReadExt, LoadContext};
+#[cfg(feature = "serde")]
 use thiserror::Error;
+
+use serde::{Deserialize, Serialize};
 
 use crate::{
     modifier::{Modifier, RenderModifier},
@@ -202,7 +207,8 @@ pub enum AlphaMode {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
-#[derive(Asset, Default, Clone, Reflect, Serialize, Deserialize)]
+#[derive(Asset, Default, Clone, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[reflect(from_reflect = false)]
 pub struct EffectAsset {
     /// Display name of the effect.
@@ -709,10 +715,12 @@ impl EffectAsset {
 /// Asset loader for [`EffectAsset`].
 ///
 /// Effet assets take the `.effect` extension.
+#[cfg(feature = "serde")]
 #[derive(Default)]
 pub struct EffectAssetLoader;
 
 /// Error for the [`EffectAssetLoader`] loading an [`EffectAsset`].
+#[cfg(feature = "serde")]
 #[derive(Error, Debug)]
 pub enum EffectAssetLoaderError {
     /// I/O error reading the asset source.
@@ -724,6 +732,7 @@ pub enum EffectAssetLoaderError {
     Ron(#[from] ron::error::SpannedError),
 }
 
+#[cfg(feature = "serde")]
 impl AssetLoader for EffectAssetLoader {
     type Asset = EffectAsset;
 
@@ -750,6 +759,7 @@ impl AssetLoader for EffectAssetLoader {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "serde")]
     use ron::ser::PrettyConfig;
 
     use super::*;
@@ -861,6 +871,7 @@ mod tests {
         // assert_eq!(effect.render_layout, render_layout);
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_serde_ron() {
         let w = ExprWriter::new();

@@ -159,7 +159,7 @@ impl ConformToSphereModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for ConformToSphereModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update
@@ -269,7 +269,7 @@ impl LinearDragModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for LinearDragModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update

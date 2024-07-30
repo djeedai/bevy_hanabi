@@ -94,7 +94,7 @@ impl SetAttributeModifier {
     }
 }
 
-#[typetag::serde]
+#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for SetAttributeModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update

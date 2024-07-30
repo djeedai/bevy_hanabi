@@ -14,13 +14,16 @@ exclude = ["docs/*.svg", "docs/*.png", "examples/*.gif", "examples/*.png", ".git
 autoexamples = false
 
 [features]
-default = ["2d", "3d", "gpu_tests", "examples_world_inspector"]
+default = ["2d", "3d", "serde", "gpu_tests", "examples_world_inspector"]
 
 # Enable support for rendering through a 2D camera (Camera2dBundle)
 2d = []
 
 # Enable support for rendering through a 3D camera (Camera3dBundle)
 3d = []
+
+# Enable serializing and deserializing of assets.
+serde = ["typetag"]
 
 # Enable tracing annotations
 trace = []
@@ -48,7 +51,7 @@ serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 ron = "0.8"
 bitflags = "2.3"
-typetag = "0.2"
+typetag = { version = "0.2", optional = true }
 thiserror = "1.0"
 # Same versions as Bevy 0.14 (bevy_render)
 naga = "0.20"
