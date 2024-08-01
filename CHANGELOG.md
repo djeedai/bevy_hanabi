@@ -3,6 +3,21 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added a new `serde` feature, and moved all `Serialization` and `Deserialization` derives under that feature.
+  This allows disabling support on wasm, where `typetag` is not available.
+  The feature is enabled by default, so the behavior doesn't change on non-wasm targets.
+- Added support for WebAssembly (`wasm`). This requires disabling the `serde` feature. (#41)
+
+### Fixed
+
+- Fixed a bug where the generated render shader was declaring a binding as `storage<read>` (read-only)
+  but the `Spawner` struct contained an `atomic<i32>`, which requires write access.
+  The `Spawner` struct is now conditionally defining that field as `i32` instead.
+
 ## [0.12.1] 2024-07-28
 
 ### Fixed

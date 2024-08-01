@@ -21,7 +21,7 @@ fn main() {
     app.add_plugins(
         DefaultPlugins
             .set(LogPlugin {
-                level: bevy::log::Level::WARN,
+                level: bevy::log::Level::INFO,
                 filter: "bevy_hanabi=warn,worms=trace".to_string(),
                 ..default()
             })

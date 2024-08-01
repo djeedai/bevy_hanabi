@@ -1,0 +1,311 @@
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <title>🎆 Hanabi examples</title>
+    <style>
+        * {
+            color: rgb(230, 230, 230);
+            font-family: 'Fira Sans', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif
+        }
+
+        body {
+            background-color: rgb(30, 30, 30);
+        }
+
+        code {
+            font-family: 'Courier New', Courier, monospace;
+            color: rgb(66, 178, 248);
+        }
+
+        .card {
+            display: inline-block;
+        }
+
+        .card a {
+            display: grid;
+            width: 200px;
+            max-width: 200px;
+            border: 2px solid rgb(77, 77, 77);
+            background-color: rgb(51, 51, 51);
+            border-radius: 8px;
+            margin: 5px;
+            text-decoration: none;
+            filter: drop-shadow(black 0 0 10px);
+        }
+
+        .card a:hover {
+            border-color: rgb(128, 128, 128);
+        }
+
+        .card h3 {
+            background-color: black;
+            padding: 5px;
+            margin: 0;
+            border-radius: 8px 8px 0 0;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .card div.img {
+            max-width: 200px;
+            aspect-ratio: 16 / 9;
+            background-color: white;
+        }
+
+        .card img {
+            width: 200px;
+            max-width: 200px;
+        }
+
+        .card p {
+            margin: 5px;
+        }
+
+        .tags {
+            padding: 0.5em;
+        }
+
+        .tag {
+            display: inline;
+            padding: 0.1em 0.4em;
+            border-radius: 0.5em;
+            background-color: rgb(96, 96, 96);
+        }
+
+        .tag.expr {
+            background-color: rgb(163, 108, 108);
+        }
+
+        .tag.render {
+            background-color: rgb(130, 108, 80);
+        }
+
+        .tag.trail {
+            background-color: rgb(90, 106, 110);
+        }
+
+        .tag.modifier {
+            background-color: rgb(90, 110, 98);
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🎆 Hanabi examples</h1>
+    <p>Select an example to open the WebAssembly demo.</p>
+    <p>Each example has the name of the corresponding Rust source file in the <code>examples/</code> folder.</p>
+    <div>
+        <div class="card">
+            <a href="firework.html">
+                <h3>firework</h3>
+                <div class="img"><img src="img/firework.gif" /></div>
+                <p>HDR, bloom, and trails.</p>
+                <div class="tags">
+                    <div class="tag expr">expr</div>
+                    <div class="tag render">hdr</div>
+                    <div class="tag trail">trail</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="portal.html">
+                <h3>portal</h3>
+                <div class="img"><img src="img/portal.gif" /></div>
+                <p>HDR, bloom, orient along velocity.</p>
+                <div class="tags">
+                    <div class="tag render">hdr</div>
+                    <div class="tag modifier">modifier</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="expr.html">
+                <h3>expr</h3>
+                <div class="img"><img src="img/expr.gif" /></div>
+                <p>GPU-driven animation with expressions.</p>
+                <div class="tags">
+                    <div class="tag expr">expr</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="spawn.html">
+                <h3>spawn</h3>
+                <div class="img"><img src="img/spawn.gif" /></div>
+                <p>Different CPU spawning patterns.</p>
+                <div class="tags">
+                    <div class="tag">spawner</div>
+                    <div class="tag">properties</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="multicam.html">
+                <h3>multicam</h3>
+                <div class="img"><img src="img/multicam.gif" /></div>
+                <p>Use of render layers.</p>
+                <div class="tags">
+                    <div class="tag render">camera</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="visibility.html">
+                <h3>visibility</h3>
+                <div class="img"><img src="img/visibility.gif" /></div>
+                <p>Simulate when visible or always.</p>
+                <div class="tags">
+                    <div class="tag render">visibility</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="random.html">
+                <h3>random</h3>
+                <div class="img"><img src="img/random.gif" /></div>
+                <p>Simple random spawn example.</p>
+                <div class="tags">
+                    <div class="tag expr">expr</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="spawn_on_command.html">
+                <h3>spawn_on_command</h3>
+                <div class="img"><img src="img/spawn_on_command.gif" /></div>
+                <p>Trigger spawning from CPU, with property based variations.</p>
+                <div class="tags">
+                    <div class="tag">spawner</div>
+                    <div class="tag">properties</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="activate.html">
+                <h3>activate</h3>
+                <div class="img"><img src="img/activate.gif" /></div>
+                <p>Trigger spawning form CPU.</p>
+                <div class="tags">
+                    <div class="tag">spawner</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="force_field.html">
+                <h3>force_field</h3>
+                <div class="img"><img src="img/force_field.gif" /></div>
+                <p>Confine particles in or out of a volume.</p>
+                <div class="tags">
+                    <div class="tag">properties</div>
+                    <div class="tag modifier">modifier</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="init.html">
+                <h3>init</h3>
+                <div class="img"><img src="img/init.gif" /></div>
+                <p>Various init patterns via modifiers.</p>
+                <div class="tags">
+                    <div class="tag modifier">modifier</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="lifetime.html">
+                <h3>lifetime</h3>
+                <div class="img"><img src="img/lifetime.gif" /></div>
+                <p>Influence of particle lifetime.</p>
+                <div class="tags">
+                    <div class="tag attr">attributes</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="ordering.html">
+                <h3>ordering</h3>
+                <div class="img"><img src="img/ordering.gif" /></div>
+                <p>Alpha blendering and ordering.</p>
+                <div class="tags">
+                    <div class="tag render">blending</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="ribbon.html">
+                <h3>ribbon</h3>
+                <div class="img"><img src="img/ribbon.gif" /></div>
+                <p>Example of ribbon (trails).</p>
+                <div class="tags">
+                    <div class="tag expr">expr</div>
+                    <div class="tag trail">trail</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="gradient.html">
+                <h3>gradient</h3>
+                <div class="img"><img src="img/gradient.gif" /></div>
+                <p>Texture, color over lifetime, and emitter position.</p>
+                <div class="tags">
+                    <div class="tag render">hdr</div>
+                    <div class="tag render">texture</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="circle.html">
+                <h3>circle</h3>
+                <div class="img"><img src="img/circle.gif" /></div>
+                <p>Flipbook texture animation.</p>
+                <div class="tags">
+                    <div class="tag render">flipbook</div>
+                    <div class="tag render">texture</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="billboard.html">
+                <h3>billboard</h3>
+                <div class="img"><img src="img/billboard.gif" /></div>
+                <p>Alpha masking and billboarding.</p>
+                <div class="tags">
+                    <div class="tag render">alphamask</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="worms.html">
+                <h3>worms</h3>
+                <div class="img"><img src="img/worms.gif" /></div>
+                <p>Particle trails with groups.</p>
+                <div class="tags">
+                    <div class="tag expr">expr</div>
+                    <div class="tag trail">trail</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="instancing.html">
+                <h3>instancing</h3>
+                <div class="img"><img src="img/instancing.gif" /></div>
+                <p>Instancing stress test.</p>
+                <div class="tags">
+                    <div class="tag">perf</div>
+                </div>
+            </a>
+        </div>
+        <div class="card">
+            <a href="2d.html">
+                <h3>2d</h3>
+                <div class="img"><img src="img/2d.gif" /></div>
+                <p>Example of 2d usage with depth layering.</p>
+                <div class="tags">
+                    <div class="tag">2d</div>
+                </div>
+            </a>
+        </div>
+    </div>
+</body>
+
+</html>
