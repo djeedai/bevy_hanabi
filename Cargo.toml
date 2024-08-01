@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.12.1"
+version = "0.13.0-dev"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 description = "Hanabi GPU particle system for the Bevy game engine"
@@ -22,7 +22,8 @@ default = ["2d", "3d", "serde", "gpu_tests", "examples_world_inspector"]
 # Enable support for rendering through a 3D camera (Camera3dBundle)
 3d = []
 
-# Enable serializing and deserializing of assets.
+# Enable serializing and deserializing of assets. This doesn't work on WASM,
+# because typetag is not available for the wasm target.
 serde = ["typetag"]
 
 # Enable tracing annotations

@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .add_plugins(
             DefaultPlugins
                 .set(LogPlugin {
-                    level: bevy::log::Level::WARN,
+                    level: bevy::log::Level::INFO,
                     filter: "bevy_hanabi=warn,random=trace".to_string(),
                     ..default()
                 })
