@@ -30,12 +30,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::{
-    core_pipeline::tonemapping::Tonemapping,
-    log::LogPlugin,
-    prelude::*,
-    render::{
-        camera::Projection, render_resource::WgpuFeatures, settings::WgpuSettings, RenderPlugin,
-    },
+    core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*, render::camera::Projection,
 };
 use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
@@ -44,11 +39,6 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 mod utils;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut wgpu_settings = WgpuSettings::default();
-    wgpu_settings
-        .features
-        .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
-
     let mut app = App::default();
     app.insert_resource(ClearColor(Color::BLACK))
         .add_plugins(
@@ -57,10 +47,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     level: bevy::log::Level::INFO,
                     filter: "bevy_hanabi=warn,billboard=trace".to_string(),
                     ..default()
-                })
-                .set(RenderPlugin {
-                    render_creation: wgpu_settings.into(),
-                    synchronous_pipeline_compilation: false,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
