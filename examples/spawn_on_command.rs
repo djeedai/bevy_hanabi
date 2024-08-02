@@ -10,12 +10,7 @@ use bevy::{
     log::LogPlugin,
     math::Vec3Swizzles,
     prelude::*,
-    render::{
-        camera::{Projection, ScalingMode},
-        render_resource::WgpuFeatures,
-        settings::WgpuSettings,
-        RenderPlugin,
-    },
+    render::camera::{Projection, ScalingMode},
 };
 use bevy_hanabi::prelude::*;
 #[cfg(feature = "examples_world_inspector")]
@@ -24,11 +19,6 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 mod utils;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut wgpu_settings = WgpuSettings::default();
-    wgpu_settings
-        .features
-        .set(WgpuFeatures::VERTEX_WRITABLE_STORAGE, true);
-
     let mut app = App::default();
     app.insert_resource(ClearColor(Color::linear_rgb(0.1, 0.1, 0.1)))
         .add_plugins(
@@ -37,10 +27,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     level: bevy::log::Level::INFO,
                     filter: "bevy_hanabi=warn,spawn_on_command=trace".to_string(),
                     ..default()
-                })
-                .set(RenderPlugin {
-                    render_creation: wgpu_settings.into(),
-                    synchronous_pipeline_compilation: false,
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {
