@@ -38,7 +38,7 @@ jobs:
             libasound2-dev libudev-dev;
         if: runner.os == 'linux'
       - uses: actions/checkout@v4
-      - uses: actions/cache@v2
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -87,6 +87,29 @@ jobs:
           CARGO_INCREMENTAL: 0
         if: runner.os == 'macos' && matrix.dimensions == 'all'
 
+  build-wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            target/
+          key: ubuntu-cargo-build-wasm-stable-${{ hashFiles('**/Cargo.toml') }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: wasm32-unknown-unknown
+      - name: Check wasm
+        run: cargo check --target wasm32-unknown-unknown --no-default-features --features 2d,3d
+
   run-examples:
     #runs-on: ubuntu-latest # Bug: Library libxkbcommon-x11.so could not be loaded.
     runs-on: windows-latest
@@ -105,7 +128,7 @@ jobs:
       #     sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
       #   if: runner.os == 'linux'
       - uses: actions/checkout@v4
-      - uses: actions/cache@v2
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -177,7 +200,7 @@ jobs:
           DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
             libasound2-dev libudev-dev;
       - uses: actions/checkout@v4
-      - uses: actions/cache@v2
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
@@ -212,7 +235,7 @@ jobs:
       #   run: sudo apt-get update; sudo apt-get install --no-install-recommends libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
       #   if: runner.os == 'linux'
       - uses: actions/checkout@v4
-      - uses: actions/cache@v2
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin/
