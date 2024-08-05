@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   but the `Spawner` struct contained an `atomic<i32>`, which requires write access.
   The `Spawner` struct is now conditionally defining that field as `i32` instead.
 
+## [0.12.2] 2024-08-05
+
+### Fixed
+
+- Fix regression building with `rustc 1.79`, which is the Bevy MSRV. (#360)
+
 ## [0.12.1] 2024-07-28
 
 ### Fixed
