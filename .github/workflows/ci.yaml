@@ -16,6 +16,7 @@ on:
   push:
     branches:
       - main
+      - hotfix/*
   # Enable manual trigger via GitHub UI
   workflow_dispatch:
 
