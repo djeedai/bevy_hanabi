@@ -39,12 +39,12 @@ pub struct SetPositionCircleModifier {
     /// Note the particular interpretation of the dimension for this shape,
     /// which unlike other shapes is a 2D one to begin with:
     /// - [`ShapeDimension::Volume`] randomly position the particle anywhere on
-    ///   the "volume" of the shape, which here is understood to be the 2D disc
-    ///   surface including its origin (`dist <= r`).
-    /// - [`ShapeDimension::Surface`] randomly position the particle anywhere on
-    ///   the "surface" of the shape, which here is understood to be the
-    ///   perimeter circle, the set of points at a distance from the center
-    ///   exactly equal to the radius (`dist == r`).
+    /// the "volume" of the shape, which here is understood to be the 2D disc
+    /// surface including its origin (`dist <= r`).
+    /// - [`ShapeDimension::Surface`] randomly position the particle
+    /// anywhere on the "surface" of the shape, which here is understood to
+    /// be the perimeter circle, the set of points at a distance from the center
+    /// exactly equal to the radius (`dist == r`).
     pub dimension: ShapeDimension,
 }
 

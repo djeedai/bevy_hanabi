@@ -265,18 +265,17 @@ impl EffectAsset {
     ///
     /// The effect assets requires 2 essential pieces:
     /// - The capacities of the effect, which together represent the maximum
-    ///   number of particles which can be stored and simulated at the same time
-    ///   for each group. There will be one capacity value per group; thus, the
-    ///   `capacities` array also specifies the number of groups. All capacities
-    ///   must be non-zero and should be the smallest possible values which
-    ///   allow you to author the effect. These values directly impact the GPU
-    ///   memory consumption of the effect, which will allocate some buffers to
-    ///   store that many particles for as long as the effect exists. The
-    ///   capacities of an effect are immutable. See also [`capacities()`] for
-    ///   more details.
+    /// number of particles which can be stored and simulated at the same time
+    /// for each group. There will be one capacity value per group; thus, the
+    /// `capacities` array also specifies the number of groups. All capacities
+    /// must be non-zero and should be the smallest possible values which allow
+    /// you to author the effect. These values directly impact the GPU memory
+    /// consumption of the effect, which will allocate some buffers to store
+    /// that many particles for as long as the effect exists. The capacities of
+    /// an effect are immutable. See also [`capacities()`] for more details.
     /// - The [`Spawner`], which defines when particles are emitted. All
-    ///   spawners spawn particles into group 0. (To add particles to other
-    ///   groups, use the [`crate::modifier::clone::CloneModifier`].)
+    /// spawners spawn particles into group 0. (To add particles to other
+    /// groups, use the [`crate::modifier::clone::CloneModifier`].)
     ///
     /// Additionally, if any modifier added to this effect uses some [`Expr`] to
     /// customize its behavior, then those [`Expr`] are stored into a [`Module`]
