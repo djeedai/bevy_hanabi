@@ -73,9 +73,9 @@ impl AllocatedBuffer {
 ///
 /// - During the [`RenderStage::Prepare`] stage, call
 ///   [`clear_previous_frame_resizes()`] to clear any stale buffer from the
-/// previous frame. Then insert new rows with [`insert()`] and if you made
-/// changes call [`allocate_gpu()`] at the end to allocate any new buffer
-/// needed.
+///   previous frame. Then insert new rows with [`insert()`] and if you made
+///   changes call [`allocate_gpu()`] at the end to allocate any new buffer
+///   needed.
 /// - During the [`RenderStage::Render`] stage, call [`write_buffer()`] from a
 ///   command encoder before using any row, to perform any buffer resize copy
 ///   pending.
