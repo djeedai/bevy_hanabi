@@ -16,6 +16,7 @@ on:
   push:
     branches:
       - main
+      - hotfix/*
   # Enable manual trigger via GitHub UI
   workflow_dispatch:
 
@@ -109,6 +110,36 @@ jobs:
           target: wasm32-unknown-unknown
       - name: Check wasm
         run: cargo check --target wasm32-unknown-unknown --no-default-features --features 2d,3d
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Bevy dependencies
+        run: |
+          sudo apt-get update;
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
+            libasound2-dev libudev-dev;
+        if: runner.os == 'linux'
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            target/
+          key: ${{ runner.os }}-cargo-build-msrv-stable-${{ hashFiles('**/Cargo.toml') }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.79
+          components: rustfmt, clippy
+      - name: Check
+        run: cargo check --lib --all-features
+        env:
+          CARGO_INCREMENTAL: 0
 
   run-examples:
     #runs-on: ubuntu-latest # Bug: Library libxkbcommon-x11.so could not be loaded.
