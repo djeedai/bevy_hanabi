@@ -79,7 +79,7 @@ fn setup(
     // scratch attribute.`
     let set_initial_angle_modifier = SetAttributeModifier::new(
         Attribute::F32_0,
-        writer.lit(0.0).uniform(writer.lit(PI * 2.0)).expr(),
+        writer.lit(0.0).normal(writer.lit(0.0)).expr(),
     );
 
     // Give each particle a random opaque color.
