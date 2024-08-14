@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DefaultPlugins
                 .set(LogPlugin {
                     level: bevy::log::Level::INFO,
-                    filter: "bevy_hanabi=warn,gradient=trace".to_string(),
+                    filter: "bevy_hanabi=debug,gradient=trace".to_string(),
                     ..default()
                 })
                 .set(WindowPlugin {
@@ -89,15 +89,22 @@ fn setup(
         speed: writer.lit(2.).expr(),
     };
 
+    // Use texture slot #0 in ParticleTextureModifier
+    let texture_slot = writer.lit(0u32).expr();
+
+    // Define that texture slot (giving it a name for convenience)
+    let mut module = writer.finish();
+    module.add_texture("color");
+
     let effect = effects.add(
-        EffectAsset::new(vec![32768], Spawner::rate(1000.0.into()), writer.finish())
+        EffectAsset::new(vec![32768], Spawner::rate(1000.0.into()), module)
             .with_name("gradient")
             .init(init_pos)
             .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
             .render(ParticleTextureModifier {
-                texture: texture_handle.clone(),
+                texture_slot,
                 sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
             .render(ColorOverLifetimeModifier { gradient }),
@@ -110,6 +117,10 @@ fn setup(
             // We need to spawn the effect with the same render layer as the camera, otherwise it
             // won't be rendered.
             RenderLayers::layer(3),
+            // We need to bind a texture to the slot #0 we created above
+            EffectMaterial {
+                images: vec![texture_handle.clone()],
+            },
         ))
         .with_children(|p| {
             p.spawn(PbrBundle {

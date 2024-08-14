@@ -21,6 +21,7 @@ mod utils;
 struct InstanceManager {
     effect: Handle<EffectAsset>,
     alt_effect: Handle<EffectAsset>,
+    texture: Handle<Image>,
     mesh: Handle<Mesh>,
     material: Handle<StandardMaterial>,
     instances: Vec<Option<Entity>>,
@@ -38,6 +39,7 @@ impl InstanceManager {
         Self {
             effect: default(),
             alt_effect: default(),
+            texture: default(),
             mesh: default(),
             material: default(),
             instances,
@@ -92,6 +94,11 @@ impl InstanceManager {
                             0.,
                         )),
                         ..Default::default()
+                    },
+                    // Only used if alt_effect, but just simpler to add all the time for this
+                    // example only.
+                    EffectMaterial {
+                        images: vec![self.texture.clone()],
                     },
                 ))
                 .with_children(|p| {
@@ -210,7 +217,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut my_effect: ResMut<InstanceManager>,
-    loader: Res<AssetServer>,
+    asset_server: Res<AssetServer>,
 ) {
     info!("Usage: Press the SPACE key to spawn more instances, and the DELETE key to remove an existing instance.");
 
@@ -274,7 +281,6 @@ fn setup(
     gradient.add_key(0.0, Vec4::new(1., 0., 0., 0.));
     gradient.add_key(0.1, Vec4::new(1., 0., 0., 1.));
     gradient.add_key(1.0, Vec4::new(1., 0., 0., 0.));
-    let texture = loader.load("circle.png");
 
     let writer = ExprWriter::new();
 
@@ -296,8 +302,13 @@ fn setup(
     let radial_accel =
         RadialAccelModifier::new(writer.lit(Vec3::ZERO).expr(), writer.lit(-3).expr());
 
+    let texture_slot = writer.lit(0u32).expr();
+
+    let mut module = writer.finish();
+    module.add_texture("color");
+
     let alt_effect = effects.add(
-        EffectAsset::new(vec![512], Spawner::rate(102.0.into()), writer.finish())
+        EffectAsset::new(vec![512], Spawner::rate(102.0.into()), module)
             .with_simulation_space(SimulationSpace::Local)
             .with_name("alternate instancing")
             .init(init_pos)
@@ -305,8 +316,8 @@ fn setup(
             .init(init_lifetime)
             .update(radial_accel)
             .render(ParticleTextureModifier {
-                texture,
-                ..default()
+                texture_slot,
+                sample_mapping: ImageSampleMapping::Modulate,
             })
             .render(ColorOverLifetimeModifier { gradient }),
     );
@@ -314,6 +325,7 @@ fn setup(
     // Store the effects for later reference
     my_effect.effect = effect;
     my_effect.alt_effect = alt_effect;
+    my_effect.texture = asset_server.load("circle.png");
     my_effect.mesh = mesh;
     my_effect.material = mat;
 

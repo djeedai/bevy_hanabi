@@ -129,28 +129,29 @@ fn setup(
         .expr();
     let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
 
+    let texture_slot = writer.lit(0u32).expr();
+
+    let mut module = writer.finish();
+    module.add_texture("color");
+
     let effect = effects.add(
-        EffectAsset::new(
-            vec![32768],
-            Spawner::burst(32.0.into(), 8.0.into()),
-            writer.finish(),
-        )
-        .with_name("circle")
-        .init(init_pos)
-        .init(init_vel)
-        .init(init_age)
-        .init(init_lifetime)
-        .update(update_sprite_index)
-        .render(ParticleTextureModifier {
-            texture: texture_handle.clone(),
-            sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
-        })
-        .render(FlipbookModifier { sprite_grid_size })
-        .render(ColorOverLifetimeModifier { gradient })
-        .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant([0.5; 2].into()),
-            screen_space_size: false,
-        }),
+        EffectAsset::new(vec![32768], Spawner::burst(32.0.into(), 8.0.into()), module)
+            .with_name("circle")
+            .init(init_pos)
+            .init(init_vel)
+            .init(init_age)
+            .init(init_lifetime)
+            .update(update_sprite_index)
+            .render(ParticleTextureModifier {
+                texture_slot: texture_slot,
+                sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
+            })
+            .render(FlipbookModifier { sprite_grid_size })
+            .render(ColorOverLifetimeModifier { gradient })
+            .render(SizeOverLifetimeModifier {
+                gradient: Gradient::constant([0.5; 2].into()),
+                screen_space_size: false,
+            }),
     );
 
     // The ground
@@ -175,7 +176,11 @@ fn setup(
         })
         .insert(Name::new("sphere"));
 
-    commands
-        .spawn(ParticleEffectBundle::new(effect))
-        .insert(Name::new("effect"));
+    commands.spawn((
+        ParticleEffectBundle::new(effect),
+        EffectMaterial {
+            images: vec![texture_handle],
+        },
+        Name::new("effect"),
+    ));
 }

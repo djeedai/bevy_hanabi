@@ -131,11 +131,12 @@ fn setup(
 
     // Make each particle round.
     let particle_texture_modifier = ParticleTextureModifier {
-        texture: circle,
+        texture_slot: writer.lit(0u32).expr(),
         sample_mapping: ImageSampleMapping::Modulate,
     };
 
-    let module = writer.finish();
+    let mut module = writer.finish();
+    module.add_texture("shape");
 
     // Allocate room for 32,768 trail particles. Give each particle a 5-particle
     // trail, and spawn a new trail particle every ⅛ of a second.
@@ -166,6 +167,9 @@ fn setup(
             effect: ParticleEffect::new(effect),
             transform: Transform::IDENTITY,
             ..default()
+        },
+        EffectMaterial {
+            images: vec![circle],
         },
     ));
 }

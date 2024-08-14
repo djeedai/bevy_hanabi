@@ -56,7 +56,8 @@ pub use ribbon::*;
 pub use velocity::*;
 
 use crate::{
-    Attribute, EvalContext, ExprError, ExprHandle, Gradient, Module, ParticleLayout, PropertyLayout,
+    Attribute, EvalContext, ExprError, ExprHandle, Gradient, Module, ParticleLayout,
+    PropertyLayout, TextureLayout,
 };
 
 /// The dimension of a shape to consider.
@@ -374,18 +375,17 @@ pub struct RenderContext<'a> {
     /// Extra functions emitted at top level, which `vertex_code` and
     /// `fragment_code` can call.
     pub render_extra: String,
-    /// Texture modulating the particle color.
-    pub particle_texture: Option<Handle<Image>>,
-    /// WGSL code describing how to modulate the base color of the particle with
-    /// the image texture sample, if any.
-    pub image_sample_mapping_code: String,
+    /// Texture layout.
+    pub texture_layout: &'a TextureLayout,
+    /// Effect textures.
+    pub textures: Vec<Handle<Image>>,
     /// Flipbook sprite sheet grid size, if any.
     pub sprite_grid_size: Option<UVec2>,
     /// Color gradients.
     pub gradients: HashMap<u64, Gradient<Vec4>>,
     /// Size gradients.
     pub size_gradients: HashMap<u64, Gradient<Vec2>>,
-    /// Needs uv
+    /// The particle needs UV coordinates to sample one or more texture(s).
     pub needs_uv: bool,
     /// Counter for unique variable names.
     var_counter: u32,
@@ -397,15 +397,19 @@ pub struct RenderContext<'a> {
 
 impl<'a> RenderContext<'a> {
     /// Create a new update context.
-    pub fn new(property_layout: &'a PropertyLayout, particle_layout: &'a ParticleLayout) -> Self {
+    pub fn new(
+        property_layout: &'a PropertyLayout,
+        particle_layout: &'a ParticleLayout,
+        texture_layout: &'a TextureLayout,
+    ) -> Self {
         Self {
             property_layout,
             particle_layout,
             vertex_code: String::new(),
             fragment_code: String::new(),
             render_extra: String::new(),
-            particle_texture: None,
-            image_sample_mapping_code: String::new(),
+            texture_layout,
+            textures: vec![],
             sprite_grid_size: None,
             gradients: HashMap::new(),
             size_gradients: HashMap::new(),
@@ -414,14 +418,6 @@ impl<'a> RenderContext<'a> {
             expr_cache: Default::default(),
             is_attribute_pointer: false,
         }
-    }
-
-    /// Set the main texture used to color particles.
-    ///
-    /// This implicitly sets `needs_uv`.
-    fn set_particle_texture(&mut self, handle: Handle<Image>) {
-        self.particle_texture = Some(handle);
-        self.needs_uv = true;
     }
 
     /// Mark the rendering shader as needing UVs.
@@ -509,8 +505,10 @@ impl<'a> EvalContext for RenderContext<'a> {
     ) -> Result<(), ExprError> {
         // Generate a temporary context for the function content itself
         // FIXME - Dynamic with_attribute_pointer()!
+        let texture_layout = module.texture_layout();
         let mut ctx =
-            RenderContext::new(self.property_layout, self.particle_layout).with_attribute_pointer();
+            RenderContext::new(self.property_layout, self.particle_layout, &texture_layout)
+                .with_attribute_pointer();
 
         // Evaluate the function content
         let body = f(module, &mut ctx)?;
@@ -539,7 +537,11 @@ impl<'a> EvalContext for RenderContext<'a> {
 #[cfg_attr(feature = "serde", typetag::serde)]
 pub trait RenderModifier: Modifier {
     /// Apply the rendering code.
-    fn apply_render(&self, module: &mut Module, context: &mut RenderContext);
+    fn apply_render(
+        &self,
+        module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError>;
 
     /// Clone into boxed self.
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier>;
@@ -901,8 +903,10 @@ fn main() {{
 
     #[test]
     fn validate_render() {
+        let mut base_module = Module::default();
+        let slot_zero = base_module.lit(0u32);
         let modifiers: &[&dyn RenderModifier] = &[
-            &ParticleTextureModifier::default(),
+            &ParticleTextureModifier::new(slot_zero),
             &ColorOverLifetimeModifier::default(),
             &SizeOverLifetimeModifier::default(),
             &OrientModifier::new(OrientMode::ParallelCameraDepthPlane),
@@ -910,11 +914,15 @@ fn main() {{
             &OrientModifier::new(OrientMode::AlongVelocity),
         ];
         for &modifier in modifiers.iter() {
-            let mut module = Module::default();
+            let mut module = base_module.clone();
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut context = RenderContext::new(&property_layout, &particle_layout);
-            modifier.apply_render(&mut module, &mut context);
+            let texture_layout = module.texture_layout();
+            let mut context =
+                RenderContext::new(&property_layout, &particle_layout, &texture_layout);
+            modifier
+                .apply_render(&mut module, &mut context)
+                .expect("Failed to apply modifier to render context.");
             let vertex_code = context.vertex_code;
             let fragment_code = context.fragment_code;
             let render_extra = context.render_extra;
@@ -995,6 +1003,8 @@ fn main() {{
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {{
+    var color = vec4<f32>(0.0);
+    var uv = vec2<f32>(0.0);
 {fragment_code}
     return vec4<f32>(1.0);
 }}"##
@@ -1020,12 +1030,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {{
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
         let x = module.builtin(BuiltInOperator::Rand(ScalarType::Float.into()));
+        let texture_layout = module.texture_layout();
         let init: &mut dyn EvalContext =
             &mut ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
         let update: &mut dyn EvalContext =
             &mut ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
         let render: &mut dyn EvalContext =
-            &mut RenderContext::new(&property_layout, &particle_layout);
+            &mut RenderContext::new(&property_layout, &particle_layout, &texture_layout);
         for ctx in [init, update, render] {
             // First evaluation is cached inside a local variable 'var0'
             let s = ctx.eval(&module, x).unwrap();
