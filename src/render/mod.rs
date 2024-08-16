@@ -2410,7 +2410,7 @@ impl Material {
         self.textures
             .iter()
             .enumerate()
-            .map(|(index, id)| {
+            .flat_map(|(index, id)| {
                 if let Some(gpu_image) = gpu_images.get(*id) {
                     vec![
                         BindGroupEntry {
@@ -2426,7 +2426,6 @@ impl Material {
                     vec![]
                 }
             })
-            .flatten()
             .collect()
     }
 }
@@ -2589,7 +2588,7 @@ fn emit_sorted_draw<T, F>(
             let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
             let render_pipeline_id = specialized_render_pipelines.specialize(
                 pipeline_cache,
-                &render_pipeline,
+                render_pipeline,
                 ParticleRenderPipelineKey {
                     shader: render_shader_source.clone(),
                     particle_layout: batches.particle_layout.clone(),
@@ -2763,7 +2762,7 @@ fn emit_binned_draw<T, F>(
             let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
             let render_pipeline_id = specialized_render_pipelines.specialize(
                 pipeline_cache,
-                &render_pipeline,
+                render_pipeline,
                 ParticleRenderPipelineKey {
                     shader: render_shader_source.clone(),
                     particle_layout: batches.particle_layout.clone(),
@@ -3456,7 +3455,7 @@ fn draw<'w>(
         layout: effect_batches.texture_layout.clone(),
         textures: effect_batches.textures.iter().map(|h| h.id()).collect(),
     };
-    if effect_batches.texture_layout.layout.len() > 0 {
+    if !effect_batches.texture_layout.layout.is_empty() {
         if let Some(bind_group) = effect_bind_groups.material_bind_groups.get(&material) {
             pass.set_bind_group(2, bind_group, &[]);
         } else {

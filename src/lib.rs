@@ -971,7 +971,7 @@ impl EffectShaderSource {
                     RenderContext::new(&property_layout, &particle_layout, &texture_layout);
                 for m in asset.render_modifiers_for_group(group_index) {
                     m.apply_render(&mut module, &mut render_context)
-                        .map_err(|expr_error| ShaderGenerateError::Expr(expr_error))?;
+                        .map_err(ShaderGenerateError::Expr)?;
                 }
 
                 if render_context.needs_uv {

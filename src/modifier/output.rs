@@ -101,7 +101,7 @@ impl RenderModifier for ParticleTextureModifier {
     }
 
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn as_modifier(&self) -> &dyn Modifier {
@@ -137,7 +137,7 @@ impl ParticleTextureModifier {
             let wgsl_index = index.to_wgsl_string();
             code += &format!("      case {wgsl_index}: {{ texColor = textureSample(material_texture_{index}, material_sampler_{index}, uv); }}\n");
         }
-        code += &format!("      default: {{ texColor = vec4<f32>(0.0); }}\n");
+        code += "      default: {{ texColor = vec4<f32>(0.0); }}\n";
         code += &format!(
             "    }}
     // Sample mapping: {sample_mapping_name}
