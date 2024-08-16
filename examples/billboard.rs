@@ -29,43 +29,18 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use bevy::{
-    core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*, render::camera::Projection,
-};
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*, render::camera::Projection};
 use bevy_hanabi::prelude::*;
-#[cfg(feature = "examples_world_inspector")]
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod utils;
+use utils::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut app = App::default();
-    app.insert_resource(ClearColor(Color::BLACK))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::INFO,
-                    filter: "bevy_hanabi=warn,billboard=trace".to_string(),
-                    ..default()
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — billboard".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
-        .add_plugins(HanabiPlugin);
-
-    #[cfg(feature = "examples_world_inspector")]
-    app.add_plugins(WorldInspectorPlugin::default());
-
-    app.add_systems(Startup, setup)
-        .add_systems(Update, (utils::close_on_esc, rotate_camera))
+    let app_exit = utils::make_test_app("billboard")
+        .add_systems(Startup, setup)
+        .add_systems(Update, rotate_camera)
         .run();
-
-    Ok(())
+    app_exit.into_result()
 }
 
 fn setup(

@@ -6,40 +6,19 @@ use std::f32::consts::{FRAC_PI_2, PI};
 
 use bevy::{
     core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
-    log::LogPlugin,
     math::{vec3, vec4},
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
-#[cfg(feature = "examples_world_inspector")]
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod utils;
+use utils::*;
 
-fn main() {
-    let mut app = App::default();
-    app.add_plugins(
-        DefaultPlugins
-            .set(LogPlugin {
-                level: bevy::log::Level::INFO,
-                filter: "bevy_hanabi=warn,worms=trace".to_string(),
-                ..default()
-            })
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "🎆 Hanabi — worms".to_string(),
-                    ..default()
-                }),
-                ..default()
-            }),
-    )
-    .add_systems(Update, utils::close_on_esc)
-    .add_plugins(HanabiPlugin);
-
-    #[cfg(feature = "examples_world_inspector")]
-    app.add_plugins(WorldInspectorPlugin::default());
-
-    app.add_systems(Startup, setup).run();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let app_exit = utils::make_test_app("worms")
+        .add_systems(Startup, setup)
+        .run();
+    app_exit.into_result()
 }
 
 fn setup(

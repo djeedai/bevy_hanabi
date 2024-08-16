@@ -14,36 +14,17 @@
 //! to the projection on screen; however those particles are actually at a
 //! different depth, in front or behind the sphere.
 
-use bevy::{core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*};
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
 use bevy_hanabi::prelude::*;
-#[cfg(feature = "examples_world_inspector")]
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod utils;
+use utils::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut app = App::default();
-    app.insert_resource(ClearColor(Color::BLACK))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::INFO,
-                    filter: "bevy_hanabi=warn,force_field=trace".to_string(),
-                    ..default()
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — force field".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
-        .add_plugins(HanabiPlugin);
+    let mut app = utils::make_test_app("force_field");
 
     #[cfg(feature = "examples_world_inspector")]
-    app.add_plugins(WorldInspectorPlugin::default())
-        .init_resource::<inspector::Configuration>()
+    app.init_resource::<inspector::Configuration>()
         .register_type::<inspector::Configuration>()
         .add_systems(Update, inspector::inspector_ui)
         .add_systems(
@@ -52,10 +33,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
     app.add_systems(Startup, setup)
-        .add_systems(Update, (utils::close_on_esc, spawn_on_click, move_repulsor))
+        .add_systems(Update, (spawn_on_click, move_repulsor))
         .run();
 
-    Ok(())
+    app.run().into_result()
 }
 
 const BALL_RADIUS: f32 = 0.05;
@@ -227,7 +208,7 @@ fn setup(
     commands.spawn(PbrBundle {
         mesh: meshes.add(Cuboid::new(6., 4., 6.)),
         material: materials.add(StandardMaterial {
-            base_color: Color::linear_rgba(0., 0.7, 0., 0.3),
+            base_color: Color::linear_rgba(0., 0.7, 0., 0.05),
             unlit: true,
             alpha_mode: bevy::prelude::AlphaMode::Blend,
             ..Default::default()
@@ -239,7 +220,7 @@ fn setup(
     commands.spawn(PbrBundle {
         mesh: meshes.add(Sphere { radius: 0.6 }),
         material: materials.add(StandardMaterial {
-            base_color: Color::linear_rgba(0.7, 0., 0., 0.3),
+            base_color: Color::linear_rgba(0.7, 0., 0., 0.2),
             unlit: true,
             alpha_mode: bevy::prelude::AlphaMode::Blend,
             ..Default::default()
