@@ -104,14 +104,14 @@
 
 use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
 
-use bevy::reflect::Reflect;
+use bevy::{prelude::default, reflect::Reflect};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::Value;
 use crate::{
-    Attribute, ModifierContext, ParticleLayout, Property, PropertyLayout, ScalarType, ToWgslString,
-    ValueType,
+    Attribute, ModifierContext, ParticleLayout, Property, PropertyLayout, ScalarType,
+    TextureLayout, TextureSlot, ToWgslString, ValueType, VectorType,
 };
 
 /// A one-based ID into a collection of a [`Module`].
@@ -195,6 +195,46 @@ impl PropertyHandle {
     }
 }
 
+/// Handle of a texture inside a given [`Module`].
+///
+/// A handle uniquely references a [`TextureSlot`] stored inside a [`Module`].
+/// It's a lightweight representation, similar to a simple array index. For this
+/// reason, it's easily copyable. However it's also lacking any kind of error
+/// checking, and mixing handles to different modules produces undefined
+/// behaviors (like an index does when indexing the wrong array).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect, Serialize, Deserialize,
+)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub struct TextureHandle {
+    id: Id,
+}
+
+impl TextureHandle {
+    /// Create a new handle from a 1-based [`Id`].
+    #[allow(dead_code)]
+    fn new(id: Id) -> Self {
+        Self { id }
+    }
+
+    /// Create a new handle from a 1-based [`Id`] as a `usize`, for cases where
+    /// the index is known to be non-zero already.
+    #[allow(unsafe_code)]
+    unsafe fn new_unchecked(id: usize) -> Self {
+        debug_assert!(id != 0);
+        Self {
+            id: NonZeroU32::new_unchecked(id as u32),
+        }
+    }
+
+    /// Get the zero-based index into the array of the module.
+    #[allow(dead_code)]
+    fn index(&self) -> usize {
+        (self.id.get() - 1) as usize
+    }
+}
+
 /// Container for expressions.
 ///
 /// A module represents a storage for a set of expressions used in a single
@@ -220,6 +260,8 @@ pub struct Module {
     expressions: Vec<Expr>,
     /// Properties used as part of a [`PropertyExpr`].
     properties: Vec<Property>,
+    /// Texture layout.
+    texture_layout: TextureLayout,
 }
 
 macro_rules! impl_module_unary {
@@ -258,6 +300,7 @@ impl Module {
         Self {
             expressions: expr,
             properties: vec![],
+            texture_layout: default(),
         }
     }
 
@@ -311,6 +354,25 @@ impl Module {
     /// Get the list of existing properties.
     pub fn properties(&self) -> &[Property] {
         &self.properties
+    }
+
+    /// Add a new texture to the module.
+    ///
+    /// See [`TextureSlot`] for more details on what effect textures are.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a texture with the same name already exists.
+    pub fn add_texture(&mut self, name: impl Into<String>) -> TextureHandle {
+        let name = name.into();
+        assert!(!self.texture_layout.layout.iter().any(|t| t.name == name));
+        self.texture_layout.layout.push(TextureSlot { name });
+        // SAFETY - We just pushed a new property into the array, so its length is
+        // non-zero.
+        #[allow(unsafe_code)]
+        unsafe {
+            TextureHandle::new_unchecked(self.texture_layout.layout.len())
+        }
     }
 
     /// Append a new expression to the module.
@@ -569,6 +631,11 @@ impl Module {
         let expr = self.get(expr).unwrap();
         expr.has_side_effect(self)
     }
+
+    /// Get the texture layout of this module.
+    pub fn texture_layout(&self) -> TextureLayout {
+        self.texture_layout.clone()
+    }
 }
 
 /// Errors raised when manipulating expressions [`Expr`] and node graphs
@@ -767,6 +834,12 @@ pub enum Expr {
     ///
     /// An expression to cast an expression to another type.
     Cast(CastExpr),
+
+    /// Access to textures.
+    ///
+    /// An expression to sample a texture from the effect's material. Currently
+    /// only color textures (returning a `vec4<f32>`) are supported.
+    TextureSample(TextureSampleExpr),
 }
 
 impl Expr {
@@ -811,6 +884,7 @@ impl Expr {
                 ..
             } => module.is_const(*first) && module.is_const(*second) && module.is_const(*third),
             Expr::Cast(expr) => module.is_const(expr.inner),
+            Expr::TextureSample(_) => false,
         }
     }
 
@@ -842,6 +916,7 @@ impl Expr {
                     || module.has_side_effect(*third)
             }
             Expr::Cast(expr) => module.has_side_effect(expr.inner),
+            Expr::TextureSample(_) => false,
         }
     }
 
@@ -874,6 +949,7 @@ impl Expr {
             Expr::Binary { .. } => None,
             Expr::Ternary { .. } => None,
             Expr::Cast(expr) => Some(expr.value_type()),
+            Expr::TextureSample(expr) => Some(expr.value_type()),
         }
     }
 
@@ -1024,6 +1100,7 @@ impl Expr {
 
                 Ok(format!("{}({})", expr.target.to_wgsl_string(), inner))
             }
+            Expr::TextureSample(expr) => expr.eval(module, context),
         }
     }
 }
@@ -1238,6 +1315,68 @@ impl CastExpr {
         } else {
             None
         }
+    }
+}
+
+/// Expression to sample a texture from the effect's material.
+///
+/// This currently supports only color textures, that is all textures which
+/// return a `vec4<f32>` when sampled. So this excludes depth textures, but
+/// includes single-channel (e.g. red) textures. See the WGSL specification for
+/// details.
+///
+/// This currently only samples with `textureSample()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct TextureSampleExpr {
+    /// The index of the image to sample. This is the texture slot defined in
+    /// the [`Module`]. The texture bound to the slot is defined in the
+    /// [`EffectMaterial`] component.
+    ///
+    /// [`EffectMaterial`]: crate::EffectMaterial
+    pub image: ExprHandle,
+    /// The coordinates to sample at.
+    pub coordinates: ExprHandle,
+}
+
+impl TextureSampleExpr {
+    /// Create a new texture sample expression.
+    #[inline]
+    pub fn new(image: ExprHandle, coordinates: ExprHandle) -> Self {
+        Self { image, coordinates }
+    }
+
+    /// Get the value type of the expression.
+    pub fn value_type(&self) -> ValueType {
+        // FIXME - depth textures return a single f32 when sampled
+        ValueType::Vector(VectorType::VEC4F)
+    }
+
+    /// Try to evaluate if the texture sample expression is valid.
+    ///
+    /// This only checks that the expressions exist in the module.
+    pub fn is_valid(&self, module: &Module) -> Option<bool> {
+        let Some(_image) = module.get(self.image) else {
+            return Some(false);
+        };
+        let Some(_coordinates) = module.get(self.coordinates) else {
+            return Some(false);
+        };
+        Some(true)
+    }
+
+    /// Evaluate the expression in the given context.
+    pub fn eval(
+        &self,
+        module: &Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
+        let image = module.try_get(self.image)?;
+        let image = image.eval(module, context)?;
+        let coordinates = module.try_get(self.coordinates)?;
+        let coordinates = coordinates.eval(module, context)?;
+        Ok(format!(
+            "textureSample(material_texture_{image}, material_sampler_{image}, {coordinates})",
+        ))
     }
 }
 

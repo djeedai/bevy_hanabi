@@ -136,8 +136,13 @@ fn setup(
     // per-particle rotation)
     let rotation_attr = writer.attr(Attribute::F32_0).expr();
 
+    let texture_slot = writer.lit(0u32).expr();
+
+    let mut module = writer.finish();
+    module.add_texture("color");
+
     let effect = effects.add(
-        EffectAsset::new(vec![32768], Spawner::rate(64.0.into()), writer.finish())
+        EffectAsset::new(vec![32768], Spawner::rate(64.0.into()), module)
             .with_name("billboard")
             .with_alpha_mode(bevy_hanabi::AlphaMode::Mask(alpha_cutoff))
             .init(init_pos)
@@ -147,7 +152,7 @@ fn setup(
             .init(init_rotation)
             .init(init_color)
             .render(ParticleTextureModifier {
-                texture: texture_handle,
+                texture_slot: texture_slot,
                 sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
             .render(OrientModifier {
@@ -173,9 +178,13 @@ fn setup(
         })
         .insert(Name::new("ground"));
 
-    commands
-        .spawn(ParticleEffectBundle::new(effect))
-        .insert(Name::new("effect"));
+    commands.spawn((
+        ParticleEffectBundle::new(effect),
+        EffectMaterial {
+            images: vec![texture_handle],
+        },
+        Name::new("effect"),
+    ));
 }
 
 fn rotate_camera(time: Res<Time>, mut query: Query<&mut Transform, With<Camera>>) {

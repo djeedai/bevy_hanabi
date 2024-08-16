@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     modifier::{Modifier, RenderModifier},
     ExprHandle, GroupedModifier, ModifierContext, Module, ParticleGroupSet, ParticleLayout,
-    Property, PropertyLayout, SimulationSpace, Spawner,
+    Property, PropertyLayout, SimulationSpace, Spawner, TextureLayout,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -710,6 +710,11 @@ impl EffectAsset {
     pub fn property_layout(&self) -> PropertyLayout {
         PropertyLayout::new(self.properties().iter())
     }
+
+    /// Get the texture layout of the module of this effect.
+    pub fn texture_layout(&self) -> TextureLayout {
+        self.module.texture_layout()
+    }
 }
 
 /// Asset loader for [`EffectAsset`].
@@ -795,6 +800,7 @@ mod tests {
         let mut module = Module::default();
         let origin = module.lit(Vec3::ZERO);
         let one = module.lit(1.);
+        let slot_zero = module.lit(0u32);
         let init_age = SetAttributeModifier::new(Attribute::AGE, one);
         let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, one);
         let init_pos_sphere = SetPositionSphereModifier {
@@ -807,67 +813,68 @@ mod tests {
             speed: module.lit(1.),
         };
 
-        let effect = EffectAsset {
-            name: "Effect".into(),
-            capacities: vec![4096],
-            spawner: Spawner::rate(30.0.into()),
-            ..Default::default()
-        }
-        .init(init_pos_sphere)
-        .init(init_vel_sphere)
-        //.update(AccelModifier::default())
-        .update(LinearDragModifier::new(one))
-        .update(ConformToSphereModifier::new(origin, one, one, one, one))
-        .render(ParticleTextureModifier::default())
-        .render(ColorOverLifetimeModifier::default())
-        .render(SizeOverLifetimeModifier::default())
-        .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
-        .render(OrientModifier::new(OrientMode::FaceCameraPosition))
-        .render(OrientModifier::new(OrientMode::AlongVelocity));
+        let mut effect = EffectAsset::new(vec![4096], Spawner::rate(30.0.into()), module)
+            .init(init_pos_sphere)
+            .init(init_vel_sphere)
+            //.update(AccelModifier::default())
+            .update(LinearDragModifier::new(one))
+            .update(ConformToSphereModifier::new(origin, one, one, one, one))
+            .render(ParticleTextureModifier::new(slot_zero))
+            .render(ColorOverLifetimeModifier::default())
+            .render(SizeOverLifetimeModifier::default())
+            .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
+            .render(OrientModifier::new(OrientMode::FaceCameraPosition))
+            .render(OrientModifier::new(OrientMode::AlongVelocity));
 
         assert_eq!(&effect.capacities, &[4096]);
 
+        let module = &mut effect.module;
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
         let mut init_context =
             ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
-        assert!(init_pos_sphere
-            .apply(&mut module, &mut init_context)
-            .is_ok());
-        assert!(init_vel_sphere
-            .apply(&mut module, &mut init_context)
-            .is_ok());
-        assert!(init_age.apply(&mut module, &mut init_context).is_ok());
-        assert!(init_lifetime.apply(&mut module, &mut init_context).is_ok());
+        assert!(init_pos_sphere.apply(module, &mut init_context).is_ok());
+        assert!(init_vel_sphere.apply(module, &mut init_context).is_ok());
+        assert!(init_age.apply(module, &mut init_context).is_ok());
+        assert!(init_lifetime.apply(module, &mut init_context).is_ok());
         // assert_eq!(effect., init_context.init_code);
 
-        let mut module = Module::default();
-        let accel_mod = AccelModifier::constant(&mut module, Vec3::ONE);
-        let drag_mod = LinearDragModifier::constant(&mut module, 3.5);
+        let accel_mod = AccelModifier::constant(module, Vec3::ONE);
+        let drag_mod = LinearDragModifier::constant(module, 3.5);
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
         let mut update_context =
             ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
-        assert!(accel_mod.apply(&mut module, &mut update_context).is_ok());
-        assert!(drag_mod.apply(&mut module, &mut update_context).is_ok());
+        assert!(accel_mod.apply(module, &mut update_context).is_ok());
+        assert!(drag_mod.apply(module, &mut update_context).is_ok());
         assert!(ConformToSphereModifier::new(origin, one, one, one, one)
-            .apply(&mut module, &mut update_context)
+            .apply(module, &mut update_context)
             .is_ok());
         // assert_eq!(effect.update_layout, update_layout);
 
-        let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut render_context = RenderContext::new(&property_layout, &particle_layout);
-        ParticleTextureModifier::default().apply_render(&mut module, &mut render_context);
-        ColorOverLifetimeModifier::default().apply_render(&mut module, &mut render_context);
-        SizeOverLifetimeModifier::default().apply_render(&mut module, &mut render_context);
+        let texture_layout = TextureLayout::default();
+        let mut render_context =
+            RenderContext::new(&property_layout, &particle_layout, &texture_layout);
+        ParticleTextureModifier::new(slot_zero)
+            .apply_render(module, &mut render_context)
+            .unwrap();
+        ColorOverLifetimeModifier::default()
+            .apply_render(module, &mut render_context)
+            .unwrap();
+        SizeOverLifetimeModifier::default()
+            .apply_render(module, &mut render_context)
+            .unwrap();
         OrientModifier::new(OrientMode::ParallelCameraDepthPlane)
-            .apply_render(&mut module, &mut render_context);
+            .apply_render(module, &mut render_context)
+            .unwrap();
         OrientModifier::new(OrientMode::FaceCameraPosition)
-            .apply_render(&mut module, &mut render_context);
+            .apply_render(module, &mut render_context)
+            .unwrap();
         OrientModifier::new(OrientMode::AlongVelocity)
-            .apply_render(&mut module, &mut render_context);
+            .apply_render(module, &mut render_context)
+            .unwrap();
         // assert_eq!(effect.render_layout, render_layout);
     }
 
@@ -950,6 +957,9 @@ mod tests {
                 default_value: Vector(Vec3((1.2, -2.3, 55.32))),
             ),
         ],
+        texture_layout: (
+            layout: [],
+        ),
     ),
     alpha_mode: Blend,
 )"#

@@ -62,34 +62,88 @@ impl ToWgslString for ImageSampleMapping {
 /// # Attributes
 ///
 /// This modifier does not require any specific particle attribute.
-#[derive(Default, Debug, Clone, PartialEq, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct ParticleTextureModifier {
-    /// The texture image to modulate the particle color with.
-    #[serde(skip)]
-    // TODO - Clarify if Modifier needs to be serializable, or we need another on-disk
-    // representation... NOTE - Need to keep a strong handle here, nothing else will keep that
-    // texture loaded currently.
-    pub texture: Handle<Image>,
+    /// Index of the texture slot containing the texture to use. The slot is
+    /// defined in the [`Module`], and the actual texture is bound via the
+    /// [`EffectMaterial`] component.
+    ///
+    /// [`EffectMaterial`]: crate::EffectMaterial
+    pub texture_slot: ExprHandle,
 
     /// The mapping of the texture image samples to the base particle color.
     pub sample_mapping: ImageSampleMapping,
+}
+
+impl ParticleTextureModifier {
+    /// Create a new modifier with the default [`ImageSampleMapping`].
+    pub fn new(texture_slot: ExprHandle) -> Self {
+        Self {
+            texture_slot,
+            sample_mapping: default(),
+        }
+    }
 }
 
 impl_mod_render!(ParticleTextureModifier, &[]); // TODO - should require some UV maybe?
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for ParticleTextureModifier {
-    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
-        context.set_particle_texture(self.texture.clone());
-        context.image_sample_mapping_code = self.sample_mapping.to_wgsl_string();
+    fn apply_render(
+        &self,
+        module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError> {
+        context.set_needs_uv();
+        let code = self.eval(module, context)?;
+        context.fragment_code += &code;
+        Ok(())
     }
 
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
-        Box::new(self.clone())
+        Box::new(*self)
     }
 
     fn as_modifier(&self) -> &dyn Modifier {
         self
+    }
+}
+
+impl ParticleTextureModifier {
+    /// Evaluate the modifier to generate the shader code.
+    pub fn eval(
+        &self,
+        module: &Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
+        let texture_slot = module.try_get(self.texture_slot)?;
+        let texture_slot = texture_slot.eval(module, context)?;
+        let sample_mapping = self.sample_mapping.to_wgsl_string();
+
+        let sample_mapping_name = format!("{:?}", self.sample_mapping);
+
+        // Build a switch statement to select the texture/sampler.
+        // FIXME - Ideally with bindless (texture/sampler arrays with dynamic indices)
+        // we don't need this. But bindless is not available on Web anyway, so this is a
+        // safe fallback.
+        let mut code = String::with_capacity(1024);
+        code += &format!(
+            "    // ParticleTextureModifier
+    var texColor: vec4<f32>;
+    switch ({texture_slot}) {{\n"
+        );
+        let count = module.texture_layout().layout.len() as u32;
+        for index in 0..count {
+            let wgsl_index = index.to_wgsl_string();
+            code += &format!("      case {wgsl_index}: {{ texColor = textureSample(material_texture_{index}, material_sampler_{index}, uv); }}\n");
+        }
+        code += "      default: {{ texColor = vec4<f32>(0.0); }}\n";
+        code += &format!(
+            "    }}
+    // Sample mapping: {sample_mapping_name}
+    {sample_mapping}"
+        );
+        Ok(code)
     }
 }
 
@@ -112,8 +166,13 @@ impl_mod_render!(SetColorModifier, &[]);
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for SetColorModifier {
-    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
+    fn apply_render(
+        &self,
+        _module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError> {
         context.vertex_code += &format!("color = {0};\n", self.color.to_wgsl_string());
+        Ok(())
     }
 
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
@@ -146,7 +205,11 @@ impl_mod_render!(
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for ColorOverLifetimeModifier {
-    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
+    fn apply_render(
+        &self,
+        _module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError> {
         let func_name = context.add_color_gradient(self.gradient.clone());
         context.render_extra += &format!(
             r#"fn {0}(key: f32) -> vec4<f32> {{
@@ -164,6 +227,8 @@ impl RenderModifier for ColorOverLifetimeModifier {
             Attribute::AGE.name(),
             Attribute::LIFETIME.name()
         );
+
+        Ok(())
     }
 
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
@@ -197,8 +262,13 @@ impl_mod_render!(SetSizeModifier, &[]);
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for SetSizeModifier {
-    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
+    fn apply_render(
+        &self,
+        _module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError> {
         context.vertex_code += &format!("size = {0};\n", self.size.to_wgsl_string());
+        Ok(())
     }
 
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
@@ -235,7 +305,11 @@ impl_mod_render!(
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for SizeOverLifetimeModifier {
-    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
+    fn apply_render(
+        &self,
+        _module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError> {
         let func_name = context.add_size_gradient(self.gradient.clone());
         context.render_extra += &format!(
             r#"fn {0}(key: f32) -> vec2<f32> {{
@@ -253,6 +327,8 @@ impl RenderModifier for SizeOverLifetimeModifier {
             Attribute::AGE.name(),
             Attribute::LIFETIME.name()
         );
+
+        Ok(())
     }
 
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
@@ -396,11 +472,15 @@ impl Modifier for OrientModifier {
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for OrientModifier {
-    fn apply_render(&self, module: &mut Module, context: &mut RenderContext) {
+    fn apply_render(
+        &self,
+        module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError> {
         match self.mode {
             OrientMode::ParallelCameraDepthPlane => {
                 if let Some(rotation) = self.rotation {
-                    let rotation = context.eval(module, rotation).unwrap();
+                    let rotation = context.eval(module, rotation)?;
                     context.vertex_code += &format!(
                         r#"let cam_rot = get_camera_rotation_effect_space();
 let particle_rot_in_cam_space = {};
@@ -422,7 +502,7 @@ axis_z = cam_rot[2].xyz;
             }
             OrientMode::FaceCameraPosition => {
                 if let Some(rotation) = self.rotation {
-                    let rotation = context.eval(module, rotation).unwrap();
+                    let rotation = context.eval(module, rotation)?;
                     context.vertex_code += &format!(
                         r#"axis_z = normalize(get_camera_position_effect_space() - position);
 let particle_rot_in_cam_space = {};
@@ -450,6 +530,8 @@ axis_z = cross(axis_x, axis_y);
 "#;
             }
         }
+
+        Ok(())
     }
 
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
@@ -507,6 +589,8 @@ axis_z = cross(axis_x, axis_y);
 ///     .expr();
 /// let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
 ///
+/// let texture_slot = writer.lit(0u32).expr();
+///
 /// let asset = EffectAsset::new(
 ///     vec![32768],
 ///     Spawner::once(32.0.into(), true),
@@ -517,7 +601,7 @@ axis_z = cross(axis_x, axis_y);
 /// .init(init_lifetime)
 /// .update(update_sprite_index)
 /// .render(ParticleTextureModifier {
-///     texture,
+///     texture_slot,
 ///     sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
 /// })
 /// .render(FlipbookModifier {
@@ -561,8 +645,13 @@ impl_mod_render!(FlipbookModifier, &[Attribute::SPRITE_INDEX]);
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for FlipbookModifier {
-    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
+    fn apply_render(
+        &self,
+        _module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError> {
         context.sprite_grid_size = Some(self.sprite_grid_size);
+        Ok(())
     }
 
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
@@ -604,7 +693,11 @@ impl_mod_render!(
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for ScreenSpaceSizeModifier {
-    fn apply_render(&self, _module: &mut Module, context: &mut RenderContext) {
+    fn apply_render(
+        &self,
+        _module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError> {
         // Get perspective divide factor from clip space position. This is the "average"
         // factor for the entire particle, taken at its position (mesh origin),
         // and applied uniformly for all vertices. Scale size by w_cs to negate
@@ -620,6 +713,7 @@ impl RenderModifier for ScreenSpaceSizeModifier {
             let projection_scale = vec2<f32>(view.clip_from_view[0][0], view.clip_from_view[1][1]);\n
             size = (size * w_cs * 2.0) / min(screen_size_pixels.x * projection_scale.x, screen_size_pixels.y * projection_scale.y);\n",
             Attribute::POSITION.name());
+        Ok(())
     }
 
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
@@ -661,10 +755,14 @@ impl_mod_render!(RoundModifier, &[]);
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for RoundModifier {
-    fn apply_render(&self, module: &mut Module, context: &mut RenderContext) {
+    fn apply_render(
+        &self,
+        module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError> {
         context.set_needs_uv();
 
-        let roundness = context.eval(module, self.roundness).unwrap();
+        let roundness = context.eval(module, self.roundness)?;
         context.fragment_code += &format!(
             "let roundness = {};
             if (roundness > 0.0f) {{
@@ -676,6 +774,8 @@ impl RenderModifier for RoundModifier {
             }}",
             roundness
         );
+
+        Ok(())
     }
 
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
@@ -711,20 +811,20 @@ mod tests {
 
     #[test]
     fn mod_particle_texture() {
-        let texture = Handle::<Image>::default();
-        let modifier = ParticleTextureModifier {
-            texture: texture.clone(),
-            ..default()
-        };
-
         let mut module = Module::default();
+        let slot = module.lit(42u32);
+        // let texture = Handle::<Image>::default();
+        let modifier = ParticleTextureModifier::new(slot);
+
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&property_layout, &particle_layout);
-        modifier.apply_render(&mut module, &mut context);
+        let texture_layout = module.texture_layout();
+        let mut context = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
+        modifier.apply_render(&mut module, &mut context).unwrap();
 
-        assert!(context.particle_texture.is_some());
-        assert_eq!(context.particle_texture.unwrap(), texture);
+        // TODO - no validation at the minute
+        assert_eq!(context.texture_layout.layout.len(), 0); // we "forgot" to add the slot to Module
+        assert_eq!(context.textures.len(), 0); // we "forgot" the EffectMaterial
     }
 
     #[test]
@@ -736,8 +836,9 @@ mod tests {
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&property_layout, &particle_layout);
-        modifier.apply_render(&mut module, &mut context);
+        let texture_layout = module.texture_layout();
+        let mut context = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
+        modifier.apply_render(&mut module, &mut context).unwrap();
 
         assert!(context.sprite_grid_size.is_some());
         assert_eq!(context.sprite_grid_size.unwrap(), UVec2::new(3, 4));
@@ -757,8 +858,9 @@ mod tests {
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&property_layout, &particle_layout);
-        modifier.apply_render(&mut module, &mut context);
+        let texture_layout = module.texture_layout();
+        let mut context = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
+        modifier.apply_render(&mut module, &mut context).unwrap();
 
         assert!(context
             .render_extra
@@ -780,8 +882,9 @@ mod tests {
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&property_layout, &particle_layout);
-        modifier.apply_render(&mut module, &mut context);
+        let texture_layout = module.texture_layout();
+        let mut context = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
+        modifier.apply_render(&mut module, &mut context).unwrap();
 
         assert!(context
             .render_extra
@@ -799,8 +902,9 @@ mod tests {
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&property_layout, &particle_layout);
-        modifier.apply_render(&mut module, &mut context);
+        let texture_layout = module.texture_layout();
+        let mut context = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
+        modifier.apply_render(&mut module, &mut context).unwrap();
 
         assert_eq!(modifier.color, CpuValue::from(Vec4::ZERO));
         assert_eq!(context.vertex_code, "color = vec4<f32>(0.,0.,0.,0.);\n");
@@ -817,8 +921,9 @@ mod tests {
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&property_layout, &particle_layout);
-        modifier.apply_render(&mut module, &mut context);
+        let texture_layout = module.texture_layout();
+        let mut context = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
+        modifier.apply_render(&mut module, &mut context).unwrap();
 
         assert_eq!(modifier.size, CpuValue::from(Vec2::ZERO));
         assert_eq!(context.vertex_code, "size = vec2<f32>(0.,0.);\n");
@@ -839,8 +944,9 @@ mod tests {
         let modifier = OrientModifier::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&property_layout, &particle_layout);
-        modifier.apply_render(&mut module, &mut context);
+        let texture_layout = module.texture_layout();
+        let mut context = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
+        modifier.apply_render(&mut module, &mut context).unwrap();
 
         // TODO - less weak test...
         assert!(context
@@ -858,8 +964,9 @@ mod tests {
         let modifier = OrientModifier::default().with_rotation(module.lit(1.));
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&property_layout, &particle_layout);
-        modifier.apply_render(&mut module, &mut context);
+        let texture_layout = module.texture_layout();
+        let mut context = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
+        modifier.apply_render(&mut module, &mut context).unwrap();
 
         // TODO - less weak test...
         assert!(context
@@ -878,8 +985,9 @@ mod tests {
             OrientModifier::new(OrientMode::FaceCameraPosition).with_rotation(module.lit(1.));
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context = RenderContext::new(&property_layout, &particle_layout);
-        modifier.apply_render(&mut module, &mut context);
+        let texture_layout = module.texture_layout();
+        let mut context = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
+        modifier.apply_render(&mut module, &mut context).unwrap();
 
         // TODO - less weak test...
         assert!(context

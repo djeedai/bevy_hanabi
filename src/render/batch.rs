@@ -11,7 +11,7 @@ use super::{
     effect_cache::{DispatchBufferIndices, EffectSlices},
     EffectCacheId, GpuCompressedTransform, LayoutFlags,
 };
-use crate::{AlphaMode, EffectAsset, EffectShader, ParticleLayout, PropertyLayout};
+use crate::{AlphaMode, EffectAsset, EffectShader, ParticleLayout, PropertyLayout, TextureLayout};
 
 /// Data needed to render all batches pertaining to a specific effect.
 #[derive(Debug, Component)]
@@ -39,6 +39,10 @@ pub(crate) struct EffectBatches {
     pub particle_layout: ParticleLayout,
     /// Flags describing the render layout.
     pub layout_flags: LayoutFlags,
+    /// Texture layout.
+    pub texture_layout: TextureLayout,
+    /// Textures.
+    pub textures: Vec<Handle<Image>>,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
     /// Entities holding the source [`ParticleEffect`] instances which were
@@ -46,10 +50,6 @@ pub(crate) struct EffectBatches {
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
     pub entities: Vec<u32>,
-    /// Texture to modulate the particle color.
-    ///
-    /// TODO: We should support more than one of these.
-    pub image_handle: Handle<Image>,
     /// Configured shaders used for the particle rendering of this batch.
     /// Note that we don't need to keep the init/update shaders alive because
     /// their pipeline specialization is doing it via the specialization key.
@@ -126,8 +126,9 @@ impl EffectBatches {
                 .collect(),
             handle: input.handle,
             layout_flags: input.layout_flags,
+            texture_layout: input.texture_layout,
+            textures: input.textures,
             alpha_mode: input.alpha_mode,
-            image_handle: input.image_handle,
             render_shaders: input.effect_shader.render,
             init_pipeline_id,
             update_pipeline_ids,
@@ -152,10 +153,12 @@ pub(crate) struct BatchesInput {
     pub effect_shader: EffectShader,
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
+    /// Texture layout.
+    pub texture_layout: TextureLayout,
+    /// Textures.
+    pub textures: Vec<Handle<Image>>,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
-    /// Texture to modulate the particle color.
-    pub image_handle: Handle<Image>,
     /// Number of particles to spawn for this effect.
     pub spawn_count: u32,
     /// Emitter transform.

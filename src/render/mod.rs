@@ -58,7 +58,7 @@ use crate::{
     spawn::EffectSpawner,
     AlphaMode, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
     HanabiPlugin, ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition,
-    ToWgslString,
+    TextureLayout, ToWgslString,
 };
 
 mod aligned_buffer_vec;
@@ -920,7 +920,63 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
 pub(crate) struct ParticlesRenderPipeline {
     render_device: RenderDevice,
     view_layout: BindGroupLayout,
-    material_layout: BindGroupLayout,
+    material_layouts: HashMap<TextureLayout, BindGroupLayout>,
+}
+
+impl ParticlesRenderPipeline {
+    /// Cache a material, creating its bind group layout based on the texture
+    /// layout.
+    pub fn cache_material(&mut self, layout: &TextureLayout) {
+        if layout.layout.is_empty() {
+            return;
+        }
+
+        // FIXME - no current stable API to insert an entry into a HashMap only if it
+        // doesn't exist, and without having to build a key (as opposed to a reference).
+        // So do 2 lookups instead, to avoid having to clone the layout if it's already
+        // cached (which should be the common case).
+        if self.material_layouts.contains_key(layout) {
+            return;
+        }
+
+        let mut entries = Vec::with_capacity(layout.layout.len() * 2);
+        let mut index = 0;
+        for _slot in &layout.layout {
+            entries.push(BindGroupLayoutEntry {
+                binding: index,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    multisampled: false,
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2,
+                },
+                count: None,
+            });
+            entries.push(BindGroupLayoutEntry {
+                binding: index + 1,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            });
+            index += 2;
+        }
+        let material_bind_group_layout = self
+            .render_device
+            .create_bind_group_layout("hanabi:material_layout_render", &entries[..]);
+
+        self.material_layouts
+            .insert(layout.clone(), material_bind_group_layout);
+    }
+
+    /// Retrieve a bind group layout for a cached material.
+    pub fn get_material(&self, layout: &TextureLayout) -> Option<&BindGroupLayout> {
+        // Prevent a hash and lookup for the trivial case of an empty layout
+        if layout.layout.is_empty() {
+            return None;
+        }
+
+        self.material_layouts.get(layout)
+    }
 }
 
 impl FromWorld for ParticlesRenderPipeline {
@@ -953,32 +1009,10 @@ impl FromWorld for ParticlesRenderPipeline {
             ],
         );
 
-        let material_layout = render_device.create_bind_group_layout(
-            "hanabi:material_layout_render",
-            &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Texture {
-                        multisampled: false,
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        view_dimension: TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        );
-
         Self {
             render_device: render_device.clone(),
             view_layout,
-            material_layout,
+            material_layouts: default(),
         }
     }
 }
@@ -996,11 +1030,8 @@ pub(crate) struct ParticleRenderPipelineKey {
     shader: Handle<Shader>,
     /// Particle layout.
     particle_layout: ParticleLayout,
-    /// Key: PARTICLE_TEXTURE
-    /// Define a texture sampled to modulate the particle color.
-    /// This key requires the presence of UV coordinates on the particle
-    /// vertices.
-    has_image: bool,
+    /// Texture layout.
+    texture_layout: TextureLayout,
     /// Key: LOCAL_SPACE_SIMULATION
     /// The effect is simulated in local space, and during rendering all
     /// particles are transformed by the effect's [`GlobalTransform`].
@@ -1033,7 +1064,7 @@ impl Default for ParticleRenderPipelineKey {
         Self {
             shader: Handle::default(),
             particle_layout: ParticleLayout::empty(),
-            has_image: false,
+            texture_layout: default(),
             local_space_simulation: false,
             use_alpha_mask: false,
             alpha_mode: AlphaMode::Blend,
@@ -1156,10 +1187,8 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         let mut layout = vec![self.view_layout.clone(), particles_buffer_layout];
         let mut shader_defs = vec!["SPAWNER_READONLY".into()];
 
-        // Key: PARTICLE_TEXTURE
-        if key.has_image {
-            layout.push(self.material_layout.clone());
-            shader_defs.push("PARTICLE_TEXTURE".into());
+        if let Some(material_bind_group_layout) = self.get_material(&key.texture_layout) {
+            layout.push(material_bind_group_layout.clone());
             // //  @location(1) vertex_uv: vec2<f32>
             // vertex_buffer_layout.attributes.push(VertexAttribute {
             //     format: VertexFormat::Float32x2,
@@ -1327,10 +1356,12 @@ pub(crate) struct ExtractedEffect {
     pub inverse_transform: Mat4,
     /// Layout flags.
     pub layout_flags: LayoutFlags,
+    /// Texture layout.
+    pub texture_layout: TextureLayout,
+    /// Textures.
+    pub textures: Vec<Handle<Image>>,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
-    /// Texture to modulate the particle color.
-    pub image_handle: Handle<Image>,
     /// Effect shader.
     pub effect_shader: EffectShader,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
@@ -1529,13 +1560,8 @@ pub(crate) fn extract_effects(
         #[cfg(feature = "2d")]
         let z_sort_key_2d = effect.z_layer_2d;
 
-        let image_handle = effect
-            .particle_texture
-            .as_ref()
-            .map(|handle| handle.clone_weak())
-            .unwrap_or_default();
-
         let property_layout = asset.property_layout();
+        let texture_layout = asset.module().texture_layout();
 
         let property_data = if let Some(properties) = maybe_properties {
             // Note: must check that property layout is not empty, because the
@@ -1552,19 +1578,15 @@ pub(crate) fn extract_effects(
             None
         };
 
-        let mut layout_flags = effect.layout_flags;
-        if effect.particle_texture.is_some() {
-            layout_flags |= LayoutFlags::PARTICLE_TEXTURE;
-        }
-
+        let layout_flags = effect.layout_flags;
         let alpha_mode = effect.alpha_mode;
 
         trace!(
-            "Extracted instance of effect '{}' on entity {:?}: image_handle={:?} has_image={} layout_flags={:?}",
+            "Extracted instance of effect '{}' on entity {:?}: texture_layout_count={} texture_count={} layout_flags={:?}",
             asset.name,
             entity,
-            image_handle,
-            effect.particle_texture.is_some(),
+            texture_layout.layout.len(),
+            effect.textures.len(),
             layout_flags,
         );
 
@@ -1580,8 +1602,9 @@ pub(crate) fn extract_effects(
                 // TODO - more efficient/correct way than inverse()?
                 inverse_transform: transform.compute_matrix().inverse(),
                 layout_flags,
+                texture_layout,
+                textures: effect.textures.clone(),
                 alpha_mode,
-                image_handle,
                 effect_shader,
                 #[cfg(feature = "2d")]
                 z_sort_key_2d,
@@ -2012,8 +2035,8 @@ bitflags! {
     pub struct LayoutFlags: u32 {
         /// No flags.
         const NONE = 0;
-        /// The effect uses an image texture.
-        const PARTICLE_TEXTURE = (1 << 0);
+        // DEPRECATED - The effect uses an image texture.
+        //const PARTICLE_TEXTURE = (1 << 0);
         /// The effect is simulated in local space.
         const LOCAL_SPACE_SIMULATION = (1 << 2);
         /// The effect uses alpha masking instead of alpha blending. Only used for 3D.
@@ -2115,8 +2138,9 @@ pub(crate) fn prepare_effects(
                 property_layout: extracted_effect.property_layout.clone(),
                 effect_shader: extracted_effect.effect_shader.clone(),
                 layout_flags: extracted_effect.layout_flags,
+                texture_layout: extracted_effect.texture_layout.clone(),
+                textures: extracted_effect.textures.clone(),
                 alpha_mode: extracted_effect.alpha_mode,
-                image_handle: extracted_effect.image_handle,
                 spawn_count: extracted_effect.spawn_count,
                 transform: extracted_effect.transform.into(),
                 inverse_transform: extracted_effect.inverse_transform.into(),
@@ -2204,8 +2228,6 @@ pub(crate) fn prepare_effects(
 
         let render_shader = input.effect_shader.render.clone();
         trace!("render_shader(s) = {:?}", render_shader);
-
-        trace!("image_handle = {:?}", input.image_handle);
 
         let layout_flags = input.layout_flags;
         trace!("layout_flags = {:?}", layout_flags);
@@ -2372,6 +2394,42 @@ pub(crate) struct BufferBindGroups {
     render: BindGroup,
 }
 
+/// Combination of a texture layout and the bound textures.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+struct Material {
+    layout: TextureLayout,
+    textures: Vec<AssetId<Image>>,
+}
+
+impl Material {
+    /// Get the bind group entries to create a bind group.
+    pub fn make_entries<'a>(
+        &self,
+        gpu_images: &'a RenderAssets<GpuImage>,
+    ) -> Vec<BindGroupEntry<'a>> {
+        self.textures
+            .iter()
+            .enumerate()
+            .flat_map(|(index, id)| {
+                if let Some(gpu_image) = gpu_images.get(*id) {
+                    vec![
+                        BindGroupEntry {
+                            binding: index as u32 * 2,
+                            resource: BindingResource::TextureView(&gpu_image.texture_view),
+                        },
+                        BindGroupEntry {
+                            binding: index as u32 * 2 + 1,
+                            resource: BindingResource::Sampler(&gpu_image.sampler),
+                        },
+                    ]
+                } else {
+                    vec![]
+                }
+            })
+            .collect()
+    }
+}
+
 #[derive(Default, Resource)]
 pub struct EffectBindGroups {
     /// Map from buffer index to the bind groups shared among all effects that
@@ -2382,6 +2440,8 @@ pub struct EffectBindGroups {
     /// Map from effect index to its update render indirect bind group (group
     /// 3).
     update_render_indirect_bind_groups: HashMap<EffectCacheId, BindGroup>,
+    /// Map from an effect material to its bind group.
+    material_bind_groups: HashMap<Material, BindGroup>,
 }
 
 impl EffectBindGroups {
@@ -2400,7 +2460,6 @@ pub struct QueueEffectsReadOnlyParams<'w, 's> {
     draw_functions_3d: Res<'w, DrawFunctions<Transparent3d>>,
     #[cfg(feature = "3d")]
     draw_functions_alpha_mask: Res<'w, DrawFunctions<AlphaMask3d>>,
-    render_pipeline: Res<'w, ParticlesRenderPipeline>,
     #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
@@ -2411,7 +2470,7 @@ fn emit_sorted_draw<T, F>(
     view_entities: &mut FixedBitSet,
     effect_batches: &Query<(Entity, &mut EffectBatches)>,
     effect_draw_batches: &Query<(Entity, &mut EffectDrawBatch)>,
-    read_params: &QueueEffectsReadOnlyParams,
+    render_pipeline: &mut ParticlesRenderPipeline,
     mut specialized_render_pipelines: Mut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
     pipeline_cache: &PipelineCache,
     msaa_samples: u32,
@@ -2494,6 +2553,9 @@ fn emit_sorted_draw<T, F>(
             #[cfg(feature = "trace")]
             _span_check_vis.exit();
 
+            // Create and cache the bind group layout for this texture layout
+            render_pipeline.cache_material(&batches.texture_layout);
+
             // FIXME - We draw the entire batch, but part of it may not be visible in this
             // view! We should re-batch for the current view specifically!
 
@@ -2503,13 +2565,13 @@ fn emit_sorted_draw<T, F>(
             let use_alpha_mask = batches.layout_flags.contains(LayoutFlags::USE_ALPHA_MASK);
             let flipbook = batches.layout_flags.contains(LayoutFlags::FLIPBOOK);
             let needs_uv = batches.layout_flags.contains(LayoutFlags::NEEDS_UV);
-            let has_image = batches.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE);
+            let image_count = batches.texture_layout.layout.len() as u8;
 
             // Specialize the render pipeline based on the effect batch
             trace!(
-                "Specializing render pipeline: render_shaders={:?} has_image={:?} use_alpha_mask={:?} flipbook={:?} hdr={}",
+                "Specializing render pipeline: render_shaders={:?} image_count={} use_alpha_mask={:?} flipbook={:?} hdr={}",
                 batches.render_shaders,
-                has_image,
+                image_count,
                 use_alpha_mask,
                 flipbook,
                 view.hdr
@@ -2526,11 +2588,11 @@ fn emit_sorted_draw<T, F>(
             let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
             let render_pipeline_id = specialized_render_pipelines.specialize(
                 pipeline_cache,
-                &read_params.render_pipeline,
+                render_pipeline,
                 ParticleRenderPipelineKey {
                     shader: render_shader_source.clone(),
                     particle_layout: batches.particle_layout.clone(),
-                    has_image,
+                    texture_layout: batches.texture_layout.clone(),
                     local_space_simulation,
                     use_alpha_mask,
                     alpha_mode,
@@ -2577,7 +2639,7 @@ fn emit_binned_draw<T, F>(
     view_entities: &mut FixedBitSet,
     effect_batches: &Query<(Entity, &mut EffectBatches)>,
     effect_draw_batches: &Query<(Entity, &mut EffectDrawBatch)>,
-    read_params: &QueueEffectsReadOnlyParams,
+    render_pipeline: &mut ParticlesRenderPipeline,
     mut specialized_render_pipelines: Mut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
     pipeline_cache: &PipelineCache,
     msaa_samples: u32,
@@ -2665,6 +2727,9 @@ fn emit_binned_draw<T, F>(
             #[cfg(feature = "trace")]
             _span_check_vis.exit();
 
+            // Create and cache the bind group layout for this texture layout
+            render_pipeline.cache_material(&batches.texture_layout);
+
             // FIXME - We draw the entire batch, but part of it may not be visible in this
             // view! We should re-batch for the current view specifically!
 
@@ -2674,13 +2739,13 @@ fn emit_binned_draw<T, F>(
             let use_alpha_mask = batches.layout_flags.contains(LayoutFlags::USE_ALPHA_MASK);
             let flipbook = batches.layout_flags.contains(LayoutFlags::FLIPBOOK);
             let needs_uv = batches.layout_flags.contains(LayoutFlags::NEEDS_UV);
-            let has_image = batches.layout_flags.contains(LayoutFlags::PARTICLE_TEXTURE);
+            let image_count = batches.texture_layout.layout.len() as u8;
 
             // Specialize the render pipeline based on the effect batch
             trace!(
-                "Specializing render pipeline: render_shaders={:?} has_image={:?} use_alpha_mask={:?} flipbook={:?} hdr={}",
+                "Specializing render pipeline: render_shaders={:?} image_count={} use_alpha_mask={:?} flipbook={:?} hdr={}",
                 batches.render_shaders,
-                has_image,
+                image_count,
                 use_alpha_mask,
                 flipbook,
                 view.hdr
@@ -2697,11 +2762,11 @@ fn emit_binned_draw<T, F>(
             let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
             let render_pipeline_id = specialized_render_pipelines.specialize(
                 pipeline_cache,
-                &read_params.render_pipeline,
+                render_pipeline,
                 ParticleRenderPipelineKey {
                     shader: render_shader_source.clone(),
                     particle_layout: batches.particle_layout.clone(),
-                    has_image,
+                    texture_layout: batches.texture_layout.clone(),
                     local_space_simulation,
                     use_alpha_mask,
                     alpha_mode,
@@ -2743,6 +2808,7 @@ fn emit_binned_draw<T, F>(
 pub(crate) fn queue_effects(
     views: Query<(Entity, &VisibleEntities, &ExtractedView)>,
     effects_meta: Res<EffectsMeta>,
+    mut render_pipeline: ResMut<ParticlesRenderPipeline>,
     mut specialized_render_pipelines: ResMut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
     pipeline_cache: Res<PipelineCache>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
@@ -2810,7 +2876,7 @@ pub(crate) fn queue_effects(
                 &mut view_entities,
                 &effect_batches,
                 &effect_draw_batches,
-                &read_params,
+                &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 msaa.samples(),
@@ -2850,7 +2916,7 @@ pub(crate) fn queue_effects(
                 &mut view_entities,
                 &effect_batches,
                 &effect_draw_batches,
-                &read_params,
+                &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 msaa.samples(),
@@ -2888,7 +2954,7 @@ pub(crate) fn queue_effects(
                 &mut view_entities,
                 &effect_batches,
                 &effect_draw_batches,
-                &read_params,
+                &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 msaa.samples(),
@@ -2921,7 +2987,7 @@ pub(crate) fn prepare_resources(
     mut effects_meta: ResMut<EffectsMeta>,
     render_device: Res<RenderDevice>,
     view_uniforms: Res<ViewUniforms>,
-    read_params: QueueEffectsReadOnlyParams,
+    render_pipeline: Res<ParticlesRenderPipeline>,
 ) {
     // Get the binding for the ViewUniform, the uniform data structure containing
     // the Camera data for the current view.
@@ -2932,7 +2998,7 @@ pub(crate) fn prepare_resources(
     // Create the bind group for the camera/view parameters
     effects_meta.view_bind_group = Some(render_device.create_bind_group(
         "hanabi:bind_group_camera_view",
-        &read_params.render_pipeline.view_layout,
+        &render_pipeline.view_layout,
         &[
             BindGroupEntry {
                 binding: 0,
@@ -2955,7 +3021,7 @@ pub(crate) fn prepare_bind_groups(
     dispatch_indirect_pipeline: Res<DispatchIndirectPipeline>,
     init_pipeline: Res<ParticlesInitPipeline>,
     update_pipeline: Res<ParticlesUpdatePipeline>,
-    render_pipeline: Res<ParticlesRenderPipeline>,
+    render_pipeline: ResMut<ParticlesRenderPipeline>,
     gpu_images: Res<RenderAssets<GpuImage>>,
 ) {
     if effects_meta.spawner_buffer.is_empty() || effects_meta.spawner_buffer.buffer().is_none() {
@@ -3251,56 +3317,43 @@ pub(crate) fn prepare_bind_groups(
                 );
         }
 
-        // Ensure the particle texture is available as a GPU resource and create a bind
-        // group for it
-        if effect_batches
-            .layout_flags
-            .contains(LayoutFlags::PARTICLE_TEXTURE)
-        {
-            if effect_bind_groups
-                .images
-                .get(&effect_batches.image_handle.id())
-                .is_none()
-            {
-                trace!(
-                    "Batch buffer #{} has missing GPU image bind group, creating...",
-                    effect_batches.buffer_index,
+        // Ensure the particle texture(s) are available as GPU resources and that a bind
+        // group for them exists FIXME fix this insert+get below
+        if !effect_batches.texture_layout.layout.is_empty() {
+            // This should always be available, as this is cached into the render pipeline
+            // just before we start specializing it.
+            let Some(material_bind_group_layout) =
+                render_pipeline.get_material(&effect_batches.texture_layout)
+            else {
+                error!(
+                    "Failed to find material bind group layout for buffer #{}",
+                    effect_batches.buffer_index
                 );
-                // If texture doesn't have a bind group yet from another instance of the
-                // same effect, then try to create one now
-                if let Some(gpu_image) = gpu_images.get(&effect_batches.image_handle) {
-                    let bind_group = render_device.create_bind_group(
-                        "hanabi:material_bind_group",
-                        &render_pipeline.material_layout,
-                        &[
-                            BindGroupEntry {
-                                binding: 0,
-                                resource: BindingResource::TextureView(&gpu_image.texture_view),
-                            },
-                            BindGroupEntry {
-                                binding: 1,
-                                resource: BindingResource::Sampler(&gpu_image.sampler),
-                            },
-                        ],
-                    );
-                    effect_bind_groups
-                        .images
-                        .insert(effect_batches.image_handle.id(), bind_group);
-                } else {
-                    // Texture is not ready; skip for now...
-                    trace!("GPU image not yet available; skipping batch for now.");
-                    continue;
-                }
-            } else {
-                trace!(
-                    "Image {:?} already has bind group {:?}.",
-                    effect_batches.image_handle,
-                    effect_bind_groups
-                        .images
-                        .get(&effect_batches.image_handle.id())
-                        .unwrap()
-                );
-            }
+                continue;
+            };
+
+            // TODO = move
+            let material = Material {
+                layout: effect_batches.texture_layout.clone(),
+                textures: effect_batches.textures.iter().map(|h| h.id()).collect(),
+            };
+            assert_eq!(material.layout.layout.len(), material.textures.len());
+
+            let bind_group_entries = material.make_entries(&gpu_images);
+
+            effect_bind_groups
+                .material_bind_groups
+                .entry(material.clone())
+                .or_insert_with(|| {
+                    render_device.create_bind_group(
+                        &format!(
+                            "hanabi:material_bind_group_{}",
+                            material.layout.layout.len()
+                        )[..],
+                        material_bind_group_layout,
+                        &bind_group_entries[..],
+                    )
+                });
         }
     }
 }
@@ -3397,19 +3450,18 @@ fn draw<'w>(
     );
 
     // Particle texture
-    if effect_batches
-        .layout_flags
-        .contains(LayoutFlags::PARTICLE_TEXTURE)
-    {
-        if let Some(bind_group) = effect_bind_groups
-            .images
-            .get(&effect_batches.image_handle.id())
-        {
+    // TODO = move
+    let material = Material {
+        layout: effect_batches.texture_layout.clone(),
+        textures: effect_batches.textures.iter().map(|h| h.id()).collect(),
+    };
+    if !effect_batches.texture_layout.layout.is_empty() {
+        if let Some(bind_group) = effect_bind_groups.material_bind_groups.get(&material) {
             pass.set_bind_group(2, bind_group, &[]);
         } else {
-            // Texture not ready; skip this drawing for now
+            // Texture(s) not ready; skip this drawing for now
             trace!(
-                "Particle texture bind group not available for batch buf={}. Skipping draw call.",
+                "Particle material bind group not available for batch buf={}. Skipping draw call.",
                 effect_batches.buffer_index,
             );
             return; // continue;

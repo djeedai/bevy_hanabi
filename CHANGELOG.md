@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This allows disabling support on wasm, where `typetag` is not available.
   The feature is enabled by default, so the behavior doesn't change on non-wasm targets.
 - Added support for WebAssembly (`wasm`). This requires disabling the `serde` feature. (#41)
+- Added support for sampling textures in the Expression API via the `TextureSampleExpr` expression.
+  Currently only supports color textures (no depth texture) and only sampling via WGSL `textureSample()`. (#355)
+- Added a new `EffectMaterial` component holding the actual textures to bind to the various slots of a `Module`.
+- Added a new `Module::add_texture()` function to declare a new texture slot in a module.
+
+### Changed
+
+- The `ParticleTextureModifier` doesn't directly hold the texture handle to use anymore.
+  Instead, it holds an expression handle to the texture slot defined in the `Module` of the effect.
+  This allows dynamically changing the texture sampled.
+- `RenderModifier::apply_render()` now returns a `Result<String, ExprError>`.
 
 ### Fixed
 

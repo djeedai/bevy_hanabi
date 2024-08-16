@@ -30,26 +30,25 @@ cargo b --release --example instancing --target wasm32-unknown-unknown --no-defa
 REM 2D
 cargo b --release --example 2d --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite 2d"
 
-echo Bindgen all examples...
-wasm-bindgen --out-name wasm_firework --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/firework.wasm
-wasm-bindgen --out-name wasm_portal --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/portal.wasm
-wasm-bindgen --out-name wasm_expr --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/expr.wasm
-wasm-bindgen --out-name wasm_spawn --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/spawn.wasm
-wasm-bindgen --out-name wasm_multicam --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/multicam.wasm
-wasm-bindgen --out-name wasm_visibility --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/visibility.wasm
-wasm-bindgen --out-name wasm_random --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/random.wasm
-wasm-bindgen --out-name wasm_spawn_on_command --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/spawn_on_command.wasm
-wasm-bindgen --out-name wasm_activate --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/activate.wasm
-wasm-bindgen --out-name wasm_force_field --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/force_field.wasm
-wasm-bindgen --out-name wasm_init --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/init.wasm
-wasm-bindgen --out-name wasm_lifetime --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lifetime.wasm
-wasm-bindgen --out-name wasm_ordering --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/ordering.wasm
-wasm-bindgen --out-name wasm_ribbon --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/ribbon.wasm
-wasm-bindgen --out-name wasm_gradient --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/gradient.wasm
-wasm-bindgen --out-name wasm_circle --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/circle.wasm
-wasm-bindgen --out-name wasm_billboard --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/billboard.wasm
-wasm-bindgen --out-name wasm_worms --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/worms.wasm
-wasm-bindgen --out-name wasm_instancing --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/instancing.wasm
-wasm-bindgen --out-name wasm_2d --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/2d.wasm
+wasm-bindgen --out-name wasm_firework --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/firework.wasm
+wasm-bindgen --out-name wasm_portal --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/portal.wasm
+wasm-bindgen --out-name wasm_expr --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/expr.wasm
+wasm-bindgen --out-name wasm_spawn --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/spawn.wasm
+wasm-bindgen --out-name wasm_multicam --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/multicam.wasm
+wasm-bindgen --out-name wasm_visibility --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/visibility.wasm
+wasm-bindgen --out-name wasm_random --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/random.wasm
+wasm-bindgen --out-name wasm_spawn_on_command --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/spawn_on_command.wasm
+wasm-bindgen --out-name wasm_activate --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/activate.wasm
+wasm-bindgen --out-name wasm_force_field --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/force_field.wasm
+wasm-bindgen --out-name wasm_init --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/init.wasm
+wasm-bindgen --out-name wasm_lifetime --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lifetime.wasm
+wasm-bindgen --out-name wasm_ordering --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/ordering.wasm
+wasm-bindgen --out-name wasm_ribbon --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/ribbon.wasm
+wasm-bindgen --out-name wasm_gradient --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/gradient.wasm
+wasm-bindgen --out-name wasm_circle --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/circle.wasm
+wasm-bindgen --out-name wasm_billboard --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/billboard.wasm
+wasm-bindgen --out-name wasm_worms --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/worms.wasm
+wasm-bindgen --out-name wasm_instancing --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/instancing.wasm
+wasm-bindgen --out-name wasm_2d --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/2d.wasm
 
 echo Done. See docs/wasm.md for help on running the examples locally.

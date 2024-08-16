@@ -29,14 +29,7 @@ struct VertexOutput {
 #ifdef RENDER_NEEDS_SPAWNER
 @group(1) @binding(3) var<storage, read> spawner : Spawner; // NOTE - same group as update
 #endif
-#ifdef PARTICLE_TEXTURE
-@group(2) @binding(0) var particle_texture: texture_2d<f32>;
-@group(2) @binding(1) var particle_sampler: sampler;
-#endif
-// #ifdef PARTICLE_GRADIENTS
-// @group(3) @binding(0) var gradient_texture: texture_2d<f32>;
-// @group(3) @binding(1) var gradient_sampler: sampler;
-// #endif
+{{MATERIAL_BINDINGS}}
 
 fn get_camera_position_effect_space() -> vec3<f32> {
     let view_pos = view.world_from_view[3].xyz;
@@ -152,15 +145,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef USE_ALPHA_MASK
     var alpha_cutoff: f32 = {{ALPHA_CUTOFF}};
 #endif
+    var color = in.color;
+#ifdef NEEDS_UV
+    var uv = in.uv;
+#endif
 
 {{FRAGMENT_MODIFIERS}}
-
-    var color = in.color;
-
-#ifdef PARTICLE_TEXTURE
-    var texColor = textureSample(particle_texture, particle_sampler, in.uv);
-    {{PARTICLE_TEXTURE_SAMPLE_MAPPING}}
-#endif
 
 #ifdef USE_ALPHA_MASK
     if color.a >= alpha_cutoff {

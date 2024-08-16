@@ -20,7 +20,7 @@ impl_mod_render!(RibbonModifier, &[Attribute::PREV, Attribute::NEXT]);
 
 #[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for RibbonModifier {
-    fn apply_render(&self, _: &mut Module, context: &mut RenderContext) {
+    fn apply_render(&self, _: &mut Module, context: &mut RenderContext) -> Result<(), ExprError> {
         context.vertex_code += r##"
     let next_index = particle.next;
     if (next_index >= arrayLength(&particle_buffer.particles)) {
@@ -38,6 +38,8 @@ impl RenderModifier for RibbonModifier {
     position = mix(next_particle.position, particle.position, 0.5);
     size = vec2(length(delta), size.y);
 "##;
+
+        Ok(())
     }
 
     fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {

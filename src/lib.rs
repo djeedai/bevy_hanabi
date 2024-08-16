@@ -666,6 +666,39 @@ impl ParticleEffect {
     }
 }
 
+/// Material for an effect instance.
+///
+/// A material component contains the render resources (textures) actually bound
+/// to the slots defined in an effect's [`Module`]. That way, a same effect can
+/// be rendered multiple times with different sets of textures.
+///
+/// The [`EffectMaterial`] component needs to be spawned on the same entity as
+/// the [`ParticleEffect`].
+#[derive(Debug, Default, Clone, Component)]
+pub struct EffectMaterial {
+    /// List of images to use to render the effect instance.
+    pub images: Vec<Handle<Image>>,
+}
+
+/// Texture slot of a [`Module`].
+///
+/// A texture slot defines a named bind point where a texture can be attached
+/// and sampled by an effect during rendering.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct TextureSlot {
+    /// Unique slot name.
+    pub name: String,
+}
+
+/// Texture layout.
+///
+/// Defines the list of texture slots for an effect.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct TextureLayout {
+    /// The list of slots.
+    pub layout: Vec<TextureSlot>,
+}
+
 /// Effect shader.
 ///
 /// Contains the configured shaders for the init, update, and render passes.
@@ -688,7 +721,6 @@ struct EffectShaderSource {
     pub update: Vec<String>,
     pub render: Vec<String>,
     pub layout_flags: LayoutFlags,
-    pub particle_texture: Option<Handle<Image>>,
 }
 
 /// Error resulting from the generating of the WGSL shader code of an
@@ -842,13 +874,12 @@ impl EffectShaderSource {
                 }
             }
 
-            let sim_space_transform_code = match asset.simulation_space.eval(&init_context) {
-                Ok(s) => s,
-                Err(err) => {
+            let sim_space_transform_code =
+                asset.simulation_space.eval(&init_context).map_err(|err| {
                     error!("Failed to compile effect's simulation space: {:?}", err);
-                    return Err(ShaderGenerateError::Expr(err));
-                }
-            };
+                    ShaderGenerateError::Expr(err)
+                })?;
+
             (
                 init_context.main_code,
                 init_context.extra_code,
@@ -877,8 +908,6 @@ impl EffectShaderSource {
         if let AlphaMode::Mask(_) = &asset.alpha_mode {
             layout_flags |= LayoutFlags::USE_ALPHA_MASK;
         }
-
-        let mut effect_particle_texture = None;
 
         let (mut update_shader_sources, mut render_shader_sources) = (vec![], vec![]);
         for group_index in 0..(asset.capacities().len() as u32) {
@@ -935,11 +964,14 @@ impl EffectShaderSource {
                 alpha_cutoff_code,
                 flipbook_scale_code,
                 flipbook_row_count_code,
-                image_sample_mapping_code,
+                material_bindings_code,
             ) = {
-                let mut render_context = RenderContext::new(&property_layout, &particle_layout);
+                let texture_layout = module.texture_layout();
+                let mut render_context =
+                    RenderContext::new(&property_layout, &particle_layout, &texture_layout);
                 for m in asset.render_modifiers_for_group(group_index) {
-                    m.apply_render(&mut module, &mut render_context);
+                    m.apply_render(&mut module, &mut render_context)
+                        .map_err(ShaderGenerateError::Expr)?;
                 }
 
                 if render_context.needs_uv {
@@ -978,9 +1010,17 @@ impl EffectShaderSource {
                         (String::new(), String::new())
                     };
 
-                // FIXME: What about multiple textures?
-                if let Some(particle_texture) = render_context.particle_texture {
-                    effect_particle_texture = Some(particle_texture);
+                trace!(
+                    "Generating material bindings code for layout: {:?}",
+                    texture_layout
+                );
+                let mut material_bindings_code = String::new();
+                for (slot, _) in texture_layout.layout.iter().enumerate() {
+                    material_bindings_code.push_str(&format!(
+                        "@group(2) @binding(0) var material_texture_{slot}: texture_2d<f32>;
+@group(2) @binding(1) var material_sampler_{slot}: sampler;
+"
+                    ));
                 }
 
                 (
@@ -990,7 +1030,7 @@ impl EffectShaderSource {
                     alpha_cutoff_code,
                     flipbook_scale_code,
                     flipbook_row_count_code,
-                    render_context.image_sample_mapping_code,
+                    material_bindings_code,
                 )
             };
 
@@ -1050,16 +1090,13 @@ impl EffectShaderSource {
             let render_shader_source = PARTICLES_RENDER_SHADER_TEMPLATE
                 .replace("{{ATTRIBUTES}}", &attributes_code)
                 .replace("{{INPUTS}}", &inputs_code)
+                .replace("{{MATERIAL_BINDINGS}}", &material_bindings_code)
                 .replace("{{VERTEX_MODIFIERS}}", &vertex_code)
                 .replace("{{FRAGMENT_MODIFIERS}}", &fragment_code)
                 .replace("{{RENDER_EXTRA}}", &render_extra)
                 .replace("{{ALPHA_CUTOFF}}", &alpha_cutoff_code)
                 .replace("{{FLIPBOOK_SCALE}}", &flipbook_scale_code)
-                .replace("{{FLIPBOOK_ROW_COUNT}}", &flipbook_row_count_code)
-                .replace(
-                    "{{PARTICLE_TEXTURE_SAMPLE_MAPPING}}",
-                    &image_sample_mapping_code,
-                );
+                .replace("{{FLIPBOOK_ROW_COUNT}}", &flipbook_row_count_code);
             trace!("Configured render shader:\n{}", render_shader_source);
 
             update_shader_sources.push(update_shader_source);
@@ -1071,7 +1108,6 @@ impl EffectShaderSource {
             update: update_shader_sources,
             render: render_shader_sources,
             layout_flags,
-            particle_texture: effect_particle_texture,
         })
     }
 }
@@ -1099,8 +1135,8 @@ pub struct CompiledParticleEffect {
     simulation_condition: SimulationCondition,
     /// Handle to the effect shader for his effect instance, if configured.
     effect_shader: Option<EffectShader>,
-    /// Main particle texture.
-    particle_texture: Option<Handle<Image>>,
+    /// Textures used by the effect, if any.
+    textures: Vec<Handle<Image>>,
     /// 2D layer for the effect instance.
     #[cfg(feature = "2d")]
     z_layer_2d: FloatOrd,
@@ -1116,7 +1152,7 @@ impl Default for CompiledParticleEffect {
             asset: default(),
             simulation_condition: SimulationCondition::default(),
             effect_shader: None,
-            particle_texture: None,
+            textures: vec![],
             #[cfg(feature = "2d")]
             z_layer_2d: FloatOrd(0.0),
             layout_flags: LayoutFlags::NONE,
@@ -1130,7 +1166,7 @@ impl CompiledParticleEffect {
     pub(crate) fn clear(&mut self) {
         self.asset = Handle::default();
         self.effect_shader = None;
-        self.particle_texture = None;
+        self.textures.clear();
     }
 
     /// Update the compiled effect from its asset and instance.
@@ -1138,7 +1174,8 @@ impl CompiledParticleEffect {
         &mut self,
         rebuild: bool,
         #[cfg(feature = "2d")] z_layer_2d: FloatOrd,
-        handle: Handle<EffectAsset>,
+        instance: &ParticleEffect,
+        material: Option<&EffectMaterial>,
         asset: &EffectAsset,
         shaders: &mut ResMut<Assets<Shader>>,
         shader_cache: &mut ResMut<ShaderCache>,
@@ -1147,21 +1184,21 @@ impl CompiledParticleEffect {
             "Updating (rebuild:{}) compiled particle effect '{}' ({:?})",
             rebuild,
             asset.name,
-            handle
+            instance.handle,
         );
 
         // #289 - Panic in fn extract_effects
         // We now keep a strong handle. Since CompiledParticleEffect is kept in sync
         // with the source ParticleEffect, this shouldn't produce any strong cyclic
         // dependency.
-        debug_assert!(handle.is_strong());
+        debug_assert!(instance.handle.is_strong());
 
         // Note: if something marked the ParticleEffect as changed (via Mut for example)
         // but didn't actually change anything, or at least didn't change the asset,
         // then we may end up here with the same asset handle. Don't try to be
         // too smart, and rebuild everything anyway, it's easier than trying to
         // diff what may or may not have changed.
-        self.asset = handle;
+        self.asset = instance.handle.clone();
         self.simulation_condition = asset.simulation_condition;
 
         // Check if the instance changed. If so, rebuild some data from this compiled
@@ -1211,11 +1248,11 @@ impl CompiledParticleEffect {
             .collect();
 
         trace!(
-            "CompiledParticleEffect::update(): init_shader={:?} update_shaders={:?} render_shaders={:?} has_image={} layout_flags={:?}",
+            "CompiledParticleEffect::update(): init_shader={:?} update_shaders={:?} render_shaders={:?} texture_count={} layout_flags={:?}",
             init_shader,
             update_shaders,
             render_shaders,
-            shader_source.particle_texture.is_some(),
+            material.map(|mat| mat.images.len()).unwrap_or(0),
             self.layout_flags,
         );
 
@@ -1232,7 +1269,7 @@ impl CompiledParticleEffect {
             render: render_shaders,
         });
 
-        self.particle_texture = shader_source.particle_texture;
+        self.textures = material.map(|mat| &mat.images).cloned().unwrap_or_default();
     }
 
     /// Get the effect shader if configured, or `None` otherwise.
@@ -1350,26 +1387,32 @@ fn compile_effects(
     effects: Res<Assets<EffectAsset>>,
     mut shaders: ResMut<Assets<Shader>>,
     mut shader_cache: ResMut<ShaderCache>,
-    mut q_effects: Query<(Entity, Ref<ParticleEffect>, &mut CompiledParticleEffect)>,
+    mut q_effects: Query<(
+        Entity,
+        Ref<ParticleEffect>,
+        Option<Ref<EffectMaterial>>,
+        &mut CompiledParticleEffect,
+    )>,
 ) {
     trace!("compile_effects");
 
     // Loop over all existing effects to update them, including invisible ones
-    for (asset, entity, effect, mut compiled_effect) in
+    for (asset, entity, effect, material, mut compiled_effect) in
         q_effects
             .iter_mut()
-            .filter_map(|(entity, effect, compiled_effect)| {
+            .filter_map(|(entity, effect, material, compiled_effect)| {
                 // Check if asset is available, otherwise silently ignore as we can't check for
                 // changes, and conceptually it makes no sense to render a particle effect whose
                 // asset was unloaded.
                 let asset = effects.get(&effect.handle)?;
 
-                Some((asset, entity, effect, compiled_effect))
+                Some((asset, entity, effect, material, compiled_effect))
             })
     {
         // If the ParticleEffect didn't change, and the compiled one is for the correct
         // asset, then there's nothing to do.
-        let need_rebuild = effect.is_changed();
+        let need_rebuild =
+            effect.is_changed() || material.as_ref().map_or(false, |r| r.is_changed());
         if !need_rebuild && (compiled_effect.asset == effect.handle) {
             continue;
         }
@@ -1389,7 +1432,8 @@ fn compile_effects(
             need_rebuild,
             #[cfg(feature = "2d")]
             z_layer_2d,
-            effect.handle.clone(),
+            &effect,
+            material.map(|r| r.into_inner()),
             asset,
             &mut shaders,
             &mut shader_cache,
@@ -1397,7 +1441,7 @@ fn compile_effects(
     }
 
     // Clear removed effects, to allow them to be released by the asset server
-    for (_, effect, mut compiled_effect) in q_effects.iter_mut() {
+    for (_, effect, _, mut compiled_effect) in q_effects.iter_mut() {
         if effects.get(&effect.handle).is_none() {
             compiled_effect.clear();
         }
@@ -1679,7 +1723,8 @@ else { return c1; }
         {
             // In the render context, the particle position is always available (either
             // stored or not), so the simulation space can always be evaluated.
-            let ctx = RenderContext::new(&property_layout, &particle_layout);
+            let texture_layout = TextureLayout::default();
+            let ctx = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_ok());
         }
@@ -1787,7 +1832,6 @@ else { return c1; }
 
             let mut shader_defs = std::collections::HashMap::<String, ShaderDefValue>::new();
             shader_defs.insert("LOCAL_SPACE_SIMULATION".into(), ShaderDefValue::Bool(true));
-            shader_defs.insert("PARTICLE_TEXTURE".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("NEEDS_UV".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("RENDER_NEEDS_SPAWNER".into(), ShaderDefValue::Bool(true));
             shader_defs.insert(
