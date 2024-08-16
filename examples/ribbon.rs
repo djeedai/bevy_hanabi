@@ -7,10 +7,9 @@ use bevy::{
     math::vec3,
 };
 use bevy_hanabi::prelude::*;
-#[cfg(feature = "examples_world_inspector")]
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod utils;
+use utils::*;
 
 // These determine the shape of the Spirograph:
 // https://en.wikipedia.org/wiki/Spirograph#Mathematical_basis
@@ -22,24 +21,12 @@ const SHAPE_SCALE: f32 = 25.0;
 const LIFETIME: f32 = 2.5;
 const TRAIL_SPAWN_RATE: f32 = 256.0;
 
-fn main() {
-    let mut app = App::default();
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "🎆 Hanabi — ribbon".to_string(),
-            ..default()
-        }),
-        ..default()
-    }))
-    .add_plugins(HanabiPlugin)
-    .add_systems(Update, utils::close_on_esc)
-    .add_systems(Startup, setup)
-    .add_systems(Update, move_particle_effect);
-
-    #[cfg(feature = "examples_world_inspector")]
-    app.add_plugins(WorldInspectorPlugin::default());
-
-    app.run();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let app_exit = utils::make_test_app("ribbon")
+        .add_systems(Startup, setup)
+        .add_systems(Update, move_particle_effect)
+        .run();
+    app_exit.into_result()
 }
 
 fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {

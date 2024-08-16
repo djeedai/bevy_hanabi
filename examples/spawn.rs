@@ -1,17 +1,12 @@
 use bevy::{
     core_pipeline::tonemapping::Tonemapping,
-    log::LogPlugin,
     prelude::*,
-    render::{
-        settings::{WgpuLimits, WgpuSettings},
-        RenderPlugin,
-    },
+    render::settings::{WgpuLimits, WgpuSettings},
 };
 use bevy_hanabi::prelude::*;
-#[cfg(feature = "examples_world_inspector")]
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod utils;
+use utils::*;
 
 /// Set this to `true` to enable WGPU downlevel constraints. This is disabled by
 /// default to prevent the example from failing to start on devices with a
@@ -31,37 +26,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         wgpu_settings.constrained_limits = Some(limits);
     }
 
-    let mut app = App::default();
-    app.insert_resource(ClearColor(Color::BLACK))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::INFO,
-                    filter: "bevy_hanabi=warn,spawn=trace".to_string(),
-                    ..default()
-                })
-                .set(RenderPlugin {
-                    render_creation: wgpu_settings.into(),
-                    synchronous_pipeline_compilation: false,
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — spawn".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
-        .add_plugins(HanabiPlugin);
-
-    #[cfg(feature = "examples_world_inspector")]
-    app.add_plugins(WorldInspectorPlugin::default());
-
-    app.add_systems(Startup, setup)
-        .add_systems(Update, (utils::close_on_esc, update_accel))
+    let app_exit = utils::make_test_app_with_settings("spawn", wgpu_settings)
+        .add_systems(Startup, setup)
+        .add_systems(Update, update_accel)
         .run();
-
-    Ok(())
+    app_exit.into_result()
 }
 
 /// A simple marker component to identify the effect using a dynamic

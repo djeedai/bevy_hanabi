@@ -7,45 +7,21 @@
 
 use bevy::{
     core_pipeline::tonemapping::Tonemapping,
-    log::LogPlugin,
     math::Vec3Swizzles,
     prelude::*,
     render::camera::{Projection, ScalingMode},
 };
 use bevy_hanabi::prelude::*;
-#[cfg(feature = "examples_world_inspector")]
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod utils;
+use utils::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut app = App::default();
-    app.insert_resource(ClearColor(Color::linear_rgb(0.1, 0.1, 0.1)))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::INFO,
-                    filter: "bevy_hanabi=warn,spawn_on_command=trace".to_string(),
-                    ..default()
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — spawn on command".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
-        .add_plugins(HanabiPlugin);
-
-    #[cfg(feature = "examples_world_inspector")]
-    app.add_plugins(WorldInspectorPlugin::default());
-
-    app.add_systems(Startup, setup)
-        .add_systems(Update, (utils::close_on_esc, update))
+    let app_exit = utils::make_test_app("spawn_on_command")
+        .add_systems(Startup, setup)
+        .add_systems(Update, update)
         .run();
-
-    Ok(())
+    app_exit.into_result()
 }
 
 #[derive(Component)]
@@ -79,7 +55,7 @@ fn setup(
                 half_size: Vec2::splat(BOX_SIZE / 2.),
             }),
             material: materials.add(StandardMaterial {
-                base_color: Color::BLACK,
+                base_color: Color::linear_rgb(0.05, 0.05, 0.05),
                 unlit: true,
                 ..Default::default()
             }),

@@ -9,13 +9,12 @@
 
 #![allow(dead_code)]
 
-use bevy::{core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*};
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
 use bevy_hanabi::prelude::*;
-#[cfg(feature = "examples_world_inspector")]
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use rand::Rng;
 
 mod utils;
+use utils::*;
 
 #[derive(Default, Resource)]
 struct InstanceManager {
@@ -182,33 +181,14 @@ impl InstanceManager {
     }
 }
 
-fn main() {
-    let mut app = App::default();
-    app.add_plugins(
-        DefaultPlugins
-            .set(LogPlugin {
-                level: bevy::log::Level::INFO,
-                filter: "bevy_hanabi=warn,instancing=trace".to_string(),
-                ..default()
-            })
-            .set(WindowPlugin {
-                primary_window: Some(Window {
-                    title: "🎆 Hanabi — instancing".to_string(),
-                    ..default()
-                }),
-                ..default()
-            }),
-    )
-    .add_plugins(HanabiPlugin);
-
-    #[cfg(feature = "examples_world_inspector")]
-    app.add_plugins(WorldInspectorPlugin::default());
-
-    app.insert_resource(InstanceManager::new(5, 4))
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let app_exit = utils::make_test_app("instancing")
+        .insert_resource(InstanceManager::new(5, 4))
         .add_systems(Startup, setup)
-        .add_systems(Update, (utils::close_on_esc, keyboard_input_system))
+        .add_systems(Update, keyboard_input_system)
         //.add_system(stress_test.after(keyboard_input_system))
         .run();
+    app_exit.into_result()
 }
 
 fn setup(

@@ -7,44 +7,21 @@
 
 use std::f32::consts::PI;
 
-use bevy::{core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*};
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
 use bevy_hanabi::prelude::*;
-#[cfg(feature = "examples_world_inspector")]
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod utils;
+use utils::*;
 
 #[derive(Component)]
 struct RotateSpeed(pub f32);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut app = App::default();
-    app.insert_resource(ClearColor(Color::BLACK))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::INFO,
-                    filter: "bevy_hanabi=warn,init=trace".to_string(),
-                    ..default()
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — init".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
-        .add_plugins(HanabiPlugin);
-
-    #[cfg(feature = "examples_world_inspector")]
-    app.add_plugins(WorldInspectorPlugin::default());
-
-    app.add_systems(Startup, setup)
-        .add_systems(Update, (utils::close_on_esc, rotate_effect))
+    let app_exit = utils::make_test_app("init")
+        .add_systems(Startup, setup)
+        .add_systems(Update, rotate_effect)
         .run();
-
-    Ok(())
+    app_exit.into_result()
 }
 
 const COLOR: Vec4 = Vec4::new(0.7, 0.7, 1.0, 1.0);

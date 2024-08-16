@@ -11,40 +11,17 @@
 //!   quickly, and during 2.25 seconds there's no particle, until the next burst
 //!   spawns some more.
 
-use bevy::{core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*};
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
 use bevy_hanabi::prelude::*;
-#[cfg(feature = "examples_world_inspector")]
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod utils;
+use utils::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut app = App::default();
-    app.insert_resource(ClearColor(Color::BLACK))
-        .add_plugins(
-            DefaultPlugins
-                .set(LogPlugin {
-                    level: bevy::log::Level::INFO,
-                    filter: "bevy_hanabi=warn,lifetime=trace".to_string(),
-                    ..default()
-                })
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "🎆 Hanabi — lifetime".to_string(),
-                        ..default()
-                    }),
-                    ..default()
-                }),
-        )
-        .add_systems(Update, utils::close_on_esc)
-        .add_plugins(HanabiPlugin);
-
-    #[cfg(feature = "examples_world_inspector")]
-    app.add_plugins(WorldInspectorPlugin::default());
-
-    app.add_systems(Startup, setup).run();
-
-    Ok(())
+    let app_exit = utils::make_test_app("lifetime")
+        .add_systems(Startup, setup)
+        .run();
+    app_exit.into_result()
 }
 
 fn setup(
