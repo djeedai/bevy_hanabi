@@ -1,5 +1,5 @@
 (
     events: [
-        (300, AppExit),
+        (30, AppExit),
     ]
 )
