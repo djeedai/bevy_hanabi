@@ -1777,9 +1777,6 @@ pub struct EffectsMeta {
     // FIXME - This is a per-effect thing, unless we merge all meshes into a single buffer (makes
     // sense) but in that case we need a vertex slice too to know which mesh to draw per effect.
     vertices: BufferVec<GpuParticleVertex>,
-    /// The pipeline for the indirect dispatch shader, which populates the
-    /// indirect compute dispatch buffers.
-    indirect_dispatch_pipeline: Option<ComputePipeline>,
     /// Various GPU limits and aligned sizes lazily allocated and cached for
     /// convenience.
     gpu_limits: GpuLimits,
@@ -1845,7 +1842,6 @@ impl EffectsMeta {
                 Some("hanabi:buffer:particle_group".to_string()),
             ),
             vertices,
-            indirect_dispatch_pipeline: None,
             gpu_limits,
         }
     }
@@ -2060,7 +2056,6 @@ pub(crate) fn prepare_effects(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     pipeline_cache: Res<PipelineCache>,
-    dispatch_indirect_pipeline: Res<DispatchIndirectPipeline>,
     init_pipeline: Res<ParticlesInitPipeline>,
     update_pipeline: Res<ParticlesUpdatePipeline>,
     mut specialized_init_pipelines: ResMut<SpecializedComputePipelines<ParticlesInitPipeline>>,
@@ -2083,8 +2078,6 @@ pub(crate) fn prepare_effects(
     effects_meta
         .vertices
         .write_buffer(&render_device, &render_queue);
-
-    effects_meta.indirect_dispatch_pipeline = Some(dispatch_indirect_pipeline.pipeline.clone());
 
     // Clear last frame's buffer resizes which may have occured during last frame,
     // during `Node::run()` while the `BufferTable` could not be mutated.
@@ -3635,6 +3628,7 @@ impl Node for VfxSimulateNode {
         let effects_meta = world.resource::<EffectsMeta>();
         let effect_cache = world.resource::<EffectCache>();
         let effect_bind_groups = world.resource::<EffectBindGroups>();
+        let dispatch_indirect_pipeline = world.resource::<DispatchIndirectPipeline>();
         // let render_queue = world.resource::<RenderQueue>();
 
         // Make sure to schedule any buffer copy from changed effects before accessing
@@ -3799,39 +3793,37 @@ impl Node for VfxSimulateNode {
                     });
 
             // Dispatch indirect dispatch compute job
-            if let Some(indirect_dispatch_pipeline) = &effects_meta.indirect_dispatch_pipeline {
-                trace!("record commands for indirect dispatch pipeline...");
+            trace!("record commands for indirect dispatch pipeline...");
 
-                // FIXME - The `vfx_indirect` shader assumes a contiguous array of ParticleGroup
-                // structures. So we need to pass the full array size, and we
-                // just update the unused groups for nothing. Otherwise we might
-                // update some unused group and miss some used ones, if there's any gap
-                // in the array.
-                const WORKGROUP_SIZE: u32 = 64;
-                let total_group_count = effects_meta.particle_group_buffer.len() as u32;
-                let workgroup_count = (total_group_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+            // FIXME - The `vfx_indirect` shader assumes a contiguous array of ParticleGroup
+            // structures. So we need to pass the full array size, and we
+            // just update the unused groups for nothing. Otherwise we might
+            // update some unused group and miss some used ones, if there's any gap
+            // in the array.
+            const WORKGROUP_SIZE: u32 = 64;
+            let total_group_count = effects_meta.particle_group_buffer.len() as u32;
+            let workgroup_count = (total_group_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
 
-                // Setup compute pass
-                compute_pass.set_pipeline(indirect_dispatch_pipeline);
-                compute_pass.set_bind_group(
-                    0,
-                    // FIXME - got some unwrap() panic here, investigate... possibly race
-                    // condition!
-                    effects_meta.dr_indirect_bind_group.as_ref().unwrap(),
-                    &[],
-                );
-                compute_pass.set_bind_group(
-                    1,
-                    effects_meta.sim_params_bind_group.as_ref().unwrap(),
-                    &[],
-                );
-                compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
-                trace!(
-                    "indirect dispatch compute dispatched: num_batches={} workgroup_count={}",
-                    total_group_count,
-                    workgroup_count
-                );
-            }
+            // Setup compute pass
+            compute_pass.set_pipeline(&dispatch_indirect_pipeline.pipeline);
+            compute_pass.set_bind_group(
+                0,
+                // FIXME - got some unwrap() panic here, investigate... possibly race
+                // condition!
+                effects_meta.dr_indirect_bind_group.as_ref().unwrap(),
+                &[],
+            );
+            compute_pass.set_bind_group(
+                1,
+                effects_meta.sim_params_bind_group.as_ref().unwrap(),
+                &[],
+            );
+            compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
+            trace!(
+                "indirect dispatch compute dispatched: num_batches={} workgroup_count={}",
+                total_group_count,
+                workgroup_count
+            );
         }
 
         // Compute update pass
