@@ -6,7 +6,7 @@
 }
 
 struct Particle {
-{{ATTRIBUTES}}
+{{PARTICLE_ATTRIBUTES}}
 }
 
 struct ParticleBuffer {

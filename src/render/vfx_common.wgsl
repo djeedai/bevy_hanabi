@@ -56,6 +56,26 @@ struct IndirectBuffer {
     indices: array<u32>,
 }
 
+/// A event emitted by another effect during its Update pass, to trigger the spawning
+/// of one or more particle in this effect.
+struct SpawnEvent {
+    /// The particle index in the parent effect buffer of the source particle which
+    /// triggered the event. This is used to inherit attributes like position or velocity.
+    particle_index: u32,
+}
+
+/// Append buffer populated during the previous frame Update pass by other effect(s).
+struct EventBuffer {
+    /// Number of events in the event array.
+#ifdef EVENT_BUFFER_READONLY
+    event_count: u32,
+#else
+    event_count: atomic<u32>,
+#endif
+    /// The spawn events themselves.
+    spawn_events: array<SpawnEvent>,
+}
+
 // Dispatch indirect array offsets. Used when accessing an array of DispatchIndirect
 // as a raw array<u32>, so that we can avoid WGSL struct padding and keep data
 // more compact in the render indirect buffer. Each offset corresponds to a field

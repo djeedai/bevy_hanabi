@@ -57,7 +57,7 @@ pub use velocity::*;
 
 use crate::{
     Attribute, EvalContext, ExprError, ExprHandle, Gradient, Module, ParticleLayout,
-    PropertyLayout, TextureLayout,
+    PropertyLayout, TextureLayout, ToWgslString,
 };
 
 /// The dimension of a shape to consider.
@@ -146,8 +146,7 @@ pub trait Modifier: Reflect + Send + Sync + 'static {
         None
     }
 
-    /// Get the list of dependent attributes required for this modifier to be
-    /// used.
+    /// Get the list of attributes required for this modifier to be used.
     fn attributes(&self) -> &[Attribute];
 
     /// Clone self.
@@ -259,6 +258,8 @@ pub struct ShaderWriter<'a> {
     expr_cache: HashMap<ExprHandle, String>,
     /// Is the attribute struct a pointer?
     is_attribute_pointer: bool,
+    /// Is the shader using GPU spawn events?
+    uses_gpu_spawn_events: Option<bool>,
 }
 
 impl<'a> ShaderWriter<'a> {
@@ -277,6 +278,7 @@ impl<'a> ShaderWriter<'a> {
             var_counter: 0,
             expr_cache: Default::default(),
             is_attribute_pointer: false,
+            uses_gpu_spawn_events: None,
         }
     }
 
@@ -284,6 +286,27 @@ impl<'a> ShaderWriter<'a> {
     pub fn with_attribute_pointer(mut self) -> Self {
         self.is_attribute_pointer = true;
         self
+    }
+
+    ///
+    pub fn set_uses_gpu_spawn_events(&mut self, use_events: bool) -> Result<(), ExprError> {
+        if self.uses_gpu_spawn_events.is_none() {
+            self.uses_gpu_spawn_events = Some(use_events);
+            Ok(())
+        } else {
+            Err(ExprError::GraphEvalError(
+                "Conflicting use of GPU spawn events.".to_string(),
+            ))
+            // FIXME - Should probably be a validation error instead...
+            // Err(ShaderGenerateError::Validate(
+            //     "Conflicting use of GPU spawn events.".to_string(),
+            // ))
+        }
+    }
+
+    ///
+    pub fn uses_gpu_spawn_events(&self) -> Option<bool> {
+        self.uses_gpu_spawn_events.clone()
     }
 }
 
@@ -596,6 +619,78 @@ macro_rules! impl_mod_render {
 }
 
 pub(crate) use impl_mod_render;
+
+/// Condition to emit a GPU spawn event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub enum SpawnEventCondition {
+    /// Always emit an event each time the particle is updated.
+    Always,
+    /// Only emit an event if the particle died during this update.
+    OnDie,
+}
+
+/// Spawn new particle(s) based on a condition.
+///
+/// This update modifier is used to spawn new particles into a child effect
+/// instance based on a condition applied to particles of the current effect
+/// instance. The most common use case is to spawn one or more child particles
+/// when a particle dies; this is achieved with [`SpawnEventCondition::OnDie`].
+///
+/// An effect instance with this modifier will emit GPU spawn events. Those
+/// events are read by all child effects (those effects with an [`EffectParent`]
+/// component pointing at the current effect instance).
+///
+/// [`EffectParent`]: crate::EffectParent
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct SpawnEventModifier {
+    /// GPU spawn event condition.
+    pub condition: SpawnEventCondition,
+    /// Number of particles to spawn if the emit condition is met.
+    pub count: u32,
+}
+
+impl SpawnEventModifier {
+    fn eval(
+        &self,
+        _module: &mut Module,
+        _context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
+        // TODO - validate GPU spawn events are in use in the eval context...
+        let cond = match self.condition {
+            SpawnEventCondition::Always => format!(
+                "append_spawn_events(index, {});",
+                self.count.to_wgsl_string()
+            ),
+            SpawnEventCondition::OnDie => format!(
+                "if (!is_alive) {{ append_spawn_events(index, {}); }}",
+                self.count.to_wgsl_string()
+            ),
+        };
+        Ok(cond)
+    }
+}
+
+#[cfg_attr(feature = "serde", typetag::serde)]
+impl Modifier for SpawnEventModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        &[]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
+        context.main_code += &code;
+        context.set_uses_gpu_spawn_events(true)?;
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -86,7 +86,19 @@ impl SetAttributeModifier {
         module: &mut Module,
         context: &mut dyn EvalContext,
     ) -> Result<String, ExprError> {
-        assert!(module.get(self.value).is_some());
+        // Validate if possible that the expression produces the same type expected by
+        // the attribute. This makes it much easier to diagnose issues.
+        let expr = module.try_get(self.value)?;
+        if let Some(value_type) = expr.value_type() {
+            let attr_value_type = self.attribute.value_type();
+            if value_type != attr_value_type {
+                return Err(ExprError::TypeError(format!(
+                    "Mismatching expression type in SetAttributeModifer: attribute '{}' requires an expression producing a value of type {}, but a value of type {} was produced instead",
+                    self.attribute.name().to_uppercase(), attr_value_type, value_type)));
+            }
+        }
+
+        // Generate the code
         let attr = module.attr(self.attribute);
         let attr = context.eval(module, attr)?;
         let expr = context.eval(module, self.value)?;
@@ -98,6 +110,78 @@ impl SetAttributeModifier {
 impl Modifier for SetAttributeModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        std::slice::from_ref(&self.attribute)
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
+        context.main_code += &code;
+        Ok(())
+    }
+}
+
+/// Inherit the value of the given attribute when spawning a new particle.
+///
+/// This init modifier is used when spawning particles from other particles. The
+/// attribute is inherited from the source particle by reading its value from
+/// the previous frame's update pass and using that value to initialize the
+/// particle being spawned. The source particle is the particle of the parent
+/// effect which emitted the GPU spawn event this particle is spawned from. The
+/// effect instance must have an [`EffectParent`] to declare its parent effect.
+///
+/// [`EffectParent`]: crate::EffectParent
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
+pub struct InheritAttributeModifier {
+    /// The attribute to inherit.
+    ///
+    /// See [`Attribute`] for the list of available attributes. The attribute
+    /// must be present on the parent particle, and is added to the particles of
+    /// the current effect too. During the init pass, the parent value is copied
+    /// into the attribute of the newly spawned particle.
+    pub attribute: Attribute,
+}
+
+impl InheritAttributeModifier {
+    /// Create a new instance of a [`InheritAttributeModifier`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy::math::Vec3;
+    /// # use bevy_hanabi::*;
+    /// // Inherit the position of the parent particle which spawned this particle
+    /// let inherit_pos = InheritAttributeModifier::new(Attribute::POSITION);
+    /// ```
+    pub fn new(attribute: Attribute) -> Self {
+        Self { attribute }
+    }
+
+    fn eval(
+        &self,
+        module: &mut Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
+        let attr = module.attr(self.attribute);
+        let attr = context.eval(module, attr)?;
+        Ok(format!(
+            "{} = parent_particle.{};\n",
+            attr,
+            self.attribute.name()
+        ))
+    }
+}
+
+#[cfg_attr(feature = "serde", typetag::serde)]
+impl Modifier for InheritAttributeModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Init
     }
 
     fn attributes(&self) -> &[Attribute] {

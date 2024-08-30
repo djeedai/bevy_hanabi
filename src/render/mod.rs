@@ -43,6 +43,7 @@ use bevy::{
 };
 use bitflags::bitflags;
 use bytemuck::{Pod, Zeroable};
+use effect_cache::EffectBuffer;
 use fixedbitset::FixedBitSet;
 use naga_oil::compose::{Composer, NagaModuleDescriptor};
 use rand::random;
@@ -73,10 +74,6 @@ pub(crate) use effect_cache::{EffectCache, EffectCacheId};
 pub use shader_cache::ShaderCache;
 
 use self::batch::EffectBatches;
-
-// Size of an indirect index (including both parts of the ping-pong buffer) in
-// bytes.
-const INDIRECT_INDEX_SIZE: u32 = 12;
 
 /// Simulation parameters, available to all shaders of all effects.
 #[derive(Debug, Default, Clone, Copy, Resource)]
@@ -617,7 +614,7 @@ impl FromWorld for ParticlesInitPipeline {
     }
 }
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ParticleInitPipelineKey {
     /// Compute shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
@@ -626,6 +623,9 @@ pub(crate) struct ParticleInitPipelineKey {
     /// Minimum binding size in bytes for the property layout buffer, if the
     /// effect has any property. Otherwise this is `None`.
     property_layout_min_binding_size: Option<NonZeroU64>,
+    /// Minimum binding size in bytes for the particle layout buffer of the
+    /// parent effect, if any.
+    parent_particle_layout_min_binding_size: Option<NonZeroU64>,
 }
 
 impl SpecializedComputePipeline for ParticlesInitPipeline {
@@ -640,66 +640,27 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
                 .unwrap_or(0),
         );
 
-        let mut entries = Vec::with_capacity(3);
-        // (1,0) ParticleBuffer
-        entries.push(BindGroupLayoutEntry {
-            binding: 0,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: false,
-                min_binding_size: Some(key.particle_layout_min_binding_size),
-            },
-            count: None,
-        });
-        // (1,1) IndirectBuffer
-        entries.push(BindGroupLayoutEntry {
-            binding: 1,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: false,
-                min_binding_size: BufferSize::new(12),
-            },
-            count: None,
-        });
-        // (1,2) array<ParticleGroup>
-        let particle_group_size = GpuParticleGroup::aligned_size(
-            self.render_device
-                .limits()
-                .min_storage_buffer_offset_alignment,
+        // FIXME - This duplicates the layout created in EffectBuffer::new()!!!
+        // Likely this one should go away, because we can't cache from inside
+        // specialize() (non-mut access)
+        let has_event_buffer = key.parent_particle_layout_min_binding_size.is_some();
+        let event_buffer_readonly = true; // always for init pass
+        let particles_buffer_layout = EffectBuffer::make_sim_layout(
+            &self.render_device,
+            key.particle_layout_min_binding_size,
+            key.property_layout_min_binding_size,
+            key.parent_particle_layout_min_binding_size,
+            has_event_buffer,
+            event_buffer_readonly,
+            "init",
         );
-        entries.push(BindGroupLayoutEntry {
-            binding: 2,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: Some(particle_group_size),
-            },
-            count: None,
-        });
-        if let Some(min_binding_size) = key.property_layout_min_binding_size {
-            // (1,3) Properties
-            entries.push(BindGroupLayoutEntry {
-                binding: 3,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false, // TODO
-                    min_binding_size: Some(min_binding_size),
-                },
-                count: None,
-            });
-        }
 
-        let label = "hanabi:init_particles_buffer_layout";
-        trace!(
-            "Creating particle bind group layout '{}' for init pass with {} entries.",
-            label,
-            entries.len()
-        );
-        let particles_buffer_layout = self.render_device.create_bind_group_layout(label, &entries);
+        let mut shader_defs = vec![];
+
+        // Key: USE_GPU_SPAWN_EVENTS
+        if key.parent_particle_layout_min_binding_size.is_some() {
+            shader_defs.push("USE_GPU_SPAWN_EVENTS".into());
+        }
 
         ComputePipelineDescriptor {
             label: Some("hanabi:pipeline_init_compute".into()),
@@ -710,7 +671,7 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
                 self.render_indirect_layout.clone(),
             ],
             shader: key.shader,
-            shader_defs: vec![],
+            shader_defs,
             entry_point: "main".into(),
             push_constant_ranges: Vec::new(),
         }
@@ -728,13 +689,6 @@ pub(crate) struct ParticlesUpdatePipeline {
 impl FromWorld for ParticlesUpdatePipeline {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.get_resource::<RenderDevice>().unwrap();
-
-        let limits = render_device.limits();
-        bevy::log::info!(
-            "GPU limits:\n- max_compute_invocations_per_workgroup={}\n- max_compute_workgroup_size_x={}\n- max_compute_workgroup_size_y={}\n- max_compute_workgroup_size_z={}\n- max_compute_workgroups_per_dimension={}\n- min_storage_buffer_offset_alignment={}",
-            limits.max_compute_invocations_per_workgroup, limits.max_compute_workgroup_size_x, limits.max_compute_workgroup_size_y, limits.max_compute_workgroup_size_z,
-            limits.max_compute_workgroups_per_dimension, limits.min_storage_buffer_offset_alignment
-        );
 
         trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_layout = render_device.create_bind_group_layout(
@@ -821,6 +775,8 @@ pub(crate) struct ParticleUpdatePipelineKey {
     particle_layout: ParticleLayout,
     /// Property layout.
     property_layout: PropertyLayout,
+    /// Key: USE_GPU_SPAWN_EVENTS
+    use_gpu_spawn_events: bool,
 }
 
 impl SpecializedComputePipeline for ParticlesUpdatePipeline {
@@ -837,79 +793,39 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             },
         );
 
-        let particle_group_size = GpuParticleGroup::aligned_size(
-            self.render_device
-                .limits()
-                .min_storage_buffer_offset_alignment,
+        let has_event_buffer = key.use_gpu_spawn_events;
+        let event_buffer_readonly = false; // always for update pass
+        let particles_buffer_layout = EffectBuffer::make_sim_layout(
+            &self.render_device,
+            key.particle_layout.min_binding_size(),
+            if key.property_layout.is_empty() {
+                None
+            } else {
+                Some(key.property_layout.min_binding_size())
+            },
+            None,
+            has_event_buffer,
+            event_buffer_readonly,
+            "update",
         );
-        let mut entries = vec![
-            // @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer
-            BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(key.particle_layout.min_binding_size()),
-                },
-                count: None,
-            },
-            // @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer
-            BindGroupLayoutEntry {
-                binding: 1,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(INDIRECT_INDEX_SIZE as _),
-                },
-                count: None,
-            },
-            // @binding(2) var<storage, read> particle_groups : array<ParticleGroup>
-            BindGroupLayoutEntry {
-                binding: 2,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(particle_group_size),
-                },
-                count: None,
-            },
-        ];
-        if !key.property_layout.is_empty() {
-            // @binding(3) var<storage, read> properties : Properties
-            entries.push(BindGroupLayoutEntry {
-                binding: 3,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false, // TODO
-                    min_binding_size: Some(key.property_layout.min_binding_size()),
-                },
-                count: None,
-            });
-        }
 
-        let label = "hanabi:update_particles_buffer_layout";
-        trace!(
-            "Creating particle bind group layout '{}' for update pass with {} entries.",
-            label,
-            entries.len()
-        );
-        let update_particles_buffer_layout =
-            self.render_device.create_bind_group_layout(label, &entries);
+        let mut shader_defs = vec!["REM_MAX_SPAWN_ATOMIC".into()];
+
+        // Key: USE_GPU_SPAWN_EVENTSs
+        if key.use_gpu_spawn_events {
+            shader_defs.push("USE_GPU_SPAWN_EVENTS".into());
+        }
 
         ComputePipelineDescriptor {
             label: Some("hanabi:pipeline_update_compute".into()),
             layout: vec![
                 self.sim_params_layout.clone(),
-                update_particles_buffer_layout,
+                particles_buffer_layout,
                 self.spawner_buffer_layout.clone(),
                 self.render_indirect_layout.clone(),
             ],
             shader: key.shader,
-            shader_defs: vec!["REM_MAX_SPAWN_ATOMIC".into()],
+            shader_defs,
             entry_point: "main".into(),
             push_constant_ranges: Vec::new(),
         }
@@ -1328,11 +1244,15 @@ pub(crate) struct ExtractedEffect {
     /// The handle is weak to prevent refcount cycles and gracefully handle
     /// assets unloaded or destroyed after a draw call has been submitted.
     pub handle: Handle<EffectAsset>,
+    /// Parent effect, if any.
+    pub parent: Option<Entity>,
     /// Particle layout for the effect.
     #[allow(dead_code)]
     pub particle_layout: ParticleLayout,
     /// Property layout for the effect.
     pub property_layout: PropertyLayout,
+    /// Particle layout of the parent effect, if any.
+    pub parent_particle_layout: Option<ParticleLayout>,
     /// Values of properties written in a binary blob according to
     /// [`property_layout`].
     ///
@@ -1379,11 +1299,15 @@ pub struct AddedEffect {
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
     pub entity: Entity,
+    /// Entity of the parent effect, if any.
+    pub parent_entity: Option<Entity>,
     /// Capacity of the effect (and therefore, the particle buffer), in number
     /// of particles.
     pub capacities: Vec<u32>,
     /// Layout of particle attributes.
     pub particle_layout: ParticleLayout,
+    /// Layout of particle attributes of the parent effect, if any.
+    pub parent_particle_layout: Option<ParticleLayout>,
     /// Layout of properties for the effect, if properties are used at all, or
     /// an empty layout.
     pub property_layout: PropertyLayout,
@@ -1512,8 +1436,10 @@ pub(crate) fn extract_effects(
             trace!("Found new effect: entity {:?} | capacities {:?} | particle_layout {:?} | property_layout {:?} | layout_flags {:?}", entity, asset.capacities(), particle_layout, property_layout, effect.layout_flags);
             Some(AddedEffect {
                 entity,
+                parent_entity: effect.parent,
                 capacities: asset.capacities().to_vec(),
                 particle_layout,
+                parent_particle_layout: effect.parent_particle_layout.clone(),
                 property_layout,
                 layout_flags: effect.layout_flags,
                 handle,
@@ -1594,8 +1520,10 @@ pub(crate) fn extract_effects(
             entity,
             ExtractedEffect {
                 handle: effect.asset.clone_weak(),
+                parent: effect.parent.clone(),
                 particle_layout: asset.particle_layout().clone(),
                 property_layout,
+                parent_particle_layout: effect.parent_particle_layout.clone(),
                 property_data,
                 spawn_count: spawner.spawn_count,
                 transform: transform.compute_matrix(),
@@ -1724,6 +1652,7 @@ impl GpuLimits {
 
 struct CacheEntry {
     cache_id: EffectCacheId,
+    parent_entity: Option<Entity>,
 }
 
 /// Global resource containing the GPU data to draw all the particle effects in
@@ -1958,16 +1887,24 @@ impl EffectsMeta {
             };
 
             let cache_id = effect_cache.insert(
+                added_effect.entity,
                 added_effect.handle,
                 added_effect.capacities,
                 &added_effect.particle_layout,
+                added_effect.parent_particle_layout.as_ref(),
                 &added_effect.property_layout,
                 added_effect.layout_flags,
                 dispatch_buffer_indices,
             );
 
             let entity = added_effect.entity;
-            self.entity_map.insert(entity, CacheEntry { cache_id });
+            self.entity_map.insert(
+                entity,
+                CacheEntry {
+                    cache_id,
+                    parent_entity: added_effect.parent_entity,
+                },
+            );
 
             // Note: those effects are already in extracted_effects.effects
             // because they were gathered by the same query as
@@ -1984,6 +1921,15 @@ impl EffectsMeta {
             // index, table_id.0
             // );
         }
+
+        // Resolve parents
+        effect_cache.resolve_parents(self.entity_map.iter().filter_map(|(_entity, entry)| {
+            if let Some(parent_entity) = entry.parent_entity {
+                Some((entry.cache_id, parent_entity))
+            } else {
+                None
+            }
+        }));
 
         // Once all changes are applied, immediately schedule any GPU buffer
         // (re)allocation based on the new buffer size. The actual GPU buffer content
@@ -2045,6 +1991,10 @@ bitflags! {
         const FLIPBOOK = (1 << 4);
         /// The effect needs UVs.
         const NEEDS_UV = (1 << 5);
+        /// The (update) shader emits GPU spawn events.
+        const EMIT_GPU_SPAWN_EVENTS = (1 << 6);
+        /// The (init) shader spawns particles by consuming GPU spawn events, instead of a single CPU spawn count.
+        const CONSUME_GPU_SPAWN_EVENTS = (1 << 7);
     }
 }
 
@@ -2121,21 +2071,34 @@ pub(crate) fn prepare_effects(
     //     }
     // });
 
-    // Build batcher inputs from extracted effects
+    // Resolve parents
     let effects = std::mem::take(&mut extracted_effects.effects);
+    let parents = effects
+        .iter()
+        .filter_map(|(entity, extracted_effect)| {
+            let parent_entity = extracted_effect.parent?;
+            let parent_cache_id = effects_meta.entity_map.get(&parent_entity)?.cache_id;
+            let parent_effect_slices = effect_cache.get_slices(parent_cache_id);
+            Some((*entity, parent_effect_slices.buffer_index))
+        })
+        .collect::<HashMap<_, _>>();
 
+    // Build batcher inputs from extracted effects
     let effect_entity_list = effects
         .into_iter()
         .map(|(entity, extracted_effect)| {
             let id = effects_meta.entity_map.get(&entity).unwrap().cache_id;
             let property_buffer = effect_cache.get_property_buffer(id).cloned(); // clone handle for lifetime
             let effect_slices = effect_cache.get_slices(id);
+            let parent_buffer_index = parents.get(&entity).cloned();
 
             BatchesInput {
                 handle: extracted_effect.handle,
                 entity,
                 effect_slices,
                 property_layout: extracted_effect.property_layout.clone(),
+                parent_particle_layout: extracted_effect.parent_particle_layout.clone(),
+                parent_buffer_index,
                 effect_shader: extracted_effect.effect_shader.clone(),
                 layout_flags: extracted_effect.layout_flags,
                 texture_layout: extracted_effect.texture_layout.clone(),
@@ -2174,6 +2137,12 @@ pub(crate) fn prepare_effects(
             input.effect_shader.init,
             input.effect_slices.particle_layout
         );
+        // assert_eq!(
+        //     input
+        //         .layout_flags
+        //         .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS),
+        //     input.effect_slices.parent_particle_layout.is_some()
+        // );
         let init_pipeline_id = specialized_init_pipelines.specialize(
             &pipeline_cache,
             &init_pipeline,
@@ -2188,6 +2157,10 @@ pub(crate) fn prepare_effects(
                 } else {
                     Some(input.property_layout.min_binding_size())
                 },
+                parent_particle_layout_min_binding_size: input
+                    .parent_particle_layout
+                    .as_ref()
+                    .map(|layout| layout.min_binding_size()),
             },
         );
         trace!("Init pipeline specialized: id={:?}", init_pipeline_id);
@@ -2211,6 +2184,10 @@ pub(crate) fn prepare_effects(
                         shader: update_source.clone(),
                         particle_layout: input.effect_slices.particle_layout.clone(),
                         property_layout: input.property_layout.clone(),
+                        // Update pipeline only ever emits GPU spawn events
+                        use_gpu_spawn_events: input
+                            .layout_flags
+                            .contains(LayoutFlags::EMIT_GPU_SPAWN_EVENTS),
                     },
                 )
             })
@@ -3225,7 +3202,7 @@ pub(crate) fn prepare_bind_groups(
     }
 
     // Create the per-effect bind groups.
-    for (entity, effect_batches) in effect_batches.iter() {
+    for (_entity, effect_batches) in effect_batches.iter() {
         #[cfg(feature = "trace")]
         let _span_buffer = bevy::utils::tracing::info_span!("create_batch_bind_groups").entered();
 
@@ -3247,21 +3224,18 @@ pub(crate) fn prepare_bind_groups(
             size: Some(effect_particle_groups_buffer_size),
         };
 
-        let Some(Some(effect_buffer)) = effect_cache
-            .buffers_mut()
-            .get_mut(effect_batches.buffer_index as usize)
-        else {
-            error!("No particle buffer allocated for entity {:?}", entity);
-            continue;
-        };
-
         // Bind group for the init compute shader to simulate particles.
         // TODO - move this creation in RenderSet::PrepareBindGroups
-        effect_buffer.create_sim_bind_group(
+        if !effect_cache.ensure_init_bind_group(
             effect_batches.buffer_index,
-            &render_device,
-            group_binding,
-        );
+            effect_batches.parent_buffer_index,
+            group_binding.clone(),
+        ) {
+            continue;
+        }
+        if !effect_cache.ensure_update_bind_group(effect_batches.buffer_index, group_binding) {
+            continue;
+        }
 
         if effect_bind_groups
             .update_render_indirect_bind_groups
@@ -3680,16 +3654,16 @@ impl Node for VfxSimulateNode {
                     let Some(init_pipeline) =
                         pipeline_cache.get_compute_pipeline(batches.init_pipeline_id)
                     else {
-                        if let CachedPipelineState::Err(err) =
-                            pipeline_cache.get_compute_pipeline_state(batches.init_pipeline_id)
-                        {
-                            error!(
-                                "Failed to find init pipeline #{} for effect {:?}: {:?}",
-                                batches.init_pipeline_id.id(),
-                                entity,
-                                err
-                            );
-                        }
+                        // if let CachedPipelineState::Err(err) =
+                        //     pipeline_cache.get_compute_pipeline_state(batches.init_pipeline_id)
+                        // {
+                        //     error!(
+                        //         "Failed to find init pipeline #{} for effect {:?}: {:?}",
+                        //         batches.init_pipeline_id.id(),
+                        //         entity,
+                        //         err
+                        //     );
+                        // }
                         continue;
                     };
 
@@ -3888,17 +3862,17 @@ impl Node for VfxSimulateNode {
                     let Some(update_pipeline) =
                         pipeline_cache.get_compute_pipeline(*update_pipeline_id)
                     else {
-                        if let CachedPipelineState::Err(err) =
-                            pipeline_cache.get_compute_pipeline_state(*update_pipeline_id)
-                        {
-                            error!(
-                                "Failed to find update pipeline #{} for effect {:?}, group {}: {:?}",
-                                update_pipeline_id.id(),
-                                entity,
-                                group_index,
-                                err
-                            );
-                        }
+                        // if let CachedPipelineState::Err(err) =
+                        //     pipeline_cache.get_compute_pipeline_state(*update_pipeline_id)
+                        // {
+                        //     error!(
+                        //         "Failed to find update pipeline #{} for effect {:?}, group {}:
+                        // {:?}",         update_pipeline_id.id(),
+                        //         entity,
+                        //         group_index,
+                        //         err
+                        //     );
+                        // }
                         continue;
                     };
 

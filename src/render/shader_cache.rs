@@ -31,6 +31,7 @@ impl ShaderCache {
     pub fn get_or_insert(
         &mut self,
         filename: &str,
+        suffix: &str,
         source: &str,
         shaders: &mut ResMut<Assets<Shader>>,
     ) -> Handle<Shader> {
@@ -42,7 +43,7 @@ impl ShaderCache {
             let hash = hasher.finish();
             let shader = Shader::from_wgsl(
                 source.to_string(),
-                format!("hanabi/{}_{}.wgsl", filename, hash),
+                format!("hanabi/{}_{}_{}.wgsl", filename, suffix, hash),
             );
             trace!(
                 "Shader path={} import_path={:?} imports={:?}",
@@ -50,8 +51,12 @@ impl ShaderCache {
                 shader.import_path,
                 shader.imports
             );
+            let shader_path = shader.path.clone();
             let handle = shaders.add(shader);
-            debug!("Inserted new configured shader: {:?}\n{}", handle, source);
+            debug!(
+                "Inserted new configured shader {}: {:?}\n{}",
+                shader_path, handle, source
+            );
             self.cache.insert(source.to_string(), handle.clone());
             handle
         }

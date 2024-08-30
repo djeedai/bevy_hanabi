@@ -1,16 +1,18 @@
 #import bevy_hanabi::vfx_common::{
-    IndirectBuffer, ParticleGroup, RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
+    EventBuffer, IndirectBuffer, ParticleGroup, RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4, proj
 }
 
 struct Particle {
-{{ATTRIBUTES}}
+{{PARTICLE_ATTRIBUTES}}
 }
 
 struct ParticleBuffer {
     particles: array<Particle>,
 }
+
+{{PARENT_PARTICLES}}
 
 {{PROPERTIES}}
 
@@ -18,8 +20,12 @@ struct ParticleBuffer {
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
+#ifdef USE_GPU_SPAWN_EVENTS
+@group(1) @binding(3) var<storage, read> event_buffer : EventBuffer;
+#endif
 {{PROPERTIES_BINDING}}
-@group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as update
+{{PARENT_PARTICLE_BINDING}}
+@group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as update  // FIXME - this should be read-only
 @group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
 @group(3) @binding(1) var<storage, read_write> render_group_indirect : RenderGroupIndirect;
 
@@ -35,9 +41,13 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
-    // Cap to the actual number of spawning requested by CPU, since compute shaders run
+    // Cap to the actual number of spawning requested by CPU + GPU, since compute shaders run
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
-    let spawn_count : u32 = u32(spawner.spawn);
+#ifdef USE_GPU_SPAWN_EVENTS
+    let spawn_count = event_buffer.event_count;
+#else
+    let spawn_count = u32(spawner.spawn);
+#endif
     if (index >= spawn_count) {
         return;
     }
@@ -50,6 +60,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Update PRNG seed
     seed = pcg_hash(index ^ spawner.seed);
 
+#ifndef USE_GPU_SPAWN_EVENTS
     // Spawner transform
     let transform = transpose(
         mat4x4(
@@ -59,12 +70,20 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
             vec4<f32>(0.0, 0.0, 0.0, 1.0)
         )
     );
+#endif
 
     // Initialize new particle
     var particle = Particle();
+#ifdef USE_GPU_SPAWN_EVENTS
+    let parent_index = event_buffer.spawn_events[index].particle_index;
+    let parent_particle = parent_particle_buffer.particles[parent_index];
+#endif
     {{INIT_CODE}}
 
+#ifndef USE_GPU_SPAWN_EVENTS
+    // Only add emitter's transform to CPU-spawned particles
     {{SIMULATION_SPACE_TRANSFORM_PARTICLE}}
+#endif
 
     // Count as alive
     atomicAdd(&render_group_indirect.alive_count, 1u);

@@ -2,6 +2,7 @@ use std::ops::Deref;
 
 use bevy::{
     asset::Asset,
+    prelude::{Component, Entity},
     reflect::Reflect,
     utils::{default, HashSet},
 };
@@ -348,6 +349,13 @@ impl EffectAsset {
         &self.capacities
     }
 
+    /// Get the number of groups in the effect.
+    ///
+    /// This is a convenience shortcut for `self.capacities().len()`.
+    pub fn group_count(&self) -> u32 {
+        self.capacities.len() as u32
+    }
+
     /// Get the expression module storing all expressions in use by modifiers of
     /// this effect.
     pub fn module(&self) -> &Module {
@@ -683,7 +691,7 @@ impl EffectAsset {
     /// Build the particle layout of the asset based on its modifiers.
     ///
     /// This method calculates the particle layout of the effect based on the
-    /// currently existing particles, and return it as a newly allocated
+    /// currently existing modifiers, and return it as a newly allocated
     /// [`ParticleLayout`] object.
     pub fn particle_layout(&self) -> ParticleLayout {
         // Build the set of unique attributes required for all modifiers
@@ -761,6 +769,17 @@ impl AssetLoader for EffectAssetLoader {
         &["effect"]
     }
 }
+
+/// Parent effect, if any.
+///
+/// This component is optional. When present, on the same entity as the
+/// [`ParticleEffect`], it defines the "parent effect" of that effect. The
+/// particles of the parent effect are accessible from the init pass of this
+/// effect, to allow the particles from the current effect to inherit some
+/// attributes (position, velocity, ...) from the parent particle which
+/// triggered its spawning via GPU spawn events.
+#[derive(Debug, Clone, Copy, Component, Reflect)]
+pub struct EffectParent(pub Entity);
 
 #[cfg(test)]
 mod tests {

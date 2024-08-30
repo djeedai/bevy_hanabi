@@ -1,11 +1,11 @@
 #import bevy_hanabi::vfx_common::{
-    IndirectBuffer, ParticleGroup, RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
+    EventBuffer, IndirectBuffer, ParticleGroup, RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4, proj
 }
 
 struct Particle {
-{{ATTRIBUTES}}
+{{PARTICLE_ATTRIBUTES}}
 }
 
 struct ParticleBuffer {
@@ -18,12 +18,27 @@ struct ParticleBuffer {
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
+#ifdef USE_GPU_SPAWN_EVENTS
+@group(1) @binding(3) var<storage, read_write> event_buffer : EventBuffer;
+#endif
 {{PROPERTIES_BINDING}}
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as init
 @group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
 @group(3) @binding(1) var<storage, read_write> render_group_indirect : array<RenderGroupIndirect>;
 
 {{UPDATE_EXTRA}}
+
+#ifdef USE_GPU_SPAWN_EVENTS
+/// Append one or more spawn events to the event buffer.
+fn append_spawn_events(particle_index: u32, count: u32) {
+    let capacity = arrayLength(&event_buffer.spawn_events);
+    let base = min(atomicAdd(&event_buffer.event_count, count), capacity);
+    let capped_count = min(count, capacity - base);
+    for (var i = 0u; i < capped_count; i += 1u) {
+        event_buffer.spawn_events[base + i].particle_index = particle_index;
+    }
+}
+#endif
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
