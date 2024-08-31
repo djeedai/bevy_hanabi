@@ -222,23 +222,23 @@ fn rand_normal_f(mean: f32, std_dev: f32) -> f32 {
 }
 
 fn rand_normal_vec2(mean: vec2f, std_dev: vec2f) -> vec2f {
-    var u = frand2();
+    var u = frand();
     var v = frand2();
-    var r = sqrt(-2.0 * log(u.x));
+    var r = sqrt(-2.0 * log(u));
     return mean + std_dev * r * cos(tau * v);
 }
 
 fn rand_normal_vec3(mean: vec3f, std_dev: vec3f) -> vec3f {
-    var u = frand3();
+    var u = frand();
     var v = frand3();
-    var r = sqrt(-2.0 * log(u.x));
+    var r = sqrt(-2.0 * log(u));
     return mean + std_dev * r * cos(tau * v);
 }
 
 fn rand_normal_vec4(mean: vec4f, std_dev: vec4f) -> vec4f {
-    var u = frand4();
+    var u = frand();
     var v = frand4();
-    var r = sqrt(-2.0 * log(u.x));
+    var r = sqrt(-2.0 * log(u));
     return mean + std_dev * r * cos(tau * v);
 }
 
