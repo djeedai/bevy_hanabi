@@ -1865,10 +1865,10 @@ impl BinaryOperator {
     /// WGSL doesn't support user-defined function overloading, so we need a
     /// suffix to disambiguate the types.
     pub fn needs_type_suffix(&self) -> bool {
-        match *self {
-            BinaryOperator::UniformRand | BinaryOperator::NormalRand => true,
-            _ => false,
-        }
+        matches!(
+            *self,
+            BinaryOperator::UniformRand | BinaryOperator::NormalRand
+        )
     }
 }
 
