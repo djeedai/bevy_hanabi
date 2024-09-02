@@ -71,7 +71,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     // Give a bit of variation by randomizing the lifetime per particle
-    let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
+    let lifetime = writer.lit(0.8).normal(writer.lit(1.2)).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     // Lifetime for trails

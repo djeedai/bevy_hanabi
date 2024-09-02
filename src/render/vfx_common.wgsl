@@ -213,6 +213,35 @@ fn rand_uniform_vec4(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
     return a + frand4() * (b - a);
 }
 
+// Normal distribution computed using Box-Muller transform
+fn rand_normal_f(mean: f32, std_dev: f32) -> f32 {
+    var u = frand();
+    var v = frand();
+    var r = sqrt(-2.0 * log(u));
+    return mean + std_dev * r * cos(tau * v);
+}
+
+fn rand_normal_vec2(mean: vec2f, std_dev: vec2f) -> vec2f {
+    var u = frand();
+    var v = frand2();
+    var r = sqrt(-2.0 * log(u));
+    return mean + std_dev * r * cos(tau * v);
+}
+
+fn rand_normal_vec3(mean: vec3f, std_dev: vec3f) -> vec3f {
+    var u = frand();
+    var v = frand3();
+    var r = sqrt(-2.0 * log(u));
+    return mean + std_dev * r * cos(tau * v);
+}
+
+fn rand_normal_vec4(mean: vec4f, std_dev: vec4f) -> vec4f {
+    var u = frand();
+    var v = frand4();
+    var r = sqrt(-2.0 * log(u));
+    return mean + std_dev * r * cos(tau * v);
+}
+
 fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
     return dot(v, u) / dot(u,u) * u;
 }
