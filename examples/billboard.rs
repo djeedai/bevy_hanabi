@@ -135,7 +135,7 @@ fn setup(
                 rotation: Some(rotation_attr),
             })
             .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant([0.2; 2].into()),
+                gradient: Gradient::constant([0.2; 3].into()),
                 screen_space_size: false,
             }),
     );

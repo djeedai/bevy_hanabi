@@ -126,7 +126,7 @@ fn setup(
             .render(FlipbookModifier { sprite_grid_size })
             .render(ColorOverLifetimeModifier { gradient })
             .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant([0.5; 2].into()),
+                gradient: Gradient::constant([0.5; 3].into()),
                 screen_space_size: false,
             }),
     );

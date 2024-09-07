@@ -75,10 +75,10 @@ fn setup(
     color_gradient1.add_key(1.0, Vec4::splat(0.0));
 
     let mut size_gradient1 = Gradient::new();
-    size_gradient1.add_key(0.0, Vec2::splat(0.1));
-    size_gradient1.add_key(0.5, Vec2::splat(0.5));
-    size_gradient1.add_key(0.8, Vec2::splat(0.08));
-    size_gradient1.add_key(1.0, Vec2::splat(0.0));
+    size_gradient1.add_key(0.0, Vec3::splat(0.1));
+    size_gradient1.add_key(0.5, Vec3::splat(0.5));
+    size_gradient1.add_key(0.8, Vec3::splat(0.08));
+    size_gradient1.add_key(1.0, Vec3::splat(0.0));
 
     let writer1 = ExprWriter::new();
 
