@@ -319,7 +319,7 @@ fn setup(
             .update(allow_zone)
             .update(deny_zone)
             .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant(Vec2::splat(0.05)),
+                gradient: Gradient::constant(Vec3::splat(0.05)),
                 screen_space_size: false,
             })
             .render(ColorOverLifetimeModifier { gradient }),

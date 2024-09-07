@@ -779,7 +779,7 @@ impl EffectShaderSource {
             if attr == Attribute::SIZE {
                 if !has_size {
                     inputs_code += &format!(
-                        "var size = vec2<f32>(particle.{0}, particle.{0});\n",
+                        "var size = vec3<f32>(particle.{0}, particle.{0}, particle.{0});\n",
                         Attribute::SIZE.name()
                     );
                     has_size = true;
@@ -788,10 +788,20 @@ impl EffectShaderSource {
                 }
             } else if attr == Attribute::SIZE2 {
                 if !has_size {
-                    inputs_code += &format!("var size = particle.{0};\n", Attribute::SIZE2.name());
+                    inputs_code += &format!(
+                        "var size = vec3<f32>(particle.{0}, 1.0);\n",
+                        Attribute::SIZE2.name()
+                    );
                     has_size = true;
                 } else {
                     warn!("Attribute SIZE2 conflicts with another size attribute; ignored.");
+                }
+            } else if attr == Attribute::SIZE3 {
+                if !has_size {
+                    inputs_code += &format!("var size = particle.{0};\n", Attribute::SIZE3.name());
+                    has_size = true;
+                } else {
+                    warn!("Attribute SIZE3 conflicts with another size attribute; ignored.");
                 }
             } else if attr == Attribute::HDR_COLOR {
                 if !has_color {
@@ -821,7 +831,7 @@ impl EffectShaderSource {
         if !has_size {
             inputs_code += &format!(
                 "var size = {0};\n",
-                Attribute::SIZE2.default_value().to_wgsl_string() // TODO - or SIZE?
+                Attribute::SIZE3.default_value().to_wgsl_string() // TODO - or SIZE?
             );
         }
         if !has_color {
@@ -976,6 +986,9 @@ impl EffectShaderSource {
 
                 if render_context.needs_uv {
                     layout_flags |= LayoutFlags::NEEDS_UV;
+                }
+                if render_context.needs_normal {
+                    layout_flags |= LayoutFlags::NEEDS_NORMAL;
                 }
 
                 let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
@@ -1135,6 +1148,7 @@ pub struct CompiledParticleEffect {
     simulation_condition: SimulationCondition,
     /// Handle to the effect shader for his effect instance, if configured.
     effect_shader: Option<EffectShader>,
+    mesh: Option<Handle<Mesh>>,
     /// Textures used by the effect, if any.
     textures: Vec<Handle<Image>>,
     /// 2D layer for the effect instance.
@@ -1152,6 +1166,7 @@ impl Default for CompiledParticleEffect {
             asset: default(),
             simulation_condition: SimulationCondition::default(),
             effect_shader: None,
+            mesh: None,
             textures: vec![],
             #[cfg(feature = "2d")]
             z_layer_2d: FloatOrd(0.0),
@@ -1269,6 +1284,8 @@ impl CompiledParticleEffect {
             render: render_shaders,
         });
 
+        self.mesh = asset.mesh.clone();
+
         self.textures = material.map(|mat| &mat.images).cloned().unwrap_or_default();
     }
 
@@ -1289,6 +1306,47 @@ trait ShaderCode {
 }
 
 impl ShaderCode for Gradient<Vec2> {
+    fn to_shader_code(&self, input: &str) -> String {
+        if self.keys().is_empty() {
+            return String::new();
+        }
+        let mut s: String = self
+            .keys()
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                format!(
+                    "let t{0} = {1};\nlet v{0} = {2};",
+                    index,
+                    key.ratio().to_wgsl_string(),
+                    key.value.to_wgsl_string()
+                )
+            })
+            .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
+        if self.keys().len() == 1 {
+            s + "return v0;\n"
+        } else {
+            s += &format!("if ({input} <= t0) {{ return v0; }}\n");
+            let mut s = self
+                .keys()
+                .iter()
+                .skip(1)
+                .enumerate()
+                .map(|(index, _key)| {
+                    format!(
+                        "else if ({input} <= t{1}) {{ return mix(v{0}, v{1}, ({input} - t{0}) / (t{1} - t{0})); }}\n",
+                        index,
+                        index + 1
+                    )
+                })
+                .fold(s, |s, key| s + &key);
+            let _ = writeln!(s, "else {{ return v{}; }}", self.keys().len() - 1);
+            s
+        }
+    }
+}
+
+impl ShaderCode for Gradient<Vec3> {
     fn to_shader_code(&self, input: &str) -> String {
         if self.keys().is_empty() {
             return String::new();
@@ -1833,6 +1891,7 @@ else { return c1; }
             let mut shader_defs = std::collections::HashMap::<String, ShaderDefValue>::new();
             shader_defs.insert("LOCAL_SPACE_SIMULATION".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("NEEDS_UV".into(), ShaderDefValue::Bool(true));
+            shader_defs.insert("NEEDS_NORMAL".into(), ShaderDefValue::Bool(false));
             shader_defs.insert("RENDER_NEEDS_SPAWNER".into(), ShaderDefValue::Bool(true));
             shader_defs.insert(
                 "PARTICLE_SCREEN_SPACE_SIZE".into(),

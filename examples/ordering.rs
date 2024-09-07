@@ -37,9 +37,9 @@ fn make_firework() -> EffectAsset {
     // Keep the size large so we can more visibly see the particles for longer, and
     // see the effect of alpha blending.
     let mut size_gradient1 = Gradient::new();
-    size_gradient1.add_key(0.0, Vec2::ONE);
-    size_gradient1.add_key(0.1, Vec2::ONE);
-    size_gradient1.add_key(1.0, Vec2::ZERO);
+    size_gradient1.add_key(0.0, Vec3::ONE);
+    size_gradient1.add_key(0.1, Vec3::ONE);
+    size_gradient1.add_key(1.0, Vec3::ZERO);
 
     let writer = ExprWriter::new();
 

@@ -1,7 +1,7 @@
 #[cfg(feature = "2d")]
 use bevy::core_pipeline::core_2d::Transparent2d;
 #[cfg(feature = "3d")]
-use bevy::core_pipeline::core_3d::{AlphaMask3d, Transparent3d};
+use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Transparent3d};
 use bevy::{
     prelude::*,
     render::{
@@ -260,7 +260,11 @@ impl Plugin for HanabiPlugin {
             assets.insert(&HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
         }
 
-        let effects_meta = EffectsMeta::new(render_device.clone());
+        let effects_meta = {
+            let mut assets = app.world_mut().resource_mut::<Assets<Mesh>>();
+            EffectsMeta::new(render_device.clone(), &mut assets)
+        };
+
         let effect_cache = EffectCache::new(render_device);
 
         // Register the custom render pipeline
@@ -335,6 +339,14 @@ impl Plugin for HanabiPlugin {
             render_app
                 .world()
                 .get_resource::<DrawFunctions<AlphaMask3d>>()
+                .unwrap()
+                .write()
+                .add(draw_particles);
+
+            let draw_particles = DrawEffects::new(render_app.world_mut());
+            render_app
+                .world()
+                .get_resource::<DrawFunctions<Opaque3d>>()
                 .unwrap()
                 .write()
                 .add(draw_particles);

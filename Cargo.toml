@@ -63,6 +63,11 @@ version = "0.14"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 
+[dependencies.bevy_gltf]
+version = "0.14"
+optional = true
+features = [ "bevy_animation" ]
+
 [package.metadata.docs.rs]
 all-features = true
 
@@ -161,6 +166,18 @@ required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 [[example]]
 name = "ordering"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+
+[[example]]
+name = "puffs"
+required-features = [
+    "bevy/bevy_winit",
+    "bevy/bevy_pbr",
+    "bevy/bevy_scene",
+    "bevy/bevy_gltf",
+    "bevy/bevy_animation",
+    "bevy_gltf/bevy_animation",
+    "3d",
+]
 
 [[test]]
 name = "empty_effect"
