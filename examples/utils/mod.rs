@@ -12,7 +12,8 @@ use bevy::{
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
-/// Helper system to enable closing the example application by pressing the escape key (ESC).
+/// Helper system to enable closing the example application by pressing the
+/// escape key (ESC).
 pub fn close_on_esc(mut ev_app_exit: EventWriter<AppExit>, input: Res<ButtonInput<KeyCode>>) {
     if input.just_pressed(KeyCode::Escape) {
         ev_app_exit.send(AppExit::Success);
@@ -81,7 +82,8 @@ impl Display for ExampleFailedError {
 
 impl std::error::Error for ExampleFailedError {}
 
-/// Convert an [`AppExit`] into a `Result`, for error code propagation to the OS.
+/// Convert an [`AppExit`] into a `Result`, for error code propagation to the
+/// OS.
 pub trait AppExitIntoResult {
     fn into_result(&self) -> Result<(), Box<dyn std::error::Error>>;
 }
