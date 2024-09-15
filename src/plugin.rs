@@ -21,17 +21,18 @@ use crate::{
     properties::EffectProperties,
     render::{
         extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects,
-        prepare_resources, queue_effects, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents,
-        EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects, GpuDispatchIndirect,
-        GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect, GpuSpawnerParams,
-        ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache,
-        SimParams, StorageType as _, VfxSimulateDriverNode, VfxSimulateNode,
+        prepare_gpu_resources, queue_effects, DispatchIndirectPipeline, DrawEffects,
+        EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects,
+        GpuBufferOperationQueue, GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata,
+        GpuRenderGroupIndirect, GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline,
+        ParticlesUpdatePipeline, ShaderCache, SimParams, StorageType as _, UtilsPipeline,
+        VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,
     time::effect_simulation_time_system,
     update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
-    RemovedEffectsEvent, Spawner,
+    RemovedEffectsEvent, Spawner, ToWgslString,
 };
 
 #[cfg(feature = "serde")]
@@ -77,16 +78,24 @@ pub enum EffectSystems {
     GatherRemovedEffects,
 
     /// Prepare effect assets for the extracted effects.
+    ///
+    /// Part of Bevy's own [`RenderSet::PrepareAssets`].
     PrepareEffectAssets,
 
     /// Queue the GPU commands for the extracted effects.
+    ///
+    /// Part of Bevy's own [`RenderSet::Queue`].
     QueueEffects,
 
     /// Prepare GPU data for the queued effects.
+    ///
+    /// Part of Bevy's own [`RenderSet::PrepareResources`].
     PrepareEffectGpuResources,
 
     /// Prepare the GPU bind groups once all buffers have been (re-)allocated
     /// and won't change this frame.
+    ///
+    /// Part of Bevy's own [`RenderSet::PrepareBindGroups`].
     PrepareBindGroups,
 }
 
@@ -128,20 +137,32 @@ pub struct HanabiPlugin;
 impl HanabiPlugin {
     /// Create the `vfx_common.wgsl` shader with proper alignment.
     ///
-    /// This creates a new [`Shader`] from the `vfx_common.wgsl` code, by
-    /// applying the given alignment for storage buffers. This produces a shader
-    /// ready for the specific GPU device associated with that alignment.
+    /// This creates a new [`Shader`] from the `vfx_common.wgsl` template file,
+    /// by applying the given alignment for storage buffers. This produces a
+    /// shader ready for the specific GPU device associated with that
+    /// alignment.
     pub(crate) fn make_common_shader(min_storage_buffer_offset_alignment: u32) -> Shader {
         let spawner_padding_code =
             GpuSpawnerParams::padding_code(min_storage_buffer_offset_alignment);
         let dispatch_indirect_padding_code =
             GpuDispatchIndirect::padding_code(min_storage_buffer_offset_alignment);
+        let dispatch_indirect_stride_code =
+            (GpuDispatchIndirect::aligned_size(min_storage_buffer_offset_alignment).get() as u32)
+                .to_wgsl_string();
         let render_effect_indirect_padding_code =
             GpuRenderEffectMetadata::padding_code(min_storage_buffer_offset_alignment);
         let render_group_indirect_padding_code =
             GpuRenderGroupIndirect::padding_code(min_storage_buffer_offset_alignment);
         let particle_group_padding_code =
             GpuParticleGroup::padding_code(min_storage_buffer_offset_alignment);
+        let render_effect_indirect_size =
+            GpuRenderEffectMetadata::aligned_size(min_storage_buffer_offset_alignment);
+        let render_effect_indirect_stride_code =
+            (render_effect_indirect_size.get() as u32).to_wgsl_string();
+        let render_group_indirect_size =
+            GpuRenderGroupIndirect::aligned_size(min_storage_buffer_offset_alignment);
+        let render_group_indirect_stride_code =
+            (render_group_indirect_size.get() as u32).to_wgsl_string();
         let common_code = include_str!("render/vfx_common.wgsl")
             .replace("{{SPAWNER_PADDING}}", &spawner_padding_code)
             .replace(
@@ -149,12 +170,24 @@ impl HanabiPlugin {
                 &dispatch_indirect_padding_code,
             )
             .replace(
+                "{{DISPATCH_INDIRECT_STRIDE}}",
+                &dispatch_indirect_stride_code,
+            )
+            .replace(
                 "{{RENDER_EFFECT_INDIRECT_PADDING}}",
                 &render_effect_indirect_padding_code,
             )
             .replace(
+                "{{RENDER_EFFECT_INDIRECT_STRIDE}}",
+                &render_effect_indirect_stride_code,
+            )
+            .replace(
                 "{{RENDER_GROUP_INDIRECT_PADDING}}",
                 &render_group_indirect_padding_code,
+            )
+            .replace(
+                "{{RENDER_GROUP_INDIRECT_STRIDE}}",
+                &render_group_indirect_stride_code,
             )
             .replace("{{PARTICLE_GROUP_PADDING}}", &particle_group_padding_code);
         Shader::from_wgsl(
@@ -269,6 +302,8 @@ impl Plugin for HanabiPlugin {
             .insert_resource(effects_meta)
             .insert_resource(effect_cache)
             .init_resource::<EffectBindGroups>()
+            .init_resource::<GpuBufferOperationQueue>()
+            .init_resource::<UtilsPipeline>()
             .init_resource::<DispatchIndirectPipeline>()
             .init_resource::<ParticlesInitPipeline>()
             .init_resource::<SpecializedComputePipelines<ParticlesInitPipeline>>()
@@ -284,7 +319,7 @@ impl Plugin for HanabiPlugin {
                 (
                     EffectSystems::PrepareEffectAssets.in_set(RenderSet::PrepareAssets),
                     EffectSystems::QueueEffects.in_set(RenderSet::Queue),
-                    EffectSystems::PrepareEffectGpuResources.in_set(RenderSet::Prepare),
+                    EffectSystems::PrepareEffectGpuResources.in_set(RenderSet::PrepareResources),
                     EffectSystems::PrepareBindGroups.in_set(RenderSet::PrepareBindGroups),
                 ),
             )
@@ -298,7 +333,7 @@ impl Plugin for HanabiPlugin {
                     queue_effects
                         .in_set(EffectSystems::QueueEffects)
                         .after(prepare_effects),
-                    prepare_resources
+                    prepare_gpu_resources
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         .after(prepare_view_uniforms),
                     prepare_bind_groups

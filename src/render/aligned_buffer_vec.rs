@@ -4,7 +4,8 @@ use bevy::{
     log::trace,
     render::{
         render_resource::{
-            Buffer, BufferAddress, BufferDescriptor, BufferUsages, ShaderSize, ShaderType,
+            BindingResource, Buffer, BufferAddress, BufferBinding, BufferDescriptor, BufferUsages,
+            ShaderSize, ShaderType,
         },
         renderer::{RenderDevice, RenderQueue},
     },
@@ -14,12 +15,22 @@ use copyless::VecHelper;
 
 use crate::next_multiple_of;
 
-/// Like Bevy's [`BufferVec`], but with correct item alignment.
+/// Like Bevy's [`BufferVec`], but with extra per-item alignment.
 ///
-/// This is a helper to ensure the data is properly aligned when copied to GPU,
-/// depending on the device constraints and the WGSL rules. Generally the
-/// alignment is one of the [`WgpuLimits`], and is also ensured to be
-/// compatible with WGSL.
+/// This helper ensures the individual array elements are properly aligned,
+/// depending on the device constraints and the WGSL rules. In general using
+/// [`BufferVec`] is enough to ensure alignment; however when some array items
+/// also need to be bound individually, then each item (not only the array
+/// itself) needs to be aligned to the device requirements. This is admittedly a
+/// very specific case, because the device alignment might be very large (256
+/// bytes) and this causes a lot of wasted space (padding per-element, instead
+/// of padding for the entire array).
+///
+/// For this buffer to work correctly and items be bindable individually, the
+/// alignment must come from one of the [`WgpuLimits`]. For example for a
+/// storage buffer, to be able to bind the entire buffer but also any subset of
+/// it (including individual elements), the extra alignment must
+/// be [`WgpuLimits::min_storage_buffer_offset_alignment`].
 ///
 /// The element type `T` needs to implement the following traits:
 /// - [`Pod`] to allow copy.
@@ -119,6 +130,17 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
         self.buffer.as_ref()
     }
 
+    /// Get a binding for the entire buffer.
+    #[inline]
+    pub fn binding(&self) -> Option<BindingResource> {
+        let buffer = self.buffer()?;
+        Some(BindingResource::Buffer(BufferBinding {
+            buffer,
+            offset: 0,
+            size: None, // entire buffer
+        }))
+    }
+
     #[inline]
     #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
@@ -151,10 +173,16 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
 
     /// Reserve some capacity into the buffer.
     ///
+    /// If the buffer is reallocated, the old content (on the GPU) is lost, and
+    /// needs to be re-uploaded to the newly-created buffer. This is done with
+    /// [`write_buffer()`].
+    ///
     /// # Returns
     ///
     /// `true` if the buffer was (re)allocated, or `false` if an existing buffer
     /// was reused which already had enough capacity.
+    ///
+    /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
     pub fn reserve(&mut self, capacity: usize, device: &RenderDevice) -> bool {
         if capacity > self.capacity {
             let size = self.aligned_size * capacity;

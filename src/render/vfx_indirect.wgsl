@@ -1,13 +1,10 @@
 #import bevy_hanabi::vfx_common::{
-    ParticleGroup, SimParams, Spawner,
+    ParticleGroup, SimParams,
     DI_OFFSET_X, DI_OFFSET_PONG,
     RGI_OFFSET_ALIVE_COUNT, RGI_OFFSET_MAX_UPDATE, RGI_OFFSET_DEAD_COUNT,
-    REM_OFFSET_MAX_SPAWN, RGI_OFFSET_INSTANCE_COUNT, REM_OFFSET_PING
+    REM_OFFSET_MAX_SPAWN, RGI_OFFSET_INSTANCE_COUNT, REM_OFFSET_PING,
+    DISPATCH_INDIRECT_STRIDE, RENDER_EFFECT_INDIRECT_STRIDE, RENDER_GROUP_INDIRECT_STRIDE
 }
-
-const RENDER_EFFECT_INDIRECT_STRIDE: u32 = {{RENDER_EFFECT_INDIRECT_STRIDE}} / 4u;
-const RENDER_GROUP_INDIRECT_STRIDE: u32 = {{RENDER_GROUP_INDIRECT_STRIDE}} / 4u;
-const DISPATCH_INDIRECT_STRIDE: u32 = {{DISPATCH_INDIRECT_STRIDE}} / 4u;
 
 @group(0) @binding(0) var<storage, read_write> render_effect_indirect_buffer : array<u32>;
 @group(0) @binding(1) var<storage, read_write> render_group_indirect_buffer : array<u32>;

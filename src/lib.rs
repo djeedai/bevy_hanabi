@@ -900,7 +900,7 @@ impl EffectShaderSource {
             // Effect uses GPU spawn events if it produces them, or if it has a parent and
             // consumes them from that parent.
             let consume_gpu_spawn_events =
-                init_context.uses_gpu_spawn_events().unwrap_or(false) || parent_layout.is_some();
+                init_context.emits_gpu_spawn_events().unwrap_or(false) || parent_layout.is_some();
 
             (
                 init_context.main_code,
@@ -965,7 +965,8 @@ struct ParentParticleBuffer {{
                         return Err(ShaderGenerateError::Expr(err));
                     }
                 }
-                let emit_gpu_spawn_events = update_context.uses_gpu_spawn_events().unwrap_or(false);
+                let emit_gpu_spawn_events =
+                    update_context.emits_gpu_spawn_events().unwrap_or(false);
                 (
                     update_context.main_code,
                     update_context.extra_code,
@@ -1182,6 +1183,7 @@ pub struct CompiledParticleEffect {
     asset: Handle<EffectAsset>,
     /// Parent effect, if any.
     parent: Option<Entity>,
+    channel_index: Option<u32>,
     /// Cached simulation condition, to avoid having to query the asset each
     /// time we need it.
     simulation_condition: SimulationCondition,
@@ -1204,6 +1206,7 @@ impl Default for CompiledParticleEffect {
         Self {
             asset: default(),
             parent: None,
+            channel_index: None,
             simulation_condition: SimulationCondition::default(),
             effect_shader: None,
             textures: vec![],
@@ -1233,6 +1236,7 @@ impl CompiledParticleEffect {
         material: Option<&EffectMaterial>,
         asset: &EffectAsset,
         parent_entity: Option<Entity>,
+        channel_index: Option<u32>,
         parent_layout: Option<ParticleLayout>,
         shaders: &mut ResMut<Assets<Shader>>,
         shader_cache: &mut ResMut<ShaderCache>,
@@ -1292,6 +1296,7 @@ impl CompiledParticleEffect {
         self.layout_flags = shader_source.layout_flags;
         self.alpha_mode = asset.alpha_mode;
         self.parent = parent_entity;
+        self.channel_index = channel_index;
         self.parent_particle_layout = parent_layout;
 
         let init_shader =
@@ -1475,7 +1480,16 @@ fn compile_effects(
         .collect();
 
     // Loop over all existing effects to update them, including invisible ones
-    for (asset, entity, effect, material, parent_entity, parent_layout, mut compiled_effect) in
+    for (
+        asset,
+        entity,
+        effect,
+        material,
+        parent_entity,
+        channel_index,
+        parent_layout,
+        mut compiled_effect,
+    ) in
         q_effects
             .iter_mut()
             .filter_map(|(entity, effect, material, parent, compiled_effect)| {
@@ -1485,16 +1499,20 @@ fn compile_effects(
                 let asset = effects.get(&effect.handle)?;
 
                 // Same for the parent asset, if any.
-                let (parent_entity, parent_layout) = if let Some(parent) = &parent {
-                    let Some(parent_layout) = particle_layouts.get(&parent.0) else {
+                let (parent_entity, channel_index, parent_layout) = if let Some(parent) = &parent {
+                    let Some(parent_layout) = particle_layouts.get(&parent.entity) else {
                         // There's a parent declared, but not found. Skip the current asset.
                         return None;
                     };
                     // Declared parent with found parent asset, child asset is valid.
-                    (Some(parent.0), Some(parent_layout.clone()))
+                    (
+                        Some(parent.entity),
+                        Some(parent.channel_index),
+                        Some(parent_layout.clone()),
+                    )
                 } else {
                     // No declared parent, asset is valid.
-                    (None, None)
+                    (None, None, None)
                 };
 
                 Some((
@@ -1503,6 +1521,7 @@ fn compile_effects(
                     effect,
                     material,
                     parent_entity,
+                    channel_index,
                     parent_layout,
                     compiled_effect,
                 ))
@@ -1535,6 +1554,7 @@ fn compile_effects(
             material.map(|r| r.into_inner()),
             asset,
             parent_entity,
+            channel_index,
             parent_layout,
             &mut shaders,
             &mut shader_cache,
@@ -1551,7 +1571,7 @@ fn compile_effects(
         // If the effect has a parent, and that parent has no asset, also clear the
         // child's compilation.
         if let Some(parent) = parent {
-            if particle_layouts.get(&parent.0).is_none() {
+            if particle_layouts.get(&parent.entity).is_none() {
                 compiled_effect.clear();
             }
         }

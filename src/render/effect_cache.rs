@@ -16,7 +16,7 @@ use bevy::{
 };
 use bytemuck::cast_slice_mut;
 
-use super::buffer_table::BufferTableId;
+use super::{aligned_buffer_vec::AlignedBufferVec, buffer_table::BufferTableId, GpuLimits};
 use crate::{
     asset::EffectAsset,
     render::{
@@ -100,9 +100,11 @@ impl SliceRef {
 /// Storage for a single kind of effects, sharing the same buffer(s).
 ///
 /// Currently only accepts a single unique item size (particle size), fixed at
-/// creation. Also currently only accepts instances of a unique effect asset,
-/// although this restriction is purely for convenience and may be relaxed in
-/// the future to improve batching.
+/// creation.
+///
+/// Also currently only accepts instances of a unique effect asset, although
+/// this restriction is purely for convenience and may be relaxed in the future
+/// to improve batching.
 #[derive(Debug)]
 pub struct EffectBuffer {
     /// GPU buffer holding all particles for the entire group of effects.
@@ -237,7 +239,7 @@ impl EffectBuffer {
                         read_only: event_buffer_readonly,
                     },
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(8),
+                    min_binding_size: BufferSize::new(12), // sizeof(count) + 1 * sizeof(SpawnEvent)
                 },
                 count: None,
             });
@@ -373,7 +375,7 @@ impl EffectBuffer {
             } else {
                 "hanabi:buffer:effect_events".to_owned()
             };
-            let size = 4 * 401; // TODO - for now hard-coded 400 events + 1 count, all u32
+            let size = 4 + 8 * 400; // TODO - for now hard-coded 400 events + 1 count
             let event_buffer = render_device.create_buffer(&BufferDescriptor {
                 label: Some(&event_buffer_label),
                 size,
@@ -522,6 +524,10 @@ impl EffectBuffer {
         self.properties_buffer.as_ref()
     }
 
+    pub fn event_buffer(&self) -> Option<&Buffer> {
+        self.event_buffer.as_ref()
+    }
+
     pub fn particle_layout(&self) -> &ParticleLayout {
         &self.particle_layout
     }
@@ -582,7 +588,7 @@ impl EffectBuffer {
     /// the current effect buffer, if any.
     pub fn event_buffer_max_binding(&self) -> Option<BindingResource> {
         self.event_buffer.as_ref().map(|buffer| {
-            let capacity_bytes = 4 * 401; // FIXME - see EffectBuffer::new()
+            let capacity_bytes = 4 + 8 * 400; // FIXME - see EffectBuffer::new()
             BindingResource::Buffer(BufferBinding {
                 buffer,
                 offset: 0,
@@ -803,6 +809,8 @@ pub(crate) struct CachedEffectIndices {
     pub(crate) buffer_index: u32,
     /// Parent effect, if any.
     pub(crate) parent: Option<EffectCacheId>,
+    /// Index of the dispatch indirect struct for indirect init, if any.
+    pub(crate) init_indirect_dispatch_index: Option<u32>,
     /// The slices within that buffer.
     pub(crate) slices: SlicesRef,
 }
@@ -847,15 +855,24 @@ pub struct EffectCache {
     effects: HashMap<EffectCacheId, CachedEffectIndices>,
     ///
     effect_from_entity: HashMap<Entity, EffectCacheId>,
+    // Note: we abuse AlignedBufferVec but never copy anything from CPU
+    init_indirect_dispatch_buffer: AlignedBufferVec<GpuDispatchIndirect>,
 }
 
 impl EffectCache {
     pub fn new(device: RenderDevice) -> Self {
+        let gpu_limits = GpuLimits::from_device(&device);
+        let item_align = gpu_limits.storage_buffer_align().get() as u64;
         Self {
             render_device: device,
             buffers: vec![],
             effects: HashMap::default(),
             effect_from_entity: HashMap::default(),
+            init_indirect_dispatch_buffer: AlignedBufferVec::new(
+                BufferUsages::STORAGE | BufferUsages::INDIRECT,
+                NonZeroU64::new(item_align),
+                Some("hanabi:buffer:init_indirect_dispatch".to_string()),
+            ),
         }
     }
 
@@ -867,6 +884,14 @@ impl EffectCache {
     #[allow(dead_code)]
     pub fn buffers_mut(&mut self) -> &mut [Option<EffectBuffer>] {
         &mut self.buffers
+    }
+
+    #[allow(dead_code)]
+    pub fn get_buffer(&self, index: u32) -> Option<&EffectBuffer> {
+        self.buffers
+            .get(index as usize)
+            .map(|buf| buf.as_ref())
+            .flatten()
     }
 
     /// Ensure the bind group for the init pass exists.
@@ -922,14 +947,13 @@ impl EffectCache {
         if let Some(parent_buffer_index) = parent_buffer_index {
             // The buffer has a parent effect, and that effect owns the event buffer we need
             // to bind. FIXME - unwrap()s
-            let event_buffer_binding = self
+            let effect_buffer = self
                 .buffers()
                 .get(parent_buffer_index as usize)
                 .unwrap()
                 .as_ref()
-                .unwrap()
-                .event_buffer_max_binding()
                 .unwrap();
+            let event_buffer_binding = effect_buffer.event_buffer_max_binding().unwrap();
             bindings.push(BindGroupEntry {
                 binding: 3,
                 resource: event_buffer_binding,
@@ -1125,12 +1149,24 @@ impl EffectCache {
             dispatch_buffer_indices,
         };
 
+        let init_indirect_dispatch_index =
+            if layout_flags.contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS) {
+                // The value pushed is a dummy; see allocate_frame_buffers().
+                let init_indirect_dispatch_index = self
+                    .init_indirect_dispatch_buffer
+                    .push(GpuDispatchIndirect::default());
+                Some(init_indirect_dispatch_index as u32)
+            } else {
+                None
+            };
+
         trace!(
-            "Insert effect id={:?} buffer_index={} slice={}B particle_layout={:?}",
+            "Insert effect id={:?} buffer_index={} slice={}B particle_layout={:?} indirect_init_index={:?}",
             id,
             buffer_index,
             slices.particle_layout.min_binding_size().get(),
             slices.particle_layout,
+            init_indirect_dispatch_index,
         );
         self.effects.insert(
             id,
@@ -1138,11 +1174,21 @@ impl EffectCache {
                 buffer_index: buffer_index as u32,
                 // Parent is resolved later in resolve_parents()
                 parent: None,
+                init_indirect_dispatch_index,
                 slices,
             },
         );
         self.effect_from_entity.insert(entity, id);
         id
+    }
+
+    /// Re-/allocate any buffer for the current frame.
+    pub fn allocate_frame_buffers(&mut self, render_device: &RenderDevice) {
+        // Note: we abuse AlignedBufferVec for its ability to manage the GPU buffer, but
+        // we don't use its CPU side capabilities. So we only need the GPU buffer to be
+        // correctly allocated, using reserve(). No data is copied from CPU.
+        self.init_indirect_dispatch_buffer
+            .reserve(self.init_indirect_dispatch_buffer.len(), render_device);
     }
 
     pub fn get_slices(&self, id: EffectCacheId) -> EffectSlices {
@@ -1156,6 +1202,23 @@ impl EffectCache {
                 // parent_particle_layout: indices.slices.parent_particle_layout.clone(),
             })
             .unwrap()
+    }
+
+    pub fn get_init_indirect_dispatch_index(&self, id: EffectCacheId) -> Option<u32> {
+        self.effects
+            .get(&id)
+            .map(|indices| indices.init_indirect_dispatch_index)
+            .flatten()
+    }
+
+    #[inline]
+    pub fn init_indirect_dispatch_buffer(&self) -> Option<&Buffer> {
+        self.init_indirect_dispatch_buffer.buffer()
+    }
+
+    #[inline]
+    pub fn init_indirect_dispatch_buffer_binding(&self) -> Option<BindingResource> {
+        self.init_indirect_dispatch_buffer.binding()
     }
 
     pub(crate) fn get_dispatch_buffer_indices(&self, id: EffectCacheId) -> DispatchBufferIndices {
@@ -1196,11 +1259,23 @@ impl EffectCache {
 
     pub fn get_property_buffer(&self, id: EffectCacheId) -> Option<&Buffer> {
         if let Some(cached_effect_indices) = self.effects.get(&id) {
-            if let Some(buffer) = &self.buffers[cached_effect_indices.buffer_index as usize] {
-                buffer.properties_buffer()
-            } else {
-                None
-            }
+            let buffer_index = cached_effect_indices.buffer_index as usize;
+            self.buffers[buffer_index]
+                .as_ref()
+                .map(|eb| eb.properties_buffer())
+                .flatten()
+        } else {
+            None
+        }
+    }
+
+    pub fn get_event_buffer(&self, id: EffectCacheId) -> Option<&Buffer> {
+        if let Some(cached_effect_indices) = self.effects.get(&id) {
+            let buffer_index = cached_effect_indices.buffer_index as usize;
+            self.buffers[buffer_index]
+                .as_ref()
+                .map(|eb| eb.event_buffer())
+                .flatten()
         } else {
             None
         }
@@ -1341,6 +1416,7 @@ mod gpu_tests {
             capacity,
             l64.clone(),
             PropertyLayout::empty(), // not using properties
+            None,
             LayoutFlags::NONE,
             &render_device,
             Some("my_buffer"),
@@ -1416,6 +1492,7 @@ mod gpu_tests {
             capacity,
             l64.clone(),
             PropertyLayout::empty(), // not using properties
+            None,
             LayoutFlags::NONE,
             &render_device,
             Some("my_buffer"),
@@ -1484,9 +1561,11 @@ mod gpu_tests {
         let item_size = l32.size();
 
         let id1 = effect_cache.insert(
+            Entity::PLACEHOLDER,
             asset.clone(),
             capacities.clone(),
             &l32,
+            None,
             &empty_property_layout,
             LayoutFlags::NONE,
             DispatchBufferIndices::default(),
@@ -1501,9 +1580,11 @@ mod gpu_tests {
         assert_eq!(effect_cache.buffers().len(), 1);
 
         let id2 = effect_cache.insert(
+            Entity::PLACEHOLDER,
             asset.clone(),
             capacities.clone(),
             &l32,
+            None,
             &empty_property_layout,
             LayoutFlags::NONE,
             DispatchBufferIndices::default(),
@@ -1528,9 +1609,11 @@ mod gpu_tests {
 
         // Regression #60
         let id3 = effect_cache.insert(
+            Entity::PLACEHOLDER,
             asset,
             capacities,
             &l32,
+            None,
             &empty_property_layout,
             LayoutFlags::NONE,
             DispatchBufferIndices::default(),

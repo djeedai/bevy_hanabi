@@ -60,6 +60,9 @@ pub(crate) struct EffectBatches {
     pub init_pipeline_id: CachedComputePipelineId,
     /// Update compute pipeline specialized for this batch.
     pub update_pipeline_ids: Vec<CachedComputePipelineId>,
+    /// Index of the [`GpuDispatchIndirect`] struct into the init indirect
+    /// dispatch buffer, if using indirect init dispatch only.
+    pub init_indirect_dispatch_index: Option<u32>,
 }
 
 impl Index<u32> for EffectBatches {
@@ -136,6 +139,7 @@ impl EffectBatches {
             init_pipeline_id,
             update_pipeline_ids,
             entities: vec![input.entity.index()],
+            init_indirect_dispatch_index: input.init_indirect_dispatch_index,
         }
     }
 }
@@ -149,6 +153,7 @@ pub(crate) struct BatchesInput {
     /// transient for a single frame, so the generation is useless.
     pub entity: Entity,
     /// Effect slices.
+    // FIXME - Contains a single effect's data (multiple groups); should handle multiple ones.
     pub effect_slices: EffectSlices,
     /// Layout of the effect properties.
     pub property_layout: PropertyLayout,
@@ -167,16 +172,23 @@ pub(crate) struct BatchesInput {
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
     /// Number of particles to spawn for this effect.
+    // FIXME - Contains a single effect's data; should handle multiple ones.
     pub spawn_count: u32,
     /// Emitter transform.
+    // FIXME - Contains a single effect's data; should handle multiple ones.
     pub transform: GpuCompressedTransform,
     /// Emitter inverse transform.
+    // FIXME - Contains a single effect's data; should handle multiple ones.
     pub inverse_transform: GpuCompressedTransform,
     /// GPU buffer where properties for this batch need to be written.
+    // FIXME - Contains a single effect's data; should handle multiple ones.
     pub property_buffer: Option<Buffer>,
     /// Serialized property data.
     // FIXME - Contains a single effect's data; should handle multiple ones.
     pub property_data: Option<Vec<u8>>,
+    /// Index of the init indirect dispatch struct, if any.
+    // FIXME - Contains a single effect's data; should handle multiple ones.
+    pub init_indirect_dispatch_index: Option<u32>,
     /// Sort key, for 2D only.
     #[cfg(feature = "2d")]
     pub z_sort_key_2d: FloatOrd,

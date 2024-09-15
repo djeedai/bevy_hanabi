@@ -59,12 +59,16 @@ struct IndirectBuffer {
 /// A event emitted by another effect during its Update pass, to trigger the spawning
 /// of one or more particle in this effect.
 struct SpawnEvent {
+    /// The index of the channel this event is part of. Child effects read events from one channel only.
+    channel_index: u32,
+
     /// The particle index in the parent effect buffer of the source particle which
     /// triggered the event. This is used to inherit attributes like position or velocity.
     particle_index: u32,
 }
 
-/// Append buffer populated during the previous frame Update pass by other effect(s).
+/// Append buffer populated during the Update pass of the previous frame by a parent effect,
+/// and read back by its child effect(s) during the Init pass of the next frame.
 struct EventBuffer {
     /// Number of events in the event array.
 #ifdef EVENT_BUFFER_READONLY
@@ -96,8 +100,15 @@ struct DispatchIndirect {
     /// as an indirect draw source so cannot also be bound as regular storage
     /// buffer for reading.
     pong: u32,
+    /// Padding for storage buffer alignment. This struct is sometimes bound as part
+    /// of an array, or sometimes individually as a single unit. In the later case,
+    /// we need it to be aligned to the GPU limits of the device. That limit is only
+    /// known at runtime when initializing the WebGPU device.
     {{DISPATCH_INDIRECT_PADDING}}
 }
+
+/// Stride, in u32 count, between elements of an array<DispatchIndirect>.
+const DISPATCH_INDIRECT_STRIDE: u32 = {{DISPATCH_INDIRECT_STRIDE}} / 4u;
 
 // Render indirect array offsets. Used when accessing an array of RenderIndirect
 // as a raw array<u32>, so that we can avoid WGSL struct padding and keep data
@@ -128,8 +139,18 @@ struct RenderEffectMetadata {
     /// always write into the ping buffer and read from the pong buffer. The buffers
     /// are swapped during the indirect dispatch.
     ping: u32,
+    /// Channel index that this effect reads GPU spawn event from. This is unused if
+    /// the particle effect instance uses CPU-driven spawning.
+    channel_index: u32,
+    /// Padding for storage buffer alignment. This struct is sometimes bound as part
+    /// of an array, or sometimes individually as a single unit. In the later case,
+    /// we need it to be aligned to the GPU limits of the device. That limit is only
+    /// known at runtime when initializing the WebGPU device.
     {{RENDER_EFFECT_INDIRECT_PADDING}}
 }
+
+/// Stride, in u32 count, between elements of an array<RenderEffectMetadata>.
+const RENDER_EFFECT_INDIRECT_STRIDE: u32 = {{RENDER_EFFECT_INDIRECT_STRIDE}} / 4u;
 
 /// Render indirect parameters for GPU driven rendering.
 struct RenderGroupIndirect {
@@ -153,8 +174,15 @@ struct RenderGroupIndirect {
     /// Number of dead particles, decremented during the init pass as new particles
     /// are spawned, and incremented during the update pass as existing particles die.
     dead_count: atomic<u32>,
+    /// Padding for storage buffer alignment. This struct is sometimes bound as part
+    /// of an array, or sometimes individually as a single unit. In the later case,
+    /// we need it to be aligned to the GPU limits of the device. That limit is only
+    /// known at runtime when initializing the WebGPU device.
     {{RENDER_GROUP_INDIRECT_PADDING}}
 }
+
+/// Stride, in u32 count, between elements of an array<RenderGroupIndirect>.
+const RENDER_GROUP_INDIRECT_STRIDE: u32 = {{RENDER_GROUP_INDIRECT_STRIDE}} / 4u;
 
 var<private> seed : u32 = 0u;
 

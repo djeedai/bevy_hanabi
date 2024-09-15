@@ -56,6 +56,14 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let base_index = particle_groups[0].effect_particle_offset;
     let dead_index = atomicSub(&render_group_indirect.dead_count, 1u) - 1u;
     index = indirect_buffer.indices[3u * (base_index + dead_index) + 2u];
+    
+#ifdef USE_GPU_SPAWN_EVENTS
+    // Check whether the current event is for the event channel that this effect consumes.
+    let channel_index = event_buffer.spawn_events[index].channel_index;
+    if (render_effect_indirect.channel_index != channel_index) {
+        return;
+    }
+#endif
 
     // Update PRNG seed
     seed = pcg_hash(index ^ spawner.seed);
@@ -80,8 +88,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 #endif
     {{INIT_CODE}}
 
+    // Only add emitter's transform to CPU-spawned particles. GPU-spawned particles
+    // don't have a CPU spawner to read from.
 #ifndef USE_GPU_SPAWN_EVENTS
-    // Only add emitter's transform to CPU-spawned particles
     {{SIMULATION_SPACE_TRANSFORM_PARTICLE}}
 #endif
 
