@@ -33,11 +33,11 @@ struct ParticleBuffer {
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    var index = global_invocation_id.x;
+    let thread_index = global_invocation_id.x;
 
     // Cap to max number of dead particles, copied from dead_count at the end of the
     // previous iteration, and constant during this pass (unlike dead_count).
-    if (index >= render_effect_indirect.max_spawn) {
+    if (thread_index >= render_effect_indirect.max_spawn) {
         return;
     }
 
@@ -48,17 +48,19 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 #else
     let spawn_count = u32(spawner.spawn);
 #endif
-    if (index >= spawn_count) {
+    if (thread_index >= spawn_count) {
         return;
     }
 
     // Recycle a dead particle from the first group
     let base_index = particle_groups[0].effect_particle_offset;
     let dead_index = atomicSub(&render_group_indirect.dead_count, 1u) - 1u;
-    index = indirect_buffer.indices[3u * (base_index + dead_index) + 2u];
+    let index = indirect_buffer.indices[3u * (base_index + dead_index) + 2u];
     
 #ifdef USE_GPU_SPAWN_EVENTS
     // Check whether the current event is for the event channel that this effect consumes.
+    // Currently we merge all events for all channels into a single buffer, and dispatch
+    // once, so we can't tell ahead of time.
     let channel_index = event_buffer.spawn_events[index].channel_index;
     if (render_effect_indirect.channel_index != channel_index) {
         return;
