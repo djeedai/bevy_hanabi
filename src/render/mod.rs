@@ -938,14 +938,12 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
         // Likely this one should go away, because we can't cache from inside
         // specialize() (non-mut access)
         let has_event_buffer = key.parent_particle_layout_min_binding_size.is_some();
-        let event_buffer_readonly = true; // always for init pass
         let particles_buffer_layout = EffectBuffer::make_sim_layout(
             &self.render_device,
             key.particle_layout_min_binding_size,
             key.property_layout_min_binding_size,
             key.parent_particle_layout_min_binding_size,
             has_event_buffer,
-            event_buffer_readonly,
             "init",
         );
 
@@ -1088,7 +1086,6 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
         );
 
         let has_event_buffer = key.use_gpu_spawn_events;
-        let event_buffer_readonly = false; // always for update pass
         let particles_buffer_layout = EffectBuffer::make_sim_layout(
             &self.render_device,
             key.particle_layout.min_binding_size(),
@@ -1099,7 +1096,6 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             },
             None,
             has_event_buffer,
-            event_buffer_readonly,
             "update",
         );
 

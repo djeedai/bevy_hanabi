@@ -32,7 +32,7 @@ struct ParticleBuffer {
 /// Append one or more spawn events to the event buffer.
 fn append_spawn_events(channel_index: u32, particle_index: u32, count: u32) {
     let capacity = arrayLength(&event_buffer.spawn_events);
-    let base = min(atomicAdd(&event_buffer.event_count, count), capacity);
+    let base = min(u32(atomicAdd(&event_buffer.event_count, i32(count))), capacity);
     let capped_count = min(count, capacity - base);
     for (var i = 0u; i < capped_count; i += 1u) {
         event_buffer.spawn_events[base + i].channel_index = channel_index;

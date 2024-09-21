@@ -71,11 +71,7 @@ struct SpawnEvent {
 /// and read back by its child effect(s) during the Init pass of the next frame.
 struct EventBuffer {
     /// Number of events in the event array.
-#ifdef EVENT_BUFFER_READONLY
-    event_count: u32,
-#else
-    event_count: atomic<u32>,
-#endif
+    event_count: atomic<i32>,
     /// The spawn events themselves.
     spawn_events: array<SpawnEvent>,
 }

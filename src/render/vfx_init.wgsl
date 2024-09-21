@@ -21,7 +21,7 @@ struct ParticleBuffer {
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
 #ifdef USE_GPU_SPAWN_EVENTS
-@group(1) @binding(3) var<storage, read> event_buffer : EventBuffer;
+@group(1) @binding(3) var<storage, read_write> event_buffer : EventBuffer;
 #endif
 {{PROPERTIES_BINDING}}
 {{PARENT_PARTICLE_BINDING}}
@@ -44,13 +44,21 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Cap to the actual number of spawning requested by CPU + GPU, since compute shaders run
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
 #ifdef USE_GPU_SPAWN_EVENTS
-    let spawn_count = event_buffer.event_count;
+    let event_count = atomicSub(&event_buffer.event_count, 1);
+    if (event_count < 1) {
+        // Revert above decrement, so we never end up negative at the end of the compute pass.
+        // This ensures the count is reset to zero and we don't have to clear it for next frame.
+        // Note that we use signed integer to give some headroom in case several threads decrement
+        // before they can re-increment, to prevent wrapping around with unsigned arithmetic.
+        atomicAdd(&event_buffer.event_count, 1);
+        return;
+    }
 #else
     let spawn_count = u32(spawner.spawn);
-#endif
     if (thread_index >= spawn_count) {
         return;
     }
+#endif
 
     // Recycle a dead particle from the first group
     let base_index = particle_groups[0].effect_particle_offset;

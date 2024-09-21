@@ -182,7 +182,6 @@ impl EffectBuffer {
         property_layout_min_binding_size: Option<NonZeroU64>,
         parent_particle_layout_min_binding_size: Option<NonZeroU64>,
         has_event_buffer: bool,
-        event_buffer_readonly: bool,
         label: &str,
     ) -> BindGroupLayout {
         let mut entries = Vec::with_capacity(5);
@@ -229,15 +228,13 @@ impl EffectBuffer {
             count: None,
         });
 
-        // @group(1) @binding(3) var<storage, read> event_buffer : EventBuffer
+        // @group(1) @binding(3) var<storage, read_write> event_buffer : EventBuffer
         if has_event_buffer {
             entries.push(BindGroupLayoutEntry {
                 binding: 3,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage {
-                        read_only: event_buffer_readonly,
-                    },
+                    ty: BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
                     min_binding_size: BufferSize::new(12), // sizeof(count) + 1 * sizeof(SpawnEvent)
                 },
@@ -419,7 +416,6 @@ impl EffectBuffer {
         };
         // init
         let uses_event_buffer = layout_flags.intersects(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS);
-        let event_buffer_readonly = true;
         let particles_buffer_layout_init = EffectBuffer::make_sim_layout(
             render_device,
             particle_layout.min_binding_size(),
@@ -428,19 +424,16 @@ impl EffectBuffer {
                 .as_ref()
                 .map(|layout| layout.min_binding_size()),
             uses_event_buffer,
-            event_buffer_readonly,
             "init",
         );
         // update
         let uses_event_buffer = layout_flags.intersects(LayoutFlags::EMIT_GPU_SPAWN_EVENTS);
-        let event_buffer_readonly = false;
         let particles_buffer_layout_update = EffectBuffer::make_sim_layout(
             render_device,
             particle_layout.min_binding_size(),
             property_layout_min_binding_size,
             None, // update pass never accesses parent particle buffer
             uses_event_buffer,
-            event_buffer_readonly,
             "update",
         );
 
