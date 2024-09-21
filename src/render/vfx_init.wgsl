@@ -44,8 +44,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Cap to the actual number of spawning requested by CPU + GPU, since compute shaders run
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
 #ifdef USE_GPU_SPAWN_EVENTS
-    let event_count = atomicSub(&event_buffer.event_count, 1);
-    if (event_count < 1) {
+    let event_index = atomicSub(&event_buffer.event_count, 1);
+    if (event_index < 1) {
         // Revert above decrement, so we never end up negative at the end of the compute pass.
         // This ensures the count is reset to zero and we don't have to clear it for next frame.
         // Note that we use signed integer to give some headroom in case several threads decrement
@@ -69,7 +69,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Check whether the current event is for the event channel that this effect consumes.
     // Currently we merge all events for all channels into a single buffer, and dispatch
     // once, so we can't tell ahead of time.
-    let channel_index = event_buffer.spawn_events[index].channel_index;
+    let channel_index = event_buffer.spawn_events[event_index].channel_index;
     if (render_effect_indirect.channel_index != channel_index) {
         return;
     }
@@ -93,7 +93,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Initialize new particle
     var particle = Particle();
 #ifdef USE_GPU_SPAWN_EVENTS
-    let parent_index = event_buffer.spawn_events[index].particle_index;
+    let parent_index = event_buffer.spawn_events[event_index].particle_index;
     let parent_particle = parent_particle_buffer.particles[parent_index];
 #endif
     {{INIT_CODE}}
