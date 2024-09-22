@@ -265,18 +265,18 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     ));
 
     // Trails
-    // let trails_effect = effects.add(create_trails_effect());
-    // commands.spawn((
-    //     Name::new("trails"),
-    //     ParticleEffectBundle {
-    //         effect: ParticleEffect::new(trails_effect),
-    //         ..Default::default()
-    //     },
-    //     // Set the rocket effect as parent. This gives access to the rocket
-    // effect's particles,     // which in turns allows inheriting their
-    // position (and other attributes if needed).     EffectParent {
-    //         entity: rocket_entity,
-    //         channel_index: 1,
-    //     },
-    // ));
+    let trails_effect = effects.add(create_trails_effect());
+    commands.spawn((
+        Name::new("trails"),
+        ParticleEffectBundle {
+            effect: ParticleEffect::new(trails_effect),
+            ..Default::default()
+        },
+        // Set the rocket effect as parent. This gives access to the rocket effect's particles,
+        // which in turns allows inheriting their position (and other attributes if needed).
+        EffectParent {
+            entity: rocket_entity,
+            channel_index: 1,
+        },
+    ));
 }

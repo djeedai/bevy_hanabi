@@ -557,7 +557,7 @@ pub(super) struct GpuBufferOperationArgs {
 #[derive(Resource)]
 pub(super) struct GpuBufferOperationQueue {
     /// Arguments for the buffer operations submitted this frame.
-    args_buffer: RawBufferVec<GpuBufferOperationArgs>,
+    args_buffer: AlignedBufferVec<GpuBufferOperationArgs>,
 
     /// Indices into the arguments buffer of the queued dispatch fill args
     /// operations for the indirect init pass of next frame. Those
@@ -565,10 +565,15 @@ pub(super) struct GpuBufferOperationQueue {
     init_fill_dispatch: Vec<(u32, u32)>,
 }
 
-impl Default for GpuBufferOperationQueue {
-    fn default() -> Self {
-        let mut args_buffer = RawBufferVec::new(BufferUsages::UNIFORM);
-        args_buffer.set_label(Some(&"hanabi:buffer:gpu_operation_args"));
+impl FromWorld for GpuBufferOperationQueue {
+    fn from_world(world: &mut World) -> Self {
+        let render_device = world.get_resource::<RenderDevice>().unwrap();
+        let align = render_device.limits().min_uniform_buffer_offset_alignment;
+        let args_buffer = AlignedBufferVec::new(
+            BufferUsages::UNIFORM,
+            Some(NonZeroU64::new(align as u64).unwrap()),
+            Some("hanabi:buffer:gpu_operation_args".to_string()),
+        );
         Self {
             args_buffer,
             init_fill_dispatch: vec![],
@@ -577,12 +582,15 @@ impl Default for GpuBufferOperationQueue {
 }
 
 impl GpuBufferOperationQueue {
+    /// Get a binding for a single entry of the arguments buffer.
     pub fn args_buffer_binding(&self) -> Option<BindingResource> {
-        self.args_buffer.binding()
+        self.args_buffer
+            .partial_binding(NonZeroU64::new(GpuBufferOperationArgs::min_size().get()).unwrap())
     }
 
     /// Clear the queue and begin recording operations for a new frame.
     pub fn begin_frame(&mut self) {
+        self.args_buffer.clear();
         self.init_fill_dispatch.clear();
     }
 
@@ -645,41 +653,32 @@ impl GpuBufferOperationQueue {
 
         compute_pass.set_pipeline(pipeline);
 
-        let mut cur_buffer_index = u32::MAX;
-        for (buffer_index, _args_index) in fills.drain(..) {
+        for (buffer_index, args_index) in fills.drain(..) {
             // If the buffer changed, set the corresponding bind group
-            trace!(
-                "buffer_index={} cur_buffer_index={}",
-                buffer_index,
-                cur_buffer_index
-            );
-            if buffer_index != cur_buffer_index {
-                if let Some(bind_group) = bind_groups.particle_init_fill_dispatch(buffer_index) {
-                    cur_buffer_index = buffer_index;
-                    compute_pass.set_bind_group(0, bind_group, &[]);
-                    trace!("found bind group for buffer index {}", buffer_index);
-                } else {
-                    warn!("bind group not found for buffer index {}", buffer_index);
-                }
+            trace!("buffer_index={} args_index={}", buffer_index, args_index);
+            if let Some(bind_group) = bind_groups.particle_init_fill_dispatch(buffer_index) {
+                let dyn_offset = self.args_buffer.dynamic_offset(args_index as usize);
+                compute_pass.set_bind_group(0, bind_group, &[dyn_offset]);
+                trace!(
+                    "found bind group for buffer index {} with dyn offset +{}B",
+                    buffer_index,
+                    dyn_offset
+                );
+            } else {
+                warn!("bind group not found for buffer index {}", buffer_index);
+                continue;
             }
 
             // Dispatch the operations for this buffer
-            if cur_buffer_index == buffer_index {
-                const WORKGROUP_SIZE: u32 = 64;
-                let num_ops = 1;
-                let workgroup_count = (num_ops + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
-                compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
-                trace!(
-                    "-> fill dispatch compute dispatched: num_ops={} workgroup_count={}",
-                    num_ops,
-                    workgroup_count
-                );
-            } else {
-                warn!(
-                    "Skipped init dispatch compute; missing bind group for buffer #{}",
-                    buffer_index
-                );
-            }
+            const WORKGROUP_SIZE: u32 = 64;
+            let num_ops = 1;
+            let workgroup_count = (num_ops + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+            compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
+            trace!(
+                "-> fill dispatch compute dispatched: num_ops={} workgroup_count={}",
+                num_ops,
+                workgroup_count
+            );
         }
     }
 }
@@ -703,7 +702,7 @@ impl FromWorld for UtilsPipeline {
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
+                        has_dynamic_offset: true,
                         min_binding_size: Some(GpuBufferOperationArgs::min_size()),
                     },
                     count: None,
@@ -3562,12 +3561,12 @@ pub(crate) fn prepare_bind_groups(
                             },
                             // @group(0) @binding(1) var<storage, read> src_buffer : array<u32>
                             BindGroupEntry {
-                                                binding: 1,
-                                                resource: BindingResource::Buffer(BufferBinding {
-                                                    buffer: event_buffer,
-                                                    offset: 0,
-                                                    size: None,
-                            }),
+                                binding: 1,
+                                resource: BindingResource::Buffer(BufferBinding {
+                                    buffer: event_buffer,
+                                    offset: 0,
+                                    size: None,
+                                }),
                             },
                             // @group(0) @binding(2) var<storage, read_write> dst_buffer : array<u32>
                             BindGroupEntry {
@@ -4156,13 +4155,14 @@ impl Node for VfxSimulateNode {
                         ],
                     );
                     if indirect_dispatch {
-                        let indirect_offset = effects_meta.gpu_limits.dispatch_indirect_offset(
-                            batches.init_indirect_dispatch_index.unwrap(),
-                        );
+                        // Note: the indirect offset of a dispatch workgroup only needs 4-byte
+                        // alignment
+                        let indirect_offset = batches.init_indirect_dispatch_index.unwrap() as u64
+                            * GpuDispatchIndirect::min_size().get();
                         trace!("init indirect dispatch offset: {}", indirect_offset);
                         compute_pass.dispatch_workgroups_indirect(
                             effect_cache.init_indirect_dispatch_buffer().unwrap(),
-                            indirect_offset as u64,
+                            indirect_offset,
                         );
                     } else {
                         compute_pass.dispatch_workgroups(workgroup_count, 1, 1);

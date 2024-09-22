@@ -141,6 +141,17 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
         }))
     }
 
+    /// Get a binding for a subset of the buffer.
+    #[inline]
+    pub fn partial_binding(&self, size: NonZeroU64) -> Option<BindingResource> {
+        let buffer = self.buffer()?;
+        Some(BindingResource::Buffer(BufferBinding {
+            buffer,
+            offset: 0,
+            size: Some(size),
+        }))
+    }
+
     #[inline]
     #[allow(dead_code)]
     pub fn capacity(&self) -> usize {
@@ -157,6 +168,24 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
     #[inline]
     pub fn aligned_size(&self) -> usize {
         self.aligned_size
+    }
+
+    /// Calculate a dynamic byte offset for a bind group from an array element
+    /// index.
+    ///
+    /// This returns the product of `index` by the internal [`aligned_size()`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the `index` is too large, producing a byte offset larger than
+    /// `u32::MAX`.
+    ///
+    /// [`aligned_size()`]: crate::AlignedBufferVec::aligned_size
+    #[inline]
+    pub fn dynamic_offset(&self, index: usize) -> u32 {
+        let offset = self.aligned_size * index;
+        assert!(offset <= u32::MAX as usize);
+        u32::try_from(offset).expect("AlignedBufferVec index out of bounds")
     }
 
     #[inline]

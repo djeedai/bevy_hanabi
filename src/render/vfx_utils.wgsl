@@ -17,23 +17,23 @@ struct BufferOperationArgs {
 /// Clear a buffer to zero. Each thread clears a single u32.
 @compute @workgroup_size(64)
 fn zero_buffer(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    let index = global_invocation_id.x;
-    if (index >= args.count) {
+    let thread_index = global_invocation_id.x;
+    if (thread_index >= args.count) {
         return;
     }
-    let dst = args.dst_offset + index;
+    let dst = args.dst_offset + thread_index;
     dst_buffer[dst] = 0u;
 }
 
 /// Copy a source buffer into a destination buffer. Each thread copies a single u32.
 @compute @workgroup_size(64)
 fn copy_buffer(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    let index = global_invocation_id.x;
-    if (index >= args.count) {
+    let thread_index = global_invocation_id.x;
+    if (thread_index >= args.count) {
         return;
     }
-    let src = args.src_offset + index * args.src_stride;
-    let dst = args.dst_offset + index;
+    let src = args.src_offset + thread_index * args.src_stride;
+    let dst = args.dst_offset + thread_index;
     let value = src_buffer[src];
     dst_buffer[dst] = value;
 }
@@ -43,16 +43,19 @@ fn copy_buffer(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 /// argument struct.
 @compute @workgroup_size(64)
 fn fill_dispatch_args(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    let index = global_invocation_id.x;
-    if (index >= args.count) {
+    let thread_index = global_invocation_id.x;
+    if (thread_index >= args.count) {
         return;
     }
-    let src = args.src_offset + index * args.src_stride;
-    let dst = args.dst_offset + index * 16u;
+    let src = args.src_offset + thread_index * args.src_stride;
+    let dst = args.dst_offset + thread_index * 16u;
     let value = src_buffer[src];
+    // We assume a workgroup size of 64 (for the target dispatch, not for the current compute
+    // job). This is currently the case everywhere in Hanabi, but would need to be adapted if
+    // we decided to vary the workgroup size.
     let workgroup_count = (value + 63u) >> 6u;
     dst_buffer[dst] = workgroup_count;
     dst_buffer[dst + 1u] = 1u;
     dst_buffer[dst + 2u] = 1u;
-    // leave last entry untouched
+    // leave last entry untouched; sometimes it's used for unrelated things
 }
