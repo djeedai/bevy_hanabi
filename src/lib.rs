@@ -747,6 +747,7 @@ impl EffectShaderSource {
     pub fn generate(
         asset: &EffectAsset,
         parent_layout: Option<&ParticleLayout>,
+        num_effect_buffers: u32,
     ) -> Result<EffectShaderSource, ShaderGenerateError> {
         let particle_layout = asset.particle_layout();
 
@@ -860,6 +861,12 @@ impl EffectShaderSource {
         } else {
             "// (no parent effect)".to_string()
         };
+        let base_binding_index = if property_layout.is_empty() { 3 } else { 4 };
+        let mut children_event_buffer_bindings_code = String::with_capacity(256);
+        for i in 0..num_effect_buffers {
+            let binding_index = base_binding_index + i;
+            children_event_buffer_bindings_code.push_str(&format!("\n@group(1) @binding({binding_index}) var<storage, read_write> event_buffer_{i} : EventBuffer;"));
+        }
 
         // Start from the base module containing the expressions actually serialized in
         // the asset. We will add the ones created on-the-fly by applying the
@@ -1133,6 +1140,10 @@ struct ParentParticleBuffer {{
                 .replace("{{UPDATE_EXTRA}}", &update_extra)
                 .replace("{{PROPERTIES}}", &properties_code)
                 .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
+                .replace(
+                    "{{CHILDREN_EVENT_BUFFER_BINDINGS}}",
+                    &children_event_buffer_bindings_code,
+                )
                 .replace("{{GROUP_INDEX}}", &group_index_code);
             trace!("Configured update shader:\n{}", update_shader_source);
 
@@ -1183,6 +1194,8 @@ pub struct CompiledParticleEffect {
     asset: Handle<EffectAsset>,
     /// Parent effect, if any.
     parent: Option<Entity>,
+    /// Child effects.
+    children: Vec<Entity>,
     channel_index: Option<u32>,
     /// Cached simulation condition, to avoid having to query the asset each
     /// time we need it.
@@ -1206,6 +1219,7 @@ impl Default for CompiledParticleEffect {
         Self {
             asset: default(),
             parent: None,
+            children: vec![],
             channel_index: None,
             simulation_condition: SimulationCondition::default(),
             effect_shader: None,
@@ -1236,6 +1250,7 @@ impl CompiledParticleEffect {
         material: Option<&EffectMaterial>,
         asset: &EffectAsset,
         parent_entity: Option<Entity>,
+        child_entities: Vec<Entity>,
         channel_index: Option<u32>,
         parent_layout: Option<ParticleLayout>,
         shaders: &mut ResMut<Assets<Shader>>,
@@ -1282,21 +1297,25 @@ impl CompiledParticleEffect {
             return;
         }
 
-        let shader_source = match EffectShaderSource::generate(asset, parent_layout.as_ref()) {
-            Ok(shader_source) => shader_source,
-            Err(err) => {
-                error!(
-                    "Failed to generate shaders for effect asset '{}': {}",
-                    asset.name, err
-                );
-                return;
-            }
-        };
-
-        self.layout_flags = shader_source.layout_flags;
         self.alpha_mode = asset.alpha_mode;
         self.parent = parent_entity;
+        self.children = child_entities;
         self.channel_index = channel_index;
+
+        let num_effect_buffers = self.children.len() as u32;
+        let shader_source =
+            match EffectShaderSource::generate(asset, parent_layout.as_ref(), num_effect_buffers) {
+                Ok(shader_source) => shader_source,
+                Err(err) => {
+                    error!(
+                        "Failed to generate shaders for effect asset '{}': {}",
+                        asset.name, err
+                    );
+                    return;
+                }
+            };
+
+        self.layout_flags = shader_source.layout_flags;
         self.parent_particle_layout = parent_layout;
 
         let init_shader =
@@ -1470,14 +1489,23 @@ fn compile_effects(
     // pass because we can't borrow mutably while doing a double lookup on the
     // query. This map is used to lookup valid parents, and filter out effects with
     // a declared parent but unresolved parent asset.
-    let particle_layouts: HashMap<Entity, ParticleLayout> = q_effects
+    let particle_layouts_and_parents: HashMap<Entity, (ParticleLayout, Option<Entity>)> = q_effects
         .iter()
-        .filter_map(|(entity, effect, _, _, _)| {
+        .filter_map(|(entity, effect, _, parent, _)| {
             effects
                 .get(&effect.handle)
-                .map(|asset| (entity, asset.particle_layout()))
+                .map(|asset| (entity, (asset.particle_layout(), parent.map(|p| p.entity))))
         })
         .collect();
+
+    // Count children
+    let mut children: HashMap<Entity, Vec<Entity>> =
+        HashMap::with_capacity(particle_layouts_and_parents.len());
+    for (child, (_, parent)) in particle_layouts_and_parents.iter() {
+        if let Some(parent) = parent.as_ref() {
+            children.entry(*parent).or_default().push(*child);
+        }
+    }
 
     // Loop over all existing effects to update them, including invisible ones
     for (
@@ -1500,7 +1528,8 @@ fn compile_effects(
 
                 // Same for the parent asset, if any.
                 let (parent_entity, channel_index, parent_layout) = if let Some(parent) = &parent {
-                    let Some(parent_layout) = particle_layouts.get(&parent.entity) else {
+                    let Some((parent_layout, _)) = particle_layouts_and_parents.get(&parent.entity)
+                    else {
                         // There's a parent declared, but not found. Skip the current asset.
                         return None;
                     };
@@ -1527,10 +1556,16 @@ fn compile_effects(
                 ))
             })
     {
+        let child_entities = children
+            .get_mut(&entity)
+            .map(|vec| std::mem::take(vec))
+            .unwrap_or_default();
+
         // If the ParticleEffect didn't change, and the compiled one is for the correct
         // asset, then there's nothing to do.
+        let material_changed = material.as_ref().map_or(false, |r| r.is_changed());
         let need_rebuild =
-            effect.is_changed() || material.as_ref().map_or(false, |r| r.is_changed());
+            effect.is_changed() || material_changed || compiled_effect.children != child_entities;
         if !need_rebuild && (compiled_effect.asset == effect.handle) {
             continue;
         }
@@ -1554,6 +1589,7 @@ fn compile_effects(
             material.map(|r| r.into_inner()),
             asset,
             parent_entity,
+            child_entities,
             channel_index,
             parent_layout,
             &mut shaders,
@@ -1571,7 +1607,7 @@ fn compile_effects(
         // If the effect has a parent, and that parent has no asset, also clear the
         // child's compilation.
         if let Some(parent) = parent {
-            if particle_layouts.get(&parent.entity).is_none() {
+            if particle_layouts_and_parents.get(&parent.entity).is_none() {
                 compiled_effect.clear();
             }
         }

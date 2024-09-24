@@ -937,13 +937,12 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
         // Likely this one should go away, because we can't cache from inside
         // specialize() (non-mut access)
         let has_event_buffer = key.parent_particle_layout_min_binding_size.is_some();
-        let particles_buffer_layout = EffectBuffer::make_sim_layout(
+        let particles_buffer_layout = EffectBuffer::make_init_layout(
             &self.render_device,
             key.particle_layout_min_binding_size,
             key.property_layout_min_binding_size,
             key.parent_particle_layout_min_binding_size,
             has_event_buffer,
-            "init",
         );
 
         let mut shader_defs = vec![];
@@ -1066,8 +1065,8 @@ pub(crate) struct ParticleUpdatePipelineKey {
     particle_layout: ParticleLayout,
     /// Property layout.
     property_layout: PropertyLayout,
-    /// Key: USE_GPU_SPAWN_EVENTS
-    use_gpu_spawn_events: bool,
+    /// Key: EMITS_GPU_SPAWN_EVENTS
+    num_event_buffers: u32,
 }
 
 impl SpecializedComputePipeline for ParticlesUpdatePipeline {
@@ -1084,8 +1083,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             },
         );
 
-        let has_event_buffer = key.use_gpu_spawn_events;
-        let particles_buffer_layout = EffectBuffer::make_sim_layout(
+        let particles_buffer_layout = EffectBuffer::make_update_layout(
             &self.render_device,
             key.particle_layout.min_binding_size(),
             if key.property_layout.is_empty() {
@@ -1093,16 +1091,14 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             } else {
                 Some(key.property_layout.min_binding_size())
             },
-            None,
-            has_event_buffer,
-            "update",
+            key.num_event_buffers,
         );
 
         let mut shader_defs = vec!["REM_MAX_SPAWN_ATOMIC".into()];
 
-        // Key: USE_GPU_SPAWN_EVENTSs
-        if key.use_gpu_spawn_events {
-            shader_defs.push("USE_GPU_SPAWN_EVENTS".into());
+        // Key: EMITS_GPU_SPAWN_EVENTS
+        if key.num_event_buffers > 0 {
+            shader_defs.push("EMITS_GPU_SPAWN_EVENTS".into());
         }
 
         ComputePipelineDescriptor {
@@ -1738,25 +1734,25 @@ pub(crate) fn extract_effects(
         })
         .collect();
 
-    // Loop over all existing effects to update them
+    // Loop over all existing effects to extract them
     extracted_effects.effects.clear();
     for (
         entity,
         maybe_inherited_visibility,
         maybe_view_visibility,
         spawner,
-        effect,
+        compiled_effect,
         maybe_properties,
         transform,
     ) in query.p0().iter_mut()
     {
         // Check if shaders are configured
-        let Some(effect_shader) = effect.get_configured_shader() else {
+        let Some(effect_shader) = compiled_effect.get_configured_shader() else {
             continue;
         };
 
         // Check if hidden, unless always simulated
-        if effect.simulation_condition == SimulationCondition::WhenVisible
+        if compiled_effect.simulation_condition == SimulationCondition::WhenVisible
             && !maybe_inherited_visibility
                 .map(|cv| cv.get())
                 .unwrap_or(true)
@@ -1766,7 +1762,7 @@ pub(crate) fn extract_effects(
         }
 
         // Check if asset is available, otherwise silently ignore
-        let Some(asset) = effects.get(&effect.asset) else {
+        let Some(asset) = effects.get(&compiled_effect.asset) else {
             trace!(
                 "EffectAsset not ready; skipping ParticleEffect instance on entity {:?}.",
                 entity
@@ -1775,7 +1771,7 @@ pub(crate) fn extract_effects(
         };
 
         #[cfg(feature = "2d")]
-        let z_sort_key_2d = effect.z_layer_2d;
+        let z_sort_key_2d = compiled_effect.z_layer_2d;
 
         let property_layout = asset.property_layout();
         let texture_layout = asset.module().texture_layout();
@@ -1795,26 +1791,26 @@ pub(crate) fn extract_effects(
             None
         };
 
-        let layout_flags = effect.layout_flags;
-        let alpha_mode = effect.alpha_mode;
+        let layout_flags = compiled_effect.layout_flags;
+        let alpha_mode = compiled_effect.alpha_mode;
 
         trace!(
             "Extracted instance of effect '{}' on entity {:?}: texture_layout_count={} texture_count={} layout_flags={:?}",
             asset.name,
             entity,
             texture_layout.layout.len(),
-            effect.textures.len(),
+            compiled_effect.textures.len(),
             layout_flags,
         );
 
         extracted_effects.effects.insert(
             entity,
             ExtractedEffect {
-                handle: effect.asset.clone_weak(),
-                parent: effect.parent.clone(),
+                handle: compiled_effect.asset.clone_weak(),
+                parent: compiled_effect.parent.clone(),
                 particle_layout: asset.particle_layout().clone(),
                 property_layout,
-                parent_particle_layout: effect.parent_particle_layout.clone(),
+                parent_particle_layout: compiled_effect.parent_particle_layout.clone(),
                 property_data,
                 spawn_count: spawner.spawn_count,
                 transform: transform.compute_matrix(),
@@ -1822,7 +1818,7 @@ pub(crate) fn extract_effects(
                 inverse_transform: transform.compute_matrix().inverse(),
                 layout_flags,
                 texture_layout,
-                textures: effect.textures.clone(),
+                textures: compiled_effect.textures.clone(),
                 alpha_mode,
                 effect_shader,
                 #[cfg(feature = "2d")]
@@ -2360,15 +2356,28 @@ pub(crate) fn prepare_effects(
     //     }
     // });
 
-    // Resolve parents
     let effects = std::mem::take(&mut extracted_effects.effects);
+
+    // Resolve parent and child buffers
+    let mut children = HashMap::with_capacity(16);
     let parents = effects
         .iter()
         .filter_map(|(entity, extracted_effect)| {
+            // Get the parent buffer index, if any
             let parent_entity = extracted_effect.parent?;
             let parent_cache_id = effects_meta.entity_map.get(&parent_entity)?.cache_id;
             let parent_effect_slices = effect_cache.get_slices(parent_cache_id);
-            Some((*entity, parent_effect_slices.buffer_index))
+            let parent_buffer_index = parent_effect_slices.buffer_index;
+
+            // Add this buffer as a child of the parent entity
+            let id: EffectCacheId = effects_meta.entity_map.get(entity)?.cache_id;
+            let effect_slices = effect_cache.get_slices(id);
+            children
+                .entry(parent_entity)
+                .or_insert(vec![])
+                .push(effect_slices.buffer_index);
+
+            Some((*entity, parent_buffer_index))
         })
         .collect::<HashMap<_, _>>();
 
@@ -2376,11 +2385,17 @@ pub(crate) fn prepare_effects(
     let effect_entity_list = effects
         .into_iter()
         .map(|(entity, extracted_effect)| {
+            // FIXME - way too many look-ups here again and again with the same id...
             let id = effects_meta.entity_map.get(&entity).unwrap().cache_id;
             let property_buffer = effect_cache.get_property_buffer(id).cloned(); // clone handle for lifetime
             let effect_slices = effect_cache.get_slices(id);
             let init_indirect_dispatch_index = effect_cache.get_init_indirect_dispatch_index(id);
             let parent_buffer_index = parents.get(&entity).cloned();
+            let child_buffer_indices = if let Some(children) = children.get_mut(&entity) {
+                std::mem::take(children)
+            } else {
+                vec![]
+            };
 
             BatchesInput {
                 handle: extracted_effect.handle,
@@ -2389,6 +2404,7 @@ pub(crate) fn prepare_effects(
                 property_layout: extracted_effect.property_layout.clone(),
                 parent_particle_layout: extracted_effect.parent_particle_layout.clone(),
                 parent_buffer_index,
+                child_buffer_indices,
                 effect_shader: extracted_effect.effect_shader.clone(),
                 layout_flags: extracted_effect.layout_flags,
                 texture_layout: extracted_effect.texture_layout.clone(),
@@ -2491,10 +2507,7 @@ pub(crate) fn prepare_effects(
                         shader: update_source.clone(),
                         particle_layout: input.effect_slices.particle_layout.clone(),
                         property_layout: input.property_layout.clone(),
-                        // Update pipeline only ever emits GPU spawn events
-                        use_gpu_spawn_events: input
-                            .layout_flags
-                            .contains(LayoutFlags::EMIT_GPU_SPAWN_EVENTS),
+                        num_event_buffers: input.child_buffer_indices.len() as u32,
                     },
                 )
             })
@@ -3618,7 +3631,11 @@ pub(crate) fn prepare_bind_groups(
         ) {
             continue;
         }
-        if !effect_cache.ensure_update_bind_group(effect_batches.buffer_index, group_binding) {
+        if !effect_cache.ensure_update_bind_group(
+            effect_batches.buffer_index,
+            group_binding,
+            &effect_batches.child_buffer_indices[..],
+        ) {
             continue;
         }
 

@@ -24,6 +24,8 @@ pub(crate) struct EffectBatches {
     pub buffer_index: u32,
     /// Index of the buffer of the parent effect, if any.
     pub parent_buffer_index: Option<u32>,
+    /// Indices of the buffers of the child effects, if any.
+    pub child_buffer_indices: Vec<u32>,
     /// Index of the first Spawner of the effects in the batch.
     pub spawner_base: u32,
     /// Number of particles to spawn/init this frame.
@@ -116,6 +118,7 @@ impl EffectBatches {
         EffectBatches {
             buffer_index: input.effect_slices.buffer_index,
             parent_buffer_index: input.parent_buffer_index,
+            child_buffer_indices: input.child_buffer_indices,
             spawner_base,
             spawn_count: input.spawn_count,
             particle_layout: input.effect_slices.particle_layout,
@@ -159,8 +162,10 @@ pub(crate) struct BatchesInput {
     pub property_layout: PropertyLayout,
     /// Particle layout of the parent effect, if any.
     pub parent_particle_layout: Option<ParticleLayout>,
-    /// Index of the parent buffer, if any.
+    /// Index of the buffer of the parent effect, if any.
     pub parent_buffer_index: Option<u32>,
+    /// Indices of the buffers of the child effects, if any.
+    pub child_buffer_indices: Vec<u32>,
     /// Effect shader.
     pub effect_shader: EffectShader,
     /// Various flags related to the effect.
