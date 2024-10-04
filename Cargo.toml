@@ -54,12 +54,12 @@ ron = "0.8"
 bitflags = "2.3"
 typetag = { version = "0.2", optional = true }
 thiserror = "1.0"
-# Same versions as Bevy 0.14 (bevy_render)
-naga = "0.20"
-naga_oil = { version = "0.14", default-features = false, features = ["test_shader"] }
+# Same versions as Bevy 0.15 (bevy_render)
+naga = "22"
+naga_oil = { version = "0.15", default-features = false, features = ["test_shader"] }
 
 [dependencies.bevy]
-version = "0.14"
+version = "0.15.0-dev"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 
