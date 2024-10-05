@@ -194,10 +194,22 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
         self.values.is_empty()
     }
 
+    /// Append a value to the buffer.
+    ///
+    /// As with [`set_content()`], the content is stored on the CPU and uploaded
+    /// on the GPU once [`write_buffers()`] is called.
     pub fn push(&mut self, value: T) -> usize {
         let index = self.values.len();
         self.values.alloc().init(value);
         index
+    }
+
+    /// Set the content of the buffer, overwritting any previous data.
+    ///
+    /// As with [`push()`], the content is stored on the CPU and uploaded on the
+    /// GPU once [`write_buffers()`] is called.
+    pub fn set_content(&mut self, data: Vec<T>) {
+        self.values = data;
     }
 
     /// Reserve some capacity into the buffer.

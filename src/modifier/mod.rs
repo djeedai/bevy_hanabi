@@ -696,15 +696,17 @@ impl EmitSpawnEventModifier {
         _module: &mut Module,
         _context: &mut dyn EvalContext,
     ) -> Result<String, ExprError> {
+        // FIXME - mixing channel for event buffer index
+        let channel_index = self.channel_index;
         // TODO - validate GPU spawn events are in use in the eval context...
         let cond = match self.condition {
             EventEmitCondition::Always => format!(
-                "append_spawn_events({}, index, {});",
+                "if (is_alive) {{ append_spawn_events_{channel_index}({}, index, {}); }}",
                 self.channel_index.to_wgsl_string(),
                 self.count.to_wgsl_string()
             ),
             EventEmitCondition::OnDie => format!(
-                "if (!is_alive) {{ append_spawn_events({}, index, {}); }}",
+                "if (was_alive && !is_alive) {{ append_spawn_events_{channel_index}({}, index, {}); }}",
                 self.channel_index.to_wgsl_string(),
                 self.count.to_wgsl_string()
             ),

@@ -747,7 +747,7 @@ impl EffectShaderSource {
     pub fn generate(
         asset: &EffectAsset,
         parent_layout: Option<&ParticleLayout>,
-        num_effect_buffers: u32,
+        num_event_bindings: u32,
     ) -> Result<EffectShaderSource, ShaderGenerateError> {
         let particle_layout = asset.particle_layout();
 
@@ -863,10 +863,27 @@ impl EffectShaderSource {
         };
         let base_binding_index = if property_layout.is_empty() { 3 } else { 4 };
         let mut children_event_buffer_bindings_code = String::with_capacity(256);
-        for i in 0..num_effect_buffers {
+        let mut children_event_buffer_append_code = String::with_capacity(1024);
+        for i in 0..num_event_bindings {
             let binding_index = base_binding_index + i;
-            children_event_buffer_bindings_code.push_str(&format!("\n@group(1) @binding({binding_index}) var<storage, read_write> event_buffer_{i} : EventBuffer;"));
+            children_event_buffer_bindings_code.push_str(&format!("@group(1) @binding({binding_index}) var<storage, read_write> event_buffer_{i} : EventBuffer;\n"));
+            children_event_buffer_append_code.push_str(&format!(
+                r##"/// Append one or more spawn events to the event buffer.
+fn append_spawn_events_{0}(channel_index: u32, particle_index: u32, count: u32) {{
+    let capacity = arrayLength(&event_buffer_{0}.spawn_events);
+    let base = min(u32(atomicAdd(&event_buffer_{0}.event_count, i32(count))), capacity);
+    let capped_count = min(count, capacity - base);
+    for (var i = 0u; i < capped_count; i += 1u) {{
+        event_buffer_{0}.spawn_events[base + i].channel_index = channel_index;
+        event_buffer_{0}.spawn_events[base + i].particle_index = particle_index;
+    }}
+}}
+"##,
+                i
+            ));
         }
+        children_event_buffer_bindings_code.pop();
+        children_event_buffer_append_code.pop();
 
         // Start from the base module containing the expressions actually serialized in
         // the asset. We will add the ones created on-the-fly by applying the
@@ -1144,6 +1161,10 @@ struct ParentParticleBuffer {{
                     "{{CHILDREN_EVENT_BUFFER_BINDINGS}}",
                     &children_event_buffer_bindings_code,
                 )
+                .replace(
+                    "{{CHILDREN_EVENT_BUFFER_APPEND}}",
+                    &children_event_buffer_append_code,
+                )
                 .replace("{{GROUP_INDEX}}", &group_index_code);
             trace!("Configured update shader:\n{}", update_shader_source);
 
@@ -1302,9 +1323,9 @@ impl CompiledParticleEffect {
         self.children = child_entities;
         self.channel_index = channel_index;
 
-        let num_effect_buffers = self.children.len() as u32;
+        let num_event_bindings = self.children.len() as u32;
         let shader_source =
-            match EffectShaderSource::generate(asset, parent_layout.as_ref(), num_effect_buffers) {
+            match EffectShaderSource::generate(asset, parent_layout.as_ref(), num_event_bindings) {
                 Ok(shader_source) => shader_source,
                 Err(err) => {
                     error!(

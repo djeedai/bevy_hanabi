@@ -9,6 +9,7 @@ Cargo.lock
 .DS_Store
 
 # Perf
+profiling/
 *.cap
 perf.data
 perf.data.old

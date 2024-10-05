@@ -12,13 +12,14 @@ use bevy::{
     log::{trace, warn},
     prelude::Entity,
     render::{render_resource::*, renderer::RenderDevice},
-    utils::HashMap,
+    utils::{default, HashMap},
 };
 use bytemuck::cast_slice_mut;
 
 use super::{aligned_buffer_vec::AlignedBufferVec, buffer_table::BufferTableId, GpuLimits};
 use crate::{
     asset::EffectAsset,
+    next_multiple_of,
     render::{
         GpuDispatchIndirect, GpuParticleGroup, GpuSpawnerParams, LayoutFlags, StorageType as _,
     },
@@ -115,12 +116,6 @@ pub struct EffectBuffer {
     ///   and 1
     /// - the dead particle indices at offset 2
     indirect_buffer: Buffer,
-    /// GPU buffer holding the GPU spawn events of the effect(s), if any. This
-    /// is always `None` if the effect doesn't consume GPU spawn events (not a
-    /// child effect). Effects emitting GPU spawn events (parent effects) bind
-    /// the event buffer of their child(ren), so don't own an event buffer,
-    /// unless they're in turn child of another effect.
-    event_buffer: Option<Buffer>,
     /// GPU buffer holding the properties of the effect(s), if any. This is
     /// always `None` if the property layout is empty.
     properties_buffer: Option<Buffer>,
@@ -156,7 +151,8 @@ pub struct EffectBuffer {
     /// Bind group for the per-buffer data (group @1) of the init pass.
     init_bind_group: Option<BindGroup>,
     /// Bind group for the per-buffer data (group @1) of the update pass.
-    update_bind_group: Option<BindGroup>,
+    // update_bind_group: Option<BindGroup>,
+    update_bind_groups: HashMap<Box<[EffectCacheId]>, BindGroup>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -465,31 +461,6 @@ impl EffectBuffer {
             indirect_buffer.unmap();
         }
 
-        // By convention we create the event buffer from the GPU spawn event consumer
-        // effect. The emitter one will bind that same buffer by retrieving it from its
-        // child(ren). This is necessary because a parent might emit different events
-        // for different children, so we want to store those events separately.
-        // In the future we might also add the option for multiple parents to emit GPU
-        // events to spawn particles for a common child, although this is currently not
-        // supported.
-        let event_buffer = if layout_flags.contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS) {
-            let event_buffer_label = if let Some(label) = label {
-                format!("{}_events", label)
-            } else {
-                "hanabi:buffer:effect_events".to_owned()
-            };
-            let size = 4 + 8 * 400; // TODO - for now hard-coded 400 events + 1 count
-            let event_buffer = render_device.create_buffer(&BufferDescriptor {
-                label: Some(&event_buffer_label),
-                size,
-                usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
-                mapped_at_creation: false,
-            });
-            Some(event_buffer)
-        } else {
-            None
-        };
-
         // Allocate the buffer to store effect properties, which are uploaded each time
         // they change from the CPU. This is only ever read from GPU.
         let properties_buffer = if property_layout.is_empty() {
@@ -591,7 +562,6 @@ impl EffectBuffer {
         Self {
             particle_buffer,
             indirect_buffer,
-            event_buffer,
             properties_buffer,
             particle_layout,
             property_layout,
@@ -604,22 +574,12 @@ impl EffectBuffer {
             free_slices: vec![],
             asset,
             init_bind_group: None,
-            update_bind_group: None,
+            update_bind_groups: default(),
         }
     }
 
     pub fn properties_buffer(&self) -> Option<&Buffer> {
         self.properties_buffer.as_ref()
-    }
-
-    /// Get the event buffer associated with this effect buffer, if any.
-    ///
-    /// An effect owns an event buffer if it consumes GPU spawn events, that is
-    /// if it's a child effect of another effect and uses GPU spawn events to
-    /// spawn and initialize its particles, instead of the default CPU-driven
-    /// spawning mechanism of top-level effects.
-    pub fn event_buffer(&self) -> Option<&Buffer> {
-        self.event_buffer.as_ref()
     }
 
     pub fn particle_layout(&self) -> &ParticleLayout {
@@ -638,17 +598,26 @@ impl EffectBuffer {
         &self.particles_buffer_layout_init
     }
 
-    pub fn ensure_particle_layout_bind_group_update(
+    pub fn ensure_particle_update_bind_group_layout(
         &mut self,
         num_event_buffers: u32,
         render_device: &RenderDevice,
         particle_layout_min_binding_size: NonZeroU64,
         property_layout_min_binding_size: Option<NonZeroU64>,
     ) {
+        trace!(
+            "Ensuring bind group layout for update pass with {} event buffers...",
+            num_event_buffers
+        );
+
         // If there's already a layout for that particular number of event buffers,
         // we're done
         if let Some((num, _)) = self.particles_buffer_layout_update.as_ref() {
             if *num == num_event_buffers {
+                trace!(
+                    "-> Bind group layout already exists for {} event buffers.",
+                    num_event_buffers
+                );
                 return;
             }
         }
@@ -662,6 +631,10 @@ impl EffectBuffer {
         );
         self.particles_buffer_layout_update =
             Some((num_event_buffers, particles_buffer_layout_update));
+        trace!(
+            "-> Created new bind group layout for {} event buffers.",
+            num_event_buffers
+        );
     }
 
     /// Get the particle layout bind group of the update pass with the given
@@ -672,9 +645,9 @@ impl EffectBuffer {
     /// Returns `Some` if and only if a bind group layout exists which was
     /// created for the same number of event buffers as `num_event_buffers`. To
     /// ensure such a layout exists ahead of time, use
-    /// [`ensure_particle_layout_bind_group_update()`].
+    /// [`ensure_particle_update_bind_group_layout()`].
     ///
-    /// [`ensure_particle_layout_bind_group_update()`]: crate::EffectBuffer::ensure_particle_layout_bind_group_update
+    /// [`ensure_particle_update_bind_group_layout()`]: crate::EffectBuffer::ensure_particle_update_bind_group_layout
     pub fn particle_layout_bind_group_update(
         &self,
         num_event_buffers: u32,
@@ -721,19 +694,6 @@ impl EffectBuffer {
         })
     }
 
-    /// Return a binding for the entire GPU spawn event buffer associated with
-    /// the current effect buffer, if any.
-    pub fn event_buffer_max_binding(&self) -> Option<BindingResource> {
-        self.event_buffer.as_ref().map(|buffer| {
-            let capacity_bytes = 4 + 8 * 400; // FIXME - see EffectBuffer::new()
-            BindingResource::Buffer(BufferBinding {
-                buffer,
-                offset: 0,
-                size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
-            })
-        })
-    }
-
     /// Return a binding for the entire properties buffer associated with the
     /// current effect buffer, if any.
     pub fn properties_max_binding(&self) -> Option<BindingResource> {
@@ -765,14 +725,20 @@ impl EffectBuffer {
     ///
     /// This is the per-buffer bind group at binding @1 which binds all
     /// per-buffer resources shared by all effect instances batched in a single
-    /// buffer.
-    pub fn update_bind_group(&self) -> Option<&BindGroup> {
-        self.update_bind_group.as_ref()
+    /// buffer. It's keyed by the (possibly empty) list of child effects. Each
+    /// combination of child effects produces a different bind group.
+    pub fn update_bind_group(&self, child_ids: &[EffectCacheId]) -> Option<&BindGroup> {
+        self.update_bind_groups.get(child_ids)
     }
 
-    pub fn set_update_bind_group(&mut self, update_bind_group: BindGroup) {
-        assert!(self.update_bind_group.is_none());
-        self.update_bind_group = Some(update_bind_group);
+    pub fn set_update_bind_group(
+        &mut self,
+        child_ids: &[EffectCacheId],
+        update_bind_group: BindGroup,
+    ) {
+        let key = child_ids.into();
+        let prev_value = self.update_bind_groups.insert(key, update_bind_group);
+        assert!(prev_value.is_none());
     }
 
     /// Try to recycle a free slice to store `size` items.
@@ -861,6 +827,7 @@ impl EffectBuffer {
             }
         };
 
+        trace!("-> allocated slice {:?}", range);
         Some(SliceRef {
             range,
             particle_layout: particle_layout.clone(),
@@ -939,17 +906,27 @@ impl EffectCacheId {
     }
 }
 
+pub(crate) struct InitIndirect {
+    pub(crate) dispatch_index: u32,
+    pub(crate) event_buffer_ref: EventBufferRef,
+}
+
 /// Stores the buffer index and slice boundaries within the buffer for all
 /// groups in a single effect.
 pub(crate) struct CachedEffectIndices {
-    /// The index of the buffer.
+    /// Index into the [`EffectCache::buffers`] of the buffer storing the
+    /// particles for this effect. This includes all particles of all effect
+    /// groups.
     pub(crate) buffer_index: u32,
-    /// Parent effect, if any.
-    pub(crate) parent: Option<EffectCacheId>,
-    /// Index of the dispatch indirect struct for indirect init, if any.
-    pub(crate) init_indirect_dispatch_index: Option<u32>,
-    /// The slices within that buffer.
+    /// The group slices within that buffer. All groups for an effect are always
+    /// stored contiguously inside the same GPU buffer.
     pub(crate) slices: SlicesRef,
+    /// Parent effect, if any. If the effect has a parent, this means its
+    /// particles are spawned via GPU spawn events, and not by the CPU.
+    pub(crate) parent: Option<EffectCacheId>,
+    /// Data for the indirect dispatch of the init pass, if using GPU spawn
+    /// events.
+    pub(crate) init_indirect: Option<InitIndirect>,
 }
 
 /// The indices in the indirect dispatch buffers for a single effect, as well as
@@ -979,6 +956,108 @@ impl Default for DispatchBufferIndices {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct EventSlice {
+    slice: Range<u32>,
+}
+
+pub struct EventBuffer {
+    /// GPU buffer.
+    buffer: Buffer,
+    /// Buffer capacity, in words (4 bytes).
+    capacity: u32,
+    /// Allocated buffer size, in words (4 bytes).
+    size: u32,
+    /// Slices into the GPU buffer where event sub-allocations for each effects
+    /// are located. Slices are stored ordered for convenience of allocation.
+    slices: Vec<EventSlice>,
+}
+
+impl EventBuffer {
+    pub fn new(buffer: Buffer, capacity: u32) -> Self {
+        Self {
+            buffer,
+            capacity,
+            size: 0,
+            slices: vec![],
+        }
+    }
+
+    pub fn buffer(&self) -> &Buffer {
+        &self.buffer
+    }
+
+    pub fn allocate(&mut self, size: u32) -> Option<EventSlice> {
+        if self.size + size > self.capacity {
+            return None;
+        }
+
+        if self.slices.is_empty() {
+            let slice = EventSlice { slice: 0..size };
+            self.slices.push(slice.clone());
+            self.size += size;
+            return Some(slice);
+        }
+
+        let mut start = 0;
+        for (idx, es) in self.slices.iter().enumerate() {
+            let avail_size = es.slice.start - start;
+            if size > avail_size {
+                start = es.slice.end;
+                continue;
+            }
+
+            let slice = EventSlice {
+                slice: start..start + size,
+            };
+            self.slices.insert(idx, slice.clone());
+            self.size += size;
+            return Some(slice);
+        }
+
+        if start + size <= self.capacity {
+            let slice = EventSlice {
+                slice: start..start + size,
+            };
+            self.slices.push(slice.clone());
+            self.size += size;
+            Some(slice)
+        } else {
+            None
+        }
+    }
+
+    #[allow(dead_code)] // FIXME
+    pub fn free(&mut self, slice: &EventSlice) {
+        // Note: could use binary search, but likely not enough elements to be worth it
+        if let Some(idx) = self.slices.iter().position(|es| es == slice) {
+            self.slices.remove(idx);
+            return;
+        }
+    }
+}
+
+pub(crate) struct EventBufferRef {
+    buffer_index: u32,
+    slice: Range<u32>,
+}
+
+pub(crate) struct EventBufferBinding {
+    buffer: Buffer,
+    offset: u32,
+    size: u32,
+}
+
+impl EventBufferBinding {
+    pub fn binding(&self) -> BindingResource {
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.buffer,
+            offset: self.offset as u64,
+            size: Some(NonZeroU64::new(self.size as u64).unwrap()),
+        })
+    }
+}
+
 /// Cache for effect instances sharing common GPU data structures.
 #[derive(Resource)]
 pub struct EffectCache {
@@ -990,10 +1069,16 @@ pub struct EffectCache {
     buffers: Vec<Option<EffectBuffer>>,
     /// Map from an effect cache ID to various buffer indices.
     effects: HashMap<EffectCacheId, CachedEffectIndices>,
-    ///
+    /// Map from the [`Entity`] of the main [`World`] owning the
+    /// [`ParticleEffect`] component, to the effect cache entry for that
+    /// effect instance.
     effect_from_entity: HashMap<Entity, EffectCacheId>,
+    /// Single shared GPU buffer storing all the [`GpuDispatchIndirect`] structs
+    /// for all the indirect init passes.
     // Note: we abuse AlignedBufferVec but never copy anything from CPU
     init_indirect_dispatch_buffer: AlignedBufferVec<GpuDispatchIndirect>,
+    /// Buffers for GPU events.
+    event_buffers: Vec<Option<EventBuffer>>,
 }
 
 impl EffectCache {
@@ -1010,6 +1095,7 @@ impl EffectCache {
                 NonZeroU64::new(item_align),
                 Some("hanabi:buffer:init_indirect_dispatch".to_string()),
             ),
+            event_buffers: vec![],
         }
     }
 
@@ -1042,6 +1128,7 @@ impl EffectCache {
         buffer_index: u32,
         parent_buffer_index: Option<u32>,
         group_binding: BufferBinding,
+        event_buffer_binding: Option<BindingResource>,
     ) -> bool {
         let Some(effect_buffer) = &self.buffers[buffer_index as usize] else {
             return false;
@@ -1082,7 +1169,7 @@ impl EffectCache {
             },
         ];
         let mut next_binding_index = 3;
-        if let Some(event_buffer_binding) = effect_buffer.event_buffer_max_binding() {
+        if let Some(event_buffer_binding) = event_buffer_binding {
             bindings.push(BindGroupEntry {
                 binding: next_binding_index,
                 resource: event_buffer_binding,
@@ -1128,22 +1215,29 @@ impl EffectCache {
     ///
     /// The `buffer_index` must be the index of the [`EffectBuffer`] inside this
     /// [`EffectCache`]. The `group_binding` is the binding resource for the
-    /// particle groups of this buffer. The parent buffer binding is an optional
-    /// binding in case the effect has a parent effect.
+    /// particle groups of this buffer. The child buffer indices is an optional
+    /// slice of buffer indices in case the effect has one or more child
+    /// effects.
+    ///
+    /// This lazy bind group creation is necessary because the bind group not
+    /// only depends on the current effect, but also on its children. To avoid
+    /// complex management when a child changes, we lazily ensure at the last
+    /// minute that the bind group is compatible with the current parent/child
+    /// hierarchy, and if not re-create it.
     pub fn ensure_update_bind_group(
         &mut self,
         buffer_index: u32,
         group_binding: BufferBinding,
-        child_buffer_indices: &[u32],
+        child_ids: &[EffectCacheId],
     ) -> bool {
         let Some(buffer) = &self.buffers[buffer_index as usize] else {
             return false;
         };
-        if buffer.update_bind_group().is_some() {
+        if buffer.update_bind_group(child_ids).is_some() {
             return true;
         }
 
-        let num_event_buffers = child_buffer_indices.len() as u32;
+        let num_event_buffers = child_ids.len() as u32;
         let Some(layout) = buffer.particle_layout_bind_group_update(num_event_buffers) else {
             warn!(
                 "Failed to find particle layout bind group for update pass with {} event buffers.",
@@ -1176,20 +1270,25 @@ impl EffectCache {
         }
         // The buffer has one or more child effect(s), and those effects each own an
         // event buffer we need to bind in order to write events to.
-        // FIXME - unwrap()s
-        for buffer_index in child_buffer_indices {
-            let effect_buffer = self
-                .buffers()
-                .get(*buffer_index as usize)
-                .unwrap()
-                .as_ref()
-                .unwrap();
-            let event_buffer_binding = effect_buffer.event_buffer_max_binding().unwrap();
-            bindings.push(BindGroupEntry {
-                binding: next_binding_index,
-                resource: event_buffer_binding,
-            });
+        // Note: we need to store those bindings in a second array (Vec) to keep them
+        // alive while the first array (`bindings`) references them.
+        let mut child_bindings = Vec::with_capacity(child_ids.len());
+        for buffer_id in child_ids {
+            // let slices = self.get_slices(*buffer_id);
+            if let Some(event_buffer_binding) = self.get_event_buffer(*buffer_id) {
+                child_bindings.push((next_binding_index, event_buffer_binding));
+            }
+
+            // Increment always, even if a buffer is not available, as the index binding is
+            // mapped 1:1 with children. We will just miss a buffer and not be able to write
+            // events for that particular child effect.
             next_binding_index += 1;
+        }
+        for (binding_index, ebb) in &child_bindings[..] {
+            bindings.push(BindGroupEntry {
+                binding: *binding_index,
+                resource: ebb.binding(),
+            });
         }
 
         let label = format!("hanabi:bind_group:update_batch{}", buffer_index);
@@ -1208,7 +1307,7 @@ impl EffectCache {
         self.buffers[buffer_index as usize]
             .as_mut()
             .unwrap()
-            .set_update_bind_group(update_bind_group);
+            .set_update_bind_group(child_ids, update_bind_group);
 
         return true;
     }
@@ -1222,6 +1321,7 @@ impl EffectCache {
         parent_particle_layout: Option<&ParticleLayout>,
         property_layout: &PropertyLayout,
         layout_flags: LayoutFlags,
+        event_count: u32,
         dispatch_buffer_indices: DispatchBufferIndices,
     ) -> EffectCacheId {
         let total_capacity = capacities.iter().cloned().sum();
@@ -1283,6 +1383,8 @@ impl EffectCache {
             .unwrap();
         let id = EffectCacheId::new();
 
+        // Calculate sub-allocations for each group within the total slice allocated
+        // above
         let mut ranges = vec![slice.range.start];
         let group_count = capacities.len();
         for capacity in capacities {
@@ -1297,6 +1399,12 @@ impl EffectCache {
             dispatch_buffer_indices,
         };
 
+        // Consistency check
+        assert_eq!(
+            layout_flags.contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS),
+            event_count > 0
+        );
+
         let init_indirect_dispatch_index =
             if layout_flags.contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS) {
                 // The value pushed is a dummy; see allocate_frame_buffers().
@@ -1307,6 +1415,12 @@ impl EffectCache {
             } else {
                 None
             };
+
+        let event_buffer_ref = if event_count > 0 {
+            Some(self.insert_event_buffer(event_count))
+        } else {
+            None
+        };
 
         trace!(
             "Insert effect id={:?} buffer_index={} slice={}B particle_layout={:?} indirect_init_index={:?}",
@@ -1322,7 +1436,10 @@ impl EffectCache {
                 buffer_index: buffer_index as u32,
                 // Parent is resolved later in resolve_parents()
                 parent: None,
-                init_indirect_dispatch_index,
+                init_indirect: event_buffer_ref.map(|event_buffer_ref| InitIndirect {
+                    dispatch_index: init_indirect_dispatch_index.unwrap(),
+                    event_buffer_ref,
+                }),
                 slices,
             },
         );
@@ -1355,8 +1472,39 @@ impl EffectCache {
     pub fn get_init_indirect_dispatch_index(&self, id: EffectCacheId) -> Option<u32> {
         self.effects
             .get(&id)
-            .map(|indices| indices.init_indirect_dispatch_index)
+            .map(|indices| indices.init_indirect.as_ref())
             .flatten()
+            .map(|init_indirect| init_indirect.dispatch_index)
+    }
+
+    pub fn get_event_buffer(&self, id: EffectCacheId) -> Option<EventBufferBinding> {
+        if let Some(event_buffer_ref) = self
+            .effects
+            .get(&id)
+            .map(|indices| indices.init_indirect.as_ref())
+            .flatten()
+            .map(|init_indirect| &init_indirect.event_buffer_ref)
+        {
+            Some(EventBufferBinding {
+                buffer: self.event_buffers[event_buffer_ref.buffer_index as usize]
+                    .as_ref()
+                    .unwrap()
+                    .buffer
+                    .clone(),
+                offset: event_buffer_ref.slice.start,
+                size: event_buffer_ref.slice.end - event_buffer_ref.slice.start,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Get an iterator over all the valid event buffers and their index.
+    pub fn event_buffers(&self) -> impl Iterator<Item = (u32, &EventBuffer)> {
+        self.event_buffers
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, buf)| buf.as_ref().map(|buf| (idx as u32, buf)))
     }
 
     #[inline]
@@ -1396,10 +1544,14 @@ impl EffectCache {
 
     /// Get the update bind group for a cached effect.
     #[inline]
-    pub fn update_bind_group(&self, id: EffectCacheId) -> Option<&BindGroup> {
+    pub fn update_bind_group(
+        &self,
+        id: EffectCacheId,
+        child_ids: &[EffectCacheId],
+    ) -> Option<&BindGroup> {
         if let Some(indices) = self.effects.get(&id) {
             if let Some(effect_buffer) = &self.buffers[indices.buffer_index as usize] {
-                return effect_buffer.update_bind_group();
+                return effect_buffer.update_bind_group(child_ids);
             }
         }
         None
@@ -1411,18 +1563,6 @@ impl EffectCache {
             self.buffers[buffer_index]
                 .as_ref()
                 .map(|eb| eb.properties_buffer())
-                .flatten()
-        } else {
-            None
-        }
-    }
-
-    pub fn get_event_buffer(&self, id: EffectCacheId) -> Option<&Buffer> {
-        if let Some(cached_effect_indices) = self.effects.get(&id) {
-            let buffer_index = cached_effect_indices.buffer_index as usize;
-            self.buffers[buffer_index]
-                .as_ref()
-                .map(|eb| eb.event_buffer())
                 .flatten()
         } else {
             None
@@ -1450,6 +1590,71 @@ impl EffectCache {
         }
 
         None
+    }
+
+    /// Insert a new event buffer in the cache.
+    ///
+    /// The event buffer is allocated to store up to `event_count` GPU events
+    /// per frame. If possible, part of an existing GPU buffer is reused as
+    /// storage, or if not possible a new GPU buffer is allocated.
+    fn insert_event_buffer(&mut self, event_count: u32) -> EventBufferRef {
+        assert!(
+            event_count <= 65535,
+            "Cannot allocate event buffer with over 64k events"
+        );
+
+        // Each buffer stores 1 event count + N events, each of which is a single u32.
+        let min_storage_buffer_offset_alignment = self
+            .render_device
+            .limits()
+            .min_storage_buffer_offset_alignment;
+        let size = next_multiple_of(
+            (event_count + 1) as usize,
+            min_storage_buffer_offset_alignment as usize,
+        ) as u32;
+        trace!(
+            "Allocating event buffer for {} events, rounded up to {}",
+            event_count,
+            size
+        );
+
+        // Try to allocate inside an existing buffer.
+        let mut empty_index = None;
+        for (buffer_index, eb) in self.event_buffers.iter_mut().enumerate() {
+            if let Some(eb) = eb.as_mut() {
+                if let Some(slice) = eb.allocate(size) {
+                    return EventBufferRef {
+                        buffer_index: buffer_index as u32,
+                        slice: slice.slice,
+                    };
+                }
+            } else if empty_index.is_none() {
+                empty_index = Some(buffer_index);
+            }
+        }
+
+        // Allocate a new buffer
+        let alloc_size = size.next_multiple_of(256).clamp(4096, 65536);
+        let buffer = self.render_device.create_buffer(&BufferDescriptor {
+            label: Some("hanabi:buffer:event_buffer"),
+            size: alloc_size as u64 * 4,
+            usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        let mut buffer = EventBuffer::new(buffer, alloc_size);
+        let slice = buffer.allocate(size).unwrap();
+        let buffer_index = if let Some(buffer_index) = empty_index {
+            self.event_buffers[buffer_index] = Some(buffer);
+            buffer_index as u32
+        } else {
+            let buffer_index = self.event_buffers.len() as u32;
+            self.event_buffers.push(Some(buffer));
+            buffer_index
+        };
+        EventBufferRef {
+            buffer_index,
+            slice: slice.slice,
+        }
     }
 }
 
