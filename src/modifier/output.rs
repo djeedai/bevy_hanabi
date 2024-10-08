@@ -291,7 +291,7 @@ impl RenderModifier for SetSizeModifier {
 #[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct SizeOverLifetimeModifier {
     /// The size gradient defining the particle size based on its lifetime.
-    pub gradient: Gradient<Vec2>,
+    pub gradient: Gradient<Vec3>,
     /// Is the particle size in screen-space logical pixel? If `true`, the size
     /// is in screen-space logical pixels, and not affected by the camera
     /// projection. If `false`, the particle size is in world units.
@@ -312,7 +312,7 @@ impl RenderModifier for SizeOverLifetimeModifier {
     ) -> Result<(), ExprError> {
         let func_name = context.add_size_gradient(self.gradient.clone());
         context.render_extra += &format!(
-            r#"fn {0}(key: f32) -> vec2<f32> {{
+            r#"fn {0}(key: f32) -> vec3<f32> {{
     {1}
 }}
 
@@ -680,9 +680,9 @@ impl RenderModifier for FlipbookModifier {
 /// This modifier requires the following particle attributes:
 /// - [`Attribute::POSITION`]
 ///
-/// If the [`Attribute::SIZE`] or [`Attribute::SIZE2`] are present, they're used
-/// to initialize the particle's size. Otherwise the default size is used. So
-/// this modifier doesn't require any size attribute.
+/// If the [`Attribute::SIZE`], [`Attribute::SIZE2`], or [`Attribute::SIZE3`]
+/// are present, they're used to initialize the particle's size. Otherwise the
+/// default size is used. So this modifier doesn't require any size attribute.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct ScreenSpaceSizeModifier;
 
@@ -869,8 +869,8 @@ mod tests {
 
     #[test]
     fn mod_size_over_lifetime() {
-        let x = Vec2::new(1., 0.);
-        let y = Vec2::new(0., 1.);
+        let x = Vec3::new(1., 0., 1.);
+        let y = Vec3::new(0., 1., 1.);
         let mut gradient = Gradient::new();
         gradient.add_key(0.5, x);
         gradient.add_key(0.8, y);
