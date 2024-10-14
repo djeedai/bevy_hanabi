@@ -869,12 +869,11 @@ impl EffectShaderSource {
             children_event_buffer_bindings_code.push_str(&format!("@group(1) @binding({binding_index}) var<storage, read_write> event_buffer_{i} : EventBuffer;\n"));
             children_event_buffer_append_code.push_str(&format!(
                 r##"/// Append one or more spawn events to the event buffer.
-fn append_spawn_events_{0}(channel_index: u32, particle_index: u32, count: u32) {{
+fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
     let capacity = arrayLength(&event_buffer_{0}.spawn_events);
     let base = min(u32(atomicAdd(&event_buffer_{0}.event_count, i32(count))), capacity);
     let capped_count = min(count, capacity - base);
     for (var i = 0u; i < capped_count; i += 1u) {{
-        event_buffer_{0}.spawn_events[base + i].channel_index = channel_index;
         event_buffer_{0}.spawn_events[base + i].particle_index = particle_index;
     }}
 }}
@@ -1217,7 +1216,6 @@ pub struct CompiledParticleEffect {
     parent: Option<Entity>,
     /// Child effects.
     children: Vec<Entity>,
-    channel_index: Option<u32>,
     /// Cached simulation condition, to avoid having to query the asset each
     /// time we need it.
     simulation_condition: SimulationCondition,
@@ -1241,7 +1239,6 @@ impl Default for CompiledParticleEffect {
             asset: default(),
             parent: None,
             children: vec![],
-            channel_index: None,
             simulation_condition: SimulationCondition::default(),
             effect_shader: None,
             textures: vec![],
@@ -1272,7 +1269,6 @@ impl CompiledParticleEffect {
         asset: &EffectAsset,
         parent_entity: Option<Entity>,
         child_entities: Vec<Entity>,
-        channel_index: Option<u32>,
         parent_layout: Option<ParticleLayout>,
         shaders: &mut ResMut<Assets<Shader>>,
         shader_cache: &mut ResMut<ShaderCache>,
@@ -1321,7 +1317,6 @@ impl CompiledParticleEffect {
         self.alpha_mode = asset.alpha_mode;
         self.parent = parent_entity;
         self.children = child_entities;
-        self.channel_index = channel_index;
 
         let num_event_bindings = self.children.len() as u32;
         let shader_source =
@@ -1529,16 +1524,7 @@ fn compile_effects(
     }
 
     // Loop over all existing effects to update them, including invisible ones
-    for (
-        asset,
-        entity,
-        effect,
-        material,
-        parent_entity,
-        channel_index,
-        parent_layout,
-        mut compiled_effect,
-    ) in
+    for (asset, entity, effect, material, parent_entity, parent_layout, mut compiled_effect) in
         q_effects
             .iter_mut()
             .filter_map(|(entity, effect, material, parent, compiled_effect)| {
@@ -1548,21 +1534,17 @@ fn compile_effects(
                 let asset = effects.get(&effect.handle)?;
 
                 // Same for the parent asset, if any.
-                let (parent_entity, channel_index, parent_layout) = if let Some(parent) = &parent {
+                let (parent_entity, parent_layout) = if let Some(parent) = &parent {
                     let Some((parent_layout, _)) = particle_layouts_and_parents.get(&parent.entity)
                     else {
                         // There's a parent declared, but not found. Skip the current asset.
                         return None;
                     };
                     // Declared parent with found parent asset, child asset is valid.
-                    (
-                        Some(parent.entity),
-                        Some(parent.channel_index),
-                        Some(parent_layout.clone()),
-                    )
+                    (Some(parent.entity), Some(parent_layout.clone()))
                 } else {
                     // No declared parent, asset is valid.
-                    (None, None, None)
+                    (None, None)
                 };
 
                 Some((
@@ -1571,7 +1553,6 @@ fn compile_effects(
                     effect,
                     material,
                     parent_entity,
-                    channel_index,
                     parent_layout,
                     compiled_effect,
                 ))
@@ -1611,7 +1592,6 @@ fn compile_effects(
             asset,
             parent_entity,
             child_entities,
-            channel_index,
             parent_layout,
             &mut shaders,
             &mut shader_cache,

@@ -235,7 +235,7 @@ impl EffectBuffer {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(12), // sizeof(count) + 1 * sizeof(SpawnEvent)
+                    min_binding_size: BufferSize::new(8), // sizeof(count) + 1 * sizeof(SpawnEvent)
                 },
                 count: None,
             });
@@ -366,7 +366,7 @@ impl EffectBuffer {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(12), // sizeof(count) + 1 * sizeof(SpawnEvent)
+                    min_binding_size: BufferSize::new(8), // sizeof(count) + 1 * sizeof(SpawnEvent)
                 },
                 count: None,
             });

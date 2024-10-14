@@ -56,12 +56,9 @@ struct IndirectBuffer {
     indices: array<u32>,
 }
 
-/// A event emitted by another effect during its Update pass, to trigger the spawning
+/// A event emitted by another effect during its update pass, to trigger the spawning
 /// of one or more particle in this effect.
 struct SpawnEvent {
-    /// The index of the channel this event is part of. Child effects read events from one channel only.
-    channel_index: u32,
-
     /// The particle index in the parent effect buffer of the source particle which
     /// triggered the event. This is used to inherit attributes like position or velocity.
     particle_index: u32,
@@ -135,9 +132,6 @@ struct RenderEffectMetadata {
     /// always write into the ping buffer and read from the pong buffer. The buffers
     /// are swapped during the indirect dispatch.
     ping: u32,
-    /// Channel index that this effect reads GPU spawn event from. This is unused if
-    /// the particle effect instance uses CPU-driven spawning.
-    channel_index: u32,
     /// Padding for storage buffer alignment. This struct is sometimes bound as part
     /// of an array, or sometimes individually as a single unit. In the later case,
     /// we need it to be aligned to the GPU limits of the device. That limit is only

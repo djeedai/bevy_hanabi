@@ -64,16 +64,6 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let base_index = particle_groups[0].effect_particle_offset;
     let dead_index = atomicSub(&render_group_indirect.dead_count, 1u) - 1u;
     let index = indirect_buffer.indices[3u * (base_index + dead_index) + 2u];
-    
-#ifdef USE_GPU_SPAWN_EVENTS
-    // Check whether the current event is for the event channel that this effect consumes.
-    // Currently we merge all events for all channels into a single buffer, and dispatch
-    // once, so we can't tell ahead of time.
-    let channel_index = event_buffer.spawn_events[event_index].channel_index;
-    if (render_effect_indirect.channel_index != channel_index) {
-        return;
-    }
-#endif
 
     // Update PRNG seed
     seed = pcg_hash(index ^ spawner.seed);

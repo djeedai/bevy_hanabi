@@ -75,7 +75,7 @@ fn create_rocket_effect() -> EffectAsset {
         condition: EventEmitCondition::Always,
         count: 5,
         // We use channel #0 for those sparkle trail events; see EffectParent
-        channel_index: 0,
+        child_index: 0,
     };
 
     // When the rocket particle dies, it "explodes" and spawns the actual firework
@@ -85,7 +85,7 @@ fn create_rocket_effect() -> EffectAsset {
         condition: EventEmitCondition::OnDie,
         count: 100,
         // We use channel #1 for the explosion itself; see EffectParent
-        channel_index: 1,
+        child_index: 1,
     };
 
     EffectAsset::new(vec![32], Spawner::rate(1.0.into()), writer.finish())
@@ -258,10 +258,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         // Set the rocket effect as parent. This gives access to the rocket effect's particles,
         // which in turns allows inheriting their position (and other attributes if
         // needed).
-        EffectParent {
-            entity: rocket_entity,
-            channel_index: 0,
-        },
+        EffectParent::new(rocket_entity),
     ));
 
     // Trails
@@ -274,9 +271,6 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         },
         // Set the rocket effect as parent. This gives access to the rocket effect's particles,
         // which in turns allows inheriting their position (and other attributes if needed).
-        EffectParent {
-            entity: rocket_entity,
-            channel_index: 1,
-        },
+        EffectParent::new(rocket_entity),
     ));
 }

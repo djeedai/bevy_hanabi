@@ -303,7 +303,6 @@ impl Default for GpuDispatchIndirect {
 pub struct GpuRenderEffectMetadata {
     pub max_spawn: u32,
     pub ping: u32,
-    pub channel_index: u32,
 }
 
 #[repr(C)]
@@ -1629,7 +1628,6 @@ pub struct AddedEffect {
     pub entity: Entity,
     /// Entity of the parent effect, if any.
     pub parent_entity: Option<Entity>,
-    pub channel_index: Option<u32>,
     /// GPU spawn event count to allocate for this effect. This is zero if the
     /// effect uses CPU spawning (has no parent).
     pub event_count: u32,
@@ -1771,7 +1769,6 @@ pub(crate) fn extract_effects(
             Some(AddedEffect {
                 entity,
                 parent_entity: compiled_effect.parent,
-                channel_index: compiled_effect.channel_index,
                 // FIXME - fixed 400 events per child (per frame) for now...
                 event_count: if compiled_effect.parent.is_some() { 400 } else { 0 },
                 capacities: asset.capacities().to_vec(),
@@ -2194,7 +2191,6 @@ impl EffectsMeta {
                 self.render_effect_dispatch_buffer
                     .insert(GpuRenderEffectMetadata {
                         max_spawn: total_capacity,
-                        channel_index: added_effect.channel_index.unwrap_or(u32::MAX),
                         ..default()
                     });
 

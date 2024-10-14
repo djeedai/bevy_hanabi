@@ -668,13 +668,7 @@ pub enum EventEmitCondition {
 /// events are read by all child effects (those effects with an [`EffectParent`]
 /// component pointing at the current effect instance).
 ///
-/// GPU spawn events are emitted into a channel, which is a simple `u32` index.
-/// Child effects in turn decide which channel to read events from. This allows
-/// multiple child effects to read and consume the same events. The channel
-/// index is matched to the value of [`EffectParent::channel_index`].
-///
 /// [`EffectParent`]: crate::EffectParent
-/// [`EffectParent::channel_index`]: crate::EffectParent::channel_index
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct EmitSpawnEventModifier {
     /// Emit condition for the GPU spawn events.
@@ -687,7 +681,7 @@ pub struct EmitSpawnEventModifier {
     /// single event channel. When a child effect consumes those event, it
     /// specified which channel to read form. This allows multiple child effects
     /// to read from a same channel and consume the same events.
-    pub channel_index: u32,
+    pub child_index: u32,
 }
 
 impl EmitSpawnEventModifier {
@@ -696,18 +690,16 @@ impl EmitSpawnEventModifier {
         _module: &mut Module,
         _context: &mut dyn EvalContext,
     ) -> Result<String, ExprError> {
-        // FIXME - mixing channel for event buffer index
-        let channel_index = self.channel_index;
+        // FIXME - mixing (ex-)channel and event buffer index; this should be automated
+        let channel_index = self.child_index;
         // TODO - validate GPU spawn events are in use in the eval context...
         let cond = match self.condition {
             EventEmitCondition::Always => format!(
-                "if (is_alive) {{ append_spawn_events_{channel_index}({}, index, {}); }}",
-                self.channel_index.to_wgsl_string(),
+                "if (is_alive) {{ append_spawn_events_{channel_index}(index, {}); }}",
                 self.count.to_wgsl_string()
             ),
             EventEmitCondition::OnDie => format!(
-                "if (was_alive && !is_alive) {{ append_spawn_events_{channel_index}({}, index, {}); }}",
-                self.channel_index.to_wgsl_string(),
+                "if (was_alive && !is_alive) {{ append_spawn_events_{channel_index}(index, {}); }}",
                 self.count.to_wgsl_string()
             ),
         };

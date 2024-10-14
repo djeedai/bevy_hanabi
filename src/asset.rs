@@ -782,14 +782,13 @@ impl AssetLoader for EffectAssetLoader {
 pub struct EffectParent {
     /// Entity of the parent effect.
     pub entity: Entity,
-    /// Event channel index.
-    ///
-    /// Determines the event channel this child effect reads events from. The
-    /// parent effect must have an [`EmitSpawnEventModifier`] with the same
-    /// channel index; otherwise nothing happens. This index is mapped to the
-    /// value of [`EmitSpawnEventModifier::channel_index`], but is otherwise
-    /// arbitrary (it has no intrinsic meaning, any value can be used).
-    pub channel_index: u32,
+}
+
+impl EffectParent {
+    /// Create a new component with the given entity as parent.
+    pub fn new(parent: Entity) -> Self {
+        Self { entity: parent }
+    }
 }
 
 #[cfg(test)]
