@@ -17,6 +17,11 @@ struct SimParams {
     num_groups: u32,
 }
 
+struct InstanceInfo {
+    /// Index of the InitIndirectDispatch struct inside the bound array.
+    init_indirect_dispatch_index: u32,
+}
+
 struct Spawner {
     transform: mat3x4<f32>, // transposed (row-major)
     inverse_transform: mat3x4<f32>, // transposed (row-major)
@@ -49,6 +54,10 @@ struct ParticleGroup {
     // The index of the first particle in this effect in the particle and
     // indirect buffers.
     effect_particle_offset: u32,
+    // Offset (in u32 count) of the event indirect dispatch struct inside its
+    // buffer. This avoids having to align those 16-byte structs to the GPU
+    // alignment (at least 32 bytes, even 256 bytes on some).
+    event_indirect_dispatch_index: u32,
     {{PARTICLE_GROUP_PADDING}}
 }
 
@@ -67,25 +76,39 @@ struct SpawnEvent {
 /// Append buffer populated during the Update pass of the previous frame by a parent effect,
 /// and read back by its child effect(s) during the Init pass of the next frame.
 struct EventBuffer {
-    /// Number of events in the event array.
-    event_count: atomic<i32>,
     /// The spawn events themselves.
     spawn_events: array<SpawnEvent>,
 }
 
-// Dispatch indirect array offsets. Used when accessing an array of DispatchIndirect
+/// Indirect compute dispatch struct for GPU-driven init pass, with packed event count
+/// for the associated event buffer.
+struct InitIndirectDispatch {
+    /// Number of workgroups. This is derived from event_count.
+    x: u32,
+    /// Unused; always 1.
+    y: u32,
+    /// Unused; always 1.
+    z: u32,
+    /// Number of events in the associated event buffer.
+    event_count: atomic<i32>,
+}
+
+// Dispatch indirect array offsets. Used when accessing an array of UpdateIndirectDispatch
 // as a raw array<u32>, so that we can avoid WGSL struct padding and keep data
 // more compact in the render indirect buffer. Each offset corresponds to a field
-// in the DispatchIndirect struct.
+// in the UpdateIndirectDispatch struct.
 const DI_OFFSET_X: u32 = 0u;
 const DI_OFFSET_Y: u32 = 1u;
 const DI_OFFSET_Z: u32 = 2u;
 const DI_OFFSET_PONG: u32 = 3u;
 
 /// Dispatch indirect parameters for GPU driven update compute.
-struct DispatchIndirect {
+struct UpdateIndirectDispatch {
+    /// Number of workgroups. This is derived from the number of particles to update.
     x: u32,
+    /// Unused; always 1.
     y: u32,
+    /// Unused; always 1.
     z: u32,
     /// Index of the ping-pong buffer of particle indices to read particles from
     /// during rendering. Cached from RenderIndirect::ping after it's swapped
@@ -100,7 +123,7 @@ struct DispatchIndirect {
     {{DISPATCH_INDIRECT_PADDING}}
 }
 
-/// Stride, in u32 count, between elements of an array<DispatchIndirect>.
+/// Stride, in u32 count, between elements of an array<UpdateIndirectDispatch>.
 const DISPATCH_INDIRECT_STRIDE: u32 = {{DISPATCH_INDIRECT_STRIDE}} / 4u;
 
 // Render indirect array offsets. Used when accessing an array of RenderIndirect

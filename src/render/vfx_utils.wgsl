@@ -38,9 +38,16 @@ fn copy_buffer(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     dst_buffer[dst] = value;
 }
 
+/// Calculate the number of workgroups to dispatch for a given number of threads.
+fn calc_workground_count(thread_count: u32) -> u32 {
+    // We assume a workgroup size of 64. This is currently the case everywhere in Hanabi,
+    // but would need to be adapted if we decided to vary the workgroup size.
+    let workgroup_count = (thread_count + 63u) >> 6u;
+    return workgroup_count;
+}
+
 /// Fill indirect dispatch arguments from a raw element count, by copying the element count
-/// and rounding it up to the number of thread per workgroup. Each thread copies a single
-/// argument struct.
+/// and rounding it up to the number of thread per workgroup. Each thread copies a single u32.
 @compute @workgroup_size(64)
 fn fill_dispatch_args(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let thread_index = global_invocation_id.x;
@@ -49,11 +56,29 @@ fn fill_dispatch_args(@builtin(global_invocation_id) global_invocation_id: vec3<
     }
     let src = args.src_offset + thread_index * args.src_stride;
     let dst = args.dst_offset + thread_index * 16u;
-    let value = src_buffer[src];
-    // We assume a workgroup size of 64 (for the target dispatch, not for the current compute
-    // job). This is currently the case everywhere in Hanabi, but would need to be adapted if
-    // we decided to vary the workgroup size.
-    let workgroup_count = (value + 63u) >> 6u;
+    let thread_count = src_buffer[src];
+    let workgroup_count = calc_workground_count(thread_count);
+    dst_buffer[dst] = workgroup_count;
+    dst_buffer[dst + 1u] = 1u;
+    dst_buffer[dst + 2u] = 1u;
+    // leave last entry untouched; sometimes it's used for unrelated things
+}
+
+/// Fill indirect dispatch arguments from a raw element count, by copying the element count
+/// and rounding it up to the number of thread per workgroup. Each thread copies a single
+/// single u32. Same as fill_dispatch_args(), but both read and write are from the destination
+/// buffer. The source buffer is ignored (no binding).
+@compute @workgroup_size(64)
+fn fill_dispatch_args_self(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
+    let thread_index = global_invocation_id.x;
+    if (thread_index >= args.count) {
+        return;
+    }
+    let src = args.src_offset + thread_index * args.src_stride;
+    let dst = args.dst_offset + thread_index * 16u;
+    // Note: only the dst_buffer is used
+    let thread_count = dst_buffer[src];
+    let workgroup_count = calc_workground_count(thread_count);
     dst_buffer[dst] = workgroup_count;
     dst_buffer[dst + 1u] = 1u;
     dst_buffer[dst + 2u] = 1u;

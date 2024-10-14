@@ -749,6 +749,12 @@ impl EffectShaderSource {
         parent_layout: Option<&ParticleLayout>,
         num_event_bindings: u32,
     ) -> Result<EffectShaderSource, ShaderGenerateError> {
+        trace!(
+            "Generating shader sources for asset '{}' with {} event bindings",
+            asset.name,
+            num_event_bindings
+        );
+
         let particle_layout = asset.particle_layout();
 
         // The particle layout cannot be empty currently because we always emit some
@@ -853,25 +859,31 @@ impl EffectShaderSource {
         let properties_binding_code = if property_layout.is_empty() {
             "// (no properties)".to_string()
         } else {
-            "@group(1) @binding(4) var<storage, read> properties : Properties;".to_string()
+            "@group(1) @binding(3) var<storage, read> properties : Properties;".to_string()
         };
+
+        // Parent particle buffer binding for init pass, if the effect has a parent.
         let parent_particle_binding_code = if parent_layout.is_some() {
-            let binding_index = if property_layout.is_empty() { 4 } else { 5 };
-            format!("@group(1) @binding({binding_index}) var<storage, read> parent_particle_buffer : ParentParticleBuffer;")
+            format!("@group(1) @binding(6) var<storage, read> parent_particle_buffer : ParentParticleBuffer;")
         } else {
             "// (no parent effect)".to_string()
         };
-        let base_binding_index = if property_layout.is_empty() { 3 } else { 4 };
+
+        // Event buffer bindings for the update pass, if the effect has one or more
+        // child effects.
+        let base_binding_index = 5;
         let mut children_event_buffer_bindings_code = String::with_capacity(256);
         let mut children_event_buffer_append_code = String::with_capacity(1024);
         for i in 0..num_event_bindings {
-            let binding_index = base_binding_index + i;
-            children_event_buffer_bindings_code.push_str(&format!("@group(1) @binding({binding_index}) var<storage, read_write> event_buffer_{i} : EventBuffer;\n"));
+            let binding_index = base_binding_index + i * 2;
+            children_event_buffer_bindings_code.push_str(&format!(
+                "@group(1) @binding({binding_index}) var<storage, read_write> event_buffer_{i} : EventBuffer;\n"));
             children_event_buffer_append_code.push_str(&format!(
                 r##"/// Append one or more spawn events to the event buffer.
 fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
+    let dispatch_index = particle_groups[{{{{GROUP_INDEX}}}}].event_indirect_dispatch_index;
     let capacity = arrayLength(&event_buffer_{0}.spawn_events);
-    let base = min(u32(atomicAdd(&event_buffer_{0}.event_count, i32(count))), capacity);
+    let base = min(u32(atomicAdd(&init_indirect_dispatch[dispatch_index].event_count, i32(count))), capacity);
     let capped_count = min(count, capacity - base);
     for (var i = 0u; i < capped_count; i += 1u) {{
         event_buffer_{0}.spawn_events[base + i].particle_index = particle_index;
@@ -882,7 +894,13 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
             ));
         }
         children_event_buffer_bindings_code.pop();
+        if children_event_buffer_bindings_code.is_empty() {
+            children_event_buffer_bindings_code = "// (no child effect)".into();
+        }
         children_event_buffer_append_code.pop();
+        if children_event_buffer_append_code.is_empty() {
+            children_event_buffer_append_code = "// (no child effect)".into();
+        }
 
         // Start from the base module containing the expressions actually serialized in
         // the asset. We will add the ones created on-the-fly by applying the
@@ -963,7 +981,11 @@ struct ParentParticleBuffer {{
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
                 &init_sim_space_transform_code,
             );
-        trace!("Configured init shader:\n{}", init_shader_source);
+        trace!(
+            "Configured init shader for '{}':\n{}",
+            asset.name,
+            init_shader_source
+        );
 
         let mut layout_flags = LayoutFlags::NONE;
         if asset.simulation_space == SimulationSpace::Local {
@@ -1165,7 +1187,11 @@ struct ParentParticleBuffer {{
                     &children_event_buffer_append_code,
                 )
                 .replace("{{GROUP_INDEX}}", &group_index_code);
-            trace!("Configured update shader:\n{}", update_shader_source);
+            trace!(
+                "Configured update shader for '{}':\n{}",
+                asset.name,
+                update_shader_source
+            );
 
             // Configure the render shader template, and make sure a corresponding shader
             // asset exists
@@ -1179,7 +1205,11 @@ struct ParentParticleBuffer {{
                 .replace("{{ALPHA_CUTOFF}}", &alpha_cutoff_code)
                 .replace("{{FLIPBOOK_SCALE}}", &flipbook_scale_code)
                 .replace("{{FLIPBOOK_ROW_COUNT}}", &flipbook_row_count_code);
-            trace!("Configured render shader:\n{}", render_shader_source);
+            trace!(
+                "Configured render shader for '{}':\n{}",
+                asset.name,
+                render_shader_source
+            );
 
             update_shader_sources.push(update_shader_source);
             render_shader_sources.push(render_shader_source);

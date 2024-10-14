@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    hash::{DefaultHasher, Hash, Hasher},
+    hash::Hash,
     num::NonZeroU64,
     ops::Range,
     sync::atomic::{AtomicU64, Ordering as AtomicOrdering},
@@ -21,7 +21,8 @@ use crate::{
     asset::EffectAsset,
     next_multiple_of,
     render::{
-        GpuDispatchIndirect, GpuParticleGroup, GpuSpawnerParams, LayoutFlags, StorageType as _,
+        calc_hash, GpuDispatchIndirect, GpuParticleGroup, GpuSpawnerParams, LayoutFlags,
+        StorageType as _,
     },
     ParticleLayout, PropertyLayout,
 };
@@ -161,12 +162,6 @@ pub enum BufferState {
     Free,
 }
 
-fn calc_hash<H: Hash>(value: &H) -> u64 {
-    let mut hasher = DefaultHasher::default();
-    value.hash(&mut hasher);
-    hasher.finish()
-}
-
 impl EffectBuffer {
     /// Minimum buffer capacity to allocate, in number of particles.
     // FIXME - Batching is broken due to binding a single GpuSpawnerParam instead of
@@ -213,6 +208,7 @@ impl EffectBuffer {
 
         // @group(1) @binding(2) var<storage, read> particle_groups :
         // array<ParticleGroup>
+        // FIXME - I don't think we need to align the min_binding_size itself...
         let particle_group_size = GpuParticleGroup::aligned_size(
             render_device.limits().min_storage_buffer_offset_alignment,
         );
@@ -227,25 +223,10 @@ impl EffectBuffer {
             count: None,
         });
 
-        // @group(1) @binding(3) var<storage, read_write> event_buffer : EventBuffer
-        if has_event_buffer {
-            entries.push(BindGroupLayoutEntry {
-                binding: 3,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(8), // sizeof(count) + 1 * sizeof(SpawnEvent)
-                },
-                count: None,
-            });
-        }
-
-        // @group(1) @binding(4) var<storage, read> properties : Properties
-        let mut next_binding_index = 4;
+        // @group(1) @binding(3) var<storage, read> properties : Properties
         if let Some(min_binding_size) = property_layout_min_binding_size {
             entries.push(BindGroupLayoutEntry {
-                binding: next_binding_index,
+                binding: 3,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
@@ -254,14 +235,40 @@ impl EffectBuffer {
                 },
                 count: None,
             });
-            next_binding_index += 1;
         }
 
-        // @group(1) @binding(4/5) var<storage, read> parent_particle_buffer :
+        if has_event_buffer {
+            // @group(1) @binding(4) var<storage, read_write> event_buffer : EventBuffer
+            entries.push(BindGroupLayoutEntry {
+                binding: 4,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(4), // sizeof(SpawnEvent)
+                },
+                count: None,
+            });
+
+            // @group(1) @binding(5) var<storage, read_write> init_indirect_dispatch :
+            // InitIndirectDispatch
+            entries.push(BindGroupLayoutEntry {
+                binding: 5,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(16), // sizeof(InitIndirectDispatch)
+                },
+                count: None,
+            });
+        }
+
+        // @group(1) @binding(6) var<storage, read> parent_particle_buffer :
         // ParentParticleBuffer;
         if let Some(min_binding_size) = parent_particle_layout_min_binding_size {
             entries.push(BindGroupLayoutEntry {
-                binding: next_binding_index,
+                binding: 6,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
@@ -272,10 +279,8 @@ impl EffectBuffer {
             });
         }
 
-        let label = format!(
-            "hanabi:buffer_layout:init_particles_{:08X}",
-            calc_hash(&entries)
-        );
+        let hash = calc_hash(&entries);
+        let label = format!("hanabi:buffer_layout:init_particles_{:08X}", hash);
         trace!(
             "Creating particle bind group layout '{}' for init passes with {} entries. (event_buffer:{}, properties:{}, parent_buffer:{})",
             label,
@@ -297,7 +302,7 @@ impl EffectBuffer {
         property_layout_min_binding_size: Option<NonZeroU64>,
         num_event_buffers: u32,
     ) -> BindGroupLayout {
-        let mut entries = Vec::with_capacity(5);
+        let mut entries = Vec::with_capacity(4 + 2 * num_event_buffers as usize);
 
         // @group(1) @binding(0) var<storage, read_write> particle_buffer :
         // ParticleBuffer
@@ -327,6 +332,7 @@ impl EffectBuffer {
 
         // @group(1) @binding(2) var<storage, read> particle_groups :
         // array<ParticleGroup>
+        // FIXME - I don't think we need to align the min_binding_size itself...
         let particle_group_size = GpuParticleGroup::aligned_size(
             render_device.limits().min_storage_buffer_offset_alignment,
         );
@@ -342,10 +348,9 @@ impl EffectBuffer {
         });
 
         // @group(1) @binding(3) var<storage, read> properties : Properties
-        let mut next_binding_index = 3;
         if let Some(min_binding_size) = property_layout_min_binding_size {
             entries.push(BindGroupLayoutEntry {
-                binding: next_binding_index,
+                binding: 3,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
@@ -354,35 +359,60 @@ impl EffectBuffer {
                 },
                 count: None,
             });
-            next_binding_index += 1;
         }
 
-        // N times: @group(1) @binding(...) var<storage, read_write> event_buffer_N :
-        // EventBuffer
-        for _ in 0..num_event_buffers {
+        if num_event_buffers > 0 {
+            // @group(1) @binding(4) var<uniform> instance_info : InstanceInfo
             entries.push(BindGroupLayoutEntry {
-                binding: next_binding_index,
+                binding: 4,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: BufferSize::new(4), // sizeof(InstanceInfo)
+                },
+                count: None,
+            });
+
+            // @group(1) @binding(5) var<storage, read_write> init_indirect_dispatch : array<InitIndirectDispatch>
+            entries.push(BindGroupLayoutEntry {
+                binding: 5,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(8), // sizeof(count) + 1 * sizeof(SpawnEvent)
+                    min_binding_size: BufferSize::new(16), // sizeof(InitIndirectDispatch)
                 },
                 count: None,
             });
-            next_binding_index += 1;
+
+            // N times: @group(1) @binding(...) var<storage, read_write> event_buffer_N :
+            // EventBuffer
+            let mut next_binding_index = 6;
+            for _ in 0..num_event_buffers {
+                entries.push(BindGroupLayoutEntry {
+                    binding: next_binding_index,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: BufferSize::new(4), // sizeof(SpawnEvent)
+                    },
+                    count: None,
+                });
+                next_binding_index += 1;
+            }
         }
 
-        let label = format!(
-            "hanabi:buffer_layout:update_particles_{:08X}",
-            calc_hash(&entries)
-        );
+        let hash = calc_hash(&entries);
+        let label = format!("hanabi:buffer_layout:update_particles_{:08X}", hash);
         trace!(
-            "Creating particle bind group layout '{}' for update passes with {} entries. (num_event_buffers:{}, properties:{})",
+            "Creating particle bind group layout '{}' for update passes with {} entries. (num_event_buffers:{}, properties:{})\n{:?}",
             label,
             entries.len(),
             num_event_buffers,
             property_layout_min_binding_size.is_some(),
+            entries
         );
         // FIXME - This duplicates the layout created in EffectBuffer::new()!!!
         // Likely this one should go away, because we can't cache from inside
@@ -907,6 +937,10 @@ impl EffectCacheId {
 }
 
 pub(crate) struct InitIndirect {
+    /// Index of the dispatch entry into the [`init_indirect_dispatch_buffer`]
+    /// array.
+    ///
+    /// [`init_indirect_dispatch_buffer`]: self::EffectCache::init_indirect_dispatch_buffer
     pub(crate) dispatch_index: u32,
     pub(crate) event_buffer_ref: EventBufferRef,
 }
@@ -1038,13 +1072,15 @@ impl EventBuffer {
 }
 
 pub(crate) struct EventBufferRef {
-    buffer_index: u32,
-    slice: Range<u32>,
+    pub(crate) buffer_index: u32,
+    pub(crate) slice: Range<u32>,
 }
 
 pub(crate) struct EventBufferBinding {
     buffer: Buffer,
+    /// Offset in number of u32 elements (4 bytes).
     offset: u32,
+    /// Size in number of u32 elements (4 bytes).
     size: u32,
 }
 
@@ -1052,8 +1088,8 @@ impl EventBufferBinding {
     pub fn binding(&self) -> BindingResource {
         BindingResource::Buffer(BufferBinding {
             buffer: &self.buffer,
-            offset: self.offset as u64,
-            size: Some(NonZeroU64::new(self.size as u64).unwrap()),
+            offset: self.offset as u64 * 4,
+            size: Some(NonZeroU64::new(self.size as u64 * 4).unwrap()),
         })
     }
 }
@@ -1168,24 +1204,28 @@ impl EffectCache {
                 resource: BindingResource::Buffer(group_binding),
             },
         ];
-        let mut next_binding_index = 3;
-        if let Some(event_buffer_binding) = event_buffer_binding {
-            bindings.push(BindGroupEntry {
-                binding: next_binding_index,
-                resource: event_buffer_binding,
-            });
-            next_binding_index += 1;
-        }
         if let Some(property_binding) = effect_buffer.properties_max_binding() {
             bindings.push(BindGroupEntry {
-                binding: next_binding_index,
+                binding: 3,
                 resource: property_binding,
             });
-            next_binding_index += 1;
+        }
+        let event_indirect_dispatch_buffer_binding = self.init_indirect_dispatch_buffer_binding();
+        if let (Some(event_buffer_binding), Some(event_indirect_dispatch_buffer_binding)) =
+            (event_buffer_binding, event_indirect_dispatch_buffer_binding)
+        {
+            bindings.push(BindGroupEntry {
+                binding: 4,
+                resource: event_buffer_binding,
+            });
+            bindings.push(BindGroupEntry {
+                binding: 5,
+                resource: event_indirect_dispatch_buffer_binding,
+            });
         }
         if let Some(parent_buffer) = parent_buffer_binding {
             bindings.push(BindGroupEntry {
-                binding: next_binding_index,
+                binding: 6,
                 resource: parent_buffer,
             });
         }
@@ -1260,34 +1300,39 @@ impl EffectCache {
                 resource: BindingResource::Buffer(group_binding),
             },
         ];
-        let mut next_binding_index = 3;
         if let Some(property_binding) = buffer.properties_max_binding() {
             bindings.push(BindGroupEntry {
-                binding: next_binding_index,
+                binding: 3,
                 resource: property_binding,
             });
-            next_binding_index += 1;
         }
         // The buffer has one or more child effect(s), and those effects each own an
         // event buffer we need to bind in order to write events to.
         // Note: we need to store those bindings in a second array (Vec) to keep them
         // alive while the first array (`bindings`) references them.
         let mut child_bindings = Vec::with_capacity(child_ids.len());
+        let mut next_binding_index = 4;
         for buffer_id in child_ids {
-            // let slices = self.get_slices(*buffer_id);
-            if let Some(event_buffer_binding) = self.get_event_buffer(*buffer_id) {
+            if let (Some(event_buffer_binding), Some(_event_dispatch_index)) = (
+                self.get_event_buffer(*buffer_id),
+                self.get_event_dispatch_index(*buffer_id),
+            ) {
                 child_bindings.push((next_binding_index, event_buffer_binding));
             }
 
             // Increment always, even if a buffer is not available, as the index binding is
             // mapped 1:1 with children. We will just miss a buffer and not be able to write
             // events for that particular child effect.
-            next_binding_index += 1;
+            next_binding_index += 2;
         }
         for (binding_index, ebb) in &child_bindings[..] {
             bindings.push(BindGroupEntry {
                 binding: *binding_index,
                 resource: ebb.binding(),
+            });
+            bindings.push(BindGroupEntry {
+                binding: *binding_index + 1,
+                resource: self.init_indirect_dispatch_buffer_binding().unwrap(),
             });
         }
 
@@ -1325,6 +1370,7 @@ impl EffectCache {
         dispatch_buffer_indices: DispatchBufferIndices,
     ) -> EffectCacheId {
         let total_capacity = capacities.iter().cloned().sum();
+        trace!("Inserting new effect into cache: entity={entity:?}, total_capacity={total_capacity} event_count={event_count}");
         let (buffer_index, slice) = self
             .buffers
             .iter_mut()
@@ -1500,11 +1546,30 @@ impl EffectCache {
     }
 
     /// Get an iterator over all the valid event buffers and their index.
+    ///
+    /// This skips all deallocated / empty buffers in the underlying linear
+    /// storage, and only returns buffers with at least one allocated slice.
     pub fn event_buffers(&self) -> impl Iterator<Item = (u32, &EventBuffer)> {
         self.event_buffers
             .iter()
             .enumerate()
             .filter_map(|(idx, buf)| buf.as_ref().map(|buf| (idx as u32, buf)))
+    }
+
+    pub fn get_event_slice(&self, effect_cache_id: EffectCacheId) -> Option<&EventBufferRef> {
+        self.effects
+            .get(&effect_cache_id)
+            .map(|cei| cei.init_indirect.as_ref())
+            .flatten()
+            .map(|ii| &ii.event_buffer_ref)
+    }
+
+    pub fn get_event_dispatch_index(&self, effect_cache_id: EffectCacheId) -> Option<u32> {
+        self.effects
+            .get(&effect_cache_id)
+            .map(|cei| cei.init_indirect.as_ref())
+            .flatten()
+            .map(|ii| ii.dispatch_index)
     }
 
     #[inline]
@@ -1515,6 +1580,16 @@ impl EffectCache {
     #[inline]
     pub fn init_indirect_dispatch_buffer_binding(&self) -> Option<BindingResource> {
         self.init_indirect_dispatch_buffer.binding()
+    }
+
+    #[inline]
+    pub fn init_indirect_dispatch_buffer_binding_range(
+        &self,
+        offset: u32,
+        size: u32,
+    ) -> Option<BindingResource> {
+        self.init_indirect_dispatch_buffer
+            .range_binding(offset, size)
     }
 
     pub(crate) fn get_dispatch_buffer_indices(&self, id: EffectCacheId) -> DispatchBufferIndices {
@@ -1598,19 +1673,23 @@ impl EffectCache {
     /// per frame. If possible, part of an existing GPU buffer is reused as
     /// storage, or if not possible a new GPU buffer is allocated.
     fn insert_event_buffer(&mut self, event_count: u32) -> EventBufferRef {
+        assert!(event_count > 0, "Cannot allocate event buffer for 0 event.");
         assert!(
             event_count <= 65535,
             "Cannot allocate event buffer with over 64k events"
         );
 
-        // Each buffer stores 1 event count + N events, each of which is a single u32.
+        // Each buffer stores 1 event count + N events, each of which is a single u32 (4
+        // bytes). We need each sub-allocation to be aligned such that we can bind it
+        // individually to a shader binding point.
         let min_storage_buffer_offset_alignment = self
             .render_device
             .limits()
             .min_storage_buffer_offset_alignment;
+        assert!(min_storage_buffer_offset_alignment % 4 == 0); // FIXME
         let size = next_multiple_of(
             (event_count + 1) as usize,
-            min_storage_buffer_offset_alignment as usize,
+            min_storage_buffer_offset_alignment as usize / 4,
         ) as u32;
         trace!(
             "Allocating event buffer for {} events, rounded up to {}",
@@ -1620,21 +1699,31 @@ impl EffectCache {
 
         // Try to allocate inside an existing buffer.
         let mut empty_index = None;
-        for (buffer_index, eb) in self.event_buffers.iter_mut().enumerate() {
-            if let Some(eb) = eb.as_mut() {
-                if let Some(slice) = eb.allocate(size) {
+        for (event_buffer_index, event_buffer) in self.event_buffers.iter_mut().enumerate() {
+            if let Some(event_buffer) = event_buffer.as_mut() {
+                if let Some(slice) = event_buffer.allocate(size) {
+                    trace!(
+                        "-> reusing event buffer slice {:?} from buffer index #{}",
+                        slice.slice,
+                        event_buffer_index,
+                    );
                     return EventBufferRef {
-                        buffer_index: buffer_index as u32,
+                        buffer_index: event_buffer_index as u32,
                         slice: slice.slice,
                     };
                 }
             } else if empty_index.is_none() {
-                empty_index = Some(buffer_index);
+                empty_index = Some(event_buffer_index);
             }
         }
 
         // Allocate a new buffer
         let alloc_size = size.next_multiple_of(256).clamp(4096, 65536);
+        trace!(
+            "-> allocating new event buffer for {} events ({} bytes)",
+            alloc_size - 1,
+            alloc_size * 4
+        );
         let buffer = self.render_device.create_buffer(&BufferDescriptor {
             label: Some("hanabi:buffer:event_buffer"),
             size: alloc_size as u64 * 4,
@@ -1651,6 +1740,11 @@ impl EffectCache {
             self.event_buffers.push(Some(buffer));
             buffer_index
         };
+        trace!(
+            "-> event buffer inserted at index #{}, slice {:?}",
+            buffer_index,
+            slice.slice
+        );
         EventBufferRef {
             buffer_index,
             slice: slice.slice,

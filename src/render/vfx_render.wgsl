@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import bevy_hanabi::vfx_common::{
-    DispatchIndirect, IndirectBuffer, SimParams, Spawner,
+    UpdateIndirectDispatch, IndirectBuffer, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4, proj
 }
@@ -25,7 +25,7 @@ struct VertexOutput {
 @group(0) @binding(1) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
-@group(1) @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
+@group(1) @binding(2) var<storage, read> dispatch_indirect : UpdateIndirectDispatch;
 #ifdef RENDER_NEEDS_SPAWNER
 @group(1) @binding(3) var<storage, read> spawner : Spawner; // NOTE - same group as update
 #endif

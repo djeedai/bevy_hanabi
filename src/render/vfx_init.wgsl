@@ -1,5 +1,5 @@
 #import bevy_hanabi::vfx_common::{
-    EventBuffer, IndirectBuffer, ParticleGroup, RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
+    EventBuffer, InitIndirectDispatch, IndirectBuffer, ParticleGroup, RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4, proj
 }
@@ -20,10 +20,11 @@ struct ParticleBuffer {
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
-#ifdef USE_GPU_SPAWN_EVENTS
-@group(1) @binding(3) var<storage, read_write> event_buffer : EventBuffer;
-#endif
 {{PROPERTIES_BINDING}}
+#ifdef USE_GPU_SPAWN_EVENTS
+@group(1) @binding(4) var<storage, read_write> event_buffer : EventBuffer;
+@group(1) @binding(5) var<storage, read_write> init_indirect_dispatch : InitIndirectDispatch;
+#endif
 {{PARENT_PARTICLE_BINDING}}
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as update  // FIXME - this should be read-only
 @group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
@@ -44,13 +45,13 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Cap to the actual number of spawning requested by CPU + GPU, since compute shaders run
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
 #ifdef USE_GPU_SPAWN_EVENTS
-    let event_index = atomicSub(&event_buffer.event_count, 1);
+    let event_index = atomicSub(&init_indirect_dispatch.event_count, 1);
     if (event_index < 1) {
         // Revert above decrement, so we never end up negative at the end of the compute pass.
         // This ensures the count is reset to zero and we don't have to clear it for next frame.
         // Note that we use signed integer to give some headroom in case several threads decrement
         // before they can re-increment, to prevent wrapping around with unsigned arithmetic.
-        atomicAdd(&event_buffer.event_count, 1);
+        atomicAdd(&init_indirect_dispatch.event_count, 1);
         return;
     }
 #else

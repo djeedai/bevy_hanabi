@@ -1,5 +1,5 @@
 #import bevy_hanabi::vfx_common::{
-    EventBuffer, IndirectBuffer, ParticleGroup, RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
+    EventBuffer, InitIndirectDispatch, IndirectBuffer, ParticleGroup, RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4, proj
 }
@@ -15,14 +15,19 @@ struct ParticleBuffer {
 {{PROPERTIES}}
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
+
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
 {{PROPERTIES_BINDING}}
 #ifdef EMITS_GPU_SPAWN_EVENTS
+@group(1) @binding(4) var<uniform> instance_info : InstanceInfo;
+@group(1) @binding(5) var<storage, read_write> init_indirect_dispatch : array<InitIndirectDispatch>;
 {{CHILDREN_EVENT_BUFFER_BINDINGS}}
 #endif
+
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as init
+
 @group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
 @group(3) @binding(1) var<storage, read_write> render_group_indirect : array<RenderGroupIndirect>;
 
@@ -62,8 +67,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     seed = pcg_hash(index ^ spawner.seed);
 
     {{AGE_CODE}}
-    {{UPDATE_CODE}}
+    let was_alive = is_alive;
     {{REAP_CODE}}
+    {{UPDATE_CODE}}
 
     particle_buffer.particles[index] = particle;
 

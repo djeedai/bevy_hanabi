@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    hash::{DefaultHasher, Hash, Hasher},
     num::{NonZeroU32, NonZeroU64},
     u32,
 };
@@ -47,7 +48,7 @@ use bytemuck::{Pod, Zeroable};
 use effect_cache::EffectBuffer;
 use fixedbitset::FixedBitSet;
 use naga_oil::compose::{Composer, NagaModuleDescriptor};
-use rand::random;
+// use rand::random;
 
 use crate::{
     asset::EffectAsset,
@@ -76,6 +77,12 @@ pub(crate) use effect_cache::{EffectCache, EffectCacheId};
 pub use shader_cache::ShaderCache;
 
 use self::batch::EffectBatches;
+
+fn calc_hash<H: Hash>(value: &H) -> u64 {
+    let mut hasher = DefaultHasher::default();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
 
 /// Simulation parameters, available to all shaders of all effects.
 #[derive(Debug, Default, Clone, Copy, Resource)]
@@ -338,9 +345,21 @@ pub struct GpuParticleGroup {
     pub indirect_index: u32,
     /// The capacity of this group in number of particles.
     pub capacity: u32,
-    // The index of the first particle in this effect in the particle and
-    // indirect buffers.
+    /// The index of the first particle in this effect in the particle and
+    /// indirect buffers.
     pub effect_particle_offset: u32,
+    /// Offset (in u32 count) of the event indirect dispatch struct inside its
+    /// buffer. This avoids having to align those 16-byte structs to the GPU
+    /// alignment (at least 32 bytes, even 256 bytes on some).
+    pub init_indirect_dispatch_index: u32,
+}
+
+/// GPU representation of the metadata for a single effect instance.
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
+pub(crate) struct GpuInstanceInfo {
+    /// Index of the `InitIndirectDispatch` struct inside the bound array.
+    pub init_indirect_dispatch_index: u32,
 }
 
 /// Compute pipeline to run the `vfx_indirect` dispatch workgroup calculation
@@ -534,7 +553,14 @@ enum GpuBufferOperationType {
     /// This is similar to a copy, but will round up the source value to the
     /// number of threads per workgroup (64) before writing it into the
     /// destination.
+    #[allow(dead_code)]
     FillDispatchArgs,
+    /// Fill the arguments for a later indirect dispatch call.
+    ///
+    /// This is the same as [`FillDispatchArgs`], but the source element count
+    /// is read from the fourth entry in the destination buffer directly,
+    /// and the source buffer and source arguments are unused.
+    FillDispatchArgsSelf,
 }
 
 /// GPU representation of the arguments of a block operation on a buffer.
@@ -552,6 +578,82 @@ pub(super) struct GpuBufferOperationArgs {
     count: u32,
 }
 
+struct InitFillDispatchArgs {
+    event_buffer_index: u32,
+    event_slice: std::ops::Range<u32>,
+    args_index: u32,
+}
+
+struct InitFillDispatchArgsSlice {
+    event_buffer_index: u32,
+    args_offset: u32,
+    args_count: u32,
+}
+
+struct InitFillDispatchArgsSliceIter<'a> {
+    args: &'a [InitFillDispatchArgs],
+    event_buffer_index: u32,
+    args_start: u32,
+}
+
+impl<'a> InitFillDispatchArgsSliceIter<'a> {
+    pub fn new(args: &'a [InitFillDispatchArgs]) -> Self {
+        Self {
+            args,
+            event_buffer_index: 0,
+            args_start: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for InitFillDispatchArgsSliceIter<'a> {
+    type Item = InitFillDispatchArgsSlice;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let len = self.args.len() as u32;
+        let mut idx = self.args_start;
+        while idx < len {
+            let cur_buffer_index = self.args[idx as usize].event_buffer_index;
+
+            // Check if next item is for a new slice
+            if idx == 0 {
+                self.event_buffer_index = cur_buffer_index;
+            } else if cur_buffer_index != self.event_buffer_index {
+                let item = Self::Item {
+                    event_buffer_index: self.event_buffer_index,
+                    args_offset: self.args_start,
+                    args_count: idx - self.args_start,
+                };
+
+                // Update the iterator for the next slice
+                self.event_buffer_index = cur_buffer_index;
+                self.args_start = idx;
+
+                return Some(item);
+            }
+
+            // Move to next args item
+            idx += 1;
+        }
+
+        // Last slice, if not empty
+        if self.args_start < idx {
+            let item = Self::Item {
+                event_buffer_index: self.event_buffer_index,
+                args_offset: self.args_start,
+                args_count: idx - self.args_start,
+            };
+
+            // Update the iterator for the next slice
+            self.args_start = idx;
+
+            return Some(item);
+        }
+
+        None
+    }
+}
+
 /// Queue of GPU buffer operations for this frame.
 #[derive(Resource)]
 pub(super) struct GpuBufferOperationQueue {
@@ -565,7 +667,7 @@ pub(super) struct GpuBufferOperationQueue {
     /// Indices into the arguments buffer of the queued dispatch fill args
     /// operations for the indirect init pass of next frame. Those
     /// operations are dispatched at the end of the current frame.
-    init_fill_dispatch: Vec<(u32, u32)>,
+    init_fill_dispatch: Vec<InitFillDispatchArgs>,
 }
 
 impl FromWorld for GpuBufferOperationQueue {
@@ -586,32 +688,37 @@ impl FromWorld for GpuBufferOperationQueue {
 }
 
 impl GpuBufferOperationQueue {
-    /// Get a binding for a single entry of the arguments buffer.
-    pub fn args_buffer_binding(&self, event_buffer_index: u32) -> Option<BindingResource> {
-        // Find the slice corresponding to this event buffer
+    /// Get a binding for all the entries of the arguments buffer associated
+    /// with the given event buffer.
+    pub fn args_buffer_binding(&self, event_buffer_index: u32) -> Option<(BindingResource, u32)> {
+        // Find the slice corresponding to this event buffer. The entries are sorted by
+        // event buffer index, so the list of entries is a contiguous slice inside the
+        // overall buffer.
         let Some(start) = self
             .init_fill_dispatch
             .iter()
-            .position(|(buf, _)| *buf == event_buffer_index)
+            .position(|ifda| ifda.event_buffer_index == event_buffer_index)
         else {
+            trace!("Event buffer #{event_buffer_index} has no allocated operation.");
             return None;
         };
         let end = if let Some(end) = self
             .init_fill_dispatch
             .iter()
             .skip(start)
-            .position(|(buf, _)| *buf != event_buffer_index)
+            .position(|ifda| ifda.event_buffer_index != event_buffer_index)
         {
             end
         } else {
             self.init_fill_dispatch.len()
         };
         assert!(start < end);
-        let count = end - start;
+        let count = (end - start) as u32;
+        trace!("Event buffer #{event_buffer_index} has {count} allocated operation(s).");
 
-        self.args_buffer.partial_binding(
-            NonZeroU64::new(GpuBufferOperationArgs::min_size().get() * count as u64).unwrap(),
-        )
+        self.args_buffer
+            .lead_binding(count)
+            .map(|binding| (binding, count))
     }
 
     /// Clear the queue and begin recording operations for a new frame.
@@ -621,12 +728,20 @@ impl GpuBufferOperationQueue {
         self.init_fill_dispatch.clear();
     }
 
-    /// Queue a new [`GpuBufferOperationType::FillDispatchArgs`] operation.
-    pub fn queue_init_fill(&mut self, event_buffer_index: u32, args: GpuBufferOperationArgs) {
+    /// Queue a new [`GpuBufferOperationType::FillDispatchArgsSelf`] operation.
+    pub fn queue_init_fill(
+        &mut self,
+        event_buffer_index: u32,
+        event_slice: std::ops::Range<u32>,
+        args: GpuBufferOperationArgs,
+    ) {
         let args_index = self.args_buffer_unsorted.len() as u32;
         self.args_buffer_unsorted.push(args);
-        self.init_fill_dispatch
-            .push((event_buffer_index, args_index));
+        self.init_fill_dispatch.push(InitFillDispatchArgs {
+            event_buffer_index,
+            args_index,
+            event_slice,
+        });
     }
 
     /// Finish recording operations for this frame, and schedule buffer writes
@@ -640,25 +755,33 @@ impl GpuBufferOperationQueue {
 
         // Sort the commands by buffer, so we can dispatch them in groups with a single
         // dispatch per buffer
-        self.init_fill_dispatch
-            .sort_unstable_by(|(buf1, arg1), (buf2, arg2)| {
-                if buf1 != buf2 {
-                    buf1.cmp(buf2)
-                } else {
-                    arg1.cmp(arg2)
-                }
-            });
+        self.init_fill_dispatch.sort_unstable_by(|ifda1, ifda2| {
+            if ifda1.event_buffer_index != ifda2.event_buffer_index {
+                ifda1.event_buffer_index.cmp(&ifda2.event_buffer_index)
+            } else if ifda1.event_slice != ifda2.event_slice {
+                ifda1.event_slice.start.cmp(&ifda2.event_slice.start)
+            } else {
+                ifda1.args_index.cmp(&ifda2.args_index)
+            }
+        });
 
         // Push entries into the final storage before GPU upload. It's a bit unfortunate
         // we have to make copies, but those arrays should be small.
         let mut sorted_args = Vec::with_capacity(self.init_fill_dispatch.len());
-        for (_, arg) in &self.init_fill_dispatch {
-            sorted_args.push(self.args_buffer_unsorted[*arg as usize]);
+        for ifda in &self.init_fill_dispatch {
+            sorted_args.push(self.args_buffer_unsorted[ifda.args_index as usize]);
         }
         self.args_buffer.set_content(sorted_args);
 
         // Write entries to GPU
         self.args_buffer.write_buffer(device, render_queue);
+    }
+
+    /// Returns (event_buffer_index, args_offset, args_count) for each slice of
+    /// operations on each buffer.
+    fn init_fill_dispatch_slices<'a>(&'a self) -> InitFillDispatchArgsSliceIter<'a> {
+        // Assume this is called after end_frame() so we're sorted already
+        InitFillDispatchArgsSliceIter::new(&self.init_fill_dispatch[..])
     }
 
     /// Dispatch any pending [`GpuBufferOperationType::FillDispatchArgs`]
@@ -688,25 +811,28 @@ impl GpuBufferOperationQueue {
 
         compute_pass.set_pipeline(pipeline);
 
-        for (event_buffer_index, args_index) in &self.init_fill_dispatch {
-            // If the buffer changed, set the corresponding bind group
+        for ifda_slice in self.init_fill_dispatch_slices() {
             trace!(
-                "event_buffer_index={} args_index={}",
-                event_buffer_index,
-                args_index
+                "event_buffer_index={} args_offset={:?} args_count={}",
+                ifda_slice.event_buffer_index,
+                ifda_slice.args_offset,
+                ifda_slice.args_count
             );
-            if let Some(bind_group) = bind_groups.init_fill_dispatch(*event_buffer_index) {
-                let dyn_offset = self.args_buffer.dynamic_offset(*args_index as usize);
-                compute_pass.set_bind_group(0, bind_group, &[dyn_offset]);
+            if let Some(bind_group) = bind_groups.init_fill_dispatch(ifda_slice.event_buffer_index)
+            {
+                let dst_offset = self
+                    .args_buffer
+                    .dynamic_offset(ifda_slice.args_offset as usize);
+                compute_pass.set_bind_group(0, bind_group, &[]);
                 trace!(
-                    "found bind group for event buffer index #{} with dyn offset +{}B",
-                    event_buffer_index,
-                    dyn_offset
+                    "found bind group for event buffer index #{} with dst_offset +{}B",
+                    ifda_slice.event_buffer_index,
+                    dst_offset
                 );
             } else {
                 warn!(
                     "bind group not found for event buffer index #{}",
-                    event_buffer_index
+                    ifda_slice.event_buffer_index
                 );
                 continue;
             }
@@ -728,8 +854,10 @@ impl GpuBufferOperationQueue {
 /// Compute pipeline to run the `vfx_utils` shader.
 #[derive(Resource)]
 pub(crate) struct UtilsPipeline {
+    #[allow(dead_code)]
     bind_group_layout: BindGroupLayout,
-    pipelines: [ComputePipeline; 3],
+    bind_group_layout_no_src: BindGroupLayout,
+    pipelines: [ComputePipeline; 4],
 }
 
 impl FromWorld for UtilsPipeline {
@@ -744,7 +872,7 @@ impl FromWorld for UtilsPipeline {
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: true,
+                        has_dynamic_offset: false,
                         min_binding_size: Some(GpuBufferOperationArgs::min_size()),
                     },
                     count: None,
@@ -777,6 +905,39 @@ impl FromWorld for UtilsPipeline {
             bind_group_layouts: &[&bind_group_layout],
             push_constant_ranges: &[],
         });
+
+        let bind_group_layout_no_src = render_device.create_bind_group_layout(
+            "hanabi:bind_group_layout:utils_no_src",
+            &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(GpuBufferOperationArgs::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: NonZeroU64::new(4),
+                    },
+                    count: None,
+                },
+            ],
+        );
+
+        let pipeline_layout_no_src =
+            render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some("hanabi:pipeline_layout:utils_no_src"),
+                bind_group_layouts: &[&bind_group_layout],
+                push_constant_ranges: &[],
+            });
 
         let shader_code = include_str!("vfx_utils.wgsl");
 
@@ -830,10 +991,24 @@ impl FromWorld for UtilsPipeline {
                 entry_point: "fill_dispatch_args",
                 compilation_options: default(),
             });
+        let fill_dispatch_args_self_pipeline =
+            render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
+                label: Some("hanabi:compute_pipeline:fill_dispatch_args_self"),
+                layout: Some(&pipeline_layout_no_src),
+                module: &shader_module,
+                entry_point: "fill_dispatch_args_self",
+                compilation_options: default(),
+            });
 
         Self {
             bind_group_layout,
-            pipelines: [zero_pipeline, copy_pipeline, fill_dispatch_args_pipeline],
+            bind_group_layout_no_src,
+            pipelines: [
+                zero_pipeline,
+                copy_pipeline,
+                fill_dispatch_args_pipeline,
+                fill_dispatch_args_self_pipeline,
+            ],
         }
     }
 }
@@ -844,6 +1019,7 @@ impl UtilsPipeline {
             GpuBufferOperationType::Zero => &self.pipelines[0],
             GpuBufferOperationType::Copy => &self.pipelines[1],
             GpuBufferOperationType::FillDispatchArgs => &self.pipelines[2],
+            GpuBufferOperationType::FillDispatchArgsSelf => &self.pipelines[3],
         }
     }
 }
@@ -949,7 +1125,7 @@ impl FromWorld for ParticlesInitPipeline {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ParticleInitPipelineKey {
     /// Compute shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
@@ -967,13 +1143,9 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
     type Key = ParticleInitPipelineKey;
 
     fn specialize(&self, key: Self::Key) -> ComputePipelineDescriptor {
-        trace!(
-            "GpuParticle: attributes.min_binding_size={} properties.min_binding_size={}",
-            key.particle_layout_min_binding_size.get(),
-            key.property_layout_min_binding_size
-                .map(|sz| sz.get())
-                .unwrap_or(0),
-        );
+        // We use the hash to correlate the key content with the GPU resource name
+        let hash = calc_hash(&key);
+        trace!("Specializing init pipeline {:08X} with key {:?}", hash, key);
 
         // FIXME - This duplicates the layout created in EffectBuffer::new()!!!
         // Likely this one should go away, because we can't cache from inside
@@ -994,8 +1166,10 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
             shader_defs.push("USE_GPU_SPAWN_EVENTS".into());
         }
 
+        let label = format!("hanabi:pipeline_init_compute_{:08X}", hash);
+
         ComputePipelineDescriptor {
-            label: Some("hanabi:pipeline_init_compute".into()),
+            label: Some(label.into()),
             layout: vec![
                 self.sim_params_layout.clone(),
                 particles_buffer_layout,
@@ -1099,7 +1273,7 @@ impl FromWorld for ParticlesUpdatePipeline {
     }
 }
 
-#[derive(Default, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct ParticleUpdatePipelineKey {
     /// Compute shader, with snippets applied, but not preprocessed yet.
     shader: Handle<Shader>,
@@ -1115,14 +1289,12 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
     type Key = ParticleUpdatePipelineKey;
 
     fn specialize(&self, key: Self::Key) -> ComputePipelineDescriptor {
+        // We use the hash to correlate the key content with the GPU resource name
+        let hash = calc_hash(&key);
         trace!(
-            "GpuParticle: attributes.min_binding_size={} properties.min_binding_size={}",
-            key.particle_layout.min_binding_size().get(),
-            if key.property_layout.is_empty() {
-                0
-            } else {
-                key.property_layout.min_binding_size().get()
-            },
+            "Specializing update pipeline {:08X} with key {:?}",
+            hash,
+            key
         );
 
         let particles_buffer_layout = EffectBuffer::make_update_layout(
@@ -1143,8 +1315,10 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             shader_defs.push("EMITS_GPU_SPAWN_EVENTS".into());
         }
 
+        let label = format!("hanabi:pipeline_update_compute_{:08X}", hash);
+
         ComputePipelineDescriptor {
-            label: Some("hanabi:pipeline_update_compute".into()),
+            label: Some(label.into()),
             layout: vec![
                 self.sim_params_layout.clone(),
                 particles_buffer_layout,
@@ -2019,6 +2193,7 @@ pub struct EffectsMeta {
     /// buffer.
     init_render_indirect_bind_group: Option<BindGroup>,
     sim_params_uniforms: UniformBuffer<GpuSimParams>,
+    instance_info_uniforms: UniformBuffer<GpuInstanceInfo>,
     spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
     dispatch_indirect_buffer: BufferTable<GpuDispatchIndirect>,
     /// Stores the GPU `RenderEffectMetadata` structures, which describe mutable
@@ -2074,6 +2249,7 @@ impl EffectsMeta {
             dr_indirect_bind_group: None,
             init_render_indirect_bind_group: None,
             sim_params_uniforms: UniformBuffer::default(),
+            instance_info_uniforms: UniformBuffer::default(),
             spawner_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
                 NonZeroU64::new(item_align),
@@ -2480,23 +2656,30 @@ pub(crate) fn prepare_effects(
     effects_meta.particle_group_buffer.clear();
     let mut total_group_count = 0;
     for (effect_index, input) in effect_entity_list.into_iter().enumerate() {
+        let effect_cache_id = effects_meta.entity_map.get(&input.entity).unwrap().cache_id;
+        let buffer_index = effect_cache.get_slices(effect_cache_id).buffer_index;
+        let event_buffer_ref = effect_cache.get_event_slice(effect_cache_id);
+
         // Get the index of the indirect struct, if using indirect dispatch for the init
         // pass. Only effects consuming GPU spawn events use indirect dispatch for their
         // particle init; others are CPU driven and use normal dispatch.
-        if let Some(init_indirect_dispatch_index) = input.init_indirect_dispatch_index {
+        if let (Some(event_buffer_ref), Some(init_indirect_dispatch_index)) =
+            (event_buffer_ref, input.init_indirect_dispatch_index)
+        {
             // Schedule a fill dispatch
+            let event_buffer_index = event_buffer_ref.buffer_index;
+            let event_slice = event_buffer_ref.slice.clone();
+            let stride = GpuDispatchIndirect::SHADER_SIZE.get() as u32 / 4;
+            debug_assert_eq!(stride, 4); // 16 bytes
+            let base_offset = init_indirect_dispatch_index * stride;
             gpu_buffer_operation_queue.queue_init_fill(
-                input.parent_buffer_index.unwrap(), // FIXME unwrap()
+                event_buffer_index,
+                event_slice,
                 GpuBufferOperationArgs {
-                    src_offset: 0,
-                    src_stride: 0, /* FIXME - if batching multiple effects in same buffer, this
-                                    * needs to be the stride between effects in event_buffer, or
-                                    * alternatively we need to group all event counts in one
-                                    * contiguous array */
-                    dst_offset: init_indirect_dispatch_index
-                        * GpuDispatchIndirect::min_size().get() as u32
-                        / 4,
-                    count: 1,
+                    src_offset: base_offset,
+                    src_stride: stride,
+                    dst_offset: base_offset + 3,
+                    count: 1, // FIXME - should be a batch here!!
                 },
             );
         }
@@ -2533,8 +2716,6 @@ pub(crate) fn prepare_effects(
         // Ensure the bind group layout for the update phase exists for the particular
         // config of this effect, before the update pipeline specialization needs it to
         // create the pipeline layout.
-        let effect_cache_id = effects_meta.entity_map.get(&input.entity).unwrap().cache_id;
-        let buffer_index = effect_cache.get_slices(effect_cache_id).buffer_index;
         let effect_buffer = effect_cache.buffers_mut()[buffer_index as usize]
             .as_mut()
             .unwrap();
@@ -2611,7 +2792,7 @@ pub(crate) fn prepare_effects(
             inverse_transform: input.inverse_transform,
             spawn: input.spawn_count as i32,
             // FIXME - Probably bad to re-seed each time there's a change
-            seed: random::<u32>(),
+            seed: 0, // random::<u32>(),
             count: 0,
             // FIXME: the effect_index is global inside the global spawner buffer,
             // but the group_index is the index of the particle buffer, which can
@@ -2633,6 +2814,9 @@ pub(crate) fn prepare_effects(
                     indirect_index: range[0],
                     capacity: range[1] - range[0],
                     effect_particle_offset: input.effect_slices.slices[0],
+                    // We can safely unwrap_or() here, if we don't do indirect dispatch then this
+                    // value is not read anyway.
+                    init_indirect_dispatch_index: input.init_indirect_dispatch_index.unwrap_or(0),
                 });
             if group_index == 0 {
                 first_particle_group_buffer_index = Some(particle_group_buffer_index as u32);
@@ -2738,6 +2922,11 @@ pub(crate) fn prepare_effects(
         // Buffer changed, invalidate bind groups
         effects_meta.sim_params_bind_group = None;
     }
+
+    // Update insance infos
+    effects_meta
+        .instance_info_uniforms
+        .set(GpuInstanceInfo::default());
 }
 
 /// Per-buffer bind groups for a GPU effect buffer.
@@ -2753,7 +2942,7 @@ pub(crate) struct BufferBindGroups {
     /// ```wgsl
     /// @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
     /// @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
-    /// @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
+    /// @binding(2) var<storage, read> dispatch_indirect : UpdateIndirectDispatch;
     /// #ifdef RENDER_NEEDS_SPAWNER
     /// @binding(3) var<storage, read> spawner : Spawner;
     /// #endif
@@ -3625,45 +3814,14 @@ pub(crate) fn prepare_bind_groups(
                      &entries,
                 );
 
-                // let init_fill_dispatch = if let Some(event_buffer) = buffer.event_buffer() {
-                //     let init_fill_dispatch = render_device.create_bind_group(
-                //         &format!("hanabi:bind_group:init_vfx{buffer_index}_fill_dispatch")[..],
-                //         &utils_pipeline.bind_group_layout,
-                //         &[
-                //             // @group(0) @binding(0) var<uniform> args : BufferOperationArgs
-                //             BindGroupEntry {
-                //                 binding: 0,
-                //                 resource: gpu_buffer_operation_queue.args_buffer_binding().unwrap(),
-                //             },
-                //             // @group(0) @binding(1) var<storage, read> src_buffer : array<u32>
-                //             BindGroupEntry {
-                //                 binding: 1,
-                //                 resource: BindingResource::Buffer(BufferBinding {
-                //                     buffer: event_buffer,
-                //                     offset: 0,
-                //                     size: None,
-                //                 }),
-                //             },
-                //             // @group(0) @binding(2) var<storage, read_write> dst_buffer : array<u32>
-                //             BindGroupEntry {
-                //                 binding: 2,
-                //                 resource: effect_cache.init_indirect_dispatch_buffer_binding()
-                //                     .unwrap(),
-                //             },
-                //         ],
-                //     );
-                //     Some(init_fill_dispatch)
-                // } else { None };
-
                 BufferBindGroups {
                     render,
-                    //init_fill_dispatch,
                 }
             });
     }
 
     // Create the per-event-buffer bind groups
-    for (event_buffer_index, event_buffer) in effect_cache.event_buffers() {
+    for (event_buffer_index, _) in effect_cache.event_buffers() {
         // Check if the entry is missing
         let entry = effect_bind_groups
             .init_fill_dispatch
@@ -3675,7 +3833,7 @@ pub(crate) fn prepare_bind_groups(
             );
 
             // Check if the binding is available to create the bind group and fill the entry
-            if let Some(args_binding) =
+            if let Some((args_binding, args_count)) =
                 gpu_buffer_operation_queue.args_buffer_binding(event_buffer_index)
             {
                 if let Some(target_binding) = effect_cache.init_indirect_dispatch_buffer_binding() {
@@ -3683,21 +3841,12 @@ pub(crate) fn prepare_bind_groups(
                     entry.insert(render_device.create_bind_group(
                         &format!("hanabi:bind_group:event{event_buffer_index}_init_fill_dispatch")
                             [..],
-                        &utils_pipeline.bind_group_layout,
+                        &utils_pipeline.bind_group_layout_no_src,
                         &[
                             // @group(0) @binding(0) var<uniform> args : BufferOperationArgs
                             BindGroupEntry {
                                 binding: 0,
                                 resource: args_binding,
-                            },
-                            // @group(0) @binding(1) var<storage, read> src_buffer : array<u32>
-                            BindGroupEntry {
-                                binding: 1,
-                                resource: BindingResource::Buffer(BufferBinding {
-                                    buffer: event_buffer.buffer(),
-                                    offset: 0,
-                                    size: None,
-                                }),
                             },
                             // @group(0) @binding(2) var<storage, read_write> dst_buffer :
                             // array<u32>
@@ -3711,6 +3860,8 @@ pub(crate) fn prepare_bind_groups(
                         "Created new bind group for init fill args of event buffer #{}",
                         event_buffer_index
                     );
+                } else {
+                    warn!("Event buffer #{event_buffer_index} has {args_count} operations pending, but the effect cache has no init_indirect_dispatch_buffer_binding for the target buffer. Discarding event operations for this frame. This will result in particles not spawning.");
                 }
             }
         }
@@ -4154,7 +4305,7 @@ impl Node for VfxSimulateNode {
             let gpu_buffer_operation_queue = world.resource::<GpuBufferOperationQueue>();
             gpu_buffer_operation_queue.dispatch_init_fill(
                 render_context,
-                utils_pipeline.get_pipeline(GpuBufferOperationType::FillDispatchArgs),
+                utils_pipeline.get_pipeline(GpuBufferOperationType::FillDispatchArgsSelf),
                 effect_bind_groups,
             );
         }

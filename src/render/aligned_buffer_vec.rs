@@ -133,6 +133,12 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
     /// Get a binding for the entire buffer.
     #[inline]
     pub fn binding(&self) -> Option<BindingResource> {
+        // FIXME - Return a Buffer wrapper first, which can be unwrapped, then from that
+        // wrapper implement all the xxx_binding() helpers. That avoids a bunch of "if
+        // let Some()" everywhere when we know the buffer is valid. The only reason the
+        // buffer might not be valid is if it was not created, and in that case
+        // we wouldn't be calling the xxx_bindings() helpers, we'd have earlied out
+        // before.
         let buffer = self.buffer()?;
         Some(BindingResource::Buffer(BufferBinding {
             buffer,
@@ -141,13 +147,39 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
         }))
     }
 
-    /// Get a binding for a subset of the buffer.
+    /// Get a binding for the first `count` elements of the buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `count` is zero.
     #[inline]
-    pub fn partial_binding(&self, size: NonZeroU64) -> Option<BindingResource> {
+    pub fn lead_binding(&self, count: u32) -> Option<BindingResource> {
+        assert!(count > 0);
         let buffer = self.buffer()?;
+        let size = NonZeroU64::new(T::SHADER_SIZE.get() * count as u64).unwrap();
         Some(BindingResource::Buffer(BufferBinding {
             buffer,
             offset: 0,
+            size: Some(size),
+        }))
+    }
+
+    /// Get a binding for a subset of the elements of the buffer.
+    ///
+    /// Returns a binding for the elements in the range `offset..offset+count`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `count` is zero.
+    #[inline]
+    pub fn range_binding(&self, offset: u32, count: u32) -> Option<BindingResource> {
+        assert!(count > 0);
+        let buffer = self.buffer()?;
+        let offset = T::SHADER_SIZE.get() * offset as u64;
+        let size = NonZeroU64::new(T::SHADER_SIZE.get() * count as u64).unwrap();
+        Some(BindingResource::Buffer(BufferBinding {
+            buffer,
+            offset,
             size: Some(size),
         }))
     }
