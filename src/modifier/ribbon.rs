@@ -36,7 +36,7 @@ impl RenderModifier for RibbonModifier {
     axis_z = cross(axis_x, axis_y);
 
     position = mix(next_particle.position, particle.position, 0.5);
-    size = vec2(length(delta), size.y);
+    size = vec3(length(delta), size.y, 1.0);
 "##;
 
         Ok(())

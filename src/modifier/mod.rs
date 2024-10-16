@@ -27,7 +27,7 @@ use std::{
 
 use bevy::{
     asset::Handle,
-    math::{UVec2, Vec2, Vec4},
+    math::{UVec2, Vec3, Vec4},
     reflect::Reflect,
     render::texture::Image,
     utils::HashMap,
@@ -306,9 +306,8 @@ impl<'a> EvalContext for ShaderWriter<'a> {
         if let Some(s) = self.expr_cache.get(&handle) {
             Ok(s.clone())
         } else {
-            module.try_get(handle)?.eval(module, self).map(|s| {
+            module.try_get(handle)?.eval(module, self).inspect(|s| {
                 self.expr_cache.insert(handle, s.clone());
-                s
             })
         }
     }
@@ -384,9 +383,11 @@ pub struct RenderContext<'a> {
     /// Color gradients.
     pub gradients: HashMap<u64, Gradient<Vec4>>,
     /// Size gradients.
-    pub size_gradients: HashMap<u64, Gradient<Vec2>>,
+    pub size_gradients: HashMap<u64, Gradient<Vec3>>,
     /// The particle needs UV coordinates to sample one or more texture(s).
     pub needs_uv: bool,
+    /// The particle needs normals for lighting effects.
+    pub needs_normal: bool,
     /// Counter for unique variable names.
     var_counter: u32,
     /// Cache of evaluated expressions.
@@ -414,6 +415,7 @@ impl<'a> RenderContext<'a> {
             gradients: HashMap::new(),
             size_gradients: HashMap::new(),
             needs_uv: false,
+            needs_normal: false,
             var_counter: 0,
             expr_cache: Default::default(),
             is_attribute_pointer: false,
@@ -421,8 +423,13 @@ impl<'a> RenderContext<'a> {
     }
 
     /// Mark the rendering shader as needing UVs.
-    fn set_needs_uv(&mut self) {
+    pub fn set_needs_uv(&mut self) {
         self.needs_uv = true;
+    }
+
+    /// Mark the rendering shader as needing normals.
+    pub fn set_needs_normal(&mut self) {
+        self.needs_normal = true;
     }
 
     /// Add a color gradient.
@@ -444,7 +451,7 @@ impl<'a> RenderContext<'a> {
     ///
     /// Returns the unique name of the gradient, to be used as function name in
     /// the shader code.
-    fn add_size_gradient(&mut self, gradient: Gradient<Vec2>) -> String {
+    fn add_size_gradient(&mut self, gradient: Gradient<Vec3>) -> String {
         let func_id = calc_func_id(&gradient);
         self.size_gradients.insert(func_id, gradient);
         let func_name = format!("size_gradient_{0:016X}", func_id);
@@ -477,9 +484,8 @@ impl<'a> EvalContext for RenderContext<'a> {
         if let Some(s) = self.expr_cache.get(&handle) {
             Ok(s.clone())
         } else {
-            module.try_get(handle)?.eval(module, self).map(|s| {
+            module.try_get(handle)?.eval(module, self).inspect(|s| {
                 self.expr_cache.insert(handle, s.clone());
-                s
             })
         }
     }
@@ -990,7 +996,7 @@ fn main() {{
     var particle = Particle();
     var position = vec3<f32>(0.0, 0.0, 0.0);
     var velocity = vec3<f32>(0.0, 0.0, 0.0);
-    var size = vec2<f32>(1.0, 1.0);
+    var size = vec3<f32>(1.0, 1.0, 1.0);
     var axis_x = vec3<f32>(1.0, 0.0, 0.0);
     var axis_y = vec3<f32>(0.0, 1.0, 0.0);
     var axis_z = vec3<f32>(0.0, 0.0, 1.0);
