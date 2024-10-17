@@ -110,7 +110,8 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
             item_size
         };
         trace!(
-            "AlignedBufferVec: item_size={} aligned_size={}",
+            "AlignedBufferVec['{}']: item_size={} aligned_size={}",
+            label.as_ref().map(|s| &s[..]).unwrap_or(""),
             item_size,
             aligned_size
         );

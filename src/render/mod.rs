@@ -244,9 +244,10 @@ impl<T: ShaderType> StorageType for T {
     fn padding_code(alignment: u32) -> String {
         let aligned_size = T::aligned_size(alignment);
         trace!(
-            "Aligning {} to {} bytes as device limits requires. Aligned size: {} bytes.",
-            stringify!(T),
+            "Aligning {} to {} bytes as device limits requires. Orignal size: {} bytes. Aligned size: {} bytes.",
+            std::any::type_name::<T>(),
             alignment,
+            T::min_size().get(),
             aligned_size
         );
 
@@ -2109,12 +2110,15 @@ impl GpuLimits {
         .unwrap();
 
         trace!(
-            "GpuLimits: storage_buffer_align={} gpu_dispatch_indirect_aligned_size={} \
-            gpu_render_effect_indirect_aligned_size={} gpu_render_group_indirect_aligned_size={}",
+            "GPU-aligned sizes (align: {} B):\n- GpuRenderEffectMetadata: {} B -> {} B\n\
+            - GpuRenderGroupIndirect: {} B -> {} B\n- GpuParticleGroup: {} B -> {} B",
             storage_buffer_align,
+            GpuRenderEffectMetadata::min_size().get(),
             dispatch_indirect_aligned_size.get(),
+            GpuRenderGroupIndirect::min_size().get(),
             render_effect_indirect_aligned_size.get(),
-            render_group_indirect_aligned_size.get()
+            GpuParticleGroup::min_size().get(),
+            particle_group_aligned_size.get()
         );
 
         Self {
@@ -2923,7 +2927,7 @@ pub(crate) fn prepare_effects(
         effects_meta.sim_params_bind_group = None;
     }
 
-    // Update insance infos
+    // Update instance infos
     effects_meta
         .instance_info_uniforms
         .set(GpuInstanceInfo::default());
