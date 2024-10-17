@@ -1,8 +1,8 @@
 //! Worms
 //!
-//! Demonstrates simple use of particle trails.
+//! Demonstrates a simple use of particle trails.
 
-use std::f32::consts::{FRAC_PI_2, PI};
+use std::f32::consts::FRAC_PI_2;
 
 use bevy::{
     core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
@@ -58,7 +58,7 @@ fn setup(
     // scratch attribute.`
     let set_initial_angle_modifier = SetAttributeModifier::new(
         Attribute::F32_0,
-        writer.lit(0.0).uniform(writer.lit(PI * 2.0)).expr(),
+        writer.lit(0.0).normal(writer.lit(1.0)).expr(),
     );
 
     // Give each particle a random opaque color.
