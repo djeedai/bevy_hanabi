@@ -65,7 +65,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
   // to be over the surface of a sphere of radius 2 units.
   let init_pos = SetPositionSphereModifier {
       center: module.lit(Vec3::ZERO),
-      radius: module.lit(0.05),
+      radius: module.lit(2.),
       dimension: ShapeDimension::Surface,
   };
 
