@@ -306,9 +306,8 @@ impl<'a> EvalContext for ShaderWriter<'a> {
         if let Some(s) = self.expr_cache.get(&handle) {
             Ok(s.clone())
         } else {
-            module.try_get(handle)?.eval(module, self).map(|s| {
+            module.try_get(handle)?.eval(module, self).inspect(|s| {
                 self.expr_cache.insert(handle, s.clone());
-                s
             })
         }
     }
@@ -477,9 +476,8 @@ impl<'a> EvalContext for RenderContext<'a> {
         if let Some(s) = self.expr_cache.get(&handle) {
             Ok(s.clone())
         } else {
-            module.try_get(handle)?.eval(module, self).map(|s| {
+            module.try_get(handle)?.eval(module, self).inspect(|s| {
                 self.expr_cache.insert(handle, s.clone());
-                s
             })
         }
     }
