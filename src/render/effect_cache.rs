@@ -454,9 +454,14 @@ impl EffectBuffer {
         render_device: &RenderDevice,
         group_binding: BufferBinding,
     ) {
-        if self.simulate_bind_group.is_some() {
-            return;
-        }
+        // Note: We can't cache this bind group, because not only the group buffer can
+        // get reallocated (we do track that), but the offset/size of the group binding
+        // can change each frame, and we don't track them (we re-allocate them
+        // linearly each frame). So just re-create that bind group each frame
+        // too.
+        // FIXME: Check if Buffer::id is unique for the buffer lifetime. Also we could
+        // track the offset/size manually to check for a change, and
+        // auto-invalidate.
 
         let layout = self.particle_layout_bind_group_sim();
         let label = format!("hanabi:bind_group_sim_batch{}", buffer_index);
@@ -489,11 +494,28 @@ impl EffectBuffer {
         self.simulate_bind_group = Some(bind_group);
     }
 
+    /// Invalidate any existing simulate bind group.
+    ///
+    /// Invalidate any existing bind group previously created by
+    /// [`create_sim_bind_group()`], generally because a buffer was
+    /// re-allocated. This forces a re-creation of the bind group
+    /// next time [`create_sim_bind_group()`] is called.
+    ///
+    /// [`create_sim_bind_group()`]: self::EffectBuffer::create_sim_bind_group
+    fn invalidate_sim_bind_group(&mut self) {
+        self.simulate_bind_group = None;
+    }
+
     /// Return the cached bind group for the init and update passes.
     ///
     /// This is the per-buffer bind group at binding @1 which binds all
     /// per-buffer resources shared by all effect instances batched in a single
-    /// buffer.
+    /// buffer. The bind group is created by [`create_sim_bind_group()`], and
+    /// cached until a call to [`invalidate_sim_bind_group()`] clears the cached
+    /// reference.
+    ///
+    /// [`create_sim_bind_group()`]: self::EffectBuffer::create_sim_bind_group
+    /// [`invalidate_sim_bind_group()`]: self::EffectBuffer::invalidate_sim_bind_group
     pub fn sim_bind_group(&self) -> Option<&BindGroup> {
         self.simulate_bind_group.as_ref()
     }
@@ -728,6 +750,18 @@ impl EffectCache {
     #[allow(dead_code)]
     pub fn buffers_mut(&mut self) -> &mut [Option<EffectBuffer>] {
         &mut self.buffers
+    }
+
+    /// Invalidate all the "simulation" bind groups for all buffers.
+    ///
+    /// This iterates over all valid buffers and calls
+    /// [`EffectBuffer::invalidate_sim_bind_group()`] on each one.
+    pub fn invalidate_sim_bind_groups(&mut self) {
+        for buffer in &mut self.buffers {
+            if let Some(buffer) = buffer {
+                buffer.invalidate_sim_bind_group();
+            }
+        }
     }
 
     pub fn insert(

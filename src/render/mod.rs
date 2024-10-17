@@ -2336,6 +2336,10 @@ pub(crate) fn prepare_effects(
         .write_buffer(&render_device, &render_queue)
     {
         // The buffer changed; invalidate all bind groups for all effects.
+        effect_cache.invalidate_sim_bind_groups();
+
+        // Note: effects_meta.dr_indirect_bind_group is re-created each frame,
+        // no need to clear explicitly.
     }
 
     // Update simulation parameters
@@ -3249,7 +3253,6 @@ pub(crate) fn prepare_bind_groups(
         };
 
         // Bind group for the init compute shader to simulate particles.
-        // TODO - move this creation in RenderSet::PrepareBindGroups
         effect_buffer.create_sim_bind_group(
             effect_batches.buffer_index,
             &render_device,
@@ -3644,7 +3647,7 @@ impl Node for VfxSimulateNode {
             .write_buffer(render_context.command_encoder());
 
         // Compute init pass
-        // let mut total_group_count = 0;
+        let mut total_group_count = 0;
         {
             let mut compute_pass =
                 render_context
@@ -3666,10 +3669,7 @@ impl Node for VfxSimulateNode {
                         .dispatch_buffer_indices
                         .first_render_group_dispatch_buffer_index;
 
-                    // FIXME - Currently we unconditionally count all groups because the dispatch
-                    // pass always runs on all groups. We should consider if it's worth skipping
-                    // e.g. dormant or finished effects at the cost of extra complexity.
-                    // total_group_count += batches.group_batches.len() as u32;
+                    total_group_count += batches.group_batches.len() as u32;
 
                     let Some(init_pipeline) =
                         pipeline_cache.get_compute_pipeline(batches.init_pipeline_id)
@@ -3792,38 +3792,40 @@ impl Node for VfxSimulateNode {
                         timestamp_writes: None,
                     });
 
-            // Dispatch indirect dispatch compute job
-            trace!("record commands for indirect dispatch pipeline...");
+            // Dispatch indirect dispatch compute job.
+            // FIXME - we do an explicit check again here because there was an unwrap()
+            // which triggered some panic. Because we also check above, this
+            // means there's likely a race condition hidden somewhere.
+            if let (
+                Some(dr_indirect_bind_group),
+                Some(sim_params_bind_group),
+            ) = (
+                effects_meta.dr_indirect_bind_group.as_ref(),
+                effects_meta.sim_params_bind_group.as_ref(),
+            ) {
+                trace!("record commands for indirect dispatch pipeline for {total_group_count} groups...");
 
-            // FIXME - The `vfx_indirect` shader assumes a contiguous array of ParticleGroup
-            // structures. So we need to pass the full array size, and we
-            // just update the unused groups for nothing. Otherwise we might
-            // update some unused group and miss some used ones, if there's any gap
-            // in the array.
-            const WORKGROUP_SIZE: u32 = 64;
-            let total_group_count = effects_meta.particle_group_buffer.len() as u32;
-            let workgroup_count = (total_group_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+                const WORKGROUP_SIZE: u32 = 64;
+                let workgroup_count = (total_group_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
 
-            // Setup compute pass
-            compute_pass.set_pipeline(&dispatch_indirect_pipeline.pipeline);
-            compute_pass.set_bind_group(
-                0,
-                // FIXME - got some unwrap() panic here, investigate... possibly race
-                // condition!
-                effects_meta.dr_indirect_bind_group.as_ref().unwrap(),
-                &[],
-            );
-            compute_pass.set_bind_group(
-                1,
-                effects_meta.sim_params_bind_group.as_ref().unwrap(),
-                &[],
-            );
-            compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
-            trace!(
-                "indirect dispatch compute dispatched: num_batches={} workgroup_count={}",
-                total_group_count,
-                workgroup_count
-            );
+                // Setup compute pass
+                compute_pass.set_pipeline(&dispatch_indirect_pipeline.pipeline);
+                compute_pass.set_bind_group(0, dr_indirect_bind_group, &[]);
+                compute_pass.set_bind_group(1, sim_params_bind_group, &[]);
+                compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
+                trace!(
+                    "indirect dispatch compute dispatched: num_batches={} workgroup_count={}",
+                    total_group_count,
+                    workgroup_count
+                );
+            } else {
+                if effects_meta.dr_indirect_bind_group.is_none() {
+                    warn!("Missing indirect dispatch bind group. This is a bug.");
+                }
+                if effects_meta.sim_params_bind_group.is_none() {
+                    warn!("Missing indirect dispatch SimParams bind group. This is a bug.");
+                }
+            }
         }
 
         // Compute update pass
