@@ -2,15 +2,15 @@
 
 use std::{fmt::Display, num::NonZeroU8};
 
-use crate::prelude::*;
 use bevy::{
     log::LogPlugin,
     prelude::*,
     render::{settings::WgpuSettings, RenderPlugin},
 };
-
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+
+use crate::prelude::*;
 
 /// Helper system to enable closing the example application by pressing the
 /// escape key (ESC).
