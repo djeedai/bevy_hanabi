@@ -3796,10 +3796,7 @@ impl Node for VfxSimulateNode {
             // FIXME - we do an explicit check again here because there was an unwrap()
             // which triggered some panic. Because we also check above, this
             // means there's likely a race condition hidden somewhere.
-            if let (
-                Some(dr_indirect_bind_group),
-                Some(sim_params_bind_group),
-            ) = (
+            if let (Some(dr_indirect_bind_group), Some(sim_params_bind_group)) = (
                 effects_meta.dr_indirect_bind_group.as_ref(),
                 effects_meta.sim_params_bind_group.as_ref(),
             ) {
