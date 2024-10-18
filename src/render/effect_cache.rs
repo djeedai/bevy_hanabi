@@ -686,7 +686,7 @@ pub(crate) struct CachedEffectIndices {
 
 /// The indices in the indirect dispatch buffers for a single effect, as well as
 /// that of the metadata buffer.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct DispatchBufferIndices {
     /// The index of the first update group indirect dispatch buffer.
     ///
@@ -698,6 +698,13 @@ pub(crate) struct DispatchBufferIndices {
     pub(crate) first_render_group_dispatch_buffer_index: BufferTableId,
     /// The index of the render indirect metadata buffer.
     pub(crate) render_effect_metadata_buffer_index: BufferTableId,
+    pub(crate) trail_dispatch_buffer_indices: HashMap<u32, TrailDispatchBufferIndices>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TrailDispatchBufferIndices {
+    pub(crate) dest: BufferTableId,
+    pub(crate) src: BufferTableId,
 }
 
 impl Default for DispatchBufferIndices {
@@ -707,6 +714,7 @@ impl Default for DispatchBufferIndices {
             first_update_group_dispatch_buffer_index: BufferTableId(0),
             first_render_group_dispatch_buffer_index: BufferTableId(0),
             render_effect_metadata_buffer_index: BufferTableId(0),
+            trail_dispatch_buffer_indices: HashMap::default(),
         }
     }
 }
@@ -839,8 +847,8 @@ impl EffectCache {
             .unwrap()
     }
 
-    pub(crate) fn get_dispatch_buffer_indices(&self, id: EffectCacheId) -> DispatchBufferIndices {
-        self.effects[&id].slices.dispatch_buffer_indices
+    pub(crate) fn get_dispatch_buffer_indices(&self, id: EffectCacheId) -> &DispatchBufferIndices {
+        &self.effects[&id].slices.dispatch_buffer_indices
     }
 
     /// Get the init bind group for a cached effect.

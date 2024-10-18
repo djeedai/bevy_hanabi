@@ -11,7 +11,10 @@ use super::{
     effect_cache::{DispatchBufferIndices, EffectSlices},
     EffectCacheId, GpuCompressedTransform, LayoutFlags,
 };
-use crate::{AlphaMode, EffectAsset, EffectShader, ParticleLayout, PropertyLayout, TextureLayout};
+use crate::{
+    spawn::EffectInitializer, AlphaMode, EffectAsset, EffectShader, ParticleLayout, PropertyLayout,
+    TextureLayout,
+};
 
 /// Data needed to render all batches pertaining to a specific effect.
 #[derive(Debug, Component)]
@@ -24,8 +27,8 @@ pub(crate) struct EffectBatches {
     pub buffer_index: u32,
     /// Index of the first Spawner of the effects in the batch.
     pub spawner_base: u32,
-    /// Number of particles to spawn/init this frame.
-    pub spawn_count: u32,
+    /// The initializer (spawner or cloner) for each particle group.
+    pub initializers: Vec<EffectInitializer>,
     /// The effect cache ID.
     pub effect_cache_id: EffectCacheId,
     /// The indices within the various indirect dispatch buffers.
@@ -54,10 +57,8 @@ pub(crate) struct EffectBatches {
     /// Note that we don't need to keep the init/update shaders alive because
     /// their pipeline specialization is doing it via the specialization key.
     pub render_shaders: Vec<Handle<Shader>>,
-    /// Init compute pipeline specialized for this batch.
-    pub init_pipeline_id: CachedComputePipelineId,
-    /// Update compute pipeline specialized for this batch.
-    pub update_pipeline_ids: Vec<CachedComputePipelineId>,
+    /// Init and update compute pipelines specialized for this batch.
+    pub init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds>,
 }
 
 impl Index<u32> for EffectBatches {
@@ -103,15 +104,14 @@ impl EffectBatches {
         input: BatchesInput,
         spawner_base: u32,
         effect_cache_id: EffectCacheId,
-        init_pipeline_id: CachedComputePipelineId,
-        update_pipeline_ids: Vec<CachedComputePipelineId>,
+        init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds>,
         dispatch_buffer_indices: DispatchBufferIndices,
         first_particle_group_buffer_index: u32,
     ) -> EffectBatches {
         EffectBatches {
             buffer_index: input.effect_slices.buffer_index,
             spawner_base,
-            spawn_count: input.spawn_count,
+            initializers: input.initializers.clone(),
             particle_layout: input.effect_slices.particle_layout,
             effect_cache_id,
             dispatch_buffer_indices,
@@ -129,9 +129,12 @@ impl EffectBatches {
             texture_layout: input.texture_layout,
             textures: input.textures,
             alpha_mode: input.alpha_mode,
-            render_shaders: input.effect_shader.render,
-            init_pipeline_id,
-            update_pipeline_ids,
+            render_shaders: input
+                .effect_shaders
+                .iter()
+                .map(|shaders| shaders.render.clone())
+                .collect(),
+            init_and_update_pipeline_ids,
             entities: vec![input.entity.index()],
         }
     }
@@ -149,8 +152,8 @@ pub(crate) struct BatchesInput {
     pub effect_slices: EffectSlices,
     /// Layout of the effect properties.
     pub property_layout: PropertyLayout,
-    /// Effect shader.
-    pub effect_shader: EffectShader,
+    /// Effect shaders.
+    pub effect_shaders: Vec<EffectShader>,
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
     /// Texture layout.
@@ -159,8 +162,8 @@ pub(crate) struct BatchesInput {
     pub textures: Vec<Handle<Image>>,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
-    /// Number of particles to spawn for this effect.
-    pub spawn_count: u32,
+    pub particle_layout: ParticleLayout,
+    pub initializers: Vec<EffectInitializer>,
     /// Emitter transform.
     pub transform: GpuCompressedTransform,
     /// Emitter inverse transform.
@@ -173,4 +176,10 @@ pub(crate) struct BatchesInput {
     /// Sort key, for 2D only.
     #[cfg(feature = "2d")]
     pub z_sort_key_2d: FloatOrd,
+}
+
+#[derive(Debug)]
+pub(crate) struct InitAndUpdatePipelineIds {
+    pub(crate) init: CachedComputePipelineId,
+    pub(crate) update: CachedComputePipelineId,
 }
