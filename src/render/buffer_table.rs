@@ -23,24 +23,24 @@ pub struct BufferTableId(pub(crate) u32); // TEMP: pub(crate)
 struct AllocatedBuffer {
     /// Currently allocated buffer, of size equal to `size`.
     buffer: Buffer,
-    /// Size of the currently allocated buffer, in bytes.
-    size: usize,
+    /// Size of the currently allocated buffer, in number of rows.
+    count: u32,
     /// Previously allocated buffer if any, cached until the next buffer write
     /// so that old data can be copied into the newly-allocated buffer.
     old_buffer: Option<Buffer>,
-    /// Size of the old buffer if any, in bytes.
-    old_size: usize,
+    /// Size of the old buffer if any, in number of rows.
+    old_count: u32,
 }
 
 impl AllocatedBuffer {
-    /// Get the size in bytes of the currently allocated GPU buffer.
+    /// Get the number of rows of the currently allocated GPU buffer.
     ///
-    /// On capacity grow, the size is valid until the next buffer swap.
-    pub fn allocated_size(&self) -> usize {
+    /// On capacity grow, the count is valid until the next buffer swap.
+    pub fn allocated_count(&self) -> u32 {
         if self.old_buffer.is_some() {
-            self.old_size
+            self.old_count
         } else {
-            self.size
+            self.count
         }
     }
 }
@@ -81,7 +81,7 @@ impl AllocatedBuffer {
 ///   pending.
 ///
 /// [`BufferVec`]: bevy::render::render_resource::BufferVec
-/// [`AlignedBufferVec`]: bevy_haanabi::render::aligned_buffer_vec::AlignedBufferVec
+/// [`AlignedBufferVec`]: crate::render::aligned_buffer_vec::AlignedBufferVec
 #[derive(Debug)]
 pub struct BufferTable<T: Pod + ShaderSize> {
     /// GPU buffer if already allocated, or `None` otherwise.
@@ -96,11 +96,11 @@ pub struct BufferTable<T: Pod + ShaderSize> {
     /// constraints.
     aligned_size: usize,
     /// Capacity of the buffer, in number of rows.
-    capacity: usize,
+    capacity: u32,
     /// Size of the "active" portion of the table, which includes allocated rows
     /// and any row in the free list. All other rows in the
     /// `active_size..capacity` range are implicitly unallocated.
-    active_size: usize,
+    active_count: u32,
     /// Free list of rows available in the GPU buffer for a new allocation. This
     /// only contains indices in the `0..active_size` range; all row indices in
     /// `active_size..capacity` are assumed to be unallocated.
@@ -126,7 +126,7 @@ impl<T: Pod + ShaderSize> Default for BufferTable<T> {
             item_size,
             aligned_size,
             capacity: 0,
-            active_size: 0,
+            active_count: 0,
             free_indices: Vec::new(),
             pending_values: Vec::new(),
             extra_pending_values: Vec::new(),
@@ -140,7 +140,9 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     /// `item_align` is an optional additional alignment for items in the
     /// collection. If greater than the natural alignment dictated by WGSL
     /// rules, this extra alignment is enforced. Otherwise it's ignored (so you
-    /// can pass `0` to ignore).
+    /// can pass `None` to ignore). This is useful if for example you want to
+    /// bind individual rows or any subset of the table, to ensure each row is
+    /// aligned to the device constraints.
     ///
     /// # Panics
     ///
@@ -210,15 +212,15 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     /// update with this capacity.
     #[inline]
     #[allow(dead_code)]
-    pub fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> u32 {
         self.capacity
     }
 
     /// Current number of rows in use in the table.
     #[inline]
     #[allow(dead_code)]
-    pub fn len(&self) -> usize {
-        self.active_size - self.free_indices.len()
+    pub fn len(&self) -> u32 {
+        self.active_count - self.free_indices.len() as u32
     }
 
     /// Size of a single row in the table, in bytes, aligned to GPU constraints.
@@ -232,7 +234,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     #[inline]
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
-        self.active_size == 0
+        self.active_count == 0
     }
 
     /// Clear all rows of the table without deallocating any existing GPU
@@ -246,7 +248,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         self.pending_values.clear();
         self.extra_pending_values.clear();
         self.free_indices.clear();
-        self.active_size = 0;
+        self.active_count = 0;
     }
 
     /// Clear any stale buffer used for resize in the previous frame during
@@ -258,8 +260,12 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     pub fn clear_previous_frame_resizes(&mut self) {
         if let Some(ab) = self.buffer.as_mut() {
             ab.old_buffer = None;
-            ab.old_size = 0;
+            ab.old_count = 0;
         }
+    }
+
+    fn to_byte_size(&self, count: u32) -> usize {
+        count as usize * self.aligned_size
     }
 
     /// Insert a new row into the table.
@@ -271,66 +277,56 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             "Inserting into table buffer with {} free indices, capacity: {}, active_size: {}",
             self.free_indices.len(),
             self.capacity,
-            self.active_size
+            self.active_count
         );
         let index = if self.free_indices.is_empty() {
-            let index = self.active_size;
+            let index = self.active_count;
             if index == self.capacity {
                 self.capacity += 1;
             }
             debug_assert!(index < self.capacity);
-            self.active_size += 1;
-            index as u32
+            self.active_count += 1;
+            index
         } else {
             // Note: this is inefficient O(n) but we need to apply the same logic as the
             // EffectCache because we rely on indices being in sync.
             self.free_indices.remove(0)
-        } as usize;
-        let allocated_size = self
+        };
+        let allocated_count = self
             .buffer
             .as_ref()
-            .map(|ab| ab.allocated_size())
+            .map(|ab| ab.allocated_count())
             .unwrap_or(0);
-        debug_assert!(allocated_size % self.aligned_size == 0);
         trace!(
-            "Found free index {}, capacity: {}, active_size: {}, allocated_size: {}",
+            "Found free index {}, capacity: {}, active_count: {}, allocated_count: {}",
             index,
             self.capacity,
-            self.active_size,
-            allocated_size
+            self.active_count,
+            allocated_count
         );
-        let allocated_count = allocated_size / self.aligned_size;
         if index < allocated_count {
-            self.pending_values.alloc().init((index as u32, value));
+            self.pending_values.alloc().init((index, value));
         } else {
             let extra_index = index - allocated_count;
-            if extra_index < self.extra_pending_values.len() {
-                self.extra_pending_values[extra_index] = value;
+            if extra_index < self.extra_pending_values.len() as u32 {
+                self.extra_pending_values[extra_index as usize] = value;
             } else {
                 self.extra_pending_values.alloc().init(value);
             }
         }
-        BufferTableId(index as u32)
+        BufferTableId(index)
     }
 
     /// Remove a row from the table.
     #[allow(dead_code)]
     pub fn remove(&mut self, id: BufferTableId) {
         let index = id.0;
-        assert!(index < self.active_size as u32);
-
-        // let allocated_size = self
-        //     .buffer
-        //     .as_ref()
-        //     .map(|ab| ab.allocated_size())
-        //     .unwrap_or(0);
-        // debug_assert!(allocated_size % self.aligned_size == 0);
-        // let allocated_count = allocated_size / self.aligned_size;
+        assert!(index < self.active_count);
 
         // If this is the last item in the active zone, just shrink the active zone
         // (implicit free list).
-        if index == self.active_size as u32 - 1 {
-            self.active_size -= 1;
+        if index == self.active_count - 1 {
+            self.active_count -= 1;
             self.capacity -= 1;
         } else {
             // This is very inefficient but we need to apply the same logic as the
@@ -363,38 +359,78 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         // The allocated capacity is the capacity of the currently allocated GPU buffer,
         // which can be different from the expected capacity (self.capacity) for next
         // update.
-        let allocated_size = self.buffer.as_ref().map(|ab| ab.size).unwrap_or(0);
-        let size = self.aligned_size * self.capacity;
-        let reallocated = if size > allocated_size {
+        let allocated_count = self.buffer.as_ref().map(|ab| ab.count).unwrap_or(0);
+        let reallocated = if self.capacity > allocated_count {
+            let size = self.to_byte_size(self.capacity);
             trace!(
-                "reserve: increase capacity from {} to {} elements, new size {} bytes",
-                allocated_size / self.aligned_size,
+                "reserve: increase capacity from {} to {} elements, old size {} bytes, new size {} bytes",
+                allocated_count,
                 self.capacity,
+                self.to_byte_size(allocated_count),
                 size
             );
 
             // Create the new buffer, swapping with the old one if any
+            let has_init_data = !self.extra_pending_values.is_empty();
             let new_buffer = device.create_buffer(&BufferDescriptor {
                 label: self.label.as_ref().map(|s| &s[..]),
                 size: size as BufferAddress,
                 usage: self.buffer_usage,
-                mapped_at_creation: false,
+                mapped_at_creation: has_init_data,
             });
+
+            // Use any pending data to initialize the buffer. We only use CPU-available
+            // data, which was inserted after the buffer was (re-)allocated and
+            // has not been uploaded to GPU yet.
+            if has_init_data {
+                // Leave some space to copy the old buffer if any
+                let base_size = self.to_byte_size(allocated_count) as u64;
+                let extra_size = self.to_byte_size(self.extra_pending_values.len() as u32) as u64;
+
+                // Scope get_mapped_range_mut() to force a drop before unmap()
+                {
+                    let dst_slice = &mut new_buffer
+                        .slice(base_size..base_size + extra_size)
+                        .get_mapped_range_mut();
+
+                    for (index, content) in self.extra_pending_values.drain(..).enumerate() {
+                        let byte_size = self.aligned_size; // single row
+                        let byte_offset = byte_size * index;
+
+                        // Copy Rust value into a GPU-ready format, including GPU padding.
+                        let src: &[u8] = cast_slice(std::slice::from_ref(&content));
+                        let dst_range = byte_offset..byte_offset + self.item_size;
+                        trace!(
+                            "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
+                            index,
+                            src.as_ptr(),
+                            dst_range,
+                            byte_offset,
+                            byte_size
+                        );
+                        let dst = &mut dst_slice[dst_range];
+                        dst.copy_from_slice(src);
+                    }
+                }
+
+                new_buffer.unmap();
+            }
+
             if let Some(ab) = self.buffer.as_mut() {
                 // If there's any data currently in the GPU buffer, we need to copy it on next
                 // update to preserve it, but only if there's no pending copy already.
-                if self.active_size > 0 && ab.old_buffer.is_none() {
+                if self.active_count > 0 && ab.old_buffer.is_none() {
                     ab.old_buffer = Some(ab.buffer.clone()); // TODO: swap
-                    ab.old_size = ab.size;
+                    ab.old_count = ab.count;
                 }
                 ab.buffer = new_buffer;
-                ab.size = size;
+                ab.count = self.capacity;
             } else {
                 self.buffer = Some(AllocatedBuffer {
                     buffer: new_buffer,
-                    size,
+                    count: self.capacity,
                     old_buffer: None,
-                    old_size: 0,
+                    old_count: 0,
                 });
             }
 
@@ -403,9 +439,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             false
         };
 
-        // Immediately schedule a copy of all pending rows.
-        // - For new rows, copy directly in the new buffer, which is the only one that
-        //   can hold them since the old buffer was too small.
+        // Immediately schedule a copy of old rows.
         // - For old rows, copy into the old buffer because the old-to-new buffer copy
         //   will be executed during a command queue while any CPU to GPU upload is
         //   prepended before the next command queue. To ensure things do get out of
@@ -437,43 +471,6 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 // TODO - Merge contiguous blocks into a single write_buffer()
                 let bytes: &[u8] = cast_slice(&aligned_buffer);
                 queue.write_buffer(buffer, byte_offset as u64, bytes);
-            }
-
-            // If there's any extra values, this means the buffer was (re)allocated, so we
-            // can schedule copies of those rows into the new buffer which has enough
-            // capacity for them.
-            if !self.extra_pending_values.is_empty() {
-                let base_size = ab.old_size;
-                debug_assert!(base_size % self.aligned_size == 0);
-                let base_count = base_size / self.aligned_size;
-                let buffer = &ab.buffer;
-                for (rel_index, content) in self.extra_pending_values.drain(..).enumerate() {
-                    let index = base_count + rel_index;
-                    let byte_size = self.aligned_size; // single row
-                    let byte_offset = byte_size * index;
-
-                    // Copy Rust value into a GPU-ready format, including GPU padding.
-                    // TODO - Do that in insert()!
-                    let mut aligned_buffer: Vec<u8> = vec![0; self.aligned_size];
-                    let src: &[u8] = cast_slice(std::slice::from_ref(&content));
-                    let dst_range = ..self.item_size;
-                    trace!(
-                        "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
-                        index,
-                        src.as_ptr(),
-                        dst_range,
-                        byte_offset,
-                        byte_size
-                    );
-                    let dst = &mut aligned_buffer[dst_range];
-                    dst.copy_from_slice(src);
-
-                    // Upload to GPU
-                    // TODO - Merge contiguous blocks into a single write_buffer()
-                    // ESPECIALLY SINCE THIS IS TRIVIAL FOR THIS CASE!!!
-                    let bytes: &[u8] = cast_slice(&aligned_buffer);
-                    queue.write_buffer(buffer, byte_offset as u64, bytes);
-                }
             }
         } else {
             debug_assert!(self.pending_values.is_empty());
@@ -515,8 +512,9 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         // which stays alive until the copy is done (but we don't need to care about
         // keeping it alive, wgpu does that for us).
         if let Some(old_buffer) = ab.old_buffer.as_ref() {
-            trace!("Copy old buffer id {:?} of size {} bytes into newly-allocated buffer {:?} of size {} bytes.", old_buffer.id(), ab.old_size, ab.buffer.id(), ab.size);
-            encoder.copy_buffer_to_buffer(old_buffer, 0, &ab.buffer, 0, ab.old_size as u64);
+            let old_size = self.to_byte_size(ab.old_count) as u64;
+            trace!("Copy old buffer id {:?} of size {} bytes into newly-allocated buffer {:?} of size {} bytes.", old_buffer.id(), old_size, ab.buffer.id(), self.to_byte_size(ab.count));
+            encoder.copy_buffer_to_buffer(old_buffer, 0, &ab.buffer, 0, old_size);
         }
     }
 }
@@ -754,7 +752,7 @@ mod gpu_tests {
 
         // Insert some entries
         let len = 3;
-        for i in 0..len as u32 {
+        for i in 0..len {
             let row = table.insert(GpuDummyComposed {
                 tag: i + 1,
                 ..Default::default()
@@ -776,11 +774,11 @@ mod gpu_tests {
             .as_ref()
             .expect("GPU buffer should be allocated after allocate_gpu()");
         assert!(ab.old_buffer.is_none()); // no previous copy
-        assert_eq!(ab.size, table.aligned_size() * len);
+        assert_eq!(ab.count, len);
         println!(
-            "Allocated buffer #{:?} of size {} bytes",
+            "Allocated buffer #{:?} of {} rows",
             ab.buffer.id(),
-            ab.size
+            ab.count
         );
         let ab_buffer = ab.buffer.clone();
 
@@ -794,7 +792,7 @@ mod gpu_tests {
             .as_ref()
             .expect("GPU buffer should be allocated after allocate_gpu()");
         assert!(ab.old_buffer.is_none()); // no previous copy
-        assert_eq!(ab.size, table.aligned_size() * len);
+        assert_eq!(ab.count, len);
         assert_eq!(ab_buffer.id(), ab.buffer.id()); // same buffer
 
         // Write buffer (CPU -> GPU)
@@ -812,8 +810,8 @@ mod gpu_tests {
                 );
 
                 // Validate content
-                assert_eq!(view.len(), final_align as usize * table.capacity());
-                for i in 0..len {
+                assert_eq!(view.len(), final_align as usize * table.capacity() as usize);
+                for i in 0..len as usize {
                     let offset = i * final_align as usize;
                     let item_size = std::mem::size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];
@@ -831,7 +829,7 @@ mod gpu_tests {
 
         // Insert more entries
         let old_capacity = table.capacity();
-        let mut len = len as u32;
+        let mut len = len;
         while table.capacity() == old_capacity {
             let row = table.insert(GpuDummyComposed {
                 tag: len + 1,
@@ -846,7 +844,6 @@ mod gpu_tests {
             old_capacity,
             table.capacity()
         );
-        let len = len as usize;
 
         // This re-allocates a new GPU buffer because the capacity changed
         table.allocate_gpu(&device, &queue);
@@ -857,13 +854,13 @@ mod gpu_tests {
             .buffer
             .as_ref()
             .expect("GPU buffer should be allocated after allocate_gpu()");
-        assert_eq!(ab.size, table.aligned_size() * len);
+        assert_eq!(ab.count, len);
         assert!(ab.old_buffer.is_some()); // old buffer to copy
         assert_ne!(ab.old_buffer.as_ref().unwrap().id(), ab.buffer.id());
         println!(
-            "Allocated new buffer #{:?} of size {} bytes",
+            "Allocated new buffer #{:?} of {} rows",
             ab.buffer.id(),
-            ab.size
+            ab.count
         );
 
         // Write buffer (CPU -> GPU)
@@ -881,8 +878,8 @@ mod gpu_tests {
                 );
 
                 // Validate content
-                assert_eq!(view.len(), final_align as usize * table.capacity());
-                for i in 0..len {
+                assert_eq!(view.len(), final_align as usize * table.capacity() as usize);
+                for i in 0..len as usize {
                     let offset = i * final_align as usize;
                     let item_size = std::mem::size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];
@@ -901,7 +898,7 @@ mod gpu_tests {
         // Delete the last allocated row
         let old_capacity = table.capacity();
         let len = len - 1;
-        table.remove(BufferTableId(len as u32));
+        table.remove(BufferTableId(len));
         println!(
             "Removed last row to shrink capacity from {} to {}.",
             old_capacity,
@@ -917,7 +914,7 @@ mod gpu_tests {
             .buffer
             .as_ref()
             .expect("GPU buffer should be allocated after allocate_gpu()");
-        assert_eq!(ab.size, table.aligned_size() * (len + 1)); // GPU buffer kept its size
+        assert_eq!(ab.count, len + 1); // GPU buffer kept its size
         assert!(ab.old_buffer.is_none());
 
         // Write buffer (CPU -> GPU)
@@ -935,8 +932,8 @@ mod gpu_tests {
                 );
 
                 // Validate content
-                assert!(view.len() >= final_align as usize * table.capacity()); // note the >=, the buffer is over-allocated
-                for i in 0..len {
+                assert!(view.len() >= final_align as usize * table.capacity() as usize); // note the >=, the buffer is over-allocated
+                for i in 0..len as usize {
                     let offset = i * final_align as usize;
                     let item_size = std::mem::size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];
@@ -954,15 +951,16 @@ mod gpu_tests {
 
         // Delete the first allocated row
         let old_capacity = table.capacity();
-        let len = len - 1;
+        let mut len = len - 1;
         table.remove(BufferTableId(0));
+        assert_eq!(old_capacity, table.capacity());
         println!(
-            "Removed first row to shrink capacity from {} to {}.",
+            "Removed first row to shrink capacity from {} to {} (no change).",
             old_capacity,
             table.capacity()
         );
 
-        // This doesn't do anything since we removed a row only
+        // This doesn't do anything since we only removed a row
         table.allocate_gpu(&device, &queue);
         assert!(!table.is_empty());
         assert_eq!(table.len(), len);
@@ -971,7 +969,7 @@ mod gpu_tests {
             .buffer
             .as_ref()
             .expect("GPU buffer should be allocated after allocate_gpu()");
-        assert_eq!(ab.size, table.aligned_size() * (len + 2)); // GPU buffer kept its size
+        assert_eq!(ab.count, len + 2); // GPU buffer kept its size
         assert!(ab.old_buffer.is_none());
 
         // Write buffer (CPU -> GPU)
@@ -989,8 +987,8 @@ mod gpu_tests {
                 );
 
                 // Validate content
-                assert!(view.len() >= final_align as usize * table.capacity()); // note the >=, the buffer is over-allocated
-                for i in 0..len {
+                assert!(view.len() >= final_align as usize * table.capacity() as usize); // note the >=, the buffer is over-allocated
+                for i in 0..len as usize {
                     let offset = i * final_align as usize;
                     let item_size = std::mem::size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];
@@ -1009,7 +1007,6 @@ mod gpu_tests {
         table.clear_previous_frame_resizes();
 
         // Insert a row; this should get into row #0 in the buffer
-        let mut len = len as u32;
         let row = table.insert(GpuDummyComposed {
             tag: 1,
             ..Default::default()
@@ -1021,7 +1018,6 @@ mod gpu_tests {
             old_capacity,
             table.capacity()
         );
-        let len = len as usize;
 
         // This doesn't reallocate the GPU buffer since we used a free list entry
         table.allocate_gpu(&device, &queue);
@@ -1032,7 +1028,7 @@ mod gpu_tests {
             .buffer
             .as_ref()
             .expect("GPU buffer should be allocated after allocate_gpu()");
-        assert_eq!(ab.size, table.aligned_size() * 4); // 4 == last time we grew
+        assert_eq!(ab.count, 4); // 4 == last time we grew
         assert!(ab.old_buffer.is_none());
 
         // Write buffer (CPU -> GPU)
@@ -1050,8 +1046,8 @@ mod gpu_tests {
                 );
 
                 // Validate content
-                assert!(view.len() >= final_align as usize * table.capacity());
-                for i in 0..len {
+                assert!(view.len() >= final_align as usize * table.capacity() as usize);
+                for i in 0..len as usize {
                     let offset = i * final_align as usize;
                     let item_size = std::mem::size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];
@@ -1068,7 +1064,6 @@ mod gpu_tests {
         table.clear_previous_frame_resizes();
 
         // Insert a row; this should get into row #3 at the end of the allocated buffer
-        let mut len = len as u32;
         let row = table.insert(GpuDummyComposed {
             tag: 4,
             ..Default::default()
@@ -1080,7 +1075,6 @@ mod gpu_tests {
             old_capacity,
             table.capacity()
         );
-        let len = len as usize;
 
         // This doesn't reallocate the GPU buffer since we used an implicit free entry
         table.allocate_gpu(&device, &queue);
@@ -1091,7 +1085,7 @@ mod gpu_tests {
             .buffer
             .as_ref()
             .expect("GPU buffer should be allocated after allocate_gpu()");
-        assert_eq!(ab.size, table.aligned_size() * 4); // 4 == last time we grew
+        assert_eq!(ab.count, 4); // 4 == last time we grew
         assert!(ab.old_buffer.is_none());
 
         // Write buffer (CPU -> GPU)
@@ -1109,8 +1103,8 @@ mod gpu_tests {
                 );
 
                 // Validate content
-                assert!(view.len() >= final_align as usize * table.capacity());
-                for i in 0..len {
+                assert!(view.len() >= final_align as usize * table.capacity() as usize);
+                for i in 0..len as usize {
                     let offset = i * final_align as usize;
                     let item_size = std::mem::size_of::<GpuDummyComposed>();
                     let src = &view[offset..offset + 16];

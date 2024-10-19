@@ -3633,15 +3633,18 @@ impl Node for VfxSimulateNode {
 
         // Make sure to schedule any buffer copy from changed effects before accessing
         // them
-        effects_meta
-            .dispatch_indirect_buffer
-            .write_buffer(render_context.command_encoder());
-        effects_meta
-            .render_effect_dispatch_buffer
-            .write_buffer(render_context.command_encoder());
-        effects_meta
-            .render_group_dispatch_buffer
-            .write_buffer(render_context.command_encoder());
+        {
+            let command_encoder = render_context.command_encoder();
+            effects_meta
+                .dispatch_indirect_buffer
+                .write_buffer(command_encoder);
+            effects_meta
+                .render_effect_dispatch_buffer
+                .write_buffer(command_encoder);
+            effects_meta
+                .render_group_dispatch_buffer
+                .write_buffer(command_encoder);
+        }
 
         // Compute init pass
         // let mut total_group_count = 0;
