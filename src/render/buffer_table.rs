@@ -297,7 +297,6 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             .as_ref()
             .map(|ab| ab.allocated_count())
             .unwrap_or(0);
-        let allocated_size = self.to_byte_size(allocated_count);
         trace!(
             "Found free index {}, capacity: {}, active_count: {}, allocated_count: {}",
             index,
