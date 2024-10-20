@@ -2,7 +2,7 @@
     ParticleGroup, SimParams,
     DI_OFFSET_X, DI_OFFSET_PONG,
     RGI_OFFSET_ALIVE_COUNT, RGI_OFFSET_MAX_UPDATE, RGI_OFFSET_DEAD_COUNT,
-    REM_OFFSET_MAX_SPAWN, RGI_OFFSET_INSTANCE_COUNT, REM_OFFSET_PING,
+    REM_OFFSET_MAX_SPAWN, RGI_OFFSET_INSTANCE_COUNT, REM_OFFSET_EVENT_COUNT, REM_OFFSET_PING,
     DISPATCH_INDIRECT_STRIDE, RENDER_EFFECT_INDIRECT_STRIDE, RENDER_GROUP_INDIRECT_STRIDE
 }
 
@@ -57,9 +57,11 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // atomically modifying alive_count itself for next frame.
     render_group_indirect_buffer[rgi_base + RGI_OFFSET_MAX_UPDATE] = alive_count;
 
+    // Always clear the number of GPU events before the next update increments it again
+    let rem_base = RENDER_EFFECT_INDIRECT_STRIDE * effect_index;
+    //render_effect_indirect_buffer[rem_base + REM_OFFSET_EVENT_COUNT] = 0u;
+    
     if (is_first_group) {
-        let rem_base = RENDER_EFFECT_INDIRECT_STRIDE * effect_index;
-
         // Copy the number of dead particles to a constant location, so that the
         // init pass on next frame can atomically modify dead_count in parallel
         // yet still read its initial value at the beginning of the init pass,

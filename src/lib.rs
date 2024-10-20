@@ -875,7 +875,7 @@ impl EffectShaderSource {
         let mut children_event_buffer_bindings_code = String::with_capacity(256);
         let mut children_event_buffer_append_code = String::with_capacity(1024);
         for i in 0..num_event_bindings {
-            let binding_index = base_binding_index + i * 2;
+            let binding_index = base_binding_index + i;
             children_event_buffer_bindings_code.push_str(&format!(
                 "@group(1) @binding({binding_index}) var<storage, read_write> event_buffer_{i} : EventBuffer;\n"));
             children_event_buffer_append_code.push_str(&format!(
@@ -1985,7 +1985,7 @@ else { return c1; }
         let asset = EffectAsset::new(vec![256], Spawner::rate(32.0.into()), module)
             .with_simulation_space(SimulationSpace::Local);
         assert_eq!(asset.simulation_space, SimulationSpace::Local);
-        let res = EffectShaderSource::generate(&asset, None);
+        let res = EffectShaderSource::generate(&asset, None, 0);
         assert!(res.is_err());
         let err = res.err().unwrap();
         assert!(matches!(err, ShaderGenerateError::Validate(_)));
@@ -1996,7 +1996,7 @@ else { return c1; }
         let asset = EffectAsset::new(vec![256], Spawner::rate(32.0.into()), module)
             .init(SetAttributeModifier::new(Attribute::VELOCITY, zero));
         assert!(asset.particle_layout().size() > 0);
-        let res = EffectShaderSource::generate(&asset, None);
+        let res = EffectShaderSource::generate(&asset, None, 0);
         assert!(res.is_err());
         let err = res.err().unwrap();
         assert!(matches!(err, ShaderGenerateError::Validate(_)));
@@ -2008,7 +2008,7 @@ else { return c1; }
             .with_simulation_space(SimulationSpace::Local)
             .init(SetAttributeModifier::new(Attribute::POSITION, zero));
         assert_eq!(asset.simulation_space, SimulationSpace::Local);
-        let res = EffectShaderSource::generate(&asset, None);
+        let res = EffectShaderSource::generate(&asset, None, 0);
         assert!(res.is_ok());
         let shader_source = res.unwrap();
         for (name, code) in iter::once(("Init", &shader_source.init))

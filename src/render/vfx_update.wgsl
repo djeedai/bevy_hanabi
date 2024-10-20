@@ -22,8 +22,7 @@ struct ParticleBuffer {
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
 {{PROPERTIES_BINDING}}
 #ifdef EMITS_GPU_SPAWN_EVENTS
-@group(1) @binding(4) var<uniform> instance_info : InstanceInfo;
-@group(1) @binding(5) var<storage, read_write> init_indirect_dispatch : array<InitIndirectDispatch>;
+@group(1) @binding(4) var<storage, read_write> init_indirect_dispatch : array<InitIndirectDispatch>;
 {{CHILDREN_EVENT_BUFFER_BINDINGS}}
 #endif
 

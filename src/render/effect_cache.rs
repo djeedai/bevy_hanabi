@@ -249,19 +249,6 @@ impl EffectBuffer {
                 },
                 count: None,
             });
-
-            // @group(1) @binding(5) var<storage, read_write> init_indirect_dispatch :
-            // InitIndirectDispatch
-            entries.push(BindGroupLayoutEntry {
-                binding: 5,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(16), // sizeof(InitIndirectDispatch)
-                },
-                count: None,
-            });
         }
 
         // @group(1) @binding(6) var<storage, read> parent_particle_buffer :
@@ -362,21 +349,10 @@ impl EffectBuffer {
         }
 
         if num_event_buffers > 0 {
-            // @group(1) @binding(4) var<uniform> instance_info : InstanceInfo
+            // @group(1) @binding(4) var<storage, read_write> init_indirect_dispatch :
+            // array<InitIndirectDispatch>
             entries.push(BindGroupLayoutEntry {
                 binding: 4,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(4), // sizeof(InstanceInfo)
-                },
-                count: None,
-            });
-
-            // @group(1) @binding(5) var<storage, read_write> init_indirect_dispatch : array<InitIndirectDispatch>
-            entries.push(BindGroupLayoutEntry {
-                binding: 5,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: false },
@@ -388,7 +364,7 @@ impl EffectBuffer {
 
             // N times: @group(1) @binding(...) var<storage, read_write> event_buffer_N :
             // EventBuffer
-            let mut next_binding_index = 6;
+            let mut next_binding_index = 5;
             for _ in 0..num_event_buffers {
                 entries.push(BindGroupLayoutEntry {
                     binding: next_binding_index,
@@ -1210,17 +1186,10 @@ impl EffectCache {
                 resource: property_binding,
             });
         }
-        let event_indirect_dispatch_buffer_binding = self.init_indirect_dispatch_buffer_binding();
-        if let (Some(event_buffer_binding), Some(event_indirect_dispatch_buffer_binding)) =
-            (event_buffer_binding, event_indirect_dispatch_buffer_binding)
-        {
+        if let Some(event_buffer_binding) = event_buffer_binding {
             bindings.push(BindGroupEntry {
                 binding: 4,
                 resource: event_buffer_binding,
-            });
-            bindings.push(BindGroupEntry {
-                binding: 5,
-                resource: event_indirect_dispatch_buffer_binding,
             });
         }
         if let Some(parent_buffer) = parent_buffer_binding {
@@ -1306,12 +1275,18 @@ impl EffectCache {
                 resource: property_binding,
             });
         }
+        if !child_ids.is_empty() {
+            bindings.push(BindGroupEntry {
+                binding: 4,
+                resource: self.init_indirect_dispatch_buffer_binding().unwrap(),
+            });
+        }
         // The buffer has one or more child effect(s), and those effects each own an
         // event buffer we need to bind in order to write events to.
         // Note: we need to store those bindings in a second array (Vec) to keep them
         // alive while the first array (`bindings`) references them.
         let mut child_bindings = Vec::with_capacity(child_ids.len());
-        let mut next_binding_index = 4;
+        let mut next_binding_index = 5;
         for buffer_id in child_ids {
             if let (Some(event_buffer_binding), Some(_event_dispatch_index)) = (
                 self.get_event_buffer(*buffer_id),
@@ -1323,16 +1298,12 @@ impl EffectCache {
             // Increment always, even if a buffer is not available, as the index binding is
             // mapped 1:1 with children. We will just miss a buffer and not be able to write
             // events for that particular child effect.
-            next_binding_index += 2;
+            next_binding_index += 1;
         }
         for (binding_index, ebb) in &child_bindings[..] {
             bindings.push(BindGroupEntry {
                 binding: *binding_index,
                 resource: ebb.binding(),
-            });
-            bindings.push(BindGroupEntry {
-                binding: *binding_index + 1,
-                resource: self.init_indirect_dispatch_buffer_binding().unwrap(),
             });
         }
 
@@ -2015,6 +1986,7 @@ mod gpu_tests {
             None,
             &empty_property_layout,
             LayoutFlags::NONE,
+            0,
             DispatchBufferIndices::default(),
         );
         assert!(id1.is_valid());
@@ -2034,6 +2006,7 @@ mod gpu_tests {
             None,
             &empty_property_layout,
             LayoutFlags::NONE,
+            0,
             DispatchBufferIndices::default(),
         );
         assert!(id2.is_valid());
@@ -2063,6 +2036,7 @@ mod gpu_tests {
             None,
             &empty_property_layout,
             LayoutFlags::NONE,
+            0,
             DispatchBufferIndices::default(),
         );
         assert!(id3.is_valid());

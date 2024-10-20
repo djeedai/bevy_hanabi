@@ -22,7 +22,13 @@ use crate::{
     compile_effects, gather_removed_effects,
     properties::EffectProperties,
     render::{
-        extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects, prepare_gpu_resources, queue_effects, DebugSettings, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects, GpuBufferOperationQueue, GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect, GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline, RenderDebugSettings, ShaderCache, SimParams, StorageType as _, UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode
+        extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects,
+        prepare_gpu_resources, queue_effects, DebugSettings, DispatchIndirectPipeline, DrawEffects,
+        EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects,
+        GpuBufferOperationQueue, GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata,
+        GpuRenderGroupIndirect, GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline,
+        ParticlesUpdatePipeline, RenderDebugSettings, ShaderCache, SimParams, StorageType as _,
+        UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,

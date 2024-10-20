@@ -310,6 +310,7 @@ impl Default for GpuDispatchIndirect {
 pub struct GpuRenderEffectMetadata {
     pub max_spawn: u32,
     pub ping: u32,
+    pub event_count: u32,
 }
 
 #[repr(C)]

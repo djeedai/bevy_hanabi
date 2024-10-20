@@ -127,6 +127,7 @@ const DISPATCH_INDIRECT_STRIDE: u32 = {{DISPATCH_INDIRECT_STRIDE}} / 4u;
 // in the RenderIndirect struct.
 const REM_OFFSET_MAX_SPAWN: u32 = 0u;
 const REM_OFFSET_PING: u32 = 1u;
+const REM_OFFSET_EVENT_COUNT: u32 = 2u;
 
 const RGI_OFFSET_VERTEX_COUNT: u32 = 0u;
 const RGI_OFFSET_INSTANCE_COUNT: u32 = 1u;
@@ -150,6 +151,8 @@ struct RenderEffectMetadata {
     /// always write into the ping buffer and read from the pong buffer. The buffers
     /// are swapped during the indirect dispatch.
     ping: u32,
+    /// Number of GPU spawn events for this frame.
+    event_count: atomic<u32>,
     /// Padding for storage buffer alignment. This struct is sometimes bound as part
     /// of an array, or sometimes individually as a single unit. In the later case,
     /// we need it to be aligned to the GPU limits of the device. That limit is only
