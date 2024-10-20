@@ -15,18 +15,14 @@ use bevy::{
     time::{time_system, TimeSystem},
 };
 
+#[cfg(feature = "serde")]
+use crate::asset::EffectAssetLoader;
 use crate::{
     asset::EffectAsset,
     compile_effects, gather_removed_effects,
     properties::EffectProperties,
     render::{
-        extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects,
-        prepare_gpu_resources, queue_effects, DispatchIndirectPipeline, DrawEffects,
-        EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects,
-        GpuBufferOperationQueue, GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata,
-        GpuRenderGroupIndirect, GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline,
-        ParticlesUpdatePipeline, ShaderCache, SimParams, StorageType as _, UtilsPipeline,
-        VfxSimulateDriverNode, VfxSimulateNode,
+        extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects, prepare_gpu_resources, queue_effects, DebugSettings, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects, GpuBufferOperationQueue, GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect, GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline, RenderDebugSettings, ShaderCache, SimParams, StorageType as _, UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode
     },
     spawn::{self, Random},
     tick_spawners,
@@ -34,9 +30,6 @@ use crate::{
     update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
     RemovedEffectsEvent, Spawner, ToWgslString,
 };
-
-#[cfg(feature = "serde")]
-use crate::asset::EffectAssetLoader;
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]

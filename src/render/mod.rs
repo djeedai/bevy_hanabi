@@ -48,7 +48,6 @@ use bytemuck::{Pod, Zeroable};
 use effect_cache::EffectBuffer;
 use fixedbitset::FixedBitSet;
 use naga_oil::compose::{Composer, NagaModuleDescriptor};
-// use rand::random;
 
 use crate::{
     asset::EffectAsset,
@@ -352,14 +351,6 @@ pub struct GpuParticleGroup {
     /// Offset (in u32 count) of the event indirect dispatch struct inside its
     /// buffer. This avoids having to align those 16-byte structs to the GPU
     /// alignment (at least 32 bytes, even 256 bytes on some).
-    pub init_indirect_dispatch_index: u32,
-}
-
-/// GPU representation of the metadata for a single effect instance.
-#[repr(C)]
-#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
-pub(crate) struct GpuInstanceInfo {
-    /// Index of the `InitIndirectDispatch` struct inside the bound array.
     pub init_indirect_dispatch_index: u32,
 }
 
@@ -769,7 +760,22 @@ impl GpuBufferOperationQueue {
         // Push entries into the final storage before GPU upload. It's a bit unfortunate
         // we have to make copies, but those arrays should be small.
         let mut sorted_args = Vec::with_capacity(self.init_fill_dispatch.len());
+        let mut prev_buffer = u32::MAX;
         for ifda in &self.init_fill_dispatch {
+            if !sorted_args.is_empty() && (prev_buffer == ifda.event_buffer_index) {
+                prev_buffer = ifda.event_buffer_index;
+                let prev_idx = sorted_args.len() - 1;
+                let prev: &mut GpuBufferOperationArgs = &mut sorted_args[prev_idx];
+                let cur = &self.args_buffer_unsorted[ifda.args_index as usize];
+                if prev.src_stride == cur.src_stride
+                    && prev.src_offset + prev.src_stride * prev.count == cur.src_offset
+                    && prev.dst_offset + 4 * prev.count == cur.dst_offset
+                {
+                    prev.count += 1;
+                    continue;
+                }
+            }
+            prev_buffer = ifda.event_buffer_index;
             sorted_args.push(self.args_buffer_unsorted[ifda.args_index as usize]);
         }
         self.args_buffer.set_content(sorted_args);
@@ -936,7 +942,7 @@ impl FromWorld for UtilsPipeline {
         let pipeline_layout_no_src =
             render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("hanabi:pipeline_layout:utils_no_src"),
-                bind_group_layouts: &[&bind_group_layout],
+                bind_group_layouts: &[&bind_group_layout_no_src],
                 push_constant_ranges: &[],
             });
 
@@ -1875,7 +1881,6 @@ pub(crate) fn extract_effects(
     virtual_time: Extract<Res<Time<Virtual>>>,
     time: Extract<Res<Time<EffectSimulation>>>,
     effects: Extract<Res<Assets<EffectAsset>>>,
-    _images: Extract<Res<Assets<Image>>>,
     mut query: Extract<
         ParamSet<(
             // All existing ParticleEffect components
@@ -2197,7 +2202,6 @@ pub struct EffectsMeta {
     /// buffer.
     init_render_indirect_bind_group: Option<BindGroup>,
     sim_params_uniforms: UniformBuffer<GpuSimParams>,
-    instance_info_uniforms: UniformBuffer<GpuInstanceInfo>,
     spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
     dispatch_indirect_buffer: BufferTable<GpuDispatchIndirect>,
     /// Stores the GPU `RenderEffectMetadata` structures, which describe mutable
@@ -2253,7 +2257,6 @@ impl EffectsMeta {
             dr_indirect_bind_group: None,
             init_render_indirect_bind_group: None,
             sim_params_uniforms: UniformBuffer::default(),
-            instance_info_uniforms: UniformBuffer::default(),
             spawner_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
                 NonZeroU64::new(item_align),
@@ -2361,6 +2364,7 @@ impl EffectsMeta {
         trace!("Adding {} newly spawned effects", added_effects.len());
         for added_effect in added_effects.drain(..) {
             let total_capacity = added_effect.capacities.iter().cloned().sum();
+            trace!("+ added effect: total_capacity={total_capacity}");
 
             let first_update_group_dispatch_buffer_index = allocate_sequential_buffers(
                 &mut self.dispatch_indirect_buffer,
@@ -2536,11 +2540,6 @@ pub(crate) fn prepare_effects(
 ) {
     trace!("prepare_effects");
 
-    // Allocate spawner buffer if needed
-    // if effects_meta.spawner_buffer.is_empty() {
-    //    effects_meta.spawner_buffer.push(GpuSpawnerParams::default());
-    //}
-
     // Write vertices (TODO - lazily once only)
     effects_meta
         .vertices
@@ -2680,9 +2679,9 @@ pub(crate) fn prepare_effects(
                 event_buffer_index,
                 event_slice,
                 GpuBufferOperationArgs {
-                    src_offset: base_offset,
+                    src_offset: base_offset + 3,
                     src_stride: stride,
-                    dst_offset: base_offset + 3,
+                    dst_offset: base_offset,
                     count: 1, // FIXME - should be a batch here!!
                 },
             );
@@ -2926,11 +2925,6 @@ pub(crate) fn prepare_effects(
         // Buffer changed, invalidate bind groups
         effects_meta.sim_params_bind_group = None;
     }
-
-    // Update instance infos
-    effects_meta
-        .instance_info_uniforms
-        .set(GpuInstanceInfo::default());
 }
 
 /// Per-buffer bind groups for a GPU effect buffer.
@@ -4326,7 +4320,7 @@ impl Node for VfxSimulateNode {
                     });
 
             {
-                trace!("loop over effect batches...");
+                trace!("init: loop over effect batches...");
 
                 // Dispatch init compute jobs
                 for (entity, batches) in self.effect_query.iter_manual(world) {
@@ -4355,6 +4349,10 @@ impl Node for VfxSimulateNode {
                         //         err
                         //     );
                         // }
+                        trace!(
+                            "-> missing init pipeline id #{:?}, ignoring batch...",
+                            batches.init_pipeline_id
+                        );
                         continue;
                     };
 
@@ -4365,6 +4363,7 @@ impl Node for VfxSimulateNode {
                     // Do not dispatch any init work if there's nothing to spawn this frame
                     let spawn_count = batches.spawn_count;
                     if spawn_count == 0 && !indirect_dispatch {
+                        trace!("-> init batch empty (spawn_count={spawn_count}, indirect_dispatch={indirect_dispatch})");
                         continue;
                     }
 

@@ -17,11 +17,6 @@ struct SimParams {
     num_groups: u32,
 }
 
-struct InstanceInfo {
-    /// Index of the InitIndirectDispatch struct inside the bound array.
-    init_indirect_dispatch_index: u32,
-}
-
 struct Spawner {
     transform: mat3x4<f32>, // transposed (row-major)
     inverse_transform: mat3x4<f32>, // transposed (row-major)
@@ -142,7 +137,7 @@ const RGI_OFFSET_MAX_UPDATE: u32 = 5u;
 const RGI_OFFSET_DEAD_COUNT: u32 = 6u;
 
 struct RenderEffectMetadata {
-    /// Maxmimum number of init threads to run on next frame. This is cached from
+    /// Maximum number of init threads to run on next frame. This is cached from
     /// `dead_count` during the indirect dispatch of the previous frame, so that the
     /// init compute pass can cap its thread count while also decrementing the actual
     /// `dead_count` as particles are spawned.

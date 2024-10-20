@@ -1,18 +1,16 @@
 use std::ops::Deref;
 
+#[cfg(feature = "serde")]
+use bevy::asset::{io::Reader, AssetLoader, AsyncReadExt, LoadContext};
 use bevy::{
     asset::Asset,
     prelude::{Component, Entity},
     reflect::Reflect,
     utils::{default, HashSet},
 };
-
-#[cfg(feature = "serde")]
-use bevy::asset::{io::Reader, AssetLoader, AsyncReadExt, LoadContext};
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
 use thiserror::Error;
-
-use serde::{Deserialize, Serialize};
 
 use crate::{
     modifier::{Modifier, RenderModifier},

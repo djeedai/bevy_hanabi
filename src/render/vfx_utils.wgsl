@@ -75,7 +75,8 @@ fn fill_dispatch_args_self(@builtin(global_invocation_id) global_invocation_id: 
         return;
     }
     let src = args.src_offset + thread_index * args.src_stride;
-    let dst = args.dst_offset + thread_index * 16u;
+    // Note: we always assume 16-byte dispatch indirect structs
+    let dst = args.dst_offset + thread_index * 4u;
     // Note: only the dst_buffer is used
     let thread_count = dst_buffer[src];
     let workgroup_count = calc_workground_count(thread_count);
