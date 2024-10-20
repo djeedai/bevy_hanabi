@@ -1,4 +1,7 @@
-use std::num::NonZeroU64;
+use std::{
+    borrow::Cow,
+    num::{NonZeroU32, NonZeroU64},
+};
 
 use bevy::{
     log::trace,
@@ -185,6 +188,33 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         }
     }
 
+    /// Get a safe buffer label for debug display.
+    ///
+    /// Falls back to an empty string if no label was specified.
+    pub fn safe_label<'a>(&'a self) -> Cow<'a, str> {
+        self.label
+            .as_ref()
+            .map(|s| Cow::Borrowed(&s[..]))
+            .unwrap_or(Cow::Borrowed(""))
+    }
+
+    /// Get a safe buffer name for debug display.
+    ///
+    /// Same as [`safe_label()`] but includes the buffer ID as well.
+    ///
+    /// [`safe_label()`]: self::BufferTable::safe_label
+    pub fn safe_name(&self) -> String {
+        let id = self
+            .buffer
+            .as_ref()
+            .map(|ab| {
+                let id: NonZeroU32 = ab.buffer.id().into();
+                id.get()
+            })
+            .unwrap_or(0);
+        format!("#{}:{}", id, self.safe_label())
+    }
+
     /// Reference to the GPU buffer, if already allocated.
     ///
     /// This reference corresponds to the currently allocated GPU buffer, which
@@ -268,7 +298,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     /// the next GPU update, to minimize the number of CPU to GPU transfers.
     pub fn insert(&mut self, value: T) -> BufferTableId {
         trace!(
-            "Inserting into table buffer with {} free indices, capacity: {}, active_size: {}",
+            "Inserting into table buffer '{}' with {} free indices, capacity: {}, active_size: {}",
+            self.safe_name(),
             self.free_indices.len(),
             self.capacity,
             self.active_size
@@ -367,7 +398,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         let size = self.aligned_size * self.capacity;
         let reallocated = if size > allocated_size {
             trace!(
-                "reserve: increase capacity from {} to {} elements, new size {} bytes",
+                "reserve('{}'): increase capacity from {} to {} elements, new size {} bytes",
+                self.safe_name(),
                 allocated_size / self.aligned_size,
                 self.capacity,
                 size
@@ -447,6 +479,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 debug_assert!(base_size % self.aligned_size == 0);
                 let base_count = base_size / self.aligned_size;
                 let buffer = &ab.buffer;
+                let safe_name = self.safe_name();
                 for (rel_index, content) in self.extra_pending_values.drain(..).enumerate() {
                     let index = base_count + rel_index;
                     let byte_size = self.aligned_size; // single row
@@ -458,12 +491,13 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                     let src: &[u8] = cast_slice(std::slice::from_ref(&content));
                     let dst_range = ..self.item_size;
                     trace!(
-                        "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
+                        "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={} [{}]",
                         index,
                         src.as_ptr(),
                         dst_range,
                         byte_offset,
-                        byte_size
+                        byte_size,
+                        safe_name,
                     );
                     let dst = &mut aligned_buffer[dst_range];
                     dst.copy_from_slice(src);
@@ -494,11 +528,13 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 .map(|ab| ab.old_buffer.is_none())
                 .unwrap_or(true)
         {
+            trace!("write_buffer({}): nothing to do", self.safe_name());
             return;
         }
 
         trace!(
-            "write_buffer: pending_values.len={} item_size={} aligned_size={} buffer={:?}",
+            "write_buffer({}): pending_values.len={} item_size={} aligned_size={} buffer={:?}",
+            self.safe_name(),
             self.pending_values.len(),
             self.item_size,
             self.aligned_size,
