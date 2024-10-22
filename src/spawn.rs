@@ -637,7 +637,7 @@ pub fn tick_spawners(
         Option<&mut EffectSpawner>,
     )>,
 ) {
-    trace!("tick_spawners");
+    trace!("====== tick_spawners()");
 
     let dt = time.delta_seconds();
 

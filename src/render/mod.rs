@@ -307,10 +307,16 @@ impl Default for GpuDispatchIndirect {
 
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
+pub struct GpuChildInfo {
+    pub init_indirect_dispatch_index: u32,
+    pub event_count: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct GpuRenderEffectMetadata {
     pub max_spawn: u32,
     pub ping: u32,
-    pub event_count: u32,
 }
 
 #[repr(C)]
@@ -353,6 +359,9 @@ pub struct GpuParticleGroup {
     /// buffer. This avoids having to align those 16-byte structs to the GPU
     /// alignment (at least 32 bytes, even 256 bytes on some).
     pub init_indirect_dispatch_index: u32,
+    /// Index of this effect as a child of its parent. This indexes into the
+    /// parent's array of [`GpuChildInfo`]s.
+    pub child_index: u32,
 }
 
 /// Compute pipeline to run the `vfx_indirect` dispatch workgroup calculation
@@ -1860,7 +1869,7 @@ pub(crate) fn extract_effect_events(
     mut events: ResMut<EffectAssetEvents>,
     mut image_events: Extract<EventReader<AssetEvent<Image>>>,
 ) {
-    trace!("extract_effect_events");
+    trace!("====== extract_effect_events()");
 
     let EffectAssetEvents { ref mut images } = *events;
     *images = image_events.read().copied().collect();
@@ -1905,7 +1914,7 @@ pub(crate) fn extract_effects(
     mut sim_params: ResMut<SimParams>,
     mut extracted_effects: ResMut<ExtractedEffects>,
 ) {
-    trace!("extract_effects");
+    trace!("====== extract_effects()");
 
     // Save simulation params into render world
     sim_params.time = time.elapsed_seconds_f64();
@@ -1926,7 +1935,7 @@ pub(crate) fn extract_effects(
                 acc
             });
     trace!(
-        "Found {} removed entities.",
+        "Found {} removed effect(s).",
         extracted_effects.removed_effect_entities.len()
     );
 
@@ -2539,7 +2548,7 @@ pub(crate) fn prepare_effects(
     mut effect_bind_groups: ResMut<EffectBindGroups>,
     mut gpu_buffer_operation_queue: ResMut<GpuBufferOperationQueue>,
 ) {
-    trace!("prepare_effects");
+    trace!("====== prepare_effects()");
 
     // Write vertices (TODO - lazily once only)
     effects_meta
@@ -2560,7 +2569,8 @@ pub(crate) fn prepare_effects(
 
     gpu_buffer_operation_queue.begin_frame();
 
-    // Allocate new effects, deallocate removed ones
+    // Allocate new effects, deallocate removed ones, resolve parent-child
+    // relationships
     let removed_effect_entities = std::mem::take(&mut extracted_effects.removed_effect_entities);
     for entity in &removed_effect_entities {
         extracted_effects.effects.remove(entity);
@@ -2659,10 +2669,11 @@ pub(crate) fn prepare_effects(
     effects_meta.spawner_buffer.clear();
     effects_meta.particle_group_buffer.clear();
     let mut total_group_count = 0;
-    for (effect_index, input) in effect_entity_list.into_iter().enumerate() {
+    for (batch_index, input) in effect_entity_list.into_iter().enumerate() {
         let effect_cache_id = effects_meta.entity_map.get(&input.entity).unwrap().cache_id;
         let buffer_index = effect_cache.get_slices(effect_cache_id).buffer_index;
         let event_buffer_ref = effect_cache.get_event_slice(effect_cache_id);
+        let child_index = effect_cache.get_child_index(effect_cache_id);
 
         // Get the index of the indirect struct, if using indirect dispatch for the init
         // pass. Only effects consuming GPU spawn events use indirect dispatch for their
@@ -2798,10 +2809,8 @@ pub(crate) fn prepare_effects(
             // FIXME - Probably bad to re-seed each time there's a change
             seed: 0, // random::<u32>(),
             count: 0,
-            // FIXME: the effect_index is global inside the global spawner buffer,
-            // but the group_index is the index of the particle buffer, which can
-            // in theory (with batching) contain > 1 effect per buffer.
-            effect_index: input.effect_slices.buffer_index,
+            // FIXME - Batching: multiple effects in a same batch should have different indices
+            effect_index: batch_index as u32,
         };
         trace!("spawner_params = {:?}", spawner_params);
         effects_meta.spawner_buffer.push(spawner_params);
@@ -2813,7 +2822,9 @@ pub(crate) fn prepare_effects(
             let particle_group_buffer_index =
                 effects_meta.particle_group_buffer.push(GpuParticleGroup {
                     global_group_index: total_group_count,
-                    effect_index: effect_index as u32,
+                    // FIXME - Batching: multiple effects in a same batch should have different
+                    // indices
+                    effect_index: batch_index as u32,
                     group_index_in_effect: group_index as u32,
                     indirect_index: range[0],
                     capacity: range[1] - range[0],
@@ -2821,6 +2832,8 @@ pub(crate) fn prepare_effects(
                     // We can safely unwrap_or() here, if we don't do indirect dispatch then this
                     // value is not read anyway.
                     init_indirect_dispatch_index: input.init_indirect_dispatch_index.unwrap_or(0),
+                    // We can safely unwrap_or() here, if we're not a child then this is unused.
+                    child_index: child_index.unwrap_or(0),
                 });
             if group_index == 0 {
                 first_particle_group_buffer_index = Some(particle_group_buffer_index as u32);
@@ -3573,6 +3586,7 @@ pub(crate) fn prepare_gpu_resources(
     mut effects_meta: ResMut<EffectsMeta>,
     mut effect_cache: ResMut<EffectCache>,
     render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
     view_uniforms: Res<ViewUniforms>,
     render_pipeline: Res<ParticlesRenderPipeline>,
 ) {
@@ -3600,7 +3614,7 @@ pub(crate) fn prepare_gpu_resources(
     ));
 
     // Re-/allocate any GPU buffer needed by the effect cache
-    effect_cache.allocate_frame_buffers(&render_device);
+    effect_cache.prepare_buffers(&render_device, &render_queue);
 }
 
 pub(crate) fn prepare_bind_groups(
@@ -3729,6 +3743,8 @@ pub(crate) fn prepare_bind_groups(
                         buffer: effects_meta.render_group_dispatch_buffer.buffer().unwrap(),
                         // Always bind the first array element of the buffer, corresponding to the
                         // first effect group, as only the first group has an init pass.
+                        // FIXME - Batching: this won't work with multiple effects per batch, should
+                        // use effect_index
                         offset: 0,
                         size: Some(effects_meta.gpu_limits.render_group_indirect_size()),
                     }),
@@ -3890,9 +3906,10 @@ pub(crate) fn prepare_bind_groups(
         };
 
         // Bind group for the init compute shader to simulate particles.
-        // TODO - move this creation in RenderSet::PrepareBindGroups
-        let effect_buffer_binding = effect_cache.get_event_buffer(effect_batches.effect_cache_id);
+        let effect_buffer_binding =
+            effect_cache.get_event_buffer_binding(effect_batches.effect_cache_id);
         if !effect_cache.ensure_init_bind_group(
+            effect_batches.effect_cache_id,
             effect_batches.buffer_index,
             effect_batches.parent_buffer_index,
             group_binding.clone(),
@@ -3902,8 +3919,8 @@ pub(crate) fn prepare_bind_groups(
         }
 
         // Bind group for the update compute shader to simulate particles.
-        // TODO - move this creation in RenderSet::PrepareBindGroups
         if !effect_cache.ensure_update_bind_group(
+            effect_batches.effect_cache_id,
             effect_batches.buffer_index,
             group_binding,
             &effect_batches.child_effects[..],
@@ -3916,20 +3933,6 @@ pub(crate) fn prepare_bind_groups(
             .get(&effect_cache_id)
             .is_none()
         {
-            let DispatchBufferIndices {
-                render_effect_metadata_buffer_index: render_effect_dispatch_buffer_index,
-                first_render_group_dispatch_buffer_index,
-                ..
-            } = effect_batches.dispatch_buffer_indices;
-
-            let storage_alignment = effects_meta.gpu_limits.storage_buffer_align.get();
-            let render_effect_indirect_size =
-                GpuRenderEffectMetadata::aligned_size(storage_alignment);
-            let total_render_group_indirect_size = NonZeroU64::new(
-                GpuRenderGroupIndirect::aligned_size(storage_alignment).get()
-                    * effect_batches.group_batches.len() as u64,
-            )
-            .unwrap();
             let particles_buffer_layout_update_render_indirect = render_device.create_bind_group(
                 "hanabi:bind_group_update_render_group_dispatch",
                 &update_pipeline.render_indirect_layout,
@@ -3938,20 +3941,16 @@ pub(crate) fn prepare_bind_groups(
                         binding: 0,
                         resource: BindingResource::Buffer(BufferBinding {
                             buffer: effects_meta.render_effect_dispatch_buffer.buffer().unwrap(),
-                            offset: effects_meta.gpu_limits.render_effect_indirect_offset(
-                                render_effect_dispatch_buffer_index.0,
-                            ),
-                            size: Some(render_effect_indirect_size),
+                            offset: 0,
+                            size: None,
                         }),
                     },
                     BindGroupEntry {
                         binding: 1,
                         resource: BindingResource::Buffer(BufferBinding {
                             buffer: effects_meta.render_group_dispatch_buffer.buffer().unwrap(),
-                            offset: effects_meta.gpu_limits.render_group_indirect_offset(
-                                first_render_group_dispatch_buffer_index.0,
-                            ),
-                            size: Some(total_render_group_indirect_size),
+                            offset: 0,
+                            size: None,
                         }),
                     },
                 ],

@@ -1,5 +1,6 @@
 #import bevy_hanabi::vfx_common::{
-    EventBuffer, InitIndirectDispatch, IndirectBuffer, ParticleGroup, RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
+    ChildInfo, EventBuffer, InitIndirectDispatch, IndirectBuffer, ParticleGroup,
+    RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
     rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
@@ -22,13 +23,12 @@ struct ParticleBuffer {
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
 {{PROPERTIES_BINDING}}
 #ifdef EMITS_GPU_SPAWN_EVENTS
-@group(1) @binding(4) var<storage, read_write> init_indirect_dispatch : array<InitIndirectDispatch>;
 {{CHILDREN_EVENT_BUFFER_BINDINGS}}
 #endif
 
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as init
 
-@group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
+@group(3) @binding(0) var<storage, read_write> render_effect_indirect : array<RenderEffectMetadata>;
 @group(3) @binding(1) var<storage, read_write> render_group_indirect : array<RenderGroupIndirect>;
 
 {{UPDATE_EXTRA}}
@@ -53,8 +53,10 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
+    let effect_index = spawner.effect_index;
+
     // Always write into ping, read from pong
-    let ping = render_effect_indirect.ping;
+    let ping = render_effect_indirect[effect_index].ping;
     let pong = 1u - ping;
 
     let effect_particle_offset = particle_groups[{{GROUP_INDEX}}].effect_particle_offset;
@@ -80,7 +82,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         indirect_buffer.indices[3u * (base_index + dead_index) + 2u] = index;
         // Also increment copy of dead count, which was updated in dispatch indirect
         // pass just before, and need to remain correct after this pass
-        atomicAdd(&render_effect_indirect.max_spawn, 1u);
+        atomicAdd(&render_effect_indirect[effect_index].max_spawn, 1u);
         atomicSub(&render_group_indirect[{{GROUP_INDEX}}].alive_count, 1u);
     } else {
         // Increment alive particle count and write indirection index for later rendering

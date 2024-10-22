@@ -871,9 +871,13 @@ impl EffectShaderSource {
 
         // Event buffer bindings for the update pass, if the effect has one or more
         // child effects.
-        let base_binding_index = 5;
         let mut children_event_buffer_bindings_code = String::with_capacity(256);
+        children_event_buffer_bindings_code.push_str(&format!(
+            "@group(1) @binding(4) var<storage, read_write> child_infos : array<ChildInfo, {}>;\n",
+            num_event_bindings.to_wgsl_string()
+        ));
         let mut children_event_buffer_append_code = String::with_capacity(1024);
+        let base_binding_index = 5;
         for i in 0..num_event_bindings {
             let binding_index = base_binding_index + i;
             children_event_buffer_bindings_code.push_str(&format!(
@@ -881,16 +885,16 @@ impl EffectShaderSource {
             children_event_buffer_append_code.push_str(&format!(
                 r##"/// Append one or more spawn events to the event buffer.
 fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
-    let dispatch_index = particle_groups[{{{{GROUP_INDEX}}}}].event_indirect_dispatch_index;
+    let dispatch_index = child_infos[{0}].init_indirect_dispatch_index;
     let capacity = arrayLength(&event_buffer_{0}.spawn_events);
-    let base = min(u32(atomicAdd(&init_indirect_dispatch[dispatch_index].event_count, i32(count))), capacity);
+    let base = min(u32(atomicAdd(&child_infos[{0}].event_count, i32(count))), capacity);
     let capped_count = min(count, capacity - base);
     for (var i = 0u; i < capped_count; i += 1u) {{
         event_buffer_{0}.spawn_events[base + i].particle_index = particle_index;
     }}
 }}
 "##,
-                i
+                i,
             ));
         }
         children_event_buffer_bindings_code.pop();
@@ -1662,7 +1666,7 @@ fn update_properties_from_asset(
     assets: Res<Assets<EffectAsset>>,
     mut q_effects: Query<(Ref<ParticleEffect>, &mut EffectProperties), Changed<ParticleEffect>>,
 ) {
-    trace!("update_properties_from_asset");
+    trace!("====== update_properties_from_asset()");
 
     // Loop over all existing effects, including invisible ones
     for (effect, properties) in q_effects.iter_mut() {

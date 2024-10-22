@@ -23,7 +23,8 @@ struct ParticleBuffer {
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
 {{PROPERTIES_BINDING}}
 #ifdef USE_GPU_SPAWN_EVENTS
-@group(1) @binding(4) var<storage, read_write> event_buffer : EventBuffer;
+@group(1) @binding(4) var<storage, read> child_info : array<ChildInfo>;
+@group(1) @binding(5) var<storage, read_write> event_buffer : EventBuffer;
 #endif
 {{PARENT_PARTICLE_BINDING}}
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as update  // FIXME - this should be read-only
@@ -46,7 +47,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
 #ifdef USE_GPU_SPAWN_EVENTS
     let event_index = thread_index;
-    if (event_index >= render_effect_indirect.event_count) {
+    let child_index = particle_groups[0].child_index;
+    if (event_index >= child_info[child_index].event_count) {
         return;
     }
 #else
@@ -76,12 +78,14 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     );
 #endif
 
-    // Initialize new particle
-    var particle = Particle();
 #ifdef USE_GPU_SPAWN_EVENTS
+    // Fetch parent particle which triggered this spawn
     let parent_index = event_buffer.spawn_events[event_index].particle_index;
     let parent_particle = parent_particle_buffer.particles[parent_index];
 #endif
+
+    // Initialize new particle
+    var particle = Particle();
     {{INIT_CODE}}
 
     // Only add emitter's transform to CPU-spawned particles. GPU-spawned particles

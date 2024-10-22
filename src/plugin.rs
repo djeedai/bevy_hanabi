@@ -334,7 +334,8 @@ impl Plugin for HanabiPlugin {
                         .after(prepare_effects),
                     prepare_gpu_resources
                         .in_set(EffectSystems::PrepareEffectGpuResources)
-                        .after(prepare_view_uniforms),
+                        .after(prepare_view_uniforms)
+                        .before(prepare_bind_groups),
                     prepare_bind_groups
                         .in_set(EffectSystems::PrepareBindGroups)
                         .after(queue_effects),

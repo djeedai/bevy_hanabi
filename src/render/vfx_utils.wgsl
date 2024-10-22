@@ -55,13 +55,14 @@ fn fill_dispatch_args(@builtin(global_invocation_id) global_invocation_id: vec3<
         return;
     }
     let src = args.src_offset + thread_index * args.src_stride;
-    let dst = args.dst_offset + thread_index * 16u;
+    // Note: we always assume 12-byte dispatch indirect structs, which is the canonical struct
+    // with its x/y/z values, without any extra field or padding.
+    let dst = args.dst_offset + thread_index * 12u;
     let thread_count = src_buffer[src];
     let workgroup_count = calc_workground_count(thread_count);
     dst_buffer[dst] = workgroup_count;
     dst_buffer[dst + 1u] = 1u;
     dst_buffer[dst + 2u] = 1u;
-    // leave last entry untouched; sometimes it's used for unrelated things
 }
 
 /// Fill indirect dispatch arguments from a raw element count, by copying the element count
@@ -75,8 +76,9 @@ fn fill_dispatch_args_self(@builtin(global_invocation_id) global_invocation_id: 
         return;
     }
     let src = args.src_offset + thread_index * args.src_stride;
-    // Note: we always assume 16-byte dispatch indirect structs
-    let dst = args.dst_offset + thread_index * 4u;
+    // Note: we always assume 12-byte dispatch indirect structs, which is the canonical struct
+    // with its x/y/z values, without any extra field or padding.
+    let dst = args.dst_offset + thread_index * 3u;
     // Note: only the dst_buffer is used
     let thread_count = dst_buffer[src];
     let workgroup_count = calc_workground_count(thread_count);

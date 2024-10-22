@@ -18,9 +18,16 @@ struct SimParams {
 }
 
 struct Spawner {
+    /// Compressed transform of the emitter.
     transform: mat3x4<f32>, // transposed (row-major)
+    /// Inverse compressed transform of the emitter.
     inverse_transform: mat3x4<f32>, // transposed (row-major)
+    /// Number of particles to spawn this frame, as calculated by the CPU Spawner.
+    ///
+    /// This is only used if the effect is not a child effect (driven by GPU events).
     spawn: i32,
+    /// PRNG seed for this effect instance. Currently this can change each time the
+    /// effect is recompiled, and cannot be set deterministically (TODO).
     seed: u32,
     // Can't use storage<read> with atomics
 #ifdef SPAWNER_READONLY
@@ -28,6 +35,10 @@ struct Spawner {
 #else
     count: atomic<i32>,
 #endif
+    /// Global index of the effect in the various shared buffers.
+    ///
+    /// This is a globally unique index for all active effect instances, used to index
+    /// global buffers like the spawner buffer or the render indirect dispatch buffer.
     effect_index: u32,
 #ifdef SPAWNER_PADDING
     {{SPAWNER_PADDING}}
@@ -53,6 +64,9 @@ struct ParticleGroup {
     // buffer. This avoids having to align those 16-byte structs to the GPU
     // alignment (at least 32 bytes, even 256 bytes on some).
     event_indirect_dispatch_index: u32,
+    /// Index of this effect as a child of its parent. This indexes into the parent's
+    /// array of ChildInfo.
+    child_index: u32,
     {{PARTICLE_GROUP_PADDING}}
 }
 
@@ -75,8 +89,16 @@ struct EventBuffer {
     spawn_events: array<SpawnEvent>,
 }
 
+/// Info about a single child of a parent effect.
+struct ChildInfo {
+    /// Index of the effect's InitIndirectDispatch entry in the global init indirect dispatch array.
+    init_indirect_dispatch_index: u32,
+    /// Number of events in the associated event buffer.
+    event_count: atomic<i32>,
+}
+
 /// Indirect compute dispatch struct for GPU-driven init pass, with packed event count
-/// for the associated event buffer.
+/// for the associated event buffer. The layout of this struct is dictated by WGSL.
 struct InitIndirectDispatch {
     /// Number of workgroups. This is derived from event_count.
     x: u32,
@@ -84,8 +106,6 @@ struct InitIndirectDispatch {
     y: u32,
     /// Unused; always 1.
     z: u32,
-    /// Number of events in the associated event buffer.
-    event_count: atomic<i32>,
 }
 
 // Dispatch indirect array offsets. Used when accessing an array of UpdateIndirectDispatch
@@ -151,8 +171,6 @@ struct RenderEffectMetadata {
     /// always write into the ping buffer and read from the pong buffer. The buffers
     /// are swapped during the indirect dispatch.
     ping: u32,
-    /// Number of GPU spawn events for this frame.
-    event_count: atomic<u32>,
     /// Padding for storage buffer alignment. This struct is sometimes bound as part
     /// of an array, or sometimes individually as a single unit. In the later case,
     /// we need it to be aligned to the GPU limits of the device. That limit is only
