@@ -14,6 +14,7 @@
     clippy::useless_let_if_seq
 )]
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
+#![allow(dead_code)] // TEMP
 
 //! 🎆 Hanabi -- a GPU particle system plugin for the Bevy game engine.
 //!
@@ -198,7 +199,7 @@ pub use graph::*;
 pub use modifier::*;
 pub use plugin::{EffectSystems, HanabiPlugin};
 pub use properties::*;
-pub use render::{LayoutFlags, ShaderCache};
+pub use render::{DebugSettings, LayoutFlags, ShaderCache};
 pub use spawn::{tick_spawners, CpuValue, EffectSpawner, Random, Spawner};
 pub use time::{EffectSimulation, EffectSimulationTime};
 

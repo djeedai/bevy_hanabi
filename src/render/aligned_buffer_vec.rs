@@ -230,19 +230,32 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     /// Append a value to the buffer.
     ///
     /// As with [`set_content()`], the content is stored on the CPU and uploaded
-    /// on the GPU once [`write_buffers()`] is called.
+    /// on the GPU once [`write_buffer()`] is called.
+    ///
+    /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
     pub fn push(&mut self, value: T) -> usize {
         let index = self.values.len();
         self.values.alloc().init(value);
         index
     }
 
-    /// Set the content of the buffer, overwritting any previous data.
+    /// Set the content of the CPU buffer, overwritting any previous data.
     ///
     /// As with [`push()`], the content is stored on the CPU and uploaded on the
-    /// GPU once [`write_buffers()`] is called.
+    /// GPU once [`write_buffer()`] is called.
+    ///
+    /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
     pub fn set_content(&mut self, data: Vec<T>) {
         self.values = data;
+    }
+
+    /// Get the content of the CPU buffer.
+    ///
+    /// The data may or may not be representative of the GPU content, depending
+    /// on whether the buffer was already uploaded and/or has been modified by
+    /// the GPU itself.
+    pub fn content(&self) -> &[T] {
+        &self.values
     }
 
     /// Reserve some capacity into the buffer.
@@ -351,6 +364,8 @@ pub struct HybridAlignedBufferVec {
     /// Free ranges available for re-allocation. Those are row ranges; byte
     /// ranges are obtained by multiplying these by `item_align`.
     free_rows: Vec<Range<u32>>,
+    /// Is the GPU buffer stale and the CPU one need to be re-uploaded?
+    is_stale: bool,
 }
 
 impl HybridAlignedBufferVec {
@@ -379,6 +394,7 @@ impl HybridAlignedBufferVec {
             buffer_usage,
             label,
             free_rows: vec![],
+            is_stale: true,
         }
     }
 
@@ -539,6 +555,8 @@ impl HybridAlignedBufferVec {
 
     #[allow(unsafe_code)]
     fn push_raw(&mut self, src: &[u8]) -> Range<u32> {
+        self.is_stale = true;
+
         // Calculate the number of (aligned) rows to allocate
         let num_rows = ((src.len() + self.item_align - 1) / self.item_align) as u32;
 
@@ -647,6 +665,8 @@ impl HybridAlignedBufferVec {
             return false;
         }
 
+        self.is_stale = true;
+
         let start = range.start / align;
         let end = (range.end + align - 1) / align;
         self.free_rows.push(start..end);
@@ -679,6 +699,7 @@ impl HybridAlignedBufferVec {
                 usage: BufferUsages::COPY_DST | self.buffer_usage,
                 mapped_at_creation: false,
             }));
+            self.is_stale = !self.values.is_empty();
             // FIXME - this discards the old content if any!!!
             true
         } else {
@@ -692,7 +713,7 @@ impl HybridAlignedBufferVec {
     ///
     /// `true` if the buffer was (re)allocated, `false` otherwise.
     pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
-        if self.values.is_empty() {
+        if self.values.is_empty() || !self.is_stale {
             return false;
         }
         let size = self.values.len();
@@ -704,11 +725,15 @@ impl HybridAlignedBufferVec {
         let buffer_changed = self.reserve(size, device);
         if let Some(buffer) = &self.buffer {
             queue.write_buffer(buffer, 0, self.values.as_slice());
+            self.is_stale = false;
         }
         buffer_changed
     }
 
     pub fn clear(&mut self) {
+        if !self.values.is_empty() {
+            self.is_stale = true;
+        }
         self.values.clear();
     }
 }

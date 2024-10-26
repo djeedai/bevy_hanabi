@@ -1,5 +1,6 @@
 #import bevy_hanabi::vfx_common::{
-    EventBuffer, InitIndirectDispatch, IndirectBuffer, ParticleGroup, RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
+    ChildInfo, EventBuffer, InitIndirectDispatch, IndirectBuffer, ParticleGroup,
+    RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
     rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
@@ -48,7 +49,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 #ifdef USE_GPU_SPAWN_EVENTS
     let event_index = thread_index;
     let child_index = particle_groups[0].child_index;
-    if (event_index >= child_info[child_index].event_count) {
+    let event_count = atomicLoad(&child_info[child_index].event_count);
+    if (event_index >= u32(event_count)) {
         return;
     }
 #else

@@ -18,6 +18,8 @@
 //! trail particles are stitched together to form an arc using the
 //! [`RibbonModifier`].
 
+use std::time::Duration;
+
 use bevy::{
     core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
     prelude::*,
@@ -30,6 +32,7 @@ use utils::*;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_exit = utils::make_test_app("firework")
         .add_systems(Startup, setup)
+        .add_systems(Update, update)
         .run();
     app_exit.into_result()
 }
@@ -57,7 +60,7 @@ fn create_rocket_effect() -> EffectAsset {
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     // Give a bit of variation by randomizing the lifetime per particle
-    let lifetime = writer.lit(0.8).normal(writer.lit(1.2)).expr();
+    let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     // Add constant downward acceleration to simulate gravity
@@ -215,7 +218,7 @@ fn create_trails_effect() -> EffectAsset {
         })
 }
 
-fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
+fn setup(mut commands: Commands, mut debug_settings: ResMut<DebugSettings>) {
     // Camera
     commands.spawn((
         Camera3dBundle {
@@ -234,6 +237,23 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         },
     ));
 
+    debug_settings.start_capture_on_new_effect = true;
+    //debug_settings.capture_duration = Duration::from_millis(5000);
+    debug_settings.capture_frame_count = 3;
+}
+
+fn update(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    commands: Commands,
+    effects: ResMut<Assets<EffectAsset>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        warn!("Spawning effect now!");
+        create_effect(commands, effects);
+    }
+}
+
+fn create_effect(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     // Rocket
     let rocket_effect = effects.add(create_rocket_effect());
     let rocket_entity = commands

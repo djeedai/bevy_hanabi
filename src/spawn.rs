@@ -591,7 +591,7 @@ impl EffectSpawner {
 
         let count = self.spawn_remainder.floor();
         self.spawn_remainder -= count;
-        self.spawn_count = count as u32;
+        self.spawn_count = 1; //count as u32;
 
         self.spawn_count
     }

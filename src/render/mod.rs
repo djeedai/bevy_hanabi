@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     hash::{DefaultHasher, Hash, Hasher},
     num::{NonZeroU32, NonZeroU64},
+    time::Duration,
     u32,
 };
 use std::{iter, marker::PhantomData};
@@ -306,6 +307,20 @@ impl Default for GpuDispatchIndirect {
 }
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable, ShaderType)]
+pub struct GpuInitDispatchIndirect {
+    pub x: u32,
+    pub y: u32,
+    pub z: u32,
+}
+
+impl Default for GpuInitDispatchIndirect {
+    fn default() -> Self {
+        Self { x: 0, y: 1, z: 1 }
+    }
+}
+
+#[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct GpuChildInfo {
     pub init_indirect_dispatch_index: u32,
@@ -555,19 +570,19 @@ enum GpuBufferOperationType {
     /// This is similar to a copy, but will round up the source value to the
     /// number of threads per workgroup (64) before writing it into the
     /// destination.
-    #[allow(dead_code)]
     FillDispatchArgs,
     /// Fill the arguments for a later indirect dispatch call.
     ///
     /// This is the same as [`FillDispatchArgs`], but the source element count
     /// is read from the fourth entry in the destination buffer directly,
     /// and the source buffer and source arguments are unused.
+    #[allow(dead_code)]
     FillDispatchArgsSelf,
 }
 
 /// GPU representation of the arguments of a block operation on a buffer.
 #[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable, ShaderType)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable, ShaderType)]
 pub(super) struct GpuBufferOperationArgs {
     /// Offset, as u32 count, where the operation starts in the source buffer.
     src_offset: u32,
@@ -730,13 +745,19 @@ impl GpuBufferOperationQueue {
         self.init_fill_dispatch.clear();
     }
 
-    /// Queue a new [`GpuBufferOperationType::FillDispatchArgsSelf`] operation.
+    /// Queue a new [`GpuBufferOperationType::FillDispatchArgs`] operation.
     pub fn queue_init_fill(
         &mut self,
         event_buffer_index: u32,
         event_slice: std::ops::Range<u32>,
         args: GpuBufferOperationArgs,
     ) {
+        trace!(
+            "Queue FillDispatchArgs op: ev_buffer#{} ev_slice={:?} args={:?}",
+            event_buffer_index,
+            event_slice,
+            args
+        );
         let args_index = self.args_buffer_unsorted.len() as u32;
         self.args_buffer_unsorted.push(args);
         self.init_fill_dispatch.push(InitFillDispatchArgs {
@@ -755,40 +776,52 @@ impl GpuBufferOperationQueue {
         );
         assert!(self.args_buffer.is_empty());
 
-        // Sort the commands by buffer, so we can dispatch them in groups with a single
-        // dispatch per buffer
-        self.init_fill_dispatch.sort_unstable_by(|ifda1, ifda2| {
-            if ifda1.event_buffer_index != ifda2.event_buffer_index {
-                ifda1.event_buffer_index.cmp(&ifda2.event_buffer_index)
-            } else if ifda1.event_slice != ifda2.event_slice {
-                ifda1.event_slice.start.cmp(&ifda2.event_slice.start)
-            } else {
-                ifda1.args_index.cmp(&ifda2.args_index)
-            }
-        });
-
-        // Push entries into the final storage before GPU upload. It's a bit unfortunate
-        // we have to make copies, but those arrays should be small.
-        let mut sorted_args = Vec::with_capacity(self.init_fill_dispatch.len());
-        let mut prev_buffer = u32::MAX;
-        for ifda in &self.init_fill_dispatch {
-            if !sorted_args.is_empty() && (prev_buffer == ifda.event_buffer_index) {
-                prev_buffer = ifda.event_buffer_index;
-                let prev_idx = sorted_args.len() - 1;
-                let prev: &mut GpuBufferOperationArgs = &mut sorted_args[prev_idx];
-                let cur = &self.args_buffer_unsorted[ifda.args_index as usize];
-                if prev.src_stride == cur.src_stride
-                    && prev.src_offset + prev.src_stride * prev.count == cur.src_offset
-                    && prev.dst_offset + 4 * prev.count == cur.dst_offset
-                {
-                    prev.count += 1;
-                    continue;
+        if self.init_fill_dispatch.is_empty() {
+            self.args_buffer.set_content(vec![]);
+        } else {
+            // Sort the commands by buffer, so we can dispatch them in groups with a single
+            // dispatch per buffer
+            trace!(
+                "Sorting {} InitFillDispatch ops...",
+                self.init_fill_dispatch.len()
+            );
+            self.init_fill_dispatch.sort_unstable_by(|ifda1, ifda2| {
+                if ifda1.event_buffer_index != ifda2.event_buffer_index {
+                    ifda1.event_buffer_index.cmp(&ifda2.event_buffer_index)
+                } else if ifda1.event_slice != ifda2.event_slice {
+                    ifda1.event_slice.start.cmp(&ifda2.event_slice.start)
+                } else {
+                    // Sort by source offset, which at this point contains the child_index
+                    let arg1 = &self.args_buffer_unsorted[ifda1.args_index as usize];
+                    let arg2 = &self.args_buffer_unsorted[ifda2.args_index as usize];
+                    arg1.src_offset.cmp(&arg2.src_offset)
                 }
+            });
+
+            // Push entries into the final storage before GPU upload. It's a bit unfortunate
+            // we have to make copies, but those arrays should be small.
+            let mut sorted_args = Vec::with_capacity(self.init_fill_dispatch.len());
+            let mut prev_buffer = u32::MAX;
+            for ifda in &self.init_fill_dispatch {
+                if !sorted_args.is_empty() && (prev_buffer == ifda.event_buffer_index) {
+                    prev_buffer = ifda.event_buffer_index;
+                    let prev_idx = sorted_args.len() - 1;
+                    let prev: &mut GpuBufferOperationArgs = &mut sorted_args[prev_idx];
+                    let cur = &self.args_buffer_unsorted[ifda.args_index as usize];
+                    if prev.src_stride == cur.src_stride
+                    // at this point src_offset == child_index, and we want them to be contiguous in the source buffer so that we can increment by src_stride
+                    && cur.src_offset == prev.src_offset + 1
+                    {
+                        prev.count += 1;
+                        continue;
+                    }
+                }
+                prev_buffer = ifda.event_buffer_index;
+                sorted_args.push(self.args_buffer_unsorted[ifda.args_index as usize]);
             }
-            prev_buffer = ifda.event_buffer_index;
-            sorted_args.push(self.args_buffer_unsorted[ifda.args_index as usize]);
+
+            self.args_buffer.set_content(sorted_args);
         }
-        self.args_buffer.set_content(sorted_args);
 
         // Write entries to GPU
         self.args_buffer.write_buffer(device, render_queue);
@@ -1875,6 +1908,60 @@ pub(crate) fn extract_effect_events(
     *images = image_events.read().copied().collect();
 }
 
+/// Debugging settings.
+///
+/// Settings used to debug Hanabi. These have no effect on the actual behavior
+/// of Hanabi, but may affect its performance.
+#[derive(Debug, Default, Clone, Copy, Resource)]
+pub struct DebugSettings {
+    /// Enable automatically starting a GPU debugger capture as soon as this
+    /// frame starts rendering (extract phase).
+    ///
+    /// Enable this feature to automatically capture one or more GPU frames when
+    /// the [`extract_effects`] system runs next. This instructs any attached
+    /// GPU debugger to start a capture; this has no effect if no debugger
+    /// is attached.
+    ///
+    /// This value always resets each frame, even if a capture was not started
+    /// (generally because one is already on-going).
+    pub start_capture_this_frame: bool,
+
+    /// Enable automatically starting a GPU debugger capture when one or more
+    /// effects are spawned.
+    ///
+    /// Enable this feature to automatically capture one or more GPU frames when
+    /// a new effect is spawned (as detected by ECS change detection). This
+    /// instructs any attached GPU debugger to start a capture; this has no
+    /// effect if no debugger is attached.
+    pub start_capture_on_new_effect: bool,
+
+    /// Duration of a GPU debugger capture.
+    ///
+    /// By default this value is zero, and a GPU debugger capture runs for a
+    /// single frame. If a non-zero duration is specified here, the capture
+    /// will instead stop once the specified duration is reached. All times
+    /// are measured using the `Time<Virtual>` clock.
+    ///
+    /// You should avoid setting this to a value too large, to prevent the
+    /// capture size from getting out of control. A value of 50 ms or so, when
+    /// running at 60 FPS (16.6 ms per frame) is generally enough to get a
+    /// few frames worth of debugging. This can be increased in case of lag
+    /// (frames taking longer). Note that only entire frames are
+    /// captured, so the actual capture duration is generally longer than
+    /// this limit.
+    pub capture_duration: Duration,
+
+    ///
+    pub capture_frame_count: u32,
+}
+
+#[derive(Debug, Default, Clone, Copy, Resource)]
+pub(crate) struct RenderDebugSettings {
+    is_capturing: bool,
+    capture_start: Duration,
+    captured_frames: u32,
+}
+
 /// System extracting data for rendering of all active [`ParticleEffect`]
 /// components.
 ///
@@ -1884,6 +1971,11 @@ pub(crate) fn extract_effect_events(
 /// [`ExtractedEffects`] resource.
 ///
 /// This system runs in parallel of [`extract_effect_events`].
+///
+/// If any GPU debug capture is configured to start or stop in
+/// [`DebugSettings`], they do so at the beginning of this system. This ensures
+/// that all GPU commands produced by Hanabi are recorded (but may miss some
+/// from Bevy itself, if another Bevy system runs before this one).
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 pub(crate) fn extract_effects(
@@ -1913,8 +2005,54 @@ pub(crate) fn extract_effects(
     mut removed_effects_event_reader: Extract<EventReader<RemovedEffectsEvent>>,
     mut sim_params: ResMut<SimParams>,
     mut extracted_effects: ResMut<ExtractedEffects>,
+    render_device: Res<RenderDevice>,
+    debug_settings: Extract<Res<DebugSettings>>,
+    mut render_debug_settings: ResMut<RenderDebugSettings>,
 ) {
     trace!("====== extract_effects()");
+
+    // Manage GPU debug capture
+    if render_debug_settings.is_capturing {
+        render_debug_settings.captured_frames += 1;
+    }
+    if debug_settings.start_capture_this_frame || debug_settings.start_capture_on_new_effect {
+        // Stop any pending capture if needed
+        if render_debug_settings.is_capturing
+            && real_time.elapsed() - render_debug_settings.capture_start
+                > debug_settings.capture_duration
+            && render_debug_settings.captured_frames >= debug_settings.capture_frame_count
+        {
+            render_device.wgpu_device().stop_capture();
+            render_debug_settings.is_capturing = false;
+            warn!(
+                "Stopped GPU debug capture after {} frames, at t={}s.",
+                render_debug_settings.captured_frames,
+                real_time.elapsed().as_secs_f64()
+            );
+        }
+
+        // If no pending capture, consider starting a new one
+        if !render_debug_settings.is_capturing {
+            // Check if we can start a capture
+            if debug_settings.start_capture_this_frame
+                || (debug_settings.start_capture_on_new_effect && !query.p1().is_empty())
+            {
+                render_device.wgpu_device().start_capture();
+                render_debug_settings.is_capturing = true;
+                render_debug_settings.capture_start = real_time.elapsed();
+                render_debug_settings.captured_frames = 0;
+                warn!(
+                    "Started GPU debug capture at t={}s.",
+                    render_debug_settings.capture_start.as_secs_f64()
+                );
+            }
+
+            // Always reset, even if capture didn't start, so that a "this
+            // frame" flag doesn't trigger a capture on a different
+            // frame. debug_settings.start_capture_this_frame =
+            // false;
+        }
+    }
 
     // Save simulation params into render world
     sim_params.time = time.elapsed_seconds_f64();
@@ -2678,22 +2816,22 @@ pub(crate) fn prepare_effects(
         // Get the index of the indirect struct, if using indirect dispatch for the init
         // pass. Only effects consuming GPU spawn events use indirect dispatch for their
         // particle init; others are CPU driven and use normal dispatch.
-        if let (Some(event_buffer_ref), Some(init_indirect_dispatch_index)) =
-            (event_buffer_ref, input.init_indirect_dispatch_index)
-        {
+        // FIXME - unused arg
+        if let (Some(event_buffer_ref), Some(init_indirect_dispatch_index), Some(child_index)) = (
+            event_buffer_ref,
+            input.init_indirect_dispatch_index,
+            child_index,
+        ) {
             // Schedule a fill dispatch
             let event_buffer_index = event_buffer_ref.buffer_index;
             let event_slice = event_buffer_ref.slice.clone();
-            let stride = GpuDispatchIndirect::SHADER_SIZE.get() as u32 / 4;
-            debug_assert_eq!(stride, 4); // 16 bytes
-            let base_offset = init_indirect_dispatch_index * stride;
             gpu_buffer_operation_queue.queue_init_fill(
                 event_buffer_index,
                 event_slice,
                 GpuBufferOperationArgs {
-                    src_offset: base_offset + 3,
-                    src_stride: stride,
-                    dst_offset: base_offset,
+                    src_offset: child_index,
+                    src_stride: GpuChildInfo::min_size().get() as u32,
+                    dst_offset: init_indirect_dispatch_index,
                     count: 1, // FIXME - should be a batch here!!
                 },
             );
@@ -3836,7 +3974,7 @@ pub(crate) fn prepare_bind_groups(
     }
 
     // Create the per-event-buffer bind groups
-    for (event_buffer_index, _) in effect_cache.event_buffers() {
+    for (event_buffer_index, event_buffer) in effect_cache.event_buffers() {
         // Check if the entry is missing
         let entry = effect_bind_groups
             .init_fill_dispatch
@@ -3848,37 +3986,50 @@ pub(crate) fn prepare_bind_groups(
             );
 
             // Check if the binding is available to create the bind group and fill the entry
-            if let Some((args_binding, args_count)) =
+            let Some((args_binding, args_count)) =
                 gpu_buffer_operation_queue.args_buffer_binding(event_buffer_index)
-            {
-                if let Some(target_binding) = effect_cache.init_indirect_dispatch_buffer_binding() {
-                    // Actually create the new bind group entry
-                    entry.insert(render_device.create_bind_group(
-                        &format!("hanabi:bind_group:event{event_buffer_index}_init_fill_dispatch")
-                            [..],
-                        &utils_pipeline.bind_group_layout_no_src,
-                        &[
-                            // @group(0) @binding(0) var<uniform> args : BufferOperationArgs
-                            BindGroupEntry {
-                                binding: 0,
-                                resource: args_binding,
-                            },
-                            // @group(0) @binding(2) var<storage, read_write> dst_buffer :
-                            // array<u32>
-                            BindGroupEntry {
-                                binding: 2,
-                                resource: target_binding,
-                            },
-                        ],
-                    ));
-                    trace!(
-                        "Created new bind group for init fill args of event buffer #{}",
-                        event_buffer_index
-                    );
-                } else {
-                    warn!("Event buffer #{event_buffer_index} has {args_count} operations pending, but the effect cache has no init_indirect_dispatch_buffer_binding for the target buffer. Discarding event operations for this frame. This will result in particles not spawning.");
-                }
-            }
+            else {
+                continue;
+            };
+
+            let child_id = event_buffer.effect_cache_id();
+            let Some(source_binding) = effect_cache.get_child_info_binding(child_id) else {
+                warn!("Event buffer #{event_buffer_index} for effect #{child_id:?} has {args_count} operations pending, but the effect cache has no get_child_info_binding for the source buffer. Discarding event operations for this frame. This will result in particles not spawning.");
+                continue;
+            };
+
+            let Some(target_binding) = effect_cache.init_indirect_dispatch_buffer_binding() else {
+                warn!("Event buffer #{event_buffer_index} for effect #{child_id:?} has {args_count} operations pending, but the effect cache has no init_indirect_dispatch_buffer_binding for the target buffer. Discarding event operations for this frame. This will result in particles not spawning.");
+                continue;
+            };
+
+            // Actually create the new bind group entry
+            entry.insert(render_device.create_bind_group(
+                &format!("hanabi:bind_group:event{event_buffer_index}_init_fill_dispatch")[..],
+                &utils_pipeline.bind_group_layout,
+                &[
+                    // @group(0) @binding(0) var<uniform> args : BufferOperationArgs
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: args_binding,
+                    },
+                    // @group(0) @binding(1) var<storage, read> src_buffer : array<u32>
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::Buffer(source_binding),
+                    },
+                    // @group(0) @binding(2) var<storage, read_write> dst_buffer :
+                    // array<u32>
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: target_binding,
+                    },
+                ],
+            ));
+            trace!(
+                "Created new bind group for init fill args of event buffer #{}",
+                event_buffer_index
+            );
         }
     }
 
@@ -4303,7 +4454,7 @@ impl Node for VfxSimulateNode {
             let gpu_buffer_operation_queue = world.resource::<GpuBufferOperationQueue>();
             gpu_buffer_operation_queue.dispatch_init_fill(
                 render_context,
-                utils_pipeline.get_pipeline(GpuBufferOperationType::FillDispatchArgsSelf),
+                utils_pipeline.get_pipeline(GpuBufferOperationType::FillDispatchArgs),
                 effect_bind_groups,
             );
         }
@@ -4450,8 +4601,9 @@ impl Node for VfxSimulateNode {
                     if indirect_dispatch {
                         // Note: the indirect offset of a dispatch workgroup only needs 4-byte
                         // alignment
-                        let indirect_offset = batches.init_indirect_dispatch_index.unwrap() as u64
-                            * GpuDispatchIndirect::min_size().get();
+                        assert_eq!(GpuInitDispatchIndirect::min_size().get(), 12);
+                        let indirect_offset =
+                            batches.init_indirect_dispatch_index.unwrap() as u64 * 12;
                         trace!("init indirect dispatch offset: {}", indirect_offset);
                         compute_pass.dispatch_workgroups_indirect(
                             effect_cache.init_indirect_dispatch_buffer().unwrap(),

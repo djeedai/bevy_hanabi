@@ -54,12 +54,20 @@ fn fill_dispatch_args(@builtin(global_invocation_id) global_invocation_id: vec3<
     if (thread_index >= args.count) {
         return;
     }
-    let src = args.src_offset + thread_index * args.src_stride;
+
+    // Note: we ignore both src_offset and dst_offset, as we:
+    // - bind the proper view of the ChildInfo array (src), which otherwise doesn't have a constant stride
+    // - bind the entire init indirect dispatch buffer (dst) and retrieve its offset here in the shader
+    
+    // Retrieve the source ChildInfo array buffer
+    let src = thread_index * args.src_stride;
+    let dispatch_indirect_index = src_buffer[src];
+    let event_count = src_buffer[src + 1u];
+
     // Note: we always assume 12-byte dispatch indirect structs, which is the canonical struct
     // with its x/y/z values, without any extra field or padding.
-    let dst = args.dst_offset + thread_index * 12u;
-    let thread_count = src_buffer[src];
-    let workgroup_count = calc_workground_count(thread_count);
+    let dst = dispatch_indirect_index * 3u;
+    let workgroup_count = calc_workground_count(event_count);
     dst_buffer[dst] = workgroup_count;
     dst_buffer[dst + 1u] = 1u;
     dst_buffer[dst + 2u] = 1u;

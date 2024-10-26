@@ -214,6 +214,7 @@ impl Plugin for HanabiPlugin {
             .add_event::<RemovedEffectsEvent>()
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<ShaderCache>()
+            .init_resource::<DebugSettings>()
             .init_resource::<Time<EffectSimulation>>()
             .configure_sets(
                 PostUpdate,
@@ -300,6 +301,7 @@ impl Plugin for HanabiPlugin {
         render_app
             .insert_resource(effects_meta)
             .insert_resource(effect_cache)
+            .init_resource::<RenderDebugSettings>()
             .init_resource::<EffectBindGroups>()
             .init_resource::<GpuBufferOperationQueue>()
             .init_resource::<UtilsPipeline>()

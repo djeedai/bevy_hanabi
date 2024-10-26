@@ -2,15 +2,15 @@
 
 use std::{fmt::Display, num::NonZeroU8};
 
-use crate::prelude::*;
 use bevy::{
     log::LogPlugin,
     prelude::*,
     render::{settings::WgpuSettings, RenderPlugin},
 };
-
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
+
+use crate::prelude::*;
 
 /// Helper system to enable closing the example application by pressing the
 /// escape key (ESC).
@@ -26,7 +26,7 @@ pub fn get_log_filters(example_name: &str) -> String {
         // The example app itself is at trace level so we can see everything
         &format!("{}=trace", example_name),
         // Default Hanabi to warn, probably don't need more
-        "bevy_hanabi=warn",
+        "bevy_hanabi=trace",
         // Prevent HAL from dumping all naga-generated shader code in logs
         "wgpu_hal::dx12::device=warn",
     ]

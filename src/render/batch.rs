@@ -62,7 +62,7 @@ pub(crate) struct EffectBatches {
     pub init_pipeline_id: CachedComputePipelineId,
     /// Update compute pipeline specialized for this batch.
     pub update_pipeline_ids: Vec<CachedComputePipelineId>,
-    /// Index of the [`GpuDispatchIndirect`] struct into the init indirect
+    /// Index of the [`GpuInitDispatchIndirect`] struct into the init indirect
     /// dispatch buffer, if using indirect init dispatch only.
     pub init_indirect_dispatch_index: Option<u32>,
 }

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bevy::prelude::*;
 
 /// The effect simulation clock.
@@ -171,12 +173,16 @@ pub(crate) fn effect_simulation_time_system(
     } else {
         effect_simulation.context().relative_speed
     };
-    let delta = if effective_speed != 1.0 {
+    let mut delta = if effective_speed != 1.0 {
         virt_delta.mul_f64(effective_speed)
     } else {
         // avoid rounding when at normal speed
         virt_delta
     };
+    // TEMP - revert...
+    if delta > Duration::from_millis(100) {
+        delta = Duration::from_millis(100);
+    }
     effect_simulation.context_mut().effective_speed = effective_speed * virt.effective_speed_f64();
     effect_simulation.advance_by(delta);
 }
