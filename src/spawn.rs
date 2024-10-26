@@ -575,7 +575,7 @@ impl EffectInitializers {
 
 /// Holds the runtime state for the initializer of a single particle group on a
 /// particle effect.
-#[derive(Clone, Copy, PartialEq, Reflect, Debug)]
+#[derive(Clone, PartialEq, Reflect, Debug)]
 pub enum EffectInitializer {
     /// The group uses a spawner.
     Spawner(EffectSpawner),
@@ -603,8 +603,8 @@ impl EffectInitializer {
     /// [`Spawner::once`]: crate::Spawner::once
     pub fn reset(&mut self) {
         match *self {
-            EffectInitializer::Spawner(mut effect_spawner) => effect_spawner.reset(),
-            EffectInitializer::Cloner(mut effect_cloner) => effect_cloner.reset(),
+            EffectInitializer::Spawner(ref mut effect_spawner) => effect_spawner.reset(),
+            EffectInitializer::Cloner(ref mut effect_cloner) => effect_cloner.reset(),
         }
     }
 
@@ -613,14 +613,15 @@ impl EffectInitializer {
     /// Inactive initializers don't spawn any particles.
     pub fn set_active(&mut self, active: bool) {
         match *self {
-            EffectInitializer::Spawner(mut effect_spawner) => effect_spawner.set_active(active),
-            EffectInitializer::Cloner(mut effect_cloner) => effect_cloner.set_active(active),
+            EffectInitializer::Spawner(ref mut effect_spawner) => effect_spawner.set_active(active),
+            EffectInitializer::Cloner(ref mut effect_cloner) => effect_cloner.set_active(active),
         }
     }
 }
 
 /// Runtime structure maintaining the state of the spawner for a particle group.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect)]
+#[allow(missing_copy_implementations)]
+#[derive(Debug, Default, Clone, PartialEq, Reflect)]
 pub struct EffectSpawner {
     /// The spawner configuration extracted either from the [`EffectAsset`], or
     /// from any overriden value provided by the user on the [`ParticleEffect`].
@@ -664,17 +665,17 @@ impl EffectSpawner {
     /// Create a new spawner state from an asset definition.
     pub fn new(spawner: &Spawner) -> Self {
         Self {
+            spawner: *spawner,
             time: if spawner.is_once() && !spawner.starts_immediately {
                 1. // anything > 0
             } else {
                 0.
             },
-            active: spawner.starts_active(),
-            spawner: *spawner,
             curr_spawn_time: 0.,
             limit: 0.,
             spawn_count: 0,
             spawn_remainder: 0.,
+            active: spawner.starts_active(),
         }
     }
 

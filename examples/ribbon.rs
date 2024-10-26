@@ -91,7 +91,6 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     let effect = EffectAsset::new(256, Spawner::once(1.0.into(), true), writer.finish())
         .with_ribbons(32768, 1.0 / TRAIL_SPAWN_RATE, LIFETIME, 0)
-        .with_name("ribbon")
         .with_simulation_space(SimulationSpace::Global)
         .init_groups(init_position_attr, ParticleGroupSet::single(0))
         .init_groups(init_velocity_attr, ParticleGroupSet::single(0))
