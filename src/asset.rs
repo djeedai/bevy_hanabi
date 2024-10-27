@@ -864,6 +864,26 @@ impl EffectAsset {
     pub fn texture_layout(&self) -> TextureLayout {
         self.module.texture_layout()
     }
+
+    /// Computes the group evaluation order, which ensures that cloners run
+    /// before spawners.
+    ///
+    /// This makes sure that we don't spawn a particle and immediately clone it,
+    /// which looks bad.
+    pub(crate) fn calculate_group_order(&self) -> Vec<u32> {
+        let mut group_order = Vec::with_capacity(self.init.len());
+        for (group_index, init) in self.init.iter().enumerate() {
+            if let Initializer::Cloner(_) = init {
+                group_order.push(group_index as u32);
+            }
+        }
+        for (group_index, init) in self.init.iter().enumerate() {
+            if let Initializer::Spawner(_) = init {
+                group_order.push(group_index as u32);
+            }
+        }
+        group_order
+    }
 }
 
 /// Asset loader for [`EffectAsset`].

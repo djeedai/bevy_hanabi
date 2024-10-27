@@ -59,6 +59,8 @@ pub(crate) struct EffectBatches {
     pub render_shaders: Vec<Handle<Shader>>,
     /// Init and update compute pipelines specialized for this batch.
     pub init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds>,
+    /// The order in which we evaluate groups.
+    pub group_order: Vec<u32>,
 }
 
 impl Index<u32> for EffectBatches {
@@ -136,6 +138,7 @@ impl EffectBatches {
                 .collect(),
             init_and_update_pipeline_ids,
             entities: vec![input.entity.index()],
+            group_order: input.group_order,
         }
     }
 }
@@ -164,6 +167,8 @@ pub(crate) struct BatchesInput {
     pub alpha_mode: AlphaMode,
     pub particle_layout: ParticleLayout,
     pub initializers: Vec<EffectInitializer>,
+    /// The order in which we evaluate groups.
+    pub group_order: Vec<u32>,
     /// Emitter transform.
     pub transform: GpuCompressedTransform,
     /// Emitter inverse transform.

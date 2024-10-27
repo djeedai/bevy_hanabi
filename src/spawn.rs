@@ -575,7 +575,7 @@ impl EffectInitializers {
 
 /// Holds the runtime state for the initializer of a single particle group on a
 /// particle effect.
-#[derive(Clone, PartialEq, Reflect, Debug)]
+#[derive(Clone, Copy, PartialEq, Reflect, Debug)]
 pub enum EffectInitializer {
     /// The group uses a spawner.
     Spawner(EffectSpawner),
@@ -602,9 +602,9 @@ impl EffectInitializer {
     ///
     /// [`Spawner::once`]: crate::Spawner::once
     pub fn reset(&mut self) {
-        match *self {
-            EffectInitializer::Spawner(ref mut effect_spawner) => effect_spawner.reset(),
-            EffectInitializer::Cloner(ref mut effect_cloner) => effect_cloner.reset(),
+        match self {
+            EffectInitializer::Spawner(effect_spawner) => effect_spawner.reset(),
+            EffectInitializer::Cloner(effect_cloner) => effect_cloner.reset(),
         }
     }
 
@@ -612,16 +612,15 @@ impl EffectInitializer {
     ///
     /// Inactive initializers don't spawn any particles.
     pub fn set_active(&mut self, active: bool) {
-        match *self {
-            EffectInitializer::Spawner(ref mut effect_spawner) => effect_spawner.set_active(active),
-            EffectInitializer::Cloner(ref mut effect_cloner) => effect_cloner.set_active(active),
+        match self {
+            EffectInitializer::Spawner(effect_spawner) => effect_spawner.set_active(active),
+            EffectInitializer::Cloner(effect_cloner) => effect_cloner.set_active(active),
         }
     }
 }
 
 /// Runtime structure maintaining the state of the spawner for a particle group.
-#[allow(missing_copy_implementations)]
-#[derive(Debug, Default, Clone, PartialEq, Reflect)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect)]
 pub struct EffectSpawner {
     /// The spawner configuration extracted either from the [`EffectAsset`], or
     /// from any overriden value provided by the user on the [`ParticleEffect`].
@@ -925,11 +924,11 @@ pub fn tick_spawners(
 
         if let Some(mut initializers) = maybe_initializers {
             for initializer in &mut **initializers {
-                match *initializer {
-                    EffectInitializer::Spawner(ref mut effect_spawner) => {
+                match initializer {
+                    EffectInitializer::Spawner(effect_spawner) => {
                         effect_spawner.tick(dt, &mut rng.0);
                     }
-                    EffectInitializer::Cloner(ref mut effect_cloner) => {
+                    EffectInitializer::Cloner(effect_cloner) => {
                         effect_cloner.tick(dt, &mut rng.0);
                     }
                 }

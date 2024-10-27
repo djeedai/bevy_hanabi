@@ -1291,6 +1291,8 @@ pub struct AddedEffect {
     pub layout_flags: LayoutFlags,
     /// Handle of the effect asset.
     pub handle: Handle<EffectAsset>,
+    /// The order in which we evaluate groups.
+    pub group_order: Vec<u32>,
 }
 
 pub struct AddedEffectGroup {
@@ -1414,6 +1416,7 @@ pub(crate) fn extract_effects(
                 entity
             );
             let property_layout = asset.property_layout();
+            let group_order = asset.calculate_group_order();
 
             trace!(
                 "Found new effect: entity {:?} | capacities {:?} | particle_layout {:?} | \
@@ -1437,6 +1440,7 @@ pub(crate) fn extract_effects(
                 }).collect(),
                 particle_layout,
                 property_layout,
+                group_order,
                 layout_flags: effect.layout_flags,
                 handle,
             })
@@ -1899,6 +1903,7 @@ impl EffectsMeta {
                 &added_effect.property_layout,
                 added_effect.layout_flags,
                 dispatch_buffer_indices,
+                added_effect.group_order,
             );
 
             let entity = added_effect.entity;
@@ -2064,6 +2069,7 @@ pub(crate) fn prepare_effects(
             let id = effects_meta.entity_map.get(&entity).unwrap().cache_id;
             let property_buffer = effect_cache.get_property_buffer(id).cloned(); // clone handle for lifetime
             let effect_slices = effect_cache.get_slices(id);
+            let group_order = effect_cache.get_group_order(id);
 
             BatchesInput {
                 handle: extracted_effect.handle,
@@ -2079,6 +2085,7 @@ pub(crate) fn prepare_effects(
                 inverse_transform: extracted_effect.inverse_transform.into(),
                 particle_layout: extracted_effect.particle_layout.clone(),
                 property_buffer,
+                group_order: group_order.to_vec(),
                 property_data: extracted_effect.property_data,
                 initializers: extracted_effect.initializers,
                 #[cfg(feature = "2d")]
@@ -3882,17 +3889,18 @@ impl Node for VfxSimulateNode {
 
                 // Dispatch init compute jobs
                 for (entity, batches) in self.effect_query.iter_manual(world) {
-                    for (dest_group_index, initializer) in batches.initializers.iter().enumerate() {
+                    for &dest_group_index in batches.group_order.iter() {
+                        let initializer = &batches.initializers[dest_group_index as usize];
                         let dest_render_group_dispatch_buffer_index = BufferTableId(
                             batches
                                 .dispatch_buffer_indices
                                 .first_render_group_dispatch_buffer_index
                                 .0
-                                + dest_group_index as u32,
+                                + dest_group_index,
                         );
 
                         // Destination group spawners are packed one after one another.
-                        let spawner_base = batches.spawner_base + dest_group_index as u32;
+                        let spawner_base = batches.spawner_base + dest_group_index;
                         let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
                         assert!(
                             spawner_buffer_aligned >= GpuSpawnerParams::min_size().get() as usize
@@ -3920,18 +3928,21 @@ impl Node for VfxSimulateNode {
                                 // total_group_count += batches.group_batches.len() as u32;
 
                                 let Some(init_pipeline) = pipeline_cache.get_compute_pipeline(
-                                    batches.init_and_update_pipeline_ids[dest_group_index].init,
+                                    batches.init_and_update_pipeline_ids[dest_group_index as usize]
+                                        .init,
                                 ) else {
                                     if let CachedPipelineState::Err(err) = pipeline_cache
                                         .get_compute_pipeline_state(
-                                            batches.init_and_update_pipeline_ids[dest_group_index]
+                                            batches.init_and_update_pipeline_ids
+                                                [dest_group_index as usize]
                                                 .init,
                                         )
                                     {
                                         error!(
                                             "Failed to find init pipeline #{} for effect {:?}: \
                                              {:?}",
-                                            batches.init_and_update_pipeline_ids[dest_group_index]
+                                            batches.init_and_update_pipeline_ids
+                                                [dest_group_index as usize]
                                                 .init
                                                 .id(),
                                             entity,
@@ -4042,8 +4053,9 @@ impl Node for VfxSimulateNode {
                                         timestamp_writes: None,
                                     });
 
-                                let clone_pipeline_id =
-                                    batches.init_and_update_pipeline_ids[dest_group_index].init;
+                                let clone_pipeline_id = batches.init_and_update_pipeline_ids
+                                    [dest_group_index as usize]
+                                    .init;
 
                                 let effect_cache_id = batches.effect_cache_id;
 
@@ -4080,13 +4092,11 @@ impl Node for VfxSimulateNode {
                                     .render_effect_metadata_buffer_index;
                                 let clone_dest_render_group_dispatch_buffer_index = batches
                                     .dispatch_buffer_indices
-                                    .trail_dispatch_buffer_indices
-                                    [&(dest_group_index as u32)]
+                                    .trail_dispatch_buffer_indices[&dest_group_index]
                                     .dest;
                                 let clone_src_render_group_dispatch_buffer_index = batches
                                     .dispatch_buffer_indices
-                                    .trail_dispatch_buffer_indices
-                                    [&(dest_group_index as u32)]
+                                    .trail_dispatch_buffer_indices[&dest_group_index]
                                     .src;
 
                                 let render_effect_indirect_offset =
@@ -4236,9 +4246,9 @@ impl Node for VfxSimulateNode {
                     continue;
                 };
 
-                for (group_index, init_and_update_pipeline_id) in
-                    batches.init_and_update_pipeline_ids.iter().enumerate()
-                {
+                for &group_index in batches.group_order.iter() {
+                    let init_and_update_pipeline_id =
+                        &batches.init_and_update_pipeline_ids[group_index as usize];
                     let Some(update_pipeline) =
                         pipeline_cache.get_compute_pipeline(init_and_update_pipeline_id.update)
                     else {
@@ -4258,11 +4268,11 @@ impl Node for VfxSimulateNode {
 
                     let update_group_dispatch_buffer_offset =
                         effects_meta.gpu_limits.dispatch_indirect_offset(
-                            first_update_group_dispatch_buffer_index.0 + group_index as u32,
+                            first_update_group_dispatch_buffer_index.0 + group_index,
                         );
 
                     // Destination group spawners are packed one after one another.
-                    let spawner_base = batches.spawner_base + group_index as u32;
+                    let spawner_base = batches.spawner_base + group_index;
                     let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
                     assert!(spawner_buffer_aligned >= GpuSpawnerParams::min_size().get() as usize);
                     let spawner_offset = spawner_base * spawner_buffer_aligned as u32;

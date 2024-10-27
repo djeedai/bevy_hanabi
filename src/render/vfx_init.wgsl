@@ -44,7 +44,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // case of cloners), since compute shaders run in workgroup_size(64) so more
     // threads than needed are launched (rounded up to 64).
 #ifdef CLONE
-    let spawn_count: u32 = src_render_group_indirect.max_update;
+    // FIXME: This doesn't actually need to be atomic.
+    let spawn_count: u32 = atomicLoad(&src_render_group_indirect.alive_count);
 #else   // CLONE
     let spawn_count: u32 = u32(spawner.spawn);
 #endif  // CLONE
