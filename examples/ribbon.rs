@@ -1,5 +1,8 @@
-//! Draws a trail and connects the trails using a ribbon.
+//! Uses with_ribbons to draw a "tracer" or a "trail" following an Entity.
+//! The movement of the head particle is achieved by linking the particle position to a CPU position using a [Property] in [move_head].
+//!
 
+use bevy::color::palettes::css::YELLOW;
 use bevy::math::vec4;
 use bevy::prelude::*;
 use bevy::{
@@ -18,7 +21,7 @@ const L: f32 = 0.384;
 
 const TIME_SCALE: f32 = 10.0;
 const SHAPE_SCALE: f32 = 25.0;
-const LIFETIME: f32 = 2.5;
+const LIFETIME: f32 = 1.5;
 const TRAIL_SPAWN_RATE: f32 = 256.0;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -71,18 +74,12 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         value: writer.lit(0.5).expr(),
     };
 
-    let time = writer.time().mul(writer.lit(TIME_SCALE));
+    let pos = writer.add_property("head_pos", Vec3::ZERO.into());
+    let pos = writer.prop(pos);
 
     let move_modifier = SetAttributeModifier {
         attribute: Attribute::POSITION,
-        value: (WriterExpr::vec3(
-            writer.lit(1.0 - K).mul(time.clone().cos())
-                + writer.lit(L * K) * (writer.lit((1.0 - K) / K) * time.clone()).cos(),
-            writer.lit(1.0 - K).mul(time.clone().sin())
-                - writer.lit(L * K) * (writer.lit((1.0 - K) / K) * time.clone()).sin(),
-            writer.lit(0.0),
-        ) * writer.lit(SHAPE_SCALE))
-        .expr(),
+        value: pos.expr(),
     };
 
     let render_color = ColorOverLifetimeModifier {
@@ -98,6 +95,10 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         .init_groups(init_lifetime_attr, ParticleGroupSet::single(0))
         .init_groups(init_size_attr, ParticleGroupSet::single(0))
         .update_groups(move_modifier, ParticleGroupSet::single(0))
+        .render(SizeOverLifetimeModifier {
+            gradient: Gradient::linear(Vec2::ONE, Vec2::ZERO),
+            ..default()
+        })
         .render_groups(render_color, ParticleGroupSet::single(1));
 
     let effect = effects.add(effect);
@@ -111,9 +112,26 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         .insert(Name::new("ribbon"));
 }
 
-fn move_particle_effect(mut query: Query<&mut Transform, With<ParticleEffect>>, timer: Res<Time>) {
-    let theta = timer.elapsed_seconds() * 1.0;
+fn move_particle_effect(
+    mut gizmos: Gizmos,
+    mut query: Query<&mut Transform, With<ParticleEffect>>,
+    mut effect: Query<&mut EffectProperties>,
+    timer: Res<Time>,
+) {
+    let Ok(mut properties) = effect.get_single_mut() else {
+        return;
+    };
     for mut transform in query.iter_mut() {
-        transform.translation = vec3(f32::cos(theta), f32::sin(theta), 0.0) * 5.0;
+        let time = timer.elapsed_seconds() * TIME_SCALE;
+        let pos = vec3(
+            (1.0 - K) * (time.clone().cos()) + (L * K) * (((1.0 - K) / K) * time.clone()).cos(),
+            (1.0 - K) * (time.clone().sin()) - (L * K) * (((1.0 - K) / K) * time.clone()).sin(),
+            0.0,
+        ) * SHAPE_SCALE;
+
+        //let pos = vec3(f32::cos(theta), f32::sin(theta), 0.0) * 5.0;
+        properties.set("head_pos", (pos).into());
+        gizmos.sphere(pos, Quat::IDENTITY, 1.0, YELLOW);
+        transform.translation = pos;
     }
 }
