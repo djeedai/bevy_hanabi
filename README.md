@@ -90,7 +90,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
   // Create the effect asset
   let effect = EffectAsset::new(
     // Maximum number of particles alive at a time
-    vec![32768],
+    32768,
     // Spawn at a rate of 5 particles per second
     Spawner::rate(5.0.into()),
     // Move the expression module into the asset

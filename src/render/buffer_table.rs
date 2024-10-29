@@ -19,6 +19,13 @@ use crate::next_multiple_of;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BufferTableId(pub(crate) u32); // TEMP: pub(crate)
 
+impl BufferTableId {
+    #[inline]
+    pub fn offset(&self, index: u32) -> BufferTableId {
+        BufferTableId(self.0 + index)
+    }
+}
+
 #[derive(Debug)]
 struct AllocatedBuffer {
     /// Currently allocated buffer, of size equal to `size`.

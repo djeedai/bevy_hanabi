@@ -248,7 +248,7 @@ fn setup(
     };
 
     let effect = effects.add(
-        EffectAsset::new(vec![512], Spawner::rate(50.0.into()), writer.finish())
+        EffectAsset::new(512, Spawner::rate(50.0.into()), writer.finish())
             .with_name("instancing")
             .init(init_pos)
             .init(init_vel)
@@ -288,7 +288,7 @@ fn setup(
     module.add_texture("color");
 
     let alt_effect = effects.add(
-        EffectAsset::new(vec![512], Spawner::rate(102.0.into()), module)
+        EffectAsset::new(512, Spawner::rate(102.0.into()), module)
             .with_simulation_space(SimulationSpace::Local)
             .with_name("alternate instancing")
             .init(init_pos)
