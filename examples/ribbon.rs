@@ -1,12 +1,5 @@
-<<<<<<< HEAD
 //! Uses with_ribbons to draw a "tracer" or a "trail" following an Entity.
-=======
-//! Uses the [RibbonModifier] to draw a "tracer" or a "trail" following an Entity.
-//! The trail effect is achieved by using the [CloneModifier] on the "head" particle in combination
-//! with the [RibbonModifier].
->>>>>>> 8508ca1 (clean up and better description)
 //! The movement of the head particle is achieved by linking the particle position to a CPU position using a [Property] in [move_head].
-//!
 
 use bevy::color::palettes::css::YELLOW;
 use bevy::math::vec4;
