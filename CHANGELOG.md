@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Currently only supports color textures (no depth texture) and only sampling via WGSL `textureSample()`. (#355)
 - Added a new `EffectMaterial` component holding the actual textures to bind to the various slots of a `Module`.
 - Added a new `Module::add_texture()` function to declare a new texture slot in a module.
+- Particle trails and ribbons can now be initialized with init modifiers.
 
 ### Changed
 
@@ -22,12 +23,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Instead, it holds an expression handle to the texture slot defined in the `Module` of the effect.
   This allows dynamically changing the texture sampled.
 - `RenderModifier::apply_render()` now returns a `Result<String, ExprError>`.
+- Several API changes occurred around the cloning of particles for trails and ribbons. See also the [migration guide (v0.12 -> v0.13)](./docs/migration-v0.12-to-v0.13.md).
+  - `EffectSpawner` is now wrapped into a new `EffectInitializers`. Each effect group has an `EffectInitializer`, which can either be an `EffectSpawner` (CPU spawning) or an `EffectCloner` (GPU particle cloning).
+  - `EffectAsset::new()` takes again a single capacity argument for the default first group. Other groups are incrementally added with `with_trails()` and `with_ribbons()`, specifying their respective capacity via those functions.
+  - The age (`Attribute::AGE`) and lifetime (`Attribute::LIFETIME`) of cloned particles can no longer be assigned manually; instead it's set via an argument to `EffectAsset::with_trails()` and `EffectAsset::with_ribbons()`, and cannot be modified anymore with expressions (and properties in particular).
+
+### Removed
+
+- The `CloneModifier` was removed. Cloning is now controlled by the `EffectCloner`.
+- The `RibbonModifier` was removed. Use `EffectAsset::with_ribbons()` to create ribbons.
 
 ### Fixed
 
 - Fixed a bug where the generated render shader was declaring a binding as `storage<read>` (read-only)
   but the `Spawner` struct contained an `atomic<i32>`, which requires write access.
   The `Spawner` struct is now conditionally defining that field as `i32` instead.
+- Fixed a race condition in ribbons leading to visual artifacts (particles linked to other unrelated particles). (#376)
 
 ## [0.12.2] 2024-08-05
 
