@@ -2117,7 +2117,7 @@ impl ToWgslString for TernaryOperator {
 ///
 /// // Create an EffectAsset with the modifier and the Module from the writer
 /// let effect =
-///     EffectAsset::new(vec![1024], Spawner::rate(32_f32.into()), w.finish()).init(init_modifier);
+///     EffectAsset::new(1024, Spawner::rate(32_f32.into()), w.finish()).init(init_modifier);
 /// ```
 ///
 /// [`finish()`]: ExprWriter::finish
@@ -2306,7 +2306,7 @@ impl ExprWriter {
     /// let mut w = ExprWriter::new();
     /// // [...]
     /// let module = w.finish();
-    /// let asset = EffectAsset::new(vec![256], spawner, module);
+    /// let asset = EffectAsset::new(256, spawner, module);
     /// ```
     ///
     /// [`EffectAsset::new()`]: crate::EffectAsset::new()

@@ -592,7 +592,7 @@ axis_z = cross(axis_x, axis_y);
 /// let texture_slot = writer.lit(0u32).expr();
 ///
 /// let asset = EffectAsset::new(
-///     vec![32768],
+///     32768,
 ///     Spawner::once(32.0.into(), true),
 ///     writer.finish(),
 /// )

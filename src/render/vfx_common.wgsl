@@ -29,6 +29,9 @@ struct Spawner {
     count: atomic<i32>,
 #endif
     effect_index: u32,
+    // The lifetime to initialize particles with. This is only used for cloners
+    // (i.e. trails or ribbons).
+    lifetime: f32,
 #ifdef SPAWNER_PADDING
     {{SPAWNER_PADDING}}
 #endif
@@ -36,7 +39,7 @@ struct Spawner {
 
 // Per-group data for a single particle effect group inside an effect.
 struct ParticleGroup {
-    // Index of the group, generally zero unless CloneModifier is used.
+    // Index of the group, generally zero unless there are trails.
     group_index: u32,
     effect_index: u32,
     // The index relative to the effect: e.g. 0 if this is the first group in
@@ -83,8 +86,7 @@ struct DispatchIndirect {
 // as a raw array<u32>, so that we can avoid WGSL struct padding and keep data
 // more compact in the render indirect buffer. Each offset corresponds to a field
 // in the RenderIndirect struct.
-const REM_OFFSET_MAX_SPAWN: u32 = 0u;
-const REM_OFFSET_PING: u32 = 1u;
+const REM_OFFSET_PING: u32 = 0u;
 
 const RGI_OFFSET_VERTEX_COUNT: u32 = 0u;
 const RGI_OFFSET_INSTANCE_COUNT: u32 = 1u;
@@ -93,17 +95,9 @@ const RGI_OFFSET_BASE_INSTANCE: u32 = 3u;
 const RGI_OFFSET_ALIVE_COUNT: u32 = 4u;
 const RGI_OFFSET_MAX_UPDATE: u32 = 5u;
 const RGI_OFFSET_DEAD_COUNT: u32 = 6u;
+const RGI_OFFSET_MAX_SPAWN: u32 = 7u;
 
 struct RenderEffectMetadata {
-    /// Maxmimum number of init threads to run on next frame. This is cached from
-    /// `dead_count` during the indirect dispatch of the previous frame, so that the
-    /// init compute pass can cap its thread count while also decrementing the actual
-    /// `dead_count` as particles are spawned.
-#ifdef REM_MAX_SPAWN_ATOMIC
-    max_spawn: atomic<u32>,
-#else
-    max_spawn: u32,
-#endif
     /// Index of the ping buffer for particle indices. Init and update compute passes
     /// always write into the ping buffer and read from the pong buffer. The buffers
     /// are swapped during the indirect dispatch.
@@ -133,6 +127,7 @@ struct RenderGroupIndirect {
     /// Number of dead particles, decremented during the init pass as new particles
     /// are spawned, and incremented during the update pass as existing particles die.
     dead_count: atomic<u32>,
+    max_spawn: atomic<u32>,
     {{RENDER_GROUP_INDIRECT_PADDING}}
 }
 

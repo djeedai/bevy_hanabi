@@ -71,8 +71,6 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         value: writer.lit(0.5).expr(),
     };
 
-    let clone_modifier = CloneModifier::new(1.0 / TRAIL_SPAWN_RATE, 1);
-
     let time = writer.time().mul(writer.lit(TIME_SCALE));
 
     let move_modifier = SetAttributeModifier {
@@ -87,32 +85,20 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         .expr(),
     };
 
-    let update_lifetime_attr = SetAttributeModifier {
-        attribute: Attribute::LIFETIME,
-        value: writer.lit(LIFETIME).expr(),
-    };
-
     let render_color = ColorOverLifetimeModifier {
         gradient: Gradient::linear(vec4(3.0, 0.0, 0.0, 1.0), vec4(3.0, 0.0, 0.0, 0.0)),
     };
 
-    let effect = EffectAsset::new(
-        vec![256, 32768],
-        Spawner::once(1.0.into(), true),
-        writer.finish(),
-    )
-    .with_name("ribbon")
-    .with_simulation_space(SimulationSpace::Global)
-    .init(init_position_attr)
-    .init(init_velocity_attr)
-    .init(init_age_attr)
-    .init(init_lifetime_attr)
-    .init(init_size_attr)
-    .update_groups(move_modifier, ParticleGroupSet::single(0))
-    .update_groups(clone_modifier, ParticleGroupSet::single(0))
-    .update_groups(update_lifetime_attr, ParticleGroupSet::single(1))
-    .render(RibbonModifier)
-    .render_groups(render_color, ParticleGroupSet::single(1));
+    let effect = EffectAsset::new(256, Spawner::once(1.0.into(), true), writer.finish())
+        .with_ribbons(32768, 1.0 / TRAIL_SPAWN_RATE, LIFETIME, 0)
+        .with_simulation_space(SimulationSpace::Global)
+        .init_groups(init_position_attr, ParticleGroupSet::single(0))
+        .init_groups(init_velocity_attr, ParticleGroupSet::single(0))
+        .init_groups(init_age_attr, ParticleGroupSet::single(0))
+        .init_groups(init_lifetime_attr, ParticleGroupSet::single(0))
+        .init_groups(init_size_attr, ParticleGroupSet::single(0))
+        .update_groups(move_modifier, ParticleGroupSet::single(0))
+        .render_groups(render_color, ParticleGroupSet::single(1));
 
     let effect = effects.add(effect);
 
