@@ -15,7 +15,7 @@ use bevy::{
         core_3d::{AlphaMask3d, Transparent3d},
         prepass::OpaqueNoLightmap3dBinKey,
     },
-    render::render_phase::{BinnedPhaseItem, ViewBinnedRenderPhases},
+    render::render_phase::{BinnedPhaseItem, DrawError, ViewBinnedRenderPhases},
 };
 use bevy::{
     ecs::{
@@ -38,6 +38,7 @@ use bevy::{
             ExtractedView, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms,
             VisibleEntities,
         },
+        world_sync::TemporaryRenderEntity,
         Extract,
     },
     utils::HashMap,
@@ -525,6 +526,7 @@ impl FromWorld for DispatchIndirectPipeline {
             module: &shader_module,
             entry_point: "main",
             compilation_options: default(),
+            cache: None,
         });
 
         Self {
@@ -2313,7 +2315,7 @@ pub(crate) fn prepare_effects(
             dispatch_buffer_indices,
             first_particle_group_buffer_index.unwrap_or_default(),
         );
-        let batches_entity = commands.spawn(batches).id();
+        let batches_entity = commands.spawn(batches).insert(TemporaryRenderEntity).id();
 
         // Spawn one EffectDrawBatch per group, to actually drive rendering. Each group
         // renders with a different indirect call. These are the entities that the
@@ -2326,7 +2328,7 @@ pub(crate) fn prepare_effects(
                 z_sort_key_2d,
                 #[cfg(feature = "3d")]
                 translation_3d,
-            });
+            }).insert(TemporaryRenderEntity);
         }
     }
 
@@ -2463,7 +2465,7 @@ pub struct QueueEffectsReadOnlyParams<'w, 's> {
 }
 
 fn emit_sorted_draw<T, F>(
-    views: &Query<(Entity, &VisibleEntities, &ExtractedView)>,
+    views: &Query<(Entity, &VisibleEntities, &ExtractedView, &Msaa)>,
     render_phases: &mut ResMut<ViewSortedRenderPhases<T>>,
     view_entities: &mut FixedBitSet,
     effect_batches: &Query<(Entity, &mut EffectBatches)>,
@@ -2471,7 +2473,6 @@ fn emit_sorted_draw<T, F>(
     render_pipeline: &mut ParticlesRenderPipeline,
     mut specialized_render_pipelines: Mut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
     pipeline_cache: &PipelineCache,
-    msaa_samples: u32,
     make_phase_item: F,
     #[cfg(all(feature = "2d", feature = "3d"))] pipeline_mode: PipelineMode,
 ) where
@@ -2480,7 +2481,7 @@ fn emit_sorted_draw<T, F>(
 {
     trace!("emit_sorted_draw() {} views", views.iter().len());
 
-    for (view_entity, visible_entities, view) in views.iter() {
+    for (view_entity, visible_entities, view, msaa) in views.iter() {
         trace!("Process new sorted view");
 
         let Some(render_phase) = render_phases.get_mut(&view_entity) else {
@@ -2600,7 +2601,7 @@ fn emit_sorted_draw<T, F>(
                     ribbons,
                     #[cfg(all(feature = "2d", feature = "3d"))]
                     pipeline_mode,
-                    msaa_samples,
+                    msaa_samples: msaa.samples(),
                     hdr: view.hdr,
                 },
             );
@@ -2634,7 +2635,7 @@ fn emit_sorted_draw<T, F>(
 
 #[cfg(feature = "3d")]
 fn emit_binned_draw<T, F>(
-    views: &Query<(Entity, &VisibleEntities, &ExtractedView)>,
+    views: &Query<(Entity, &VisibleEntities, &ExtractedView, &Msaa)>,
     render_phases: &mut ResMut<ViewBinnedRenderPhases<T>>,
     view_entities: &mut FixedBitSet,
     effect_batches: &Query<(Entity, &mut EffectBatches)>,
@@ -2642,7 +2643,6 @@ fn emit_binned_draw<T, F>(
     render_pipeline: &mut ParticlesRenderPipeline,
     mut specialized_render_pipelines: Mut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
     pipeline_cache: &PipelineCache,
-    msaa_samples: u32,
     make_bin_key: F,
     #[cfg(all(feature = "2d", feature = "3d"))] pipeline_mode: PipelineMode,
     use_alpha_mask: bool,
@@ -2654,7 +2654,7 @@ fn emit_binned_draw<T, F>(
 
     trace!("emit_binned_draw() {} views", views.iter().len());
 
-    for (view_entity, visible_entities, view) in views.iter() {
+    for (view_entity, visible_entities, view, msaa) in views.iter() {
         trace!(
             "Process new binned view (use_alpha_mask={})",
             use_alpha_mask
@@ -2776,7 +2776,7 @@ fn emit_binned_draw<T, F>(
                     ribbons,
                     #[cfg(all(feature = "2d", feature = "3d"))]
                     pipeline_mode,
-                    msaa_samples,
+                    msaa_samples: msaa.samples(),
                     hdr: view.hdr,
                 },
             );
@@ -2808,7 +2808,7 @@ fn emit_binned_draw<T, F>(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn queue_effects(
-    views: Query<(Entity, &VisibleEntities, &ExtractedView)>,
+    views: Query<(Entity, &VisibleEntities, &ExtractedView, &Msaa)>,
     effects_meta: Res<EffectsMeta>,
     mut render_pipeline: ResMut<ParticlesRenderPipeline>,
     mut specialized_render_pipelines: ResMut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
@@ -2818,7 +2818,6 @@ pub(crate) fn queue_effects(
     effect_draw_batches: Query<(Entity, &mut EffectDrawBatch)>,
     events: Res<EffectAssetEvents>,
     read_params: QueueEffectsReadOnlyParams,
-    msaa: Res<Msaa>,
     mut view_entities: Local<FixedBitSet>,
     #[cfg(feature = "2d")] mut transparent_2d_render_phases: ResMut<
         ViewSortedRenderPhases<Transparent2d>,
@@ -2881,7 +2880,6 @@ pub(crate) fn queue_effects(
                 &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
-                msaa.samples(),
                 |id, entity, draw_batch, _group, _view| Transparent2d {
                     draw_function: draw_effects_function_2d,
                     pipeline: id,
@@ -2921,7 +2919,6 @@ pub(crate) fn queue_effects(
                 &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
-                msaa.samples(),
                 |id, entity, batch, _group, view| Transparent3d {
                     draw_function: draw_effects_function_3d,
                     pipeline: id,
@@ -2959,7 +2956,6 @@ pub(crate) fn queue_effects(
                 &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
-                msaa.samples(),
                 |id, _batch, _group, _view| OpaqueNoLightmap3dBinKey {
                     pipeline: id,
                     draw_function: draw_effects_function_alpha_mask,
@@ -3550,7 +3546,7 @@ impl Draw<Transparent2d> for DrawEffects {
         pass: &mut TrackedRenderPass<'w>,
         view: Entity,
         item: &Transparent2d,
-    ) {
+    ) -> Result<(), DrawError> {
         trace!("Draw<Transparent2d>: view={:?}", view);
         draw(
             world,
@@ -3560,6 +3556,7 @@ impl Draw<Transparent2d> for DrawEffects {
             item.pipeline,
             &mut self.params,
         );
+        Ok(())
     }
 }
 
@@ -3571,7 +3568,7 @@ impl Draw<Transparent3d> for DrawEffects {
         pass: &mut TrackedRenderPass<'w>,
         view: Entity,
         item: &Transparent3d,
-    ) {
+    ) -> Result<(), DrawError> {
         trace!("Draw<Transparent3d>: view={:?}", view);
         draw(
             world,
@@ -3581,6 +3578,7 @@ impl Draw<Transparent3d> for DrawEffects {
             item.pipeline,
             &mut self.params,
         );
+        Ok(())
     }
 }
 
@@ -3592,7 +3590,7 @@ impl Draw<AlphaMask3d> for DrawEffects {
         pass: &mut TrackedRenderPass<'w>,
         view: Entity,
         item: &AlphaMask3d,
-    ) {
+    ) -> Result<(), DrawError> {
         trace!("Draw<AlphaMask3d>: view={:?}", view);
         draw(
             world,
@@ -3602,6 +3600,7 @@ impl Draw<AlphaMask3d> for DrawEffects {
             item.key.pipeline,
             &mut self.params,
         );
+        Ok(())
     }
 }
 
