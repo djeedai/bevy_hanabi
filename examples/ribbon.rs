@@ -112,7 +112,6 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 }
 
 fn move_head(
-    mut gizmos: Gizmos,
     mut query: Query<&mut Transform, With<ParticleEffect>>,
     mut effect: Query<&mut EffectProperties>,
     timer: Res<Time>,
@@ -129,7 +128,6 @@ fn move_head(
         ) * SHAPE_SCALE;
 
         properties.set("head_pos", (pos).into());
-        gizmos.sphere(pos, Quat::IDENTITY, 1.0, YELLOW);
         transform.translation = pos;
     }
 }
