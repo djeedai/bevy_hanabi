@@ -1,17 +1,15 @@
 use std::ops::Deref;
 
+#[cfg(feature = "serde")]
+use bevy::asset::{io::Reader, AssetLoader, AsyncReadExt, LoadContext};
 use bevy::{
     asset::Asset,
     reflect::Reflect,
     utils::{default, HashSet},
 };
-
-#[cfg(feature = "serde")]
-use bevy::asset::{io::Reader, AssetLoader, AsyncReadExt, LoadContext};
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
 use thiserror::Error;
-
-use serde::{Deserialize, Serialize};
 
 use crate::{
     modifier::{Modifier, RenderModifier},
@@ -283,8 +281,8 @@ impl EffectAsset {
     ///   capacities of an effect are immutable. See also [`capacities()`] for
     ///   more details.
     /// - The [`Initializer`], which defines when particles are emitted.
-    ///   Initializers can be either spawners, to spawn new particles, or cloners,
-    ///   to clone particles from one group into another.
+    ///   Initializers can be either spawners, to spawn new particles, or
+    ///   cloners, to clone particles from one group into another.
     ///
     /// Additionally, if any modifier added to this effect uses some [`Expr`] to
     /// customize its behavior, then those [`Expr`] are stored into a [`Module`]

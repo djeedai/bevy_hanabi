@@ -3705,7 +3705,8 @@ fn create_init_render_indirect_bind_group_layout(
     ];
 
     if clone {
-        // @binding(2) var<storage, read_write> src_render_group_indirect : RenderGroupIndirect
+        // @binding(2) var<storage, read_write> src_render_group_indirect :
+        // RenderGroupIndirect
         entries.push(BindGroupLayoutEntry {
             binding: 2,
             visibility: ShaderStages::COMPUTE,
@@ -3952,7 +3953,8 @@ impl Node for VfxSimulateNode {
                                     continue;
                                 };
 
-                                // Do not dispatch any init work if there's nothing to spawn this frame
+                                // Do not dispatch any init work if there's nothing to spawn this
+                                // frame
                                 let spawn_count = effect_spawner.spawn_count;
                                 if spawn_count == 0 {
                                     continue;
@@ -3964,7 +3966,8 @@ impl Node for VfxSimulateNode {
 
                                 let effect_cache_id = batches.effect_cache_id;
 
-                                // for (effect_entity, effect_slice) in effects_meta.entity_map.iter()
+                                // for (effect_entity, effect_slice) in
+                                // effects_meta.entity_map.iter()
                                 // Retrieve the ExtractedEffect from the entity
                                 // trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
                                 // effect_slice); let effect =
@@ -3973,7 +3976,8 @@ impl Node for VfxSimulateNode {
                                 // Get the slice to init
                                 // let effect_slice = effects_meta.get(&effect_entity);
                                 // let effect_group =
-                                //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
+                                //     &effects_meta.effect_cache.buffers()[batch.buffer_index as
+                                // usize];
                                 let Some(particles_init_bind_group) =
                                     effect_cache.init_bind_group(effect_cache_id)
                                 else {
