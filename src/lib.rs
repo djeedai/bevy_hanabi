@@ -198,7 +198,7 @@ pub use plugin::{EffectSystems, HanabiPlugin};
 pub use properties::*;
 pub use render::{LayoutFlags, ShaderCache};
 pub use spawn::{
-    tick_spawners, Cloner, CpuValue, EffectCloner, EffectInitializer, EffectInitializers,
+    tick_initializers, Cloner, CpuValue, EffectCloner, EffectInitializer, EffectInitializers,
     EffectSpawner, Random, Spawner,
 };
 pub use time::{EffectSimulation, EffectSimulationTime};

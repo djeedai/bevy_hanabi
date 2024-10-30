@@ -4044,7 +4044,8 @@ impl Node for VfxSimulateNode {
                             }
 
                             EffectInitializer::Cloner(EffectCloner {
-                                spawn_this_frame, ..
+                                clone_this_frame: spawn_this_frame,
+                                ..
                             }) => {
                                 if !spawn_this_frame {
                                     continue;

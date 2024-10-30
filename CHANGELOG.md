@@ -27,10 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `EffectSpawner` is now wrapped into a new `EffectInitializers`. Each effect group has an `EffectInitializer`, which can either be an `EffectSpawner` (CPU spawning) or an `EffectCloner` (GPU particle cloning).
   - `EffectAsset::new()` takes again a single capacity argument for the default first group. Other groups are incrementally added with `with_trails()` and `with_ribbons()`, specifying their respective capacity via those functions.
   - The age (`Attribute::AGE`) and lifetime (`Attribute::LIFETIME`) of cloned particles can no longer be assigned manually; instead it's set via an argument to `EffectAsset::with_trails()` and `EffectAsset::with_ribbons()`, and cannot be modified anymore with expressions (and properties in particular).
+  - Renamed the `tick_spawners()` system into `tick_initializers()` for clarity.
 
 ### Removed
 
-- The `CloneModifier` was removed. Cloning is now controlled by the `EffectCloner`.
+- The `CloneModifier` was removed. Cloning is now controlled by the `EffectCloner`, hosted by the `EffectInitializers` component.
 - The `RibbonModifier` was removed. Use `EffectAsset::with_ribbons()` to create ribbons.
 
 ### Fixed
