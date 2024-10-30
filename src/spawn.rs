@@ -195,23 +195,32 @@ pub struct Spawner {
     /// [`spawn_time`]: Spawner::spawn_time
     num_particles: CpuValue<f32>,
 
-    /// Time over which to spawn `num_particles`, in seconds.
+    /// Time over which to spawn [`num_particles`], in seconds.
+    ///
+    /// [`num_particles`]: Spawner::num_particles
     spawn_time: CpuValue<f32>,
 
     /// Time between bursts of the particle system, in seconds.
+    ///
     /// If this is infinity, there's only one burst.
-    /// If this is `spawn_time`, the system spawns a steady stream of particles.
+    /// If this is [`spawn_time`] or less, the system spawns a steady stream of
+    /// particles.
+    ///
+    /// [`spawn_time`]: Spawner::spawn_time
     period: CpuValue<f32>,
 
-    /// Whether the spawner is active at startup. The value is used to initialize
-    /// [`EffectSpawner::active`].
+    /// Whether the spawner is active at startup.
+    ///
+    /// The value is used to initialize [`EffectSpawner::active`].
     ///
     /// [`EffectSpawner::active`]: crate::EffectSpawner::active
     starts_active: bool,
 
     /// Whether the burst of a once-style spawner triggers immediately when the
-    /// spawner becomes active. If `false`, the spawner doesn't do anything
-    /// until [`EffectSpawner::reset()`] is called.
+    /// spawner becomes active.
+    ///
+    /// If `false`, the spawner doesn't do anything until
+    /// [`EffectSpawner::reset()`] is called.
     starts_immediately: bool,
 }
 
@@ -480,7 +489,8 @@ pub struct Cloner {
 }
 
 impl Cloner {
-    /// Creates a cloner with the given source group index, period, and lifetime.
+    /// Creates a cloner with the given source group index, period, and
+    /// lifetime.
     ///
     /// This is the raw constructor. A more convenient way to create cloners is
     /// to use [`EffectAsset::with_trails`] or [`EffectAsset::with_ribbons`].

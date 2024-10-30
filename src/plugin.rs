@@ -15,6 +15,8 @@ use bevy::{
     time::{time_system, TimeSystem},
 };
 
+#[cfg(feature = "serde")]
+use crate::asset::EffectAssetLoader;
 use crate::{
     asset::EffectAsset,
     compile_effects, gather_removed_effects,
@@ -33,9 +35,6 @@ use crate::{
     update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
     RemovedEffectsEvent, Spawner,
 };
-
-#[cfg(feature = "serde")]
-use crate::asset::EffectAssetLoader;
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
