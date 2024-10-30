@@ -1,5 +1,6 @@
 //! Uses with_ribbons to draw a "tracer" or a "trail" following an Entity.
-//! The movement of the head particle is achieved by linking the particle position to a CPU position using a [Property] in [move_head].
+//! The movement of the head particle is achieved by linking the particle
+//! position to a CPU position using a [Property] in [move_head].
 
 use bevy::math::vec4;
 use bevy::prelude::*;
