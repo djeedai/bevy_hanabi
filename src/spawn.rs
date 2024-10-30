@@ -301,7 +301,7 @@ impl Spawner {
 
         Self {
             count,
-            spawn_duration: spawn_duration,
+            spawn_duration,
             period,
             starts_active: true,
             starts_immediately: true,

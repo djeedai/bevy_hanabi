@@ -1087,8 +1087,8 @@ mod tests {
     ],
     init: [
         Spawner((
-            num_particles: Single(30.0),
-            spawn_time: Single(1.0),
+            count: Single(30.0),
+            spawn_duration: Single(1.0),
             period: Single(1.0),
             starts_active: true,
             starts_immediately: true,
