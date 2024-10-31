@@ -200,9 +200,9 @@ pub enum AlphaMode {
     Mask(ExprHandle),
 }
 
-impl Into<BlendState> for AlphaMode {
-    fn into(self) -> BlendState {
-        match self {
+impl From<AlphaMode> for BlendState {
+    fn from(value: AlphaMode) -> Self {
+        match value {
             AlphaMode::Blend => BlendState::ALPHA_BLENDING,
             AlphaMode::Premultiply => BlendState::PREMULTIPLIED_ALPHA_BLENDING,
             AlphaMode::Add => BlendState {
