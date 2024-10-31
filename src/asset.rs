@@ -10,6 +10,7 @@ use bevy::{
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
 use thiserror::Error;
+use wgpu::{BlendComponent, BlendFactor, BlendOperation, BlendState};
 
 use crate::{
     modifier::{Modifier, RenderModifier},
@@ -108,7 +109,7 @@ pub enum SimulationCondition {
 /// rendered during the [`Transparent2d`] render phase.
 ///
 /// [`Transparent2d`]: bevy::core_pipeline::core_2d::Transparent2d
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Reflect, Serialize, Deserialize, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum AlphaMode {
     /// Render the effect with alpha blending.
@@ -197,6 +198,36 @@ pub enum AlphaMode {
     ///
     /// [`AlphaMask3d`]: bevy::core_pipeline::core_3d::AlphaMask3d
     Mask(ExprHandle),
+}
+
+impl Into<BlendState> for AlphaMode {
+    fn into(self) -> BlendState {
+        match self {
+            AlphaMode::Blend => BlendState::ALPHA_BLENDING,
+            AlphaMode::Premultiply => BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            AlphaMode::Add => BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::SrcAlpha,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+                alpha: BlendComponent {
+                    src_factor: BlendFactor::Zero,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+            },
+            AlphaMode::Multiply => BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::Dst,
+                    dst_factor: BlendFactor::OneMinusSrcAlpha,
+                    operation: BlendOperation::Add,
+                },
+                alpha: BlendComponent::OVER,
+            },
+            _ => BlendState::ALPHA_BLENDING,
+        }
+    }
 }
 
 /// Asset describing a visual effect.
@@ -824,7 +855,7 @@ impl EffectAsset {
     /// Build the particle layout of the asset based on its modifiers.
     ///
     /// This method calculates the particle layout of the effect based on the
-    /// currently existing particles, and return it as a newly allocated
+    /// currently existing modifiers, and return it as a newly allocated
     /// [`ParticleLayout`] object.
     pub fn particle_layout(&self) -> ParticleLayout {
         // Build the set of unique attributes required for all modifiers
@@ -1165,5 +1196,41 @@ mod tests {
             effect.render_modifiers().count(),
             effect_serde.render_modifiers().count()
         );
+    }
+
+    #[test]
+    fn alpha_mode_blend_state() {
+        assert_eq!(BlendState::ALPHA_BLENDING, AlphaMode::Blend.into());
+        assert_eq!(
+            BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            AlphaMode::Premultiply.into()
+        );
+
+        let blend_state = BlendState {
+            color: BlendComponent {
+                src_factor: BlendFactor::SrcAlpha,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+            alpha: BlendComponent {
+                src_factor: BlendFactor::Zero,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+        };
+        assert_eq!(blend_state, AlphaMode::Add.into());
+
+        let blend_state = BlendState {
+            color: BlendComponent {
+                src_factor: BlendFactor::Dst,
+                dst_factor: BlendFactor::OneMinusSrcAlpha,
+                operation: BlendOperation::Add,
+            },
+            alpha: BlendComponent::OVER,
+        };
+        assert_eq!(blend_state, AlphaMode::Multiply.into());
+
+        let expr = Module::default().lit(0.5);
+        assert_eq!(BlendState::ALPHA_BLENDING, AlphaMode::Mask(expr).into());
     }
 }

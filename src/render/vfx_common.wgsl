@@ -18,9 +18,16 @@ struct SimParams {
 }
 
 struct Spawner {
+    // Compressed transform of the emitter.
     transform: mat3x4<f32>, // transposed (row-major)
+    /// Inverse compressed transform of the emitter.
     inverse_transform: mat3x4<f32>, // transposed (row-major)
+    /// Number of particles to spawn this frame, as calculated by the CPU Spawner.
+    ///
+    /// This is only used if the effect is not a child effect (driven by GPU events).
     spawn: i32,
+    /// PRNG seed for this effect instance. Currently this can change each time the
+    /// effect is recompiled, and cannot be set deterministically (TODO).
     seed: u32,
     // Can't use storage<read> with atomics
 #ifdef SPAWNER_READONLY
@@ -28,6 +35,10 @@ struct Spawner {
 #else
     count: atomic<i32>,
 #endif
+    /// Global index of the effect in the various shared buffers.
+    ///
+    /// This is a globally unique index for all active effect instances, used to index
+    /// global buffers like the spawner buffer or the render indirect dispatch buffer.
     effect_index: u32,
     // The lifetime to initialize particles with. This is only used for cloners
     // (i.e. trails or ribbons).
@@ -70,8 +81,11 @@ const DI_OFFSET_PONG: u32 = 3u;
 
 /// Dispatch indirect parameters for GPU driven update compute.
 struct DispatchIndirect {
+    /// Number of workgroups. This is derived from the number of particles to update.
     x: u32,
+    /// Unused; always 1.
     y: u32,
+    /// Unused; always 1.
     z: u32,
     /// Index of the ping-pong buffer of particle indices to read particles from
     /// during rendering. Cached from RenderIndirect::ping after it's swapped
@@ -79,6 +93,10 @@ struct DispatchIndirect {
     /// as an indirect draw source so cannot also be bound as regular storage
     /// buffer for reading.
     pong: u32,
+    /// Padding for storage buffer alignment. This struct is sometimes bound as part
+    /// of an array, or sometimes individually as a single unit. In the later case,
+    /// we need it to be aligned to the GPU limits of the device. That limit is only
+    /// known at runtime when initializing the WebGPU device.
     {{DISPATCH_INDIRECT_PADDING}}
 }
 
@@ -127,7 +145,15 @@ struct RenderGroupIndirect {
     /// Number of dead particles, decremented during the init pass as new particles
     /// are spawned, and incremented during the update pass as existing particles die.
     dead_count: atomic<u32>,
+    /// Maxmimum number of init threads to run on next frame. This is cached from
+    /// `dead_count` during the indirect dispatch of the previous frame, so that the
+    /// init compute pass can cap its thread count while also decrementing the actual
+    /// `dead_count` as particles are spawned.
     max_spawn: atomic<u32>,
+    /// Padding for storage buffer alignment. This struct is sometimes bound as part
+    /// of an array, or sometimes individually as a single unit. In the later case,
+    /// we need it to be aligned to the GPU limits of the device. That limit is only
+    /// known at runtime when initializing the WebGPU device.
     {{RENDER_GROUP_INDIRECT_PADDING}}
 }
 

@@ -1085,6 +1085,7 @@ mod test {
     fn test_once() {
         let rng = &mut new_rng();
         let spawner = Spawner::once(5.0.into(), true);
+        assert!(spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         let count = spawner.tick(0.001, rng);
         assert_eq!(count, 5);
@@ -1096,6 +1097,7 @@ mod test {
     fn test_once_reset() {
         let rng = &mut new_rng();
         let spawner = Spawner::once(5.0.into(), true);
+        assert!(spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         spawner.tick(1.0, rng);
         spawner.reset();
@@ -1107,6 +1109,7 @@ mod test {
     fn test_once_not_immediate() {
         let rng = &mut new_rng();
         let spawner = Spawner::once(5.0.into(), false);
+        assert!(spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         let count = spawner.tick(1.0, rng);
         assert_eq!(count, 0);
@@ -1119,6 +1122,7 @@ mod test {
     fn test_rate() {
         let rng = &mut new_rng();
         let spawner = Spawner::rate(5.0.into());
+        assert!(!spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         // Slightly over 1.0 to avoid edge case
         let count = spawner.tick(1.01, rng);
@@ -1131,6 +1135,7 @@ mod test {
     fn test_rate_active() {
         let rng = &mut new_rng();
         let spawner = Spawner::rate(5.0.into());
+        assert!(!spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         spawner.tick(1.01, rng);
         spawner.set_active(false);
@@ -1147,6 +1152,7 @@ mod test {
     fn test_rate_accumulate() {
         let rng = &mut new_rng();
         let spawner = Spawner::rate(5.0.into());
+        assert!(!spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         // 13 ticks instead of 12 to avoid edge case
         let count = (0..13).map(|_| spawner.tick(1.0 / 60.0, rng)).sum::<u32>();
@@ -1157,6 +1163,7 @@ mod test {
     fn test_burst() {
         let rng = &mut new_rng();
         let spawner = Spawner::burst(5.0.into(), 2.0.into());
+        assert!(!spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         let count = spawner.tick(1.0, rng);
         assert_eq!(count, 5);
