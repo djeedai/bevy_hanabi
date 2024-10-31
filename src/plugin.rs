@@ -23,11 +23,11 @@ use crate::{
     properties::EffectProperties,
     render::{
         extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects,
-        prepare_resources, queue_effects, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents,
-        EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects, GpuDispatchIndirect,
-        GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect, GpuSpawnerParams,
-        ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache,
-        SimParams, StorageType as _, VfxSimulateDriverNode, VfxSimulateNode,
+        prepare_gpu_resources, queue_effects, DispatchIndirectPipeline, DrawEffects,
+        EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects,
+        GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect,
+        GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline,
+        ShaderCache, SimParams, StorageType as _, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_initializers,
@@ -76,16 +76,24 @@ pub enum EffectSystems {
     GatherRemovedEffects,
 
     /// Prepare effect assets for the extracted effects.
+    ///
+    /// Part of Bevy's own [`RenderSet::PrepareAssets`].
     PrepareEffectAssets,
 
     /// Queue the GPU commands for the extracted effects.
+    ///
+    /// Part of Bevy's own [`RenderSet::Queue`].
     QueueEffects,
 
     /// Prepare GPU data for the queued effects.
+    ///
+    /// Part of Bevy's own [`RenderSet::Prepare`].
     PrepareEffectGpuResources,
 
     /// Prepare the GPU bind groups once all buffers have been (re-)allocated
     /// and won't change this frame.
+    ///
+    /// Part of Bevy's own [`RenderSet::PrepareBindGroups`].
     PrepareBindGroups,
 }
 
@@ -299,7 +307,7 @@ impl Plugin for HanabiPlugin {
                     queue_effects
                         .in_set(EffectSystems::QueueEffects)
                         .after(prepare_effects),
-                    prepare_resources
+                    prepare_gpu_resources
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         .after(prepare_view_uniforms),
                     prepare_bind_groups

@@ -14,12 +14,22 @@ use copyless::VecHelper;
 
 use crate::next_multiple_of;
 
-/// Like Bevy's [`BufferVec`], but with correct item alignment.
+/// Like Bevy's [`BufferVec`], but with extra per-item alignment.
 ///
-/// This is a helper to ensure the data is properly aligned when copied to GPU,
-/// depending on the device constraints and the WGSL rules. Generally the
-/// alignment is one of the [`WgpuLimits`], and is also ensured to be
-/// compatible with WGSL.
+/// This helper ensures the individual array elements are properly aligned,
+/// depending on the device constraints and the WGSL rules. In general using
+/// [`BufferVec`] is enough to ensure alignment; however when some array items
+/// also need to be bound individually, then each item (not only the array
+/// itself) needs to be aligned to the device requirements. This is admittedly a
+/// very specific case, because the device alignment might be very large (256
+/// bytes) and this causes a lot of wasted space (padding per-element, instead
+/// of padding for the entire array).
+///
+/// For this buffer to work correctly and items be bindable individually, the
+/// alignment must come from one of the [`WgpuLimits`]. For example for a
+/// storage buffer, to be able to bind the entire buffer but also any subset of
+/// it (including individual elements), the extra alignment must
+/// be [`WgpuLimits::min_storage_buffer_offset_alignment`].
 ///
 /// The element type `T` needs to implement the following traits:
 /// - [`Pod`] to allow copy.
@@ -48,7 +58,7 @@ pub struct AlignedBufferVec<T: Pod + ShaderSize> {
     label: Option<String>,
 }
 
-impl<T: Pod + ShaderType + ShaderSize> Default for AlignedBufferVec<T> {
+impl<T: Pod + ShaderSize> Default for AlignedBufferVec<T> {
     fn default() -> Self {
         let item_size = std::mem::size_of::<T>();
         let aligned_size = <T as ShaderSize>::SHADER_SIZE.get() as usize;
@@ -65,7 +75,7 @@ impl<T: Pod + ShaderType + ShaderSize> Default for AlignedBufferVec<T> {
     }
 }
 
-impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
+impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     /// Create a new collection.
     ///
     /// `item_align` is an optional additional alignment for items in the
@@ -143,6 +153,7 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
         self.values.is_empty()
     }
 
+    /// Append a value to the buffer.
     pub fn push(&mut self, value: T) -> usize {
         let index = self.values.len();
         self.values.alloc().init(value);
@@ -151,10 +162,16 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
 
     /// Reserve some capacity into the buffer.
     ///
+    /// If the buffer is reallocated, the old content (on the GPU) is lost, and
+    /// needs to be re-uploaded to the newly-created buffer. This is done with
+    /// [`write_buffer()`].
+    ///
     /// # Returns
     ///
     /// `true` if the buffer was (re)allocated, or `false` if an existing buffer
     /// was reused which already had enough capacity.
+    ///
+    /// [`write_buffer()`]: AlignedBufferVec::write_buffer
     pub fn reserve(&mut self, capacity: usize, device: &RenderDevice) -> bool {
         if capacity > self.capacity {
             let size = self.aligned_size * capacity;
@@ -217,7 +234,7 @@ impl<T: Pod + ShaderType + ShaderSize> AlignedBufferVec<T> {
     }
 }
 
-impl<T: Pod + ShaderType + ShaderSize> std::ops::Index<usize> for AlignedBufferVec<T> {
+impl<T: Pod + ShaderSize> std::ops::Index<usize> for AlignedBufferVec<T> {
     type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -225,7 +242,7 @@ impl<T: Pod + ShaderType + ShaderSize> std::ops::Index<usize> for AlignedBufferV
     }
 }
 
-impl<T: Pod + ShaderType + ShaderSize> std::ops::IndexMut<usize> for AlignedBufferVec<T> {
+impl<T: Pod + ShaderSize> std::ops::IndexMut<usize> for AlignedBufferVec<T> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.values[index]
     }

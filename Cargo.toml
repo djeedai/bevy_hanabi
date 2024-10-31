@@ -55,6 +55,7 @@ bitflags = "2.3"
 typetag = { version = "0.2", optional = true }
 thiserror = "1.0"
 # Same versions as Bevy 0.14 (bevy_render)
+wgpu = "0.20"
 naga = "0.20"
 naga_oil = { version = "0.14", default-features = false, features = ["test_shader"] }
 
@@ -67,9 +68,6 @@ features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 all-features = true
 
 [dev-dependencies]
-# Same versions as Bevy 0.14 (bevy_render)
-wgpu = "0.20"
-
 # For world inspector; required if "examples_world_inspector" is used.
 bevy-inspector-egui = "0.25"
 bevy_egui = { version = "0.28", default-features = false, features = [
