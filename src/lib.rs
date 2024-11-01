@@ -735,11 +735,13 @@ struct EffectGroupShaderSource {
 /// Error resulting from the generating of the WGSL shader code of an
 /// [`EffectAsset`].
 #[derive(Debug, Error)]
-enum ShaderGenerateError {
-    #[error("Expression error: {0:?}")]
+pub enum ShaderGenerateError {
+    /// Error related to an [`Expr`].
+    #[error("Expression error: {0}")]
     Expr(ExprError),
 
-    #[error("Validation error: {0:?}")]
+    /// Shader validation error.
+    #[error("Validation error: {0}")]
     Validate(String),
 }
 
@@ -749,6 +751,8 @@ impl EffectShaderSource {
     /// This takes a base asset effect and generate the WGSL code for the
     /// various shaders (init/update/render).
     pub fn generate(asset: &EffectAsset) -> Result<EffectShaderSource, ShaderGenerateError> {
+        trace!("Generating shader sources for asset '{}'", asset.name,);
+
         let particle_layout = asset.particle_layout();
 
         // The particle layout cannot be empty currently because we always emit some
@@ -883,14 +887,17 @@ impl EffectShaderSource {
                     ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
                 for m in asset.init_modifiers_for_group(dest_group_index) {
                     if let Err(err) = m.apply(&mut module, &mut init_context) {
-                        error!("Failed to compile effect, error in init context: {:?}", err);
+                        error!(
+                            "Failed to compile effect '{}', error in init context: {}",
+                            asset.name, err
+                        );
                         return Err(ShaderGenerateError::Expr(err));
                     }
                 }
 
                 let sim_space_transform_code =
                     asset.simulation_space.eval(&init_context).map_err(|err| {
-                        error!("Failed to compile effect's simulation space: {:?}", err);
+                        error!("Failed to compile effect's simulation space: {}", err);
                         ShaderGenerateError::Expr(err)
                     })?;
 
@@ -918,6 +925,11 @@ impl EffectShaderSource {
                     "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
                     &init_sim_space_transform_code,
                 );
+            trace!(
+                "Configured init shader for '{}':\n{}",
+                asset.name,
+                init_shader_source
+            );
 
             // Generate the shader code for the update shader
             let (mut update_code, update_extra) = {
@@ -926,8 +938,8 @@ impl EffectShaderSource {
                 for m in asset.update_modifiers_for_group(dest_group_index) {
                     if let Err(err) = m.apply(&mut module, &mut update_context) {
                         error!(
-                            "Failed to compile effect, error in update context: {:?}",
-                            err
+                            "Failed to compile effect '{}', error in update context: {}",
+                            asset.name, err
                         );
                         return Err(ShaderGenerateError::Expr(err));
                     }
@@ -989,7 +1001,7 @@ impl EffectShaderSource {
                 let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
                     render_context.eval(&module, *cutoff).unwrap_or_else(|err| {
                         error!(
-                            "Failed to evaluate the expression for AlphaMode::Mask, error: {:?}",
+                            "Failed to evaluate the expression for AlphaMode::Mask, error: {}",
                             err
                         );
 
@@ -1108,7 +1120,11 @@ impl EffectShaderSource {
                 .replace("{{PROPERTIES}}", &properties_code)
                 .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
                 .replace("{{GROUP_INDEX}}", &dest_group_index_code);
-            trace!("Configured update shader:\n{}", update_shader_source);
+            trace!(
+                "Configured update shader for '{}':\n{}",
+                asset.name,
+                update_shader_source
+            );
 
             // Configure the render shader template, and make sure a corresponding shader
             // asset exists
@@ -1122,7 +1138,11 @@ impl EffectShaderSource {
                 .replace("{{ALPHA_CUTOFF}}", &alpha_cutoff_code)
                 .replace("{{FLIPBOOK_SCALE}}", &flipbook_scale_code)
                 .replace("{{FLIPBOOK_ROW_COUNT}}", &flipbook_row_count_code);
-            trace!("Configured render shader:\n{}", render_shader_source);
+            trace!(
+                "Configured render shader for '{}':\n{}",
+                asset.name,
+                render_shader_source
+            );
 
             group_shader_sources.push(EffectGroupShaderSource {
                 init: init_shader_source,
@@ -1428,7 +1448,7 @@ fn compile_effects(
         &mut CompiledParticleEffect,
     )>,
 ) {
-    trace!("compile_effects");
+    trace!("compile_effects: {} effect(s)", q_effects.iter().len());
 
     // Loop over all existing effects to update them, including invisible ones
     for (asset, entity, effect, material, mut compiled_effect) in

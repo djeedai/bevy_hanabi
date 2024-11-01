@@ -135,9 +135,10 @@ pub struct HanabiPlugin;
 impl HanabiPlugin {
     /// Create the `vfx_common.wgsl` shader with proper alignment.
     ///
-    /// This creates a new [`Shader`] from the `vfx_common.wgsl` code, by
-    /// applying the given alignment for storage buffers. This produces a shader
-    /// ready for the specific GPU device associated with that alignment.
+    /// This creates a new [`Shader`] from the `vfx_common.wgsl` template file,
+    /// by applying the given alignment for storage buffers. This produces a
+    /// shader ready for the specific GPU device associated with that
+    /// alignment.
     pub(crate) fn make_common_shader(min_storage_buffer_offset_alignment: u32) -> Shader {
         let spawner_padding_code =
             GpuSpawnerParams::padding_code(min_storage_buffer_offset_alignment);

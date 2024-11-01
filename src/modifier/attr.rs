@@ -86,6 +86,19 @@ impl SetAttributeModifier {
         module: &mut Module,
         context: &mut dyn EvalContext,
     ) -> Result<String, ExprError> {
+        // Validate if possible that the expression produces the same type expected by
+        // the attribute. This makes it much easier to diagnose issues.
+        let expr = module.try_get(self.value)?;
+        if let Some(value_type) = expr.value_type() {
+            let attr_value_type = self.attribute.value_type();
+            if value_type != attr_value_type {
+                return Err(ExprError::TypeError(format!(
+                    "Mismatching expression type in SetAttributeModifer: attribute '{}' requires an expression producing a value of type {}, but a value of type {} was produced instead",
+                    self.attribute.name().to_uppercase(), attr_value_type, value_type)));
+            }
+        }
+
+        // Generate the code
         assert!(module.get(self.value).is_some());
         let attr = module.attr(self.attribute);
         let attr = context.eval(module, attr)?;
@@ -112,5 +125,29 @@ impl Modifier for SetAttributeModifier {
         let code = self.eval(module, context)?;
         context.main_code += &code;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SetAttributeModifier;
+    use crate::{
+        Attribute, ExprError, ModifierContext, Module, ParticleLayout, PropertyLayout, ShaderWriter,
+    };
+
+    #[test]
+    fn eval_validate() {
+        let mut module = Module::default();
+        let attr = Attribute::POSITION; // vec3<f32>
+        let expr = module.lit(3.); // f32
+        let attr = SetAttributeModifier::new(attr, expr);
+        let property_layout = PropertyLayout::empty();
+        let particle_layout = ParticleLayout::empty();
+        let mut context =
+            ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
+        assert!(matches!(
+            attr.eval(&mut module, &mut context),
+            Err(ExprError::TypeError(_))
+        ));
     }
 }
