@@ -916,6 +916,11 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
             children_event_buffer_append_code = "// (no child effect)".into();
         }
 
+        // Start from the base module containing the expressions actually serialized in
+        // the asset. We will add the ones created on-the-fly by applying the
+        // modifiers to the contexts.
+        let mut module = asset.module().clone();
+
         let mut layout_flags = LayoutFlags::NONE;
         if asset.simulation_space == SimulationSpace::Local {
             layout_flags |= LayoutFlags::LOCAL_SPACE_SIMULATION;
@@ -926,9 +931,6 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
         if asset.ribbon_group.is_some() {
             layout_flags |= LayoutFlags::RIBBONS;
         }
-        if consume_gpu_spawn_events {
-            layout_flags |= LayoutFlags::CONSUME_GPU_SPAWN_EVENTS;
-        }
 
         let mut group_shader_sources = vec![];
 
@@ -937,10 +939,6 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
         for dest_group_index in 0..(asset.init.len() as u32) {
             // Generate the shader code for the initializing shader
             let (init_code, init_extra, init_sim_space_transform_code, consume_gpu_spawn_events) = {
-                // Start from the base module containing the expressions actually serialized in the asset. We will add the ones created on-the-fly by applying the
-                // modifiers to the contexts.
-                let mut module = asset.module().clone();
-
                 // Apply all the init modifiers
                 let mut init_context =
                     ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
@@ -994,7 +992,7 @@ struct ParentParticleBuffer {{
                 .unwrap_or_default();
 
             let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
-                .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{ATTRIBUTES}}", &particle_attributes_code)
                 .replace("{{INIT_CODE}}", &init_code)
                 .replace("{{INIT_EXTRA}}", &init_extra)
                 .replace("{{PARENT_PARTICLES}}", &parent_particles_code)
@@ -1032,6 +1030,9 @@ struct ParentParticleBuffer {{
                 )
             };
 
+            if consume_gpu_spawn_events {
+                layout_flags |= LayoutFlags::CONSUME_GPU_SPAWN_EVENTS;
+            }
             if emit_gpu_spawn_events {
                 layout_flags |= LayoutFlags::EMIT_GPU_SPAWN_EVENTS;
             }
@@ -1216,7 +1217,7 @@ struct ParentParticleBuffer {{
                     "{{CHILDREN_EVENT_BUFFER_APPEND}}",
                     &children_event_buffer_append_code,
                 )
-                .replace("{{GROUP_INDEX}}", &group_index_code);
+                .replace("{{GROUP_INDEX}}", &dest_group_index_code);
             trace!(
                 "Configured update shader for '{}':\n{}",
                 asset.name,
@@ -1409,16 +1410,19 @@ impl CompiledParticleEffect {
             .map(|effect_group_shader_source| {
                 let init = shader_cache.get_or_insert(
                     &asset.name,
+                    "init",
                     &effect_group_shader_source.init,
                     shaders,
                 );
                 let update = shader_cache.get_or_insert(
                     &asset.name,
+                    "update",
                     &effect_group_shader_source.update,
                     shaders,
                 );
                 let render = shader_cache.get_or_insert(
                     &asset.name,
+                    "render",
                     &effect_group_shader_source.render,
                     shaders,
                 );

@@ -1,9 +1,5 @@
 use std::{
-    borrow::Cow,
-    hash::{DefaultHasher, Hash, Hasher},
-    num::{NonZeroU32, NonZeroU64},
-    time::Duration,
-    u32,
+    borrow::Cow, hash::{DefaultHasher, Hash, Hasher}, num::{NonZero, NonZeroU32, NonZeroU64}, ops::Deref, time::Duration, u32
 };
 use std::{iter, marker::PhantomData};
 
@@ -78,6 +74,10 @@ pub(crate) use effect_cache::{EffectCache, EffectCacheId};
 pub use shader_cache::ShaderCache;
 
 use self::batch::EffectBatches;
+
+// Size of an indirect index (including both parts of the ping-pong buffer) in
+// bytes.
+const INDIRECT_INDEX_SIZE: u32 = 12;
 
 fn calc_hash<H: Hash>(value: &H) -> u64 {
     let mut hasher = DefaultHasher::default();
@@ -1386,7 +1386,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             label: Some(label.into()),
             layout: vec![
                 self.sim_params_layout.clone(),
-                particles_buffer_layout,
+                update_particles_buffer_layout,
                 self.spawner_buffer_layout.clone(),
                 self.render_indirect_layout.clone(),
             ],
@@ -1854,11 +1854,6 @@ pub struct AddedEffect {
     /// GPU spawn event count to allocate for this effect. This is zero if the
     /// effect uses CPU spawning (has no parent).
     pub event_count: u32,
-    /// Capacity of the effect (and therefore, the particle buffer), in number
-    /// of particles. One capacity per group for the effect. Generally there's
-    /// only one group, but there can be multiple if the [`CloneModifier`] is
-    /// used.
-    pub capacities: Vec<u32>,
     pub groups: Vec<AddedEffectGroup>,
     /// Layout of particle attributes.
     pub particle_layout: ParticleLayout,
@@ -2148,7 +2143,7 @@ pub(crate) fn extract_effects(
     ) in query.p0().iter_mut()
     {
         // Check if shaders are configured
-        let effect_shaders = effect.get_configured_shaders();
+        let effect_shaders = compiled_effect.get_configured_shaders();
         if effect_shaders.is_empty() {
             continue;
         }
@@ -2561,7 +2556,7 @@ impl EffectsMeta {
 
         trace!("Adding {} newly spawned effects", added_effects.len());
         for added_effect in added_effects.drain(..) {
-            trace!("+ added effect: total_capacity={}", added_effect.capacities.iter().cloned().sum());
+            trace!("+ added effect: total_capacity={}", added_effect.groups.iter().map(|g| g.capacity).sum::<u32>());
 
             let first_update_group_dispatch_buffer_index = allocate_sequential_buffers(
                 &mut self.dispatch_indirect_buffer,
@@ -4896,7 +4891,7 @@ impl Node for VfxSimulateNode {
                                     .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS);
 
                                 // Do not dispatch any init work if there's nothing to spawn this frame
-                                let spawn_count = batches.spawn_count;
+                                let spawn_count = effect_spawner.spawn_count;
                                 if spawn_count == 0 && !indirect_dispatch {
                                     trace!("-> init batch empty (spawn_count={spawn_count}, indirect_dispatch={indirect_dispatch})");
                                     continue;

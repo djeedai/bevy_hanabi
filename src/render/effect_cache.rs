@@ -1002,8 +1002,6 @@ pub(crate) struct CachedEffect {
     /// Data for the indirect dispatch of the init pass, if using GPU spawn
     /// events.
     pub(crate) init_indirect: Option<InitIndirect>,
-    /// The order in which we evaluate groups.
-    pub(crate) group_order: Vec<u32>,
 }
 
 /// The indices in the indirect dispatch buffers for a single effect, as well as
