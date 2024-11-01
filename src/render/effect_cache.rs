@@ -985,6 +985,8 @@ pub(crate) struct CachedEffect {
     /// The group slices within that buffer. All groups for an effect are always
     /// stored contiguously inside the same GPU buffer.
     pub(crate) slices: SlicesRef,
+    /// The order in which we evaluate groups.
+    pub(crate) group_order: Vec<u32>,
     /// Parent effect, if any. If the effect has a parent, this means its
     /// particles are spawned via GPU spawn events, and not by the CPU.
     pub(crate) parent: Option<EffectCacheId>,
@@ -1000,11 +1002,13 @@ pub(crate) struct CachedEffect {
     /// Data for the indirect dispatch of the init pass, if using GPU spawn
     /// events.
     pub(crate) init_indirect: Option<InitIndirect>,
+    /// The order in which we evaluate groups.
+    pub(crate) group_order: Vec<u32>,
 }
 
 /// The indices in the indirect dispatch buffers for a single effect, as well as
 /// that of the metadata buffer.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct DispatchBufferIndices {
     /// The index of the first update group indirect dispatch buffer.
     ///
@@ -1016,6 +1020,13 @@ pub(crate) struct DispatchBufferIndices {
     pub(crate) first_render_group_dispatch_buffer_index: BufferTableId,
     /// The index of the render indirect metadata buffer.
     pub(crate) render_effect_metadata_buffer_index: BufferTableId,
+    pub(crate) trail_dispatch_buffer_indices: HashMap<u32, TrailDispatchBufferIndices>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TrailDispatchBufferIndices {
+    pub(crate) dest: BufferTableId,
+    pub(crate) src: BufferTableId,
 }
 
 impl Default for DispatchBufferIndices {
@@ -1025,6 +1036,7 @@ impl Default for DispatchBufferIndices {
             first_update_group_dispatch_buffer_index: BufferTableId(0),
             first_render_group_dispatch_buffer_index: BufferTableId(0),
             render_effect_metadata_buffer_index: BufferTableId(0),
+            trail_dispatch_buffer_indices: HashMap::default(),
         }
     }
 }
@@ -1431,6 +1443,7 @@ impl EffectCache {
         layout_flags: LayoutFlags,
         event_capacity: u32,
         dispatch_buffer_indices: DispatchBufferIndices,
+        group_order: Vec<u32>,
     ) -> EffectCacheId {
         let total_capacity = capacities.iter().cloned().sum();
         trace!("Inserting new effect into cache: entity={entity:?}, total_capacity={total_capacity} event_capacity={event_capacity}");
@@ -1556,6 +1569,7 @@ impl EffectCache {
                 // needed.
                 children: None,
                 slices,
+                group_order,
             },
         );
         self.effect_from_entity.insert(entity, effect_cached_id);
@@ -1678,8 +1692,12 @@ impl EffectCache {
             .range_binding(offset, size)
     }
 
-    pub(crate) fn get_dispatch_buffer_indices(&self, id: EffectCacheId) -> DispatchBufferIndices {
-        self.effects[&id].slices.dispatch_buffer_indices
+    pub(crate) fn get_dispatch_buffer_indices(&self, id: EffectCacheId) -> &DispatchBufferIndices {
+        &self.effects[&id].slices.dispatch_buffer_indices
+    }
+
+    pub(crate) fn get_group_order(&self, id: EffectCacheId) -> &[u32] {
+        &self.effects[&id].group_order
     }
 
     /// Given an iterator over an effect cached ID and its parent's entity,
@@ -2190,6 +2208,7 @@ mod gpu_tests {
         let asset = Handle::<EffectAsset>::default();
         let capacity = EffectBuffer::MIN_CAPACITY;
         let capacities = vec![capacity];
+        let group_order = vec![0];
         let item_size = l32.size();
 
         let id1 = effect_cache.insert(
@@ -2202,6 +2221,7 @@ mod gpu_tests {
             LayoutFlags::NONE,
             0,
             DispatchBufferIndices::default(),
+            group_order.clone(),
         );
         assert!(id1.is_valid());
         let slice1 = effect_cache.get_slices(id1);
@@ -2222,6 +2242,7 @@ mod gpu_tests {
             LayoutFlags::NONE,
             0,
             DispatchBufferIndices::default(),
+            group_order.clone(),
         );
         assert!(id2.is_valid());
         let slice2 = effect_cache.get_slices(id2);
@@ -2252,6 +2273,7 @@ mod gpu_tests {
             LayoutFlags::NONE,
             0,
             DispatchBufferIndices::default(),
+            group_order,
         );
         assert!(id3.is_valid());
         let slice3 = effect_cache.get_slices(id3);

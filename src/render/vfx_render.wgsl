@@ -129,6 +129,24 @@ fn vertex(
 
 {{VERTEX_MODIFIERS}}
 
+#ifdef RIBBONS
+    let next_index = particle.next;
+    if (next_index >= arrayLength(&particle_buffer.particles)) {
+        out.position = vec4(0.0);
+        return out;
+    }
+
+    let next_particle = particle_buffer.particles[next_index];
+    var delta = next_particle.position - particle.position;
+
+    axis_x = normalize(delta);
+    axis_y = normalize(cross(axis_x, axis_z));
+    axis_z = cross(axis_x, axis_y);
+
+    position = mix(next_particle.position, particle.position, 0.5);
+    size = vec2(length(delta), size.y);
+#endif  // RIBBONS
+
     // Expand particle mesh vertex based on particle position ("origin"), and local
     // orientation and size of the particle mesh (currently: only quad).
     let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);

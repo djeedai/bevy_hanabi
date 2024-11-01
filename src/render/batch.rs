@@ -11,7 +11,10 @@ use super::{
     effect_cache::{DispatchBufferIndices, EffectSlices},
     EffectCacheId, GpuCompressedTransform, LayoutFlags,
 };
-use crate::{AlphaMode, EffectAsset, EffectShader, ParticleLayout, PropertyLayout, TextureLayout};
+use crate::{
+    spawn::EffectInitializer, AlphaMode, EffectAsset, EffectShader, ParticleLayout, PropertyLayout,
+    TextureLayout,
+};
 
 /// Data needed to render all batches pertaining to a specific effect.
 #[derive(Debug, Component)]
@@ -28,8 +31,8 @@ pub(crate) struct EffectBatches {
     pub child_effects: Vec<EffectCacheId>,
     /// Index of the first Spawner of the effects in the batch.
     pub spawner_base: u32,
-    /// Number of particles to spawn/init this frame.
-    pub spawn_count: u32,
+    /// The initializer (spawner or cloner) for each particle group.
+    pub initializers: Vec<EffectInitializer>,
     /// The effect cache ID.
     pub effect_cache_id: EffectCacheId,
     /// The indices within the various indirect dispatch buffers.
@@ -58,10 +61,10 @@ pub(crate) struct EffectBatches {
     /// Note that we don't need to keep the init/update shaders alive because
     /// their pipeline specialization is doing it via the specialization key.
     pub render_shaders: Vec<Handle<Shader>>,
-    /// Init compute pipeline specialized for this batch.
-    pub init_pipeline_id: CachedComputePipelineId,
-    /// Update compute pipeline specialized for this batch.
-    pub update_pipeline_ids: Vec<CachedComputePipelineId>,
+    /// Init and update compute pipelines specialized for this batch.
+    pub init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds>,
+    /// The order in which we evaluate groups.
+    pub group_order: Vec<u32>,
     /// Index of the [`GpuInitDispatchIndirect`] struct into the init indirect
     /// dispatch buffer, if using indirect init dispatch only.
     pub init_indirect_dispatch_index: Option<u32>,
@@ -110,8 +113,7 @@ impl EffectBatches {
         input: BatchesInput,
         spawner_base: u32,
         effect_cache_id: EffectCacheId,
-        init_pipeline_id: CachedComputePipelineId,
-        update_pipeline_ids: Vec<CachedComputePipelineId>,
+        init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds>,
         dispatch_buffer_indices: DispatchBufferIndices,
         first_particle_group_buffer_index: u32,
     ) -> EffectBatches {
@@ -120,7 +122,7 @@ impl EffectBatches {
             parent_buffer_index: input.parent_buffer_index,
             child_effects: input.child_effects,
             spawner_base,
-            spawn_count: input.spawn_count,
+            initializers: input.initializers.clone(),
             particle_layout: input.effect_slices.particle_layout,
             effect_cache_id,
             dispatch_buffer_indices,
@@ -138,11 +140,15 @@ impl EffectBatches {
             texture_layout: input.texture_layout,
             textures: input.textures,
             alpha_mode: input.alpha_mode,
-            render_shaders: input.effect_shader.render,
-            init_pipeline_id,
-            update_pipeline_ids,
+            render_shaders: input
+                .effect_shaders
+                .iter()
+                .map(|shaders| shaders.render.clone())
+                .collect(),
+            init_and_update_pipeline_ids,
             entities: vec![input.entity.index()],
             init_indirect_dispatch_index: input.init_indirect_dispatch_index,
+            group_order: input.group_order,
         }
     }
 }
@@ -166,8 +172,8 @@ pub(crate) struct BatchesInput {
     pub parent_buffer_index: Option<u32>,
     /// Indices of the child effects, if any.
     pub child_effects: Vec<EffectCacheId>,
-    /// Effect shader.
-    pub effect_shader: EffectShader,
+    /// Effect shaders.
+    pub effect_shaders: Vec<EffectShader>,
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
     /// Texture layout.
@@ -176,9 +182,10 @@ pub(crate) struct BatchesInput {
     pub textures: Vec<Handle<Image>>,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
-    /// Number of particles to spawn for this effect.
-    // FIXME - Contains a single effect's data; should handle multiple ones.
-    pub spawn_count: u32,
+    pub particle_layout: ParticleLayout,
+    pub initializers: Vec<EffectInitializer>,
+    /// The order in which we evaluate groups.
+    pub group_order: Vec<u32>,
     /// Emitter transform.
     // FIXME - Contains a single effect's data; should handle multiple ones.
     pub transform: GpuCompressedTransform,
@@ -197,4 +204,10 @@ pub(crate) struct BatchesInput {
     /// Sort key, for 2D only.
     #[cfg(feature = "2d")]
     pub z_sort_key_2d: FloatOrd,
+}
+
+#[derive(Debug)]
+pub(crate) struct InitAndUpdatePipelineIds {
+    pub(crate) init: CachedComputePipelineId,
+    pub(crate) update: CachedComputePipelineId,
 }

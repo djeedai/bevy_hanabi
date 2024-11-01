@@ -31,7 +31,7 @@ use crate::{
         UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
-    tick_spawners,
+    tick_initializers,
     time::effect_simulation_time_system,
     update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
     RemovedEffectsEvent, Spawner, ToWgslString,
@@ -240,7 +240,7 @@ impl Plugin for HanabiPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    tick_spawners.in_set(EffectSystems::TickSpawners),
+                    tick_initializers.in_set(EffectSystems::TickSpawners),
                     compile_effects.in_set(EffectSystems::CompileEffects),
                     update_properties_from_asset.in_set(EffectSystems::UpdatePropertiesFromAsset),
                     gather_removed_effects.in_set(EffectSystems::GatherRemovedEffects),
@@ -306,6 +306,8 @@ impl Plugin for HanabiPlugin {
             .init_resource::<GpuBufferOperationQueue>()
             .init_resource::<UtilsPipeline>()
             .init_resource::<DispatchIndirectPipeline>()
+            .init_resource::<ParticlesInitPipeline>()
+            .init_resource::<SpecializedComputePipelines<ParticlesInitPipeline>>()
             .init_resource::<ParticlesInitPipeline>()
             .init_resource::<SpecializedComputePipelines<ParticlesInitPipeline>>()
             .init_resource::<ParticlesUpdatePipeline>()

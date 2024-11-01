@@ -11,11 +11,13 @@ use bevy::{
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
 use thiserror::Error;
+use wgpu::{BlendComponent, BlendFactor, BlendOperation, BlendState};
 
 use crate::{
     modifier::{Modifier, RenderModifier},
-    ExprHandle, GroupedModifier, ModifierContext, Module, ParticleGroupSet, ParticleLayout,
-    Property, PropertyLayout, SimulationSpace, Spawner, TextureLayout,
+    spawn::{Cloner, Initializer},
+    Attribute, CpuValue, ExprHandle, GroupedModifier, ModifierContext, Module, ParticleGroupSet,
+    ParticleLayout, Property, PropertyLayout, SimulationSpace, Spawner, TextureLayout,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -108,7 +110,7 @@ pub enum SimulationCondition {
 /// rendered during the [`Transparent2d`] render phase.
 ///
 /// [`Transparent2d`]: bevy::core_pipeline::core_2d::Transparent2d
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Reflect, Serialize, Deserialize, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum AlphaMode {
     /// Render the effect with alpha blending.
@@ -199,6 +201,36 @@ pub enum AlphaMode {
     Mask(ExprHandle),
 }
 
+impl From<AlphaMode> for BlendState {
+    fn from(value: AlphaMode) -> Self {
+        match value {
+            AlphaMode::Blend => BlendState::ALPHA_BLENDING,
+            AlphaMode::Premultiply => BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            AlphaMode::Add => BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::SrcAlpha,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+                alpha: BlendComponent {
+                    src_factor: BlendFactor::Zero,
+                    dst_factor: BlendFactor::One,
+                    operation: BlendOperation::Add,
+                },
+            },
+            AlphaMode::Multiply => BlendState {
+                color: BlendComponent {
+                    src_factor: BlendFactor::Dst,
+                    dst_factor: BlendFactor::OneMinusSrcAlpha,
+                    operation: BlendOperation::Add,
+                },
+                alpha: BlendComponent::OVER,
+            },
+            _ => BlendState::ALPHA_BLENDING,
+        }
+    }
+}
+
 /// Asset describing a visual effect.
 ///
 /// The effect can be instanciated with a [`ParticleEffect`] component, or a
@@ -224,8 +256,10 @@ pub struct EffectAsset {
     /// should keep this quantity as close as possible to the maximum number of
     /// particles they expect to render.
     capacities: Vec<u32>,
-    /// Spawner.
-    pub spawner: Spawner,
+    /// The initializer for each group.
+    ///
+    /// Each initializer contains either a spawner or a cloner.
+    pub init: Vec<Initializer>,
     /// For 2D rendering, the Z coordinate used as the sort key.
     ///
     /// This value is passed to the render pipeline and used when sorting
@@ -257,6 +291,11 @@ pub struct EffectAsset {
     module: Module,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
+    /// Which group is to render as ribbons.
+    ///
+    /// There can be only one such group, because there's only one set of
+    /// next/previous pointers.
+    pub ribbon_group: Option<usize>,
 }
 
 impl EffectAsset {
@@ -273,9 +312,9 @@ impl EffectAsset {
     ///   store that many particles for as long as the effect exists. The
     ///   capacities of an effect are immutable. See also [`capacities()`] for
     ///   more details.
-    /// - The [`Spawner`], which defines when particles are emitted. All
-    ///   spawners spawn particles into group 0. (To add particles to other
-    ///   groups, use the [`crate::modifier::clone::CloneModifier`].)
+    /// - The [`Initializer`], which defines when particles are emitted.
+    ///   Initializers can be either spawners, to spawn new particles, or
+    ///   cloners, to clone particles from one group into another.
     ///
     /// Additionally, if any modifier added to this effect uses some [`Expr`] to
     /// customize its behavior, then those [`Expr`] are stored into a [`Module`]
@@ -291,7 +330,7 @@ impl EffectAsset {
     /// # use bevy_hanabi::*;
     /// let spawner = Spawner::rate(5_f32.into()); // 5 particles per second
     /// let module = Module::default();
-    /// let effect = EffectAsset::new(vec![32768], spawner, module);
+    /// let effect = EffectAsset::new(32768, spawner, module);
     /// ```
     ///
     /// Create a new effect asset with a modifier holding an expression. The
@@ -308,18 +347,34 @@ impl EffectAsset {
     /// let lifetime = module.lit(10.); // literal value "10.0"
     /// let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
     ///
-    /// let effect = EffectAsset::new(vec![32768], spawner, module);
+    /// let effect = EffectAsset::new(32768, spawner, module);
     /// ```
     ///
     /// [`capacities()`]: crate::EffectAsset::capacities
     /// [`Expr`]: crate::graph::expr::Expr
-    pub fn new(capacities: Vec<u32>, spawner: Spawner, module: Module) -> Self {
+    pub fn new(capacity: u32, spawner: Spawner, module: Module) -> Self {
         Self {
-            capacities,
-            spawner,
+            capacities: vec![capacity],
+            init: vec![spawner.into()],
             module,
             ..default()
         }
+    }
+
+    /// Creates a new particle group with the given capacity and initializer.
+    ///
+    /// Initializers can be spawners or cloners. Particle group indices are
+    /// assigned sequentially; thus, the first time you call this function (or
+    /// one of the convenience functions like [`Self::with_trails`] or
+    /// [`Self::with_ribbons`]), the ID of the resulting group will be 1, the
+    /// second time will create a group with ID 2, and so forth.
+    ///
+    /// For a less verbose way to create trails and ribbons, see
+    /// [`Self::with_trails`] and [`Self::with_ribbons`] respectively.
+    pub fn with_group(mut self, capacity: u32, initializer: impl Into<Initializer>) -> Self {
+        self.capacities.push(capacity);
+        self.init.push(initializer.into());
+        self
     }
 
     /// Get the capacities of the effect, in number of particles per group.
@@ -386,6 +441,83 @@ impl EffectAsset {
         self
     }
 
+    /// Adds a new particle group that clones particles at an interval to
+    /// produce a trail.
+    ///
+    /// Trails allow your particles to emit copies of themselves at fixed
+    /// intervals, creating the effect of particles that follow one another.
+    /// Trails consist of particles that are disconnected from one another; to
+    /// visually connect the trail particles together, use a
+    /// [ribbon](Self::with_ribbons) instead.
+    ///
+    /// You may have as many trails as you wish per particle effect, up to the
+    /// limit on the number of groups.
+    ///
+    /// Particle group indices are assigned sequentially. The first group,
+    /// automatically created when you create an effect, has ID 0. Additional
+    /// groups, which functions like this one create, are assigned ID 1, 2, 3,
+    /// etc.
+    ///
+    /// `capacity` represents the maximum number of particles in the group.
+    /// `period` represents the fixed interval between clone operations.
+    /// `lifetime` represents how long each particle in the trail lives;
+    /// currently, it must be a fixed number of seconds. `src_group_index` is
+    /// the group from which the particles are to be cloned; most of the time,
+    /// you will want to pass 0 here to target the first group.
+    pub fn with_trails(
+        mut self,
+        capacity: u32,
+        period: impl Into<CpuValue<f32>>,
+        lifetime: f32,
+        src_group_index: u32,
+    ) -> Self {
+        self.capacities.push(capacity);
+        self.init.push(Initializer::Cloner(Cloner {
+            src_group_index,
+            period: period.into(),
+            lifetime,
+            starts_active: true,
+        }));
+        self
+    }
+
+    /// Adds a new particle group that creates a ribbon following particles from
+    /// another group.
+    ///
+    /// A ribbon is a connected string of quads that trail behind particles
+    /// from the source group. Hanabi emits new quads on a fixed interval given
+    /// by `period`. Ribbons are similar to [trails](Self::with_trails), but
+    /// while trail particles are disconnected, ribbon particles are connected.
+    ///
+    /// Because ribbons internally use a doubly-linked list, of which there's at
+    /// most one per effect, you may have at most one ribbon per particle
+    /// effect.
+    ///
+    /// Particle group indices are assigned sequentially. The first group,
+    /// automatically created when you create an effect, has ID 0. Additional
+    /// groups, which functions like this one create, are assigned ID 1, 2, 3,
+    /// etc.
+    ///
+    /// `capacity` represents the maximum number of ribbon segments in the
+    /// group. `period` represents the amount of time that Hanabi will wait
+    /// before spawning a new ribbon segment. `lifetime` represents the number
+    /// of seconds that each ribbon segment will persist for.
+    /// `src_group_index` is the group containing the particles that the ribbon
+    /// segments will follow; most of the time, you will want to pass 0 here to
+    /// target the first group.
+    pub fn with_ribbons(
+        mut self,
+        capacity: u32,
+        period: impl Into<CpuValue<f32>>,
+        lifetime: f32,
+        src_group_index: u32,
+    ) -> Self {
+        debug_assert!(self.ribbon_group.is_none());
+        self.ribbon_group = Some(self.capacities.len());
+        let period: CpuValue<f32> = period.into();
+        self.with_trails(capacity, period, lifetime, src_group_index)
+    }
+
     /// Get the list of existing properties.
     ///
     /// This is a shortcut for `self.module().properties()`.
@@ -395,9 +527,8 @@ impl EffectAsset {
 
     /// Add an initialization modifier to the effect.
     ///
-    /// Initialization modifiers only apply to particles that are freshly
-    /// spawned. Currently, spawners can only spawn into group 0. Consequently,
-    /// the initialization modifiers will only affect particles in group 0.
+    /// Initialization modifiers apply to all particles that are spawned or
+    /// cloned.
     ///
     /// # Panics
     ///
@@ -412,7 +543,28 @@ impl EffectAsset {
         assert!(modifier.context().contains(ModifierContext::Init));
         self.init_modifiers.push(GroupedModifier {
             modifier: Box::new(modifier),
-            groups: ParticleGroupSet::single(0),
+            groups: ParticleGroupSet::all(),
+        });
+        self
+    }
+
+    /// Add an initialization modifier to a specific set of groups.
+    ///
+    /// Initialization modifiers apply to all particles within those groups that
+    /// are spawned or cloned.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the modifier doesn't support the init context (that is,
+    /// `modifier.context()` returns a flag which doesn't include
+    /// [`ModifierContext::Init`]).
+    pub fn init_groups<M>(mut self, modifier: M, groups: ParticleGroupSet) -> Self
+    where
+        M: Modifier + Send + Sync,
+    {
+        self.init_modifiers.push(GroupedModifier {
+            modifier: Box::new(modifier),
+            groups,
         });
         self
     }
@@ -617,6 +769,28 @@ impl EffectAsset {
         })
     }
 
+    /// Get a list of all the init modifiers in a single group.
+    ///
+    /// This is a filtered list of all modifiers, retaining only modifiers
+    /// executing in the [`ModifierContext::Init`] context and affecting the
+    /// specified group.
+    ///
+    /// [`ModifierContext::Init`]: crate::ModifierContext::Init
+    pub fn init_modifiers_for_group(
+        &self,
+        group_index: u32,
+    ) -> impl Iterator<Item = &dyn Modifier> {
+        self.init_modifiers.iter().filter_map(move |gm| {
+            if gm.groups.contains(group_index)
+                && gm.modifier.context().contains(ModifierContext::Init)
+            {
+                Some(gm.modifier.deref())
+            } else {
+                None
+            }
+        })
+    }
+
     /// Get a list of all the update modifiers of this effect.
     ///
     /// This is a filtered list of all modifiers, retaining only modifiers
@@ -700,6 +874,12 @@ impl EffectAsset {
             }
         }
 
+        // If we're using ribbons, we need a linked list.
+        if self.ribbon_group.is_some() {
+            set.insert(Attribute::PREV);
+            set.insert(Attribute::NEXT);
+        }
+
         // Build the layout
         let mut layout = ParticleLayout::new();
         for attr in set {
@@ -720,6 +900,26 @@ impl EffectAsset {
     /// Get the texture layout of the module of this effect.
     pub fn texture_layout(&self) -> TextureLayout {
         self.module.texture_layout()
+    }
+
+    /// Computes the group evaluation order, which ensures that cloners run
+    /// before spawners.
+    ///
+    /// This makes sure that we don't spawn a particle and immediately clone it,
+    /// which looks bad.
+    pub(crate) fn calculate_group_order(&self) -> Vec<u32> {
+        let mut group_order = Vec::with_capacity(self.init.len());
+        for (group_index, init) in self.init.iter().enumerate() {
+            if let Initializer::Cloner(_) = init {
+                group_order.push(group_index as u32);
+            }
+        }
+        for (group_index, init) in self.init.iter().enumerate() {
+            if let Initializer::Spawner(_) = init {
+                group_order.push(group_index as u32);
+            }
+        }
+        group_order
     }
 }
 
@@ -789,6 +989,12 @@ impl EffectParent {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct ParticleTrails {
+    pub spawn_period: f32,
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "serde")]
@@ -840,7 +1046,7 @@ mod tests {
             speed: module.lit(1.),
         };
 
-        let mut effect = EffectAsset::new(vec![4096], Spawner::rate(30.0.into()), module)
+        let mut effect = EffectAsset::new(4096, Spawner::rate(30.0.into()), module)
             .init(init_pos_sphere)
             .init(init_vel_sphere)
             //.update(AccelModifier::default())
@@ -923,7 +1129,7 @@ mod tests {
         let effect = EffectAsset {
             name: "Effect".into(),
             capacities: vec![4096],
-            spawner: Spawner::rate(30.0.into()),
+            init: vec![Spawner::rate(30.0.into()).into()],
             module,
             ..Default::default()
         }
@@ -939,13 +1145,15 @@ mod tests {
     capacities: [
         4096,
     ],
-    spawner: (
-        num_particles: Single(30.0),
-        spawn_time: Single(1.0),
-        period: Single(1.0),
-        starts_active: true,
-        starts_immediately: true,
-    ),
+    init: [
+        Spawner((
+            count: Single(30.0),
+            spawn_duration: Single(1.0),
+            period: Single(1.0),
+            starts_active: true,
+            starts_immediately: true,
+        )),
+    ],
     z_layer_2d: 0.0,
     simulation_space: Global,
     simulation_condition: WhenVisible,
@@ -957,7 +1165,7 @@ mod tests {
                     value: 1,
                 ),
             },
-            groups: (1),
+            groups: (4294967295),
         ),
     ],
     update_modifiers: [],
@@ -989,12 +1197,13 @@ mod tests {
         ),
     ),
     alpha_mode: Blend,
+    ribbon_group: None,
 )"#
         );
         let effect_serde: EffectAsset = ron::from_str(&s).unwrap();
         assert_eq!(effect.name, effect_serde.name);
         assert_eq!(effect.capacities, effect_serde.capacities);
-        assert_eq!(effect.spawner, effect_serde.spawner);
+        assert_eq!(effect.init, effect_serde.init);
         assert_eq!(effect.z_layer_2d, effect_serde.z_layer_2d);
         assert_eq!(effect.simulation_space, effect_serde.simulation_space);
         assert_eq!(
@@ -1016,5 +1225,41 @@ mod tests {
             effect.render_modifiers().count(),
             effect_serde.render_modifiers().count()
         );
+    }
+
+    #[test]
+    fn alpha_mode_blend_state() {
+        assert_eq!(BlendState::ALPHA_BLENDING, AlphaMode::Blend.into());
+        assert_eq!(
+            BlendState::PREMULTIPLIED_ALPHA_BLENDING,
+            AlphaMode::Premultiply.into()
+        );
+
+        let blend_state = BlendState {
+            color: BlendComponent {
+                src_factor: BlendFactor::SrcAlpha,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+            alpha: BlendComponent {
+                src_factor: BlendFactor::Zero,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+        };
+        assert_eq!(blend_state, AlphaMode::Add.into());
+
+        let blend_state = BlendState {
+            color: BlendComponent {
+                src_factor: BlendFactor::Dst,
+                dst_factor: BlendFactor::OneMinusSrcAlpha,
+                operation: BlendOperation::Add,
+            },
+            alpha: BlendComponent::OVER,
+        };
+        assert_eq!(blend_state, AlphaMode::Multiply.into());
+
+        let expr = Module::default().lit(0.5);
+        assert_eq!(BlendState::ALPHA_BLENDING, AlphaMode::Mask(expr).into());
     }
 }

@@ -14,9 +14,8 @@
 //! - An [`AccelModifier`] to pull particles down once they slow down, for
 //!   increased realism. This is a subtle effect, but of importance.
 //!
-//! The particles also have a trail, created with the [`CloneModifier`]. The
-//! trail particles are stitched together to form an arc using the
-//! [`RibbonModifier`].
+//! The particles also have a trail. The trail particles are stitched together
+//! to form an arc using [`EffectAsset::with_ribbons`].
 
 use std::time::Duration;
 

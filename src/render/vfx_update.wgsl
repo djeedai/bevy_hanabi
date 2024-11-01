@@ -41,13 +41,6 @@ struct ParticleBuffer {
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let thread_index = global_invocation_id.x;
 
-    // Cap at maximum number of particles.
-    // FIXME - This is probably useless given below cap
-    let max_particles : u32 = particle_groups[{{GROUP_INDEX}}].capacity;
-    if (thread_index >= max_particles) {
-        return;
-    }
-
     // Cap at maximum number of alive particles.
     if (thread_index >= render_group_indirect[{{GROUP_INDEX}}].max_update) {
         return;
@@ -63,26 +56,49 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let base_index = effect_particle_offset + particle_groups[{{GROUP_INDEX}}].indirect_index;
     let index = indirect_buffer.indices[3u * (base_index + thread_index) + pong];
 
-    var particle: Particle = particle_buffer.particles[index];
-
     // Update PRNG seed
     seed = pcg_hash(index ^ spawner.seed);
+
+    var particle: Particle = particle_buffer.particles[index];
 
     {{AGE_CODE}}
     let was_alive = is_alive;
     {{REAP_CODE}}
     {{UPDATE_CODE}}
 
-    particle_buffer.particles[index] = particle;
+    {{WRITEBACK_CODE}}
 
     // Check if alive
     if (!is_alive) {
+        // Ußnlink dead particle from trail linked list
+#ifdef ATTRIBUTE_PREV
+#ifdef ATTRIBUTE_NEXT
+#ifdef TRAIL
+        // We know that no particles behind us (including our previous) are going to be
+        // alive after this, due to the strict LIFO lifetime of trail particles.
+        // So we can just set the next particle's prev pointer to null.
+        let next = particle_buffer.particles[index].next;
+        if (next != 0xffffffffu) {
+            particle_buffer.particles[next].prev = 0xffffffffu;
+        }
+#else   // TRAIL
+        // Head particle; there's no worry about races here, because the trail particles
+        // are all in a different group, which is simulated in a different dispatch.
+        let prev = particle_buffer.particles[index].prev;
+        if (prev != 0xffffffffu) {
+            particle_buffer.particles[prev].next = 0xffffffffu;
+        }
+#endif  // TRAIL
+#endif  // ATTRIBUTE_NEXT
+#endif  // ATTRIBUTE_PREV
+
         // Save dead index
         let dead_index = atomicAdd(&render_group_indirect[{{GROUP_INDEX}}].dead_count, 1u);
         indirect_buffer.indices[3u * (base_index + dead_index) + 2u] = index;
+
         // Also increment copy of dead count, which was updated in dispatch indirect
         // pass just before, and need to remain correct after this pass
-        atomicAdd(&render_effect_indirect[effect_index].max_spawn, 1u);
+        atomicAdd(&render_group_indirect[{{GROUP_INDEX}}].max_spawn, 1u);
         atomicSub(&render_group_indirect[{{GROUP_INDEX}}].alive_count, 1u);
     } else {
         // Increment alive particle count and write indirection index for later rendering

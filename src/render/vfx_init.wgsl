@@ -30,7 +30,8 @@ struct ParticleBuffer {
 {{PARENT_PARTICLE_BINDING}}
 @group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as update  // FIXME - this should be read-only
 @group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
-@group(3) @binding(1) var<storage, read_write> render_group_indirect : RenderGroupIndirect;
+@group(3) @binding(1) var<storage, read_write> dest_render_group_indirect : RenderGroupIndirect;
+@group(3) @binding(2) var<storage, read_write> src_render_group_indirect : RenderGroupIndirect;
 
 {{INIT_EXTRA}}
 
@@ -40,11 +41,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap to max number of dead particles, copied from dead_count at the end of the
     // previous iteration, and constant during this pass (unlike dead_count).
-    if (thread_index >= render_effect_indirect.max_spawn) {
+    let max_spawn = atomicLoad(&dest_render_group_indirect.max_spawn);
+    if (thread_index >= max_spawn) {
         return;
     }
 
-    // Cap to the actual number of spawning requested by CPU + GPU, since compute shaders run
+    // Cap to the actual number of spawning requested by CPU or GPU, since compute shaders run
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
 #ifdef USE_GPU_SPAWN_EVENTS
     let event_index = thread_index;
@@ -54,19 +56,65 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 #else
-    let spawn_count = u32(spawner.spawn);
+    // Cap to the actual number of spawning requested by CPU (in the case of
+    // spawners) or the number of particles present in the source group (in the
+    // case of cloners).
+#ifdef CLONE
+    // FIXME: This doesn't actually need to be atomic.
+    let spawn_count: u32 = atomicLoad(&src_render_group_indirect.alive_count);
+#else   // CLONE
+    let spawn_count: u32 = u32(spawner.spawn);
+#endif  // CLONE
     if (thread_index >= spawn_count) {
         return;
     }
 #endif
 
-    // Recycle a dead particle from the first group
-    let base_index = particle_groups[0].effect_particle_offset;
-    let dead_index = atomicSub(&render_group_indirect.dead_count, 1u) - 1u;
-    let index = indirect_buffer.indices[3u * (base_index + dead_index) + 2u];
+    // Always write into ping, read from pong
+    let ping = render_effect_indirect.ping;
+    let pong = 1u - ping;
+
+#ifdef CLONE
+    let src_base_index = particle_groups[{{SRC_GROUP_INDEX}}].effect_particle_offset +
+        particle_groups[{{SRC_GROUP_INDEX}}].indirect_index;
+    let src_index = indirect_buffer.indices[3u * (src_base_index + thread_index) + ping];
+#endif  // CLONE
+
+    // Recycle a dead particle from the destination group
+    var dest_base_index = particle_groups[{{DEST_GROUP_INDEX}}].effect_particle_offset +
+        particle_groups[{{DEST_GROUP_INDEX}}].indirect_index;
+    let dest_dead_index = atomicSub(&dest_render_group_indirect.dead_count, 1u) - 1u;
+    let dest_index = indirect_buffer.indices[3u * (dest_base_index + dest_dead_index) + 2u];
 
     // Update PRNG seed
     seed = pcg_hash(index ^ spawner.seed);
+
+#ifdef CLONE
+
+    // Start from a pure clone of the head particle in the source group
+    var particle: Particle = particle_buffer.particles[src_index];
+
+    {{INIT_CODE}}
+
+    // For trails and ribbons, age and lifetime are managed automatically.
+    particle.age = 0.0;
+    particle.lifetime = spawner.lifetime;
+
+    // Insert the cloned particle into the linked list
+#ifdef ATTRIBUTE_PREV
+#ifdef ATTRIBUTE_NEXT
+    let prev = particle.prev;
+    let next = src_index;
+    particle_buffer.particles[next].prev = dest_index;
+    if (prev != 0xffffffffu) {
+        particle_buffer.particles[prev].next = dest_index;
+    }
+    particle.next = src_index;
+    particle.prev = prev;
+#endif  // ATTRIBUTE_NEXT
+#endif  // ATTRIBUTE_PREV
+
+#else  // CLONE
 
 #ifndef USE_GPU_SPAWN_EVENTS
     // Spawner transform
@@ -89,6 +137,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Initialize new particle
     var particle = Particle();
     {{INIT_CODE}}
+#ifdef ATTRIBUTE_PREV
+    particle.prev = 0xffffffffu;
+#endif  // ATTRIBUTE_PREV
+#ifdef ATTRIBUTE_NEXT
+    particle.next = 0xffffffffu;
+#endif  // ATTRIBUTE_NEXT
 
     // Only add emitter's transform to CPU-spawned particles. GPU-spawned particles
     // don't have a CPU spawner to read from.
@@ -96,16 +150,15 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     {{SIMULATION_SPACE_TRANSFORM_PARTICLE}}
 #endif
 
-    // Count as alive
-    atomicAdd(&render_group_indirect.alive_count, 1u);
+#endif  // CLONE
 
-    // Always write into ping, read from pong
-    let ping = render_effect_indirect.ping;
+    // Count as alive
+    atomicAdd(&dest_render_group_indirect.alive_count, 1u);
 
     // Add to alive list
-    let indirect_index = atomicAdd(&render_group_indirect.instance_count, 1u);
-    indirect_buffer.indices[3u * (base_index + indirect_index) + ping] = index;
+    let dest_indirect_index = atomicAdd(&dest_render_group_indirect.instance_count, 1u);
+    indirect_buffer.indices[3u * (dest_base_index + dest_indirect_index) + ping] = dest_index;
 
-    // Write back spawned particle
-    particle_buffer.particles[index] = particle;
+    // Write back new particle
+    particle_buffer.particles[dest_index] = particle;
 }

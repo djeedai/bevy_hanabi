@@ -1009,6 +1009,9 @@ impl Attribute {
 
     /// The previous particle in the ribbon chain.
     ///
+    /// This is only present if there's a ribbon. Since there's only one linked
+    /// list, we support at most one ribbon per effect.
+    ///
     /// # Name
     ///
     /// `prev`
@@ -1020,6 +1023,9 @@ impl Attribute {
     pub const PREV: Attribute = Attribute(AttributeInner::PREV);
 
     /// The next particle in the ribbon chain.
+    ///
+    /// This is only present if there's a ribbon. Since there's only one linked
+    /// list, we support at most one ribbon per effect.
     ///
     /// # Name
     ///

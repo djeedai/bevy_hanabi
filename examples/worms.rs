@@ -77,9 +77,6 @@ fn setup(
 
     // Update modifiers
 
-    // Clone the particle every so often. This creates the trail.
-    let clone_modifier = CloneModifier::new(1.0 / 8.0, 1);
-
     // Make the particle wiggle, following a sine wave.
     let main_set_velocity_modifier = SetAttributeModifier::new(
         Attribute::VELOCITY,
@@ -94,9 +91,6 @@ fn setup(
     );
     let trail_set_velocity_modifier =
         SetAttributeModifier::new(Attribute::VELOCITY, writer.lit(Vec3::ZERO).expr());
-
-    let trail_set_lifetime_modifier =
-        SetAttributeModifier::new(Attribute::LIFETIME, writer.lit(1.0).expr());
 
     // Render modifiers
 
@@ -120,24 +114,19 @@ fn setup(
     // Allocate room for 32,768 trail particles. Give each particle a 5-particle
     // trail, and spawn a new trail particle every ⅛ of a second.
     let effect = effects.add(
-        EffectAsset::new(
-            vec![5000, 5000 * 5],
-            Spawner::rate(CpuValue::Single(5.0)),
-            module,
-        )
-        .with_name("worms")
-        .init(set_initial_position_modifier)
-        .init(set_initial_angle_modifier)
-        .init(set_age_modifier)
-        .init(set_lifetime_modifier)
-        .init(set_color_modifier)
-        .update_groups(clone_modifier, ParticleGroupSet::single(0))
-        .update_groups(main_set_velocity_modifier, ParticleGroupSet::single(0))
-        .update_groups(trail_set_velocity_modifier, ParticleGroupSet::single(1))
-        .update_groups(trail_set_lifetime_modifier, ParticleGroupSet::single(1))
-        .render_groups(main_set_size_modifier, ParticleGroupSet::single(0))
-        .render_groups(trail_set_size_modifier, ParticleGroupSet::single(1))
-        .render(particle_texture_modifier),
+        EffectAsset::new(5000, Spawner::rate(CpuValue::Single(5.0)), module)
+            .with_trails(5000 * 5, 1.0 / 8.0, 1.0, 0)
+            .with_name("worms")
+            .init_groups(set_initial_position_modifier, ParticleGroupSet::single(0))
+            .init_groups(set_initial_angle_modifier, ParticleGroupSet::single(0))
+            .init_groups(set_age_modifier, ParticleGroupSet::single(0))
+            .init_groups(set_lifetime_modifier, ParticleGroupSet::single(0))
+            .init_groups(set_color_modifier, ParticleGroupSet::single(0))
+            .update_groups(main_set_velocity_modifier, ParticleGroupSet::single(0))
+            .update_groups(trail_set_velocity_modifier, ParticleGroupSet::single(1))
+            .render_groups(main_set_size_modifier, ParticleGroupSet::single(0))
+            .render_groups(trail_set_size_modifier, ParticleGroupSet::single(1))
+            .render(particle_texture_modifier),
     );
 
     commands.spawn((
