@@ -1153,27 +1153,34 @@ struct ParentParticleBuffer {{
             // Configure aging code
             let has_age = present_attributes.contains(&Attribute::AGE);
             let has_lifetime = present_attributes.contains(&Attribute::LIFETIME);
-            let alive_init_code = if has_age && has_lifetime {
-                format!(
-                    "var is_alive = particle.{0} < particle.{1};",
-                    Attribute::AGE.name(),
-                    Attribute::LIFETIME.name()
-                )
+            let mut age_code = String::new();
+            if has_age {
+                if has_lifetime {
+                    age_code += &format!(
+                        "\n    let was_alive = particle.{0} < particle.{1};",
+                        Attribute::AGE.name(),
+                        Attribute::LIFETIME.name()
+                    );
+                }
+
+                age_code += &format!(
+                    "\n    particle.{0} = particle.{0} + sim_params.delta_time;",
+                    Attribute::AGE.name()
+                );
+
+                if has_lifetime {
+                    age_code += &format!(
+                        "\n    var is_alive = particle.{0} < particle.{1};",
+                        Attribute::AGE.name(),
+                        Attribute::LIFETIME.name()
+                    );
+                }
             } else {
                 // Since we're using a dead index buffer, all particles that make it to the
                 // update compute shader are guaranteed to be alive (we never
                 // simulate dead particles).
-                "var is_alive = true;".to_string()
-            };
-            let age_code = if has_age {
-                format!(
-                    "particle.{0} = particle.{0} + sim_params.delta_time;",
-                    Attribute::AGE.name()
-                )
-            } else {
-                "".to_string()
-            } + "\n    "
-                + &alive_init_code;
+                age_code = "\n    let was_alive = true;\n    var is_alive = true;".to_string();
+            }
 
             // Configure reaping code
             let reap_code = if has_age && has_lifetime {

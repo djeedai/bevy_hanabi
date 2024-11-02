@@ -60,9 +60,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     seed = pcg_hash(index ^ spawner.seed);
 
     var particle: Particle = particle_buffer.particles[index];
-
     {{AGE_CODE}}
-    let was_alive = is_alive;
     {{REAP_CODE}}
     {{UPDATE_CODE}}
 
