@@ -961,7 +961,8 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
                 // Effect uses GPU spawn events if it produces them, or if it has a parent and
                 // consumes them from that parent.
                 let consume_gpu_spawn_events =
-                    init_context.emits_gpu_spawn_events().unwrap_or(false) || parent_layout.is_some();
+                    init_context.emits_gpu_spawn_events().unwrap_or(false)
+                        || parent_layout.is_some();
 
                 (
                     init_context.main_code,
@@ -1024,8 +1025,10 @@ struct ParentParticleBuffer {{
                         return Err(ShaderGenerateError::Expr(err));
                     }
                 }
+
                 let emit_gpu_spawn_events =
                     update_context.emits_gpu_spawn_events().unwrap_or(false);
+
                 (
                     update_context.main_code,
                     update_context.extra_code,
@@ -1380,7 +1383,6 @@ impl CompiledParticleEffect {
             return;
         }
 
-        self.alpha_mode = asset.alpha_mode;
         self.parent = parent_entity;
         self.children = child_entities;
 
@@ -1398,6 +1400,7 @@ impl CompiledParticleEffect {
             };
 
         self.layout_flags = shader_source.layout_flags;
+        self.alpha_mode = asset.alpha_mode;
         self.parent_particle_layout = parent_layout;
 
         // TODO - Replace with Option<EffectShader { handle: Handle<Shader>, hash:

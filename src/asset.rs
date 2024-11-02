@@ -968,7 +968,7 @@ impl AssetLoader for EffectAssetLoader {
     }
 }
 
-/// Parent effect, if any.
+/// Component defining the parent effect of the current effect.
 ///
 /// This component is optional. When present, on the same entity as the
 /// [`ParticleEffect`], it defines the "parent effect" of that effect. The
@@ -976,6 +976,16 @@ impl AssetLoader for EffectAssetLoader {
 /// effect, to allow the particles from the current effect to inherit some
 /// attributes (position, velocity, ...) from the parent particle which
 /// triggered its spawning via GPU spawn events.
+///
+/// Adding this component automatically makes the current particle effect
+/// instance use GPU spawn events emitted by its parent, and automatically makes
+/// the parent effect instance emits such events.
+///
+/// An effect has at most one parent, defined by this component, but a parent
+/// effect can have multiple children. For example, a parent effect can emit GPU
+/// spawn events continuously ([`EventEmitCondition::Always`]) to generate some
+/// kind of trail, and also emit GPU spawn events when its particles die
+/// ([`EventEmitCondition::OnDie`]) for any explosion-like effect.
 #[derive(Debug, Clone, Copy, Component, Reflect)]
 pub struct EffectParent {
     /// Entity of the parent effect.

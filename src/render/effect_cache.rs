@@ -28,7 +28,8 @@ use crate::{
     asset::EffectAsset,
     next_multiple_of,
     render::{
-        calc_hash, GpuChildInfo, GpuDispatchIndirect, GpuInitDispatchIndirect, GpuParticleGroup, GpuSpawnerParams, LayoutFlags, StorageType as _
+        calc_hash, GpuChildInfo, GpuDispatchIndirect, GpuInitDispatchIndirect, GpuParticleGroup,
+        GpuSpawnerParams, LayoutFlags, StorageType as _,
     },
     ParticleLayout, PropertyLayout,
 };
@@ -37,7 +38,7 @@ use crate::{
 /// for a single effect.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSlices {
-    /// Slices into the underlying BufferVec of the group.
+    /// Slices into the underlying [`BufferVec`] of the group.
     ///
     /// The length of this vector is the number of particle groups plus one.
     /// The range of the first group is (slices[0]..slices[1]), the index of
@@ -45,13 +46,10 @@ pub struct EffectSlices {
     ///
     /// This is measured in items, not bytes.
     pub slices: Vec<u32>,
-    /// The index of the buffer.
+    /// Index of the buffer in the [`EffectCache`].
     pub buffer_index: u32,
-    // pub parent_buffer_index: Option<u32>,
     /// Particle layout of the effect.
     pub particle_layout: ParticleLayout,
-    // Particle layout of the parent, if any.
-    // pub parent_particle_layout: Option<ParticleLayout>,
 }
 
 impl Ord for EffectSlices {
@@ -73,9 +71,6 @@ impl PartialOrd for EffectSlices {
 /// for a single effect, as well as the [`DispatchBufferIndices`].
 pub struct SlicesRef {
     pub ranges: Vec<u32>,
-    /// Size of a single item in the slice. Currently equal to the unique size
-    /// of all items in an [`EffectBuffer`] (no mixed size supported in same
-    /// buffer), so cached only for convenience.
     particle_layout: ParticleLayout,
     pub dispatch_buffer_indices: DispatchBufferIndices,
 }
@@ -85,9 +80,6 @@ pub struct SlicesRef {
 pub struct SliceRef {
     /// Range into an [`EffectBuffer`], in item count.
     range: Range<u32>,
-    /// Size of a single item in the slice. Currently equal to the unique size
-    /// of all items in an [`EffectBuffer`] (no mixed size supported in same
-    /// buffer), so cached only for convenience.
     particle_layout: ParticleLayout,
 }
 
@@ -1165,8 +1157,8 @@ pub struct EffectCache {
     /// [`ParticleEffect`] component, to the effect cache entry for that
     /// effect instance.
     effect_from_entity: HashMap<Entity, EffectCacheId>,
-    /// Single shared GPU buffer storing all the [`GpuInitDispatchIndirect`] structs
-    /// for all the indirect init passes.
+    /// Single shared GPU buffer storing all the [`GpuInitDispatchIndirect`]
+    /// structs for all the indirect init passes.
     // Note: we abuse AlignedBufferVec but never copy anything from CPU
     init_indirect_dispatch_buffer: AlignedBufferVec<GpuInitDispatchIndirect>,
     /// Single shared GPU buffer storing all the [`GpuChildInfo`] structs

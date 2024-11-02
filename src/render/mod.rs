@@ -1,5 +1,10 @@
 use std::{
-    borrow::Cow, hash::{DefaultHasher, Hash, Hasher}, num::{NonZero, NonZeroU32, NonZeroU64}, ops::Deref, time::Duration, u32
+    borrow::Cow,
+    hash::{DefaultHasher, Hash, Hasher},
+    num::{NonZero, NonZeroU32, NonZeroU64},
+    ops::Deref,
+    time::Duration,
+    u32,
 };
 use std::{iter, marker::PhantomData};
 
@@ -2556,7 +2561,10 @@ impl EffectsMeta {
 
         trace!("Adding {} newly spawned effects", added_effects.len());
         for added_effect in added_effects.drain(..) {
-            trace!("+ added effect: total_capacity={}", added_effect.groups.iter().map(|g| g.capacity).sum::<u32>());
+            trace!(
+                "+ added effect: total_capacity={}",
+                added_effect.groups.iter().map(|g| g.capacity).sum::<u32>()
+            );
 
             let first_update_group_dispatch_buffer_index = allocate_sequential_buffers(
                 &mut self.dispatch_indirect_buffer,
@@ -3846,9 +3854,9 @@ pub(crate) fn queue_effects(
 
 /// Prepare GPU resources for effect rendering.
 ///
-/// This system runs in the [`RenderSet::PrepareResources`] render set, after Bevy has
-/// updated the [`ViewUniforms`], which need to be referenced to get access to
-/// the current camera view.
+/// This system runs in the [`RenderSet::PrepareResources`] render set, after
+/// Bevy has updated the [`ViewUniforms`], which need to be referenced to get
+/// access to the current camera view.
 pub(crate) fn prepare_gpu_resources(
     mut effects_meta: ResMut<EffectsMeta>,
     mut effect_cache: ResMut<EffectCache>,
@@ -4094,9 +4102,8 @@ pub(crate) fn prepare_bind_groups(
             .entry(buffer_index as u32)
             .or_insert_with(|| {
                 trace!(
-                    "Create new particle bind groups for buffer_index={} | particle_layout {:?} | property_layout {:?}",
+                    "Create new particle bind groups for buffer_index={} | property_layout {:?}",
                     buffer_index,
-                    buffer.particle_layout(),
                     buffer.property_layout(),
                 );
 
@@ -4832,9 +4839,6 @@ impl Node for VfxSimulateNode {
                                 + dest_group_index,
                         );
 
-
-                                
-
                         // Destination group spawners are packed one after one another.
                         let spawner_base = batches.spawner_base + dest_group_index;
                         let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
@@ -4863,8 +4867,12 @@ impl Node for VfxSimulateNode {
                                 // effects at the cost of extra complexity.
                                 // total_group_count += batches.group_batches.len() as u32;
 
-                                let pipeline_id = batches.init_and_update_pipeline_ids[dest_group_index as usize].init;
-                                let Some(init_pipeline) = pipeline_cache.get_compute_pipeline(pipeline_id) else {
+                                let pipeline_id = batches.init_and_update_pipeline_ids
+                                    [dest_group_index as usize]
+                                    .init;
+                                let Some(init_pipeline) =
+                                    pipeline_cache.get_compute_pipeline(pipeline_id)
+                                else {
                                     if let CachedPipelineState::Err(err) = pipeline_cache
                                         .get_compute_pipeline_state(
                                             batches.init_and_update_pipeline_ids
@@ -4890,7 +4898,8 @@ impl Node for VfxSimulateNode {
                                     .layout_flags
                                     .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS);
 
-                                // Do not dispatch any init work if there's nothing to spawn this frame
+                                // Do not dispatch any init work if there's nothing to spawn this
+                                // frame
                                 let spawn_count = effect_spawner.spawn_count;
                                 if spawn_count == 0 && !indirect_dispatch {
                                     trace!("-> init batch empty (spawn_count={spawn_count}, indirect_dispatch={indirect_dispatch})");
@@ -4976,8 +4985,8 @@ impl Node for VfxSimulateNode {
                                     ],
                                 );
                                 if indirect_dispatch {
-                                    // Note: the indirect offset of a dispatch workgroup only needs 4-byte
-                                    // alignment
+                                    // Note: the indirect offset of a dispatch workgroup only needs
+                                    // 4-byte alignment
                                     assert_eq!(GpuInitDispatchIndirect::min_size().get(), 12);
                                     let indirect_offset =
                                         batches.init_indirect_dispatch_index.unwrap() as u64 * 12;
