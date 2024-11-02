@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     hash::{DefaultHasher, Hash, Hasher},
-    num::{NonZero, NonZeroU32, NonZeroU64},
+    num::{NonZeroU32, NonZeroU64},
     ops::Deref,
     time::Duration,
     u32,
@@ -624,6 +624,7 @@ pub(super) struct GpuBufferOperationArgs {
     count: u32,
 }
 
+#[derive(Clone)]
 struct InitFillDispatchArgs {
     event_buffer_index: u32,
     event_slice: std::ops::Range<u32>,
@@ -659,9 +660,10 @@ impl<'a> Iterator for InitFillDispatchArgsSliceIter<'a> {
         let len = self.args.len() as u32;
         let mut idx = self.args_start;
         while idx < len {
-            let cur_buffer_index = self.args[idx as usize].event_buffer_index;
+            let cur_args = &self.args[idx as usize];
+            let cur_buffer_index = cur_args.event_buffer_index;
 
-            // Check if next item is for a new slice
+            // Check if next item is for a slice of a different buffer
             if idx == 0 {
                 self.event_buffer_index = cur_buffer_index;
             } else if cur_buffer_index != self.event_buffer_index {
@@ -720,6 +722,12 @@ impl FromWorld for GpuBufferOperationQueue {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.get_resource::<RenderDevice>().unwrap();
         let align = render_device.limits().min_uniform_buffer_offset_alignment;
+        Self::new(align)
+    }
+}
+
+impl GpuBufferOperationQueue {
+    pub fn new(align: u32) -> Self {
         let args_buffer = AlignedBufferVec::new(
             BufferUsages::UNIFORM,
             Some(NonZeroU64::new(align as u64).unwrap()),
@@ -731,9 +739,7 @@ impl FromWorld for GpuBufferOperationQueue {
             init_fill_dispatch: vec![],
         }
     }
-}
 
-impl GpuBufferOperationQueue {
     /// Get a binding for all the entries of the arguments buffer associated
     /// with the given event buffer.
     pub fn args_buffer_binding(&self, event_buffer_index: u32) -> Option<(BindingResource, u32)> {
@@ -830,10 +836,10 @@ impl GpuBufferOperationQueue {
             // Push entries into the final storage before GPU upload. It's a bit unfortunate
             // we have to make copies, but those arrays should be small.
             let mut sorted_args = Vec::with_capacity(self.init_fill_dispatch.len());
+            let mut sorted_ifda = Vec::with_capacity(self.init_fill_dispatch.len());
             let mut prev_buffer = u32::MAX;
             for ifda in &self.init_fill_dispatch {
                 if !sorted_args.is_empty() && (prev_buffer == ifda.event_buffer_index) {
-                    prev_buffer = ifda.event_buffer_index;
                     let prev_idx = sorted_args.len() - 1;
                     let prev: &mut GpuBufferOperationArgs = &mut sorted_args[prev_idx];
                     let cur = &self.args_buffer_unsorted[ifda.args_index as usize];
@@ -846,10 +852,17 @@ impl GpuBufferOperationQueue {
                     }
                 }
                 prev_buffer = ifda.event_buffer_index;
+                let sorted_args_index = sorted_args.len() as u32;
+                sorted_ifda.push(InitFillDispatchArgs {
+                    event_buffer_index: ifda.event_buffer_index,
+                    event_slice: 0..0,
+                    args_index: sorted_args_index,
+                });
                 sorted_args.push(self.args_buffer_unsorted[ifda.args_index as usize]);
             }
 
             self.args_buffer.set_content(sorted_args);
+            self.init_fill_dispatch = sorted_ifda;
         }
 
         // Write entries to GPU
@@ -858,9 +871,19 @@ impl GpuBufferOperationQueue {
 
     /// Returns (event_buffer_index, args_offset, args_count) for each slice of
     /// operations on each buffer.
-    fn init_fill_dispatch_slices<'a>(&'a self) -> InitFillDispatchArgsSliceIter<'a> {
+    fn init_fill_dispatch_slices(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        //InitFillDispatchArgsSliceIter<'a> {
         // Assume this is called after end_frame() so we're sorted already
-        InitFillDispatchArgsSliceIter::new(&self.init_fill_dispatch[..])
+        //InitFillDispatchArgsSliceIter::new(&self.init_fill_dispatch[..])
+
+        assert_eq!(
+            self.init_fill_dispatch.len(),
+            self.args_buffer.content().len()
+        );
+        self.init_fill_dispatch
+            .iter()
+            .enumerate()
+            .map(|(args_index, ifda)| (args_index as u32, ifda.event_buffer_index))
     }
 
     /// Dispatch any pending [`GpuBufferOperationType::FillDispatchArgs`]
@@ -890,28 +913,24 @@ impl GpuBufferOperationQueue {
 
         compute_pass.set_pipeline(pipeline);
 
-        for ifda_slice in self.init_fill_dispatch_slices() {
+        for (args_index, event_buffer_index) in self.init_fill_dispatch_slices() {
             trace!(
-                "event_buffer_index={} args_offset={:?} args_count={}",
-                ifda_slice.event_buffer_index,
-                ifda_slice.args_offset,
-                ifda_slice.args_count
+                "event_buffer_index={} args_index={:?}",
+                event_buffer_index,
+                args_index
             );
-            if let Some(bind_group) = bind_groups.init_fill_dispatch(ifda_slice.event_buffer_index)
-            {
-                let dst_offset = self
-                    .args_buffer
-                    .dynamic_offset(ifda_slice.args_offset as usize);
+            if let Some(bind_group) = bind_groups.init_fill_dispatch(event_buffer_index) {
+                let dst_offset = self.args_buffer.dynamic_offset(args_index as usize);
                 compute_pass.set_bind_group(0, bind_group, &[]);
                 trace!(
                     "found bind group for event buffer index #{} with dst_offset +{}B",
-                    ifda_slice.event_buffer_index,
+                    event_buffer_index,
                     dst_offset
                 );
             } else {
                 warn!(
                     "bind group not found for event buffer index #{}",
-                    ifda_slice.event_buffer_index
+                    event_buffer_index
                 );
                 continue;
             }
@@ -1194,8 +1213,6 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
         // Likely this one should go away, because we can't cache from inside
         // specialize() (non-mut access)
         let has_event_buffer = key.parent_particle_layout_min_binding_size.is_some();
-        // create_init_particles_bind_group_layout()
-        // "hanabi:init_particles_buffer_layout",
         let particles_buffer_layout = EffectBuffer::make_init_layout(
             &self.render_device,
             key.particle_layout_min_binding_size,
@@ -1357,8 +1374,6 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             key
         );
 
-        // create_update_bind_group_layout()
-        //      "hanabi:update_particles_buffer_layout",
         let update_particles_buffer_layout = EffectBuffer::make_update_layout(
             &self.render_device,
             key.particle_layout.min_binding_size(),
@@ -4545,70 +4560,6 @@ impl Draw<AlphaMask3d> for DrawEffects {
     }
 }
 
-fn create_init_particles_bind_group_layout(
-    render_device: &RenderDevice,
-    label: &str,
-    particle_layout_min_binding_size: NonZero<u64>,
-    property_layout_min_binding_size: Option<NonZero<u64>>,
-) -> BindGroupLayout {
-    let mut entries = Vec::with_capacity(3);
-    // (1,0) ParticleBuffer
-    entries.push(BindGroupLayoutEntry {
-        binding: 0,
-        visibility: ShaderStages::COMPUTE,
-        ty: BindingType::Buffer {
-            ty: BufferBindingType::Storage { read_only: false },
-            has_dynamic_offset: false,
-            min_binding_size: Some(particle_layout_min_binding_size),
-        },
-        count: None,
-    });
-    // (1,1) IndirectBuffer
-    entries.push(BindGroupLayoutEntry {
-        binding: 1,
-        visibility: ShaderStages::COMPUTE,
-        ty: BindingType::Buffer {
-            ty: BufferBindingType::Storage { read_only: false },
-            has_dynamic_offset: false,
-            min_binding_size: BufferSize::new(12),
-        },
-        count: None,
-    });
-    // (1,2) array<ParticleGroup>
-    let particle_group_size =
-        GpuParticleGroup::aligned_size(render_device.limits().min_storage_buffer_offset_alignment);
-    entries.push(BindGroupLayoutEntry {
-        binding: 2,
-        visibility: ShaderStages::COMPUTE,
-        ty: BindingType::Buffer {
-            ty: BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size: Some(particle_group_size),
-        },
-        count: None,
-    });
-    if let Some(min_binding_size) = property_layout_min_binding_size {
-        // (1,3) Properties
-        entries.push(BindGroupLayoutEntry {
-            binding: 3,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false, // TODO
-                min_binding_size: Some(min_binding_size),
-            },
-            count: None,
-        });
-    }
-
-    trace!(
-        "Creating particle bind group layout '{}' for init pass with {} entries.",
-        label,
-        entries.len()
-    );
-    render_device.create_bind_group_layout(label, &entries)
-}
-
 fn create_init_render_indirect_bind_group_layout(
     render_device: &RenderDevice,
     label: &str,
@@ -4659,71 +4610,6 @@ fn create_init_render_indirect_bind_group_layout(
         });
     }
 
-    render_device.create_bind_group_layout(label, &entries)
-}
-
-fn create_update_bind_group_layout(
-    render_device: &RenderDevice,
-    label: &str,
-    particle_layout_min_binding_size: NonZero<u64>,
-    property_layout_min_binding_size: Option<NonZero<u64>>,
-) -> BindGroupLayout {
-    let particle_group_size =
-        GpuParticleGroup::aligned_size(render_device.limits().min_storage_buffer_offset_alignment);
-    let mut entries = vec![
-        // @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer
-        BindGroupLayoutEntry {
-            binding: 0,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: false,
-                min_binding_size: Some(particle_layout_min_binding_size),
-            },
-            count: None,
-        },
-        // @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer
-        BindGroupLayoutEntry {
-            binding: 1,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: false,
-                min_binding_size: BufferSize::new(INDIRECT_INDEX_SIZE as _),
-            },
-            count: None,
-        },
-        // @binding(2) var<storage, read> particle_groups : array<ParticleGroup>
-        BindGroupLayoutEntry {
-            binding: 2,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: Some(particle_group_size),
-            },
-            count: None,
-        },
-    ];
-    if let Some(property_layout_min_binding_size) = property_layout_min_binding_size {
-        // @binding(3) var<storage, read> properties : Properties
-        entries.push(BindGroupLayoutEntry {
-            binding: 3,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false, // TODO
-                min_binding_size: Some(property_layout_min_binding_size),
-            },
-            count: None,
-        });
-    }
-
-    trace!(
-        "Creating particle bind group layout '{}' for update pass with {} entries.",
-        label,
-        entries.len()
-    );
     render_device.create_bind_group_layout(label, &entries)
 }
 
@@ -5388,5 +5274,71 @@ mod tests {
             limits.dispatch_indirect_offset(256) as u64
                 >= 256 * GpuDispatchIndirect::min_size().get()
         );
+    }
+
+    #[cfg(feature = "gpu_tests")]
+    #[test]
+    fn gpu_ops_queue() {
+        use crate::test_utils::MockRenderer;
+
+        let renderer = MockRenderer::new();
+        let device = renderer.device();
+        let render_queue = renderer.queue();
+
+        let mut queue = GpuBufferOperationQueue::new(64);
+
+        // Two consecutive ops can be merged if in order. This includes having
+        // contiguous slices both in source and destination.
+        queue.begin_frame();
+        queue.queue_init_fill(
+            0,
+            0..200,
+            GpuBufferOperationArgs {
+                src_offset: 0,
+                src_stride: 2,
+                dst_offset: 0,
+                count: 1,
+            },
+        );
+        queue.queue_init_fill(
+            0,
+            200..300,
+            GpuBufferOperationArgs {
+                src_offset: 1,
+                src_stride: 2,
+                dst_offset: 1,
+                count: 1,
+            },
+        );
+        queue.end_frame(&device, &render_queue);
+        assert_eq!(queue.init_fill_dispatch.len(), 1);
+        assert_eq!(queue.args_buffer.content().len(), 1);
+
+        // However if out of order, they remain distinct. Here the source offsets are
+        // inverted.
+        queue.begin_frame();
+        queue.queue_init_fill(
+            0,
+            0..200,
+            GpuBufferOperationArgs {
+                src_offset: 1,
+                src_stride: 2,
+                dst_offset: 0,
+                count: 1,
+            },
+        );
+        queue.queue_init_fill(
+            0,
+            200..300,
+            GpuBufferOperationArgs {
+                src_offset: 0,
+                src_stride: 2,
+                dst_offset: 1,
+                count: 1,
+            },
+        );
+        queue.end_frame(&device, &render_queue);
+        assert_eq!(queue.init_fill_dispatch.len(), 2);
+        assert_eq!(queue.args_buffer.content().len(), 2);
     }
 }

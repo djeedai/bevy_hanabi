@@ -370,19 +370,6 @@ impl EffectBuffer {
                 count: None,
             });
 
-            // @group(1) @binding(5) var<storage, read_write> init_indirect_dispatch :
-            // array<InitIndirectDispatch>
-            // entries.push(BindGroupLayoutEntry {
-            //     binding: 5,
-            //     visibility: ShaderStages::COMPUTE,
-            //     ty: BindingType::Buffer {
-            //         ty: BufferBindingType::Storage { read_only: false },
-            //         has_dynamic_offset: false,
-            //         min_binding_size: BufferSize::new(12), //
-            // sizeof(InitIndirectDispatch)     },
-            //     count: None,
-            // });
-
             // N times: @group(1) @binding(...) var<storage, read_write> event_buffer_N :
             // EventBuffer
             let mut next_binding_index = 5;

@@ -59,7 +59,7 @@ fn create_rocket_effect() -> EffectAsset {
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     // Give a bit of variation by randomizing the lifetime per particle
-    let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
+    let lifetime = writer.lit(0.012).expr(); //writer.lit(0.8).uniform(writer.lit(1.2)).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     // Add constant downward acceleration to simulate gravity
@@ -172,9 +172,10 @@ fn create_trails_effect() -> EffectAsset {
     let init_pos = InheritAttributeModifier::new(Attribute::POSITION);
 
     // The velocity is random in any direction
-    let center = writer.attr(Attribute::POSITION).expr();
-    let speed = writer.lit(300.).uniform(writer.lit(400.)).expr();
-    let init_vel = SetVelocitySphereModifier { center, speed };
+    let center = writer.attr(Attribute::POSITION);
+    let speed = writer.lit(300.).uniform(writer.lit(400.));
+    let dir = writer.rand(VectorType::VEC3F);
+    let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, (center + dir * speed).expr());
 
     let age = writer.lit(0.).expr();
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
