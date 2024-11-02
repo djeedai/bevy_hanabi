@@ -1017,7 +1017,10 @@ struct ParentParticleBuffer {{
                     ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
                 for m in asset.update_modifiers_for_group(dest_group_index) {
                     if let Err(err) = m.apply(&mut module, &mut update_context) {
-                        error!("Failed to compile effect, error in update context: {}", err);
+                        error!(
+                            "Failed to compile effect '{}', error in update context: {}",
+                            asset.name, err
+                        );
                         return Err(ShaderGenerateError::Expr(err));
                     }
                 }
@@ -1091,7 +1094,7 @@ struct ParentParticleBuffer {{
                 let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
                     render_context.eval(&module, *cutoff).unwrap_or_else(|err| {
                         error!(
-                            "Failed to evaluate the expression for AlphaMode::Mask, error: {:?}",
+                            "Failed to evaluate the expression for AlphaMode::Mask, error: {}",
                             err
                         );
 

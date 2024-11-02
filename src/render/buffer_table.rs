@@ -200,7 +200,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     /// Get a safe buffer label for debug display.
     ///
     /// Falls back to an empty string if no label was specified.
-    pub fn safe_label<'a>(&'a self) -> Cow<'a, str> {
+    pub fn safe_label(&self) -> Cow<'_, str> {
         self.label
             .as_ref()
             .map(|s| Cow::Borrowed(&s[..]))

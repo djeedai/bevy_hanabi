@@ -1830,8 +1830,7 @@ impl EffectCache {
             let buffer_index = cached_effect_indices.buffer_index as usize;
             self.buffers[buffer_index]
                 .as_ref()
-                .map(|eb| eb.properties_buffer())
-                .flatten()
+                .and_then(|eb| eb.properties_buffer())
         } else {
             None
         }
