@@ -142,8 +142,7 @@ pub trait Modifier: Reflect + Send + Sync + 'static {
         None
     }
 
-    /// Get the list of dependent attributes required for this modifier to be
-    /// used.
+    /// Get the list of attributes required for this modifier to be used.
     fn attributes(&self) -> &[Attribute];
 
     /// Clone self.

@@ -648,15 +648,15 @@ pub enum ExprError {
     /// Expression type error.
     ///
     /// Generally used for invalid type conversion (casting).
-    #[error("Type error: {0:?}")]
+    #[error("Type error: {0}")]
     TypeError(String),
 
     /// Expression syntax error.
-    #[error("Syntax error: {0:?}")]
+    #[error("Syntax error: {0}")]
     SyntaxError(String),
 
     /// Generic graph evaluation error.
-    #[error("Graph evaluation error: {0:?}")]
+    #[error("Graph evaluation error: {0}")]
     GraphEvalError(String),
 
     /// Error resolving a property.
@@ -664,7 +664,7 @@ pub enum ExprError {
     /// An unknown property was not defined in the evaluation context, which
     /// usually means that the property was not defined with
     /// [`Module::add_property()`].
-    #[error("Property error: {0:?}")]
+    #[error("Property error: {0}")]
     PropertyError(String),
 
     /// Invalid expression handle not referencing any existing [`Expr`] in the
@@ -675,7 +675,7 @@ pub enum ExprError {
     /// are written to the [`EffectAsset`]. See [`ExprWriter`] for details.
     ///
     /// [`EffectAsset`]: crate::EffectAsset
-    #[error("Invalid expression handle: {0:?}")]
+    #[error("Invalid expression handle: {0}")]
     InvalidExprHandleError(String),
 
     /// Invalid modifier context.

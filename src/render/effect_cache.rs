@@ -672,12 +672,12 @@ pub struct EffectCache {
     /// by index, we cannot move them once they're allocated.
     buffers: Vec<Option<EffectBuffer>>,
     /// Map from an effect cache ID to various buffer indices.
-    effects: HashMap<EffectCacheId, CachedEffectIndices>,
+    effects: HashMap<EffectCacheId, CachedEffect>,
 }
 
 /// Stores various data, including the buffer index and slice boundaries within
 /// the buffer for all groups in a single effect.
-pub(crate) struct CachedEffectIndices {
+pub(crate) struct CachedEffect {
     /// The index of the buffer.
     pub(crate) buffer_index: u32,
     /// The slices within that buffer.
@@ -831,7 +831,7 @@ impl EffectCache {
         );
         self.effects.insert(
             id,
-            CachedEffectIndices {
+            CachedEffect {
                 buffer_index: buffer_index as u32,
                 slices,
                 group_order,
@@ -877,11 +877,10 @@ impl EffectCache {
 
     pub fn get_property_buffer(&self, id: EffectCacheId) -> Option<&Buffer> {
         if let Some(cached_effect_indices) = self.effects.get(&id) {
-            if let Some(buffer) = &self.buffers[cached_effect_indices.buffer_index as usize] {
-                buffer.properties_buffer()
-            } else {
-                None
-            }
+            let buffer_index = cached_effect_indices.buffer_index as usize;
+            self.buffers[buffer_index]
+                .as_ref()
+                .and_then(|eb| eb.properties_buffer())
         } else {
             None
         }
@@ -889,7 +888,7 @@ impl EffectCache {
 
     /// Remove an effect from the cache. If this was the last effect, drop the
     /// underlying buffer and return the index of the dropped buffer.
-    pub fn remove(&mut self, id: EffectCacheId) -> Option<CachedEffectIndices> {
+    pub fn remove(&mut self, id: EffectCacheId) -> Option<CachedEffect> {
         let indices = self.effects.remove(&id)?;
         let &mut Some(ref mut buffer) = &mut self.buffers[indices.buffer_index as usize] else {
             return None;
