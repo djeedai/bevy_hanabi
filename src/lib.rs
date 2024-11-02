@@ -993,7 +993,7 @@ struct ParentParticleBuffer {{
                 .unwrap_or_default();
 
             let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
-                .replace("{{ATTRIBUTES}}", &particle_attributes_code)
+                .replace("{{PARTICLE_ATTRIBUTES}}", &particle_attributes_code)
                 .replace("{{INIT_CODE}}", &init_code)
                 .replace("{{INIT_EXTRA}}", &init_extra)
                 .replace("{{PARENT_PARTICLES}}", &parent_particles_code)

@@ -90,7 +90,7 @@ fn create_rocket_effect() -> EffectAsset {
         child_index: 1,
     };
 
-    EffectAsset::new(vec![32], Spawner::rate(1.0.into()), writer.finish())
+    EffectAsset::new(32, Spawner::rate(1.0.into()), writer.finish())
         .with_name("rocket")
         .init(init_pos)
         .init(init_vel)
@@ -146,7 +146,7 @@ fn create_sparkle_trail_effect() -> EffectAsset {
     color_gradient.add_key(0.8, Vec4::new(4.0, 4.0, 0.0, 1.0));
     color_gradient.add_key(1.0, Vec4::new(4.0, 0.0, 0.0, 0.0));
 
-    EffectAsset::new(vec![1000], spawner, writer.finish())
+    EffectAsset::new(1000, spawner, writer.finish())
         .with_name("sparkle_trail")
         .init(init_pos)
         .init(init_vel)
@@ -200,7 +200,7 @@ fn create_trails_effect() -> EffectAsset {
     color_gradient.add_key(0.6, Vec4::new(0.0, 0.0, 4.0, 1.0));
     color_gradient.add_key(1.0, Vec4::new(0.0, 0.0, 4.0, 0.0));
 
-    EffectAsset::new(vec![10000], spawner, writer.finish())
+    EffectAsset::new(10000, spawner, writer.finish())
         .with_name("trail")
         .init(init_pos)
         .init(init_vel)

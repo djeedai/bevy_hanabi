@@ -4873,24 +4873,24 @@ impl Node for VfxSimulateNode {
                                 let Some(init_pipeline) =
                                     pipeline_cache.get_compute_pipeline(pipeline_id)
                                 else {
-                                    if let CachedPipelineState::Err(err) = pipeline_cache
-                                        .get_compute_pipeline_state(
-                                            batches.init_and_update_pipeline_ids
-                                                [dest_group_index as usize]
-                                                .init,
-                                        )
-                                    {
-                                        error!(
-                                            "Failed to find init pipeline #{} for effect {:?}: \
-                                            {:?}",
-                                            batches.init_and_update_pipeline_ids
-                                                [dest_group_index as usize]
-                                                .init
-                                                .id(),
-                                            entity,
-                                            err
-                                        );
-                                    }
+                                    // if let CachedPipelineState::Err(err) = pipeline_cache
+                                    //     .get_compute_pipeline_state(
+                                    //         batches.init_and_update_pipeline_ids
+                                    //             [dest_group_index as usize]
+                                    //             .init,
+                                    //     )
+                                    // {
+                                    //     error!(
+                                    //         "Failed to find init pipeline #{} for effect {:?}: \
+                                    //         {:?}",
+                                    //         batches.init_and_update_pipeline_ids
+                                    //             [dest_group_index as usize]
+                                    //             .init
+                                    //             .id(),
+                                    //         entity,
+                                    //         err
+                                    //     );
+                                    // }
                                     continue;
                                 };
 
