@@ -343,7 +343,7 @@ impl Default for GpuInitDispatchIndirect {
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct GpuChildInfo {
     pub init_indirect_dispatch_index: u32,
-    pub event_count: u32,
+    pub event_count: i32,
 }
 
 #[repr(C)]
@@ -2903,6 +2903,12 @@ pub(crate) fn prepare_effects(
             input.init_indirect_dispatch_index,
             child_index,
         ) {
+            debug_assert_eq!(
+                GpuChildInfo::min_size().get() % 4,
+                0,
+                "Invalid GpuChildInfo alignment."
+            );
+
             // Schedule a fill dispatch
             let event_buffer_index = event_buffer_ref.buffer_index;
             let event_slice = event_buffer_ref.slice.clone();
@@ -2911,7 +2917,7 @@ pub(crate) fn prepare_effects(
                 event_slice,
                 GpuBufferOperationArgs {
                     src_offset: child_index,
-                    src_stride: GpuChildInfo::min_size().get() as u32,
+                    src_stride: GpuChildInfo::min_size().get() as u32 / 4,
                     dst_offset: init_indirect_dispatch_index,
                     count: 1, // FIXME - should be a batch here!!
                 },
@@ -4107,9 +4113,9 @@ pub(crate) fn prepare_bind_groups(
                     buffer.property_layout(),
                 );
 
-                let dispatch_indirect_size = GpuDispatchIndirect::aligned_size(render_device
-                    .limits()
-                    .min_storage_buffer_offset_alignment);
+                let dispatch_indirect_size = GpuDispatchIndirect::aligned_size(
+                    render_device.limits().min_storage_buffer_offset_alignment,
+                );
                 let mut entries = vec![
                     BindGroupEntry {
                         binding: 0,
@@ -4128,7 +4134,10 @@ pub(crate) fn prepare_bind_groups(
                         }),
                     },
                 ];
-                if buffer.layout_flags().contains(LayoutFlags::LOCAL_SPACE_SIMULATION) {
+                if buffer
+                    .layout_flags()
+                    .contains(LayoutFlags::LOCAL_SPACE_SIMULATION)
+                {
                     entries.push(BindGroupEntry {
                         binding: 3,
                         resource: BindingResource::Buffer(BufferBinding {
@@ -4138,16 +4147,18 @@ pub(crate) fn prepare_bind_groups(
                         }),
                     });
                 }
-                trace!("Creating render bind group with {} entries (layout flags: {:?})", entries.len(), buffer.layout_flags());
+                trace!(
+                    "Creating render bind group with {} entries (layout flags: {:?})",
+                    entries.len(),
+                    buffer.layout_flags()
+                );
                 let render = render_device.create_bind_group(
                     &format!("hanabi:bind_group:render_vfx{buffer_index}_particles")[..],
-                     buffer.particle_layout_bind_group_with_dispatch(),
-                     &entries,
+                    buffer.particle_layout_bind_group_with_dispatch(),
+                    &entries,
                 );
 
-                BufferBindGroups {
-                    render,
-                }
+                BufferBindGroups { render }
             });
     }
 

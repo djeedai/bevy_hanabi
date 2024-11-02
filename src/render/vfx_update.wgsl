@@ -56,7 +56,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let base_index = effect_particle_offset + particle_groups[{{GROUP_INDEX}}].indirect_index;
     let index = indirect_buffer.indices[3u * (base_index + thread_index) + pong];
 
-    // Update PRNG seed
+    // Initialize the PRNG seed
     seed = pcg_hash(index ^ spawner.seed);
 
     var particle: Particle = particle_buffer.particles[index];
@@ -70,7 +70,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Check if alive
     if (!is_alive) {
-        // Ußnlink dead particle from trail linked list
+        // Unlink dead particle from trail linked list
 #ifdef ATTRIBUTE_PREV
 #ifdef ATTRIBUTE_NEXT
 #ifdef TRAIL

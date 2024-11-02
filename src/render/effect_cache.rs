@@ -19,11 +19,7 @@ use bevy::{
 };
 use bytemuck::cast_slice_mut;
 
-use super::{
-    aligned_buffer_vec::{AlignedBufferVec, HybridAlignedBufferVec},
-    buffer_table::BufferTableId,
-    GpuLimits,
-};
+use super::{aligned_buffer_vec::HybridAlignedBufferVec, buffer_table::BufferTableId, GpuLimits};
 use crate::{
     asset::EffectAsset,
     next_multiple_of,
@@ -1159,8 +1155,8 @@ pub struct EffectCache {
     effect_from_entity: HashMap<Entity, EffectCacheId>,
     /// Single shared GPU buffer storing all the [`GpuInitDispatchIndirect`]
     /// structs for all the indirect init passes.
-    // Note: we abuse AlignedBufferVec but never copy anything from CPU
-    init_indirect_dispatch_buffer: AlignedBufferVec<GpuInitDispatchIndirect>,
+    // Note: we abuse BufferVec but never copy anything from CPU
+    init_indirect_dispatch_buffer: BufferVec<GpuInitDispatchIndirect>,
     /// Single shared GPU buffer storing all the [`GpuChildInfo`] structs
     /// for all the parent effects.
     child_infos_buffer: HybridAlignedBufferVec,
@@ -1172,16 +1168,15 @@ impl EffectCache {
     pub fn new(device: RenderDevice) -> Self {
         let gpu_limits = GpuLimits::from_device(&device);
         let item_align: NonZeroU64 = gpu_limits.storage_buffer_align().into();
+        let mut init_indirect_dispatch_buffer =
+            BufferVec::new(BufferUsages::STORAGE | BufferUsages::INDIRECT);
+        init_indirect_dispatch_buffer.set_label(Some("hanabi:buffer:init_indirect_dispatch"));
         Self {
             render_device: device,
             buffers: vec![],
             effects: HashMap::default(),
             effect_from_entity: HashMap::default(),
-            init_indirect_dispatch_buffer: AlignedBufferVec::new(
-                BufferUsages::STORAGE | BufferUsages::INDIRECT,
-                Some(item_align),
-                Some("hanabi:buffer:init_indirect_dispatch".to_string()),
-            ),
+            init_indirect_dispatch_buffer,
             child_infos_buffer: HybridAlignedBufferVec::new(
                 BufferUsages::STORAGE,
                 Some(item_align),
@@ -1670,16 +1665,6 @@ impl EffectCache {
     #[inline]
     pub fn init_indirect_dispatch_buffer_binding(&self) -> Option<BindingResource> {
         self.init_indirect_dispatch_buffer.binding()
-    }
-
-    #[inline]
-    pub fn init_indirect_dispatch_buffer_binding_range(
-        &self,
-        offset: u32,
-        size: u32,
-    ) -> Option<BindingResource> {
-        self.init_indirect_dispatch_buffer
-            .range_binding(offset, size)
     }
 
     pub(crate) fn get_dispatch_buffer_indices(&self, id: EffectCacheId) -> &DispatchBufferIndices {

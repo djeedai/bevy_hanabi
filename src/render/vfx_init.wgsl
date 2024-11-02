@@ -86,8 +86,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let dest_dead_index = atomicSub(&dest_render_group_indirect.dead_count, 1u) - 1u;
     let dest_index = indirect_buffer.indices[3u * (dest_base_index + dest_dead_index) + 2u];
 
-    // Update PRNG seed
-    seed = pcg_hash(thread_index ^ spawner.seed);
+    // Initialize the PRNG seed
+    seed = pcg_hash(dest_index ^ spawner.seed);
 
 #ifdef CLONE
 
