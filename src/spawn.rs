@@ -143,6 +143,37 @@ impl<T: Copy + FromReflect + FloatHash> Hash for CpuValue<T> {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Debug, Reflect, Serialize, Deserialize)]
+#[reflect(Serialize, Deserialize)]
+pub enum Initializer {
+    Spawner(Spawner),
+    Cloner(Cloner),
+}
+
+impl From<Spawner> for Initializer {
+    #[inline]
+    fn from(value: Spawner) -> Self {
+        Self::Spawner(value)
+    }
+}
+
+impl From<Cloner> for Initializer {
+    #[inline]
+    fn from(value: Cloner) -> Self {
+        Self::Cloner(value)
+    }
+}
+
+impl Initializer {
+    #[cfg(test)]
+    fn get_spawner(&self) -> Option<&Spawner> {
+        match *self {
+            Initializer::Spawner(ref spawner) => Some(spawner),
+            Initializer::Cloner(_) => None,
+        }
+    }
+}
+
 /// Spawner defining how new particles are emitted.
 ///
 /// The spawner defines how new particles are emitted and when. Each time the
@@ -152,35 +183,47 @@ impl<T: Copy + FromReflect + FloatHash> Hash for CpuValue<T> {
 /// spawn is stored as a floating-point number, and any remainder accumulates
 /// for the next emitting.
 ///
-/// The spawner itself is embedded into the [`EffectSpawner`] component. Once
-/// per frame the [`tick_spawners()`] system will add the component if it's
-/// missing, cloning the [`Spawner`] from the source [`EffectAsset`], then tick
-/// the [`Spawner`] stored in the [`EffectSpawner`].
-#[derive(Debug, Copy, Clone, PartialEq, Reflect, Serialize, Deserialize)]
+/// The spawner itself is embedded into the [`EffectInitializers`] component.
+/// Once per frame the [`tick_spawners()`] system will add the component if
+/// it's missing, cloning the [`Spawner`] from the source [`EffectAsset`], then
+/// tick the [`Spawner`] stored in the [`EffectInitializers`]. The resulting
+/// number of particles to spawn for the frame is then stored into
+/// [`EffectSpawner::spawn_count`]. You can override that value to manually
+/// control each frame how many particles are spawned.
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Default)]
 pub struct Spawner {
-    /// Number of particles to spawn over [`spawn_time`].
+    /// Number of particles to spawn over [`spawn_duration`].
     ///
-    /// [`spawn_time`]: Spawner::spawn_time
-    num_particles: CpuValue<f32>,
+    /// [`spawn_duration`]: Spawner::spawn_duration
+    count: CpuValue<f32>,
 
-    /// Time over which to spawn `num_particles`, in seconds.
-    spawn_time: CpuValue<f32>,
+    /// Time over which to spawn [`count`], in seconds.
+    ///
+    /// [`count`]: Spawner::count
+    spawn_duration: CpuValue<f32>,
 
     /// Time between bursts of the particle system, in seconds.
+    ///
     /// If this is infinity, there's only one burst.
-    /// If this is `spawn_time`, the system spawns a steady stream of particles.
+    /// If this is [`spawn_duration`] or less, the system spawns a steady stream
+    /// of particles.
+    ///
+    /// [`spawn_duration`]: Spawner::spawn_duration
     period: CpuValue<f32>,
 
-    /// Whether the system is active at startup. The value is used to initialize
-    /// [`EffectSpawner::active`].
+    /// Whether the spawner is active at startup.
+    ///
+    /// The value is used to initialize [`EffectSpawner::active`].
     ///
     /// [`EffectSpawner::active`]: crate::EffectSpawner::active
     starts_active: bool,
 
     /// Whether the burst of a once-style spawner triggers immediately when the
-    /// spawner becomes active. If `false`, the spawner doesn't do anything
-    /// until [`EffectSpawner::reset()`] is called.
+    /// spawner becomes active.
+    ///
+    /// If `false`, the spawner doesn't do anything until
+    /// [`EffectSpawner::reset()`] is called.
     starts_immediately: bool,
 }
 
@@ -200,39 +243,51 @@ impl Spawner {
     ///
     /// The control parameters are:
     ///
-    /// - `count` is the number of particles to spawn over `time` in a burst. It
-    ///   can generate negative or zero random values, in which case no particle
-    ///   is spawned during the current frame.
-    /// - `time` is how long to spawn particles for. If this is <= 0, then the
-    ///   particles spawn all at once exactly at the same instant.
+    /// - `count` is the number of particles to spawn over `spawn_duration` in a
+    ///   burst. It can generate negative or zero random values, in which case
+    ///   no particle is spawned during the current frame.
+    /// - `spawn_duration` is how long to spawn particles for. If this is <= 0,
+    ///   then the particles spawn all at once exactly at the same instant.
     /// - `period` is the amount of time between bursts of particles. If this is
-    ///   <= `time`, then the spawner spawns a steady stream of particles. If
-    ///   this is infinity, then there is a single burst.
+    ///   <= `spawn_duration`, then the spawner spawns a steady stream of
+    ///   particles. If this is infinity, then there is a single burst.
+    ///
+    /// ```txt
+    ///  <----------- period ----------->
+    ///  <- spawn_duration ->
+    /// |********************|-----------|
+    ///      spawn 'count'        wait
+    ///        particles
+    /// ```
     ///
     /// Note that the "burst" semantic here doesn't strictly mean a one-off
     /// emission, since that emission is spread over a number of simulation
-    /// frames that total a duration of `time`. If you want a strict
-    /// single-frame burst, simply set the `time` to zero; this is what
-    /// [`once()`] does.
+    /// frames that total a duration of `spawn_duration`. If you want a strict
+    /// single-frame burst, simply set the `spawn_duration` to zero; this is
+    /// what [`once()`] does.
+    ///
+    /// The `period` can be (positive) infinity; in that case, the spawner only
+    /// spawns a single time. This is equivalent to using [`once()`].
     ///
     /// # Panics
     ///
-    /// Panics if `period` can be a negative number (the sample range lower
-    /// bound is negative), or can only be 0 (the sample range upper bound is
-    /// not strictly positive).
+    /// Panics if `period` can produce a negative number (the sample range lower
+    /// bound is negative), or can only produce 0 (the sample range upper bound
+    /// is not strictly positive).
     ///
     /// # Example
     ///
     /// ```
     /// # use bevy_hanabi::Spawner;
-    /// // Spawn 32 particles over 3 seconds, then pause for 7 seconds (10 - 3).
+    /// // Spawn 32 particles over 3 seconds, then pause for 7 seconds (10 - 3),
+    /// // and repeat.
     /// let spawner = Spawner::new(32.0.into(), 3.0.into(), 10.0.into());
     /// ```
     ///
     /// [`once()`]: crate::Spawner::once
     /// [`burst()`]: crate::Spawner::burst
     /// [`rate()`]: crate::Spawner::rate
-    pub fn new(count: CpuValue<f32>, time: CpuValue<f32>, period: CpuValue<f32>) -> Self {
+    pub fn new(count: CpuValue<f32>, spawn_duration: CpuValue<f32>, period: CpuValue<f32>) -> Self {
         assert!(
             period.range()[0] >= 0.,
             "`period` must not generate negative numbers (period.min was {}, expected >= 0).",
@@ -245,20 +300,25 @@ impl Spawner {
         );
 
         Self {
-            num_particles: count,
-            spawn_time: time,
+            count,
+            spawn_duration,
             period,
             starts_active: true,
             starts_immediately: true,
         }
     }
 
-    /// Create a spawner that spawns `count` particles, then waits until reset.
+    /// Create a spawner that spawns a burst of particles once.
+    ///
+    /// The burst of particles is spawned all at once in the same frame. After
+    /// that, the spawner idles, waiting to be manually reset via
+    /// [`EffectSpawner::reset()`].
     ///
     /// If `spawn_immediately` is `false`, this waits until
     /// [`EffectSpawner::reset()`] before spawning a burst of particles.
     ///
-    /// When `spawn_immediately == true`, this is a convenience for:
+    /// When `spawn_immediately == true`, this spawns a burst immediately on
+    /// activation. In that case, this is a convenience for:
     ///
     /// ```
     /// # use bevy_hanabi::{Spawner, CpuValue};
@@ -337,48 +397,57 @@ impl Spawner {
 
     /// Set the number of particles that are spawned each cycle.
     pub fn with_count(mut self, count: CpuValue<f32>) -> Self {
-        self.num_particles = count;
+        self.count = count;
         self
     }
 
     /// Set the number of particles that are spawned each cycle.
     pub fn set_count(&mut self, count: CpuValue<f32>) {
-        self.num_particles = count;
+        self.count = count;
     }
 
     /// Get the number of particles that are spawned each cycle.
     pub fn count(&self) -> CpuValue<f32> {
-        self.num_particles
+        self.count
     }
 
-    /// Set the length of the spawn time each cycle.
-    pub fn with_spawn_time(mut self, spawn_time: CpuValue<f32>) -> Self {
-        self.spawn_time = spawn_time;
+    /// Set the duration, in seconds, of the spawn time each cycle.
+    pub fn with_spawn_time(mut self, spawn_duration: CpuValue<f32>) -> Self {
+        self.spawn_duration = spawn_duration;
         self
     }
 
-    /// Set the length of the spawn time each cycle.
-    pub fn set_spawn_time(&mut self, spawn_time: CpuValue<f32>) {
-        self.spawn_time = spawn_time;
+    /// Set the duration, in seconds, of the spawn time each cycle.
+    pub fn set_spawn_time(&mut self, spawn_duration: CpuValue<f32>) {
+        self.spawn_duration = spawn_duration;
     }
 
-    /// Get the length of spawn time each cycle.
-    pub fn spawn_time(&self) -> CpuValue<f32> {
-        self.spawn_time
+    /// Get the duration, in seconds, of spawn time each cycle.
+    pub fn spawn_duration(&self) -> CpuValue<f32> {
+        self.spawn_duration
     }
 
-    /// Set the wait time between spawn cycles.
+    /// Set the duration of a spawn cycle, in seconds.
+    ///
+    /// A spawn cycles includes the [`spawn_duration()`] value, and any extra
+    /// wait time (if larger than spawn time).
     pub fn with_period(mut self, period: CpuValue<f32>) -> Self {
         self.period = period;
         self
     }
 
-    /// Set the wait time between spawn cycles.
+    /// Set the duration of the spawn cycle, in seconds.
+    ///
+    /// A spawn cycles includes the [`spawn_duration()`] value, and any extra
+    /// wait time (if larger than spawn time).
     pub fn set_period(&mut self, period: CpuValue<f32>) {
         self.period = period;
     }
 
-    /// Get the wait time between spawn cycles
+    /// Get the duration of the spawn cycle, in seconds.
+    ///
+    /// A spawn cycles includes the [`spawn_duration()`] value, and any extra
+    /// wait time (if larger than spawn time).
     pub fn period(&self) -> CpuValue<f32> {
         self.period
     }
@@ -412,37 +481,202 @@ impl Spawner {
     }
 }
 
-/// Runtime component maintaining the state of the spawner for an effect.
+/// Defines how particle trails are to be constructed.
+///
+/// Particle trails are constructed by cloning the particles from a group into
+/// a different group on a fixed interval. Each time the cloner ticks, it
+/// clones all the particles from the source group into the destination group.
+/// Hanabi then runs the initialization modifiers on the newly-cloned
+/// particles. Particle clones that would overflow the destination group
+/// (exceed its capacity) are dropped.
+///
+/// The cloner itself is embedded into the [`EffectInitializers`] component.
+/// Once per frame the [`tick_spawners()`] system will add the component if
+/// it's missing, copying fields from the [`Cloner`] to the [`EffectCloner`].
+#[derive(Default, Clone, Copy, Debug, PartialEq, Reflect, Serialize, Deserialize)]
+#[reflect(Serialize, Deserialize)]
+pub struct Cloner {
+    /// The group from which the cloner copies.
+    pub src_group_index: u32,
+
+    /// Time between clone operations, in seconds.
+    pub period: CpuValue<f32>,
+
+    /// Time that the particles persist, in seconds.
+    ///
+    /// Unlike spawned particles, cloned particles don't use the
+    /// [`crate::attributes::Attribute::LIFETIME`] attribute and instead track
+    /// lifetime themselves, using this value. This is because, internally,
+    /// their lifetimes must follow last-in-first-out (LIFO) order.
+    pub lifetime: f32,
+
+    /// Whether the system is active at startup. The value is used to initialize
+    /// [`EffectCloner::active`].
+    ///
+    /// [`EffectCloner::active`]: crate::EffectCloner::active
+    pub starts_active: bool,
+}
+
+impl Cloner {
+    /// Creates a cloner with the given source group index, period, and
+    /// lifetime.
+    ///
+    /// This is the raw constructor. A more convenient way to create cloners is
+    /// to use [`EffectAsset::with_trails`] or [`EffectAsset::with_ribbons`].
+    pub fn new(src_group_index: u32, period: impl Into<CpuValue<f32>>, lifetime: f32) -> Self {
+        Self {
+            src_group_index,
+            period: period.into(),
+            lifetime,
+            starts_active: true,
+        }
+    }
+
+    /// Sets whether the cloner starts active when the effect is instantiated.
+    ///
+    /// This value will be transfered to the active state of the
+    /// [`EffectCloner`] once it's instantiated. Inactive cloners do not clone
+    /// any particle.
+    pub fn with_starts_active(mut self, starts_active: bool) -> Self {
+        self.starts_active = starts_active;
+        self
+    }
+
+    /// Set whether the cloner starts active when the effect is instantiated.
+    ///
+    /// This value will be transfered to the active state of the
+    /// [`EffectCloner`] once it's instantiated. Inactive cloners do not clone
+    /// any particle.
+    pub fn set_starts_active(&mut self, starts_active: bool) {
+        self.starts_active = starts_active;
+    }
+
+    /// Get whether the cloner starts active when the effect is instantiated.
+    ///
+    /// This value will be transfered to the active state of the
+    /// [`EffectCloner`] once it's instantiated. Inactive cloners do not clone
+    /// any particle.
+    pub fn starts_active(&self) -> bool {
+        self.starts_active
+    }
+}
+
+/// A runtime component maintaining the state of all initializers for an effect.
 ///
 /// This component is automatically added to the same [`Entity`] as the
 /// [`ParticleEffect`] it's associated with, during [`tick_spawners()`], if not
-/// already present on the entity. In that case, the spawner configuration is
-/// cloned from the underlying [`EffectAsset`] associated with the particle
+/// already present on the entity. In that case, the initializer configurations
+/// are cloned from the underlying [`EffectAsset`] associated with the particle
 /// effect instance.
 ///
-/// You can manually add this component in advance to override its [`Spawner`].
-/// In that case [`tick_spawners()`] will use the existing component you added.
+/// You can manually add this component in advance to override its [`Spawner`]s
+/// and/or [`Cloner`]s. In that case [`tick_spawners()`] will use the existing
+/// component you added.
 ///
-/// Each frame, the component will automatically calculate the number of
-/// particles to spawn, via its internal [`Spawner`], and store it into
-/// [`spawn_count`]. You can manually override that value if you want, to create
-/// more complex spawning sequences.
+/// Each frame, for spawners, the component will automatically calculate the
+/// number of particles to spawn, via its internal [`Spawner`], and store it
+/// into [`spawn_count`]. You can manually override that value if you want, to
+/// create more complex spawning sequences. For cloners, the component sets the
+/// [`spawn_this_frame`] flag as appropriate. You can likewise manually override
+/// that value if you want in order to clone on different schedules.
 ///
 /// [`spawn_count`]: crate::EffectSpawner::spawn_count
-#[derive(Default, Clone, Copy, PartialEq, Component)]
+/// [`spawn_count`]: crate::EffectCloner::spawn_this_frame
+#[derive(Default, Clone, Component, PartialEq, Reflect, Debug, Deref, DerefMut)]
+#[reflect(Component)]
+pub struct EffectInitializers(pub Vec<EffectInitializer>);
+
+impl EffectInitializers {
+    /// Resets the initializer state.
+    ///
+    /// This resets the internal time for all initializers to zero, and restarts
+    /// any internal particle counters that they might possess.
+    ///
+    /// Use this, for example, to immediately spawn some particles in a spawner
+    /// constructed with [`Spawner::once`].
+    ///
+    /// [`Spawner::once`]: crate::Spawner::once
+    pub fn reset(&mut self) {
+        for initializer in &mut self.0 {
+            initializer.reset();
+        }
+    }
+
+    /// Marks all initializers as either active or inactive.
+    ///
+    /// Inactive initializers don't spawn any particles.
+    pub fn set_active(&mut self, active: bool) {
+        for initializer in &mut self.0 {
+            initializer.set_active(active);
+        }
+    }
+}
+
+/// Holds the runtime state for the initializer of a single particle group on a
+/// particle effect.
+#[derive(Clone, Copy, PartialEq, Reflect, Debug)]
+pub enum EffectInitializer {
+    /// The group uses a spawner.
+    Spawner(EffectSpawner),
+    /// The group uses a cloner (i.e. is a trail or ribbon).
+    Cloner(EffectCloner),
+}
+
+impl EffectInitializer {
+    /// If this initializer is a spawner, returns an immutable reference to it.
+    pub fn get_spawner(&self) -> Option<&EffectSpawner> {
+        match *self {
+            EffectInitializer::Spawner(ref spawner) => Some(spawner),
+            _ => None,
+        }
+    }
+
+    /// Resets the initializer state.
+    ///
+    /// This resets the internal time for this initializer to zero, and
+    /// restarts any internal particle counters that it might possess.
+    ///
+    /// Use this, for example, to immediately spawn some particles in a spawner
+    /// constructed with [`Spawner::once`].
+    ///
+    /// [`Spawner::once`]: crate::Spawner::once
+    pub fn reset(&mut self) {
+        match self {
+            EffectInitializer::Spawner(effect_spawner) => effect_spawner.reset(),
+            EffectInitializer::Cloner(effect_cloner) => effect_cloner.reset(),
+        }
+    }
+
+    /// Marks this initializer as either active or inactive.
+    ///
+    /// Inactive initializers don't spawn any particles.
+    pub fn set_active(&mut self, active: bool) {
+        match self {
+            EffectInitializer::Spawner(effect_spawner) => effect_spawner.set_active(active),
+            EffectInitializer::Cloner(effect_cloner) => effect_cloner.set_active(active),
+        }
+    }
+}
+
+/// Runtime structure maintaining the state of the spawner for a particle group.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect)]
 pub struct EffectSpawner {
     /// The spawner configuration extracted either from the [`EffectAsset`], or
     /// from any overriden value provided by the user on the [`ParticleEffect`].
     spawner: Spawner,
 
-    /// Accumulated time since last spawn.
+    /// Accumulated time since last spawn, in seconds.
     time: f32,
 
-    /// Sampled value of `spawn_time` until `limit` is reached.
-    curr_spawn_time: f32,
+    /// Sampled value of `spawn_duration` until `period` is reached. This is the
+    /// duration of the "active" period during which we spawn particles, as
+    /// opposed to the "wait" period during which we do nothing until the next
+    /// spawn cycle.
+    spawn_duration: f32,
 
-    /// Time limit until next spawn.
-    limit: f32,
+    /// Sampled value of the time period, in seconds, until the next spawn
+    /// cycle.
+    period: f32,
 
     /// Number of particles to spawn this frame.
     ///
@@ -461,27 +695,27 @@ pub struct EffectSpawner {
 
     /// Fractional remainder of particle count to spawn.
     ///
-    /// This will be accumulated with the new count next tick, and the integral
-    /// part will be stored in `spawn_count`.
+    /// This is accumulated each tick, and the integral part is added to
+    /// `spawn_count`. The reminder gets saved for next frame.
     spawn_remainder: f32,
 
-    /// Whether the system is active. Defaults to `true`.
+    /// Whether the spawner is active. Defaults to `true`. An inactive spawner
+    /// doesn't tick (no particle spawned, no internal time updated).
     active: bool,
 }
 
 impl EffectSpawner {
-    /// Create a new spawner state from an asset definition.
-    pub fn new(asset: &EffectAsset) -> Self {
-        let spawner = asset.spawner;
+    /// Create a new spawner state from a [`Spawner`].
+    pub fn new(spawner: &Spawner) -> Self {
         Self {
-            spawner,
+            spawner: *spawner,
             time: if spawner.is_once() && !spawner.starts_immediately {
                 1. // anything > 0
             } else {
                 0.
             },
-            curr_spawn_time: 0.,
-            limit: 0.,
+            spawn_duration: 0.,
+            period: 0.,
             spawn_count: 0,
             spawn_remainder: 0.,
             active: spawner.starts_active(),
@@ -490,7 +724,7 @@ impl EffectSpawner {
 
     /// Set whether the spawner is active.
     ///
-    /// Inactive spawners do not spawn any particle.
+    /// Inactive spawners do not tick, and therefore do not spawn any particle.
     pub fn with_active(mut self, active: bool) -> Self {
         self.active = active;
         self
@@ -498,14 +732,14 @@ impl EffectSpawner {
 
     /// Set whether the spawner is active.
     ///
-    /// Inactive spawners do not spawn any particle.
+    /// Inactive spawners do not tick, and therefore do not spawn any particle.
     pub fn set_active(&mut self, active: bool) {
         self.active = active;
     }
 
     /// Get whether the spawner is active.
     ///
-    /// Inactive spawners do not spawn any particle.
+    /// Inactive spawners do not tick, and therefore do not spawn any particle.
     pub fn is_active(&self) -> bool {
         self.active
     }
@@ -530,7 +764,7 @@ impl EffectSpawner {
     /// [`Spawner::once`]: crate::Spawner::once
     pub fn reset(&mut self) {
         self.time = 0.;
-        self.limit = 0.;
+        self.period = 0.;
         self.spawn_count = 0;
         self.spawn_remainder = 0.;
     }
@@ -557,31 +791,30 @@ impl EffectSpawner {
 
         // The limit can be reached multiple times, so use a loop
         loop {
-            if self.limit == 0.0 {
+            if self.period == 0.0 {
                 self.resample(rng);
                 continue;
             }
 
             let new_time = self.time + dt;
-            if self.time <= self.curr_spawn_time {
+            if self.time <= self.spawn_duration {
                 // If the spawn time is very small, close to zero, spawn all particles
                 // immediately in one burst over a single frame.
-                self.spawn_remainder += if self.curr_spawn_time < 1e-5f32.max(dt / 100.0) {
-                    self.spawner.num_particles.sample(rng)
+                self.spawn_remainder += if self.spawn_duration < 1e-5f32.max(dt / 100.0) {
+                    self.spawner.count.sample(rng)
                 } else {
                     // Spawn an amount of particles equal to the fraction of time the current frame
                     // spans compared to the total burst duration.
-                    self.spawner.num_particles.sample(rng)
-                        * (new_time.min(self.curr_spawn_time) - self.time)
-                        / self.curr_spawn_time
+                    self.spawner.count.sample(rng) * (new_time.min(self.spawn_duration) - self.time)
+                        / self.spawn_duration
                 };
             }
 
             let old_time = self.time;
             self.time = new_time;
 
-            if self.time >= self.limit {
-                dt -= self.limit - old_time;
+            if self.time >= self.period {
+                dt -= self.period - old_time;
                 self.time = 0.0; // dt will be added on in the next iteration
                 self.resample(rng);
             } else {
@@ -598,19 +831,100 @@ impl EffectSpawner {
 
     /// Resamples the spawn time and period.
     fn resample(&mut self, rng: &mut Pcg32) {
-        self.limit = self.spawner.period.sample(rng);
-        self.curr_spawn_time = self.spawner.spawn_time.sample(rng).clamp(0.0, self.limit);
+        self.period = self.spawner.period.sample(rng);
+        self.spawn_duration = self
+            .spawner
+            .spawn_duration
+            .sample(rng)
+            .clamp(0.0, self.period);
     }
 }
 
-/// Tick all the [`EffectSpawner`] components of the simulated
-/// [`ParticleEffect`] components.
+/// A runtime structure maintaining the state of the cloner for a particle
+/// group.
+#[derive(Default, Clone, Copy, PartialEq, Reflect, Debug)]
+pub struct EffectCloner {
+    /// The cloner configuration extracted either from the [`EffectAsset`] or
+    /// overridden manually.
+    pub cloner: Cloner,
+    /// Accumulated time since last clone, in seconds.
+    time: f32,
+    /// Sampled value of the time period, in seconds, until the next clone
+    /// cycle.
+    period: f32,
+    /// The capacity of the group.
+    capacity: u32,
+    /// Whether the cloner is to clone any particle this frame.
+    pub clone_this_frame: bool,
+    /// Whether the cloner is active. Defaults to `true`.
+    pub active: bool,
+}
+
+impl EffectCloner {
+    pub(crate) fn new(cloner: Cloner, capacity: u32) -> EffectCloner {
+        EffectCloner {
+            cloner,
+            time: 0.0,
+            period: 0.0,
+            capacity,
+            clone_this_frame: false,
+            active: cloner.starts_active(),
+        }
+    }
+
+    /// Reset the cloner state.
+    ///
+    /// This resets the internal cloner time to zero, and restarts any internal
+    /// particle counter.
+    pub fn reset(&mut self) {
+        self.time = 0.0;
+        self.period = 0.0;
+    }
+
+    /// Tick the cloner and update [`clone_this_frame`] to trigger cloning.
+    ///
+    /// [`clone_this_frame`]: EffectCloner::clone_this_frame
+    pub fn tick(&mut self, dt: f32, rng: &mut Pcg32) {
+        if !self.active {
+            self.clone_this_frame = false;
+            return;
+        }
+
+        if self.period <= 0.0 {
+            self.resample(rng);
+        }
+
+        let new_time = self.time + dt;
+        self.time = new_time;
+
+        self.clone_this_frame = self.time >= self.period;
+
+        if self.clone_this_frame {
+            self.time = 0.0;
+            self.resample(rng);
+        }
+    }
+
+    fn resample(&mut self, rng: &mut Pcg32) {
+        self.period = self.cloner.period.sample(rng);
+    }
+
+    /// Marks this cloner as either active or inactive.
+    ///
+    /// Inactive cloners don't clone any particles.
+    pub fn set_active(&mut self, active: bool) {
+        self.active = active;
+    }
+}
+
+/// Tick all the [`EffectSpawner`] and [`EffectCloner`] initializers.
 ///
 /// This system runs in the [`PostUpdate`] stage, after the visibility system
 /// has updated the [`InheritedVisibility`] of each effect instance (see
 /// [`VisibilitySystems::VisibilityPropagate`]). Hidden instances are not
 /// updated, unless the [`EffectAsset::simulation_condition`]
-/// is set to [`SimulationCondition::Always`].
+/// is set to [`SimulationCondition::Always`]. If no [`InheritedVisibility`] is
+/// present, the effect is assumed to be visible.
 ///
 /// Note that by that point the [`ViewVisibility`] is not yet calculated, and it
 /// may happen that spawners are ticked but no effect is visible in any view
@@ -619,13 +933,14 @@ impl EffectSpawner {
 /// the render world.
 ///
 /// Once the system determined that the effect instance needs to be simulated
-/// this frame, it ticks the spawner by calling [`EffectSpawner::tick()`],
-/// adding a new [`EffectSpawner`] component if it doesn't already exist on the
+/// this frame, it ticks the effect's initializer by calling
+/// [`EffectSpawner::tick()`] or [`EffectCloner::tick()`], adding a new
+/// [`EffectInitializers`] component if it doesn't already exist on the
 /// same entity as the [`ParticleEffect`].
 ///
 /// [`VisibilitySystems::VisibilityPropagate`]: bevy::render::view::VisibilitySystems::VisibilityPropagate
 /// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
-pub fn tick_spawners(
+pub fn tick_initializers(
     mut commands: Commands,
     time: Res<Time<EffectSimulation>>,
     effects: Res<Assets<EffectAsset>>,
@@ -634,14 +949,14 @@ pub fn tick_spawners(
         Entity,
         &ParticleEffect,
         Option<&InheritedVisibility>,
-        Option<&mut EffectSpawner>,
+        Option<&mut EffectInitializers>,
     )>,
 ) {
     trace!("tick_spawners");
 
     let dt = time.delta_seconds();
 
-    for (entity, effect, maybe_inherited_visibility, maybe_spawner) in query.iter_mut() {
+    for (entity, effect, maybe_inherited_visibility, maybe_initializers) in query.iter_mut() {
         // TODO - maybe cache simulation_condition so we don't need to unconditionally
         // query the asset?
         let Some(asset) = effects.get(&effect.handle) else {
@@ -656,13 +971,41 @@ pub fn tick_spawners(
             continue;
         }
 
-        if let Some(mut spawner) = maybe_spawner {
-            spawner.tick(dt, &mut rng.0);
-        } else {
-            let mut spawner = EffectSpawner::new(asset);
-            spawner.tick(dt, &mut rng.0);
-            commands.entity(entity).insert(spawner);
+        if let Some(mut initializers) = maybe_initializers {
+            for initializer in &mut **initializers {
+                match initializer {
+                    EffectInitializer::Spawner(effect_spawner) => {
+                        effect_spawner.tick(dt, &mut rng.0);
+                    }
+                    EffectInitializer::Cloner(effect_cloner) => {
+                        effect_cloner.tick(dt, &mut rng.0);
+                    }
+                }
+            }
+            continue;
         }
+
+        let initializers = asset
+            .init
+            .iter()
+            .enumerate()
+            .map(|(group_index, init)| match *init {
+                Initializer::Spawner(spawner) => {
+                    let mut effect_spawner = EffectSpawner::new(&spawner);
+                    effect_spawner.tick(dt, &mut rng.0);
+                    EffectInitializer::Spawner(effect_spawner)
+                }
+                Initializer::Cloner(cloner) => {
+                    let mut effect_cloner =
+                        EffectCloner::new(cloner, asset.capacities()[group_index]);
+                    effect_cloner.tick(dt, &mut rng.0);
+                    EffectInitializer::Cloner(effect_cloner)
+                }
+            })
+            .collect();
+        commands
+            .entity(entity)
+            .insert(EffectInitializers(initializers));
     }
 }
 
@@ -687,7 +1030,11 @@ mod test {
 
     /// Make an `EffectSpawner` wrapping a `Spawner`.
     fn make_effect_spawner(spawner: Spawner) -> EffectSpawner {
-        EffectSpawner::new(&EffectAsset::new(vec![256], spawner, Module::default()))
+        EffectSpawner::new(
+            EffectAsset::new(256, spawner, Module::default()).init[0]
+                .get_spawner()
+                .expect("Expected the first group to have a spawner"),
+        )
     }
 
     #[test]
@@ -738,6 +1085,7 @@ mod test {
     fn test_once() {
         let rng = &mut new_rng();
         let spawner = Spawner::once(5.0.into(), true);
+        assert!(spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         let count = spawner.tick(0.001, rng);
         assert_eq!(count, 5);
@@ -749,6 +1097,7 @@ mod test {
     fn test_once_reset() {
         let rng = &mut new_rng();
         let spawner = Spawner::once(5.0.into(), true);
+        assert!(spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         spawner.tick(1.0, rng);
         spawner.reset();
@@ -760,6 +1109,7 @@ mod test {
     fn test_once_not_immediate() {
         let rng = &mut new_rng();
         let spawner = Spawner::once(5.0.into(), false);
+        assert!(spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         let count = spawner.tick(1.0, rng);
         assert_eq!(count, 0);
@@ -772,6 +1122,7 @@ mod test {
     fn test_rate() {
         let rng = &mut new_rng();
         let spawner = Spawner::rate(5.0.into());
+        assert!(!spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         // Slightly over 1.0 to avoid edge case
         let count = spawner.tick(1.01, rng);
@@ -784,6 +1135,7 @@ mod test {
     fn test_rate_active() {
         let rng = &mut new_rng();
         let spawner = Spawner::rate(5.0.into());
+        assert!(!spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         spawner.tick(1.01, rng);
         spawner.set_active(false);
@@ -800,6 +1152,7 @@ mod test {
     fn test_rate_accumulate() {
         let rng = &mut new_rng();
         let spawner = Spawner::rate(5.0.into());
+        assert!(!spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         // 13 ticks instead of 12 to avoid edge case
         let count = (0..13).map(|_| spawner.tick(1.0 / 60.0, rng)).sum::<u32>();
@@ -810,6 +1163,7 @@ mod test {
     fn test_burst() {
         let rng = &mut new_rng();
         let spawner = Spawner::burst(5.0.into(), 2.0.into());
+        assert!(!spawner.is_once());
         let mut spawner = make_effect_spawner(spawner);
         let count = spawner.tick(1.0, rng);
         assert_eq!(count, 5);
@@ -867,7 +1221,7 @@ mod test {
         app.init_asset::<EffectAsset>();
         app.add_systems(
             PostUpdate,
-            tick_spawners.after(VisibilitySystems::CheckVisibility),
+            tick_initializers.after(VisibilitySystems::CheckVisibility),
         );
 
         app
@@ -908,8 +1262,7 @@ mod test {
 
                 // Add effect asset
                 let mut assets = world.resource_mut::<Assets<EffectAsset>>();
-                let mut asset =
-                    EffectAsset::new(vec![64], test_case.asset_spawner, Module::default());
+                let mut asset = EffectAsset::new(64, test_case.asset_spawner, Module::default());
                 asset.simulation_condition = if test_case.visibility.is_some() {
                     SimulationCondition::WhenVisible
                 } else {
@@ -964,14 +1317,14 @@ mod test {
             if let Some(test_visibility) = test_case.visibility {
                 // Simulated-when-visible effect (SimulationCondition::WhenVisible)
 
-                let (entity, visibility, inherited_visibility, particle_effect, effect_spawner) =
+                let (entity, visibility, inherited_visibility, particle_effect, effect_spawners) =
                     world
                         .query::<(
                             Entity,
                             &Visibility,
                             &InheritedVisibility,
                             &ParticleEffect,
-                            Option<&EffectSpawner>,
+                            Option<&EffectInitializers>,
                         )>()
                         .iter(world)
                         .next()
@@ -985,43 +1338,43 @@ mod test {
                 assert_eq!(particle_effect.handle, handle);
                 if inherited_visibility.get() {
                     // If visible, `tick_spawners()` spawns the EffectSpawner and ticks it
-                    assert!(effect_spawner.is_some());
-                    let effect_spawner = effect_spawner.unwrap();
-                    let actual_spawner = effect_spawner.spawner();
+                    assert!(effect_spawners.is_some());
+                    let effect_spawner = effect_spawners.unwrap()[0].get_spawner().unwrap();
+                    let actual_spawner = effect_spawner.spawner;
 
                     // Check the spawner ticked
                     assert!(effect_spawner.active);
                     assert_eq!(effect_spawner.spawn_remainder, 0.);
                     assert_eq!(effect_spawner.time, cur_time.as_secs_f32());
 
-                    assert_eq!(*actual_spawner, test_case.asset_spawner);
+                    assert_eq!(actual_spawner, test_case.asset_spawner);
                     assert_eq!(effect_spawner.spawn_count, 32);
                 } else {
                     // If not visible, `tick_spawners()` skips the effect entirely so won't spawn an
                     // `EffectSpawner` for it
-                    assert!(effect_spawner.is_none());
+                    assert!(effect_spawners.is_none());
                 }
             } else {
                 // Always-simulated effect (SimulationCondition::Always)
 
-                let (entity, particle_effect, effect_spawner) = world
-                    .query::<(Entity, &ParticleEffect, Option<&EffectSpawner>)>()
+                let (entity, particle_effect, effect_spawners) = world
+                    .query::<(Entity, &ParticleEffect, Option<&EffectInitializers>)>()
                     .iter(world)
                     .next()
                     .unwrap();
                 assert_eq!(entity, effect_entity);
                 assert_eq!(particle_effect.handle, handle);
 
-                assert!(effect_spawner.is_some());
-                let effect_spawner = effect_spawner.unwrap();
-                let actual_spawner = effect_spawner.spawner();
+                assert!(effect_spawners.is_some());
+                let effect_spawner = effect_spawners.unwrap()[0].get_spawner().unwrap();
+                let actual_spawner = effect_spawner.spawner;
 
                 // Check the spawner ticked
                 assert!(effect_spawner.active);
                 assert_eq!(effect_spawner.spawn_remainder, 0.);
                 assert_eq!(effect_spawner.time, cur_time.as_secs_f32());
 
-                assert_eq!(*actual_spawner, test_case.asset_spawner);
+                assert_eq!(actual_spawner, test_case.asset_spawner);
                 assert_eq!(effect_spawner.spawn_count, 32);
             }
         }

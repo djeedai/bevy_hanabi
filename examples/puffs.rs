@@ -168,7 +168,7 @@ fn create_effect(mesh: Handle<Mesh>, effects: &mut Assets<EffectAsset>) -> Handl
 
     // Add the effect.
     effects.add(
-        EffectAsset::new(vec![256], Spawner::burst(16.0.into(), 0.45.into()), module)
+        EffectAsset::new(256, Spawner::burst(16.0.into(), 0.45.into()), module)
             .with_name("cartoon explosion")
             .init(init_xz_pos)
             .init(init_y_pos)

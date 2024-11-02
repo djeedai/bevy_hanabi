@@ -115,7 +115,7 @@ fn setup(
     let round = RoundModifier::constant(&mut module, 1.0);
 
     let effect = effects.add(
-        EffectAsset::new(vec![32768], spawner, module)
+        EffectAsset::new(32768, spawner, module)
             .with_name("activate")
             .init(init_pos)
             .init(init_vel)
@@ -124,7 +124,7 @@ fn setup(
             .update(update_buoyancy)
             .update(allow_zone)
             .render(SetSizeModifier {
-                size: Vec2::splat(0.02).into(),
+                size: Vec3::splat(0.02).into(),
             })
             .render(ColorOverLifetimeModifier { gradient })
             .render(round),
@@ -159,7 +159,7 @@ fn setup(
 
 fn update(
     mut q_balls: Query<(&mut Ball, &mut Transform, &Children)>,
-    mut q_spawner: Query<&mut EffectSpawner>,
+    mut q_spawner: Query<&mut EffectInitializers>,
     mut q_text: Query<&mut Text, With<StatusText>>,
     time: Res<Time>,
 ) {

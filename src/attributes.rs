@@ -122,7 +122,7 @@
 //! [modifiers]: crate::modifier
 //! [`SetAttributeModifier`]: crate::modifier::SetAttributeModifier
 
-use std::{any::Any, borrow::Cow, num::NonZeroU64};
+use std::{any::Any, borrow::Cow, fmt::Display, num::NonZeroU64};
 
 use bevy::{
     math::{Vec2, Vec3, Vec4},
@@ -155,6 +155,17 @@ pub enum ScalarType {
     Int,
     /// Unsigned 32-bit integer value (`u32`).
     Uint,
+}
+
+impl Display for ScalarType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bool => write!(f, "bool"),
+            Self::Float => write!(f, "f32"),
+            Self::Int => write!(f, "i32"),
+            Self::Uint => write!(f, "u32"),
+        }
+    }
 }
 
 impl ScalarType {
@@ -208,6 +219,12 @@ pub struct VectorType {
     elem_type: ScalarType,
     /// Number of components. Always 2/3/4.
     count: u8,
+}
+
+impl Display for VectorType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "vec{}<{}>", self.count, self.elem_type)
+    }
 }
 
 impl VectorType {
@@ -301,6 +318,12 @@ pub struct MatrixType {
     cols: u8,
 }
 
+impl Display for MatrixType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "mat{}x{}<f32>", self.cols, self.rows)
+    }
+}
+
 impl MatrixType {
     /// Floating-point matrix of size 2x2 (`mat2x2<f32>`).
     pub const MAT2X2F: MatrixType = MatrixType::new(2, 2);
@@ -388,6 +411,18 @@ pub enum ValueType {
     Vector(VectorType),
     /// A floating-point matrix type of size between 2x2 and 4x4.
     Matrix(MatrixType),
+}
+
+impl Display for ValueType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The enum variants are different enough we don't need to discriminate at this
+        // level
+        match self {
+            ValueType::Scalar(s) => s.fmt(f),
+            ValueType::Vector(v) => v.fmt(f),
+            ValueType::Matrix(m) => m.fmt(f),
+        }
+    }
 }
 
 impl ValueType {
@@ -993,6 +1028,9 @@ impl Attribute {
 
     /// The previous particle in the ribbon chain.
     ///
+    /// This is only present if there's a ribbon. Since there's only one linked
+    /// list, we support at most one ribbon per effect.
+    ///
     /// # Name
     ///
     /// `prev`
@@ -1004,6 +1042,9 @@ impl Attribute {
     pub const PREV: Attribute = Attribute(AttributeInner::PREV);
 
     /// The next particle in the ribbon chain.
+    ///
+    /// This is only present if there's a ribbon. Since there's only one linked
+    /// list, we support at most one ribbon per effect.
     ///
     /// # Name
     ///

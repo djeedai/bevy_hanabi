@@ -249,13 +249,13 @@ impl RenderModifier for ColorOverLifetimeModifier {
 /// # Attributes
 ///
 /// This modifier does not require any specific particle attribute. The size of
-/// the particle is extracted from the [`Attribute::SIZE`] or
-/// [`Attribute::SIZE2`] if any, but even if they're absent this modifier acts
-/// on the default particle size.
+/// the particle is extracted from the [`Attribute::SIZE`],
+/// [`Attribute::SIZE2`], or [`Attribute::SIZE3`] if any, but even if they're
+/// absent this modifier acts on the default particle size.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct SetSizeModifier {
-    /// The 2D particle (quad) size.
-    pub size: CpuValue<Vec2>,
+    /// The 3D particle size.
+    pub size: CpuValue<Vec3>,
 }
 
 impl_mod_render!(SetSizeModifier, &[]);
@@ -591,22 +591,18 @@ axis_z = cross(axis_x, axis_y);
 ///
 /// let texture_slot = writer.lit(0u32).expr();
 ///
-/// let asset = EffectAsset::new(
-///     vec![32768],
-///     Spawner::once(32.0.into(), true),
-///     writer.finish(),
-/// )
-/// .with_name("flipbook")
-/// .init(init_age)
-/// .init(init_lifetime)
-/// .update(update_sprite_index)
-/// .render(ParticleTextureModifier {
-///     texture_slot,
-///     sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
-/// })
-/// .render(FlipbookModifier {
-///     sprite_grid_size: UVec2::new(2, 2), // 4 frames
-/// });
+/// let asset = EffectAsset::new(32768, Spawner::once(32.0.into(), true), writer.finish())
+///     .with_name("flipbook")
+///     .init(init_age)
+///     .init(init_lifetime)
+///     .update(update_sprite_index)
+///     .render(ParticleTextureModifier {
+///         texture_slot,
+///         sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
+///     })
+///     .render(FlipbookModifier {
+///         sprite_grid_size: UVec2::new(2, 2), // 4 frames
+///     });
 /// ```
 ///
 /// # Attributes
@@ -925,8 +921,8 @@ mod tests {
         let mut context = RenderContext::new(&property_layout, &particle_layout, &texture_layout);
         modifier.apply_render(&mut module, &mut context).unwrap();
 
-        assert_eq!(modifier.size, CpuValue::from(Vec2::ZERO));
-        assert_eq!(context.vertex_code, "size = vec2<f32>(0.,0.);\n");
+        assert_eq!(modifier.size, CpuValue::from(Vec3::ZERO));
+        assert_eq!(context.vertex_code, "size = vec3<f32>(0.,0.,0.);\n");
     }
 
     #[test]

@@ -77,7 +77,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let tangent_accel = TangentAccelModifier::constant(&mut module, Vec3::ZERO, Vec3::Z, 30.);
 
     let effect1 = effects.add(
-        EffectAsset::new(vec![16384, 16384], Spawner::rate(5000.0.into()), module)
+        EffectAsset::new(16384, Spawner::rate(5000.0.into()), module)
             .with_name("portal")
             .init(init_pos)
             .init(init_age)

@@ -71,7 +71,7 @@ fn setup(
 
     let effect = effects.add(
         EffectAsset::new(
-            vec![32768],
+            32768,
             Spawner::burst(CpuValue::Uniform((1., 100.)), CpuValue::Uniform((1., 4.))),
             writer.finish(),
         )

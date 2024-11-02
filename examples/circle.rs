@@ -112,7 +112,7 @@ fn setup(
     module.add_texture("color");
 
     let effect = effects.add(
-        EffectAsset::new(vec![32768], Spawner::burst(32.0.into(), 8.0.into()), module)
+        EffectAsset::new(32768, Spawner::burst(32.0.into(), 8.0.into()), module)
             .with_name("circle")
             .init(init_pos)
             .init(init_vel)

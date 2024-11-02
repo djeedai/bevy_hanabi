@@ -672,21 +672,23 @@ pub struct EffectCache {
     /// by index, we cannot move them once they're allocated.
     buffers: Vec<Option<EffectBuffer>>,
     /// Map from an effect cache ID to various buffer indices.
-    effects: HashMap<EffectCacheId, CachedEffectIndices>,
+    effects: HashMap<EffectCacheId, CachedEffect>,
 }
 
-/// Stores the buffer index and slice boundaries within the buffer for all
-/// groups in a single effect.
-pub(crate) struct CachedEffectIndices {
+/// Stores various data, including the buffer index and slice boundaries within
+/// the buffer for all groups in a single effect.
+pub(crate) struct CachedEffect {
     /// The index of the buffer.
     pub(crate) buffer_index: u32,
     /// The slices within that buffer.
     pub(crate) slices: SlicesRef,
+    /// The order in which we evaluate groups.
+    pub(crate) group_order: Vec<u32>,
 }
 
 /// The indices in the indirect dispatch buffers for a single effect, as well as
 /// that of the metadata buffer.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct DispatchBufferIndices {
     /// The index of the first update group indirect dispatch buffer.
     ///
@@ -698,6 +700,13 @@ pub(crate) struct DispatchBufferIndices {
     pub(crate) first_render_group_dispatch_buffer_index: BufferTableId,
     /// The index of the render indirect metadata buffer.
     pub(crate) render_effect_metadata_buffer_index: BufferTableId,
+    pub(crate) trail_dispatch_buffer_indices: HashMap<u32, TrailDispatchBufferIndices>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TrailDispatchBufferIndices {
+    pub(crate) dest: BufferTableId,
+    pub(crate) src: BufferTableId,
 }
 
 impl Default for DispatchBufferIndices {
@@ -707,6 +716,7 @@ impl Default for DispatchBufferIndices {
             first_update_group_dispatch_buffer_index: BufferTableId(0),
             first_render_group_dispatch_buffer_index: BufferTableId(0),
             render_effect_metadata_buffer_index: BufferTableId(0),
+            trail_dispatch_buffer_indices: HashMap::default(),
         }
     }
 }
@@ -738,6 +748,7 @@ impl EffectCache {
         property_layout: &PropertyLayout,
         layout_flags: LayoutFlags,
         dispatch_buffer_indices: DispatchBufferIndices,
+        group_order: Vec<u32>,
     ) -> EffectCacheId {
         let total_capacity = capacities.iter().cloned().sum();
         let (buffer_index, slice) = self
@@ -820,9 +831,10 @@ impl EffectCache {
         );
         self.effects.insert(
             id,
-            CachedEffectIndices {
+            CachedEffect {
                 buffer_index: buffer_index as u32,
                 slices,
+                group_order,
             },
         );
         id
@@ -839,8 +851,12 @@ impl EffectCache {
             .unwrap()
     }
 
-    pub(crate) fn get_dispatch_buffer_indices(&self, id: EffectCacheId) -> DispatchBufferIndices {
-        self.effects[&id].slices.dispatch_buffer_indices
+    pub(crate) fn get_dispatch_buffer_indices(&self, id: EffectCacheId) -> &DispatchBufferIndices {
+        &self.effects[&id].slices.dispatch_buffer_indices
+    }
+
+    pub(crate) fn get_group_order(&self, id: EffectCacheId) -> &[u32] {
+        &self.effects[&id].group_order
     }
 
     /// Get the init bind group for a cached effect.
@@ -861,11 +877,10 @@ impl EffectCache {
 
     pub fn get_property_buffer(&self, id: EffectCacheId) -> Option<&Buffer> {
         if let Some(cached_effect_indices) = self.effects.get(&id) {
-            if let Some(buffer) = &self.buffers[cached_effect_indices.buffer_index as usize] {
-                buffer.properties_buffer()
-            } else {
-                None
-            }
+            let buffer_index = cached_effect_indices.buffer_index as usize;
+            self.buffers[buffer_index]
+                .as_ref()
+                .and_then(|eb| eb.properties_buffer())
         } else {
             None
         }
@@ -873,7 +888,7 @@ impl EffectCache {
 
     /// Remove an effect from the cache. If this was the last effect, drop the
     /// underlying buffer and return the index of the dropped buffer.
-    pub fn remove(&mut self, id: EffectCacheId) -> Option<CachedEffectIndices> {
+    pub fn remove(&mut self, id: EffectCacheId) -> Option<CachedEffect> {
         let indices = self.effects.remove(&id)?;
         let &mut Some(ref mut buffer) = &mut self.buffers[indices.buffer_index as usize] else {
             return None;
@@ -1146,6 +1161,7 @@ mod gpu_tests {
         let asset = Handle::<EffectAsset>::default();
         let capacity = EffectBuffer::MIN_CAPACITY;
         let capacities = vec![capacity];
+        let group_order = vec![0];
         let item_size = l32.size();
 
         let id1 = effect_cache.insert(
@@ -1155,6 +1171,7 @@ mod gpu_tests {
             &empty_property_layout,
             LayoutFlags::NONE,
             DispatchBufferIndices::default(),
+            group_order.clone(),
         );
         assert!(id1.is_valid());
         let slice1 = effect_cache.get_slices(id1);
@@ -1172,6 +1189,7 @@ mod gpu_tests {
             &empty_property_layout,
             LayoutFlags::NONE,
             DispatchBufferIndices::default(),
+            group_order.clone(),
         );
         assert!(id2.is_valid());
         let slice2 = effect_cache.get_slices(id2);
@@ -1199,6 +1217,7 @@ mod gpu_tests {
             &empty_property_layout,
             LayoutFlags::NONE,
             DispatchBufferIndices::default(),
+            group_order,
         );
         assert!(id3.is_valid());
         let slice3 = effect_cache.get_slices(id3);

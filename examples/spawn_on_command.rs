@@ -133,7 +133,7 @@ fn setup(
     let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, velocity.expr());
 
     let effect = effects.add(
-        EffectAsset::new(vec![32768], spawner, writer.finish())
+        EffectAsset::new(32768, spawner, writer.finish())
             .with_name("spawn_on_command")
             .init(init_pos)
             .init(init_vel)
@@ -143,7 +143,7 @@ fn setup(
             .update(update_drag)
             // Set a size of 3 (logical) pixels, constant in screen space, independent of projection
             .render(SetSizeModifier {
-                size: Vec2::splat(3.).into(),
+                size: Vec3::splat(3.).into(),
             })
             .render(ScreenSpaceSizeModifier),
     );
@@ -155,14 +155,22 @@ fn setup(
 
 fn update(
     mut balls: Query<(&mut Ball, &mut Transform)>,
-    mut effect: Query<(&mut EffectProperties, &mut EffectSpawner, &mut Transform), Without<Ball>>,
+    mut effect: Query<
+        (
+            &mut EffectProperties,
+            &mut EffectInitializers,
+            &mut Transform,
+        ),
+        Without<Ball>,
+    >,
     time: Res<Time>,
 ) {
     const HALF_SIZE: f32 = BOX_SIZE / 2.0 - BALL_RADIUS;
 
     // Note: On first frame where the effect spawns, EffectSpawner is spawned during
     // PostUpdate, so will not be available yet. Ignore for a frame if so.
-    let Ok((mut properties, mut spawner, mut effect_transform)) = effect.get_single_mut() else {
+    let Ok((mut properties, mut initializers, mut effect_transform)) = effect.get_single_mut()
+    else {
         return;
     };
 
@@ -210,7 +218,7 @@ fn update(
             properties.set("normal", normal.extend(0.).into());
 
             // Spawn the particles
-            spawner.reset();
+            initializers.reset();
         }
     }
 }

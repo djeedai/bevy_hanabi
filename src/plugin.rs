@@ -15,27 +15,26 @@ use bevy::{
     time::{time_system, TimeSystem},
 };
 
+#[cfg(feature = "serde")]
+use crate::asset::EffectAssetLoader;
 use crate::{
     asset::EffectAsset,
     compile_effects, gather_removed_effects,
     properties::EffectProperties,
     render::{
         extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects,
-        prepare_resources, queue_effects, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents,
-        EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects, GpuDispatchIndirect,
-        GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect, GpuSpawnerParams,
-        ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache,
-        SimParams, StorageType as _, VfxSimulateDriverNode, VfxSimulateNode,
+        prepare_gpu_resources, queue_effects, DispatchIndirectPipeline, DrawEffects,
+        EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects,
+        GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect,
+        GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline,
+        ShaderCache, SimParams, StorageType as _, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
-    tick_spawners,
+    tick_initializers,
     time::effect_simulation_time_system,
     update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
     RemovedEffectsEvent, Spawner,
 };
-
-#[cfg(feature = "serde")]
-use crate::asset::EffectAssetLoader;
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
@@ -77,16 +76,24 @@ pub enum EffectSystems {
     GatherRemovedEffects,
 
     /// Prepare effect assets for the extracted effects.
+    ///
+    /// Part of Bevy's own [`RenderSet::PrepareAssets`].
     PrepareEffectAssets,
 
     /// Queue the GPU commands for the extracted effects.
+    ///
+    /// Part of Bevy's own [`RenderSet::Queue`].
     QueueEffects,
 
     /// Prepare GPU data for the queued effects.
+    ///
+    /// Part of Bevy's own [`RenderSet::Prepare`].
     PrepareEffectGpuResources,
 
     /// Prepare the GPU bind groups once all buffers have been (re-)allocated
     /// and won't change this frame.
+    ///
+    /// Part of Bevy's own [`RenderSet::PrepareBindGroups`].
     PrepareBindGroups,
 }
 
@@ -128,9 +135,10 @@ pub struct HanabiPlugin;
 impl HanabiPlugin {
     /// Create the `vfx_common.wgsl` shader with proper alignment.
     ///
-    /// This creates a new [`Shader`] from the `vfx_common.wgsl` code, by
-    /// applying the given alignment for storage buffers. This produces a shader
-    /// ready for the specific GPU device associated with that alignment.
+    /// This creates a new [`Shader`] from the `vfx_common.wgsl` template file,
+    /// by applying the given alignment for storage buffers. This produces a
+    /// shader ready for the specific GPU device associated with that
+    /// alignment.
     pub(crate) fn make_common_shader(min_storage_buffer_offset_alignment: u32) -> Shader {
         let spawner_padding_code =
             GpuSpawnerParams::padding_code(min_storage_buffer_offset_alignment);
@@ -207,7 +215,7 @@ impl Plugin for HanabiPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    tick_spawners.in_set(EffectSystems::TickSpawners),
+                    tick_initializers.in_set(EffectSystems::TickSpawners),
                     compile_effects.in_set(EffectSystems::CompileEffects),
                     update_properties_from_asset.in_set(EffectSystems::UpdatePropertiesFromAsset),
                     gather_removed_effects.in_set(EffectSystems::GatherRemovedEffects),
@@ -276,6 +284,8 @@ impl Plugin for HanabiPlugin {
             .init_resource::<DispatchIndirectPipeline>()
             .init_resource::<ParticlesInitPipeline>()
             .init_resource::<SpecializedComputePipelines<ParticlesInitPipeline>>()
+            .init_resource::<ParticlesInitPipeline>()
+            .init_resource::<SpecializedComputePipelines<ParticlesInitPipeline>>()
             .init_resource::<ParticlesUpdatePipeline>()
             .init_resource::<SpecializedComputePipelines<ParticlesUpdatePipeline>>()
             .init_resource::<ParticlesRenderPipeline>()
@@ -302,7 +312,7 @@ impl Plugin for HanabiPlugin {
                     queue_effects
                         .in_set(EffectSystems::QueueEffects)
                         .after(prepare_effects),
-                    prepare_resources
+                    prepare_gpu_resources
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         .after(prepare_view_uniforms),
                     prepare_bind_groups

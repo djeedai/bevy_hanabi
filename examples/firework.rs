@@ -14,9 +14,8 @@
 //! - An [`AccelModifier`] to pull particles down once they slow down, for
 //!   increased realism. This is a subtle effect, but of importance.
 //!
-//! The particles also have a trail, created with the [`CloneModifier`]. The
-//! trail particles are stitched together to form an arc using the
-//! [`RibbonModifier`].
+//! The particles also have a trail. The trail particles are stitched together
+//! to form an arc using [`EffectAsset::with_ribbons`].
 
 use bevy::{
     core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
@@ -74,10 +73,6 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     let lifetime = writer.lit(0.8).normal(writer.lit(1.2)).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
-    // Lifetime for trails
-    let init_lifetime_trails =
-        SetAttributeModifier::new(Attribute::LIFETIME, writer.lit(0.2).expr());
-
     // Add constant downward acceleration to simulate gravity
     let accel = writer.lit(Vec3::Y * -16.).expr();
     let update_accel = AccelModifier::new(accel);
@@ -108,23 +103,21 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     let effect = EffectAsset::new(
         // 2k lead particles, with 32 trail particles each
-        vec![2048, 2048 * 32],
+        2048,
         Spawner::burst(2048.0.into(), 2.0.into()),
         writer.finish(),
     )
+    // Tie together trail particles to make arcs. This way we don't need a lot of them, yet there's
+    // a continuity between them.
+    .with_ribbons(2048 * 32, 1.0 / 64.0, 0.2, 0)
     .with_name("firework")
-    .init(init_pos)
-    .init(init_vel)
-    .init(init_age)
-    .init(init_lifetime)
-    .update_groups(CloneModifier::new(1.0 / 64.0, 1), lead)
+    .init_groups(init_pos, lead)
+    .init_groups(init_vel, lead)
+    .init_groups(init_age, lead)
+    .init_groups(init_lifetime, lead)
+    .init_groups(init_vel_trail, trail)
     .update_groups(update_drag, lead)
     .update_groups(update_accel, lead)
-    // Currently the init pass doesn't run on cloned particles, so we have to use an update modifier
-    // to init the lifetime of trails. This will overwrite the value each frame, so can only be used
-    // for constant values.
-    .update_groups(init_lifetime_trails, trail)
-    .update_groups(init_vel_trail, trail)
     .render_groups(
         ColorOverLifetimeModifier {
             gradient: color_gradient1.clone(),
@@ -150,10 +143,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             screen_space_size: false,
         },
         trail,
-    )
-    // Tie together trail particles to make arcs. This way we don't need a lot of them, yet there's
-    // a continuity between them.
-    .render_groups(RibbonModifier, trail);
+    );
 
     let effect1 = effects.add(effect);
 

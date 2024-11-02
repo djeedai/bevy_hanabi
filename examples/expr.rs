@@ -82,7 +82,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     };
 
     let effect = effects.add(
-        EffectAsset::new(vec![32768], Spawner::rate(500.0.into()), writer.finish())
+        EffectAsset::new(32768, Spawner::rate(500.0.into()), writer.finish())
             .with_name("whirlwind")
             .init(init_pos)
             .init(init_age)

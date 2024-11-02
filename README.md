@@ -65,7 +65,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
   // to be over the surface of a sphere of radius 2 units.
   let init_pos = SetPositionSphereModifier {
       center: module.lit(Vec3::ZERO),
-      radius: module.lit(0.05),
+      radius: module.lit(2.),
       dimension: ShapeDimension::Surface,
   };
 
@@ -90,7 +90,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
   // Create the effect asset
   let effect = EffectAsset::new(
     // Maximum number of particles alive at a time
-    vec![32768],
+    32768,
     // Spawn at a rate of 5 particles per second
     Spawner::rate(5.0.into()),
     // Move the expression module into the asset
