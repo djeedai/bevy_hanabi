@@ -27,6 +27,7 @@ cargo b --release --example circle --target wasm32-unknown-unknown --no-default-
 cargo b --release --example billboard --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 cargo b --release --example worms --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
 cargo b --release --example instancing --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
+cargo b --release --example puffs --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_scene bevy/bevy_gltf bevy/bevy_animation bevy/png 3d"
 REM 2D
 cargo b --release --example 2d --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite 2d"
 
@@ -49,6 +50,7 @@ wasm-bindgen --out-name wasm_circle --no-typescript --out-dir examples/wasm/targ
 wasm-bindgen --out-name wasm_billboard --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/billboard.wasm
 wasm-bindgen --out-name wasm_worms --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/worms.wasm
 wasm-bindgen --out-name wasm_instancing --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/instancing.wasm
+wasm-bindgen --out-name wasm_puffs --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/puffs.wasm
 wasm-bindgen --out-name wasm_2d --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/2d.wasm
 
 echo Done. See docs/wasm.md for help on running the examples locally.

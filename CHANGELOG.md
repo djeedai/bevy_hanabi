@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- You can now call `EffectAsset::mesh` to change the mesh that a particle will
+use from the default quad to a custom mesh of your choosing.
+- A `size3` attribute has been added to allow controlling the size in 3D.
+- Vertex normals are available to modifiers via the normal shader variable, as
+long as they call the new RenderContext::set_needs_normal method.
 - Added a new `serde` feature, and moved all `Serialization` and `Deserialization` derives under that feature.
   This allows disabling support on wasm, where `typetag` is not available.
   The feature is enabled by default, so the behavior doesn't change on non-wasm targets.
@@ -19,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The `SetSizeModifier` now takes a 3D size gradient instead of a 2D one.
 - The `ParticleTextureModifier` doesn't directly hold the texture handle to use anymore.
   Instead, it holds an expression handle to the texture slot defined in the `Module` of the effect.
   This allows dynamically changing the texture sampled.
