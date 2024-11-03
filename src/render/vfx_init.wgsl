@@ -50,7 +50,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
 #ifdef USE_GPU_SPAWN_EVENTS
     let event_index = thread_index;
-    let child_index = particle_groups[0].child_index;
+    let child_index = particle_groups[0].child_index; //< FIXME - Probably wrong...
     let event_count = atomicLoad(&child_info[child_index].event_count);
     if (event_index >= u32(event_count)) {
         return;

@@ -4283,6 +4283,7 @@ pub(crate) fn prepare_bind_groups(
             continue;
         }
 
+        // FIXME - That bind group doesn't depend on effect_cache_id, should share a single one!
         if effect_bind_groups
             .update_render_indirect_bind_groups
             .get(&effect_cache_id)
@@ -4856,7 +4857,7 @@ impl Node for VfxSimulateNode {
                                     render_effect_indirect_offset,
                                     render_group_indirect_offset,
                                 );
-                                // Setup compute pass
+                                // Setup init pass
                                 compute_pass.set_pipeline(init_pipeline);
                                 compute_pass.set_bind_group(
                                     0,
@@ -4973,6 +4974,7 @@ impl Node for VfxSimulateNode {
                                         clone_src_render_group_dispatch_buffer_index.0,
                                     );
 
+                                // Setup clone pass
                                 compute_pass.set_pipeline(clone_pipeline);
                                 compute_pass.set_bind_group(
                                     0,
@@ -5108,7 +5110,7 @@ impl Node for VfxSimulateNode {
                     .dispatch_buffer_indices
                     .first_update_group_dispatch_buffer_index;
 
-                let Some(update_render_indirect_bind_group) = &effect_bind_groups
+                let Some(update_render_indirect_bind_group) = effect_bind_groups
                     .update_render_indirect_bind_groups
                     .get(&effect_cache_id)
                 else {

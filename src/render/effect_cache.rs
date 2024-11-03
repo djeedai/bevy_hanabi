@@ -1591,18 +1591,12 @@ impl EffectCache {
     }
 
     pub fn get_event_buffer_binding(&self, id: EffectCacheId) -> Option<EventBufferBinding> {
-        let event_buffer_ref = &self
-            .effects
-            .get(&id)?
-            .init_indirect
-            .as_ref()?
-            .event_buffer_ref;
-        let buffer = self.event_buffers[event_buffer_ref.buffer_index as usize]
-            .as_ref()?
-            .buffer
-            .clone();
+        let cached_effect = self.effects.get(&id)?;
+        let init_indirect = cached_effect.init_indirect.as_ref()?;
+        let event_buffer_ref = &init_indirect.event_buffer_ref;
+        let event_buffer = self.event_buffers[event_buffer_ref.buffer_index as usize].as_ref()?;
         Some(EventBufferBinding {
-            buffer,
+            buffer: event_buffer.buffer.clone(),
             offset: event_buffer_ref.slice.start,
             size: event_buffer_ref.slice.end - event_buffer_ref.slice.start,
         })
@@ -1884,7 +1878,7 @@ impl EffectCache {
         trace!(
             "-> allocating new event buffer for effect #{:?} with {} events ({} bytes)",
             effect_cached_id,
-            alloc_size - 1,
+            alloc_size,
             alloc_size * 4
         );
         let buffer = self.render_device.create_buffer(&BufferDescriptor {
