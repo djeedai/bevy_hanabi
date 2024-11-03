@@ -90,7 +90,10 @@ fn create_rocket_effect() -> EffectAsset {
         child_index: 1,
     };
 
-    EffectAsset::new(32, Spawner::rate(1.0.into()), writer.finish())
+    //let spawner = Spawner::rate(1.0.into());
+    let spawner = Spawner::once(1.0.into(), true);
+
+    EffectAsset::new(32, spawner, writer.finish())
         .with_name("rocket")
         .init(init_pos)
         .init(init_vel)
@@ -173,7 +176,7 @@ fn create_trails_effect() -> EffectAsset {
 
     // The velocity is random in any direction
     let center = writer.attr(Attribute::POSITION);
-    let speed = writer.lit(300.).uniform(writer.lit(400.));
+    let speed = writer.lit(60.).uniform(writer.lit(80.));
     let dir = writer.rand(VectorType::VEC3F);
     let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, (center + dir * speed).expr());
 

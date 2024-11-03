@@ -1331,8 +1331,7 @@ impl FromWorld for ParticlesUpdatePipeline {
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        // Array; needs padded size
+                        has_dynamic_offset: true,
                         min_binding_size: Some(render_group_indirect_size),
                     },
                     count: None,
@@ -3318,12 +3317,14 @@ pub struct EffectBindGroups {
     particle_buffers: HashMap<u32, BufferBindGroups>,
     /// Map of bind groups for image assets used as particle textures.
     images: HashMap<AssetId<Image>, BindGroup>,
+
     /// Map from effect index to its indirect init bind group. Only present if
     /// the effect is a child effect driven by GPU spawn events.
     // init_indirect_bind_groups: HashMap<EffectCacheId, BindGroup>,
-    /// Map from effect index to its update render indirect bind group (group
-    /// 3).
-    update_render_indirect_bind_groups: HashMap<EffectCacheId, BindGroup>,
+
+    /// Map from the nubmer of groups in an effect, to its update render
+    /// indirect bind group (group 3).
+    update_render_indirect_bind_groups: HashMap<u32, BindGroup>,
     /// Map from an effect material to its bind group.
     material_bind_groups: HashMap<Material, BindGroup>,
     /// Map from an event buffer index to the bind group for the init fill pass
@@ -4242,8 +4243,6 @@ pub(crate) fn prepare_bind_groups(
         #[cfg(feature = "trace")]
         let _span_buffer = bevy::utils::tracing::info_span!("create_batch_bind_groups").entered();
 
-        let effect_cache_id = effect_batches.effect_cache_id;
-
         // Convert indirect buffer offsets from indices to bytes.
         let first_effect_particle_group_buffer_offset = effects_meta
             .gpu_limits
@@ -4283,10 +4282,10 @@ pub(crate) fn prepare_bind_groups(
             continue;
         }
 
-        // FIXME - That bind group doesn't depend on effect_cache_id, should share a single one!
+        let group_count = effect_batches.group_order.len() as u32;
         if effect_bind_groups
             .update_render_indirect_bind_groups
-            .get(&effect_cache_id)
+            .get(&group_count)
             .is_none()
         {
             let particles_buffer_layout_update_render_indirect = render_device.create_bind_group(
@@ -4306,7 +4305,16 @@ pub(crate) fn prepare_bind_groups(
                         resource: BindingResource::Buffer(BufferBinding {
                             buffer: effects_meta.render_group_dispatch_buffer.buffer().unwrap(),
                             offset: 0,
-                            size: None,
+                            size: Some(
+                                NonZeroU64::new(
+                                    group_count as u64
+                                        * effects_meta
+                                            .gpu_limits
+                                            .render_group_indirect_aligned_size
+                                            .get() as u64,
+                                )
+                                .unwrap(),
+                            ),
                         }),
                     },
                 ],
@@ -4314,10 +4322,7 @@ pub(crate) fn prepare_bind_groups(
 
             effect_bind_groups
                 .update_render_indirect_bind_groups
-                .insert(
-                    effect_cache_id,
-                    particles_buffer_layout_update_render_indirect,
-                );
+                .insert(group_count, particles_buffer_layout_update_render_indirect);
         }
 
         // Ensure the particle texture(s) are available as GPU resources and that a bind
@@ -5060,22 +5065,6 @@ impl Node for VfxSimulateNode {
             );
         }
 
-        // Once all init dispatch indirect are consumed for this frame, schedule any GPU
-        // buffer resize if needed. There's no need to copy any data from the CPU. We
-        // need to do that here after the init pass possibly used the values in the
-        // buffer from the previous frame's update, and before the current frame's
-        // update might fill it with new values for next frame.
-        // {
-        //     render_context
-        //         .command_encoder()
-        //         .push_debug_group("hanabi:alloc_init_indirect_dispatch");
-
-        //     effect_cache.allocate_init_indirect_dispatch(render_context.
-        // render_device());
-
-        //     render_context.command_encoder().pop_debug_group();
-        // }
-
         // Compute update pass
         {
             let mut compute_pass =
@@ -5104,13 +5093,14 @@ impl Node for VfxSimulateNode {
                     .dispatch_buffer_indices
                     .first_update_group_dispatch_buffer_index;
 
+                let group_count = batches.group_order.len() as u32;
                 let Some(update_render_indirect_bind_group) = effect_bind_groups
                     .update_render_indirect_bind_groups
-                    .get(&effect_cache_id)
+                    .get(&group_count)
                 else {
                     error!(
-                        "Failed to find update render indirect bind group for effect cache ID: {:?}, IDs present: {:?}",
-                        effect_cache_id,
+                        "Failed to find update render indirect bind group for {} groups; present ones: {:?}",
+                        group_count,
                         effect_bind_groups
                             .update_render_indirect_bind_groups
                             .keys()
@@ -5138,6 +5128,18 @@ impl Node for VfxSimulateNode {
                         }
                         continue;
                     };
+
+                    let render_group_dispatch_buffer_index = BufferTableId(
+                        batches
+                            .dispatch_buffer_indices
+                            .first_render_group_dispatch_buffer_index
+                            .0
+                            + group_index,
+                    );
+                    let render_group_indirect_offset = effects_meta
+                        .gpu_limits
+                        .render_group_indirect_offset(render_group_dispatch_buffer_index.0)
+                        as u32;
 
                     let update_group_dispatch_buffer_offset =
                         effects_meta.gpu_limits.dispatch_indirect_offset(
@@ -5183,7 +5185,11 @@ impl Node for VfxSimulateNode {
                         effects_meta.spawner_bind_group.as_ref().unwrap(),
                         &[spawner_offset],
                     );
-                    compute_pass.set_bind_group(3, update_render_indirect_bind_group, &[]);
+                    compute_pass.set_bind_group(
+                        3,
+                        update_render_indirect_bind_group,
+                        &[render_group_indirect_offset],
+                    );
 
                     if let Some(buffer) = effects_meta.dispatch_indirect_buffer.buffer() {
                         trace!(
