@@ -4723,6 +4723,14 @@ impl Node for VfxSimulateNode {
             {
                 trace!("init: loop over effect batches...");
 
+                let mut compute_pass =
+                    render_context
+                        .command_encoder()
+                        .begin_compute_pass(&ComputePassDescriptor {
+                            label: Some("hanabi:init"),
+                            timestamp_writes: None,
+                        });
+
                 // Dispatch init compute jobs for all effects
                 for (entity, batches) in self.effect_query.iter_manual(world) {
                     // For each group in this effect, dispatch its init pass
@@ -4747,13 +4755,6 @@ impl Node for VfxSimulateNode {
 
                         match initializer {
                             EffectInitializer::Spawner(effect_spawner) => {
-                                let mut compute_pass = render_context
-                                    .command_encoder()
-                                    .begin_compute_pass(&ComputePassDescriptor {
-                                        label: Some("hanabi:init"),
-                                        timestamp_writes: None,
-                                    });
-
                                 let render_effect_dispatch_buffer_index = batches
                                     .dispatch_buffer_indices
                                     .render_effect_metadata_buffer_index;
@@ -4906,13 +4907,6 @@ impl Node for VfxSimulateNode {
                                 if !spawn_this_frame {
                                     continue;
                                 }
-
-                                let mut compute_pass = render_context
-                                    .command_encoder()
-                                    .begin_compute_pass(&ComputePassDescriptor {
-                                        label: Some("hanabi:clone"),
-                                        timestamp_writes: None,
-                                    });
 
                                 let clone_pipeline_id = batches.init_and_update_pipeline_ids
                                     [dest_group_index as usize]
