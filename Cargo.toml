@@ -64,11 +64,6 @@ version = "0.14"
 default-features = false
 features = [ "bevy_core_pipeline", "bevy_render", "bevy_asset", "x11" ]
 
-[dependencies.bevy_gltf]
-version = "0.14"
-optional = true
-features = [ "bevy_animation" ]
-
 [package.metadata.docs.rs]
 all-features = true
 
@@ -79,6 +74,7 @@ bevy_egui = { version = "0.28", default-features = false, features = [
     "manage_clipboard", "open_url"
 ] }
 egui = "0.28"
+bevy_gltf = { version = "0.14", features = [ "bevy_animation" ] }
 
 # For procedural texture generation in examples
 noise = "0.9"
@@ -171,8 +167,8 @@ required-features = [
     "bevy/bevy_winit",
     "bevy/bevy_pbr",
     "bevy/bevy_scene",
-    "bevy/bevy_gltf",
     "bevy/bevy_animation",
+    "bevy/png",
     "bevy_gltf/bevy_animation",
     "3d",
 ]

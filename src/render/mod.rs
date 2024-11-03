@@ -2610,8 +2610,7 @@ fn emit_sorted_draw<T, F>(
             let local_space_simulation = batches
                 .layout_flags
                 .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
-            let alpha_mask =
-                ParticleRenderAlphaMaskPipelineKey::from_layout_flags(batches.layout_flags);
+            let alpha_mask = ParticleRenderAlphaMaskPipelineKey::from(batches.layout_flags);
             let flipbook = batches.layout_flags.contains(LayoutFlags::FLIPBOOK);
             let needs_uv = batches.layout_flags.contains(LayoutFlags::NEEDS_UV);
             let needs_normal = batches.layout_flags.contains(LayoutFlags::NEEDS_NORMAL);
@@ -2761,9 +2760,7 @@ fn emit_binned_draw<T, F>(
                 batches.layout_flags,
             );
 
-            if ParticleRenderAlphaMaskPipelineKey::from_layout_flags(batches.layout_flags)
-                != alpha_mask
-            {
+            if ParticleRenderAlphaMaskPipelineKey::from(batches.layout_flags) != alpha_mask {
                 continue;
             }
 
@@ -2795,8 +2792,7 @@ fn emit_binned_draw<T, F>(
             let local_space_simulation = batches
                 .layout_flags
                 .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
-            let alpha_mask =
-                ParticleRenderAlphaMaskPipelineKey::from_layout_flags(batches.layout_flags);
+            let alpha_mask = ParticleRenderAlphaMaskPipelineKey::from(batches.layout_flags);
             let flipbook = batches.layout_flags.contains(LayoutFlags::FLIPBOOK);
             let needs_uv = batches.layout_flags.contains(LayoutFlags::NEEDS_UV);
             let needs_normal = batches.layout_flags.contains(LayoutFlags::NEEDS_NORMAL);
@@ -3589,17 +3585,6 @@ fn draw<'w>(
 
     // Vertex buffer containing the particle model to draw. Generally a quad.
     pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
-
-    match gpu_mesh.buffer_info {
-        GpuBufferInfo::Indexed {
-            ref buffer,
-            count: _,
-            index_format,
-        } => {
-            pass.set_index_buffer(buffer.slice(..), 0, index_format);
-        }
-        GpuBufferInfo::NonIndexed => {}
-    }
 
     // View properties (camera matrix, etc.)
     pass.set_bind_group(
@@ -4548,8 +4533,8 @@ where
     first_buffer.expect("No buffers allocated")
 }
 
-impl ParticleRenderAlphaMaskPipelineKey {
-    fn from_layout_flags(layout_flags: LayoutFlags) -> Self {
+impl From<LayoutFlags> for ParticleRenderAlphaMaskPipelineKey {
+    fn from(layout_flags: LayoutFlags) -> Self {
         if layout_flags.contains(LayoutFlags::USE_ALPHA_MASK) {
             ParticleRenderAlphaMaskPipelineKey::AlphaMask
         } else if layout_flags.contains(LayoutFlags::OPAQUE) {

@@ -123,6 +123,14 @@ fn transform_position_simulation_to_clip(sim_position: vec3<f32>) -> vec4<f32> {
     return view.clip_from_world * transform_position_simulation_to_world(sim_position);
 }
 
+fn inverse_transpose_mat3(m: mat3x3<f32>) -> mat3x3<f32> {
+    let tmp0 = cross(m[1], m[2]);
+    let tmp1 = cross(m[2], m[0]);
+    let tmp2 = cross(m[0], m[1]);
+    let inv_det = 1.0 / dot(m[2], tmp2);
+    return mat3x3<f32>(tmp0 * inv_det, tmp1 * inv_det, tmp2 * inv_det);
+}
+
 {{RENDER_EXTRA}}
 
 @vertex
@@ -183,7 +191,7 @@ fn vertex(
     out.color = color;
 
 #ifdef NEEDS_NORMAL
-    let normal = mat3x3(axis_x, axis_y, axis_z) * vertex_normal;
+    let normal = inverse_transpose_mat3(mat3x3(axis_x, axis_y, axis_z)) * vertex_normal;
     out.normal = transform_normal_simulation_to_world(normal);
 #endif  // NEEDS_NORMAL
 
