@@ -74,6 +74,8 @@ bevy_egui = { version = "0.28", default-features = false, features = [
     "manage_clipboard", "open_url"
 ] }
 egui = "0.28"
+
+# For glTF animations (Fox.glb)
 bevy_gltf = { version = "0.14", features = [ "bevy_animation" ] }
 
 # For procedural texture generation in examples
@@ -167,9 +169,9 @@ required-features = [
     "bevy/bevy_winit",
     "bevy/bevy_pbr",
     "bevy/bevy_scene",
+    "bevy/bevy_gltf",
     "bevy/bevy_animation",
     "bevy/png",
-    "bevy_gltf/bevy_animation",
     "3d",
 ]
 

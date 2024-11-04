@@ -20,5 +20,6 @@ cargo r --example circle --no-default-features --features="bevy/bevy_winit bevy/
 cargo r --example billboard --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d examples_world_inspector"
 cargo r --example worms --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d examples_world_inspector"
 cargo r --example instancing --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d examples_world_inspector"
+cargo r --example puffs --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_scene bevy/bevy_gltf bevy/bevy_animation bevy/png 3d"
 # 2D
 cargo r --example 2d --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite 2d examples_world_inspector"
