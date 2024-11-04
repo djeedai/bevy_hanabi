@@ -143,10 +143,19 @@ impl<T: Copy + FromReflect + FloatHash> Hash for CpuValue<T> {
     }
 }
 
+/// Initializer to emit new particles.
+///
+/// An initializer defines when a particle is emitted (spawned or cloned).
+/// - For CPU spawning, a [`Spawner`] defines how often new particles are
+///   spawned. This is the typical way to emit particles.
+/// - For GPU cloning, a [`Cloner`] defines how often an existing particle is
+///   cloned into a new one. This is used by trails and ribbons only.
 #[derive(Clone, Copy, PartialEq, Debug, Reflect, Serialize, Deserialize)]
 #[reflect(Serialize, Deserialize)]
 pub enum Initializer {
+    /// CPU spawner initializer.
     Spawner(Spawner),
+    /// GPU cloner initializer, for trails and ribbons.
     Cloner(Cloner),
 }
 
@@ -184,7 +193,7 @@ impl Initializer {
 /// for the next emitting.
 ///
 /// The spawner itself is embedded into the [`EffectInitializers`] component.
-/// Once per frame the [`tick_spawners()`] system will add the component if
+/// Once per frame the [`tick_initializers()`] system will add the component if
 /// it's missing, cloning the [`Spawner`] from the source [`EffectAsset`], then
 /// tick the [`Spawner`] stored in the [`EffectInitializers`]. The resulting
 /// number of particles to spawn for the frame is then stored into
@@ -431,6 +440,8 @@ impl Spawner {
     ///
     /// A spawn cycles includes the [`spawn_duration()`] value, and any extra
     /// wait time (if larger than spawn time).
+    ///
+    /// [`spawn_duration()`]: Self::spawn_duration
     pub fn with_period(mut self, period: CpuValue<f32>) -> Self {
         self.period = period;
         self
@@ -440,6 +451,8 @@ impl Spawner {
     ///
     /// A spawn cycles includes the [`spawn_duration()`] value, and any extra
     /// wait time (if larger than spawn time).
+    ///
+    /// [`spawn_duration()`]: Self::spawn_duration
     pub fn set_period(&mut self, period: CpuValue<f32>) {
         self.period = period;
     }
@@ -448,6 +461,8 @@ impl Spawner {
     ///
     /// A spawn cycles includes the [`spawn_duration()`] value, and any extra
     /// wait time (if larger than spawn time).
+    ///
+    /// [`spawn_duration()`]: Self::spawn_duration
     pub fn period(&self) -> CpuValue<f32> {
         self.period
     }
@@ -491,7 +506,7 @@ impl Spawner {
 /// (exceed its capacity) are dropped.
 ///
 /// The cloner itself is embedded into the [`EffectInitializers`] component.
-/// Once per frame the [`tick_spawners()`] system will add the component if
+/// Once per frame the [`tick_initializers()`] system will add the component if
 /// it's missing, copying fields from the [`Cloner`] to the [`EffectCloner`].
 #[derive(Default, Clone, Copy, Debug, PartialEq, Reflect, Serialize, Deserialize)]
 #[reflect(Serialize, Deserialize)]
@@ -564,24 +579,24 @@ impl Cloner {
 /// A runtime component maintaining the state of all initializers for an effect.
 ///
 /// This component is automatically added to the same [`Entity`] as the
-/// [`ParticleEffect`] it's associated with, during [`tick_spawners()`], if not
-/// already present on the entity. In that case, the initializer configurations
-/// are cloned from the underlying [`EffectAsset`] associated with the particle
-/// effect instance.
+/// [`ParticleEffect`] it's associated with, during [`tick_initializers()`], if
+/// not already present on the entity. In that case, the initializer
+/// configurations are cloned from the underlying [`EffectAsset`] associated
+/// with the particle effect instance.
 ///
 /// You can manually add this component in advance to override its [`Spawner`]s
-/// and/or [`Cloner`]s. In that case [`tick_spawners()`] will use the existing
-/// component you added.
+/// and/or [`Cloner`]s. In that case [`tick_initializers()`] will use the
+/// existing component you added.
 ///
 /// Each frame, for spawners, the component will automatically calculate the
 /// number of particles to spawn, via its internal [`Spawner`], and store it
 /// into [`spawn_count`]. You can manually override that value if you want, to
 /// create more complex spawning sequences. For cloners, the component sets the
-/// [`spawn_this_frame`] flag as appropriate. You can likewise manually override
+/// [`clone_this_frame`] flag as appropriate. You can likewise manually override
 /// that value if you want in order to clone on different schedules.
 ///
 /// [`spawn_count`]: crate::EffectSpawner::spawn_count
-/// [`spawn_count`]: crate::EffectCloner::spawn_this_frame
+/// [`clone_this_frame`]: crate::EffectCloner::clone_this_frame
 #[derive(Default, Clone, Component, PartialEq, Reflect, Debug, Deref, DerefMut)]
 #[reflect(Component)]
 pub struct EffectInitializers(pub Vec<EffectInitializer>);
@@ -681,13 +696,13 @@ pub struct EffectSpawner {
     /// Number of particles to spawn this frame.
     ///
     /// This value is normally updated by calling [`tick()`], which
-    /// automatically happens once per frame when the [`tick_spawners()`] system
-    /// runs in the [`PostUpdate`] schedule.
+    /// automatically happens once per frame when the [`tick_initializers()`]
+    /// system runs in the [`PostUpdate`] schedule.
     ///
     /// You can manually assign this value to override the one calculated by
     /// [`tick()`]. Note in this case that you need to override the value after
     /// the automated one was calculated, by ordering your system
-    /// after [`tick_spawners()`] or [`EffectSystems::TickSpawners`].
+    /// after [`tick_initializers()`] or [`EffectSystems::TickSpawners`].
     ///
     /// [`tick()`]: crate::EffectSpawner::tick
     /// [`EffectSystems::TickSpawners`]: crate::EffectSystems::TickSpawners
@@ -775,8 +790,8 @@ impl EffectSpawner {
     /// The frame delta time `dt` is added to the current spawner time, before
     /// the spawner calculates the number of particles to spawn.
     ///
-    /// This method is called automatically by [`tick_spawners()`] during the
-    /// [`PostUpdate`], so you normally don't have to call it yourself
+    /// This method is called automatically by [`tick_initializers()`] during
+    /// the [`PostUpdate`], so you normally don't have to call it yourself
     /// manually.
     ///
     /// # Returns
@@ -952,7 +967,7 @@ pub fn tick_initializers(
         Option<&mut EffectInitializers>,
     )>,
 ) {
-    trace!("tick_spawners");
+    trace!("tick_initializers");
 
     let dt = time.delta_seconds();
 
@@ -1227,7 +1242,7 @@ mod test {
         app
     }
 
-    /// Test case for `tick_spawners()`.
+    /// Test case for `tick_initializers()`.
     struct TestCase {
         /// Initial entity visibility on spawn. If `None`, do not add a
         /// [`Visibility`] component.
@@ -1313,7 +1328,7 @@ mod test {
 
             let world = app.world_mut();
 
-            // Check the state of the components after `tick_spawners()` ran
+            // Check the state of the components after `tick_initializers()` ran
             if let Some(test_visibility) = test_case.visibility {
                 // Simulated-when-visible effect (SimulationCondition::WhenVisible)
 
@@ -1337,7 +1352,7 @@ mod test {
                 );
                 assert_eq!(particle_effect.handle, handle);
                 if inherited_visibility.get() {
-                    // If visible, `tick_spawners()` spawns the EffectSpawner and ticks it
+                    // If visible, `tick_initializers()` spawns the EffectSpawner and ticks it
                     assert!(effect_spawners.is_some());
                     let effect_spawner = effect_spawners.unwrap()[0].get_spawner().unwrap();
                     let actual_spawner = effect_spawner.spawner;
@@ -1350,8 +1365,8 @@ mod test {
                     assert_eq!(actual_spawner, test_case.asset_spawner);
                     assert_eq!(effect_spawner.spawn_count, 32);
                 } else {
-                    // If not visible, `tick_spawners()` skips the effect entirely so won't spawn an
-                    // `EffectSpawner` for it
+                    // If not visible, `tick_initializers()` skips the effect entirely so won't
+                    // spawn an `EffectSpawner` for it
                     assert!(effect_spawners.is_none());
                 }
             } else {

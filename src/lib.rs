@@ -23,12 +23,11 @@
 //! compute shaders and offloading most of the work of particle simulating to
 //! the GPU.
 //!
-//! _Note: This library makes heavy use of compute shaders to offload work to
-//! the GPU in a performant way. Support for compute shaders on the `wasm`
-//! target (WebAssembly) via WebGPU is only available in Bevy in general since
-//! the Bevy v0.11, and is not yet available in this library.
-//! See [#41](https://github.com/djeedai/bevy_hanabi/issues/41) for details on
-//! progress._
+//! The library supports the `wasm` target (WebAssembly) via the WebGPU renderer
+//! only. Compute shaders are not available via the legacy WebGL2 renderer.
+//! See Bevy's own [WebGL2 and WebGPU](https://github.com/bevyengine/bevy/tree/latest/examples#webgl2-and-webgpu)
+//! section of the examples README for more information on how to run Wasm
+//! builds with WebGPU.
 //!
 //! # 2D vs. 3D
 //!
@@ -66,7 +65,7 @@
 //!     // Define a color gradient from red to transparent black
 //!     let mut gradient = Gradient::new();
 //!     gradient.add_key(0.0, Vec4::new(1., 0., 0., 1.));
-//!     gradient.add_key(1.0, Vec4::splat(0.));
+//!     gradient.add_key(1.0, Vec4::ZERO);
 //!
 //!     // Create a new expression module
 //!     let mut module = Module::default();
@@ -88,7 +87,8 @@
 //!
 //!     // Initialize the total lifetime of the particle, that is
 //!     // the time for which it's simulated and rendered. This modifier
-//!     // is almost always required, otherwise the particles won't show.
+//!     // is almost always required, otherwise the particles will stay
+//!     // alive forever, and new particles can't be spawned instead.
 //!     let lifetime = module.lit(10.); // literal value "10.0"
 //!     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 //!
@@ -156,13 +156,17 @@
 //!    reflected to its instances, although not all changes are supported. In
 //!    general, avoid changing an [`EffectAsset`] while it's in use by one or
 //!    more [`ParticleEffect`].
-//! 3. Also spawn an [`EffectProperties`] component on the same entity. This is
-//!    required even if the effect doesn't use properties. See [properties] for
-//!    more details.
-//! 4. If actually using properties, update them through the
-//!    [`EffectProperties`] at any time while the effect is active. This allows
-//!    some moderate CPU-side control over the simulation and rendering of the
-//!    effect, without having to destroy the effect and re-create a new one.
+//! 3. If using properties, spawn an [`EffectProperties`] component on the same
+//!    entity. Then update properties through that component at any time while
+//!    the effect is active. This allows some moderate CPU-side control over the
+//!    simulation and rendering of the effect, without having to destroy the
+//!    effect and re-create a new one.
+//!
+//! The [`EffectAsset`] is intended to be the serialized effect format, which
+//! authors can save to disk and ship with their application. At this time
+//! however serialization and deserialization is still a work in progress. In
+//! particular, serialization and deserialization of all
+//! [modifiers](crate::modifier) is currently not supported on Wasm.
 
 use std::fmt::Write as _;
 
@@ -170,7 +174,6 @@ use std::fmt::Write as _;
 use bevy::math::FloatOrd;
 use bevy::{prelude::*, utils::HashSet};
 use serde::{Deserialize, Serialize};
-use spawn::Initializer;
 use thiserror::Error;
 
 mod asset;
@@ -199,7 +202,7 @@ pub use properties::*;
 pub use render::{LayoutFlags, ShaderCache};
 pub use spawn::{
     tick_initializers, Cloner, CpuValue, EffectCloner, EffectInitializer, EffectInitializers,
-    EffectSpawner, Random, Spawner,
+    EffectSpawner, Initializer, Random, Spawner,
 };
 pub use time::{EffectSimulation, EffectSimulationTime};
 
@@ -1886,7 +1889,7 @@ else { return c1; }
         app
     }
 
-    /// Test case for `tick_spawners()`.
+    /// Test case for `tick_initializers()`.
     struct TestCase {
         /// Initial entity visibility on spawn. If `None`, do not add a
         /// [`Visibility`] component.
@@ -2221,7 +2224,7 @@ else { return c1; }
 
             let world = app.world_mut();
 
-            // Check the state of the components after `tick_spawners()` ran
+            // Check the state of the components after `tick_initializers()` ran
             if let Some(test_visibility) = test_case.visibility {
                 // Simulated-when-visible effect (SimulationCondition::WhenVisible)
 

@@ -239,11 +239,51 @@ impl From<AlphaMode> for BlendState {
 
 /// Asset describing a visual effect.
 ///
-/// The effect can be instanciated with a [`ParticleEffect`] component, or a
-/// [`ParticleEffectBundle`].
+/// An effect asset represents the description of an effect, intended to be
+/// authored during development and instantiated once or more during the
+/// application execution.
+///
+/// An actual effect instance can be spanwed with a [`ParticleEffect`]
+/// component, or a [`ParticleEffectBundle`], which references the
+/// [`EffectAsset`].
+///
+/// # Groups, trails, and ribbons
+///
+/// Typically, an effect asset describes a single type of particles. At this
+/// time, 🎆 Hanabi doesn't yet support complex effects involving multiple
+/// sub-effects (sometimes called _systems_ in some other engines). This means
+/// most parameters relating to an effect asset affect all particles.
+///
+/// However, for technical reasons, the implementation of trails and ribbons
+/// requires treating different groups of particles in a different way.
+/// - Trails refer to the visual effect of a group of particles appearing to
+///   follow each other, leaving a visual trail. The implementation in fact
+///   doesn't update the position of those particles; instead, it spawns at
+///   regular interval a new particle, while older particles die after reaching
+///   their lifetime. To give the appearance of a trail, the newly spawned
+///   particles are _cloned_ from an existing "head" particle. Because those two
+///   kinds of particles need to be treated differently by the implementation,
+///   they are split into separate groups inside the same effect.
+/// - Ribbons refer to a similar visual effect as trails, but in addition
+///   particles are rendered by stitching consecutive trail particles together
+///   to form a continuous visual trail called a ribbon. To achieve this, the
+///   implementation needs to chain particles together and keep track of the
+///   previous and/or next particle of each particle. This is achieved via the
+///   [`Attribute::PREV`] and [`Attribute::NEXT`] attributes, stored per
+///   particle. Because each particle can only store one set of attributes, this
+///   means there can only be one ribbon per effect.
+///
+/// In general, groups are largely a technical implementation detail for trails
+/// and ribbons, and you should simply rely on helper functions like
+/// [`with_trails()`] or [`with_ribbons()`]. Groups were first introduced with a
+/// powerful but complex API, which has been since then greatly simplified, with
+/// the intent to completely hide/eliminate them in the future.
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
+/// [`EffectAsset`]: crate::EffectAsset
+/// [`with_trails()`]: crate::EffectAsset::with_trails
+/// [`with_ribbons()`]: crate::EffectAsset::with_ribbons
 #[derive(Asset, Default, Clone, Reflect)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[reflect(from_reflect = false)]
@@ -313,14 +353,13 @@ impl EffectAsset {
     /// Create a new effect asset.
     ///
     /// The effect assets requires 2 essential pieces:
-    /// - The capacities of the effect, which together represent the maximum
-    ///   number of particles which can be stored and simulated at the same time
-    ///   for each group. There will be one capacity value per group; thus, the
-    ///   `capacities` array also specifies the number of groups. All capacities
-    ///   must be non-zero and should be the smallest possible values which
-    ///   allow you to author the effect. These values directly impact the GPU
-    ///   memory consumption of the effect, which will allocate some buffers to
-    ///   store that many particles for as long as the effect exists. The
+    /// - The capacity of the effect, which represents the maximum number of
+    ///   particles which can be stored and simulated at the same time for each
+    ///   group. Each group has its own capacity, in number of particles. All
+    ///   capacities must be non-zero and should be the smallest possible values
+    ///   which allow you to author the effect. These values directly impact the
+    ///   GPU memory consumption of the effect, which will allocate some buffers
+    ///   to store that many particles for as long as the effect exists. The
     ///   capacities of an effect are immutable. See also [`capacities()`] for
     ///   more details.
     /// - The [`Initializer`], which defines when particles are emitted.
@@ -341,12 +380,13 @@ impl EffectAsset {
     /// # use bevy_hanabi::*;
     /// let spawner = Spawner::rate(5_f32.into()); // 5 particles per second
     /// let module = Module::default();
-    /// let effect = EffectAsset::new(32768, spawner, module);
+    /// let capacity = 1024; // max 1024 particles alive at any time
+    /// let effect = EffectAsset::new(capacity, spawner, module);
     /// ```
     ///
     /// Create a new effect asset with a modifier holding an expression. The
     /// expression is stored inside the [`Module`] transfered to the
-    /// [`EffectAsset`].
+    /// [`EffectAsset`], which owns the module once created.
     ///
     /// ```
     /// # use bevy_hanabi::*;
@@ -358,7 +398,8 @@ impl EffectAsset {
     /// let lifetime = module.lit(10.); // literal value "10.0"
     /// let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
     ///
-    /// let effect = EffectAsset::new(32768, spawner, module);
+    /// let capacity = 1024; // max 1024 particles alive at any time
+    /// let effect = EffectAsset::new(capacity, spawner, module);
     /// ```
     ///
     /// [`capacities()`]: crate::EffectAsset::capacities
@@ -376,12 +417,16 @@ impl EffectAsset {
     ///
     /// Initializers can be spawners or cloners. Particle group indices are
     /// assigned sequentially; thus, the first time you call this function (or
-    /// one of the convenience functions like [`Self::with_trails`] or
-    /// [`Self::with_ribbons`]), the ID of the resulting group will be 1, the
-    /// second time will create a group with ID 2, and so forth.
+    /// one of the convenience functions like [`with_trails()`] or
+    /// [`with_ribbons()`]), the ID of the resulting group will be 1, the
+    /// second time will create a group with ID 2, and so forth. Any asset
+    /// always have a group 0 implicitly created by [`EffectAsset::new()`].
     ///
     /// For a less verbose way to create trails and ribbons, see
-    /// [`Self::with_trails`] and [`Self::with_ribbons`] respectively.
+    /// [`with_trails()`] and [`with_ribbons()`] respectively.
+    ///
+    /// [`with_trails()`]: Self::with_trails
+    /// [`with_ribbons()`]: Self::with_ribbons
     pub fn with_group(mut self, capacity: u32, initializer: impl Into<Initializer>) -> Self {
         self.capacities.push(capacity);
         self.init.push(initializer.into());
