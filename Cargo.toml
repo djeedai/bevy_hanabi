@@ -75,6 +75,9 @@ bevy_egui = { version = "0.28", default-features = false, features = [
 ] }
 egui = "0.28"
 
+# For glTF animations (Fox.glb)
+bevy_gltf = { version = "0.14", features = [ "bevy_animation" ] }
+
 # For procedural texture generation in examples
 noise = "0.9"
 
@@ -159,6 +162,18 @@ required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
 [[example]]
 name = "ordering"
 required-features = [ "bevy/bevy_winit", "bevy/bevy_pbr", "3d" ]
+
+[[example]]
+name = "puffs"
+required-features = [
+    "bevy/bevy_winit",
+    "bevy/bevy_pbr",
+    "bevy/bevy_scene",
+    "bevy/bevy_gltf",
+    "bevy/bevy_animation",
+    "bevy/png",
+    "3d",
+]
 
 [[test]]
 name = "empty_effect"

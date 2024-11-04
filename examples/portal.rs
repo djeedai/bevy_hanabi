@@ -49,8 +49,8 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     color_gradient1.add_key(1.0, Vec4::new(4.0, 0.0, 0.0, 0.0));
 
     let mut size_gradient1 = Gradient::new();
-    size_gradient1.add_key(0.3, Vec2::new(0.2, 0.02));
-    size_gradient1.add_key(1.0, Vec2::splat(0.0));
+    size_gradient1.add_key(0.3, Vec3::new(0.2, 0.02, 1.0));
+    size_gradient1.add_key(1.0, Vec3::splat(0.0));
 
     let writer = ExprWriter::new();
 

@@ -28,10 +28,10 @@ struct SplitCamera {
 
 fn make_effect(color: Color) -> EffectAsset {
     let mut size_gradient = Gradient::new();
-    size_gradient.add_key(0.0, Vec2::splat(1.0));
-    size_gradient.add_key(0.5, Vec2::splat(5.0));
-    size_gradient.add_key(0.8, Vec2::splat(0.8));
-    size_gradient.add_key(1.0, Vec2::splat(0.0));
+    size_gradient.add_key(0.0, Vec3::splat(1.0));
+    size_gradient.add_key(0.5, Vec3::splat(5.0));
+    size_gradient.add_key(0.8, Vec3::splat(0.8));
+    size_gradient.add_key(1.0, Vec3::splat(0.0));
 
     let mut color_gradient = Gradient::new();
     color_gradient.add_key(0.0, Vec4::splat(1.0));

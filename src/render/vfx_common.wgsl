@@ -108,12 +108,13 @@ const REM_OFFSET_PING: u32 = 0u;
 
 const RGI_OFFSET_VERTEX_COUNT: u32 = 0u;
 const RGI_OFFSET_INSTANCE_COUNT: u32 = 1u;
-const RGI_OFFSET_VERTEX_OFFSET: u32 = 2u;
-const RGI_OFFSET_BASE_INSTANCE: u32 = 3u;
-const RGI_OFFSET_ALIVE_COUNT: u32 = 4u;
-const RGI_OFFSET_MAX_UPDATE: u32 = 5u;
-const RGI_OFFSET_DEAD_COUNT: u32 = 6u;
-const RGI_OFFSET_MAX_SPAWN: u32 = 7u;
+const RGI_OFFSET_FIRST_INDEX_OR_VERTEX_OFFSET: u32 = 2u;
+const RGI_OFFSET_VERTEX_OFFSET_OR_BASE_INSTANCE: u32 = 3u;
+const RGI_OFFSET_BASE_INSTANCE: u32 = 4u;
+const RGI_OFFSET_ALIVE_COUNT: u32 = 5u;
+const RGI_OFFSET_MAX_UPDATE: u32 = 6u;
+const RGI_OFFSET_DEAD_COUNT: u32 = 7u;
+const RGI_OFFSET_MAX_SPAWN: u32 = 8u;
 
 struct RenderEffectMetadata {
     /// Index of the ping buffer for particle indices. Init and update compute passes
@@ -129,9 +130,11 @@ struct RenderGroupIndirect {
     vertex_count: u32,
     /// Number of mesh instances, equal to the number of particles.
     instance_count: atomic<u32>,
-    /// Vertex offset (always zero).
-    vertex_offset: i32,
-    /// Base instance.
+    /// First index (if indexed) or vertex offset (if non-indexed).
+    first_index_or_vertex_offset: u32,
+    /// Vertex offset (if indexed) or base instance (if non-indexed).
+    vertex_offset_or_base_instance: i32,
+    /// Base instance (if indexed).
     base_instance: u32,
     /// Number of particles alive after the init pass, used to calculate the number
     /// of compute threads to spawn for the update pass and to cap those threads

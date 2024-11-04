@@ -792,25 +792,39 @@ impl EffectShaderSource {
             if attr == Attribute::SIZE {
                 if !has_size {
                     inputs_code += &format!(
-                        "var size = vec2<f32>(particle.{0}, particle.{0});\n",
+                        "var size = vec3<f32>(particle.{0}, particle.{0}, particle.{0});\n",
                         Attribute::SIZE.name()
                     );
                     has_size = true;
+                    present_attributes.insert(attr);
                 } else {
                     warn!("Attribute SIZE conflicts with another size attribute; ignored.");
                 }
             } else if attr == Attribute::SIZE2 {
                 if !has_size {
-                    inputs_code += &format!("var size = particle.{0};\n", Attribute::SIZE2.name());
+                    inputs_code += &format!(
+                        "var size = vec3<f32>(particle.{0}, 1.0);\n",
+                        Attribute::SIZE2.name()
+                    );
                     has_size = true;
+                    present_attributes.insert(attr);
                 } else {
                     warn!("Attribute SIZE2 conflicts with another size attribute; ignored.");
+                }
+            } else if attr == Attribute::SIZE3 {
+                if !has_size {
+                    inputs_code += &format!("var size = particle.{0};\n", Attribute::SIZE3.name());
+                    has_size = true;
+                    present_attributes.insert(attr);
+                } else {
+                    warn!("Attribute SIZE3 conflicts with another size attribute; ignored.");
                 }
             } else if attr == Attribute::HDR_COLOR {
                 if !has_color {
                     inputs_code +=
                         &format!("var color = particle.{};\n", Attribute::HDR_COLOR.name());
                     has_color = true;
+                    present_attributes.insert(attr);
                 } else {
                     warn!("Attribute HDR_COLOR conflicts with another color attribute; ignored.");
                 }
@@ -821,6 +835,7 @@ impl EffectShaderSource {
                         Attribute::COLOR.name()
                     );
                     has_color = true;
+                    present_attributes.insert(attr);
                 } else {
                     warn!("Attribute COLOR conflicts with another color attribute; ignored.");
                 }
@@ -834,7 +849,7 @@ impl EffectShaderSource {
         if !has_size {
             inputs_code += &format!(
                 "var size = {0};\n",
-                Attribute::SIZE2.default_value().to_wgsl_string() // TODO - or SIZE?
+                Attribute::SIZE3.default_value().to_wgsl_string() // TODO - or SIZE?
             );
         }
         if !has_color {
@@ -996,6 +1011,9 @@ impl EffectShaderSource {
 
                 if render_context.needs_uv {
                     layout_flags |= LayoutFlags::NEEDS_UV;
+                }
+                if render_context.needs_normal {
+                    layout_flags |= LayoutFlags::NEEDS_NORMAL;
                 }
 
                 let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
@@ -1179,6 +1197,8 @@ pub struct CompiledParticleEffect {
     /// Cached simulation condition, to avoid having to query the asset each
     /// time we need it.
     simulation_condition: SimulationCondition,
+    /// A custom mesh for this effect, if specified.
+    mesh: Option<Handle<Mesh>>,
     /// Handle to the effect shaders for his effect instance (one per group), if
     /// configured.
     effect_shaders: Vec<EffectShader>,
@@ -1198,6 +1218,7 @@ impl Default for CompiledParticleEffect {
         Self {
             asset: default(),
             simulation_condition: SimulationCondition::default(),
+            mesh: None,
             effect_shaders: vec![],
             textures: vec![],
             #[cfg(feature = "2d")]
@@ -1323,6 +1344,8 @@ impl CompiledParticleEffect {
             self.layout_flags,
         );
 
+        self.mesh = asset.mesh.clone();
+
         self.textures = material.map(|mat| &mat.images).cloned().unwrap_or_default();
     }
 
@@ -1343,6 +1366,47 @@ trait ShaderCode {
 }
 
 impl ShaderCode for Gradient<Vec2> {
+    fn to_shader_code(&self, input: &str) -> String {
+        if self.keys().is_empty() {
+            return String::new();
+        }
+        let mut s: String = self
+            .keys()
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                format!(
+                    "let t{0} = {1};\nlet v{0} = {2};",
+                    index,
+                    key.ratio().to_wgsl_string(),
+                    key.value.to_wgsl_string()
+                )
+            })
+            .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
+        if self.keys().len() == 1 {
+            s + "return v0;\n"
+        } else {
+            s += &format!("if ({input} <= t0) {{ return v0; }}\n");
+            let mut s = self
+                .keys()
+                .iter()
+                .skip(1)
+                .enumerate()
+                .map(|(index, _key)| {
+                    format!(
+                        "else if ({input} <= t{1}) {{ return mix(v{0}, v{1}, ({input} - t{0}) / (t{1} - t{0})); }}\n",
+                        index,
+                        index + 1
+                    )
+                })
+                .fold(s, |s, key| s + &key);
+            let _ = writeln!(s, "else {{ return v{}; }}", self.keys().len() - 1);
+            s
+        }
+    }
+}
+
+impl ShaderCode for Gradient<Vec3> {
     fn to_shader_code(&self, input: &str) -> String {
         if self.keys().is_empty() {
             return String::new();
@@ -1890,6 +1954,7 @@ else { return c1; }
             let mut shader_defs = std::collections::HashMap::<String, ShaderDefValue>::new();
             shader_defs.insert("LOCAL_SPACE_SIMULATION".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("NEEDS_UV".into(), ShaderDefValue::Bool(true));
+            shader_defs.insert("NEEDS_NORMAL".into(), ShaderDefValue::Bool(false));
             shader_defs.insert("RENDER_NEEDS_SPAWNER".into(), ShaderDefValue::Bool(true));
             shader_defs.insert(
                 "PARTICLE_SCREEN_SPACE_SIZE".into(),

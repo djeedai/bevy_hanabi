@@ -143,7 +143,7 @@ fn setup(
             .update(update_drag)
             // Set a size of 3 (logical) pixels, constant in screen space, independent of projection
             .render(SetSizeModifier {
-                size: Vec2::splat(3.).into(),
+                size: Vec3::splat(3.).into(),
             })
             .render(ScreenSpaceSizeModifier),
     );

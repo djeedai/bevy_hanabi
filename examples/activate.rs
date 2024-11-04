@@ -124,7 +124,7 @@ fn setup(
             .update(update_buoyancy)
             .update(allow_zone)
             .render(SetSizeModifier {
-                size: Vec2::splat(0.02).into(),
+                size: Vec3::splat(0.02).into(),
             })
             .render(ColorOverLifetimeModifier { gradient })
             .render(round),

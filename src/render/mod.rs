@@ -13,7 +13,7 @@ use bevy::math::FloatOrd;
 #[cfg(feature = "3d")]
 use bevy::{
     core_pipeline::{
-        core_3d::{AlphaMask3d, Transparent3d},
+        core_3d::{AlphaMask3d, Opaque3d, Transparent3d},
         prepass::OpaqueNoLightmap3dBinKey,
     },
     render::render_phase::{BinnedPhaseItem, ViewBinnedRenderPhases},
@@ -26,6 +26,7 @@ use bevy::{
     log::trace,
     prelude::*,
     render::{
+        mesh::{GpuBufferInfo, GpuMesh, MeshVertexBufferLayoutRef},
         render_asset::RenderAssets,
         render_graph::{Node, NodeRunError, RenderGraphContext, SlotInfo},
         render_phase::{
@@ -322,12 +323,25 @@ pub struct GpuRenderEffectMetadata {
     pub ping: u32,
 }
 
+/// Indirect draw parameters, with some data of our own tacked on to the end.
+///
+/// A few fields of this differ depending on whether the mesh is indexed or
+/// non-indexed.
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct GpuRenderGroupIndirect {
+    /// The number of vertices in the mesh, if non-indexed; if indexed, the
+    /// number of indices in the mesh.
     pub vertex_count: u32,
+    /// The number of instances to render.
     pub instance_count: u32,
-    pub vertex_offset: i32,
+    /// The first index to render, if the mesh is indexed; the offset of the
+    /// first vertex, if the mesh is non-indexed.
+    pub first_index_or_vertex_offset: u32,
+    /// The offset of the first vertex, if the mesh is indexed; the first
+    /// instance to render, if the mesh is non-indexed.
+    pub vertex_offset_or_base_instance: i32,
+    /// The first instance to render, if indexed; unused if non-indexed.
     pub base_instance: u32,
     //
     pub alive_count: u32,
@@ -934,15 +948,16 @@ pub(crate) struct ParticleRenderPipelineKey {
     shader: Handle<Shader>,
     /// Particle layout.
     particle_layout: ParticleLayout,
+    mesh_layout: Option<MeshVertexBufferLayoutRef>,
     /// Texture layout.
     texture_layout: TextureLayout,
     /// Key: LOCAL_SPACE_SIMULATION
     /// The effect is simulated in local space, and during rendering all
     /// particles are transformed by the effect's [`GlobalTransform`].
     local_space_simulation: bool,
-    /// Key: USE_ALPHA_MASK
-    /// The effect is rendered with alpha masking.
-    use_alpha_mask: bool,
+    /// Key: USE_ALPHA_MASK, OPAQUE
+    /// The particle's alpha masking behavior.
+    alpha_mask: ParticleRenderAlphaMaskPipelineKey,
     /// The effect needs Alpha blend.
     alpha_mode: AlphaMode,
     /// Key: FLIPBOOK
@@ -952,6 +967,9 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// Key: NEEDS_UV
     /// The effect needs UVs.
     needs_uv: bool,
+    /// Key: NEEDS_NORMAL
+    /// The effect needs normals.
+    needs_normal: bool,
     /// Key: RIBBONS
     /// The effect has ribbons.
     ribbons: bool,
@@ -966,17 +984,31 @@ pub(crate) struct ParticleRenderPipelineKey {
     hdr: bool,
 }
 
+#[derive(Clone, Copy, Default, Hash, PartialEq, Eq, Debug)]
+pub(crate) enum ParticleRenderAlphaMaskPipelineKey {
+    #[default]
+    Blend,
+    /// Key: USE_ALPHA_MASK
+    /// The effect is rendered with alpha masking.
+    AlphaMask,
+    /// Key: OPAQUE
+    /// The effect is rendered fully-opaquely.
+    Opaque,
+}
+
 impl Default for ParticleRenderPipelineKey {
     fn default() -> Self {
         Self {
             shader: Handle::default(),
             particle_layout: ParticleLayout::empty(),
+            mesh_layout: None,
             texture_layout: default(),
             local_space_simulation: false,
-            use_alpha_mask: false,
+            alpha_mask: default(),
             alpha_mode: AlphaMode::Blend,
             flipbook: false,
             needs_uv: false,
+            needs_normal: false,
             ribbons: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
@@ -991,44 +1023,6 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
 
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
         trace!("Specializing render pipeline for key: {:?}", key);
-
-        // Base mandatory part of vertex buffer layout
-        let vertex_buffer_layout = VertexBufferLayout {
-            array_stride: 20,
-            step_mode: VertexStepMode::Vertex,
-            attributes: vec![
-                //  @location(0) vertex_position: vec3<f32>
-                VertexAttribute {
-                    format: VertexFormat::Float32x3,
-                    offset: 0,
-                    shader_location: 0,
-                },
-                //  @location(1) vertex_uv: vec2<f32>
-                VertexAttribute {
-                    format: VertexFormat::Float32x2,
-                    offset: 12,
-                    shader_location: 1,
-                },
-                //  @location(1) vertex_color: u32
-                // VertexAttribute {
-                //     format: VertexFormat::Uint32,
-                //     offset: 12,
-                //     shader_location: 1,
-                // },
-                //  @location(2) vertex_velocity: vec3<f32>
-                // VertexAttribute {
-                //     format: VertexFormat::Float32x3,
-                //     offset: 12,
-                //     shader_location: 1,
-                // },
-                //  @location(3) vertex_uv: vec2<f32>
-                // VertexAttribute {
-                //     format: VertexFormat::Float32x2,
-                //     offset: 28,
-                //     shader_location: 3,
-                // },
-            ],
-        };
 
         let dispatch_indirect_size = GpuDispatchIndirect::aligned_size(
             self.render_device
@@ -1095,6 +1089,17 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         let mut layout = vec![self.view_layout.clone(), particles_buffer_layout];
         let mut shader_defs = vec!["SPAWNER_READONLY".into()];
 
+        let vertex_buffer_layout = key.mesh_layout.and_then(|mesh_layout| {
+            mesh_layout
+                .0
+                .get_layout(&[
+                    Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
+                    Mesh::ATTRIBUTE_UV_0.at_shader_location(1),
+                    Mesh::ATTRIBUTE_NORMAL.at_shader_location(2),
+                ])
+                .ok()
+        });
+
         if let Some(material_bind_group_layout) = self.get_material(&key.texture_layout) {
             layout.push(material_bind_group_layout.clone());
             // //  @location(1) vertex_uv: vec2<f32>
@@ -1112,9 +1117,16 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             shader_defs.push("RENDER_NEEDS_SPAWNER".into());
         }
 
-        // Key: USE_ALPHA_MASK
-        if key.use_alpha_mask {
-            shader_defs.push("USE_ALPHA_MASK".into());
+        match key.alpha_mask {
+            ParticleRenderAlphaMaskPipelineKey::Blend => {}
+            ParticleRenderAlphaMaskPipelineKey::AlphaMask => {
+                // Key: USE_ALPHA_MASK
+                shader_defs.push("USE_ALPHA_MASK".into())
+            }
+            ParticleRenderAlphaMaskPipelineKey::Opaque => {
+                // Key: OPAQUE
+                shader_defs.push("OPAQUE".into())
+            }
         }
 
         // Key: FLIPBOOK
@@ -1125,6 +1137,11 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         // Key: NEEDS_UV
         if key.needs_uv {
             shader_defs.push("NEEDS_UV".into());
+        }
+
+        // Key: NEEDS_NORMAL
+        if key.needs_normal {
+            shader_defs.push("NEEDS_NORMAL".into());
         }
 
         // Key: RIBBONS
@@ -1138,8 +1155,13 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             PipelineMode::Camera2d => None,
             PipelineMode::Camera3d => Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
-                // Use depth buffer with alpha-masked particles, not with transparent ones
-                depth_write_enabled: key.use_alpha_mask,
+                // Use depth buffer with alpha-masked or opaque particles, not
+                // with transparent ones
+                depth_write_enabled: matches!(
+                    key.alpha_mask,
+                    ParticleRenderAlphaMaskPipelineKey::AlphaMask
+                        | ParticleRenderAlphaMaskPipelineKey::Opaque
+                ),
                 // Bevy uses reverse-Z, so Greater really means closer
                 depth_compare: CompareFunction::Greater,
                 stencil: StencilState::default(),
@@ -1154,7 +1176,11 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         let depth_stencil = Some(DepthStencilState {
             format: TextureFormat::Depth32Float,
             // Use depth buffer with alpha-masked particles, not with transparent ones
-            depth_write_enabled: key.use_alpha_mask,
+            depth_write_enabled: matches!(
+                key.alpha_mask,
+                ParticleRenderAlphaMaskPipelineKey::AlphaMask
+                    | ParticleRenderAlphaMaskPipelineKey::Opaque
+            ),
             // Bevy uses reverse-Z, so Greater really means closer
             depth_compare: CompareFunction::Greater,
             stencil: StencilState::default(),
@@ -1172,7 +1198,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 shader: key.shader.clone(),
                 entry_point: "vertex".into(),
                 shader_defs: shader_defs.clone(),
-                buffers: vec![vertex_buffer_layout],
+                buffers: vec![vertex_buffer_layout.expect("Vertex buffer layout not present")],
             },
             fragment: Some(FragmentState {
                 shader: key.shader,
@@ -1244,6 +1270,7 @@ pub(crate) struct ExtractedEffect {
     pub inverse_transform: Mat4,
     /// Layout flags.
     pub layout_flags: LayoutFlags,
+    pub mesh: Handle<Mesh>,
     /// Texture layout.
     pub texture_layout: TextureLayout,
     /// Textures.
@@ -1278,11 +1305,26 @@ pub struct AddedEffect {
     pub handle: Handle<EffectAsset>,
     /// The order in which we evaluate groups.
     pub group_order: Vec<u32>,
+    pub gpu_mesh_info: AddedEffectGpuMeshInfo,
 }
 
 pub struct AddedEffectGroup {
     pub capacity: u32,
     pub src_group_index_if_trail: Option<u32>,
+}
+
+/// Mesh information needed to build newly-added effects.
+pub enum AddedEffectGpuMeshInfo {
+    /// The mesh has vertex indices.
+    Indexed {
+        /// The number of indices that make up the mesh.
+        index_count: u32,
+    },
+    /// The mesh doesn't have vertex indices.
+    NonIndexed {
+        /// The number of vertices in the mesh.
+        vertex_count: u32,
+    },
 }
 
 /// Collection of all extracted effects for this frame, inserted into the
@@ -1338,6 +1380,7 @@ pub(crate) fn extract_effects(
     time: Extract<Res<Time<EffectSimulation>>>,
     effects: Extract<Res<Assets<EffectAsset>>>,
     _images: Extract<Res<Assets<Image>>>,
+    meshes: Extract<Res<Assets<Mesh>>>,
     mut query: Extract<
         ParamSet<(
             // All existing ParticleEffect components
@@ -1360,6 +1403,7 @@ pub(crate) fn extract_effects(
     mut removed_effects_event_reader: Extract<EventReader<RemovedEffectsEvent>>,
     mut sim_params: ResMut<SimParams>,
     mut extracted_effects: ResMut<ExtractedEffects>,
+    effects_meta: Res<EffectsMeta>,
 ) {
     trace!("extract_effects");
 
@@ -1394,6 +1438,10 @@ pub(crate) fn extract_effects(
             let handle = compiled_effect.asset.clone_weak();
             let asset = effects.get(&compiled_effect.asset)?;
             let particle_layout = asset.particle_layout();
+            let mesh = meshes.get(match asset.mesh {
+                Some(ref mesh) => mesh.id(),
+                None => effects_meta.default_mesh.id()
+            })?;
             assert!(
                 particle_layout.size() > 0,
                 "Invalid empty particle layout for effect '{}' on entity {:?}. Did you forget to add some modifier to the asset?",
@@ -1428,6 +1476,10 @@ pub(crate) fn extract_effects(
                 group_order,
                 layout_flags: compiled_effect.layout_flags,
                 handle,
+                gpu_mesh_info: match mesh.indices() {
+                    Some(indices) => AddedEffectGpuMeshInfo::Indexed { index_count: indices.len() as u32 },
+                    None => AddedEffectGpuMeshInfo::NonIndexed { vertex_count: mesh.count_vertices() as u32 },
+                },
             })
         })
         .collect();
@@ -1491,6 +1543,10 @@ pub(crate) fn extract_effects(
         };
 
         let layout_flags = effect.layout_flags;
+        let mesh = match effect.mesh {
+            None => effects_meta.default_mesh.clone(),
+            Some(ref mesh) => (*mesh).clone(),
+        };
         let alpha_mode = effect.alpha_mode;
 
         trace!(
@@ -1514,6 +1570,7 @@ pub(crate) fn extract_effects(
                 // TODO - more efficient/correct way than inverse()?
                 inverse_transform: transform.compute_matrix().inverse(),
                 layout_flags,
+                mesh,
                 texture_layout,
                 textures: effect.textures.clone(),
                 alpha_mode,
@@ -1523,17 +1580,6 @@ pub(crate) fn extract_effects(
             },
         );
     }
-}
-
-/// GPU representation of a single vertex of a particle mesh stored in a GPU
-/// buffer.
-#[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable, ShaderType)]
-struct GpuParticleVertex {
-    /// Vertex position.
-    pub position: [f32; 3],
-    /// UV coordinates of vertex.
-    pub uv: [f32; 2],
 }
 
 /// Various GPU limits and aligned sizes computed once and cached.
@@ -1706,27 +1752,16 @@ pub struct EffectsMeta {
     /// each particle group that's populated by the CPU and read (only read) by
     /// the GPU.
     particle_group_buffer: AlignedBufferVec<GpuParticleGroup>,
-    /// Unscaled vertices of the mesh of a single particle, generally a quad.
-    /// The mesh is later scaled during rendering by the "particle size".
-    // FIXME - This is a per-effect thing, unless we merge all meshes into a single buffer (makes
-    // sense) but in that case we need a vertex slice too to know which mesh to draw per effect.
-    vertices: BufferVec<GpuParticleVertex>,
+    /// The mesh used when particle effects don't specify one (i.e. a quad).
+    default_mesh: Handle<Mesh>,
     /// Various GPU limits and aligned sizes lazily allocated and cached for
     /// convenience.
     gpu_limits: GpuLimits,
 }
 
 impl EffectsMeta {
-    pub fn new(device: RenderDevice) -> Self {
-        let mut vertices = BufferVec::new(BufferUsages::VERTEX);
-        for v in QUAD_VERTEX_POSITIONS {
-            let uv = v.truncate() + 0.5;
-            let v = *v * Vec3::new(1.0, 1.0, 1.0);
-            vertices.push(GpuParticleVertex {
-                position: v.into(),
-                uv: uv.into(),
-            });
-        }
+    pub fn new(device: RenderDevice, mesh_assets: &mut Assets<Mesh>) -> Self {
+        let default_mesh = mesh_assets.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)));
 
         let gpu_limits = GpuLimits::from_device(&device);
 
@@ -1775,7 +1810,7 @@ impl EffectsMeta {
                 NonZeroU64::new(item_align),
                 Some("hanabi:buffer:particle_group".to_string()),
             ),
-            vertices,
+            default_mesh,
             gpu_limits,
         }
     }
@@ -1866,13 +1901,23 @@ impl EffectsMeta {
                 &mut self.render_group_dispatch_buffer,
                 added_effect.groups.iter().map(|group| {
                     let indirect_dispatch = GpuRenderGroupIndirect {
-                        vertex_count: 6, // TODO - Flexible vertex count and mesh particles
+                        vertex_count: match added_effect.gpu_mesh_info {
+                            AddedEffectGpuMeshInfo::Indexed { index_count, .. } => index_count,
+                            AddedEffectGpuMeshInfo::NonIndexed { vertex_count } => vertex_count,
+                        },
+                        first_index_or_vertex_offset: 0,
+                        vertex_offset_or_base_instance: match added_effect.gpu_mesh_info {
+                            AddedEffectGpuMeshInfo::Indexed { .. } => 0,
+                            AddedEffectGpuMeshInfo::NonIndexed { .. } => current_base_instance,
+                        },
                         dead_count: group.capacity,
-                        base_instance: current_base_instance,
+                        base_instance: current_base_instance as u32,
+                        instance_count: 0,
+                        alive_count: 0,
+                        max_update: 0,
                         max_spawn: group.capacity,
-                        ..default()
                     };
-                    current_base_instance += group.capacity;
+                    current_base_instance += group.capacity as i32;
                     indirect_dispatch
                 }),
             );
@@ -1969,15 +2014,6 @@ impl EffectsMeta {
     }
 }
 
-const QUAD_VERTEX_POSITIONS: &[Vec3] = &[
-    Vec3::from_array([-0.5, -0.5, 0.0]),
-    Vec3::from_array([0.5, 0.5, 0.0]),
-    Vec3::from_array([-0.5, 0.5, 0.0]),
-    Vec3::from_array([-0.5, -0.5, 0.0]),
-    Vec3::from_array([0.5, -0.5, 0.0]),
-    Vec3::from_array([0.5, 0.5, 0.0]),
-];
-
 bitflags! {
     /// Effect flags.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1996,6 +2032,10 @@ bitflags! {
         const NEEDS_UV = (1 << 5);
         /// The effect has ribbons.
         const RIBBONS = (1 << 6);
+        /// The effects needs normals.
+        const NEEDS_NORMAL = (1 << 7);
+        /// The effect is fully-opaque.
+        const OPAQUE = (1 << 8);
     }
 }
 
@@ -2026,11 +2066,6 @@ pub(crate) fn prepare_effects(
     // if effects_meta.spawner_buffer.is_empty() {
     //    effects_meta.spawner_buffer.push(GpuSpawnerParams::default());
     //}
-
-    // Write vertices (TODO - lazily once only)
-    effects_meta
-        .vertices
-        .write_buffer(&render_device, &render_queue);
 
     // Clear last frame's buffer resizes which may have occured during last frame,
     // during `Node::run()` while the `BufferTable` could not be mutated.
@@ -2085,6 +2120,7 @@ pub(crate) fn prepare_effects(
                 property_layout: extracted_effect.property_layout.clone(),
                 effect_shaders: extracted_effect.effect_shaders.clone(),
                 layout_flags: extracted_effect.layout_flags,
+                mesh: extracted_effect.mesh,
                 texture_layout: extracted_effect.texture_layout.clone(),
                 textures: extracted_effect.textures.clone(),
                 alpha_mode: extracted_effect.alpha_mode,
@@ -2466,6 +2502,8 @@ pub struct QueueEffectsReadOnlyParams<'w, 's> {
     draw_functions_3d: Res<'w, DrawFunctions<Transparent3d>>,
     #[cfg(feature = "3d")]
     draw_functions_alpha_mask: Res<'w, DrawFunctions<AlphaMask3d>>,
+    #[cfg(feature = "3d")]
+    draw_functions_opaque: Res<'w, DrawFunctions<Opaque3d>>,
     #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
@@ -2478,6 +2516,7 @@ fn emit_sorted_draw<T, F>(
     effect_draw_batches: &Query<(Entity, &mut EffectDrawBatch)>,
     render_pipeline: &mut ParticlesRenderPipeline,
     mut specialized_render_pipelines: Mut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
+    render_meshes: &RenderAssets<GpuMesh>,
     pipeline_cache: &PipelineCache,
     msaa_samples: u32,
     make_phase_item: F,
@@ -2536,7 +2575,10 @@ fn emit_sorted_draw<T, F>(
             );
 
             // AlphaMask is a binned draw, so no sorted draw can possibly use it
-            if batches.layout_flags.contains(LayoutFlags::USE_ALPHA_MASK) {
+            if batches
+                .layout_flags
+                .intersects(LayoutFlags::USE_ALPHA_MASK | LayoutFlags::OPAQUE)
+            {
                 continue;
             }
 
@@ -2568,18 +2610,20 @@ fn emit_sorted_draw<T, F>(
             let local_space_simulation = batches
                 .layout_flags
                 .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
-            let use_alpha_mask = batches.layout_flags.contains(LayoutFlags::USE_ALPHA_MASK);
+            let alpha_mask = ParticleRenderAlphaMaskPipelineKey::from(batches.layout_flags);
             let flipbook = batches.layout_flags.contains(LayoutFlags::FLIPBOOK);
             let needs_uv = batches.layout_flags.contains(LayoutFlags::NEEDS_UV);
+            let needs_normal = batches.layout_flags.contains(LayoutFlags::NEEDS_NORMAL);
             let ribbons = batches.layout_flags.contains(LayoutFlags::RIBBONS);
             let image_count = batches.texture_layout.layout.len() as u8;
+            let gpu_mesh = render_meshes.get(&batches.mesh);
 
             // Specialize the render pipeline based on the effect batch
             trace!(
-                "Specializing render pipeline: render_shaders={:?} image_count={} use_alpha_mask={:?} flipbook={:?} hdr={}",
+                "Specializing render pipeline: render_shaders={:?} image_count={} alpha_mask={:?} flipbook={:?} hdr={}",
                 batches.render_shaders,
                 image_count,
-                use_alpha_mask,
+                alpha_mask,
                 flipbook,
                 view.hdr
             );
@@ -2591,6 +2635,10 @@ fn emit_sorted_draw<T, F>(
 
             let alpha_mode = batches.alpha_mode;
 
+            let Some(mesh_layout) = gpu_mesh.map(|gpu_mesh| gpu_mesh.layout.clone()) else {
+                continue;
+            };
+
             #[cfg(feature = "trace")]
             let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
             let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2598,13 +2646,15 @@ fn emit_sorted_draw<T, F>(
                 render_pipeline,
                 ParticleRenderPipelineKey {
                     shader: render_shader_source.clone(),
+                    mesh_layout: Some(mesh_layout),
                     particle_layout: batches.particle_layout.clone(),
                     texture_layout: batches.texture_layout.clone(),
                     local_space_simulation,
-                    use_alpha_mask,
+                    alpha_mask,
                     alpha_mode,
                     flipbook,
                     needs_uv,
+                    needs_normal,
                     ribbons,
                     #[cfg(all(feature = "2d", feature = "3d"))]
                     pipeline_mode,
@@ -2650,10 +2700,11 @@ fn emit_binned_draw<T, F>(
     render_pipeline: &mut ParticlesRenderPipeline,
     mut specialized_render_pipelines: Mut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
     pipeline_cache: &PipelineCache,
+    render_meshes: &RenderAssets<GpuMesh>,
     msaa_samples: u32,
     make_bin_key: F,
     #[cfg(all(feature = "2d", feature = "3d"))] pipeline_mode: PipelineMode,
-    use_alpha_mask: bool,
+    alpha_mask: ParticleRenderAlphaMaskPipelineKey,
 ) where
     T: BinnedPhaseItem,
     F: Fn(CachedRenderPipelineId, &EffectDrawBatch, u32, &ExtractedView) -> T::BinKey,
@@ -2663,10 +2714,7 @@ fn emit_binned_draw<T, F>(
     trace!("emit_binned_draw() {} views", views.iter().len());
 
     for (view_entity, visible_entities, view) in views.iter() {
-        trace!(
-            "Process new binned view (use_alpha_mask={})",
-            use_alpha_mask
-        );
+        trace!("Process new binned view (alpha_mask={:?})", alpha_mask);
 
         let Some(render_phase) = render_phases.get_mut(&view_entity) else {
             continue;
@@ -2712,7 +2760,7 @@ fn emit_binned_draw<T, F>(
                 batches.layout_flags,
             );
 
-            if use_alpha_mask != batches.layout_flags.contains(LayoutFlags::USE_ALPHA_MASK) {
+            if ParticleRenderAlphaMaskPipelineKey::from(batches.layout_flags) != alpha_mask {
                 continue;
             }
 
@@ -2744,18 +2792,20 @@ fn emit_binned_draw<T, F>(
             let local_space_simulation = batches
                 .layout_flags
                 .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
-            let use_alpha_mask = batches.layout_flags.contains(LayoutFlags::USE_ALPHA_MASK);
+            let alpha_mask = ParticleRenderAlphaMaskPipelineKey::from(batches.layout_flags);
             let flipbook = batches.layout_flags.contains(LayoutFlags::FLIPBOOK);
             let needs_uv = batches.layout_flags.contains(LayoutFlags::NEEDS_UV);
+            let needs_normal = batches.layout_flags.contains(LayoutFlags::NEEDS_NORMAL);
             let ribbons = batches.layout_flags.contains(LayoutFlags::RIBBONS);
             let image_count = batches.texture_layout.layout.len() as u8;
+            let gpu_mesh = render_meshes.get(&batches.mesh);
 
             // Specialize the render pipeline based on the effect batch
             trace!(
-                "Specializing render pipeline: render_shaders={:?} image_count={} use_alpha_mask={:?} flipbook={:?} hdr={}",
+                "Specializing render pipeline: render_shaders={:?} image_count={} alpha_mask={:?} flipbook={:?} hdr={}",
                 batches.render_shaders,
                 image_count,
-                use_alpha_mask,
+                alpha_mask,
                 flipbook,
                 view.hdr
             );
@@ -2767,6 +2817,10 @@ fn emit_binned_draw<T, F>(
 
             let alpha_mode = batches.alpha_mode;
 
+            let Some(mesh_layout) = gpu_mesh.map(|gpu_mesh| gpu_mesh.layout.clone()) else {
+                continue;
+            };
+
             #[cfg(feature = "trace")]
             let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
             let render_pipeline_id = specialized_render_pipelines.specialize(
@@ -2774,13 +2828,15 @@ fn emit_binned_draw<T, F>(
                 render_pipeline,
                 ParticleRenderPipelineKey {
                     shader: render_shader_source.clone(),
+                    mesh_layout: Some(mesh_layout),
                     particle_layout: batches.particle_layout.clone(),
                     texture_layout: batches.texture_layout.clone(),
                     local_space_simulation,
-                    use_alpha_mask,
+                    alpha_mask,
                     alpha_mode,
                     flipbook,
                     needs_uv,
+                    needs_normal,
                     ribbons,
                     #[cfg(all(feature = "2d", feature = "3d"))]
                     pipeline_mode,
@@ -2825,6 +2881,7 @@ pub(crate) fn queue_effects(
     effect_batches: Query<(Entity, &mut EffectBatches)>,
     effect_draw_batches: Query<(Entity, &mut EffectDrawBatch)>,
     events: Res<EffectAssetEvents>,
+    render_meshes: Res<RenderAssets<GpuMesh>>,
     read_params: QueueEffectsReadOnlyParams,
     msaa: Res<Msaa>,
     mut view_entities: Local<FixedBitSet>,
@@ -2888,6 +2945,7 @@ pub(crate) fn queue_effects(
                 &effect_draw_batches,
                 &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
+                &render_meshes,
                 &pipeline_cache,
                 msaa.samples(),
                 |id, entity, draw_batch, _group, _view| Transparent2d {
@@ -2928,6 +2986,7 @@ pub(crate) fn queue_effects(
                 &effect_draw_batches,
                 &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
+                &render_meshes,
                 &pipeline_cache,
                 msaa.samples(),
                 |id, entity, batch, _group, view| Transparent3d {
@@ -2967,6 +3026,7 @@ pub(crate) fn queue_effects(
                 &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
+                &render_meshes,
                 msaa.samples(),
                 |id, _batch, _group, _view| OpaqueNoLightmap3dBinKey {
                     pipeline: id,
@@ -2982,7 +3042,49 @@ pub(crate) fn queue_effects(
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
-                true,
+                ParticleRenderAlphaMaskPipelineKey::AlphaMask,
+            );
+        }
+
+        // Opaque particles
+        if !views.is_empty() {
+            #[cfg(feature = "trace")]
+            let _span_draw = bevy::utils::tracing::info_span!("draw_opaque").entered();
+
+            trace!("Emit effect draw calls for opaque 3D views...");
+
+            let draw_effects_function_opaque = read_params
+                .draw_functions_opaque
+                .read()
+                .get_id::<DrawEffects>()
+                .unwrap();
+
+            emit_binned_draw(
+                &views,
+                &mut alpha_mask_3d_render_phases,
+                &mut view_entities,
+                &effect_batches,
+                &effect_draw_batches,
+                &mut render_pipeline,
+                specialized_render_pipelines.reborrow(),
+                &pipeline_cache,
+                &render_meshes,
+                msaa.samples(),
+                |id, _batch, _group, _view| OpaqueNoLightmap3dBinKey {
+                    pipeline: id,
+                    draw_function: draw_effects_function_opaque,
+                    asset_id: AssetId::<Image>::default().untyped(),
+                    material_bind_group_id: None,
+                    // },
+                    // distance: view
+                    //     .rangefinder3d()
+                    //     .distance_translation(&batch.translation_3d),
+                    // batch_range: 0..1,
+                    // extra_index: PhaseItemExtraIndex::NONE,
+                },
+                #[cfg(feature = "2d")]
+                PipelineMode::Camera3d,
+                ParticleRenderAlphaMaskPipelineKey::Opaque,
             );
         }
     }
@@ -3418,6 +3520,7 @@ type DrawEffectsSystemState = SystemState<(
     SRes<EffectsMeta>,
     SRes<EffectBindGroups>,
     SRes<PipelineCache>,
+    SRes<RenderAssets<GpuMesh>>,
     SQuery<Read<ViewUniformOffset>>,
     SQuery<Read<EffectBatches>>,
     SQuery<Read<EffectDrawBatch>>,
@@ -3450,11 +3553,19 @@ fn draw<'w>(
     pipeline_id: CachedRenderPipelineId,
     params: &mut DrawEffectsSystemState,
 ) {
-    let (effects_meta, effect_bind_groups, pipeline_cache, views, effects, effect_draw_batches) =
-        params.get(world);
+    let (
+        effects_meta,
+        effect_bind_groups,
+        pipeline_cache,
+        meshes,
+        views,
+        effects,
+        effect_draw_batches,
+    ) = params.get(world);
     let view_uniform = views.get(view).unwrap();
     let effects_meta = effects_meta.into_inner();
     let effect_bind_groups = effect_bind_groups.into_inner();
+    let meshes = meshes.into_inner();
     let effect_draw_batch = effect_draw_batches.get(entity).unwrap();
     let effect_batches = effects.get(effect_draw_batch.batches_entity).unwrap();
 
@@ -3468,8 +3579,12 @@ fn draw<'w>(
 
     pass.set_render_pipeline(pipeline);
 
+    let Some(gpu_mesh): Option<&GpuMesh> = meshes.get(&effect_batches.mesh) else {
+        return;
+    };
+
     // Vertex buffer containing the particle model to draw. Generally a quad.
-    pass.set_vertex_buffer(0, effects_meta.vertices.buffer().unwrap().slice(..));
+    pass.set_vertex_buffer(0, gpu_mesh.vertex_buffer.slice(..));
 
     // View properties (camera matrix, etc.)
     pass.set_bind_group(
@@ -3538,17 +3653,34 @@ fn draw<'w>(
         "Draw up to {} particles with {} vertices per particle for batch from buffer #{} \
             (render_group_dispatch_indirect_index={:?}, group_index={}).",
         effect_batch.slice.len(),
-        effects_meta.vertices.len(),
+        gpu_mesh.vertex_count,
         effect_batches.buffer_index,
         render_group_dispatch_indirect_index,
         group_index,
     );
 
-    pass.draw_indirect(
-        render_indirect_buffer,
-        render_group_dispatch_indirect_index as u64
-            * u32::from(gpu_limits.render_group_indirect_aligned_size) as u64,
-    );
+    match gpu_mesh.buffer_info {
+        GpuBufferInfo::Indexed {
+            ref buffer,
+            count: _,
+            index_format,
+        } => {
+            pass.set_index_buffer(buffer.slice(..), 0, index_format);
+
+            pass.draw_indexed_indirect(
+                render_indirect_buffer,
+                render_group_dispatch_indirect_index as u64
+                    * u32::from(gpu_limits.render_group_indirect_aligned_size) as u64,
+            );
+        }
+        GpuBufferInfo::NonIndexed => {
+            pass.draw_indirect(
+                render_indirect_buffer,
+                render_group_dispatch_indirect_index as u64
+                    * u32::from(gpu_limits.render_group_indirect_aligned_size) as u64,
+            );
+        }
+    }
 }
 
 #[cfg(feature = "2d")]
@@ -3603,6 +3735,27 @@ impl Draw<AlphaMask3d> for DrawEffects {
         item: &AlphaMask3d,
     ) {
         trace!("Draw<AlphaMask3d>: view={:?}", view);
+        draw(
+            world,
+            pass,
+            view,
+            item.representative_entity,
+            item.key.pipeline,
+            &mut self.params,
+        );
+    }
+}
+
+#[cfg(feature = "3d")]
+impl Draw<Opaque3d> for DrawEffects {
+    fn draw<'w>(
+        &mut self,
+        world: &'w World,
+        pass: &mut TrackedRenderPass<'w>,
+        view: Entity,
+        item: &Opaque3d,
+    ) {
+        trace!("Draw<Opaque3d>: view={:?}", view);
         draw(
             world,
             pass,
@@ -4378,6 +4531,18 @@ where
     }
 
     first_buffer.expect("No buffers allocated")
+}
+
+impl From<LayoutFlags> for ParticleRenderAlphaMaskPipelineKey {
+    fn from(layout_flags: LayoutFlags) -> Self {
+        if layout_flags.contains(LayoutFlags::USE_ALPHA_MASK) {
+            ParticleRenderAlphaMaskPipelineKey::AlphaMask
+        } else if layout_flags.contains(LayoutFlags::OPAQUE) {
+            ParticleRenderAlphaMaskPipelineKey::Opaque
+        } else {
+            ParticleRenderAlphaMaskPipelineKey::Blend
+        }
+    }
 }
 
 #[cfg(test)]

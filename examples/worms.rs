@@ -96,10 +96,10 @@ fn setup(
 
     // Set the particle size.
     let main_set_size_modifier = SetSizeModifier {
-        size: Vec2::splat(0.4).into(),
+        size: Vec3::splat(0.4).into(),
     };
     let trail_set_size_modifier = SetSizeModifier {
-        size: Vec2::splat(0.3).into(),
+        size: Vec3::splat(0.3).into(),
     };
 
     // Make each particle round.

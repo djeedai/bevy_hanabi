@@ -85,7 +85,8 @@
 //! | [`Attribute::HDR_COLOR`] | The particle's HDR color as `vec4<f32>`. |
 //! | [`Attribute::ALPHA`] | The particle's opacity. |
 //! | [`Attribute::SIZE`] | The particle's uniform size. |
-//! | [`Attribute::SIZE2`] | The particle's non-uniform size. |
+//! | [`Attribute::SIZE2`] | The particle's non-uniform 2D size. |
+//! | [`Attribute::SIZE3`] | The particle's non-uniform 3D size. |
 //! | [`Attribute::AXIS_X`] | X axis of the particle frame. |
 //! | [`Attribute::AXIS_Y`] | Y axis of the particle frame. |
 //! | [`Attribute::AXIS_Z`] | Z axis of the particle frame. |
@@ -572,6 +573,11 @@ impl AttributeInner {
         Value::Vector(VectorValue::new_vec2(Vec2::ONE)),
     );
 
+    pub const SIZE3: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("size3"),
+        Value::Vector(VectorValue::new_vec3(Vec3::ONE)),
+    );
+
     pub const PREV: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("prev"),
         Value::Scalar(ScalarValue::Uint(!0u32)),
@@ -993,10 +999,10 @@ impl Attribute {
     /// [`ScalarType::Float`]
     pub const SIZE: Attribute = Attribute(AttributeInner::SIZE);
 
-    /// The particle's 2D size, for quad rendering.
+    /// The particle's 2D size.
     ///
-    /// The particle, when drawn as a quad, is scaled along its local X and Y
-    /// axes by these values.
+    /// The particle is scaled along its local X and Y axes by these values. The
+    /// Z axis is unaffected.
     ///
     /// # Name
     ///
@@ -1006,6 +1012,19 @@ impl Attribute {
     ///
     /// [`VectorType::VEC2F`] representing the XY sizes of the particle.
     pub const SIZE2: Attribute = Attribute(AttributeInner::SIZE2);
+
+    /// The particle's 3D size.
+    ///
+    /// The particle is scaled along its local X, Y, and Z axes by these values.
+    ///
+    /// # Name
+    ///
+    /// `size3`
+    ///
+    /// # Type
+    ///
+    /// [`VectorType::VEC3F`] representing the XYZ sizes of the particle.
+    pub const SIZE3: Attribute = Attribute(AttributeInner::SIZE3);
 
     /// The previous particle in the ribbon chain.
     ///
@@ -1184,7 +1203,7 @@ impl Attribute {
     declare_custom_attr_pub!(F32X4_3, "f32x4_3", 4, VEC4F);
 
     /// Collection of all the existing particle attributes.
-    const ALL: [Attribute; 31] = [
+    const ALL: [Attribute; 32] = [
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,
@@ -1194,6 +1213,7 @@ impl Attribute {
         Attribute::ALPHA,
         Attribute::SIZE,
         Attribute::SIZE2,
+        Attribute::SIZE3,
         Attribute::PREV,
         Attribute::NEXT,
         Attribute::AXIS_X,

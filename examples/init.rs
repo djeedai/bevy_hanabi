@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 const COLOR: Vec4 = Vec4::new(0.7, 0.7, 1.0, 1.0);
-const SIZE: Vec2 = Vec2::splat(0.1);
+const SIZE: Vec3 = Vec3::splat(0.1);
 
 fn base_effect<M, F>(name: impl Into<String>, mut make_modifier: F) -> EffectAsset
 where

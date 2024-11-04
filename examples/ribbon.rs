@@ -95,7 +95,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         .init_groups(init_size_attr, ParticleGroupSet::single(0))
         .update_groups(move_modifier, ParticleGroupSet::single(0))
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::linear(Vec2::ONE, Vec2::ZERO),
+            gradient: Gradient::linear(Vec3::ONE, Vec3::ZERO),
             ..default()
         })
         .render_groups(render_color, ParticleGroupSet::single(1));

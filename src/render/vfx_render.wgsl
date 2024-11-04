@@ -20,6 +20,9 @@ struct VertexOutput {
 #ifdef NEEDS_UV
     @location(1) uv: vec2<f32>,
 #endif
+#ifdef NEEDS_NORMAL
+    @location(2) normal: vec3<f32>,
+#endif
 }
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -76,6 +79,15 @@ fn unpack_compressed_transform(compressed_transform: mat3x4<f32>) -> mat4x4<f32>
     );
 }
 
+// Unpacks a compressed transform and transposes is.
+fn unpack_compressed_transform_3x3_transpose(compressed_transform: mat3x4<f32>) -> mat3x3<f32> {
+    return mat3x3(
+        compressed_transform[0].xyz,
+        compressed_transform[1].xyz,
+        compressed_transform[2].xyz,
+    );
+}
+
 /// Transform a simulation space position into a world space position.
 ///
 /// The simulation space depends on the effect's SimulationSpace value, and is either
@@ -89,6 +101,18 @@ fn transform_position_simulation_to_world(sim_position: vec3<f32>) -> vec4<f32> 
 #endif
 }
 
+fn transform_normal_simulation_to_world(sim_normal: vec3<f32>) -> vec3<f32> {
+#ifdef LOCAL_SPACE_SIMULATION
+    // We use the inverse transpose transform to transform normals.
+    // The inverse transpose is the same as the transposed inverse, so we can
+    // safely use the inverse transform.
+    let transform = unpack_compressed_transform_3x3_transpose(spawner.inverse_transform);
+    return transform * sim_normal;
+#else
+    return sim_normal;
+#endif
+}
+
 /// Transform a simulation space position into a clip space position.
 ///
 /// The simulation space depends on the effect's SimulationSpace value, and is either
@@ -99,6 +123,14 @@ fn transform_position_simulation_to_clip(sim_position: vec3<f32>) -> vec4<f32> {
     return view.clip_from_world * transform_position_simulation_to_world(sim_position);
 }
 
+fn inverse_transpose_mat3(m: mat3x3<f32>) -> mat3x3<f32> {
+    let tmp0 = cross(m[1], m[2]);
+    let tmp1 = cross(m[2], m[0]);
+    let tmp2 = cross(m[0], m[1]);
+    let inv_det = 1.0 / dot(m[2], tmp2);
+    return mat3x3<f32>(tmp0 * inv_det, tmp1 * inv_det, tmp2 * inv_det);
+}
+
 {{RENDER_EXTRA}}
 
 @vertex
@@ -107,6 +139,9 @@ fn vertex(
     @location(0) vertex_position: vec3<f32>,
 #ifdef NEEDS_UV
     @location(1) vertex_uv: vec2<f32>,
+#endif
+#ifdef NEEDS_NORMAL
+    @location(2) vertex_normal: vec3<f32>,
 #endif
     // @location(1) vertex_color: u32,
     // @location(1) vertex_velocity: vec3<f32>,
@@ -144,16 +179,21 @@ fn vertex(
     axis_z = cross(axis_x, axis_y);
 
     position = mix(next_particle.position, particle.position, 0.5);
-    size = vec2(length(delta), size.y);
+    size = vec3(length(delta), size.y, 1.0);
 #endif  // RIBBONS
 
     // Expand particle mesh vertex based on particle position ("origin"), and local
     // orientation and size of the particle mesh (currently: only quad).
-    let vpos = vertex_position * vec3<f32>(size.x, size.y, 1.0);
-    let sim_position = position + axis_x * vpos.x + axis_y * vpos.y;
+    let vpos = vertex_position * size;
+    let sim_position = position + axis_x * vpos.x + axis_y * vpos.y + axis_z * vpos.z;
     out.position = transform_position_simulation_to_clip(sim_position);
 
     out.color = color;
+
+#ifdef NEEDS_NORMAL
+    let normal = inverse_transpose_mat3(mat3x3(axis_x, axis_y, axis_z)) * vertex_normal;
+    out.normal = transform_normal_simulation_to_world(normal);
+#endif  // NEEDS_NORMAL
 
     return out;
 }
@@ -167,6 +207,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = in.color;
 #ifdef NEEDS_UV
     var uv = in.uv;
+#endif
+#ifdef NEEDS_NORMAL
+    var normal = in.normal;
 #endif
 
 {{FRAGMENT_MODIFIERS}}

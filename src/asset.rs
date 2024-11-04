@@ -3,7 +3,8 @@ use std::ops::Deref;
 #[cfg(feature = "serde")]
 use bevy::asset::{io::Reader, AssetLoader, AsyncReadExt, LoadContext};
 use bevy::{
-    asset::Asset,
+    asset::{Asset, Handle},
+    prelude::Mesh,
     reflect::Reflect,
     utils::{default, HashSet},
 };
@@ -198,6 +199,12 @@ pub enum AlphaMode {
     ///
     /// [`AlphaMask3d`]: bevy::core_pipeline::core_3d::AlphaMask3d
     Mask(ExprHandle),
+
+    /// Render the effect with no alpha, and update the depth buffer.
+    ///
+    /// Use this mode when every pixel covered by the particle's mesh is fully
+    /// opaque.
+    Opaque,
 }
 
 impl From<AlphaMode> for BlendState {
@@ -290,6 +297,11 @@ pub struct EffectAsset {
     module: Module,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
+    /// The mesh that each particle renders.
+    ///
+    /// This defaults to a quad facing the Z axis.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub mesh: Option<Handle<Mesh>>,
     /// Which group is to render as ribbons.
     ///
     /// There can be only one such group, because there's only one set of
@@ -892,6 +904,12 @@ impl EffectAsset {
     /// Get the texture layout of the module of this effect.
     pub fn texture_layout(&self) -> TextureLayout {
         self.module.texture_layout()
+    }
+
+    /// Sets the mesh that each particle will render.
+    pub fn mesh(mut self, mesh: Handle<Mesh>) -> Self {
+        self.mesh = Some(mesh);
+        self
     }
 
     /// Computes the group evaluation order, which ensures that cloners run
