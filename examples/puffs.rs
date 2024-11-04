@@ -2,7 +2,8 @@
 //!
 //! This example creates cartoony smoke puffs out of spherical meshes.
 
-use crate::utils::*;
+use std::{error::Error, f32::consts::FRAC_PI_2};
+
 use bevy::{
     color::palettes::css::FOREST_GREEN,
     core_pipeline::tonemapping::Tonemapping,
@@ -12,7 +13,8 @@ use bevy::{
 };
 use bevy_hanabi::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::{error::Error, f32::consts::FRAC_PI_2};
+
+use crate::utils::*;
 
 mod utils;
 
