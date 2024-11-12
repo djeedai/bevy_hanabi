@@ -6,10 +6,8 @@
 //! total control to the application.
 
 use bevy::{
-    core_pipeline::tonemapping::Tonemapping,
-    math::Vec3Swizzles,
-    prelude::*,
-    render::camera::{Projection, ScalingMode},
+    core_pipeline::tonemapping::Tonemapping, math::Vec3Swizzles, prelude::*,
+    render::camera::ScalingMode,
 };
 use bevy_hanabi::prelude::*;
 
@@ -38,47 +36,44 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle {
-        tonemapping: Tonemapping::None,
-        ..default()
+    let mut projection = OrthographicProjection::default_3d();
+    projection.scaling_mode = ScalingMode::FixedVertical {
+        viewport_height: 2.,
     };
-    let mut projection = OrthographicProjection::default();
-    projection.scaling_mode = ScalingMode::FixedVertical(2.);
     projection.scale = 1.2;
-    camera.transform.translation.z = projection.far / 2.0;
-    camera.projection = Projection::Orthographic(projection);
-    commands.spawn(camera);
+    commands.spawn((
+        Transform::from_translation(Vec3::Z),
+        Camera3d::default(),
+        Projection::Orthographic(projection),
+        Tonemapping::None,
+    ));
 
-    commands
-        .spawn(PbrBundle {
-            mesh: meshes.add(Rectangle {
-                half_size: Vec2::splat(BOX_SIZE / 2.),
-            }),
-            material: materials.add(StandardMaterial {
-                base_color: Color::linear_rgb(0.05, 0.05, 0.05),
-                unlit: true,
-                ..Default::default()
-            }),
+    commands.spawn((
+        Mesh3d(meshes.add(Rectangle {
+            half_size: Vec2::splat(BOX_SIZE / 2.),
+        })),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::linear_rgb(0.05, 0.05, 0.05),
+            unlit: true,
             ..Default::default()
-        })
-        .insert(Name::new("box"));
+        })),
+        Name::new("box"),
+    ));
 
-    commands
-        .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(Sphere {
-                radius: BALL_RADIUS,
-            })),
-            material: materials.add(StandardMaterial {
-                base_color: Color::WHITE,
-                unlit: true,
-                ..Default::default()
-            }),
+    commands.spawn((
+        Mesh3d(meshes.add(Mesh::from(Sphere {
+            radius: BALL_RADIUS,
+        }))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::WHITE,
+            unlit: true,
             ..Default::default()
-        })
-        .insert(Ball {
+        })),
+        Ball {
             velocity: Vec2::new(1.0, 2f32.sqrt()),
-        })
-        .insert(Name::new("ball"));
+        },
+        Name::new("ball"),
+    ));
 
     // Set `spawn_immediately` to false to spawn on command with Spawner::reset()
     let spawner = Spawner::once(100.0.into(), false);
@@ -175,7 +170,7 @@ fn update(
     };
 
     for (mut ball, mut transform) in balls.iter_mut() {
-        let mut pos = transform.translation.xy() + ball.velocity * time.delta_seconds();
+        let mut pos = transform.translation.xy() + ball.velocity * time.delta_secs();
         let mut collision = false;
 
         let mut normal = Vec2::ZERO;

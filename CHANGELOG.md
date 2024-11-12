@@ -3,6 +3,18 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added a `TextureLayout::get_slot_by_name()` helper to retrieve the index of a texture slot.
+
+### Changed
+
+- Compatible with Bevy 0.15
+- Renamed `Module::add_texture()` to `add_texture_slot()` for clarity.
+  The actual texture is bound to the slot through the `MaterialEffect` component.
+
 ## [0.13.1] 2024-11-16
 
 ### Fixed

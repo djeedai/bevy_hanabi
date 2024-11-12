@@ -5,7 +5,7 @@
 use bevy::math::vec4;
 use bevy::prelude::*;
 use bevy::{
-    core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
+    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
     math::vec3,
 };
 use bevy_hanabi::prelude::*;
@@ -33,17 +33,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_translation(Vec3::new(0., 0., 50.)),
-            camera: Camera {
-                hdr: true,
-                clear_color: Color::BLACK.into(),
-                ..default()
-            },
-            tonemapping: Tonemapping::None,
+        Transform::from_translation(Vec3::new(0., 0., 50.)),
+        Camera {
+            hdr: true,
+            clear_color: Color::BLACK.into(),
             ..default()
         },
-        BloomSettings::default(),
+        Camera3d::default(),
+        Tonemapping::None,
+        Bloom::default(),
     ));
 
     let writer = ExprWriter::new();
@@ -120,7 +118,7 @@ fn move_head(
         return;
     };
     for mut transform in query.iter_mut() {
-        let time = timer.elapsed_seconds() * TIME_SCALE;
+        let time = timer.elapsed_secs() * TIME_SCALE;
         let pos = vec3(
             (1.0 - K) * (time.clone().cos()) + (L * K) * (((1.0 - K) / K) * time.clone()).cos(),
             (1.0 - K) * (time.clone().sin()) - (L * K) * (((1.0 - K) / K) * time.clone()).sin(),

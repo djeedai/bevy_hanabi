@@ -14,6 +14,7 @@ use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*, render::camera::
 use bevy_hanabi::prelude::*;
 
 mod utils;
+use bevy_text::TextFont;
 use utils::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -38,44 +39,42 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle {
-        tonemapping: Tonemapping::None,
-        ..default()
+    let mut projection = OrthographicProjection::default_3d();
+    projection.scaling_mode = ScalingMode::FixedVertical {
+        viewport_height: 2.,
     };
-    let mut projection = OrthographicProjection::default();
-    projection.scaling_mode = ScalingMode::FixedVertical(2.);
     projection.scale = 1.0;
-    camera.transform.translation.z = projection.far / 2.0;
-    camera.projection = Projection::Orthographic(projection);
-    commands.spawn(camera);
+    commands.spawn((
+        Transform::from_translation(Vec3::Z),
+        Projection::Orthographic(projection),
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
 
     // Blue rectangle mesh for "water"
-    commands
-        .spawn(PbrBundle {
-            mesh: meshes.add(Rectangle {
-                half_size: Vec2::splat(2.0),
-            }),
-            material: materials.add(StandardMaterial {
-                base_color: utils::COLOR_BLUE,
-                unlit: true,
-                ..Default::default()
-            }),
-            transform: Transform::from_xyz(0.0, -2.0, 0.0),
+    commands.spawn((
+        Transform::from_xyz(0.0, -2.0, 0.0),
+        Mesh3d(meshes.add(Rectangle {
+            half_size: Vec2::splat(2.0),
+        })),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: utils::COLOR_BLUE,
+            unlit: true,
             ..Default::default()
-        })
-        .insert(Name::new("water"));
+        })),
+        Name::new("water"),
+    ));
 
-    let mut ball = commands.spawn(PbrBundle {
-        mesh: meshes.add(Sphere { radius: 0.05 }),
-        material: materials.add(StandardMaterial {
+    let mut ball = commands.spawn((
+        Mesh3d(meshes.add(Sphere { radius: 0.05 })),
+        MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::WHITE,
             unlit: true,
             ..Default::default()
-        }),
-        ..Default::default()
-    });
-    ball.insert(Ball { velocity_y: 1.0 })
-        .insert(Name::new("ball"));
+        })),
+        Ball { velocity_y: 1.0 },
+        Name::new("ball"),
+    ));
 
     let mut gradient = Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
@@ -136,23 +135,18 @@ fn setup(
     });
 
     commands.spawn((
-        TextBundle {
-            style: Style {
-                position_type: PositionType::Absolute,
-                top: Val::Px(30.),
-                right: Val::Px(30.),
-                ..default()
-            },
-            text: Text::from_section(
-                "Active",
-                TextStyle {
-                    font_size: 60.0,
-                    color: Color::WHITE,
-                    ..default()
-                },
-            ),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(30.),
+            right: Val::Px(30.),
             ..default()
         },
+        Text::new("Active"),
+        TextFont {
+            font_size: 60.0,
+            ..default()
+        },
+        TextColor(Color::WHITE.into()),
         StatusText,
     ));
 }
@@ -170,8 +164,8 @@ fn update(
         } else {
             ACCELERATION
         };
-        ball.velocity_y += accel * time.delta_seconds();
-        transform.translation.y += ball.velocity_y * time.delta_seconds();
+        ball.velocity_y += accel * time.delta_secs();
+        transform.translation.y += ball.velocity_y * time.delta_secs();
 
         // Note: On first frame where the effect spawns, EffectSpawner is spawned during
         // CoreSet::PostUpdate, so will not be available yet. Ignore for a frame
@@ -182,6 +176,6 @@ fn update(
         }
 
         let mut text = q_text.single_mut();
-        text.sections[0].value = (if is_active { "Active" } else { "Inactive" }).to_string();
+        text.0 = (if is_active { "Active" } else { "Inactive" }).to_string();
     }
 }

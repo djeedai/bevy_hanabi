@@ -48,9 +48,9 @@ use std::{
 
 use bevy::{
     asset::Handle,
+    image::Image,
     math::{UVec2, Vec3, Vec4},
     reflect::Reflect,
-    render::texture::Image,
     utils::HashMap,
 };
 use bitflags::bitflags;

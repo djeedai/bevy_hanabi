@@ -53,46 +53,43 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // Spawn the camera.
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(25.0, 15.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
-        camera: Camera {
+    commands.spawn((
+        Transform::from_xyz(25.0, 15.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Camera {
             hdr: true,
             clear_color: Color::BLACK.into(),
             ..default()
         },
-        tonemapping: Tonemapping::None,
-        ..default()
-    });
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
 
     // Spawn the fox.
-    commands.spawn(SceneBundle {
-        scene: asset_server.load("Fox.glb#Scene0"),
-        transform: Transform::from_scale(Vec3::splat(0.1)),
-        ..default()
-    });
+    commands.spawn((
+        SceneRoot(asset_server.load("Fox.glb#Scene0")),
+        Transform::from_scale(Vec3::splat(0.1)),
+    ));
 
     // Spawn the circular base.
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Circle::new(15.0)),
-        material: materials.add(StandardMaterial {
+    commands.spawn((
+        Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
+        Mesh3d(meshes.add(Circle::new(15.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
             base_color: FOREST_GREEN.into(),
             ..default()
-        }),
-        transform: Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
-        ..default()
-    });
+        })),
+    ));
 
     // Spawn a light.
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
+    commands.spawn((
+        Transform::from_translation(LIGHT_POSITION).looking_at(Vec3::ZERO, Vec3::Y),
+        DirectionalLight {
             color: Color::WHITE,
             illuminance: 2000.0,
             shadows_enabled: true,
             ..default()
         },
-        transform: Transform::from_translation(LIGHT_POSITION).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
+    ));
 
     // Create the mesh.
     let mesh = meshes.add(SphereMeshBuilder::new(0.5, SphereKind::Ico { subdivisions: 4 }).build());
@@ -194,7 +191,7 @@ fn setup_scene_once_loaded(
     for (entity, mut animation_player) in players.iter_mut() {
         let (animation_graph, animation_graph_node) =
             AnimationGraph::from_clip(asset_server.load("Fox.glb#Animation2"));
-        let animation_graph = animation_graphs.add(animation_graph);
+        let animation_graph = AnimationGraphHandle(animation_graphs.add(animation_graph));
         animation_player.play(animation_graph_node).repeat();
         commands.entity(entity).insert(animation_graph.clone());
     }

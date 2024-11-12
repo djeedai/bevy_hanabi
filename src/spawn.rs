@@ -969,7 +969,7 @@ pub fn tick_initializers(
 ) {
     trace!("tick_initializers");
 
-    let dt = time.delta_seconds();
+    let dt = time.delta_secs();
 
     for (entity, effect, maybe_inherited_visibility, maybe_initializers) in query.iter_mut() {
         // TODO - maybe cache simulation_condition so we don't need to unconditionally
@@ -1309,7 +1309,7 @@ mod test {
                 };
 
                 // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
-                world.spawn(Camera3dBundle::default());
+                world.spawn(Camera3d::default());
 
                 (entity, handle)
             };
@@ -1318,7 +1318,7 @@ mod test {
             let cur_time = {
                 // Make sure to increment the current time so that the spawners spawn something.
                 // Note that `Time` has this weird behavior where the common quantities like
-                // `Time::delta_seconds()` only update after the *second* update. So we tick the
+                // `Time::delta_secs()` only update after the *second* update. So we tick the
                 // `Time` twice here to enforce this.
                 let mut time = app.world_mut().resource_mut::<Time<EffectSimulation>>();
                 time.advance_by(Duration::from_millis(16));

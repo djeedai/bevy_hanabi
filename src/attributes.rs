@@ -128,9 +128,10 @@ use bevy::{
     math::{Vec2, Vec3, Vec4},
     reflect::{
         utility::{GenericTypePathCell, NonGenericTypeInfoCell},
-        DynamicStruct, FieldIter, FromReflect, FromType, GetTypeRegistration, NamedField, Reflect,
-        ReflectDeserialize, ReflectFromReflect, ReflectMut, ReflectOwned, ReflectRef,
-        ReflectSerialize, Struct, StructInfo, TypeInfo, TypePath, TypeRegistration, Typed,
+        ApplyError, DynamicStruct, FieldIter, FromReflect, FromType, GetTypeRegistration,
+        NamedField, PartialReflect, Reflect, ReflectDeserialize, ReflectFromReflect, ReflectMut,
+        ReflectOwned, ReflectRef, ReflectSerialize, Struct, StructInfo, TypeInfo, TypePath,
+        TypeRegistration, Typed,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -717,7 +718,7 @@ impl Typed for Attribute {
 }
 
 impl Struct for Attribute {
-    fn field(&self, name: &str) -> Option<&dyn Reflect> {
+    fn field(&self, name: &str) -> Option<&dyn PartialReflect> {
         match name {
             "name" => Some(&self.0.name),
             "default_value" => Some(&self.0.default_value),
@@ -725,12 +726,12 @@ impl Struct for Attribute {
         }
     }
 
-    fn field_mut(&mut self, _name: &str) -> Option<&mut dyn Reflect> {
+    fn field_mut(&mut self, _name: &str) -> Option<&mut dyn PartialReflect> {
         // Attributes are immutable
         None
     }
 
-    fn field_at(&self, index: usize) -> Option<&dyn Reflect> {
+    fn field_at(&self, index: usize) -> Option<&dyn PartialReflect> {
         match index {
             0 => Some(&self.0.name),
             1 => Some(&self.0.default_value),
@@ -738,7 +739,7 @@ impl Struct for Attribute {
         }
     }
 
-    fn field_at_mut(&mut self, _index: usize) -> Option<&mut dyn Reflect> {
+    fn field_at_mut(&mut self, _index: usize) -> Option<&mut dyn PartialReflect> {
         // Attributes are immutable
         None
     }
@@ -762,8 +763,11 @@ impl Struct for Attribute {
     fn clone_dynamic(&self) -> DynamicStruct {
         let mut dynamic = DynamicStruct::default();
         dynamic.set_represented_type(self.get_represented_type_info());
-        dynamic.insert_boxed("name", Reflect::clone_value(&self.0.name));
-        dynamic.insert_boxed("default_value", Reflect::clone_value(&self.0.default_value));
+        dynamic.insert_boxed("name", <dyn Reflect>::clone_value(&self.0.name));
+        dynamic.insert_boxed(
+            "default_value",
+            <dyn Reflect>::clone_value(&self.0.default_value),
+        );
         dynamic
     }
 }
@@ -778,11 +782,75 @@ impl GetTypeRegistration for Attribute {
     }
 }
 
-impl Reflect for Attribute {
+impl PartialReflect for Attribute {
     fn get_represented_type_info(&self) -> Option<&'static TypeInfo> {
         Some(<Self as Typed>::type_info())
     }
 
+    #[inline]
+    fn into_partial_reflect(self: Box<Self>) -> Box<dyn PartialReflect> {
+        self
+    }
+
+    #[inline]
+    fn as_partial_reflect(&self) -> &dyn PartialReflect {
+        self
+    }
+
+    #[inline]
+    fn as_partial_reflect_mut(&mut self) -> &mut dyn PartialReflect {
+        self
+    }
+
+    #[inline]
+    fn clone_value(&self) -> Box<dyn PartialReflect> {
+        Box::new(*self)
+    }
+
+    #[inline]
+    fn try_into_reflect(self: Box<Self>) -> Result<Box<dyn Reflect>, Box<dyn PartialReflect>> {
+        Ok(self)
+    }
+
+    #[inline]
+    fn try_as_reflect(&self) -> Option<&dyn Reflect> {
+        Some(self)
+    }
+
+    #[inline]
+    fn try_as_reflect_mut(&mut self) -> Option<&mut dyn Reflect> {
+        Some(self)
+    }
+
+    fn try_apply(&mut self, value: &dyn PartialReflect) -> Result<(), ApplyError> {
+        if let Some(value) = value.try_downcast_ref::<Self>() {
+            *self = *value;
+            Ok(())
+        } else {
+            Err(ApplyError::MismatchedTypes {
+                from_type: value.reflect_type_path().into(),
+                to_type: Self::type_path().into(),
+            })
+        }
+    }
+
+    #[inline]
+    fn reflect_ref(&self) -> ReflectRef {
+        ReflectRef::Struct(self)
+    }
+
+    #[inline]
+    fn reflect_mut(&mut self) -> ReflectMut {
+        ReflectMut::Struct(self)
+    }
+
+    #[inline]
+    fn reflect_owned(self: Box<Self>) -> ReflectOwned {
+        ReflectOwned::Struct(self)
+    }
+}
+
+impl Reflect for Attribute {
     #[inline]
     fn into_any(self: Box<Self>) -> Box<dyn Any> {
         self
@@ -814,50 +882,20 @@ impl Reflect for Attribute {
     }
 
     #[inline]
-    fn clone_value(&self) -> Box<dyn Reflect> {
-        Box::new(*self)
-    }
-
-    #[inline]
     fn set(&mut self, value: Box<dyn Reflect>) -> Result<(), Box<dyn Reflect>> {
-        *self = <dyn Reflect>::take(value)?;
+        *self = value.take()?;
         Ok(())
-    }
-
-    #[inline]
-    fn apply(&mut self, value: &dyn Reflect) {
-        let value = Reflect::as_any(value);
-        if let Some(value) = <dyn Any>::downcast_ref::<Self>(value) {
-            *self = *value;
-        } else {
-            panic!("Value is not {}.", ::core::any::type_name::<Self>());
-        }
-    }
-
-    fn reflect_ref(&self) -> ReflectRef {
-        ReflectRef::Struct(self)
-    }
-
-    fn reflect_mut(&mut self) -> ReflectMut {
-        ReflectMut::Struct(self)
-    }
-
-    fn reflect_owned(self: Box<Self>) -> ReflectOwned {
-        ReflectOwned::Struct(self)
-    }
-
-    fn try_apply(&mut self, _value: &dyn Reflect) -> Result<(), bevy::reflect::ApplyError> {
-        todo!()
     }
 }
 
 impl FromReflect for Attribute {
-    fn from_reflect(reflect: &dyn Reflect) -> Option<Self> {
-        if let Some(name) = reflect.as_any().downcast_ref::<String>() {
-            Attribute::from_name(name)
-        } else {
-            None
-        }
+    fn from_reflect(reflect: &dyn PartialReflect) -> Option<Self> {
+        Attribute::from_name(
+            reflect
+                .try_as_reflect()?
+                .as_any()
+                .downcast_ref::<String>()?,
+        )
     }
 }
 
@@ -2039,7 +2077,7 @@ mod tests {
     fn attr_from_reflect() {
         for attr in Attribute::ALL {
             let s: String = attr.name().into();
-            let r = s.as_reflect();
+            let r = s.as_partial_reflect();
             let r_attr = Attribute::from_reflect(r).expect(
                 "Cannot find
     attribute by name",
@@ -2049,7 +2087,7 @@ mod tests {
 
         assert_eq!(
             None,
-            Attribute::from_reflect("test".to_string().as_reflect())
+            Attribute::from_reflect("test".to_string().as_partial_reflect())
         );
     }
 

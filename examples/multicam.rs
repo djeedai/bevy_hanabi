@@ -104,24 +104,21 @@ fn setup(
         let x = (i % 2) as f32 * 100. - 50.;
         let z = (i / 2) as f32 * 100. - 50.;
         commands.spawn((
-            Camera3dBundle {
-                camera: Camera {
-                    // Have a different order for each camera to ensure determinism
-                    order: i as isize,
-                    // Only clear render target from first camera, others additively render on same
-                    // target
-                    clear_color: if i == 0 {
-                        ClearColorConfig::Default
-                    } else {
-                        ClearColorConfig::None
-                    },
-                    ..default()
+            Transform::from_translation(Vec3::new(x, 100.0, z)).looking_at(Vec3::ZERO, Vec3::Y),
+            Camera {
+                // Have a different order for each camera to ensure determinism
+                order: i as isize,
+                // Only clear render target from first camera, others additively render on same
+                // target
+                clear_color: if i == 0 {
+                    ClearColorConfig::Default
+                } else {
+                    ClearColorConfig::None
                 },
-                transform: Transform::from_translation(Vec3::new(x, 100.0, z))
-                    .looking_at(Vec3::ZERO, Vec3::Y),
-                tonemapping: Tonemapping::None,
                 ..default()
             },
+            Camera3d::default(),
+            Tonemapping::None,
             SplitCamera {
                 pos: UVec2::new(i as u32 % 2, i as u32 / 2),
             },
@@ -130,15 +127,12 @@ fn setup(
     }
 
     commands.spawn((
-        DirectionalLightBundle {
-            directional_light: DirectionalLight {
-                color: Color::WHITE,
-                // Crank the illuminance way (too) high to make the reference cube clearly visible
-                illuminance: 100000.,
-                shadows_enabled: false,
-                ..Default::default()
-            },
-            transform: Transform::from_rotation(Quat::from_euler(EulerRot::ZYX, 1.7, 2.4, 0.)),
+        Transform::from_rotation(Quat::from_euler(EulerRot::ZYX, 1.7, 2.4, 0.)),
+        DirectionalLight {
+            color: Color::WHITE,
+            // Crank the illuminance way (too) high to make the reference cube clearly visible
+            illuminance: 100000.,
+            shadows_enabled: false,
             ..Default::default()
         },
         // The light affects all the views
@@ -158,14 +152,11 @@ fn setup(
 
     // Ground plane to make it easier to see the different cameras
     commands.spawn((
-        PbrBundle {
-            transform: Transform::from_translation(Vec3::Y * -20.)
-                * Transform::from_scale(Vec3::new(0.4, 1., 1.))
-                * Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
-            mesh: plane,
-            material: ground_mat,
-            ..Default::default()
-        },
+        Transform::from_translation(Vec3::Y * -20.)
+            * Transform::from_scale(Vec3::new(0.4, 1., 1.))
+            * Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
+        Mesh3d(plane),
+        MeshMaterial3d(ground_mat),
         Name::new("ground"),
         RenderLayers::from_layers(&[0, 1, 2, 3]),
     ));
@@ -183,11 +174,8 @@ fn setup(
         .with_children(|p| {
             // Reference cube to visualize the emit origin
             p.spawn((
-                PbrBundle {
-                    mesh: cube.clone(),
-                    material: mat.clone(),
-                    ..Default::default()
-                },
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(mat.clone()),
                 Name::new("source"),
                 RenderLayers::layer(0),
             ));
@@ -208,11 +196,8 @@ fn setup(
         .with_children(|p| {
             // Reference cube to visualize the emit origin
             p.spawn((
-                PbrBundle {
-                    mesh: cube.clone(),
-                    material: mat.clone(),
-                    ..Default::default()
-                },
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(mat.clone()),
                 Name::new("source"),
                 RenderLayers::layer(1),
             ));
@@ -233,11 +218,8 @@ fn setup(
         .with_children(|p| {
             // Reference cube to visualize the emit origin
             p.spawn((
-                PbrBundle {
-                    mesh: cube.clone(),
-                    material: mat.clone(),
-                    ..Default::default()
-                },
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(mat.clone()),
                 Name::new("source"),
                 RenderLayers::layer(2),
             ));

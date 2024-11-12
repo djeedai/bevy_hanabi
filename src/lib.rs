@@ -675,22 +675,30 @@ impl ParticleEffect {
 
 /// Material for an effect instance.
 ///
-/// A material component contains the render resources (textures) actually bound
-/// to the slots defined in an effect's [`Module`]. That way, a same effect can
-/// be rendered multiple times with different sets of textures.
+/// A material component contains the render resources (textures) for a single
+/// effect instance, which actually bound to the slots defined with
+/// [`Module::add_texture()`]. That way, a same effect asset can be instantiated
+/// multiple times and rendered with different sets of textures, without
+/// changing the asset.
 ///
 /// The [`EffectMaterial`] component needs to be spawned on the same entity as
 /// the [`ParticleEffect`].
 #[derive(Debug, Default, Clone, Component)]
 pub struct EffectMaterial {
-    /// List of images to use to render the effect instance.
+    /// List of textures to use to render the effect instance.
+    ///
+    /// The images are ordered by [slot index].
+    ///
+    /// [slot index]: crate::TextureLayout::get_slot_by_name
     pub images: Vec<Handle<Image>>,
 }
 
 /// Texture slot of a [`Module`].
 ///
 /// A texture slot defines a named bind point where a texture can be attached
-/// and sampled by an effect during rendering.
+/// and sampled by an effect during rendering. A slot also has an implicit
+/// unique index corresponding to its position in the [`TextureLayout::layout`]
+/// array of the effect.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct TextureSlot {
     /// Unique slot name.
@@ -703,7 +711,22 @@ pub struct TextureSlot {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct TextureLayout {
     /// The list of slots.
+    ///
+    /// The slots index corresponds to the index inside this array. Each image
+    /// in [`EffectMaterial::images`] maps by index to a unique slot in this
+    /// array.
     pub layout: Vec<TextureSlot>,
+}
+
+impl TextureLayout {
+    /// Find a texture slot by name, and return its index.
+    ///
+    /// The index uniquely identify the slot (like its name), and indexes into
+    /// the [`EffectMaterial::images`] array to determine which texture is bound
+    /// to it.
+    pub fn get_slot_by_name(&self, name: &str) -> Option<usize> {
+        self.layout.iter().position(|slot| slot.name == name)
+    }
 }
 
 /// Effect shader.
@@ -2044,7 +2067,7 @@ else { return c1; }
             let entity = world.spawn(ParticleEffectBundle::default()).id();
 
             // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
-            world.spawn(Camera3dBundle::default());
+            world.spawn(Camera3d::default());
 
             entity
         };
@@ -2102,7 +2125,7 @@ else { return c1; }
                 .id();
 
             // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
-            world.spawn(Camera3dBundle::default());
+            world.spawn(Camera3d::default());
 
             (entity, handle)
         };
@@ -2214,7 +2237,7 @@ else { return c1; }
                 };
 
                 // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
-                world.spawn(Camera3dBundle::default());
+                world.spawn(Camera3d::default());
 
                 (entity, handle)
             };
