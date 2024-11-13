@@ -564,7 +564,8 @@ pub(crate) struct ParticlesInitPipeline {
     render_device: RenderDevice,
     sim_params_layout: BindGroupLayout,
     spawner_buffer_layout: BindGroupLayout,
-    render_indirect_layout: BindGroupLayout,
+    render_indirect_spawn_layout: BindGroupLayout,
+    render_indirect_clone_layout: BindGroupLayout,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -616,9 +617,14 @@ impl FromWorld for ParticlesInitPipeline {
             }],
         );
 
-        let render_indirect_layout = create_init_render_indirect_bind_group_layout(
+        let render_indirect_spawn_layout = create_init_render_indirect_bind_group_layout(
             render_device,
-            "hanabi:bind_group_layout:init_render_indirect",
+            "hanabi:bind_group_layout:init_render_indirect_spawn",
+            false,
+        );
+        let render_indirect_clone_layout = create_init_render_indirect_bind_group_layout(
+            render_device,
+            "hanabi:bind_group_layout:init_render_indirect_clone",
             true,
         );
 
@@ -626,7 +632,8 @@ impl FromWorld for ParticlesInitPipeline {
             render_device: render_device.clone(),
             sim_params_layout,
             spawner_buffer_layout,
-            render_indirect_layout,
+            render_indirect_spawn_layout,
+            render_indirect_clone_layout,
         }
     }
 }
@@ -659,13 +666,19 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
             shader_defs.push(ShaderDefVal::Bool("ATTRIBUTE_NEXT".to_string(), true));
         }
 
+        let render_indirect_layout = if key.flags.contains(ParticleInitPipelineKeyFlags::CLONE) {
+            self.render_indirect_clone_layout.clone()
+        } else {
+            self.render_indirect_spawn_layout.clone()
+        };
+
         ComputePipelineDescriptor {
             label: Some("hanabi:pipeline_init_compute".into()),
             layout: vec![
                 self.sim_params_layout.clone(),
                 particles_buffer_layout,
                 self.spawner_buffer_layout.clone(),
-                self.render_indirect_layout.clone(),
+                render_indirect_layout,
             ],
             shader: key.shader,
             shader_defs,
@@ -878,6 +891,12 @@ impl ParticlesRenderPipeline {
             });
             index += 2;
         }
+        debug!(
+            "Creating material bind group with {} entries [{:?}] for layout {:?}",
+            entries.len(),
+            entries,
+            layout
+        );
         let material_bind_group_layout = self
             .render_device
             .create_bind_group_layout("hanabi:material_layout_render", &entries[..]);
@@ -1379,7 +1398,6 @@ pub(crate) fn extract_effects(
     virtual_time: Extract<Res<Time<Virtual>>>,
     time: Extract<Res<Time<EffectSimulation>>>,
     effects: Extract<Res<Assets<EffectAsset>>>,
-    _images: Extract<Res<Assets<Image>>>,
     meshes: Extract<Res<Assets<Mesh>>>,
     mut query: Extract<
         ParamSet<(
@@ -1728,8 +1746,11 @@ pub struct EffectsMeta {
     /// compute dispatch and render buffers.
     dr_indirect_bind_group: Option<BindGroup>,
     /// Bind group #3 of the vfx_init shader, containing the indirect render
-    /// buffer.
-    init_render_indirect_bind_group: Option<BindGroup>,
+    /// buffer, in the case of a spawner with no source buffer.
+    init_render_indirect_spawn_bind_group: Option<BindGroup>,
+    /// Bind group #3 of the vfx_init shader, containing the indirect render
+    /// buffer, in the case of a cloner with a source buffer.
+    init_render_indirect_clone_bind_group: Option<BindGroup>,
     /// Global shared GPU uniform buffer storing the simulation parameters,
     /// uploaded each frame from CPU to GPU.
     sim_params_uniforms: UniformBuffer<GpuSimParams>,
@@ -1779,7 +1800,8 @@ impl EffectsMeta {
             sim_params_bind_group: None,
             spawner_bind_group: None,
             dr_indirect_bind_group: None,
-            init_render_indirect_bind_group: None,
+            init_render_indirect_spawn_bind_group: None,
+            init_render_indirect_clone_bind_group: None,
             sim_params_uniforms: UniformBuffer::default(),
             spawner_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
@@ -1995,7 +2017,8 @@ impl EffectsMeta {
         {
             // All those bind groups use the buffer so need to be re-created
             self.dr_indirect_bind_group = None;
-            self.init_render_indirect_bind_group = None;
+            self.init_render_indirect_spawn_bind_group = None;
+            self.init_render_indirect_clone_bind_group = None;
             effect_bind_groups
                 .update_render_indirect_bind_groups
                 .clear();
@@ -2006,7 +2029,8 @@ impl EffectsMeta {
         {
             // All those bind groups use the buffer so need to be re-created
             self.dr_indirect_bind_group = None;
-            self.init_render_indirect_bind_group = None;
+            self.init_render_indirect_spawn_bind_group = None;
+            self.init_render_indirect_clone_bind_group = None;
             effect_bind_groups
                 .update_render_indirect_bind_groups
                 .clear();
@@ -2447,8 +2471,13 @@ impl Material {
     pub fn make_entries<'a>(
         &self,
         gpu_images: &'a RenderAssets<GpuImage>,
-    ) -> Vec<BindGroupEntry<'a>> {
-        self.textures
+    ) -> Result<Vec<BindGroupEntry<'a>>, ()> {
+        if self.textures.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let entries: Vec<BindGroupEntry<'a>> = self
+            .textures
             .iter()
             .enumerate()
             .flat_map(|(index, id)| {
@@ -2468,7 +2497,11 @@ impl Material {
                     vec![]
                 }
             })
-            .collect()
+            .collect();
+        if entries.len() == self.textures.len() * 2 {
+            return Ok(entries);
+        }
+        Err(())
     }
 }
 
@@ -3256,14 +3289,36 @@ pub(crate) fn prepare_bind_groups(
             _ => None,
         };
 
-        let init_render_indirect_bind_group = match (
+        let (init_render_indirect_spawn_bind_group, init_render_indirect_clone_bind_group) = match (
             effects_meta.render_effect_dispatch_buffer.buffer(),
             effects_meta.render_group_dispatch_buffer.buffer(),
         ) {
-            (Some(render_effect_dispatch_buffer), Some(render_group_dispatch_buffer)) => {
+            (Some(render_effect_dispatch_buffer), Some(render_group_dispatch_buffer)) => (
                 Some(render_device.create_bind_group(
-                    "hanabi:bind_group_init_render_dispatch",
-                    &init_pipeline.render_indirect_layout,
+                    "hanabi:bind_group_init_render_dispatch_spawn",
+                    &init_pipeline.render_indirect_spawn_layout,
+                    &[
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: BindingResource::Buffer(BufferBinding {
+                                buffer: render_effect_dispatch_buffer,
+                                offset: 0,
+                                size: Some(effects_meta.gpu_limits.render_effect_indirect_size()),
+                            }),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: BindingResource::Buffer(BufferBinding {
+                                buffer: render_group_dispatch_buffer,
+                                offset: 0,
+                                size: Some(effects_meta.gpu_limits.render_group_indirect_size()),
+                            }),
+                        },
+                    ],
+                )),
+                Some(render_device.create_bind_group(
+                    "hanabi:bind_group_init_render_dispatch_clone",
+                    &init_pipeline.render_indirect_clone_layout,
                     &[
                         BindGroupEntry {
                             binding: 0,
@@ -3290,14 +3345,15 @@ pub(crate) fn prepare_bind_groups(
                             }),
                         },
                     ],
-                ))
-            }
+                )),
+            ),
 
-            (_, _) => None,
+            (_, _) => (None, None),
         };
 
         // Create the bind group for the indirect render buffer use in the init shader
-        effects_meta.init_render_indirect_bind_group = init_render_indirect_bind_group;
+        effects_meta.init_render_indirect_spawn_bind_group = init_render_indirect_spawn_bind_group;
+        effects_meta.init_render_indirect_clone_bind_group = init_render_indirect_clone_bind_group;
     }
 
     // Make a copy of the buffer ID before borrowing effects_meta mutably in the
@@ -3476,7 +3532,8 @@ pub(crate) fn prepare_bind_groups(
         }
 
         // Ensure the particle texture(s) are available as GPU resources and that a bind
-        // group for them exists FIXME fix this insert+get below
+        // group for them exists
+        // FIXME fix this insert+get below
         if !effect_batches.texture_layout.layout.is_empty() {
             // This should always be available, as this is cached into the render pipeline
             // just before we start specializing it.
@@ -3497,12 +3554,20 @@ pub(crate) fn prepare_bind_groups(
             };
             assert_eq!(material.layout.layout.len(), material.textures.len());
 
-            let bind_group_entries = material.make_entries(&gpu_images);
+            //let bind_group_entries = material.make_entries(&gpu_images).unwrap();
+            let Ok(bind_group_entries) = material.make_entries(&gpu_images) else {
+                trace!(
+                    "Temporarily ignoring material {:?} due to missing image(s)",
+                    material
+                );
+                continue;
+            };
 
             effect_bind_groups
                 .material_bind_groups
                 .entry(material.clone())
                 .or_insert_with(|| {
+                    debug!("Creating material bind group for material {:?}", material);
                     render_device.create_bind_group(
                         &format!(
                             "hanabi:material_bind_group_{}",
@@ -4192,12 +4257,11 @@ impl Node for VfxSimulateNode {
                                 compute_pass.set_bind_group(
                                     3,
                                     effects_meta
-                                        .init_render_indirect_bind_group
+                                        .init_render_indirect_spawn_bind_group
                                         .as_ref()
                                         .unwrap(),
                                     &[
                                         render_effect_indirect_offset as u32,
-                                        render_group_indirect_offset as u32,
                                         render_group_indirect_offset as u32,
                                     ],
                                 );
@@ -4295,7 +4359,7 @@ impl Node for VfxSimulateNode {
                                 compute_pass.set_bind_group(
                                     3,
                                     effects_meta
-                                        .init_render_indirect_bind_group
+                                        .init_render_indirect_clone_bind_group
                                         .as_ref()
                                         .unwrap(),
                                     &[

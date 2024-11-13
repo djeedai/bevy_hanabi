@@ -69,11 +69,11 @@ all-features = true
 
 [dev-dependencies]
 # For world inspector; required if "examples_world_inspector" is used.
-bevy-inspector-egui = "0.25"
-bevy_egui = { version = "0.28", default-features = false, features = [
+bevy-inspector-egui = "0.27"
+bevy_egui = { version = "0.30", default-features = false, features = [
     "manage_clipboard", "open_url"
 ] }
-egui = "0.28"
+egui = "0.29"
 
 # For glTF animations (Fox.glb)
 bevy_gltf = { version = "0.14", features = [ "bevy_animation" ] }
