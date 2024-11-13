@@ -24,7 +24,9 @@ struct ParticleBuffer {
 @group(2) @binding(0) var<storage, read_write> spawner: Spawner; // NOTE - same group as update
 @group(3) @binding(0) var<storage, read_write> render_effect_indirect: RenderEffectMetadata;
 @group(3) @binding(1) var<storage, read_write> dest_render_group_indirect: RenderGroupIndirect;
+#ifdef CLONE
 @group(3) @binding(2) var<storage, read_write> src_render_group_indirect: RenderGroupIndirect;
+#endif
 
 {{INIT_EXTRA}}
 

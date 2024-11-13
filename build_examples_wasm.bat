@@ -1,6 +1,6 @@
 @echo on
 
-echo Check that wasm-bindgen -V returns 0.2.92, otherwise cargo install wasm-bindgen-cli --version 0.2.92
+echo Check that wasm-bindgen -V returns 0.2.95, otherwise cargo install wasm-bindgen-cli --version 0.2.95
 
 echo Setting RUSTFLAGS to enable unstable web_sys APIs...
 set RUSTFLAGS=--cfg=web_sys_unstable_apis

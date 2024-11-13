@@ -29,6 +29,8 @@ pub fn get_log_filters(example_name: &str) -> String {
         "bevy_hanabi=warn",
         // Prevent HAL from dumping all naga-generated shader code in logs
         "wgpu_hal::dx12::device=warn",
+        // Tune down the verbose Vulkan driver output
+        "wgpu_hal::vulkan::instance=warn",
     ]
     .join(",")
 }

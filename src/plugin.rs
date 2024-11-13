@@ -5,10 +5,12 @@ use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Transparent3d};
 use bevy::{
     prelude::*,
     render::{
+        render_asset::prepare_assets,
         render_graph::RenderGraph,
         render_phase::DrawFunctions,
         render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
         renderer::{RenderAdapterInfo, RenderDevice},
+        texture::GpuImage,
         view::{check_visibility, prepare_view_uniforms, visibility::VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
@@ -317,7 +319,8 @@ impl Plugin for HanabiPlugin {
                         .after(prepare_view_uniforms),
                     prepare_bind_groups
                         .in_set(EffectSystems::PrepareBindGroups)
-                        .after(queue_effects),
+                        .after(queue_effects)
+                        .after(prepare_assets::<GpuImage>),
                 ),
             );
 
