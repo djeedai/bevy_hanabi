@@ -4270,6 +4270,7 @@ impl Node for VfxSimulateNode {
                             }
 
                             EffectInitializer::Cloner(EffectCloner {
+                                cloner,
                                 clone_this_frame: spawn_this_frame,
                                 ..
                             }) => {
@@ -4344,6 +4345,17 @@ impl Node for VfxSimulateNode {
                                         clone_src_render_group_dispatch_buffer_index.0,
                                     );
 
+                                let first_update_group_dispatch_buffer_index = batches
+                                    .dispatch_buffer_indices
+                                    .first_update_group_dispatch_buffer_index;
+
+                                let src_group_index = cloner.src_group_index;
+                                let update_src_group_dispatch_buffer_offset =
+                                    effects_meta.gpu_limits.dispatch_indirect_offset(
+                                        first_update_group_dispatch_buffer_index.0
+                                            + src_group_index,
+                                    );
+
                                 compute_pass.set_pipeline(clone_pipeline);
                                 compute_pass.set_bind_group(
                                     0,
@@ -4372,9 +4384,20 @@ impl Node for VfxSimulateNode {
                                 if let Some(dispatch_indirect_buffer) =
                                     effects_meta.dispatch_indirect_buffer.buffer()
                                 {
+                                    trace!(
+                                        "record commands for init clone pipeline of effect {:?} \
+                                            first_update_group_dispatch_buffer_index={} \
+                                            src_group_index={} \
+                                            update_src_group_dispatch_buffer_offset={}...",
+                                        batches.handle,
+                                        first_update_group_dispatch_buffer_index.0,
+                                        src_group_index,
+                                        update_src_group_dispatch_buffer_offset,
+                                    );
+
                                     compute_pass.dispatch_workgroups_indirect(
                                         dispatch_indirect_buffer,
-                                        clone_src_render_group_indirect_offset,
+                                        update_src_group_dispatch_buffer_offset as u64,
                                     );
                                 }
                                 trace!("clone compute dispatched");
