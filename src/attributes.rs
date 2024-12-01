@@ -138,7 +138,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     graph::{ScalarValue, Value, VectorValue},
-    next_multiple_of, ToWgslString,
+    ToWgslString,
 };
 
 /// Scalar types.
@@ -1672,7 +1672,7 @@ impl ParticleLayout {
     pub fn min_binding_size(&self) -> NonZeroU64 {
         let size = self.size() as usize;
         let align = self.align();
-        NonZeroU64::new(next_multiple_of(size, align) as u64).unwrap()
+        NonZeroU64::new(size.next_multiple_of(align) as u64).unwrap()
     }
 
     pub(crate) fn attributes(&self) -> &[AttributeLayout] {

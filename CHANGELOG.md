@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Compatible with Bevy 0.15
+- MSRV updated to 1.82 to follow Bevy.
 - Renamed `Module::add_texture()` to `add_texture_slot()` for clarity.
   The actual texture is bound to the slot through the `MaterialEffect` component.
 

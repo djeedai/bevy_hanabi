@@ -217,20 +217,6 @@ compile_error!(
     "You need to enable at least one of the '2d' or '3d' features for anything to happen."
 );
 
-/// Get the smallest multiple of align greater than or equal to value, where
-/// `align` must be a power of two.
-///
-/// # Panics
-///
-/// Panics if `align` is not a power of two.
-// TODO - filler for usize.next_multiple_of()
-// https://github.com/rust-lang/rust/issues/88581
-pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
-    assert!(align & (align - 1) == 0); // power of 2
-    let count = (value + align - 1) / align;
-    count * align
-}
-
 /// Extension trait to convert an object to WGSL code.
 ///
 /// This is mainly used for floating-point constants. This is required because
@@ -1681,22 +1667,22 @@ mod tests {
     fn next_multiple() {
         // align-1 is no-op
         for &size in INTS {
-            assert_eq!(size, next_multiple_of(size, 1));
+            assert_eq!(size, size.next_multiple_of(1));
         }
 
         // zero-sized is always aligned
         for &align in INTS_POW2 {
-            assert_eq!(0, next_multiple_of(0, align));
+            assert_eq!(0, 0usize.next_multiple_of(align));
         }
 
         // size < align : rounds up to align
         for &size in INTS {
-            assert_eq!(256, next_multiple_of(size, 256));
+            assert_eq!(256, size.next_multiple_of(256));
         }
 
         // size > align : actually aligns
         for (&size, &aligned_size) in INTS.iter().zip(INTS16) {
-            assert_eq!(aligned_size, next_multiple_of(size, 16));
+            assert_eq!(aligned_size, size.next_multiple_of(16));
         }
     }
 

@@ -56,7 +56,6 @@ use rand::random;
 
 use crate::{
     asset::EffectAsset,
-    next_multiple_of,
     plugin::WithCompiledParticleEffect,
     render::{
         batch::{BatchesInput, EffectDrawBatch},
@@ -245,8 +244,7 @@ pub(crate) trait StorageType {
 
 impl<T: ShaderType> StorageType for T {
     fn aligned_size(alignment: u32) -> NonZeroU64 {
-        NonZeroU64::new(next_multiple_of(T::min_size().get() as usize, alignment as usize) as u64)
-            .unwrap()
+        NonZeroU64::new(T::min_size().get().next_multiple_of(alignment as u64)).unwrap()
     }
 
     fn padding_code(alignment: u32) -> String {
@@ -1631,30 +1629,35 @@ struct GpuLimits {
 
 impl GpuLimits {
     pub fn from_device(render_device: &RenderDevice) -> Self {
-        let storage_buffer_align = render_device.limits().min_storage_buffer_offset_alignment;
+        let storage_buffer_align =
+            render_device.limits().min_storage_buffer_offset_alignment as u64;
 
-        let dispatch_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
-            GpuDispatchIndirect::min_size().get() as usize,
-            storage_buffer_align as usize,
-        ) as u32)
+        let dispatch_indirect_aligned_size = NonZeroU32::new(
+            GpuDispatchIndirect::min_size()
+                .get()
+                .next_multiple_of(storage_buffer_align) as u32,
+        )
         .unwrap();
 
-        let render_effect_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
-            GpuRenderEffectMetadata::min_size().get() as usize,
-            storage_buffer_align as usize,
-        ) as u32)
+        let render_effect_indirect_aligned_size = NonZeroU32::new(
+            GpuRenderEffectMetadata::min_size()
+                .get()
+                .next_multiple_of(storage_buffer_align) as u32,
+        )
         .unwrap();
 
-        let render_group_indirect_aligned_size = NonZeroU32::new(next_multiple_of(
-            GpuRenderGroupIndirect::min_size().get() as usize,
-            storage_buffer_align as usize,
-        ) as u32)
+        let render_group_indirect_aligned_size = NonZeroU32::new(
+            GpuRenderGroupIndirect::min_size()
+                .get()
+                .next_multiple_of(storage_buffer_align) as u32,
+        )
         .unwrap();
 
-        let particle_group_aligned_size = NonZeroU32::new(next_multiple_of(
-            GpuParticleGroup::min_size().get() as usize,
-            storage_buffer_align as usize,
-        ) as u32)
+        let particle_group_aligned_size = NonZeroU32::new(
+            GpuParticleGroup::min_size()
+                .get()
+                .next_multiple_of(storage_buffer_align) as u32,
+        )
         .unwrap();
 
         trace!(
@@ -1667,7 +1670,7 @@ impl GpuLimits {
         );
 
         Self {
-            storage_buffer_align: NonZeroU32::new(storage_buffer_align).unwrap(),
+            storage_buffer_align: NonZeroU32::new(storage_buffer_align as u32).unwrap(),
             dispatch_indirect_aligned_size,
             render_effect_indirect_aligned_size,
             render_group_indirect_aligned_size,
@@ -4206,10 +4209,6 @@ pub(crate) struct VfxSimulateNode {
 }
 
 impl VfxSimulateNode {
-    /// Output particle buffer for that view. TODO - how to handle multiple
-    /// buffers?! Should use Entity instead??
-    // pub const OUT_PARTICLE_BUFFER: &'static str = "particle_buffer";
-
     /// Create a new node for simulating the effects of the given world.
     pub fn new(world: &mut World) -> Self {
         Self {
@@ -4346,8 +4345,7 @@ impl Node for VfxSimulateNode {
                                 }
 
                                 const WORKGROUP_SIZE: u32 = 64;
-                                let workgroup_count =
-                                    (spawn_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+                                let workgroup_count = spawn_count.div_ceil(WORKGROUP_SIZE);
 
                                 let effect_cache_id = batches.effect_cache_id;
 
@@ -4588,7 +4586,7 @@ impl Node for VfxSimulateNode {
             // in the array.
             const WORKGROUP_SIZE: u32 = 64;
             let total_group_count = effects_meta.particle_group_buffer.len() as u32;
-            let workgroup_count = (total_group_count + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+            let workgroup_count = total_group_count.div_ceil(WORKGROUP_SIZE);
 
             // Setup compute pass
             compute_pass.set_pipeline(&dispatch_indirect_pipeline.pipeline);

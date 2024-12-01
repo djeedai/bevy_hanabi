@@ -307,7 +307,7 @@ impl<'a> ShaderWriter<'a> {
     }
 }
 
-impl<'a> EvalContext for ShaderWriter<'a> {
+impl EvalContext for ShaderWriter<'_> {
     fn modifier_context(&self) -> ModifierContext {
         self.modifier_context
     }
@@ -485,7 +485,7 @@ impl<'a> RenderContext<'a> {
     }
 }
 
-impl<'a> EvalContext for RenderContext<'a> {
+impl EvalContext for RenderContext<'_> {
     fn modifier_context(&self) -> ModifierContext {
         ModifierContext::Render
     }
