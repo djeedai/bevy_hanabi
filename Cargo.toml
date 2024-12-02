@@ -81,13 +81,12 @@ features = [
 all-features = true
 
 [dev-dependencies]
-# TEMP - Waiting for crates to update to Bevy 0.15...
 # For world inspector; required if "examples_world_inspector" is used.
-#bevy-inspector-egui = "0.27"
-#bevy_egui = { version = "0.30", default-features = false, features = [
-#    "manage_clipboard", "open_url"
-#] }
-#egui = "0.29"
+bevy-inspector-egui = "0.28"
+bevy_egui = { version = "0.31", default-features = false, features = [
+    "manage_clipboard", "open_url"
+] }
+egui = "0.29"
 
 bevy_sprite = "0.15"
 bevy_text = "0.15"
