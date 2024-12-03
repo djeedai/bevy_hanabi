@@ -356,19 +356,36 @@ impl Module {
         &self.properties
     }
 
-    /// Add a new texture to the module.
+    /// Add a new texture slot to the module.
     ///
-    /// See [`TextureSlot`] for more details on what effect textures are.
+    /// The `name` parameter defines a new [`TextureSlot`] associated with this
+    /// module, and must be unique inside this module. A unique index is also
+    /// associated with the slot, corresponding to the value returned by
+    /// [`TextureLayout::get_slot_by_name()`].
+    ///
+    /// Once a slot is added, an actual texture resource, defined by its
+    /// `Handle<Image>`, is bound to that slot through the
+    /// [`EffectMaterial`] component. Expressions like [`TextureSampleExpr`] can
+    /// be used to sample the texture using the returned [`TextureHandle`].
+    ///
+    /// # Returns
+    ///
+    /// The handle of the texture inside this module. This handle is used in
+    /// expressions like the [`TextureSampleExpr`] to reference this texture
+    /// slot.
     ///
     /// # Panics
     ///
-    /// Panics if a texture with the same name already exists.
-    pub fn add_texture(&mut self, name: impl Into<String>) -> TextureHandle {
+    /// Panics if a texture slot with the same name already exists inside this
+    /// module. Different effect asset (different modules) can have the same
+    /// slot name.
+    ///
+    /// [`EffectMaterial`]: crate::EffectMaterial
+    pub fn add_texture_slot(&mut self, name: impl Into<String>) -> TextureHandle {
         let name = name.into();
         assert!(!self.texture_layout.layout.iter().any(|t| t.name == name));
         self.texture_layout.layout.push(TextureSlot { name });
-        // SAFETY - We just pushed a new property into the array, so its length is
-        // non-zero.
+        // SAFETY - We just pushed a new slot into the array, so its length is non-zero.
         #[allow(unsafe_code)]
         unsafe {
             TextureHandle::new_unchecked(self.texture_layout.layout.len())
@@ -1321,12 +1338,13 @@ impl CastExpr {
 
 /// Expression to sample a texture from the effect's material.
 ///
-/// This currently supports only color textures, that is all textures which
-/// return a `vec4<f32>` when sampled. So this excludes depth textures, but
-/// includes single-channel (e.g. red) textures. See the WGSL specification for
-/// details.
+/// This currently supports only 4-component textures sampled with [the WGSL
+/// `textureSample()` function], that is all textures which return a `vec4<f32>`
+/// when sampled. This is the case of most color textures, including
+/// single-channel (e.g. red) textures which return zero for missing components,
+/// but excludes depth textures.
 ///
-/// This currently only samples with `textureSample()`.
+/// [the WGSL `textureSample()` function]: https://www.w3.org/TR/WGSL/#texturesample
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct TextureSampleExpr {
     /// The index of the image to sample. This is the texture slot defined in

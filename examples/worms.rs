@@ -5,7 +5,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::{
-    core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
+    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
     math::{vec3, vec4},
     prelude::*,
 };
@@ -27,17 +27,15 @@ fn setup(
     mut effects: ResMut<Assets<EffectAsset>>,
 ) {
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_translation(Vec3::new(0., 0., 25.)),
-            camera: Camera {
-                hdr: true,
-                clear_color: Color::BLACK.into(),
-                ..default()
-            },
-            tonemapping: Tonemapping::None,
+        Transform::from_translation(Vec3::new(0., 0., 25.)),
+        Camera {
+            hdr: true,
+            clear_color: Color::BLACK.into(),
             ..default()
         },
-        BloomSettings::default(),
+        Camera3d::default(),
+        Tonemapping::None,
+        Bloom::default(),
     ));
 
     let circle: Handle<Image> = asset_server.load("circle.png");
@@ -109,7 +107,7 @@ fn setup(
     };
 
     let mut module = writer.finish();
-    module.add_texture("shape");
+    module.add_texture_slot("shape");
 
     // Allocate room for 32,768 trail particles. Give each particle a 5-particle
     // trail, and spawn a new trail particle every ⅛ of a second.

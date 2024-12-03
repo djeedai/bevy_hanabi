@@ -16,16 +16,29 @@ use bevy::{
 use bytemuck::{cast_slice, Pod};
 use copyless::VecHelper;
 
-use crate::next_multiple_of;
-
 /// Index of a row in a [`BufferTable`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BufferTableId(pub(crate) u32); // TEMP: pub(crate)
 
 impl BufferTableId {
+    /// An invalid value, often used as placeholder.
+    pub const INVALID: BufferTableId = BufferTableId(u32::MAX);
+
+    /// Check if the current ID is valid, that is, is different from
+    /// [`INVALID`].
+    ///
+    /// [`INVALID`]: Self::INVALID
     #[inline]
-    pub fn offset(&self, index: u32) -> BufferTableId {
-        BufferTableId(self.0 + index)
+    pub fn is_valid(&self) -> bool {
+        *self != Self::INVALID
+    }
+
+    /// Compute a new buffer table ID by offseting an existing one by `count`
+    /// rows.
+    #[inline]
+    pub fn offset(&self, count: u32) -> BufferTableId {
+        debug_assert!(self.is_valid());
+        BufferTableId(self.0 + count)
     }
 }
 
@@ -172,7 +185,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         // Extra manual alignment for device constraints
         let aligned_size = if let Some(item_align) = item_align {
             let item_align = item_align.get() as usize;
-            let aligned_size = next_multiple_of(item_size, item_align);
+            let aligned_size = item_size.next_multiple_of(item_align);
             assert!(aligned_size >= item_size);
             assert!(aligned_size % item_align == 0);
             aligned_size
@@ -254,6 +267,9 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     }
 
     /// Current number of rows in use in the table.
+    ///
+    /// Note that rows in use are not necessarily contiguous. There may be gaps
+    /// between used rows.
     #[inline]
     #[allow(dead_code)]
     pub fn len(&self) -> u32 {
@@ -301,6 +317,8 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         }
     }
 
+    /// Calculate the size in byte of `count` rows.
+    #[inline]
     fn to_byte_size(&self, count: u32) -> usize {
         count as usize * self.aligned_size
     }
@@ -399,21 +417,21 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         // update.
         let allocated_count = self.buffer.as_ref().map(|ab| ab.count).unwrap_or(0);
         let reallocated = if self.capacity > allocated_count {
-            let size = self.to_byte_size(self.capacity);
+            let byte_size = self.to_byte_size(self.capacity);
             trace!(
                 "reserve('{}'): increase capacity from {} to {} elements, old size {} bytes, new size {} bytes",
                 self.safe_name(),
                 allocated_count,
                 self.capacity,
                 self.to_byte_size(allocated_count),
-                size
+                byte_size
             );
 
             // Create the new buffer, swapping with the old one if any
             let has_init_data = !self.extra_pending_values.is_empty();
             let new_buffer = device.create_buffer(&BufferDescriptor {
                 label: self.label.as_ref().map(|s| &s[..]),
-                size: size as BufferAddress,
+                size: byte_size as BufferAddress,
                 usage: self.buffer_usage,
                 mapped_at_creation: has_init_data,
             });

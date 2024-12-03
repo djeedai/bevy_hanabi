@@ -45,8 +45,12 @@ pub(crate) struct EffectBatches {
     pub particle_layout: ParticleLayout,
     /// Flags describing the render layout.
     pub layout_flags: LayoutFlags,
-    /// The mesh to draw.
+    /// Asset handle of the effect mesh to draw.
     pub mesh: Handle<Mesh>,
+    /// GPU buffer storing the [`mesh`] of the effect.
+    pub mesh_buffer: Buffer,
+    /// Slice inside the GPU buffer for the effect mesh.
+    pub mesh_slice: Range<u32>,
     /// Texture layout.
     pub texture_layout: TextureLayout,
     /// Textures.
@@ -134,6 +138,8 @@ impl EffectBatches {
             handle: input.handle,
             layout_flags: input.layout_flags,
             mesh: input.mesh.clone(),
+            mesh_buffer: input.mesh_buffer,
+            mesh_slice: input.mesh_slice,
             texture_layout: input.texture_layout,
             textures: input.textures,
             alpha_mode: input.alpha_mode,
@@ -165,7 +171,12 @@ pub(crate) struct BatchesInput {
     pub effect_shaders: Vec<EffectShader>,
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
+    /// Asset handle of the effect mesh to draw.
     pub mesh: Handle<Mesh>,
+    /// GPU buffer storing the [`mesh`] of the effect.
+    pub mesh_buffer: Buffer,
+    /// Slice inside the GPU buffer for the effect mesh.
+    pub mesh_slice: Range<u32>,
     /// Texture layout.
     pub texture_layout: TextureLayout,
     /// Textures.

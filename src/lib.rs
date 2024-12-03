@@ -217,20 +217,6 @@ compile_error!(
     "You need to enable at least one of the '2d' or '3d' features for anything to happen."
 );
 
-/// Get the smallest multiple of align greater than or equal to value, where
-/// `align` must be a power of two.
-///
-/// # Panics
-///
-/// Panics if `align` is not a power of two.
-// TODO - filler for usize.next_multiple_of()
-// https://github.com/rust-lang/rust/issues/88581
-pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
-    assert!(align & (align - 1) == 0); // power of 2
-    let count = (value + align - 1) / align;
-    count * align
-}
-
 /// Extension trait to convert an object to WGSL code.
 ///
 /// This is mainly used for floating-point constants. This is required because
@@ -675,22 +661,30 @@ impl ParticleEffect {
 
 /// Material for an effect instance.
 ///
-/// A material component contains the render resources (textures) actually bound
-/// to the slots defined in an effect's [`Module`]. That way, a same effect can
-/// be rendered multiple times with different sets of textures.
+/// A material component contains the render resources (textures) for a single
+/// effect instance, which actually bound to the slots defined with
+/// [`Module::add_texture()`]. That way, a same effect asset can be instantiated
+/// multiple times and rendered with different sets of textures, without
+/// changing the asset.
 ///
 /// The [`EffectMaterial`] component needs to be spawned on the same entity as
 /// the [`ParticleEffect`].
 #[derive(Debug, Default, Clone, Component)]
 pub struct EffectMaterial {
-    /// List of images to use to render the effect instance.
+    /// List of textures to use to render the effect instance.
+    ///
+    /// The images are ordered by [slot index].
+    ///
+    /// [slot index]: crate::TextureLayout::get_slot_by_name
     pub images: Vec<Handle<Image>>,
 }
 
 /// Texture slot of a [`Module`].
 ///
 /// A texture slot defines a named bind point where a texture can be attached
-/// and sampled by an effect during rendering.
+/// and sampled by an effect during rendering. A slot also has an implicit
+/// unique index corresponding to its position in the [`TextureLayout::layout`]
+/// array of the effect.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct TextureSlot {
     /// Unique slot name.
@@ -703,7 +697,22 @@ pub struct TextureSlot {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct TextureLayout {
     /// The list of slots.
+    ///
+    /// The slots index corresponds to the index inside this array. Each image
+    /// in [`EffectMaterial::images`] maps by index to a unique slot in this
+    /// array.
     pub layout: Vec<TextureSlot>,
+}
+
+impl TextureLayout {
+    /// Find a texture slot by name, and return its index.
+    ///
+    /// The index uniquely identify the slot (like its name), and indexes into
+    /// the [`EffectMaterial::images`] array to determine which texture is bound
+    /// to it.
+    pub fn get_slot_by_name(&self, name: &str) -> Option<usize> {
+        self.layout.iter().position(|slot| slot.name == name)
+    }
 }
 
 /// Effect shader.
@@ -1658,22 +1667,22 @@ mod tests {
     fn next_multiple() {
         // align-1 is no-op
         for &size in INTS {
-            assert_eq!(size, next_multiple_of(size, 1));
+            assert_eq!(size, size.next_multiple_of(1));
         }
 
         // zero-sized is always aligned
         for &align in INTS_POW2 {
-            assert_eq!(0, next_multiple_of(0, align));
+            assert_eq!(0, 0usize.next_multiple_of(align));
         }
 
         // size < align : rounds up to align
         for &size in INTS {
-            assert_eq!(256, next_multiple_of(size, 256));
+            assert_eq!(256, size.next_multiple_of(256));
         }
 
         // size > align : actually aligns
         for (&size, &aligned_size) in INTS.iter().zip(INTS16) {
-            assert_eq!(aligned_size, next_multiple_of(size, 16));
+            assert_eq!(aligned_size, size.next_multiple_of(16));
         }
     }
 
@@ -2044,7 +2053,7 @@ else { return c1; }
             let entity = world.spawn(ParticleEffectBundle::default()).id();
 
             // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
-            world.spawn(Camera3dBundle::default());
+            world.spawn(Camera3d::default());
 
             entity
         };
@@ -2102,7 +2111,7 @@ else { return c1; }
                 .id();
 
             // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
-            world.spawn(Camera3dBundle::default());
+            world.spawn(Camera3d::default());
 
             (entity, handle)
         };
@@ -2214,7 +2223,7 @@ else { return c1; }
                 };
 
                 // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
-                world.spawn(Camera3dBundle::default());
+                world.spawn(Camera3d::default());
 
                 (entity, handle)
             };

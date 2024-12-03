@@ -50,19 +50,27 @@ struct Spawner {
 
 // Per-group data for a single particle effect group inside an effect.
 struct ParticleGroup {
-    // Index of the group, generally zero unless there are trails.
+    /// The absolute index of this particle group in the global particle group
+    /// buffer, which includes all effects.
     group_index: u32,
+    /// The global index of the particle effect.
     effect_index: u32,
-    // The index relative to the effect: e.g. 0 if this is the first group in
-    // the effect.
+    /// The relative index of this particle group in the effect.
+    ///
+    /// For example, the first group in an effect has index 0, the second has
+    /// index 1, etc. This is always 0 when not using groups.
     index_in_effect: u32,
-    // Index of the first element for this group in the indirect index buffer.
+    /// The index of the first particle in this group in the indirect index
+    /// buffer.
     indirect_index: u32,
-    // The capacity of this group.
+    /// The capacity of this group, in number of particles.
     capacity: u32,
-    // The index of the first particle in this effect in the particle and
-    // indirect buffers.
+    /// The index of the first particle in the particle and indirect buffers of
+    /// this effect.
     effect_particle_offset: u32,
+    /// Index of the [`GpuDispatchIndirect`] struct inside the global
+    /// [`EffectsMeta::dispatch_indirect_buffer`].
+    indirect_dispatch_index: u32,
     {{PARTICLE_GROUP_PADDING}}
 }
 

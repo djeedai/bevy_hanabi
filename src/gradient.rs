@@ -481,7 +481,7 @@ impl<T: Lerp + FromReflect> Gradient<T> {
 mod tests {
     use std::collections::hash_map::DefaultHasher;
 
-    use bevy::reflect::{ReflectRef, Struct};
+    use bevy::reflect::{PartialReflect, ReflectRef, Struct};
     use rand::{distributions::Standard, prelude::Distribution, rngs::ThreadRng, thread_rng, Rng};
 
     use super::*;
@@ -620,9 +620,12 @@ mod tests {
         let g = make_test_gradient();
 
         // Reflect
-        let reflect: &dyn Reflect = &g;
-        assert!(reflect.is::<Gradient<Vec4>>());
-        let g_reflect = reflect.downcast_ref::<Gradient<Vec4>>();
+        let reflect: &dyn PartialReflect = &g;
+        assert!(reflect
+            .get_represented_type_info()
+            .unwrap()
+            .is::<Gradient<Vec4>>());
+        let g_reflect = reflect.try_downcast_ref::<Gradient<Vec4>>();
         assert!(g_reflect.is_some());
         let g_reflect = g_reflect.unwrap();
         assert_eq!(*g_reflect, g);
@@ -644,7 +647,7 @@ mod tests {
         assert_eq!(keys.len(), 3);
         for (i, (r, v)) in [(0.5, RED), (0.8, BLUE), (0.8, GREEN)].iter().enumerate() {
             let k = keys.get(i).unwrap();
-            let gk = k.downcast_ref::<GradientKey<Vec4>>().unwrap();
+            let gk = k.try_downcast_ref::<GradientKey<Vec4>>().unwrap();
             assert_approx_eq!(gk.ratio(), r);
             assert_approx_eq!(gk.value, v);
 

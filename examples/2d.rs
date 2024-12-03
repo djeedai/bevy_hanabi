@@ -4,11 +4,7 @@
 //! tweaked at runtime via the egui inspector to move the 2D rendering layer of
 //! particle above or below the reference square.
 
-use bevy::{
-    prelude::*,
-    render::camera::ScalingMode,
-    sprite::{MaterialMesh2dBundle, Mesh2dHandle},
-};
+use bevy::{prelude::*, render::camera::ScalingMode};
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -29,26 +25,24 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     // Spawn a 2D camera
-    let mut camera = Camera2dBundle::default();
-    camera.projection.scale = 1.0;
-    camera.projection.scaling_mode = ScalingMode::FixedVertical(1.);
-    commands.spawn(camera);
+    let mut proj = OrthographicProjection::default_2d();
+    proj.scale = 1.0;
+    proj.scaling_mode = ScalingMode::FixedVertical {
+        viewport_height: 1.,
+    };
+    commands.spawn((Camera2d::default(), proj));
 
     // Spawn a reference white square in the center of the screen at Z=0
-    commands
-        .spawn(MaterialMesh2dBundle {
-            mesh: meshes
-                .add(Rectangle {
-                    half_size: Vec2::splat(0.1),
-                })
-                .into(),
-            material: materials.add(ColorMaterial {
-                color: Color::WHITE,
-                ..Default::default()
-            }),
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle {
+            half_size: Vec2::splat(0.1),
+        })),
+        MeshMaterial2d(materials.add(ColorMaterial {
+            color: Color::WHITE,
             ..Default::default()
-        })
-        .insert(Name::new("square"));
+        })),
+        Name::new("square"),
+    ));
 
     // Create a color gradient for the particles
     let mut gradient = Gradient::new();
@@ -110,8 +104,8 @@ fn setup(
         .insert(Name::new("effect:2d"));
 }
 
-fn update_plane(time: Res<Time>, mut query: Query<&mut Transform, With<Mesh2dHandle>>) {
+fn update_plane(time: Res<Time>, mut query: Query<&mut Transform, With<Mesh2d>>) {
     let mut transform = query.single_mut();
     // Move the plane back and forth to show particles ordering relative to it
-    transform.translation.z = (time.elapsed_seconds() * 2.5).sin() * 0.045 + 0.1;
+    transform.translation.z = (time.elapsed_secs() * 2.5).sin() * 0.045 + 0.1;
 }

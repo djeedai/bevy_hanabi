@@ -58,11 +58,9 @@ fn spawn_effect(
 ) {
     commands
         .spawn((
+            transform,
             Name::new(format!("{}_parent", name)),
-            SpatialBundle {
-                transform,
-                ..Default::default()
-            },
+            Visibility::default(),
         ))
         .with_children(|p| {
             p.spawn((
@@ -75,11 +73,7 @@ fn spawn_effect(
             ))
             .with_children(|p| {
                 // Reference cube to visualize the emit origin
-                p.spawn(PbrBundle {
-                    mesh,
-                    material,
-                    ..Default::default()
-                });
+                p.spawn((Mesh3d(mesh), MeshMaterial3d(material)));
             });
         });
 }
@@ -92,21 +86,17 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle {
-        tonemapping: Tonemapping::None,
-        ..default()
-    };
-    camera.transform.translation = Vec3::new(0.0, 0.0, 50.0);
-    commands.spawn(camera);
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 50.),
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
 
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
-            color: Color::WHITE,
-            // Crank the illuminance way (too) high to make the reference cube clearly visible
-            illuminance: 1000.,
-            shadows_enabled: false,
-            ..Default::default()
-        },
+    commands.spawn(DirectionalLight {
+        color: Color::WHITE,
+        // Crank the illuminance way (too) high to make the reference cube clearly visible
+        illuminance: 1000.,
+        shadows_enabled: false,
         ..Default::default()
     });
 
@@ -168,7 +158,7 @@ fn setup(
 
 fn rotate_effect(time: Res<Time>, mut query: Query<(&RotateSpeed, &mut Transform)>) {
     for (speed, mut transform) in &mut query {
-        let a = (time.elapsed_seconds() * 0.1 * speed.0) * PI;
+        let a = (time.elapsed_secs() * 0.1 * speed.0) * PI;
         *transform = Transform::from_rotation(Quat::from_rotation_y(a));
     }
 }

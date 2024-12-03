@@ -10,7 +10,7 @@
 //! therefore ensure that the rectangles in front and behind the particle effect
 //! do not overlap the bounding box of the effect itself.
 use bevy::{
-    core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
+    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
@@ -98,17 +98,15 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_translation(Vec3::new(0., 0., 50.)),
-            camera: Camera {
-                hdr: true,
-                clear_color: Color::BLACK.into(),
-                ..default()
-            },
-            tonemapping: Tonemapping::None,
+        Transform::from_translation(Vec3::new(0., 0., 50.)),
+        Camera {
+            hdr: true,
+            clear_color: Color::BLACK.into(),
             ..default()
         },
-        BloomSettings::default(),
+        Camera3d::default(),
+        Tonemapping::None,
+        Bloom::default(),
     ));
 
     let effect1 = effects.add(make_firework());
@@ -126,57 +124,54 @@ fn setup(
     ));
 
     // Red background at origin, with alpha blending
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(Rectangle {
-            half_size: Vec2 { x: 0.5, y: 0.5 },
-        })),
-        material: materials.add(StandardMaterial {
-            base_color: Color::linear_rgba(1., 0., 0., 0.5),
-            alpha_mode: bevy::prelude::AlphaMode::Blend,
-            ..default()
-        }),
-        transform: Transform {
+    commands.spawn((
+        Transform {
             scale: Vec3::splat(50.),
             ..default()
         },
-        ..default()
-    });
+        Mesh3d(meshes.add(Mesh::from(Rectangle {
+            half_size: Vec2 { x: 0.5, y: 0.5 },
+        }))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::linear_rgba(1., 0., 0., 0.5),
+            alpha_mode: bevy::prelude::AlphaMode::Blend,
+            ..default()
+        })),
+    ));
 
     // Blue rectangle in front of particles, with alpha blending
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(Rectangle {
+    commands.spawn((
+        Transform {
+            translation: Vec3::Y * 6. + Vec3::Z * 40.,
+            scale: Vec3::splat(10.),
+            ..default()
+        },
+        Mesh3d(meshes.add(Mesh::from(Rectangle {
             half_size: Vec2 { x: 0.5, y: 0.5 },
-        })),
-        material: materials.add(StandardMaterial {
+        }))),
+        MeshMaterial3d(materials.add(StandardMaterial {
             // Keep the alpha quite high, because the particles are very bright (HDR, value=4.)
             // so otherwise we can't see the attenuation of the blue box over the white particles.
             base_color: Color::linear_rgba(0., 0., 1., 0.95),
             alpha_mode: bevy::prelude::AlphaMode::Blend,
             ..default()
-        }),
-        transform: Transform {
-            translation: Vec3::Y * 6. + Vec3::Z * 40.,
-            scale: Vec3::splat(10.),
-            ..default()
-        },
-        ..default()
-    });
+        })),
+    ));
 
     // Green square in front of particles, without alpha blending
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(Rectangle {
-            half_size: Vec2 { x: 0.5, y: 0.5 },
-        })),
-        material: materials.add(StandardMaterial {
-            base_color: utils::COLOR_GREEN,
-            alpha_mode: bevy::prelude::AlphaMode::Opaque,
-            ..default()
-        }),
-        transform: Transform {
+    commands.spawn((
+        Transform {
             translation: Vec3::Y * -6. + Vec3::Z * 40.,
             scale: Vec3::splat(10.),
             ..default()
         },
-        ..default()
-    });
+        Mesh3d(meshes.add(Mesh::from(Rectangle {
+            half_size: Vec2 { x: 0.5, y: 0.5 },
+        }))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: utils::COLOR_GREEN,
+            alpha_mode: bevy::prelude::AlphaMode::Opaque,
+            ..default()
+        })),
+    ));
 }

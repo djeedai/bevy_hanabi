@@ -154,80 +154,69 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle {
-        tonemapping: Tonemapping::None,
-        ..default()
+    let mut projection = OrthographicProjection::default_3d();
+    projection.scaling_mode = bevy::render::camera::ScalingMode::FixedVertical {
+        viewport_height: 5.,
     };
-    let mut projection = OrthographicProjection::default();
-    projection.scaling_mode = bevy::render::camera::ScalingMode::FixedVertical(5.);
-    camera.transform.translation.z = projection.far / 2.0;
-    camera.projection = Projection::Orthographic(projection);
-    commands.spawn(camera);
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 10.),
+        Camera3d::default(),
+        Projection::Orthographic(projection),
+        Tonemapping::None,
+    ));
 
-    commands.spawn(PointLightBundle {
-        transform: Transform::from_xyz(4.0, 5.0, 4.0),
-        ..Default::default()
-    });
-    commands.spawn(PointLightBundle {
-        transform: Transform::from_xyz(4.0, -5.0, -4.0),
-        ..Default::default()
-    });
+    commands.spawn((PointLight::default(), Transform::from_xyz(4.0, 5.0, 4.0)));
+    commands.spawn((PointLight::default(), Transform::from_xyz(4.0, -5.0, -4.0)));
 
     // Visual marker for attractor sphere
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(Sphere {
+    commands.spawn((
+        Transform::from_translation(ATTRACTOR_POS),
+        Mesh3d(meshes.add(Mesh::from(Sphere {
             radius: BALL_RADIUS * 2.0,
-        })),
-        material: materials.add(StandardMaterial {
+        }))),
+        MeshMaterial3d(materials.add(StandardMaterial {
             base_color: utils::COLOR_YELLOW,
             unlit: false,
             ..Default::default()
-        }),
-        transform: Transform::from_translation(ATTRACTOR_POS),
-        ..Default::default()
-    });
+        })),
+    ));
 
     // Visual marker for repulsor sphere
     commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(Sphere {
-                radius: BALL_RADIUS * 1.0,
-            }),
-            material: materials.add(StandardMaterial {
-                base_color: utils::COLOR_PURPLE,
-                unlit: false,
-                ..Default::default()
-            }),
-            transform: Transform::from_translation(REPULSOR_POS),
+        Transform::from_translation(REPULSOR_POS),
+        Mesh3d(meshes.add(Mesh::from(Sphere {
+            radius: BALL_RADIUS * 1.0,
+        }))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: utils::COLOR_PURPLE,
+            unlit: false,
             ..Default::default()
-        },
+        })),
         RepulsorMarker(true),
     ));
 
     // "allow" box
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Cuboid::new(6., 4., 6.)),
-        material: materials.add(StandardMaterial {
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(6., 4., 6.))),
+        MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::linear_rgba(0., 0.7, 0., 0.05),
             unlit: true,
             alpha_mode: bevy::prelude::AlphaMode::Blend,
             ..Default::default()
-        }),
-        ..Default::default()
-    });
+        })),
+    ));
 
     // "forbid" sphere
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Sphere { radius: 0.6 }),
-        material: materials.add(StandardMaterial {
+    commands.spawn((
+        Transform::from_translation(Vec3::new(-2., -1., 0.1)),
+        Mesh3d(meshes.add(Sphere { radius: 0.6 })),
+        MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::linear_rgba(0.7, 0., 0., 0.2),
             unlit: true,
             alpha_mode: bevy::prelude::AlphaMode::Blend,
             ..Default::default()
-        }),
-        transform: Transform::from_translation(Vec3::new(-2., -1., 0.1)),
-        ..Default::default()
-    });
+        })),
+    ));
 
     let mut gradient = Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.0, 1.0, 1.0, 1.0));
@@ -366,7 +355,7 @@ fn move_repulsor(
     mut q_marker: Query<(&mut Transform, &RepulsorMarker)>,
 ) {
     // Calculate new repulsor position
-    let time = time.elapsed_seconds();
+    let time = time.elapsed_secs();
     let mut pos = REPULSOR_POS + Vec3::Y * (time / 2.).sin();
 
     // Move the entity so we can visualize the change

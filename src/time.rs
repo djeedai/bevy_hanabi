@@ -221,8 +221,8 @@ mod tests {
         let real = app.world().resource::<Time<Real>>();
         let virt = app.world().resource::<Time<Virtual>>();
         let effect_simulation = app.world().resource::<Time<EffectSimulation>>();
-        assert!(f32::abs(virt.delta_seconds() - real.delta_seconds()) < EPSILON);
-        assert!(f32::abs(effect_simulation.delta_seconds() - real.delta_seconds()) < EPSILON);
+        assert!(f32::abs(virt.delta_secs() - real.delta_secs()) < EPSILON);
+        assert!(f32::abs(effect_simulation.delta_secs() - real.delta_secs()) < EPSILON);
 
         // Update with virtual speed 2.0
         app.world_mut()
@@ -233,8 +233,8 @@ mod tests {
         let real = app.world().resource::<Time<Real>>();
         let virt = app.world().resource::<Time<Virtual>>();
         let effect_simulation = app.world().resource::<Time<EffectSimulation>>();
-        assert!(f32::abs(virt.delta_seconds() - 2.0 * real.delta_seconds()) < EPSILON);
-        assert!(f32::abs(effect_simulation.delta_seconds() - 2.0 * real.delta_seconds()) < EPSILON);
+        assert!(f32::abs(virt.delta_secs() - 2.0 * real.delta_secs()) < EPSILON);
+        assert!(f32::abs(effect_simulation.delta_secs() - 2.0 * real.delta_secs()) < EPSILON);
         assert!(f32::abs(virt.effective_speed() - 2.0) < EPSILON);
         assert!(f32::abs(effect_simulation.effective_speed() - 2.0) < EPSILON);
 
@@ -247,8 +247,8 @@ mod tests {
         let real = app.world().resource::<Time<Real>>();
         let virt = app.world().resource::<Time<Virtual>>();
         let effect_simulation = app.world().resource::<Time<EffectSimulation>>();
-        assert!(f32::abs(virt.delta_seconds() - 2.0 * real.delta_seconds()) < EPSILON);
-        assert!(f32::abs(effect_simulation.delta_seconds() - 6.0 * real.delta_seconds()) < EPSILON);
+        assert!(f32::abs(virt.delta_secs() - 2.0 * real.delta_secs()) < EPSILON);
+        assert!(f32::abs(effect_simulation.delta_secs() - 6.0 * real.delta_secs()) < EPSILON);
         assert!(f32::abs(virt.effective_speed() - 2.0) < EPSILON);
         assert!(f32::abs(effect_simulation.effective_speed() - 6.0) < EPSILON);
     }

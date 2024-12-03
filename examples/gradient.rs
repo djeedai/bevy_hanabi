@@ -23,19 +23,18 @@ fn setup(
 ) {
     // Spawn a camera. For this example, we also demonstrate that we can use an HDR
     // camera.
-    let mut camera = Camera3dBundle {
-        camera: Camera {
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 100.),
+        Camera {
             hdr: true,
             ..default()
         },
-        tonemapping: Tonemapping::None,
-        ..default()
-    };
-    camera.transform.translation = Vec3::new(0.0, 0.0, 100.0);
-
-    // For this example, we assign to the camera a specific render layer (3)
-    // different from the default (0) to demonstrate it works.
-    commands.spawn((camera, RenderLayers::layer(3)));
+        Camera3d::default(),
+        Tonemapping::None,
+        // For this example, we assign to the camera a specific render layer (3)
+        // different from the default (0) to demonstrate it works.
+        RenderLayers::layer(3),
+    ));
 
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");
 
@@ -69,7 +68,7 @@ fn setup(
 
     // Define that texture slot (giving it a name for convenience)
     let mut module = writer.finish();
-    module.add_texture("color");
+    module.add_texture_slot("color");
 
     let effect = effects.add(
         EffectAsset::new(32768, Spawner::rate(1000.0.into()), module)
@@ -98,13 +97,12 @@ fn setup(
             },
         ))
         .with_children(|p| {
-            p.spawn(PbrBundle {
-                mesh: meshes.add(Cuboid {
+            p.spawn((
+                Mesh3d(meshes.add(Cuboid {
                     half_size: Vec3::splat(0.5),
-                }),
-                material: materials.add(utils::COLOR_RED),
-                ..Default::default()
-            });
+                })),
+                MeshMaterial3d(materials.add(utils::COLOR_RED)),
+            ));
         });
 }
 
@@ -165,7 +163,7 @@ fn update(time: Res<Time>, mut query: Query<&mut Transform, With<ParticleEffect>
     let mut alpha_off = 0.0;
     let mut speed = 4.25;
     for mut transform in query.iter_mut() {
-        let alpha = time.elapsed_seconds() * PI / speed + alpha_off;
+        let alpha = time.elapsed_secs() * PI / speed + alpha_off;
         let radius = 50.0;
         transform.translation = lemniscate(alpha, radius).extend(0.0);
         alpha_off += ALPHA_OFFSET;

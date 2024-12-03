@@ -5,7 +5,7 @@
 //! renders a firework explosion.
 //!
 //! The firework effect is composed of several key elements:
-//! - An HDR camera with [`BloomSettings`] to ensure the particles "glow".
+//! - An HDR camera with [`Bloom`] to ensure the particles "glow".
 //! - Use of a [`ColorOverLifetimeModifier`] with a [`Gradient`] made of colors
 //!   outside the \[0:1\] range, to ensure bloom has an effect.
 //! - [`SetVelocitySphereModifier`] with a reasonably large initial speed for
@@ -18,7 +18,7 @@
 //! to form an arc using [`EffectAsset::with_ribbons`].
 
 use bevy::{
-    core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
+    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
@@ -35,17 +35,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_translation(Vec3::new(0., 0., 50.)),
-            camera: Camera {
-                hdr: true,
-                clear_color: Color::BLACK.into(),
-                ..default()
-            },
-            tonemapping: Tonemapping::None,
+        Transform::from_translation(Vec3::new(0., 0., 50.)),
+        Camera {
+            hdr: true,
+            clear_color: Color::BLACK.into(),
             ..default()
         },
-        BloomSettings {
+        Camera3d::default(),
+        Tonemapping::None,
+        Bloom {
             intensity: 0.2,
             ..default()
         },

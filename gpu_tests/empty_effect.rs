@@ -24,10 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn setup(mut commands: Commands) {
-    commands.spawn(Camera3dBundle {
-        tonemapping: Tonemapping::None,
-        ..default()
-    });
+    commands.spawn((Camera3d::default(), Tonemapping::None));
     commands.spawn(ParticleEffectBundle::default());
 }
 

@@ -10,11 +10,11 @@ use bevy::{
     ecs::system::Resource,
     log::{trace, warn},
     render::{render_resource::*, renderer::RenderDevice},
-    utils::HashMap,
+    utils::{default, HashMap},
 };
 use bytemuck::cast_slice_mut;
 
-use super::buffer_table::BufferTableId;
+use super::{buffer_table::BufferTableId, AddedEffectGroup};
 use crate::{
     asset::EffectAsset,
     render::{
@@ -686,24 +686,60 @@ pub(crate) struct CachedEffect {
     pub(crate) group_order: Vec<u32>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PendingEffectGroup {
+    pub capacity: u32,
+    pub src_group_index_if_trail: Option<u32>,
+}
+
+impl From<&AddedEffectGroup> for PendingEffectGroup {
+    fn from(value: &AddedEffectGroup) -> Self {
+        Self {
+            capacity: value.capacity,
+            src_group_index_if_trail: value.src_group_index_if_trail,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum RenderGroupDispatchIndices {
+    Pending {
+        groups: Box<[PendingEffectGroup]>,
+    },
+    Allocated {
+        /// The index of the first render group indirect dispatch buffer.
+        ///
+        /// There will be one such dispatch buffer for each particle group.
+        first_render_group_dispatch_buffer_index: BufferTableId,
+        /// Map from a group index to its source and destination rows into the
+        /// render group dispatch buffer.
+        trail_dispatch_buffer_indices: HashMap<u32, TrailDispatchBufferIndices>,
+    },
+}
+
+impl Default for RenderGroupDispatchIndices {
+    fn default() -> Self {
+        Self::Pending {
+            groups: Box::new([]),
+        }
+    }
+}
+
 /// The indices in the indirect dispatch buffers for a single effect, as well as
 /// that of the metadata buffer.
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct DispatchBufferIndices {
     /// The index of the first update group indirect dispatch buffer.
     ///
     /// There will be one such dispatch buffer for each particle group.
     pub(crate) first_update_group_dispatch_buffer_index: BufferTableId,
-    /// The index of the first render group indirect dispatch buffer.
-    ///
-    /// There will be one such dispatch buffer for each particle group.
-    pub(crate) first_render_group_dispatch_buffer_index: BufferTableId,
     /// The index of the render indirect metadata buffer.
     pub(crate) render_effect_metadata_buffer_index: BufferTableId,
-    pub(crate) trail_dispatch_buffer_indices: HashMap<u32, TrailDispatchBufferIndices>,
+    /// Render group dispatch indirect indices for all groups of the effect.
+    pub(crate) render_group_dispatch_indices: RenderGroupDispatchIndices,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct TrailDispatchBufferIndices {
     pub(crate) dest: BufferTableId,
     pub(crate) src: BufferTableId,
@@ -713,10 +749,9 @@ impl Default for DispatchBufferIndices {
     // For testing purposes only.
     fn default() -> Self {
         DispatchBufferIndices {
-            first_update_group_dispatch_buffer_index: BufferTableId(0),
-            first_render_group_dispatch_buffer_index: BufferTableId(0),
-            render_effect_metadata_buffer_index: BufferTableId(0),
-            trail_dispatch_buffer_indices: HashMap::default(),
+            first_update_group_dispatch_buffer_index: BufferTableId::INVALID,
+            render_effect_metadata_buffer_index: BufferTableId::INVALID,
+            render_group_dispatch_indices: default(),
         }
     }
 }
@@ -853,6 +888,18 @@ impl EffectCache {
 
     pub(crate) fn get_dispatch_buffer_indices(&self, id: EffectCacheId) -> &DispatchBufferIndices {
         &self.effects[&id].slices.dispatch_buffer_indices
+    }
+
+    pub(crate) fn get_dispatch_buffer_indices_mut(
+        &mut self,
+        id: EffectCacheId,
+    ) -> &mut DispatchBufferIndices {
+        &mut self
+            .effects
+            .get_mut(&id)
+            .unwrap()
+            .slices
+            .dispatch_buffer_indices
     }
 
     pub(crate) fn get_group_order(&self, id: EffectCacheId) -> &[u32] {

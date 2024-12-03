@@ -5,7 +5,7 @@
 [![Crate](https://img.shields.io/crates/v/bevy_hanabi.svg)](https://crates.io/crates/bevy_hanabi)
 [![Build Status](https://github.com/djeedai/bevy_hanabi/actions/workflows/ci.yaml/badge.svg)](https://github.com/djeedai/bevy_hanabi/actions/workflows/ci.yaml)
 [![Coverage Status](https://coveralls.io/repos/github/djeedai/bevy_hanabi/badge.svg?branch=main)](https://coveralls.io/github/djeedai/bevy_hanabi?branch=main)
-[![Bevy tracking](https://img.shields.io/badge/Bevy%20tracking-v0.14-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
+[![Bevy tracking](https://img.shields.io/badge/Bevy%20tracking-v0.15-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
 
 🎆 Hanabi — a GPU particle system for the Bevy game engine.
 
@@ -190,8 +190,8 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
     - [x] Trails / Ribbons
   - [x] Camera support
     - [x] Render layers
-    - [x] 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.14.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) only
-    - [x] 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.14.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) only
+    - [x] 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.15.0/bevy/core_pipeline/core_2d/struct.Camera2d.html)) only
+    - [x] 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.15.0/bevy/core_pipeline/core_3d/struct.Camera3d.html)) only
     - [x] Simultaneous dual 2D/3D cameras
     - [x] Multiple viewports (split screen)
     - [x] HDR camera and bloom
@@ -213,8 +213,8 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
 
 | Feature | Default | Description |
 |---|:-:|---|
-| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2dBundle`](https://docs.rs/bevy/0.14.0/bevy/core_pipeline/core_2d/struct.Camera2dBundle.html)) |
-| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3dBundle`](https://docs.rs/bevy/0.14.0/bevy/core_pipeline/core_3d/struct.Camera3dBundle.html)) |
+| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.15.0/bevy/core_pipeline/core_2d/struct.Camera2d.html)) |
+| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.15.0/bevy/core_pipeline/core_3d/struct.Camera3d.html)) |
 | `serde`* | ✔ | Use `serde` to derive `Serialization` and `Deserialization` on asset-related types. |
 
 (*) `serde` is not compatible with WASM (due to the `typetag` dependency not being available on `wasm`).

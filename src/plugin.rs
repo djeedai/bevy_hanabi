@@ -5,6 +5,7 @@ use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Transparent3d};
 use bevy::{
     prelude::*,
     render::{
+        mesh::allocator::allocate_and_free_meshes,
         render_asset::prepare_assets,
         render_graph::RenderGraph,
         render_phase::DrawFunctions,
@@ -181,7 +182,7 @@ impl HanabiPlugin {
     }
 }
 
-/// A convenient alias for `With<Handle<CompiledParticleEffect>>`, for use with
+/// A convenient alias for `With<CompiledParticleEffect>`, for use with
 /// [`bevy_render::view::VisibleEntities`].
 pub type WithCompiledParticleEffect = With<CompiledParticleEffect>;
 
@@ -310,7 +311,10 @@ impl Plugin for HanabiPlugin {
             .add_systems(
                 Render,
                 (
-                    prepare_effects.in_set(EffectSystems::PrepareEffectAssets),
+                    prepare_effects
+                        .in_set(EffectSystems::PrepareEffectAssets)
+                        // Ensure we run after Bevy prepared the render Mesh
+                        .after(allocate_and_free_meshes),
                     queue_effects
                         .in_set(EffectSystems::QueueEffects)
                         .after(prepare_effects),
