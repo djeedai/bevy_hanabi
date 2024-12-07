@@ -10,23 +10,36 @@ documentation = "https://docs.rs/bevy_hanabi"
 keywords = ["bevy", "particle-system", "particles", "vfx"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-exclude = ["docs/*.svg", "docs/*.png", "examples/*.gif", "examples/*.png", "examples/wasm/*", ".github", "release.md", "run_examples.bat", "run_examples.sh", "deny.toml"]
+exclude = [
+  "docs/*.svg",
+  "docs/*.png",
+  "examples/*.gif",
+  "examples/*.png",
+  "examples/wasm/*",
+  ".github",
+  "release.md",
+  "run_examples.bat",
+  "run_examples.sh",
+  "deny.toml"
+]
 autoexamples = false
 
 [features]
 default = ["2d", "3d", "serde", "gpu_tests", "examples_world_inspector"]
 
-# Enable support for rendering through a 2D camera (Camera2d)
+# Enable support for rendering through a 2D camera (Camera2d).
+# You need to activate either the 2d or 3d feature at least (or both).
 2d = []
 
-# Enable support for rendering through a 3D camera (Camera3d)
+# Enable support for rendering through a 3D camera (Camera3d).
+# You need to activate either the 2d or 3d feature at least (or both).
 3d = []
 
 # Enable serializing and deserializing of assets. This doesn't work on WASM,
 # because typetag is not available for the wasm target.
 serde = ["typetag"]
 
-# Enable tracing annotations
+# Enable tracing annotations. This is disabled by default for performance.
 trace = []
 
 # Special feature to enable GPU-based tests, which otherwise fail
@@ -73,7 +86,7 @@ features = [
   "bevy_render",
   "bevy_asset",
   "x11",
-  # Bug in Bevy 0.15 [16563]
+  # Bug in Bevy 0.15.0 [bevy#16563]
   "png"
 ]
 
