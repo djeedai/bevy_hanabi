@@ -43,15 +43,10 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let group_index_in_effect = group_buffer[index].index_in_effect;
     let is_first_group = group_index_in_effect == 0u;
 
-    // Calculate the base offset (in number of u32 items) into the render indirect and
-    // dispatch indirect arrays.
-    let rgi_base = RENDER_GROUP_INDIRECT_STRIDE * group_index;
-
-    let indirect_dispatch_index = group_buffer[index].indirect_dispatch_index;
-    let di_base = DISPATCH_INDIRECT_STRIDE * indirect_dispatch_index;
-
     // Clear the rendering instance count, which will be upgraded by the update pass
     // with the particles actually alive at the end of their update (after aged).
+    let indirect_render_index = group_buffer[index].indirect_render_index;
+    let rgi_base = RENDER_GROUP_INDIRECT_STRIDE * indirect_render_index;
     render_group_indirect_buffer[rgi_base + RGI_OFFSET_INSTANCE_COUNT] = 0u;
 
     let alive_count = render_group_indirect_buffer[rgi_base + RGI_OFFSET_ALIVE_COUNT];
@@ -60,6 +55,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Calculate the number of thread groups to dispatch for the update
     // pass, which is the number of alive particles rounded up to 64
     // (workgroup_size).
+    let indirect_dispatch_index = group_buffer[index].indirect_dispatch_index;
+    let di_base = DISPATCH_INDIRECT_STRIDE * indirect_dispatch_index;
     dispatch_indirect_buffer[di_base + DI_OFFSET_X] = (alive_count + 63u) >> 6u;
 
     // Update max_update from current value of alive_count, so that the
