@@ -71,6 +71,9 @@ struct ParticleGroup {
     /// Index of the [`GpuDispatchIndirect`] struct inside the global
     /// [`EffectsMeta::dispatch_indirect_buffer`].
     indirect_dispatch_index: u32,
+    /// Index of the [`GpuRenderGroupIndirect`] struct inside the global
+    /// [`EffectsMeta::render_group_dispatch_buffer`].
+    indirect_render_index: u32,
     {{PARTICLE_GROUP_PADDING}}
 }
 

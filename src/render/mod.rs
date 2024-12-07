@@ -378,6 +378,9 @@ pub struct GpuParticleGroup {
     /// Index of the [`GpuDispatchIndirect`] struct inside the global
     /// [`EffectsMeta::dispatch_indirect_buffer`].
     pub indirect_dispatch_index: u32,
+    /// Index of the [`GpuRenderGroupIndirect`] struct inside the global
+    /// [`EffectsMeta::render_group_dispatch_buffer`].
+    pub indirect_render_index: u32,
 }
 
 /// Compute pipeline to run the `vfx_indirect` dispatch workgroup calculation
@@ -2434,6 +2437,14 @@ pub(crate) fn prepare_effects(
         let mut first_particle_group_buffer_index = None;
         let mut local_group_count = 0;
         for (group_index, range) in input.effect_slices.slices.windows(2).enumerate() {
+            let indirect_render_index = match &dispatch_buffer_indices.render_group_dispatch_indices
+            {
+                RenderGroupDispatchIndices::Allocated {
+                    first_render_group_dispatch_buffer_index,
+                    ..
+                } => first_render_group_dispatch_buffer_index.0 + group_index as u32,
+                _ => u32::MAX, // should never happen, as lazily allocated above (unless something went wrong)
+            };
             let particle_group_buffer_index =
                 effects_meta.particle_group_buffer.push(GpuParticleGroup {
                     global_group_index: total_group_count,
@@ -2448,6 +2459,7 @@ pub(crate) fn prepare_effects(
                         .first_update_group_dispatch_buffer_index
                         .0
                         + group_index as u32,
+                    indirect_render_index,
                 });
             if group_index == 0 {
                 first_particle_group_buffer_index = Some(particle_group_buffer_index as u32);
