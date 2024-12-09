@@ -39,7 +39,7 @@
 //!
 //! ```toml
 //! # Example: enable only 3D integration
-//! bevy_hanabi = { version = "0.13", default-features = false, features = ["3d"] }
+//! bevy_hanabi = { version = "0.14", default-features = false, features = ["3d"] }
 //! ```
 //!
 //! # Example
@@ -663,9 +663,9 @@ impl ParticleEffect {
 ///
 /// A material component contains the render resources (textures) for a single
 /// effect instance, which actually bound to the slots defined with
-/// [`Module::add_texture()`]. That way, a same effect asset can be instantiated
-/// multiple times and rendered with different sets of textures, without
-/// changing the asset.
+/// [`Module::add_texture_slot()`]. That way, a same effect asset can be
+/// instantiated multiple times and rendered with different sets of textures,
+/// without changing the asset.
 ///
 /// The [`EffectMaterial`] component needs to be spawned on the same entity as
 /// the [`ParticleEffect`].

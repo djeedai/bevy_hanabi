@@ -29,7 +29,7 @@ Add the `bevy_hanabi` dependency to `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_hanabi = "0.13"
+bevy_hanabi = "0.14"
 ```
 
 See also [Features](#features) below for the list of supported features.
@@ -126,7 +126,7 @@ commands
 
 ## Examples
 
-See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/acf80edf844a03aa04784fb147a80050448fc127/examples) folder.
+See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/168cdf9f301100727eebeefe0e9580b0c8426416/examples) folder.
 
 A web demo (using the WebAssembly target) showing all examples is availabe in the [`examples/wasm/`](./examples/wasm/) folder. You can open `index.html` in any browser to see a GIF of all the examples. Running the actual WebAssembly example however requires serving the files with an HTTP server. If you have NodeJS installed, you can do that for example by running `npx http-server examples/wasm`.
 
@@ -134,7 +134,7 @@ Note for Linux users: The examples build with the `bevy/x11` feature by default 
 
 ## Feature List
 
-This list contains the major fixed features provided by 🎆 Hanabi. Beyond that, with the power of the [Expressions API](https://docs.rs/bevy_hanabi/0.13.0/bevy_hanabi/graph/expr/index.html), visual effect authors can further customize their effects by assigning individual particle attributes (position, color, _etc._).
+This list contains the major fixed features provided by 🎆 Hanabi. Beyond that, with the power of the [Expressions API](https://docs.rs/bevy_hanabi/0.14.0/bevy_hanabi/graph/expr/index.html), visual effect authors can further customize their effects by assigning individual particle attributes (position, color, _etc._).
 
 - Spawn
   - [x] Constant rate
@@ -222,7 +222,7 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
 For optimization purpose, users of a single type of camera can disable the other type by skipping default features in their `Cargo.toml`. For example to use only the 3D mode:
 
 ```toml
-bevy_hanabi = { version = "0.13", default-features = false, features = [ "3d", "serde" ] }
+bevy_hanabi = { version = "0.14", default-features = false, features = [ "3d", "serde" ] }
 ```
 
 ## Compatible Bevy versions
@@ -233,6 +233,7 @@ Compatibility of `bevy_hanabi` versions:
 
 | `bevy_hanabi` | `bevy` |
 | :--           | :--    |
+| `0.14`        | `0.15` |
 | `0.12`-`0.13` | `0.14` |
 | `0.10`-`0.11` | `0.13` |
 | `0.8`-`0.9`   | `0.12` |

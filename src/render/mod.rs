@@ -2436,7 +2436,8 @@ pub(crate) fn prepare_effects(
                     first_render_group_dispatch_buffer_index,
                     ..
                 } => first_render_group_dispatch_buffer_index.0 + group_index as u32,
-                _ => u32::MAX, // should never happen, as lazily allocated above (unless something went wrong)
+                _ => u32::MAX, /* should never happen, as lazily allocated above (unless
+                                * something went wrong) */
             };
             let particle_group_buffer_index =
                 effects_meta.particle_group_buffer.push(GpuParticleGroup {
