@@ -1179,6 +1179,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             shader_defs.push("RIBBONS".into());
         }
 
+        #[cfg(feature = "2d")]
         let depth_stencil_2d = DepthStencilState {
             format: CORE_2D_DEPTH_FORMAT,
             // Use depth buffer with alpha-masked particles, not with transparent ones
@@ -1188,6 +1189,8 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             stencil: StencilState::default(),
             bias: DepthBiasState::default(),
         };
+
+        #[cfg(feature = "3d")]
         let depth_stencil_3d = DepthStencilState {
             format: CORE_3D_DEPTH_FORMAT,
             // Use depth buffer with alpha-masked or opaque particles, not
