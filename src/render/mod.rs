@@ -1179,30 +1179,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             shader_defs.push("RIBBONS".into());
         }
 
-        #[cfg(all(feature = "2d", feature = "3d"))]
-        assert_eq!(CORE_2D_DEPTH_FORMAT, CORE_3D_DEPTH_FORMAT);
-        #[cfg(all(feature = "2d", feature = "3d"))]
-        let depth_stencil = match key.pipeline_mode {
-            // Bevy's Transparent2d render phase doesn't support a depth-stencil buffer.
-            PipelineMode::Camera2d => None,
-            PipelineMode::Camera3d => Some(DepthStencilState {
-                format: CORE_3D_DEPTH_FORMAT,
-                // Use depth buffer with alpha-masked or opaque particles, not
-                // with transparent ones
-                depth_write_enabled: matches!(
-                    key.alpha_mask,
-                    ParticleRenderAlphaMaskPipelineKey::AlphaMask
-                        | ParticleRenderAlphaMaskPipelineKey::Opaque
-                ),
-                // Bevy uses reverse-Z, so GreaterEqual really means closer
-                depth_compare: CompareFunction::GreaterEqual,
-                stencil: StencilState::default(),
-                bias: DepthBiasState::default(),
-            }),
-        };
-
-        #[cfg(all(feature = "2d", not(feature = "3d")))]
-        let depth_stencil = Some(DepthStencilState {
+        let depth_stencil_2d = DepthStencilState {
             format: CORE_2D_DEPTH_FORMAT,
             // Use depth buffer with alpha-masked particles, not with transparent ones
             depth_write_enabled: false, // TODO - opaque/alphamask 2d
@@ -1210,12 +1187,11 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             depth_compare: CompareFunction::GreaterEqual,
             stencil: StencilState::default(),
             bias: DepthBiasState::default(),
-        });
-
-        #[cfg(all(feature = "3d", not(feature = "2d")))]
-        let depth_stencil = Some(DepthStencilState {
+        };
+        let depth_stencil_3d = DepthStencilState {
             format: CORE_3D_DEPTH_FORMAT,
-            // Use depth buffer with alpha-masked particles, not with transparent ones
+            // Use depth buffer with alpha-masked or opaque particles, not
+            // with transparent ones
             depth_write_enabled: matches!(
                 key.alpha_mask,
                 ParticleRenderAlphaMaskPipelineKey::AlphaMask
@@ -1225,7 +1201,21 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             depth_compare: CompareFunction::GreaterEqual,
             stencil: StencilState::default(),
             bias: DepthBiasState::default(),
-        });
+        };
+
+        #[cfg(all(feature = "2d", feature = "3d"))]
+        assert_eq!(CORE_2D_DEPTH_FORMAT, CORE_3D_DEPTH_FORMAT);
+        #[cfg(all(feature = "2d", feature = "3d"))]
+        let depth_stencil = match key.pipeline_mode {
+            PipelineMode::Camera2d => Some(depth_stencil_2d),
+            PipelineMode::Camera3d => Some(depth_stencil_3d),
+        };
+
+        #[cfg(all(feature = "2d", not(feature = "3d")))]
+        let depth_stencil = Some(depth_stencil_2d);
+
+        #[cfg(all(feature = "3d", not(feature = "2d")))]
+        let depth_stencil = Some(depth_stencil_3d);
 
         let format = if key.hdr {
             ViewTarget::TEXTURE_FORMAT_HDR
