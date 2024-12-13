@@ -5,7 +5,7 @@
 //! renders a firework explosion.
 //!
 //! The firework effect is composed of several key elements:
-//! - An HDR camera with [`BloomSettings`] to ensure the particles "glow".
+//! - An HDR camera with [`Bloom`] to ensure the particles "glow".
 //! - Use of a [`ColorOverLifetimeModifier`] with a [`Gradient`] made of colors
 //!   outside the \[0:1\] range, to ensure bloom has an effect.
 //! - [`SetVelocitySphereModifier`] with a reasonably large initial speed for
@@ -20,7 +20,7 @@
 use std::time::Duration;
 
 use bevy::{
-    core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
+    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
@@ -224,16 +224,14 @@ fn create_trails_effect() -> EffectAsset {
 fn setup(mut commands: Commands, mut debug_settings: ResMut<DebugSettings>) {
     // Camera
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_translation(Vec3::new(0., 20., 50.)),
-            camera: Camera {
-                hdr: true,
-                clear_color: Color::BLACK.into(),
-                ..default()
-            },
-            tonemapping: Tonemapping::None,
+        Transform::from_translation(Vec3::new(0., 20., 50.)),
+        Camera3d::default(),
+        Camera {
+            hdr: true,
+            clear_color: Color::BLACK.into(),
             ..default()
         },
+        Tonemapping::None,
         BloomSettings {
             intensity: 0.2,
             ..default()

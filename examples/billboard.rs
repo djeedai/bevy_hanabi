@@ -50,17 +50,15 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let camera = Camera3dBundle {
-        transform: Transform::from_xyz(3.0, 3.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
-        projection: Projection::Perspective(PerspectiveProjection {
+    commands.spawn((
+        Transform::from_xyz(3.0, 3.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
             fov: 120.0,
-            ..Default::default()
+            ..default()
         }),
-        tonemapping: Tonemapping::None,
-        ..Default::default()
-    };
-
-    commands.spawn(camera);
+        Tonemapping::None,
+    ));
 
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");
 
@@ -114,7 +112,7 @@ fn setup(
     let texture_slot = writer.lit(0u32).expr();
 
     let mut module = writer.finish();
-    module.add_texture("color");
+    module.add_texture_slot("color");
 
     let effect = effects.add(
         EffectAsset::new(32768, Spawner::rate(64.0.into()), module)
@@ -135,23 +133,21 @@ fn setup(
                 rotation: Some(rotation_attr),
             })
             .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant([0.2; 2].into()),
+                gradient: Gradient::constant([0.2; 3].into()),
                 screen_space_size: false,
             }),
     );
 
     // The ground
-    commands
-        .spawn(PbrBundle {
-            mesh: meshes.add(Rectangle {
-                half_size: Vec2::splat(2.0),
-            }),
-            material: materials.add(utils::COLOR_BLUE),
-            transform: Transform::from_xyz(0.0, -0.5, 0.0)
-                * Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
-            ..Default::default()
-        })
-        .insert(Name::new("ground"));
+    commands.spawn((
+        Transform::from_xyz(0.0, -0.5, 0.0)
+            * Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
+        Mesh3d(meshes.add(Rectangle {
+            half_size: Vec2::splat(2.0),
+        })),
+        MeshMaterial3d(materials.add(utils::COLOR_BLUE)),
+        Name::new("ground"),
+    ));
 
     commands.spawn((
         ParticleEffectBundle::new(effect),
@@ -165,7 +161,7 @@ fn setup(
 fn rotate_camera(time: Res<Time>, mut query: Query<&mut Transform, With<Camera>>) {
     let mut transform = query.single_mut();
     let radius_xz = 18_f32.sqrt();
-    let a = (time.elapsed_seconds() * 0.3).sin();
+    let a = (time.elapsed_secs() * 0.3).sin();
     let (s, c) = a.sin_cos();
     *transform =
         Transform::from_xyz(c * radius_xz, 3.0, s * radius_xz).looking_at(Vec3::ZERO, Vec3::Y)

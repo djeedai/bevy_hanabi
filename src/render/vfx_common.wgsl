@@ -50,19 +50,30 @@ struct Spawner {
 
 // Per-group data for a single particle effect group inside an effect.
 struct ParticleGroup {
-    // Index of the group, generally zero unless there are trails.
+    /// The absolute index of this particle group in the global particle group
+    /// buffer, which includes all effects.
     group_index: u32,
+    /// The global index of the particle effect.
     effect_index: u32,
-    // The index relative to the effect: e.g. 0 if this is the first group in
-    // the effect.
+    /// The relative index of this particle group in the effect.
+    ///
+    /// For example, the first group in an effect has index 0, the second has
+    /// index 1, etc. This is always 0 when not using groups.
     index_in_effect: u32,
-    // Index of the first element for this group in the indirect index buffer.
+    /// The index of the first particle in this group in the indirect index
+    /// buffer.
     indirect_index: u32,
-    // The capacity of this group.
+    /// The capacity of this group, in number of particles.
     capacity: u32,
-    // The index of the first particle in this effect in the particle and
-    // indirect buffers.
+    /// The index of the first particle in the particle and indirect buffers of
+    /// this effect.
     effect_particle_offset: u32,
+    /// Index of the [`GpuDispatchIndirect`] struct inside the global
+    /// [`EffectsMeta::dispatch_indirect_buffer`].
+    indirect_dispatch_index: u32,
+    /// Index of the [`GpuRenderGroupIndirect`] struct inside the global
+    /// [`EffectsMeta::render_group_dispatch_buffer`].
+    indirect_render_index: u32,
     // Offset (in u32 count) of the event indirect dispatch struct inside its
     // buffer. This avoids having to align those 16-byte structs to the GPU
     // alignment (at least 32 bytes, even 256 bytes on some).
@@ -153,12 +164,13 @@ const REM_OFFSET_EVENT_COUNT: u32 = 1u;
 
 const RGI_OFFSET_VERTEX_COUNT: u32 = 0u;
 const RGI_OFFSET_INSTANCE_COUNT: u32 = 1u;
-const RGI_OFFSET_VERTEX_OFFSET: u32 = 2u;
-const RGI_OFFSET_BASE_INSTANCE: u32 = 3u;
-const RGI_OFFSET_ALIVE_COUNT: u32 = 4u;
-const RGI_OFFSET_MAX_UPDATE: u32 = 5u;
-const RGI_OFFSET_DEAD_COUNT: u32 = 6u;
-const RGI_OFFSET_MAX_SPAWN: u32 = 7u;
+const RGI_OFFSET_FIRST_INDEX_OR_VERTEX_OFFSET: u32 = 2u;
+const RGI_OFFSET_VERTEX_OFFSET_OR_BASE_INSTANCE: u32 = 3u;
+const RGI_OFFSET_BASE_INSTANCE: u32 = 4u;
+const RGI_OFFSET_ALIVE_COUNT: u32 = 5u;
+const RGI_OFFSET_MAX_UPDATE: u32 = 6u;
+const RGI_OFFSET_DEAD_COUNT: u32 = 7u;
+const RGI_OFFSET_MAX_SPAWN: u32 = 8u;
 
 struct RenderEffectMetadata {
     /// Index of the ping buffer for particle indices. Init and update compute passes
@@ -181,9 +193,11 @@ struct RenderGroupIndirect {
     vertex_count: u32,
     /// Number of mesh instances, equal to the number of particles.
     instance_count: atomic<u32>,
-    /// Vertex offset (always zero).
-    vertex_offset: i32,
-    /// Base instance.
+    /// First index (if indexed) or vertex offset (if non-indexed).
+    first_index_or_vertex_offset: u32,
+    /// Vertex offset (if indexed) or base instance (if non-indexed).
+    vertex_offset_or_base_instance: i32,
+    /// Base instance (if indexed).
     base_instance: u32,
     /// Number of particles alive after the init pass, used to calculate the number
     /// of compute threads to spawn for the update pass and to cap those threads

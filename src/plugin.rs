@@ -1,14 +1,17 @@
 #[cfg(feature = "2d")]
 use bevy::core_pipeline::core_2d::Transparent2d;
 #[cfg(feature = "3d")]
-use bevy::core_pipeline::core_3d::{AlphaMask3d, Transparent3d};
+use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Transparent3d};
 use bevy::{
     prelude::*,
     render::{
+        mesh::allocator::allocate_and_free_meshes,
+        render_asset::prepare_assets,
         render_graph::RenderGraph,
         render_phase::DrawFunctions,
         render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
         renderer::{RenderAdapterInfo, RenderDevice},
+        texture::GpuImage,
         view::{check_visibility, prepare_view_uniforms, visibility::VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
@@ -203,7 +206,7 @@ impl HanabiPlugin {
     }
 }
 
-/// A convenient alias for `With<Handle<CompiledParticleEffect>>`, for use with
+/// A convenient alias for `With<CompiledParticleEffect>`, for use with
 /// [`bevy_render::view::VisibleEntities`].
 pub type WithCompiledParticleEffect = With<CompiledParticleEffect>;
 
@@ -293,7 +296,11 @@ impl Plugin for HanabiPlugin {
             assets.insert(&HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
         }
 
-        let effects_meta = EffectsMeta::new(render_device.clone());
+        let effects_meta = {
+            let mut assets = app.world_mut().resource_mut::<Assets<Mesh>>();
+            EffectsMeta::new(render_device.clone(), &mut assets)
+        };
+
         let effect_cache = EffectCache::new(render_device);
 
         // Register the custom render pipeline
@@ -332,7 +339,10 @@ impl Plugin for HanabiPlugin {
             .add_systems(
                 Render,
                 (
-                    prepare_effects.in_set(EffectSystems::PrepareEffectAssets),
+                    prepare_effects
+                        .in_set(EffectSystems::PrepareEffectAssets)
+                        // Ensure we run after Bevy prepared the render Mesh
+                        .after(allocate_and_free_meshes),
                     queue_effects
                         .in_set(EffectSystems::QueueEffects)
                         .after(prepare_effects),
@@ -342,7 +352,8 @@ impl Plugin for HanabiPlugin {
                         .before(prepare_bind_groups),
                     prepare_bind_groups
                         .in_set(EffectSystems::PrepareBindGroups)
-                        .after(queue_effects),
+                        .after(queue_effects)
+                        .after(prepare_assets::<GpuImage>),
                 ),
             );
 
@@ -374,6 +385,14 @@ impl Plugin for HanabiPlugin {
             render_app
                 .world()
                 .get_resource::<DrawFunctions<AlphaMask3d>>()
+                .unwrap()
+                .write()
+                .add(draw_particles);
+
+            let draw_particles = DrawEffects::new(render_app.world_mut());
+            render_app
+                .world()
+                .get_resource::<DrawFunctions<Opaque3d>>()
                 .unwrap()
                 .write()
                 .add(draw_particles);

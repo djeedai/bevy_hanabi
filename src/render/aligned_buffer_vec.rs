@@ -13,8 +13,6 @@ use bevy::{
 use bytemuck::{cast_slice, Pod};
 use copyless::VecHelper;
 
-use crate::next_multiple_of;
-
 /// Like Bevy's [`BufferVec`], but with extra per-item alignment.
 ///
 /// This helper ensures the individual array elements are properly aligned,
@@ -102,7 +100,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
         // Extra manual alignment for device constraints
         let aligned_size = if let Some(item_align) = item_align {
             let item_align = item_align.get() as usize;
-            let aligned_size = next_multiple_of(item_size, item_align);
+            let aligned_size = item_size.next_multiple_of(item_align);
             assert!(aligned_size >= item_size);
             assert!(aligned_size % item_align == 0);
             aligned_size

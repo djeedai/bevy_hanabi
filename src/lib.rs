@@ -24,12 +24,11 @@
 //! compute shaders and offloading most of the work of particle simulating to
 //! the GPU.
 //!
-//! _Note: This library makes heavy use of compute shaders to offload work to
-//! the GPU in a performant way. Support for compute shaders on the `wasm`
-//! target (WebAssembly) via WebGPU is only available in Bevy in general since
-//! the Bevy v0.11, and is not yet available in this library.
-//! See [#41](https://github.com/djeedai/bevy_hanabi/issues/41) for details on
-//! progress._
+//! The library supports the `wasm` target (WebAssembly) via the WebGPU renderer
+//! only. Compute shaders are not available via the legacy WebGL2 renderer.
+//! See Bevy's own [WebGL2 and WebGPU](https://github.com/bevyengine/bevy/tree/latest/examples#webgl2-and-webgpu)
+//! section of the examples README for more information on how to run Wasm
+//! builds with WebGPU.
 //!
 //! # 2D vs. 3D
 //!
@@ -41,7 +40,7 @@
 //!
 //! ```toml
 //! # Example: enable only 3D integration
-//! bevy_hanabi = { version = "0.12", default-features = false, features = ["3d"] }
+//! bevy_hanabi = { version = "0.14", default-features = false, features = ["3d"] }
 //! ```
 //!
 //! # Example
@@ -67,7 +66,7 @@
 //!     // Define a color gradient from red to transparent black
 //!     let mut gradient = Gradient::new();
 //!     gradient.add_key(0.0, Vec4::new(1., 0., 0., 1.));
-//!     gradient.add_key(1.0, Vec4::splat(0.));
+//!     gradient.add_key(1.0, Vec4::ZERO);
 //!
 //!     // Create a new expression module
 //!     let mut module = Module::default();
@@ -89,7 +88,8 @@
 //!
 //!     // Initialize the total lifetime of the particle, that is
 //!     // the time for which it's simulated and rendered. This modifier
-//!     // is almost always required, otherwise the particles won't show.
+//!     // is almost always required, otherwise the particles will stay
+//!     // alive forever, and new particles can't be spawned instead.
 //!     let lifetime = module.lit(10.); // literal value "10.0"
 //!     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 //!
@@ -157,13 +157,17 @@
 //!    reflected to its instances, although not all changes are supported. In
 //!    general, avoid changing an [`EffectAsset`] while it's in use by one or
 //!    more [`ParticleEffect`].
-//! 3. Also spawn an [`EffectProperties`] component on the same entity. This is
-//!    required even if the effect doesn't use properties. See [properties] for
-//!    more details.
-//! 4. If actually using properties, update them through the
-//!    [`EffectProperties`] at any time while the effect is active. This allows
-//!    some moderate CPU-side control over the simulation and rendering of the
-//!    effect, without having to destroy the effect and re-create a new one.
+//! 3. If using properties, spawn an [`EffectProperties`] component on the same
+//!    entity. Then update properties through that component at any time while
+//!    the effect is active. This allows some moderate CPU-side control over the
+//!    simulation and rendering of the effect, without having to destroy the
+//!    effect and re-create a new one.
+//!
+//! The [`EffectAsset`] is intended to be the serialized effect format, which
+//! authors can save to disk and ship with their application. At this time
+//! however serialization and deserialization is still a work in progress. In
+//! particular, serialization and deserialization of all
+//! [modifiers](crate::modifier) is currently not supported on Wasm.
 
 use std::fmt::Write as _;
 
@@ -174,7 +178,6 @@ use bevy::{
     utils::{HashMap, HashSet},
 };
 use serde::{Deserialize, Serialize};
-use spawn::Initializer;
 use thiserror::Error;
 
 mod asset;
@@ -203,7 +206,7 @@ pub use properties::*;
 pub use render::{DebugSettings, LayoutFlags, ShaderCache};
 pub use spawn::{
     tick_initializers, Cloner, CpuValue, EffectCloner, EffectInitializer, EffectInitializers,
-    EffectSpawner, Random, Spawner,
+    EffectSpawner, Initializer, Random, Spawner,
 };
 pub use time::{EffectSimulation, EffectSimulationTime};
 
@@ -217,20 +220,6 @@ pub mod prelude {
 compile_error!(
     "You need to enable at least one of the '2d' or '3d' features for anything to happen."
 );
-
-/// Get the smallest multiple of align greater than or equal to value, where
-/// `align` must be a power of two.
-///
-/// # Panics
-///
-/// Panics if `align` is not a power of two.
-// TODO - filler for usize.next_multiple_of()
-// https://github.com/rust-lang/rust/issues/88581
-pub(crate) fn next_multiple_of(value: usize, align: usize) -> usize {
-    assert!(align & (align - 1) == 0); // power of 2
-    let count = (value + align - 1) / align;
-    count * align
-}
 
 /// Extension trait to convert an object to WGSL code.
 ///
@@ -676,22 +665,30 @@ impl ParticleEffect {
 
 /// Material for an effect instance.
 ///
-/// A material component contains the render resources (textures) actually bound
-/// to the slots defined in an effect's [`Module`]. That way, a same effect can
-/// be rendered multiple times with different sets of textures.
+/// A material component contains the render resources (textures) for a single
+/// effect instance, which actually bound to the slots defined with
+/// [`Module::add_texture_slot()`]. That way, a same effect asset can be
+/// instantiated multiple times and rendered with different sets of textures,
+/// without changing the asset.
 ///
 /// The [`EffectMaterial`] component needs to be spawned on the same entity as
 /// the [`ParticleEffect`].
 #[derive(Debug, Default, Clone, Component)]
 pub struct EffectMaterial {
-    /// List of images to use to render the effect instance.
+    /// List of textures to use to render the effect instance.
+    ///
+    /// The images are ordered by [slot index].
+    ///
+    /// [slot index]: crate::TextureLayout::get_slot_by_name
     pub images: Vec<Handle<Image>>,
 }
 
 /// Texture slot of a [`Module`].
 ///
 /// A texture slot defines a named bind point where a texture can be attached
-/// and sampled by an effect during rendering.
+/// and sampled by an effect during rendering. A slot also has an implicit
+/// unique index corresponding to its position in the [`TextureLayout::layout`]
+/// array of the effect.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct TextureSlot {
     /// Unique slot name.
@@ -704,7 +701,22 @@ pub struct TextureSlot {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct TextureLayout {
     /// The list of slots.
+    ///
+    /// The slots index corresponds to the index inside this array. Each image
+    /// in [`EffectMaterial::images`] maps by index to a unique slot in this
+    /// array.
     pub layout: Vec<TextureSlot>,
+}
+
+impl TextureLayout {
+    /// Find a texture slot by name, and return its index.
+    ///
+    /// The index uniquely identify the slot (like its name), and indexes into
+    /// the [`EffectMaterial::images`] array to determine which texture is bound
+    /// to it.
+    pub fn get_slot_by_name(&self, name: &str) -> Option<usize> {
+        self.layout.iter().position(|slot| slot.name == name)
+    }
 }
 
 /// Effect shader.
@@ -804,25 +816,39 @@ impl EffectShaderSource {
             if attr == Attribute::SIZE {
                 if !has_size {
                     inputs_code += &format!(
-                        "var size = vec2<f32>(particle.{0}, particle.{0});\n",
+                        "var size = vec3<f32>(particle.{0}, particle.{0}, particle.{0});\n",
                         Attribute::SIZE.name()
                     );
                     has_size = true;
+                    present_attributes.insert(attr);
                 } else {
                     warn!("Attribute SIZE conflicts with another size attribute; ignored.");
                 }
             } else if attr == Attribute::SIZE2 {
                 if !has_size {
-                    inputs_code += &format!("var size = particle.{0};\n", Attribute::SIZE2.name());
+                    inputs_code += &format!(
+                        "var size = vec3<f32>(particle.{0}, 1.0);\n",
+                        Attribute::SIZE2.name()
+                    );
                     has_size = true;
+                    present_attributes.insert(attr);
                 } else {
                     warn!("Attribute SIZE2 conflicts with another size attribute; ignored.");
+                }
+            } else if attr == Attribute::SIZE3 {
+                if !has_size {
+                    inputs_code += &format!("var size = particle.{0};\n", Attribute::SIZE3.name());
+                    has_size = true;
+                    present_attributes.insert(attr);
+                } else {
+                    warn!("Attribute SIZE3 conflicts with another size attribute; ignored.");
                 }
             } else if attr == Attribute::HDR_COLOR {
                 if !has_color {
                     inputs_code +=
                         &format!("var color = particle.{};\n", Attribute::HDR_COLOR.name());
                     has_color = true;
+                    present_attributes.insert(attr);
                 } else {
                     warn!("Attribute HDR_COLOR conflicts with another color attribute; ignored.");
                 }
@@ -833,6 +859,7 @@ impl EffectShaderSource {
                         Attribute::COLOR.name()
                     );
                     has_color = true;
+                    present_attributes.insert(attr);
                 } else {
                     warn!("Attribute COLOR conflicts with another color attribute; ignored.");
                 }
@@ -846,7 +873,7 @@ impl EffectShaderSource {
         if !has_size {
             inputs_code += &format!(
                 "var size = {0};\n",
-                Attribute::SIZE2.default_value().to_wgsl_string() // TODO - or SIZE?
+                Attribute::SIZE3.default_value().to_wgsl_string() // TODO - or SIZE?
             );
         }
         if !has_color {
@@ -1093,6 +1120,9 @@ struct ParentParticleBuffer {{
                 if render_context.needs_uv {
                     layout_flags |= LayoutFlags::NEEDS_UV;
                 }
+                if render_context.needs_normal {
+                    layout_flags |= LayoutFlags::NEEDS_NORMAL;
+                }
 
                 let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
                     render_context.eval(&module, *cutoff).unwrap_or_else(|err| {
@@ -1294,6 +1324,8 @@ pub struct CompiledParticleEffect {
     /// Cached simulation condition, to avoid having to query the asset each
     /// time we need it.
     simulation_condition: SimulationCondition,
+    /// A custom mesh for this effect, if specified.
+    mesh: Option<Handle<Mesh>>,
     /// Handle to the effect shaders for his effect instance (one per group), if
     /// configured.
     effect_shaders: Vec<EffectShader>,
@@ -1316,6 +1348,7 @@ impl Default for CompiledParticleEffect {
             parent: None,
             children: vec![],
             simulation_condition: SimulationCondition::default(),
+            mesh: None,
             effect_shaders: vec![],
             textures: vec![],
             #[cfg(feature = "2d")]
@@ -1454,6 +1487,8 @@ impl CompiledParticleEffect {
             self.layout_flags,
         );
 
+        self.mesh = asset.mesh.clone();
+
         self.textures = material.map(|mat| &mat.images).cloned().unwrap_or_default();
     }
 
@@ -1474,6 +1509,47 @@ trait ShaderCode {
 }
 
 impl ShaderCode for Gradient<Vec2> {
+    fn to_shader_code(&self, input: &str) -> String {
+        if self.keys().is_empty() {
+            return String::new();
+        }
+        let mut s: String = self
+            .keys()
+            .iter()
+            .enumerate()
+            .map(|(index, key)| {
+                format!(
+                    "let t{0} = {1};\nlet v{0} = {2};",
+                    index,
+                    key.ratio().to_wgsl_string(),
+                    key.value.to_wgsl_string()
+                )
+            })
+            .fold("// Gradient\n".into(), |s, key| s + &key + "\n");
+        if self.keys().len() == 1 {
+            s + "return v0;\n"
+        } else {
+            s += &format!("if ({input} <= t0) {{ return v0; }}\n");
+            let mut s = self
+                .keys()
+                .iter()
+                .skip(1)
+                .enumerate()
+                .map(|(index, _key)| {
+                    format!(
+                        "else if ({input} <= t{1}) {{ return mix(v{0}, v{1}, ({input} - t{0}) / (t{1} - t{0})); }}\n",
+                        index,
+                        index + 1
+                    )
+                })
+                .fold(s, |s, key| s + &key);
+            let _ = writeln!(s, "else {{ return v{}; }}", self.keys().len() - 1);
+            s
+        }
+    }
+}
+
+impl ShaderCode for Gradient<Vec3> {
     fn to_shader_code(&self, input: &str) -> String {
         if self.keys().is_empty() {
             return String::new();
@@ -1785,22 +1861,22 @@ mod tests {
     fn next_multiple() {
         // align-1 is no-op
         for &size in INTS {
-            assert_eq!(size, next_multiple_of(size, 1));
+            assert_eq!(size, size.next_multiple_of(1));
         }
 
         // zero-sized is always aligned
         for &align in INTS_POW2 {
-            assert_eq!(0, next_multiple_of(0, align));
+            assert_eq!(0, 0usize.next_multiple_of(align));
         }
 
         // size < align : rounds up to align
         for &size in INTS {
-            assert_eq!(256, next_multiple_of(size, 256));
+            assert_eq!(256, size.next_multiple_of(256));
         }
 
         // size > align : actually aligns
         for (&size, &aligned_size) in INTS.iter().zip(INTS16) {
-            assert_eq!(aligned_size, next_multiple_of(size, 16));
+            assert_eq!(aligned_size, size.next_multiple_of(16));
         }
     }
 
@@ -2016,7 +2092,7 @@ else { return c1; }
         app
     }
 
-    /// Test case for `tick_spawners()`.
+    /// Test case for `tick_initializers()`.
     struct TestCase {
         /// Initial entity visibility on spawn. If `None`, do not add a
         /// [`Visibility`] component.
@@ -2084,6 +2160,7 @@ else { return c1; }
             let mut shader_defs = std::collections::HashMap::<String, ShaderDefValue>::new();
             shader_defs.insert("LOCAL_SPACE_SIMULATION".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("NEEDS_UV".into(), ShaderDefValue::Bool(true));
+            shader_defs.insert("NEEDS_NORMAL".into(), ShaderDefValue::Bool(false));
             shader_defs.insert("RENDER_NEEDS_SPAWNER".into(), ShaderDefValue::Bool(true));
             shader_defs.insert(
                 "PARTICLE_SCREEN_SPACE_SIZE".into(),
@@ -2170,7 +2247,7 @@ else { return c1; }
             let entity = world.spawn(ParticleEffectBundle::default()).id();
 
             // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
-            world.spawn(Camera3dBundle::default());
+            world.spawn(Camera3d::default());
 
             entity
         };
@@ -2228,7 +2305,7 @@ else { return c1; }
                 .id();
 
             // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
-            world.spawn(Camera3dBundle::default());
+            world.spawn(Camera3d::default());
 
             (entity, handle)
         };
@@ -2340,7 +2417,7 @@ else { return c1; }
                 };
 
                 // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
-                world.spawn(Camera3dBundle::default());
+                world.spawn(Camera3d::default());
 
                 (entity, handle)
             };
@@ -2350,7 +2427,7 @@ else { return c1; }
 
             let world = app.world_mut();
 
-            // Check the state of the components after `tick_spawners()` ran
+            // Check the state of the components after `tick_initializers()` ran
             if let Some(test_visibility) = test_case.visibility {
                 // Simulated-when-visible effect (SimulationCondition::WhenVisible)
 

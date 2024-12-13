@@ -20,7 +20,10 @@ allow = [
     "Zlib",
 ]
 exceptions = [
-    { name = "unicode-ident", allow = ["Unicode-DFS-2016"] },
+  { name = "unicode-ident", allow = [
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+  ] },
 ]
 
 [bans]

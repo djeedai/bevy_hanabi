@@ -32,21 +32,17 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle {
-        tonemapping: Tonemapping::None,
-        ..default()
-    };
-    camera.transform.translation = Vec3::new(0.0, 0.0, 100.0);
-    commands.spawn(camera);
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 100.),
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
 
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
-            color: Color::WHITE,
-            // Crank the illuminance way (too) high to make the reference cube clearly visible
-            illuminance: 100000.,
-            shadows_enabled: false,
-            ..Default::default()
-        },
+    commands.spawn(DirectionalLight {
+        color: Color::WHITE,
+        // Crank the illuminance way (too) high to make the reference cube clearly visible
+        illuminance: 100000.,
+        shadows_enabled: false,
         ..Default::default()
     });
 
@@ -98,12 +94,11 @@ fn setup(
 
     // Reference cube to visualize the emit origin
     commands
-        .spawn(PbrBundle {
-            mesh: cube.clone(),
-            material: mat.clone(),
-            transform: Transform::from_translation(Vec3::new(-30., -20., 0.)),
-            ..Default::default()
-        })
+        .spawn((
+            Transform::from_translation(Vec3::new(-30., -20., 0.)),
+            Mesh3d(cube.clone()),
+            MeshMaterial3d(mat.clone()),
+        ))
         .with_children(|p| {
             p.spawn((
                 Name::new("WhenVisible"),
@@ -119,12 +114,11 @@ fn setup(
 
     // Reference cube to visualize the emit origin
     commands
-        .spawn(PbrBundle {
-            mesh: cube.clone(),
-            material: mat.clone(),
-            transform: Transform::from_translation(Vec3::new(-30., 20., 0.)),
-            ..Default::default()
-        })
+        .spawn((
+            Transform::from_translation(Vec3::new(-30., 20., 0.)),
+            Mesh3d(cube.clone()),
+            MeshMaterial3d(mat.clone()),
+        ))
         .with_children(|p| {
             p.spawn((
                 Name::new("Always"),

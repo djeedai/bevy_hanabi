@@ -12,7 +12,7 @@
 //! before they disappear, like sparkles fading away.
 
 use bevy::{
-    core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
+    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
@@ -29,17 +29,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_translation(Vec3::new(0., 0., 25.)),
-            camera: Camera {
-                hdr: true,
-                clear_color: Color::BLACK.into(),
-                ..default()
-            },
-            tonemapping: Tonemapping::None,
+        Transform::from_translation(Vec3::new(0., 0., 25.)),
+        Camera {
+            hdr: true,
+            clear_color: Color::BLACK.into(),
             ..default()
         },
-        BloomSettings::default(),
+        Camera3d::default(),
+        Tonemapping::None,
+        Bloom::default(),
     ));
 
     let mut color_gradient1 = Gradient::new();
@@ -49,8 +47,8 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     color_gradient1.add_key(1.0, Vec4::new(4.0, 0.0, 0.0, 0.0));
 
     let mut size_gradient1 = Gradient::new();
-    size_gradient1.add_key(0.3, Vec2::new(0.2, 0.02));
-    size_gradient1.add_key(1.0, Vec2::splat(0.0));
+    size_gradient1.add_key(0.3, Vec3::new(0.2, 0.02, 1.0));
+    size_gradient1.add_key(1.0, Vec3::splat(0.0));
 
     let writer = ExprWriter::new();
 

@@ -1,4 +1,7 @@
-use std::ops::{Index, Range};
+use std::{
+    fmt::Debug,
+    ops::{Index, Range},
+};
 
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
@@ -46,6 +49,12 @@ pub(crate) struct EffectBatches {
     pub particle_layout: ParticleLayout,
     /// Flags describing the render layout.
     pub layout_flags: LayoutFlags,
+    /// Asset handle of the effect mesh to draw.
+    pub mesh: Handle<Mesh>,
+    /// GPU buffer storing the [`mesh`] of the effect.
+    pub mesh_buffer: Buffer,
+    /// Slice inside the GPU buffer for the effect mesh.
+    pub mesh_slice: Range<u32>,
     /// Texture layout.
     pub texture_layout: TextureLayout,
     /// Textures.
@@ -137,6 +146,9 @@ impl EffectBatches {
                 .collect(),
             handle: input.handle,
             layout_flags: input.layout_flags,
+            mesh: input.mesh.clone(),
+            mesh_buffer: input.mesh_buffer,
+            mesh_slice: input.mesh_slice,
             texture_layout: input.texture_layout,
             textures: input.textures,
             alpha_mode: input.alpha_mode,
@@ -154,7 +166,7 @@ impl EffectBatches {
 }
 
 /// Effect batching input, obtained from extracted effects.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct BatchesInput {
     /// Handle of the underlying effect asset describing the effect.
     pub handle: Handle<EffectAsset>,
@@ -176,6 +188,12 @@ pub(crate) struct BatchesInput {
     pub effect_shaders: Vec<EffectShader>,
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
+    /// Asset handle of the effect mesh to draw.
+    pub mesh: Handle<Mesh>,
+    /// GPU buffer storing the [`mesh`] of the effect.
+    pub mesh_buffer: Buffer,
+    /// Slice inside the GPU buffer for the effect mesh.
+    pub mesh_slice: Range<u32>,
     /// Texture layout.
     pub texture_layout: TextureLayout,
     /// Textures.

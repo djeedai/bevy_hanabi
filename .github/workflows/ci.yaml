@@ -134,7 +134,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-msrv-stable-${{ hashFiles('**/Cargo.toml') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.79
+          toolchain: 1.82
           components: rustfmt, clippy
       - name: Check
         run: cargo check --lib --all-features
@@ -178,19 +178,19 @@ jobs:
           for example in .github/example-run/3d/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_ui bevy/default_font 3d serde bevy/bevy_ci_testing"
+            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_pbr bevy/bevy_ui bevy/default_font 3d serde bevy/bevy_ci_testing"
             sleep 10
           done
           for example in .github/example-run/3dpng/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_ui bevy/default_font bevy/png 3d serde bevy/bevy_ci_testing"
+            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_pbr bevy/bevy_ui bevy/default_font bevy/png 3d serde bevy/bevy_ci_testing"
             sleep 10
           done
           for example in .github/example-run/2d/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite bevy/bevy_ui bevy/default_font 2d serde bevy/bevy_ci_testing"
+            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_sprite bevy/bevy_ui bevy/default_font 2d serde bevy/bevy_ci_testing"
             sleep 10
           done
         env:
@@ -202,19 +202,19 @@ jobs:
           for example in .github/example-run/3d/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_ui bevy/default_font 3d serde bevy/bevy_ci_testing"
+            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_pbr bevy/bevy_ui bevy/default_font 3d serde bevy/bevy_ci_testing"
             sleep 10
           done
           for example in .github/example-run/3dpng/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_ui bevy/default_font bevy/png 3d serde bevy/bevy_ci_testing"
+            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_pbr bevy/bevy_ui bevy/default_font bevy/png 3d serde bevy/bevy_ci_testing"
             sleep 10
           done
           for example in .github/example-run/2d/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite bevy/bevy_ui bevy/default_font 2d serde bevy/bevy_ci_testing"
+            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_sprite bevy/bevy_ui bevy/default_font 2d serde bevy/bevy_ci_testing"
             sleep 10
           done
         env:

@@ -1,4 +1,4 @@
-//! Modifiers influencing the acceleration of particles.
+//! Modifiers influencing the acceleration of particles, including gravity.
 //!
 //! The particle acceleration directly drives their velocity. It's applied each
 //! frame during simulation update.

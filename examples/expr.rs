@@ -8,7 +8,7 @@
 //! based on [`ExprWriter::time()`] then assigned to the [`AccelModifier`].
 
 use bevy::{
-    core_pipeline::{bloom::BloomSettings, tonemapping::Tonemapping},
+    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
@@ -25,18 +25,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_translation(Vec3::new(3., 12., 20.))
-                .looking_at(Vec3::Y * 5., Vec3::Y),
-            camera: Camera {
-                hdr: true,
-                clear_color: Color::BLACK.into(),
-                ..default()
-            },
-            tonemapping: Tonemapping::None,
+        Transform::from_translation(Vec3::new(3., 12., 20.)).looking_at(Vec3::Y * 5., Vec3::Y),
+        Camera3d::default(),
+        Camera {
+            hdr: true,
+            clear_color: Color::BLACK.into(),
             ..default()
         },
-        BloomSettings::default(),
+        Tonemapping::None,
+        Bloom::default(),
     ));
 
     let mut color_gradient = Gradient::new();
@@ -45,8 +42,8 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     color_gradient.add_key(1.0, Vec4::new(0.0, 0.0, 0.0, 0.0));
 
     let mut size_gradient = Gradient::new();
-    size_gradient.add_key(0.3, Vec2::new(0.2, 0.02));
-    size_gradient.add_key(1.0, Vec2::ZERO);
+    size_gradient.add_key(0.3, Vec3::new(0.2, 0.02, 1.0));
+    size_gradient.add_key(1.0, Vec3::ZERO);
 
     let writer = ExprWriter::new();
 

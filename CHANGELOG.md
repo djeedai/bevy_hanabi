@@ -3,10 +3,34 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.0] 2024-12-09
 
 ### Added
 
+- Added a `TextureLayout::get_slot_by_name()` helper to retrieve the index of a texture slot.
+
+### Changed
+
+- Compatible with Bevy 0.15
+- MSRV updated to 1.82 to follow Bevy.
+- Renamed `Module::add_texture()` to `add_texture_slot()` for clarity.
+  The actual texture is bound to the slot through the `MaterialEffect` component.
+
+## [0.13.1] 2024-11-16
+
+### Fixed
+
+- Fixed a panic in the init compute shader when using trails and ribbons, affecting some combinations of graphics API (notably Vulkan) and GPU devices only. (#399)
+
+## [0.13.0] 2024-11-14
+
+### Added
+
+- You can now call `EffectAsset::mesh` to change the mesh that a particle will
+use from the default quad to a custom mesh of your choosing.
+- A `size3` attribute has been added to allow controlling the size in 3D.
+- Vertex normals are available to modifiers via the normal shader variable, as
+long as they call the new RenderContext::set_needs_normal method.
 - Added a new `serde` feature, and moved all `Serialization` and `Deserialization` derives under that feature.
   This allows disabling support on wasm, where `typetag` is not available.
   The feature is enabled by default, so the behavior doesn't change on non-wasm targets.
@@ -19,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The `SetSizeModifier` now takes a 3D size gradient instead of a 2D one.
 - The `ParticleTextureModifier` doesn't directly hold the texture handle to use anymore.
   Instead, it holds an expression handle to the texture slot defined in the `Module` of the effect.
   This allows dynamically changing the texture sampled.

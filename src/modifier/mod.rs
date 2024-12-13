@@ -1,24 +1,45 @@
 //! Building blocks to create a visual effect.
 //!
-//! A **modifier** is a building block used to create effects. Particles effects
-//! are composed of multiple modifiers, which put together and configured
-//! produce the desired visual effect. Each modifier changes a specific part of
-//! the behavior of an effect. Modifiers are grouped in three categories:
+//! A **modifier** is a building block used to define the behavior of an effect.
+//! Particles effects are composed of multiple modifiers, which put together and
+//! configured produce the desired visual effect. Each modifier changes a
+//! specific part of the behavior of an effect. Modifiers are grouped in three
+//! categories:
 //!
 //! - **Init modifiers** influence the initializing of particles when they
 //!   spawn. They typically configure the initial position and/or velocity of
-//!   particles. Init modifiers implement the [`Modifier`] trait.
+//!   particles. Init modifiers implement the [`Modifier`] trait, and act on the
+//!   [`ModifierContext::Init`] modifier context.
 //! - **Update modifiers** influence the particle update loop each frame. For
 //!   example, an update modifier can apply a gravity force to all particles.
-//!   Update modifiers implement the [`Modifier`] trait.
+//!   Update modifiers implement the [`Modifier`] trait, and act on the
+//!   [`ModifierContext::Update`] modifier context.
 //! - **Render modifiers** influence the rendering of each particle. They can
 //!   change the particle's color, or orient it to face the camera. Render
-//!   modifiers implement the [`RenderModifier`] trait.
+//!   modifiers implement the [`RenderModifier`] trait, and act on the
+//!   [`ModifierContext::Render`] modifier context.
 //!
 //! A single modifier can be part of multiple categories. For example, the
 //! [`SetAttributeModifier`] can be used either to initialize a particle's
 //! attribute on spawning, or to assign a value to that attribute each frame
 //! during simulation (update).
+//!
+//! # Modifiers and expressions
+//!
+//! Modifiers are configured by assigning values to their field(s). Some values
+//! are compile-time constants, like which attribute a [`SetAttributeModifier`]
+//! mutates. Others however can take the form of
+//! [expressions](crate::graph::expr), which form a mini language designed to
+//! emit shader code and provide extended customization. For example, a 3D
+//! vector position can be assigned to a [property](crate::properties) and
+//! mutated each frame, giving CPU-side control over the behavior of the GPU
+//! particle effect. See [expressions](crate::graph::expr) for more details.
+//!
+//! # Limitations
+//!
+//! At this time, serialization and deserialization of modifiers is not
+//! supported on Wasm. This means assets authored and saved on a non-Wasm target
+//! cannot be read back into an application running on Wasm.
 
 use std::{
     collections::hash_map::DefaultHasher,
@@ -27,9 +48,9 @@ use std::{
 
 use bevy::{
     asset::Handle,
-    math::{UVec2, Vec2, Vec4},
+    image::Image,
+    math::{UVec2, Vec3, Vec4},
     reflect::Reflect,
-    render::texture::Image,
     utils::HashMap,
 };
 use bitflags::bitflags;
@@ -161,9 +182,11 @@ impl Clone for BoxedModifier {
     }
 }
 
-/// A bitfield that describes which particle groups a modifier affects.
+/// A bitfield that describes which particle [groups] a modifier affects.
 ///
 /// Bit N will be set if the modifier in question affects particle group N.
+///
+/// [groups]: crate::EffectAsset::with_group
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct ParticleGroupSet(pub u32);
@@ -204,7 +227,9 @@ impl ParticleGroupSet {
     }
 }
 
-/// A [`Modifier`] that affects to one or more groups.
+/// A [`Modifier`] that affects to one or more [groups].
+///
+/// [groups]: crate::EffectAsset::with_group
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct GroupedModifier {
@@ -327,7 +352,7 @@ impl<'a> ShaderWriter<'a> {
     }
 }
 
-impl<'a> EvalContext for ShaderWriter<'a> {
+impl EvalContext for ShaderWriter<'_> {
     fn modifier_context(&self) -> ModifierContext {
         self.modifier_context
     }
@@ -423,9 +448,11 @@ pub struct RenderContext<'a> {
     /// Color gradients.
     pub gradients: HashMap<u64, Gradient<Vec4>>,
     /// Size gradients.
-    pub size_gradients: HashMap<u64, Gradient<Vec2>>,
+    pub size_gradients: HashMap<u64, Gradient<Vec3>>,
     /// The particle needs UV coordinates to sample one or more texture(s).
     pub needs_uv: bool,
+    /// The particle needs normals for lighting effects.
+    pub needs_normal: bool,
     /// Counter for unique variable names.
     var_counter: u32,
     /// Cache of evaluated expressions.
@@ -453,6 +480,7 @@ impl<'a> RenderContext<'a> {
             gradients: HashMap::new(),
             size_gradients: HashMap::new(),
             needs_uv: false,
+            needs_normal: false,
             var_counter: 0,
             expr_cache: Default::default(),
             is_attribute_pointer: false,
@@ -460,8 +488,13 @@ impl<'a> RenderContext<'a> {
     }
 
     /// Mark the rendering shader as needing UVs.
-    fn set_needs_uv(&mut self) {
+    pub fn set_needs_uv(&mut self) {
         self.needs_uv = true;
+    }
+
+    /// Mark the rendering shader as needing normals.
+    pub fn set_needs_normal(&mut self) {
+        self.needs_normal = true;
     }
 
     /// Add a color gradient.
@@ -483,7 +516,7 @@ impl<'a> RenderContext<'a> {
     ///
     /// Returns the unique name of the gradient, to be used as function name in
     /// the shader code.
-    fn add_size_gradient(&mut self, gradient: Gradient<Vec2>) -> String {
+    fn add_size_gradient(&mut self, gradient: Gradient<Vec3>) -> String {
         let func_id = calc_func_id(&gradient);
         self.size_gradients.insert(func_id, gradient);
         let func_name = format!("size_gradient_{0:016X}", func_id);
@@ -497,7 +530,7 @@ impl<'a> RenderContext<'a> {
     }
 }
 
-impl<'a> EvalContext for RenderContext<'a> {
+impl EvalContext for RenderContext<'_> {
     fn modifier_context(&self) -> ModifierContext {
         ModifierContext::Render
     }
@@ -1116,7 +1149,7 @@ fn main() {{
     var particle = Particle();
     var position = vec3<f32>(0.0, 0.0, 0.0);
     var velocity = vec3<f32>(0.0, 0.0, 0.0);
-    var size = vec2<f32>(1.0, 1.0);
+    var size = vec3<f32>(1.0, 1.0, 1.0);
     var axis_x = vec3<f32>(1.0, 0.0, 0.0);
     var axis_y = vec3<f32>(0.0, 1.0, 0.0);
     var axis_z = vec3<f32>(0.0, 0.0, 1.0);

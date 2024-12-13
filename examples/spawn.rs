@@ -45,22 +45,18 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle {
-        tonemapping: Tonemapping::None,
-        ..default()
-    };
-    camera.transform.translation = Vec3::new(0.0, 0.0, 100.0);
-    commands.spawn(camera);
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 100.),
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
 
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
-            color: Color::WHITE,
-            // Crank the illuminance way (too) high to make the reference cube clearly visible
-            illuminance: 100000.,
-            shadows_enabled: false,
-            ..Default::default()
-        },
-        ..Default::default()
+    commands.spawn(DirectionalLight {
+        color: Color::WHITE,
+        // Crank the illuminance way (too) high to make the reference cube clearly visible
+        illuminance: 100000.,
+        shadows_enabled: false,
+        ..default()
     });
 
     let cube = meshes.add(Cuboid {
@@ -75,10 +71,10 @@ fn setup(
     color_gradient1.add_key(1.0, Vec4::splat(0.0));
 
     let mut size_gradient1 = Gradient::new();
-    size_gradient1.add_key(0.0, Vec2::splat(0.1));
-    size_gradient1.add_key(0.5, Vec2::splat(0.5));
-    size_gradient1.add_key(0.8, Vec2::splat(0.08));
-    size_gradient1.add_key(1.0, Vec2::splat(0.0));
+    size_gradient1.add_key(0.0, Vec3::splat(0.1));
+    size_gradient1.add_key(0.5, Vec3::splat(0.5));
+    size_gradient1.add_key(0.8, Vec3::splat(0.08));
+    size_gradient1.add_key(1.0, Vec3::splat(0.0));
 
     let writer1 = ExprWriter::new();
 
@@ -135,11 +131,8 @@ fn setup(
         .with_children(|p| {
             // Reference cube to visualize the emit origin
             p.spawn((
-                PbrBundle {
-                    mesh: cube.clone(),
-                    material: mat.clone(),
-                    ..Default::default()
-                },
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(mat.clone()),
                 Name::new("source"),
             ));
         });
@@ -186,11 +179,8 @@ fn setup(
         .with_children(|p| {
             // Reference cube to visualize the emit origin
             p.spawn((
-                PbrBundle {
-                    mesh: cube.clone(),
-                    material: mat.clone(),
-                    ..Default::default()
-                },
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(mat.clone()),
                 Name::new("source"),
             ));
         });
@@ -261,11 +251,8 @@ fn setup(
         .with_children(|p| {
             // Reference cube to visualize the emit origin
             p.spawn((
-                PbrBundle {
-                    mesh: cube.clone(),
-                    material: mat.clone(),
-                    ..Default::default()
-                },
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(mat.clone()),
                 Name::new("source"),
             ));
         });
@@ -277,7 +264,7 @@ fn update_accel(
 ) {
     let mut properties = query.single_mut();
     let accel0 = 10.;
-    let (s, c) = (time.elapsed_seconds() * 0.3).sin_cos();
+    let (s, c) = (time.elapsed_secs() * 0.3).sin_cos();
     let accel = Vec3::new(c * accel0, s * accel0, 0.);
     properties.set("my_accel", accel.into());
 }

@@ -28,13 +28,11 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut camera = Camera3dBundle {
-        tonemapping: Tonemapping::None,
-        ..default()
-    };
-    camera.transform =
-        Transform::from_xyz(3.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
-    commands.spawn(camera);
+    commands.spawn((
+        Transform::from_xyz(3.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
 
     // Procedurally create a sprite sheet representing an animated texture
     let sprite_size = UVec2::new(64, 64);
@@ -109,7 +107,7 @@ fn setup(
     let texture_slot = writer.lit(0u32).expr();
 
     let mut module = writer.finish();
-    module.add_texture("color");
+    module.add_texture_slot("color");
 
     let effect = effects.add(
         EffectAsset::new(32768, Spawner::burst(32.0.into(), 8.0.into()), module)
@@ -126,32 +124,28 @@ fn setup(
             .render(FlipbookModifier { sprite_grid_size })
             .render(ColorOverLifetimeModifier { gradient })
             .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant([0.5; 2].into()),
+                gradient: Gradient::constant([0.5; 3].into()),
                 screen_space_size: false,
             }),
     );
 
     // The ground
-    commands
-        .spawn(PbrBundle {
-            mesh: meshes.add(Rectangle {
-                half_size: Vec2::splat(2.0),
-            }),
-            material: materials.add(utils::COLOR_BLUE),
-            transform: Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
-            ..Default::default()
-        })
-        .insert(Name::new("ground"));
+    commands.spawn((
+        Transform::from_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
+        Mesh3d(meshes.add(Rectangle {
+            half_size: Vec2::splat(2.0),
+        })),
+        MeshMaterial3d(materials.add(utils::COLOR_BLUE)),
+        Name::new("ground"),
+    ));
 
     // The sphere
-    commands
-        .spawn(PbrBundle {
-            mesh: meshes.add(Sphere { radius: 1.0 }),
-            material: materials.add(utils::COLOR_CYAN),
-            transform: Transform::from_translation(Vec3::Y),
-            ..Default::default()
-        })
-        .insert(Name::new("sphere"));
+    commands.spawn((
+        Transform::from_translation(Vec3::Y),
+        Mesh3d(meshes.add(Sphere { radius: 1.0 })),
+        MeshMaterial3d(materials.add(utils::COLOR_CYAN)),
+        Name::new("sphere"),
+    ));
 
     commands.spawn((
         ParticleEffectBundle::new(effect),

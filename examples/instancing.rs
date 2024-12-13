@@ -103,11 +103,8 @@ impl InstanceManager {
                 .with_children(|p| {
                     // Reference cube to visualize the emit origin
                     p.spawn((
-                        PbrBundle {
-                            mesh: self.mesh.clone(),
-                            material: self.material.clone(),
-                            ..Default::default()
-                        },
+                        Mesh3d(self.mesh.clone()),
+                        MeshMaterial3d(self.material.clone()),
                         Name::new("source"),
                     ));
                 })
@@ -201,21 +198,17 @@ fn setup(
 ) {
     info!("Usage: Press the SPACE key to spawn more instances, and the DELETE key to remove an existing instance.");
 
-    let mut camera = Camera3dBundle {
-        tonemapping: Tonemapping::None,
-        ..default()
-    };
-    camera.transform.translation = Vec3::new(0.0, 0.0, 180.0);
-    commands.spawn(camera);
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 180.),
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
 
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
-            color: Color::WHITE,
-            // Crank the illuminance way (too) high to make the reference cube clearly visible
-            illuminance: 100000.,
-            shadows_enabled: false,
-            ..Default::default()
-        },
+    commands.spawn(DirectionalLight {
+        color: Color::WHITE,
+        // Crank the illuminance way (too) high to make the reference cube clearly visible
+        illuminance: 100000.,
+        shadows_enabled: false,
         ..Default::default()
     });
 
@@ -285,7 +278,7 @@ fn setup(
     let texture_slot = writer.lit(0u32).expr();
 
     let mut module = writer.finish();
-    module.add_texture("color");
+    module.add_texture_slot("color");
 
     let alt_effect = effects.add(
         EffectAsset::new(512, Spawner::rate(102.0.into()), module)
