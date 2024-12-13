@@ -107,7 +107,7 @@ fn create_rocket_effect() -> EffectAsset {
             gradient: Gradient::constant(Vec4::ONE),
         })
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec2::ONE * 0.1),
+            gradient: Gradient::constant(Vec3::ONE * 0.1),
             screen_space_size: false,
         })
 }
@@ -161,7 +161,7 @@ fn create_sparkle_trail_effect() -> EffectAsset {
             gradient: color_gradient,
         })
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec2::ONE * 0.02),
+            gradient: Gradient::constant(Vec3::ONE * 0.02),
             screen_space_size: false,
         })
 }
@@ -216,7 +216,7 @@ fn create_trails_effect() -> EffectAsset {
             gradient: color_gradient,
         })
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec2::ONE * 0.3),
+            gradient: Gradient::constant(Vec3::ONE * 0.3),
             screen_space_size: false,
         })
 }
@@ -232,7 +232,7 @@ fn setup(mut commands: Commands, mut debug_settings: ResMut<DebugSettings>) {
             ..default()
         },
         Tonemapping::None,
-        BloomSettings {
+        Bloom {
             intensity: 0.2,
             ..default()
         },

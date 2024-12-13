@@ -606,7 +606,7 @@ impl HybridAlignedBufferVec {
         // Insert at end of vector, after resizing it
         else {
             // Calculate new aligned insertion offset and new capacity
-            let offset = next_multiple_of(self.values.len(), self.item_align);
+            let offset = self.values.len().next_multiple_of(self.item_align);
             let size = src.len();
             let new_capacity = offset + size;
             if new_capacity > self.values.capacity() {

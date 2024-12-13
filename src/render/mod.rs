@@ -1094,31 +1094,35 @@ impl FromWorld for UtilsPipeline {
             label: Some("hanabi:compute_pipeline:zero_buffer"),
             layout: Some(&pipeline_layout),
             module: &shader_module,
-            entry_point: "zero_buffer",
+            entry_point: Some("zero_buffer"),
             compilation_options: default(),
+            cache: None,
         });
         let copy_pipeline = render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
             label: Some("hanabi:compute_pipeline:copy_buffer"),
             layout: Some(&pipeline_layout),
             module: &shader_module,
-            entry_point: "copy_buffer",
+            entry_point: Some("copy_buffer"),
             compilation_options: default(),
+            cache: None,
         });
         let fill_dispatch_args_pipeline =
             render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
                 label: Some("hanabi:compute_pipeline:fill_dispatch_args"),
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
-                entry_point: "fill_dispatch_args",
+                entry_point: Some("fill_dispatch_args"),
                 compilation_options: default(),
+                cache: None,
             });
         let fill_dispatch_args_self_pipeline =
             render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
                 label: Some("hanabi:compute_pipeline:fill_dispatch_args_self"),
                 layout: Some(&pipeline_layout_no_src),
                 module: &shader_module,
-                entry_point: "fill_dispatch_args_self",
+                entry_point: Some("fill_dispatch_args_self"),
                 compilation_options: default(),
+                cache: None,
             });
 
         Self {
@@ -2452,7 +2456,7 @@ pub struct EffectsMeta {
     /// [`EffectCache`].
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
-    entity_map: HashMap<Entity, EffectCacheId>,
+    entity_map: HashMap<Entity, CacheEntry>,
     /// Bind group for the camera view, containing the camera projection and
     /// other uniform values related to the camera.
     view_bind_group: Option<BindGroup>,
@@ -2576,13 +2580,13 @@ impl EffectsMeta {
         );
         for entity in &removed_effect_entities {
             trace!("Removing ParticleEffect on entity {:?}", entity);
-            if let Some(effect_cache_id) = self.entity_map.remove(entity) {
+            if let Some(cache_entry) = self.entity_map.remove(entity) {
                 trace!(
                     "=> ParticleEffect on entity {:?} had cache ID {:?}, removing...",
                     entity,
-                    effect_cache_id
+                    cache_entry.cache_id,
                 );
-                if let Some(cached_effect) = effect_cache.remove(effect_cache_id) {
+                if let Some(cached_effect) = effect_cache.remove(cache_entry.cache_id) {
                     // Clear bind groups associated with the removed buffer
                     trace!(
                         "=> GPU buffer #{} gone, destroying its bind groups...",
@@ -2888,17 +2892,17 @@ pub(crate) fn prepare_effects(
         .into_iter()
         .filter_map(|(entity, extracted_effect)| {
             // FIXME - way too many look-ups here again and again with the same id...
-            let id = effects_meta.entity_map.get(&entity).unwrap().cache_id;
-            let property_buffer = effect_cache.get_property_buffer(id).cloned(); // clone handle for lifetime
-            let effect_slices = effect_cache.get_slices(id);
-            let init_indirect_dispatch_index = effect_cache.get_init_indirect_dispatch_index(id);
+            let effect_cache_id = effects_meta.entity_map.get(&entity).unwrap().cache_id;
+            //let property_buffer = effect_cache.get_property_buffer(effect_cache_id).cloned(); // clone handle for lifetime
+            //let effect_slices = effect_cache.get_slices(effect_cache_id);
+            let init_indirect_dispatch_index = effect_cache.get_init_indirect_dispatch_index(effect_cache_id);
             let parent_buffer_index = parents.get(&entity).cloned();
             let child_effects = if let Some(children) = children.get_mut(&entity) {
                 std::mem::take(children)
             } else {
                 vec![]
             };
-            let group_order = effect_cache.get_group_order(id);
+            //let group_order = effect_cache.get_group_order(effect_cache_id);
 
             // If the mesh is not available, skip this effect
             let Some(render_mesh) = render_meshes.get(extracted_effect.mesh.id()) else {
@@ -3064,7 +3068,7 @@ pub(crate) fn prepare_effects(
     effects_meta.spawner_buffer.clear();
     effects_meta.particle_group_buffer.clear();
     let mut total_group_count = 0;
-    for (batch_index, input) in effect_entity_list.into_iter().enumerate() {
+    for (_batch_index, input) in effect_entity_list.into_iter().enumerate() {
         let effect_cache_id = effects_meta.entity_map.get(&input.entity).unwrap().cache_id;
         let buffer_index = effect_cache.get_slices(effect_cache_id).buffer_index;
         let event_buffer_ref = effect_cache.get_event_slice(effect_cache_id);
@@ -3275,7 +3279,7 @@ pub(crate) fn prepare_effects(
             }
         }
 
-        let effect_cache_id = *effects_meta.entity_map.get(&input.entity).unwrap();
+        let effect_cache_id = effects_meta.entity_map.get(&input.entity).unwrap().cache_id;
         let dispatch_buffer_indices = effect_cache
             .get_dispatch_buffer_indices(effect_cache_id)
             .clone();
@@ -3308,6 +3312,9 @@ pub(crate) fn prepare_effects(
                         .0
                         + group_index as u32,
                     indirect_render_index,
+                    // We can safely unwrap_or() here, if we don't do indirect dispatch then this
+                    // value is not read anyway.
+                    init_indirect_dispatch_index: input.init_indirect_dispatch_index.unwrap_or(0),
                     // We can safely unwrap_or() here, if we're not a child then this is unused.
                     child_index: child_index.unwrap_or(0),
                 });
@@ -4590,14 +4597,14 @@ pub(crate) fn prepare_bind_groups(
                 continue;
             };
 
-            let storage_alignment = effects_meta.gpu_limits.storage_buffer_align.get();
-            let render_effect_indirect_size =
-                GpuRenderEffectMetadata::aligned_size(storage_alignment);
-            let total_render_group_indirect_size = NonZeroU64::new(
-                GpuRenderGroupIndirect::aligned_size(storage_alignment).get()
-                    * effect_batches.group_batches.len() as u64,
-            )
-            .unwrap();
+            // let storage_alignment = effects_meta.gpu_limits.storage_buffer_align.get();
+            // let render_effect_indirect_size =
+            //     GpuRenderEffectMetadata::aligned_size(storage_alignment);
+            // let total_render_group_indirect_size = NonZeroU64::new(
+            //     GpuRenderGroupIndirect::aligned_size(storage_alignment).get()
+            //         * effect_batches.group_batches.len() as u64,
+            // )
+            // .unwrap();
 
             let particles_buffer_layout_update_render_indirect = render_device.create_bind_group(
                 "hanabi:bind_group_update_render_group_dispatch",
@@ -4635,7 +4642,7 @@ pub(crate) fn prepare_bind_groups(
                 "Created new update render indirect bind group for effect #{:?}: \
                 render_effect={} \
                 render_group={} group_count={}",
-                effect_cache_id,
+                effect_batches.effect_cache_id,
                 render_effect_dispatch_buffer_index.0,
                 first_render_group_dispatch_buffer_index.0,
                 effect_batches.group_batches.len()
@@ -5557,13 +5564,17 @@ impl Node for VfxSimulateNode {
                         continue;
                     };
 
-                    let render_group_dispatch_buffer_index = BufferTableId(
-                        batches
-                            .dispatch_buffer_indices
-                            .first_render_group_dispatch_buffer_index
-                            .0
-                            + group_index,
-                    );
+                    let RenderGroupDispatchIndices::Allocated {
+                        first_render_group_dispatch_buffer_index,
+                        ..
+                    } = &batches
+                        .dispatch_buffer_indices
+                        .render_group_dispatch_indices
+                    else {
+                        continue;
+                    };
+                    let render_group_dispatch_buffer_index =
+                        BufferTableId(first_render_group_dispatch_buffer_index.0 + group_index);
                     let render_group_indirect_offset = effects_meta
                         .gpu_limits
                         .render_group_indirect_offset(render_group_dispatch_buffer_index.0)

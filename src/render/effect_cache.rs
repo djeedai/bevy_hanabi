@@ -25,7 +25,6 @@ use super::{
 };
 use crate::{
     asset::EffectAsset,
-    next_multiple_of,
     render::{
         calc_hash, GpuChildInfo, GpuDispatchIndirect, GpuInitDispatchIndirect, GpuParticleGroup,
         GpuSpawnerParams, LayoutFlags, StorageType as _,
@@ -1892,10 +1891,9 @@ impl EffectCache {
             .limits()
             .min_storage_buffer_offset_alignment;
         assert!(min_storage_buffer_offset_alignment % 4 == 0); // FIXME
-        let size = next_multiple_of(
-            (event_count + 1) as usize,
-            min_storage_buffer_offset_alignment as usize / 4,
-        ) as u32;
+        let size = ((event_count + 1) as usize)
+            .next_multiple_of(min_storage_buffer_offset_alignment as usize / 4)
+            as u32;
         trace!(
             "Allocating event buffer for effect #{:?} with {} events, rounded up to {}",
             effect_cached_id,
