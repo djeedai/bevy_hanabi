@@ -204,6 +204,47 @@ impl HanabiPlugin {
                 .to_string_lossy(),
         )
     }
+
+    /// Create the `vfx_indirect.wgsl` shader with proper alignment.
+    ///
+    /// This creates a new [`Shader`] from the `vfx_indirect.wgsl` template
+    /// file, by applying the given alignment for storage buffers. This
+    /// produces a shader ready for the specific GPU device associated with
+    /// that alignment.
+    pub(crate) fn make_indirect_shader(
+        min_storage_buffer_offset_alignment: u32,
+        has_events: bool,
+    ) -> Shader {
+        let render_effect_indirect_size =
+            GpuRenderEffectMetadata::aligned_size(min_storage_buffer_offset_alignment);
+        let render_effect_indirect_stride_code =
+            (render_effect_indirect_size.get() as u32).to_wgsl_string();
+        let render_group_indirect_size =
+            GpuRenderGroupIndirect::aligned_size(min_storage_buffer_offset_alignment);
+        let render_group_indirect_stride_code =
+            (render_group_indirect_size.get() as u32).to_wgsl_string();
+        let indirect_code = include_str!("render/vfx_indirect.wgsl")
+            .replace(
+                "{{RENDER_EFFECT_INDIRECT_STRIDE}}",
+                &render_effect_indirect_stride_code,
+            )
+            .replace(
+                "{{RENDER_GROUP_INDIRECT_STRIDE}}",
+                &render_group_indirect_stride_code,
+            );
+        Shader::from_wgsl(
+            indirect_code,
+            std::path::Path::new(file!())
+                .parent()
+                .unwrap()
+                .join(format!(
+                    "render/vfx_indirect_{}_{}.wgsl",
+                    min_storage_buffer_offset_alignment,
+                    if has_events { "events" } else { "noevent" },
+                ))
+                .to_string_lossy(),
+        )
+    }
 }
 
 /// A convenient alias for `With<CompiledParticleEffect>`, for use with
@@ -296,9 +337,28 @@ impl Plugin for HanabiPlugin {
             assets.insert(&HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
         }
 
+        // Insert the two variants of the properly aligned `vfx_indirect.wgsl` shaders
+        // into Assets<Shader>.
+        let (indirect_shader_noevent, indirect_shader_events) = {
+            let align = render_device.limits().min_storage_buffer_offset_alignment;
+            let indirect_shader_noevent = HanabiPlugin::make_indirect_shader(align, false);
+            let indirect_shader_events = HanabiPlugin::make_indirect_shader(align, true);
+
+            let mut assets = app.world_mut().resource_mut::<Assets<Shader>>();
+            let indirect_shader_noevent = assets.add(indirect_shader_noevent);
+            let indirect_shader_events = assets.add(indirect_shader_events);
+
+            (indirect_shader_noevent, indirect_shader_events)
+        };
+
         let effects_meta = {
-            let mut assets = app.world_mut().resource_mut::<Assets<Mesh>>();
-            EffectsMeta::new(render_device.clone(), &mut assets)
+            let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
+            EffectsMeta::new(
+                render_device.clone(),
+                &mut meshes,
+                indirect_shader_noevent,
+                indirect_shader_events,
+            )
         };
 
         let effect_cache = EffectCache::new(render_device);
@@ -313,6 +373,7 @@ impl Plugin for HanabiPlugin {
             .init_resource::<GpuBufferOperationQueue>()
             .init_resource::<UtilsPipeline>()
             .init_resource::<DispatchIndirectPipeline>()
+            .init_resource::<SpecializedComputePipelines<DispatchIndirectPipeline>>()
             .init_resource::<ParticlesInitPipeline>()
             .init_resource::<SpecializedComputePipelines<ParticlesInitPipeline>>()
             .init_resource::<ParticlesInitPipeline>()

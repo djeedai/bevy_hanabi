@@ -922,9 +922,9 @@ impl EffectShaderSource {
             children_event_buffer_append_code.push_str(&format!(
                 r##"/// Append one or more spawn events to the event buffer.
 fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
-    let dispatch_index = child_infos[{0}].init_indirect_dispatch_index;
+    let base_child_index = particle_groups[{{{{GROUP_INDEX}}}}].base_child_index;
     let capacity = arrayLength(&event_buffer_{0}.spawn_events);
-    let base = min(u32(atomicAdd(&child_infos[{0}].event_count, i32(count))), capacity);
+    let base = min(u32(atomicAdd(&child_infos[base_child_index + {0}].event_count, i32(count))), capacity);
     let capped_count = min(count, capacity - base);
     for (var i = 0u; i < capped_count; i += 1u) {{
         event_buffer_{0}.spawn_events[base + i].particle_index = particle_index;

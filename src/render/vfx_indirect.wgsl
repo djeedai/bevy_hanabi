@@ -1,5 +1,5 @@
 #import bevy_hanabi::vfx_common::{
-    ParticleGroup, SimParams, Spawner,
+    ChildInfo, ParticleGroup, SimParams, Spawner,
     DI_OFFSET_X, DI_OFFSET_PONG,
     RGI_OFFSET_ALIVE_COUNT, RGI_OFFSET_MAX_UPDATE, RGI_OFFSET_DEAD_COUNT,
     REM_OFFSET_MAX_SPAWN, RGI_OFFSET_INSTANCE_COUNT, RGI_OFFSET_MAX_SPAWN,
@@ -12,6 +12,9 @@
 @group(0) @binding(2) var<storage, read_write> dispatch_indirect_buffer : array<u32>;
 @group(0) @binding(3) var<storage, read> group_buffer : array<ParticleGroup>;
 @group(1) @binding(0) var<uniform> sim_params : SimParams;
+#ifdef HAS_GPU_SPAWN_EVENTS
+@group(2) @binding(0) var<storage, read_write> child_info : array<ChildInfo>;
+#endif
 
 /// Calculate the indirect workgroups counts based on the number of particles alive.
 @compute @workgroup_size(64)
@@ -27,6 +30,15 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // if (index >= sim_params.num_groups) {
     //     return;
     // }
+
+#ifdef HAS_GPU_SPAWN_EVENTS
+    // Clear any GPU event. The indexing is safe because there are always less child effects
+    // than there are effects in total, so 'index' will always cover the entire child info array.
+    if (index < arrayLength(&child_info)) {
+        // FIXME - doesn't need to be atomic
+        atomicStore(&child_info[index].event_count, 0);
+    }
+#endif
 
     // Cap at group array size, just for safety
     if (index >= arrayLength(&group_buffer)) {

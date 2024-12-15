@@ -10,7 +10,7 @@ use bevy::{
     asset::Handle,
     ecs::system::Resource,
     log::{trace, warn},
-    prelude::Entity,
+    prelude::{Entity, ResMut},
     render::{
         render_resource::*,
         renderer::{RenderDevice, RenderQueue},
@@ -21,7 +21,7 @@ use bytemuck::cast_slice_mut;
 
 use super::{
     aligned_buffer_vec::HybridAlignedBufferVec, buffer_table::BufferTableId, AddedEffectGroup,
-    GpuLimits,
+    EffectBindGroups,
 };
 use crate::{
     asset::EffectAsset,
@@ -359,8 +359,8 @@ impl EffectBuffer {
         if num_event_buffers > 0 {
             let child_infos_size = GpuChildInfo::SHADER_SIZE.get() * num_event_buffers as u64;
 
-            // @group(1) @binding(4) var<storage, read_write> child_infos : array<ChildInfo;
-            // N>
+            // @group(1) @binding(4) var<storage, read_write> child_infos :
+            // array<ChildInfo>; N>
             entries.push(BindGroupLayoutEntry {
                 binding: 4,
                 visibility: ShaderStages::COMPUTE,
@@ -757,6 +757,11 @@ impl EffectBuffer {
         assert!(prev_value.is_none());
     }
 
+    pub fn invalidate_all_bind_groups(&mut self) {
+        self.init_bind_group = None;
+        self.update_bind_groups.clear();
+    }
+
     /// Try to recycle a free slice to store `size` items.
     fn pop_free_slice(&mut self, size: u32) -> Option<Range<u32>> {
         if self.free_slices.is_empty() {
@@ -931,26 +936,59 @@ pub(crate) struct InitIndirect {
     pub(crate) event_buffer_ref: EventBufferRef,
 }
 
-pub(crate) struct ChildrenEffectEntry {
-    /// Cache entry ID of the child effect.
+pub(crate) struct CachedChildren {
+    /// Cache entry IDs of the child effects.
     pub effect_cache_ids: Vec<EffectCacheId>,
-    /// Indices into the global [`EffectCache::child_infos_buffer`] of the child
-    /// infos for all the child effects of this parent effect. The child effects
-    /// are always allocated as a single contiguous block, which needs to be
-    /// mapped into a shader binding point.
-    pub indices: Range<u32>,
+    /// Indices in bytes into the global [`EffectCache::child_infos_buffer`] of
+    /// the child infos for all the child effects of this parent effect. The
+    /// child effects are always allocated as a single contiguous block,
+    /// which needs to be mapped into a shader binding point.
+    pub byte_range: Range<u32>,
 }
 
-impl ChildrenEffectEntry {
+impl CachedChildren {
     /// Get a binding of the given underlying child info buffer spanning over
     /// the range of this child effect entry.
     pub fn binding<'a>(&self, buffer: &'a Buffer) -> BufferBinding<'a> {
         BufferBinding {
             buffer,
-            offset: self.indices.start as u64,
-            size: Some(NonZeroU64::new((self.indices.end - self.indices.start) as u64).unwrap()),
+            offset: self.byte_range.start as u64,
+            size: Some(
+                NonZeroU64::new((self.byte_range.end - self.byte_range.start) as u64).unwrap(),
+            ),
         }
     }
+
+    pub fn max_binding<'a>(&self, buffer: &'a Buffer) -> BufferBinding<'a> {
+        BufferBinding {
+            buffer,
+            offset: 0,
+            size: None,
+        }
+    }
+
+    /// Base offset of the first child into the global
+    /// [`EffectCache::child_infos_buffer`], in number of element.
+    pub fn first_child_index(&self) -> u32 {
+        self.byte_range.start / size_of::<GpuChildInfo>() as u32
+    }
+}
+
+pub(crate) struct CachedChildInfo {
+    pub(crate) parent_cache_id: EffectCacheId,
+    /// Index of this child effect into its parent's ChildInfo array
+    /// ([`EffectChildren::effect_cache_ids`] and its associated GPU
+    /// array). This starts at zero for the first child of each effect, and is
+    /// only unique per parent, not globally. Only available if this effect is a
+    /// child of another effect (i.e. if it has a parent).
+    pub(crate) local_child_index: u32,
+    /// Global index of this child effect into the shared global
+    /// [`EffectCache::child_infos_buffer`] array. This is a unique index across
+    /// all effects.
+    pub(crate) global_child_index: u32,
+    /// Data for the indirect dispatch of the init pass, if using GPU spawn
+    /// events.
+    pub(crate) init_indirect: InitIndirect,
 }
 
 /// A single cached effect (all groups) in the [`EffectCache`].
@@ -964,21 +1002,12 @@ pub(crate) struct CachedEffect {
     pub(crate) slices: SlicesRef,
     /// The order in which we evaluate groups.
     pub(crate) group_order: Vec<u32>,
-    /// Parent effect, if any. If the effect has a parent, this means its
-    /// particles are spawned via GPU spawn events, and not by the CPU.
-    pub(crate) parent: Option<EffectCacheId>,
-    /// Index of this effect into its parent's ChildInfo array
-    /// ([`ChildrenEffectEntry::effect_cache_ids`] and its associated GPU
-    /// array). Only available if this effect is a child of another effect
-    /// (it has a parent).
-    pub(crate) child_index: Option<u32>,
-    /// Slice of [`GpuChildInfo`] as stored in the global
-    /// [`EffectCache::child_infos_buffer`]. Only valid if this effect is a
-    /// parent effect for at least one child effect.
-    pub(crate) children: Option<ChildrenEffectEntry>,
-    /// Data for the indirect dispatch of the init pass, if using GPU spawn
-    /// events.
-    pub(crate) init_indirect: Option<InitIndirect>,
+    /// Info about this effect as a child of another effect. Only available if
+    /// this effect has a parent effect.
+    pub(crate) cached_child_info: Option<CachedChildInfo>,
+    /// Child effect(s), if any. Only available if this effect is the parent
+    /// effect for one or more child effects.
+    pub(crate) children: Option<CachedChildren>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1056,21 +1085,36 @@ pub struct EventSlice {
     slice: Range<u32>,
 }
 
+/// GPU buffer storing the spawn events emitted by parent effects for their
+/// children.
+///
+/// The event buffer contains for each child effect the number of particles to
+/// spawn this frame. That number is incremented by its parent effect when it
+/// emits a spawn event, and reset to zero on next frame after the indirect init
+/// pass spawned new child particles, and before the new update pass of the
+/// parent optionally emits more spawn events. GPU spawn events are never
+/// accumulated over frames; if a parent emits too many events and the child
+/// cannot spawn that many particles, for example because it reached its
+/// capacity, then the extra events are discarded. This is consistent with the
+/// CPU behavior of [`Spawner::spawn_count`].
 pub struct EventBuffer {
     /// Owner child effect which consumes those events.
     effect_cache_id: EffectCacheId,
-    /// GPU buffer.
+    /// GPU buffer storing the spawn events.
     buffer: Buffer,
     /// Buffer capacity, in words (4 bytes).
     capacity: u32,
-    /// Allocated buffer size, in words (4 bytes).
+    /// Allocated (used) buffer size, in words (4 bytes).
     size: u32,
-    /// Slices into the GPU buffer where event sub-allocations for each effects
-    /// are located. Slices are stored ordered for convenience of allocation.
+    /// Slices into the GPU buffer where event sub-allocations for each effect
+    /// are located. Slices are stored ordered by location in the buffer, for
+    /// convenience of allocation.
     slices: Vec<EventSlice>,
 }
 
 impl EventBuffer {
+    /// Create a new event buffer to store the spawn events of the specified
+    /// child effect.
     pub fn new(effect_cache_id: EffectCacheId, buffer: Buffer, capacity: u32) -> Self {
         Self {
             effect_cache_id,
@@ -1081,14 +1125,18 @@ impl EventBuffer {
         }
     }
 
+    /// Get the ID in the [`EffectCache`] of the child effect this event buffer
+    /// is associated with.
     pub fn effect_cache_id(&self) -> EffectCacheId {
         self.effect_cache_id
     }
 
+    /// Get a reference to the underlying GPU buffer.
     pub fn buffer(&self) -> &Buffer {
         &self.buffer
     }
 
+    /// Allocate a new slice for a child effect.
     pub fn allocate(&mut self, size: u32) -> Option<EventSlice> {
         if self.size + size > self.capacity {
             return None;
@@ -1129,6 +1177,7 @@ impl EventBuffer {
         }
     }
 
+    /// Free the slice of a child effect once that effect is deallocated.
     #[allow(dead_code)] // FIXME
     pub fn free(&mut self, slice: &EventSlice) {
         // Note: could use binary search, but likely not enough elements to be worth it
@@ -1140,7 +1189,10 @@ impl EventBuffer {
 }
 
 pub(crate) struct EventBufferRef {
+    /// Index into [`EffectCache::event_buffers`] of the [`EventBuffer`] storing
+    /// the referenced events.
     pub(crate) buffer_index: u32,
+    /// Slice into the [`EventBuffer`] where the events are allocated.
     pub(crate) slice: Range<u32>,
 }
 
@@ -1158,6 +1210,14 @@ impl EventBufferBinding {
             buffer: &self.buffer,
             offset: self.offset as u64 * 4,
             size: Some(NonZeroU64::new(self.size as u64 * 4).unwrap()),
+        })
+    }
+
+    pub fn max_binding(&self) -> BindingResource {
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.buffer,
+            offset: 0,
+            size: None,
         })
     }
 }
@@ -1184,17 +1244,36 @@ pub struct EffectCache {
     /// Single shared GPU buffer storing all the [`GpuChildInfo`] structs
     /// for all the parent effects.
     child_infos_buffer: HybridAlignedBufferVec,
+    /// Bind group layout for the indirect dispatch pass, which clears the GPU
+    /// event counts.
+    child_infos_bgl: BindGroupLayout,
+    /// Bind group for the indirect dispatch pass, which clears the GPU event
+    /// counts.
+    child_infos_bind_group: Option<BindGroup>,
     /// Buffers for GPU events.
     event_buffers: Vec<Option<EventBuffer>>,
 }
 
 impl EffectCache {
     pub fn new(device: RenderDevice) -> Self {
-        let gpu_limits = GpuLimits::from_device(&device);
-        let item_align: NonZeroU64 = gpu_limits.storage_buffer_align().into();
         let mut init_indirect_dispatch_buffer =
             BufferVec::new(BufferUsages::STORAGE | BufferUsages::INDIRECT);
         init_indirect_dispatch_buffer.set_label(Some("hanabi:buffer:init_indirect_dispatch"));
+
+        let child_infos_bgl = device.create_bind_group_layout(
+            "hanabi:bind_group_layout:indirect_child_infos",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(GpuChildInfo::min_size()),
+                },
+                count: None,
+            }],
+        );
+
         Self {
             render_device: device,
             buffers: vec![],
@@ -1203,9 +1282,12 @@ impl EffectCache {
             init_indirect_dispatch_buffer,
             child_infos_buffer: HybridAlignedBufferVec::new(
                 BufferUsages::STORAGE,
-                Some(item_align),
+                Some(NonZeroU64::new(4).unwrap()),
                 Some("hanabi:buffer:child_infos".to_string()),
             ),
+            child_infos_bgl,
+            // Can't create until the buffer is ready
+            child_infos_bind_group: None,
             event_buffers: vec![],
         }
     }
@@ -1286,7 +1368,9 @@ impl EffectCache {
                 resource: property_binding,
             });
         }
-        if let Some(child_info_binding) = self.get_child_info_binding(effect_cache_id) {
+        // FIXME - this binding depends on whether the particular effect is a child, but
+        // the buffer itself should in theory be common to multiple effects (batching)
+        if let Some(child_info_binding) = self.get_child_info_max_binding(effect_cache_id) {
             bindings.push(BindGroupEntry {
                 binding: 4,
                 resource: BindingResource::Buffer(child_info_binding),
@@ -1382,7 +1466,7 @@ impl EffectCache {
                 resource: property_binding,
             });
         }
-        if let (Some(buffer), Some(children_effect_entry)) = (
+        if let (Some(buffer), Some(_children_effect_entry)) = (
             self.child_infos_buffer.buffer(),
             self.effects
                 .get(&effect_cache_id)
@@ -1391,7 +1475,12 @@ impl EffectCache {
         ) {
             bindings.push(BindGroupEntry {
                 binding: 4,
-                resource: BindingResource::Buffer(children_effect_entry.binding(buffer)),
+                //resource: BindingResource::Buffer(children_effect_entry.binding(buffer)),
+                resource: BindingResource::Buffer(BufferBinding {
+                    buffer,
+                    offset: 0,
+                    size: None,
+                }),
             });
         }
         // The buffer has one or more child effect(s), and those effects each own an
@@ -1565,20 +1654,22 @@ impl EffectCache {
             effect_cached_id,
             CachedEffect {
                 buffer_index: buffer_index as u32,
-                // Parent is resolved later in resolve_parents()
-                parent: None,
-                // Child index is resolved later in resolve_parents()
-                child_index: None,
-                init_indirect: event_buffer_ref.map(|event_buffer_ref| InitIndirect {
-                    dispatch_index: init_indirect_dispatch_index.unwrap(),
-                    event_buffer_ref,
+                slices,
+                group_order,
+                cached_child_info: event_buffer_ref.map(|event_buffer_ref| CachedChildInfo {
+                    init_indirect: InitIndirect {
+                        dispatch_index: init_indirect_dispatch_index.unwrap(),
+                        event_buffer_ref,
+                    },
+                    // Resolved later in resolve_parents()
+                    parent_cache_id: EffectCacheId::INVALID,
+                    local_child_index: u32::MAX,
+                    global_child_index: u32::MAX,
                 }),
                 // At this point we didn't resolve parents, so we don't know how many children this
                 // effect has. Leave this empty for now, until resolve_parents() fix it up if
                 // needed.
                 children: None,
-                slices,
-                group_order,
             },
         );
         self.effect_from_entity.insert(entity, effect_cached_id);
@@ -1586,15 +1677,35 @@ impl EffectCache {
     }
 
     /// Re-/allocate any buffer for the current frame.
-    pub fn prepare_buffers(&mut self, render_device: &RenderDevice, render_queue: &RenderQueue) {
+    pub fn prepare_buffers(
+        &mut self,
+        render_device: &RenderDevice,
+        render_queue: &RenderQueue,
+        effect_bind_groups: &mut ResMut<EffectBindGroups>,
+    ) {
         // Note: we abuse AlignedBufferVec for its ability to manage the GPU buffer, but
         // we don't use its CPU side capabilities. So we only need the GPU buffer to be
         // correctly allocated, using reserve(). No data is copied from CPU.
         self.init_indirect_dispatch_buffer
             .reserve(self.init_indirect_dispatch_buffer.len(), render_device);
 
+        let old_buffer = self.child_infos_buffer.buffer().map(|b| b.id());
         self.child_infos_buffer
             .write_buffer(render_device, render_queue);
+        let new_buffer = self.child_infos_buffer.buffer().map(|b| b.id());
+        if old_buffer != new_buffer {
+            // If the child infos buffer changed, all init bind groups of children and all
+            // update bind groups of parents are invalid because they all use
+            // that globally shared buffer.
+            // FIXME - it's quite hard to tell for now; just invalidate everything
+            for buffer in &mut self.buffers {
+                if let Some(buffer) = buffer {
+                    buffer.invalidate_all_bind_groups();
+                }
+            }
+
+            effect_bind_groups.init_fill_dispatch.clear();
+        }
     }
 
     pub fn get_slices(&self, id: EffectCacheId) -> EffectSlices {
@@ -1611,26 +1722,33 @@ impl EffectCache {
     }
 
     pub fn get_init_indirect_dispatch_index(&self, id: EffectCacheId) -> Option<u32> {
-        self.effects
-            .get(&id)
-            .map(|indices| indices.init_indirect.as_ref())
-            .flatten()
-            .map(|init_indirect| init_indirect.dispatch_index)
+        Some(
+            self.effects
+                .get(&id)?
+                .cached_child_info
+                .as_ref()?
+                .init_indirect
+                .dispatch_index,
+        )
     }
 
-    pub fn get_child_info_binding(&self, child_id: EffectCacheId) -> Option<BufferBinding> {
+    pub fn get_child_info_max_binding(&self, child_id: EffectCacheId) -> Option<BufferBinding> {
         // Find the parent effect; it's the one storing the list of children and their
         // ChildInfo
-        let parent_id = *self.effects.get(&child_id)?.parent.as_ref()?;
-
-        let children_effect_entry = self.effects.get(&parent_id)?.children.as_ref()?;
-        Some(children_effect_entry.binding(self.child_infos_buffer.buffer()?))
+        let parent_cache_id = self
+            .effects
+            .get(&child_id)?
+            .cached_child_info
+            .as_ref()?
+            .parent_cache_id;
+        let children_effect_entry = self.effects.get(&parent_cache_id)?.children.as_ref()?;
+        Some(children_effect_entry.max_binding(self.child_infos_buffer.buffer()?))
     }
 
     pub fn get_event_buffer_binding(&self, id: EffectCacheId) -> Option<EventBufferBinding> {
         let cached_effect = self.effects.get(&id)?;
-        let init_indirect = cached_effect.init_indirect.as_ref()?;
-        let event_buffer_ref = &init_indirect.event_buffer_ref;
+        let cached_parent = cached_effect.cached_child_info.as_ref()?;
+        let event_buffer_ref = &cached_parent.init_indirect.event_buffer_ref;
         let event_buffer = self.event_buffers[event_buffer_ref.buffer_index as usize].as_ref()?;
         Some(EventBufferBinding {
             buffer: event_buffer.buffer.clone(),
@@ -1655,22 +1773,72 @@ impl EffectCache {
             &self
                 .effects
                 .get(&effect_cache_id)?
-                .init_indirect
+                .cached_child_info
                 .as_ref()?
+                .init_indirect
                 .event_buffer_ref,
         )
     }
 
-    pub fn get_child_index(&self, effect_cache_id: EffectCacheId) -> Option<u32> {
-        self.effects.get(&effect_cache_id)?.child_index
+    pub fn child_infos(&self) -> &HybridAlignedBufferVec {
+        &self.child_infos_buffer
+    }
+
+    pub fn child_infos_buffer(&self) -> Option<&Buffer> {
+        self.child_infos_buffer.buffer()
+    }
+
+    pub fn invalidate_child_infos_bind_group(&mut self) {
+        self.child_infos_bind_group = None;
+    }
+
+    pub fn ensure_child_infos_bind_group(&mut self, device: &RenderDevice) {
+        let Some(buffer) = self.child_infos_buffer() else {
+            return;
+        };
+        self.child_infos_bind_group = Some(device.create_bind_group(
+            "hanabi:bind_group:indirect_child_infos",
+            &self.child_infos_bgl,
+            &[BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Buffer(BufferBinding {
+                    buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            }],
+        ));
+    }
+
+    pub fn child_infos_bind_group(&self) -> Option<&BindGroup> {
+        self.child_infos_bind_group.as_ref()
+    }
+
+    pub fn get_local_child_index(&self, effect_cache_id: EffectCacheId) -> Option<u32> {
+        let cached_effect = self.effects.get(&effect_cache_id)?;
+        let cached_child_info = cached_effect.cached_child_info.as_ref()?;
+        Some(cached_child_info.local_child_index)
+    }
+
+    pub fn get_global_child_index(&self, effect_cache_id: EffectCacheId) -> Option<u32> {
+        let cached_effect = self.effects.get(&effect_cache_id)?;
+        let cached_child_info = cached_effect.cached_child_info.as_ref()?;
+        Some(cached_child_info.global_child_index)
+    }
+
+    pub fn get_first_child_index(&self, effect_cache_id: EffectCacheId) -> Option<u32> {
+        let cached_effect = self.effects.get(&effect_cache_id)?;
+        let children = cached_effect.children.as_ref()?;
+        Some(children.first_child_index())
     }
 
     pub fn get_event_dispatch_index(&self, effect_cache_id: EffectCacheId) -> Option<u32> {
         Some(
             self.effects
                 .get(&effect_cache_id)?
-                .init_indirect
+                .cached_child_info
                 .as_ref()?
+                .init_indirect
                 .dispatch_index,
         )
     }
@@ -1710,24 +1878,50 @@ impl EffectCache {
     /// for both parent and children, optionally (re-)allocating the
     /// [`GpuChildInfo`]s associated with each parent.
     pub(crate) fn resolve_parents(&mut self, pairs: impl Iterator<Item = (EffectCacheId, Entity)>) {
-        // For each cache entry with a known parent entity, resolve that parent cache
-        // entry, and patch up the entry's parent field. Also remember the list of
-        // children for each parent.
-        let mut children = HashMap::with_capacity(self.effects.len());
+        // For each child cache entry with a known parent entity, resolve the parent
+        // cache entry, and patch up the child entry's cache info. Also remember the
+        // list of children for each parent.
+        let mut children =
+            HashMap::<EffectCacheId, Vec<EffectCacheId>>::with_capacity(self.effects.len());
         for (child_cache_id, parent_entity) in pairs {
-            let Some(child_entry) = self.effects.get_mut(&child_cache_id) else {
+            // Resolve the cached parent effect. This should always exist.
+            let Some(parent_cache_id) = self.effect_from_entity.get(&parent_entity) else {
+                trace!("Unknown effect for parent entity {:?}", parent_entity);
                 continue;
             };
-            if let Some(parent_cache_id) = self.effect_from_entity.get(&parent_entity) {
-                let child_vec = children.entry(*parent_cache_id).or_insert(vec![]);
-                child_entry.parent = Some(*parent_cache_id);
-                child_entry.child_index = Some(child_vec.len() as u32);
-                child_vec.push(child_cache_id);
-            }
+
+            // Resolve the cached child effect.
+            let Some(child_entry) = self.effects.get_mut(&child_cache_id) else {
+                trace!(
+                    "Invalid child effect with unknown cache ID {:?}",
+                    child_cache_id
+                );
+                continue;
+            };
+            let Some(cached_child_info) = child_entry.cached_child_info.as_mut() else {
+                trace!(
+                    "Missing cached child info for child effect {:?} referenced by parent {:?}.",
+                    child_cache_id,
+                    parent_cache_id,
+                );
+                continue;
+            };
+
+            // Push the child cache ID into the children list
+            let child_vec = children.entry(*parent_cache_id).or_default();
+            let local_child_index = child_vec.len() as u32;
+            child_vec.push(child_cache_id);
+
+            // Update the cached child info. The global child index cannot yet be
+            // calculated, as we might need to re-allocate the child list in the global
+            // buffer, which would move it.
+            cached_child_info.parent_cache_id = *parent_cache_id;
+            cached_child_info.local_child_index = local_child_index;
         }
 
         // Once all parents are resolved, resolve all children and (re-)allocate their
         // GpuChildInfo if needed.
+        let mut changed_parents = vec![];
         for (parent_cache_id, child_cache_ids) in children {
             let child_infos = child_cache_ids
                 .iter()
@@ -1750,7 +1944,7 @@ impl EffectCache {
 
             // Check if any child changed
             let mut changed = false;
-            if let Some(children) = &mut parent_entry.children {
+            if let Some(children) = &parent_entry.children {
                 if children.effect_cache_ids.len() != child_cache_ids.len() {
                     trace!(
                         "ChildInfo changed for effect {:?}: old #{} != new #{}",
@@ -1785,24 +1979,101 @@ impl EffectCache {
                 changed = true;
             }
 
-            // (Re-)allocate the child info array
+            // (Re-)allocate the child info array for this parent effect
             if changed {
-                if let Some(child_effect_entry) = parent_entry.children.as_ref() {
+                let mut prev_start = None;
+                if let Some(cached_children) = &parent_entry.children {
                     trace!(
                         "De-allocating old ChildInfo[] entry at range {:?}",
-                        child_effect_entry.indices
+                        cached_children.byte_range
                     );
                     self.child_infos_buffer
-                        .remove(child_effect_entry.indices.clone());
+                        .remove(cached_children.byte_range.clone());
+                    prev_start = Some(cached_children.byte_range.start);
                 }
 
-                let indices = self.child_infos_buffer.push_many(&child_infos[..]);
-                trace!("Allocated new ChildInfo[] entry at range {:?}", indices);
+                // FIXME - what about the case where child_infos[] is empty! This doesn't happen
+                // here, because we skip those effects, but that means we're not de-allocating
+                // old child effects!
 
-                parent_entry.children = Some(ChildrenEffectEntry {
+                let byte_range = self.child_infos_buffer.push_many(&child_infos[..]);
+                assert_eq!(byte_range.start as usize % size_of::<GpuChildInfo>(), 0);
+                trace!(
+                    "Allocated new ChildInfo[] entry at byte range {:?}",
+                    byte_range
+                );
+
+                // Only if the parent still has at least one child, and the reallocation changed
+                // its base index
+                if let Some(prev_start) = prev_start {
+                    if prev_start != byte_range.start {
+                        trace!(
+                            "Parent {:?}: moved ChildInfo[] array from +{} to +{}",
+                            parent_cache_id,
+                            prev_start,
+                            byte_range.start
+                        );
+                        changed_parents.push(parent_cache_id);
+                    }
+                } else {
+                    trace!(
+                        "Parent {:?}: newly allocated ChildInfo[] array at +{}",
+                        parent_cache_id,
+                        byte_range.start
+                    );
+                    changed_parents.push(parent_cache_id);
+                }
+
+                parent_entry.children = Some(CachedChildren {
                     effect_cache_ids: child_cache_ids,
-                    indices,
+                    byte_range,
                 });
+            }
+        }
+
+        // Once all parents are re-allocated, fix up the global index of all
+        // children if the parent base index changed.
+        // TODO: this is the worst code ever, so many useless lookup because of
+        // self.effects being a HashMap...
+        trace!(
+            "Updating the global index of children of {} parent effects...",
+            changed_parents.len()
+        );
+        for parent_cache_id in changed_parents.drain(..) {
+            let (base_index, mut children_cache_ids) = {
+                let Some(parent_entry) = self.effects.get(&parent_cache_id) else {
+                    continue;
+                };
+                let Some(cached_children) = &parent_entry.children else {
+                    continue;
+                };
+                (
+                    cached_children.byte_range.start / 4,
+                    cached_children.effect_cache_ids.clone(),
+                )
+            };
+            trace!(
+                "Updating {} children of parent effect {:?} with base child index {}...",
+                children_cache_ids.len(),
+                parent_cache_id,
+                base_index
+            );
+            for child_cache_id in children_cache_ids.drain(..) {
+                let Some(child_entry) = self.effects.get_mut(&child_cache_id) else {
+                    continue;
+                };
+                let Some(cached_child_info) = &mut child_entry.cached_child_info else {
+                    continue;
+                };
+                cached_child_info.global_child_index =
+                    base_index + cached_child_info.local_child_index;
+                trace!(
+                    "+ Updated global index for child ID {:?} of parent {:?}: local={}, global={}",
+                    child_cache_id,
+                    parent_cache_id,
+                    cached_child_info.local_child_index,
+                    cached_child_info.global_child_index
+                );
             }
         }
     }
@@ -1869,7 +2140,7 @@ impl EffectCache {
     /// Insert a new event buffer in the cache.
     ///
     /// The event buffer is allocated to store up to `event_count` GPU events
-    /// per frame. If possible, part of an existing GPU buffer is reused as
+    /// per frame. If possible, a part of an existing GPU buffer is reused as
     /// storage, or if not possible a new GPU buffer is allocated.
     fn insert_event_buffer(
         &mut self,
@@ -1929,20 +2200,34 @@ impl EffectCache {
             alloc_size,
             alloc_size * 4
         );
+        // In debug, pad the buffer with some debug marker
+        #[cfg(debug_assertions)]
+        let buffer = {
+            let mut contents: Vec<u32> = Vec::with_capacity(alloc_size as usize);
+            contents.resize(alloc_size as usize, 0xDEADBEEF);
+            self.render_device
+                .create_buffer_with_data(&BufferInitDescriptor {
+                    label: Some(&format!("hanabi:buffer:event_buffer{}", effect_cached_id.0)),
+                    usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
+                    contents: bytemuck::cast_slice(contents.as_slice()),
+                })
+        };
+        // In release, don't initialize the buffer for performance
+        #[cfg(not(debug_assertions))]
         let buffer = self.render_device.create_buffer(&BufferDescriptor {
             label: Some(&format!("hanabi:buffer:event_buffer{}", effect_cached_id.0)),
             size: alloc_size as u64 * 4,
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
             mapped_at_creation: false,
         });
-        let mut buffer = EventBuffer::new(effect_cached_id, buffer, alloc_size);
-        let slice = buffer.allocate(size).unwrap();
+        let mut event_buffer = EventBuffer::new(effect_cached_id, buffer, alloc_size);
+        let slice = event_buffer.allocate(size).unwrap();
         let buffer_index = if let Some(buffer_index) = empty_index {
-            self.event_buffers[buffer_index] = Some(buffer);
+            self.event_buffers[buffer_index] = Some(event_buffer);
             buffer_index as u32
         } else {
             let buffer_index = self.event_buffers.len() as u32;
-            self.event_buffers.push(Some(buffer));
+            self.event_buffers.push(Some(event_buffer));
             buffer_index
         };
         trace!(

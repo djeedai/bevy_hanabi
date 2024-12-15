@@ -65,8 +65,7 @@ use crate::{
     },
     spawn::{EffectCloner, EffectInitializer, EffectInitializers, Initializer},
     AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
-    HanabiPlugin, ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition,
-    TextureLayout, ToWgslString,
+    ParticleLayout, PropertyLayout, RemovedEffectsEvent, SimulationCondition, TextureLayout,
 };
 
 mod aligned_buffer_vec;
@@ -411,13 +410,18 @@ pub struct GpuParticleGroup {
     /// Index of the [`GpuRenderGroupIndirect`] struct inside the global
     /// [`EffectsMeta::render_group_dispatch_buffer`].
     pub indirect_render_index: u32,
-    /// Offset (in u32 count) of the event indirect dispatch struct inside its
+    /// Offset (in u32 count) of the init indirect dispatch struct inside its
     /// buffer. This avoids having to align those 16-byte structs to the GPU
     /// alignment (at least 32 bytes, even 256 bytes on some).
     pub init_indirect_dispatch_index: u32,
-    /// Index of this effect as a child of its parent. This indexes into the
-    /// parent's array of [`GpuChildInfo`]s.
-    pub child_index: u32,
+    /// Index of this effect into its parent's ChildInfo array
+    /// ([`EffectChildren::effect_cache_ids`] and its associated GPU
+    /// array). This starts at zero for the first child of each effect, and is
+    /// only unique per parent, not globally. Only available if this effect is a
+    /// child of another effect (i.e. if it has a parent).
+    pub local_child_index: u32,
+    pub global_child_index: u32,
+    pub base_child_index: u32,
 }
 
 /// Compute pipeline to run the `vfx_indirect` dispatch workgroup calculation
@@ -425,12 +429,25 @@ pub struct GpuParticleGroup {
 #[derive(Resource)]
 pub(crate) struct DispatchIndirectPipeline {
     dispatch_indirect_layout: BindGroupLayout,
-    pipeline: ComputePipeline,
+    sim_params_layout: BindGroupLayout,
+    child_infos_layout: BindGroupLayout,
+    indirect_shader_noevent: Handle<Shader>,
+    indirect_shader_events: Handle<Shader>,
 }
 
 impl FromWorld for DispatchIndirectPipeline {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.get_resource::<RenderDevice>().unwrap();
+
+        // Copy the indirect pipeline shaders to self, because we can't access anything
+        // else during pipeline specialization.
+        let (indirect_shader_noevent, indirect_shader_events) = {
+            let effects_meta = world.get_resource::<EffectsMeta>().unwrap();
+            (
+                effects_meta.indirect_shader_noevent.clone(),
+                effects_meta.indirect_shader_events.clone(),
+            )
+        };
 
         let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
         let render_effect_indirect_size = GpuRenderEffectMetadata::aligned_size(storage_alignment);
@@ -493,16 +510,6 @@ impl FromWorld for DispatchIndirectPipeline {
                     },
                     count: None,
                 },
-                BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(GpuSpawnerParams::min_size()),
-                    },
-                    count: None,
-                },
             ],
         );
 
@@ -521,81 +528,82 @@ impl FromWorld for DispatchIndirectPipeline {
             }],
         );
 
-        let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("hanabi:pipeline_layout:dispatch_indirect"),
-            bind_group_layouts: &[&dispatch_indirect_layout, &sim_params_layout],
-            push_constant_ranges: &[],
-        });
-
-        let render_effect_indirect_stride_code =
-            (render_effect_indirect_size.get() as u32).to_wgsl_string();
-        let render_group_indirect_stride_code =
-            (render_group_indirect_size.get() as u32).to_wgsl_string();
-        let indirect_code = include_str!("vfx_indirect.wgsl")
-            .replace(
-                "{{RENDER_EFFECT_INDIRECT_STRIDE}}",
-                &render_effect_indirect_stride_code,
-            )
-            .replace(
-                "{{RENDER_GROUP_INDIRECT_STRIDE}}",
-                &render_group_indirect_stride_code,
-            );
-
-        // Resolve imports. Because we don't insert this shader into Bevy' pipeline
-        // cache, we don't get that part "for free", so we have to do it manually here.
-        let indirect_naga_module = {
-            let mut composer = Composer::default();
-
-            // Import bevy_hanabi::vfx_common
-            {
-                let common_shader = HanabiPlugin::make_common_shader(
-                    render_device.limits().min_storage_buffer_offset_alignment,
-                );
-                let mut desc: naga_oil::compose::ComposableModuleDescriptor<'_> =
-                    (&common_shader).into();
-                desc.shader_defs.insert(
-                    "SPAWNER_PADDING".to_string(),
-                    naga_oil::compose::ShaderDefValue::Bool(true),
-                );
-                let res = composer.add_composable_module(desc);
-                assert!(res.is_ok());
-            }
-
-            let shader_defs = default();
-
-            match composer.make_naga_module(NagaModuleDescriptor {
-                source: &indirect_code,
-                file_path: "vfx_indirect.wgsl",
-                shader_defs,
-                ..Default::default()
-            }) {
-                Ok(naga_module) => ShaderSource::Naga(Cow::Owned(naga_module)),
-                Err(compose_error) => panic!(
-                    "Failed to compose vfx_indirect.wgsl, naga_oil returned: {}",
-                    compose_error.emit_to_string(&composer)
-                ),
-            }
-        };
-
-        debug!("Create indirect dispatch shader:\n{}", indirect_code);
-
-        let shader_module = render_device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("hanabi:vfx_indirect_shader"),
-            source: indirect_naga_module,
-        });
-
-        let pipeline = render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
-            label: Some("hanabi:compute_pipeline:dispatch_indirect"),
-            layout: Some(&pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("main"),
-            compilation_options: default(),
-            cache: None,
-        });
+        let child_infos_layout = render_device.create_bind_group_layout(
+            "hanabi:bind_group_layout:dispatch_indirect_child_infos",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(GpuChildInfo::min_size()),
+                },
+                count: None,
+            }],
+        );
 
         Self {
             dispatch_indirect_layout,
-            pipeline,
+            sim_params_layout,
+            child_infos_layout,
+            indirect_shader_noevent,
+            indirect_shader_events,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct DispatchIndirectPipelineKey {
+    /// True if any allocated effect uses GPU spawn events. In that case, the
+    /// pipeline is specialized to clear all GPU events each frame after the
+    /// indirect init pass consumed them to spawn particles, and before the
+    /// update pass optionally produce more events.
+    /// Key: HAS_GPU_SPAWN_EVENTS
+    has_events: bool,
+}
+
+impl SpecializedComputePipeline for DispatchIndirectPipeline {
+    type Key = DispatchIndirectPipelineKey;
+
+    fn specialize(&self, key: Self::Key) -> ComputePipelineDescriptor {
+        trace!(
+            "Specializing indirect pipeline (has_events={})",
+            key.has_events
+        );
+
+        let mut shader_defs = Vec::with_capacity(1);
+        if key.has_events {
+            shader_defs.push(ShaderDefVal::Bool("HAS_GPU_SPAWN_EVENTS".to_string(), true));
+        }
+
+        let mut layout = Vec::with_capacity(3);
+        layout.push(self.dispatch_indirect_layout.clone());
+        layout.push(self.sim_params_layout.clone());
+        if key.has_events {
+            layout.push(self.child_infos_layout.clone());
+        }
+
+        let label = format!(
+            "hanabi:compute_pipeline:dispatch_indirect{}",
+            if key.has_events {
+                "_events"
+            } else {
+                "_noevent"
+            }
+        );
+
+        ComputePipelineDescriptor {
+            label: Some(label.into()),
+            layout,
+            shader: if key.has_events {
+                self.indirect_shader_events.clone()
+            } else {
+                self.indirect_shader_noevent.clone()
+            },
+            shader_defs,
+            entry_point: "main".into(),
+            push_constant_ranges: vec![],
+            zero_initialize_workgroup_memory: false,
         }
     }
 }
@@ -647,7 +655,7 @@ pub(super) struct GpuBufferOperationArgs {
     count: u32,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct InitFillDispatchArgs {
     event_buffer_index: u32,
     event_slice: std::ops::Range<u32>,
@@ -862,6 +870,7 @@ impl GpuBufferOperationQueue {
             let mut sorted_ifda = Vec::with_capacity(self.init_fill_dispatch.len());
             let mut prev_buffer = u32::MAX;
             for ifda in &self.init_fill_dispatch {
+                trace!("+ op: ifda={:?}", ifda);
                 if !sorted_args.is_empty() && (prev_buffer == ifda.event_buffer_index) {
                     let prev_idx = sorted_args.len() - 1;
                     let prev: &mut GpuBufferOperationArgs = &mut sorted_args[prev_idx];
@@ -871,6 +880,7 @@ impl GpuBufferOperationQueue {
                     && cur.src_offset == prev.src_offset + 1
                     {
                         prev.count += 1;
+                        trace!("-> merged op with previous one {:?}", prev);
                         continue;
                     }
                 }
@@ -883,6 +893,7 @@ impl GpuBufferOperationQueue {
                 });
                 sorted_args.push(self.args_buffer_unsorted[ifda.args_index as usize]);
             }
+            trace!("Final ops (sorted IFDAs): {:?}", sorted_ifda);
 
             self.args_buffer.set_content(sorted_args);
             self.init_fill_dispatch = sorted_ifda;
@@ -2105,8 +2116,8 @@ pub(crate) fn extract_effects(
     if debug_settings.start_capture_this_frame || debug_settings.start_capture_on_new_effect {
         // Stop any pending capture if needed
         if render_debug_settings.is_capturing
-            && real_time.elapsed() - render_debug_settings.capture_start
-                > debug_settings.capture_duration
+            // && real_time.elapsed() - render_debug_settings.capture_start
+            //     > debug_settings.capture_duration
             && render_debug_settings.captured_frames >= debug_settings.capture_frame_count
         {
             render_device.wgpu_device().stop_capture();
@@ -2502,10 +2513,24 @@ pub struct EffectsMeta {
     /// Various GPU limits and aligned sizes lazily allocated and cached for
     /// convenience.
     gpu_limits: GpuLimits,
+    indirect_shader_noevent: Handle<Shader>,
+    indirect_shader_events: Handle<Shader>,
+    /// Pipeline cache ID of the two indirect dispatch pass pipelines (the
+    /// -noevent and -events variants).
+    indirect_pipeline_ids: [CachedComputePipelineId; 2],
+    /// Pipeline cache ID of the active indirect dispatch pass pipeline, which
+    /// is either the -noevent or -events variant depending on whether there's
+    /// any child effect with GPU events currently active.
+    active_indirect_pipeline_id: CachedComputePipelineId,
 }
 
 impl EffectsMeta {
-    pub fn new(device: RenderDevice, mesh_assets: &mut Assets<Mesh>) -> Self {
+    pub fn new(
+        device: RenderDevice,
+        mesh_assets: &mut Assets<Mesh>,
+        indirect_shader_noevent: Handle<Shader>,
+        indirect_shader_events: Handle<Shader>,
+    ) -> Self {
         let default_mesh = mesh_assets.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)));
 
         let gpu_limits = GpuLimits::from_device(&device);
@@ -2558,6 +2583,13 @@ impl EffectsMeta {
             ),
             default_mesh,
             gpu_limits,
+            indirect_shader_noevent,
+            indirect_shader_events,
+            indirect_pipeline_ids: [
+                CachedComputePipelineId::INVALID,
+                CachedComputePipelineId::INVALID,
+            ],
+            active_indirect_pipeline_id: CachedComputePipelineId::INVALID,
         }
     }
 
@@ -2718,13 +2750,25 @@ impl EffectsMeta {
         }
 
         // Resolve parents
-        effect_cache.resolve_parents(self.entity_map.iter().filter_map(|(_entity, entry)| {
-            if let Some(parent_entity) = entry.parent_entity {
-                Some((entry.cache_id, parent_entity))
-            } else {
-                None
-            }
+        let was_empty = effect_cache.child_infos().is_empty();
+        effect_cache.resolve_parents(self.entity_map.iter().filter_map(|(_, entry)| {
+            entry
+                .parent_entity
+                .map(|parent_entity| (entry.cache_id, parent_entity))
         }));
+
+        // If this is the first time we insert an event buffer, we need to switch the
+        // indirect pass from non-event to event mode. That is, we need to re-allocate
+        // the pipeline with the child infos buffer binding. Conversely, if there's no
+        // more effect using GPU spawn events, we can deallocate.
+        let is_empty = effect_cache.child_infos().is_empty();
+        if was_empty && !is_empty {
+            trace!("First event buffer inserted; switching indirect pass to event mode...");
+            self.active_indirect_pipeline_id = self.indirect_pipeline_ids[1];
+        } else if is_empty && !was_empty {
+            trace!("Last event buffer removed; switching indirect pass to no-event mode...");
+            self.active_indirect_pipeline_id = self.indirect_pipeline_ids[0];
+        }
 
         // Once all changes are applied, immediately schedule any GPU buffer
         // (re)allocation based on the new buffer size. The actual GPU buffer content
@@ -2744,6 +2788,7 @@ impl EffectsMeta {
             self.dr_indirect_bind_group = None;
             self.init_render_indirect_spawn_bind_group = None;
             self.init_render_indirect_clone_bind_group = None;
+            effect_cache.invalidate_child_infos_bind_group();
             effect_bind_groups
                 .update_render_indirect_bind_groups
                 .clear();
@@ -2755,6 +2800,7 @@ impl EffectsMeta {
         render_device: &RenderDevice,
         render_queue: &RenderQueue,
         effect_bind_groups: &mut ResMut<EffectBindGroups>,
+        effect_cache: &mut ResMut<EffectCache>,
     ) {
         if self
             .render_group_dispatch_buffer
@@ -2764,6 +2810,7 @@ impl EffectsMeta {
             self.dr_indirect_bind_group = None;
             self.init_render_indirect_spawn_bind_group = None;
             self.init_render_indirect_clone_bind_group = None;
+            effect_cache.invalidate_child_infos_bind_group();
             effect_bind_groups
                 .update_render_indirect_bind_groups
                 .clear();
@@ -2806,17 +2853,28 @@ impl Default for LayoutFlags {
     }
 }
 
+#[derive(SystemParam)]
+pub struct PipelineSystemParams<'w, 's> {
+    pipeline_cache: Res<'w, PipelineCache>,
+    init_pipeline: Res<'w, ParticlesInitPipeline>,
+    indirect_pipeline: Res<'w, DispatchIndirectPipeline>,
+    update_pipeline: Res<'w, ParticlesUpdatePipeline>,
+    #[system_param(ignore)]
+    marker: PhantomData<&'s usize>,
+}
+
 pub(crate) fn prepare_effects(
     mut commands: Commands,
     sim_params: Res<SimParams>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
-    pipeline_cache: Res<PipelineCache>,
-    init_pipeline: Res<ParticlesInitPipeline>,
-    update_pipeline: Res<ParticlesUpdatePipeline>,
     mesh_allocator: Res<MeshAllocator>,
     render_meshes: Res<RenderAssets<RenderMesh>>,
+    pipelines: PipelineSystemParams,
     mut specialized_init_pipelines: ResMut<SpecializedComputePipelines<ParticlesInitPipeline>>,
+    mut specialized_indirect_pipelines: ResMut<
+        SpecializedComputePipelines<DispatchIndirectPipeline>,
+    >,
     mut specialized_update_pipelines: ResMut<SpecializedComputePipelines<ParticlesUpdatePipeline>>,
     mut effects_meta: ResMut<EffectsMeta>,
     mut effect_cache: ResMut<EffectCache>,
@@ -2839,6 +2897,25 @@ pub(crate) fn prepare_effects(
     effects_meta
         .render_group_dispatch_buffer
         .clear_previous_frame_resizes();
+
+    // Ensure the indirect pipelines are created
+    if effects_meta.indirect_pipeline_ids[0] == CachedComputePipelineId::INVALID {
+        effects_meta.indirect_pipeline_ids[0] = specialized_indirect_pipelines.specialize(
+            &pipelines.pipeline_cache,
+            &pipelines.indirect_pipeline,
+            DispatchIndirectPipelineKey { has_events: false },
+        );
+    }
+    if effects_meta.indirect_pipeline_ids[1] == CachedComputePipelineId::INVALID {
+        effects_meta.indirect_pipeline_ids[1] = specialized_indirect_pipelines.specialize(
+            &pipelines.pipeline_cache,
+            &pipelines.indirect_pipeline,
+            DispatchIndirectPipelineKey { has_events: true },
+        );
+    }
+    if effects_meta.active_indirect_pipeline_id == CachedComputePipelineId::INVALID {
+        effects_meta.active_indirect_pipeline_id = effects_meta.indirect_pipeline_ids[0];
+    }
 
     gpu_buffer_operation_queue.begin_frame();
 
@@ -3053,7 +3130,12 @@ pub(crate) fn prepare_effects(
 
     // Perform any GPU allocation if we (lazily) allocated some rows into the render
     // group dispatch indirect buffer.
-    effects_meta.allocate_gpu(&render_device, &render_queue, &mut effect_bind_groups);
+    effects_meta.allocate_gpu(
+        &render_device,
+        &render_queue,
+        &mut effect_bind_groups,
+        &mut effect_cache,
+    );
 
     // Sort first by effect buffer index, then by slice range (see EffectSlice)
     // inside that buffer. This is critical for batching to work, because
@@ -3072,7 +3154,9 @@ pub(crate) fn prepare_effects(
         let effect_cache_id = effects_meta.entity_map.get(&input.entity).unwrap().cache_id;
         let buffer_index = effect_cache.get_slices(effect_cache_id).buffer_index;
         let event_buffer_ref = effect_cache.get_event_slice(effect_cache_id);
-        let child_index = effect_cache.get_child_index(effect_cache_id);
+        let local_child_index = effect_cache.get_local_child_index(effect_cache_id);
+        let global_child_index = effect_cache.get_global_child_index(effect_cache_id);
+        let base_child_index = effect_cache.get_first_child_index(effect_cache_id);
         let particle_layout_min_binding_size =
             input.effect_slices.particle_layout.min_binding_size();
         let property_layout_min_binding_size = if input.property_layout.is_empty() {
@@ -3085,10 +3169,14 @@ pub(crate) fn prepare_effects(
         // pass. Only effects consuming GPU spawn events use indirect dispatch for their
         // particle init; others are CPU driven and use normal dispatch.
         // FIXME - unused arg
-        if let (Some(event_buffer_ref), Some(init_indirect_dispatch_index), Some(child_index)) = (
+        if let (
+            Some(event_buffer_ref),
+            Some(init_indirect_dispatch_index),
+            Some(global_child_index),
+        ) = (
             event_buffer_ref,
             input.init_indirect_dispatch_index,
-            child_index,
+            global_child_index,
         ) {
             debug_assert_eq!(
                 GpuChildInfo::min_size().get() % 4,
@@ -3099,11 +3187,18 @@ pub(crate) fn prepare_effects(
             // Schedule a fill dispatch
             let event_buffer_index = event_buffer_ref.buffer_index;
             let event_slice = event_buffer_ref.slice.clone();
+            trace!(
+                "queue_init_fill(): event_buffer_index={} event_slice={:?} src:global_child_index={} dst:init_indirect_dispatch_index={}",
+                event_buffer_index,
+                event_slice,
+                global_child_index,
+                init_indirect_dispatch_index,
+            );
             gpu_buffer_operation_queue.queue_init_fill(
                 event_buffer_index,
                 event_slice,
                 GpuBufferOperationArgs {
-                    src_offset: child_index,
+                    src_offset: global_child_index,
                     src_stride: GpuChildInfo::min_size().get() as u32 / 4,
                     dst_offset: init_indirect_dispatch_index,
                     count: 1, // FIXME - should be a batch here!!
@@ -3143,8 +3238,8 @@ pub(crate) fn prepare_effects(
                 }
 
                 let init_pipeline_id = specialized_init_pipelines.specialize(
-                    &pipeline_cache,
-                    &init_pipeline,
+                    &pipelines.pipeline_cache,
+                    &pipelines.init_pipeline,
                     ParticleInitPipelineKey {
                         shader: shader.init.clone(),
                         particle_layout_min_binding_size,
@@ -3176,8 +3271,8 @@ pub(crate) fn prepare_effects(
                 );
 
                 let update_pipeline_id = specialized_update_pipelines.specialize(
-                    &pipeline_cache,
-                    &update_pipeline,
+                    &pipelines.pipeline_cache,
+                    &pipelines.update_pipeline,
                     ParticleUpdatePipelineKey {
                         shader: shader.update.clone(),
                         particle_layout: input.effect_slices.particle_layout.clone(),
@@ -3314,9 +3409,13 @@ pub(crate) fn prepare_effects(
                     indirect_render_index,
                     // We can safely unwrap_or() here, if we don't do indirect dispatch then this
                     // value is not read anyway.
-                    init_indirect_dispatch_index: input.init_indirect_dispatch_index.unwrap_or(0),
+                    init_indirect_dispatch_index: input
+                        .init_indirect_dispatch_index
+                        .unwrap_or(u32::MAX),
                     // We can safely unwrap_or() here, if we're not a child then this is unused.
-                    child_index: child_index.unwrap_or(0),
+                    local_child_index: local_child_index.unwrap_or(u32::MAX),
+                    global_child_index: global_child_index.unwrap_or(u32::MAX),
+                    base_child_index: base_child_index.unwrap_or(u32::MAX),
                 });
             if group_index == 0 {
                 first_particle_group_buffer_index = Some(particle_group_buffer_index as u32);
@@ -4153,6 +4252,7 @@ pub(crate) fn queue_effects(
 pub(crate) fn prepare_gpu_resources(
     mut effects_meta: ResMut<EffectsMeta>,
     mut effect_cache: ResMut<EffectCache>,
+    mut effect_bind_groups: ResMut<EffectBindGroups>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     view_uniforms: Res<ViewUniforms>,
@@ -4182,7 +4282,7 @@ pub(crate) fn prepare_gpu_resources(
     ));
 
     // Re-/allocate any GPU buffer needed by the effect cache
-    effect_cache.prepare_buffers(&render_device, &render_queue);
+    effect_cache.prepare_buffers(&render_device, &render_queue, &mut effect_bind_groups);
 }
 
 pub(crate) fn prepare_bind_groups(
@@ -4204,6 +4304,8 @@ pub(crate) fn prepare_bind_groups(
     if effects_meta.spawner_buffer.is_empty() || effects_meta.spawner_buffer.buffer().is_none() {
         return;
     }
+
+    effect_cache.ensure_child_infos_bind_group(&*render_device);
 
     {
         #[cfg(feature = "trace")]
@@ -4261,15 +4363,14 @@ pub(crate) fn prepare_bind_groups(
             effects_meta.render_group_dispatch_buffer.buffer(),
             effects_meta.dispatch_indirect_buffer.buffer(),
             effects_meta.particle_group_buffer.buffer(),
-            effects_meta.spawner_buffer.buffer(),
         ) {
             (
                 Some(render_effect_dispatch_buffer),
                 Some(render_group_dispatch_buffer),
                 Some(dispatch_indirect_buffer),
                 Some(particle_group_buffer),
-                Some(spawner_buffer),
             ) => {
+                // Base bind group for indirect pass
                 Some(render_device.create_bind_group(
                     "hanabi:bind_group_vfx_indirect_dr_indirect",
                     &dispatch_indirect_pipeline.dispatch_indirect_layout,
@@ -4302,14 +4403,6 @@ pub(crate) fn prepare_bind_groups(
                             binding: 3,
                             resource: BindingResource::Buffer(BufferBinding {
                                 buffer: particle_group_buffer,
-                                offset: 0,
-                                size: None,
-                            }),
-                        },
-                        BindGroupEntry {
-                            binding: 4,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: spawner_buffer,
                                 offset: 0,
                                 size: None,
                             }),
@@ -4494,8 +4587,8 @@ pub(crate) fn prepare_bind_groups(
             };
 
             let child_id = event_buffer.effect_cache_id();
-            let Some(source_binding) = effect_cache.get_child_info_binding(child_id) else {
-                warn!("Event buffer #{event_buffer_index} for effect #{child_id:?} has {args_count} operations pending, but the effect cache has no get_child_info_binding for the source buffer. Discarding event operations for this frame. This will result in particles not spawning.");
+            let Some(source_binding) = effect_cache.get_child_info_max_binding(child_id) else {
+                warn!("Event buffer #{event_buffer_index} for effect #{child_id:?} has {args_count} operations pending, but the effect cache has no get_child_info_max_binding for the source buffer. Discarding event operations for this frame. This will result in particles not spawning.");
                 continue;
             };
 
@@ -4563,7 +4656,7 @@ pub(crate) fn prepare_bind_groups(
             effect_batches.buffer_index,
             effect_batches.parent_buffer_index,
             group_binding.clone(),
-            effect_buffer_binding.as_ref().map(|ebb| ebb.binding()),
+            effect_buffer_binding.as_ref().map(|ebb| ebb.max_binding()),
         ) {
             continue;
         }
@@ -5105,7 +5198,6 @@ impl Node for VfxSimulateNode {
         let pipeline_cache = world.resource::<PipelineCache>();
         let effects_meta = world.resource::<EffectsMeta>();
         let effect_bind_groups = world.resource::<EffectBindGroups>();
-        let dispatch_indirect_pipeline = world.resource::<DispatchIndirectPipeline>();
         let utils_pipeline = world.resource::<UtilsPipeline>();
         let effect_cache = world.resource::<EffectCache>();
 
@@ -5469,6 +5561,22 @@ impl Node for VfxSimulateNode {
             // Dispatch indirect dispatch compute job
             trace!("record commands for indirect dispatch pipeline...");
 
+            let Some(indirect_pipeline) =
+                pipeline_cache.get_compute_pipeline(effects_meta.active_indirect_pipeline_id)
+            else {
+                if let CachedPipelineState::Err(err) = pipeline_cache
+                    .get_compute_pipeline_state(effects_meta.active_indirect_pipeline_id)
+                {
+                    error!(
+                        "Failed to find indirect dispatch pipeline #{}: {:?}",
+                        effects_meta.active_indirect_pipeline_id.id(),
+                        err
+                    );
+                }
+                // FIXME - Bevy doesn't allow returning custom errors here...
+                return Ok(());
+            };
+
             // FIXME - The `vfx_indirect` shader assumes a contiguous array of ParticleGroup
             // structures. So we need to pass the full array size, and we
             // just update the unused groups for nothing. Otherwise we might
@@ -5479,7 +5587,7 @@ impl Node for VfxSimulateNode {
             let workgroup_count = total_group_count.div_ceil(WORKGROUP_SIZE);
 
             // Setup compute pass
-            compute_pass.set_pipeline(&dispatch_indirect_pipeline.pipeline);
+            compute_pass.set_pipeline(indirect_pipeline);
             compute_pass.set_bind_group(
                 0,
                 // FIXME - got some unwrap() panic here, investigate... possibly race
@@ -5492,6 +5600,9 @@ impl Node for VfxSimulateNode {
                 effects_meta.sim_params_bind_group.as_ref().unwrap(),
                 &[],
             );
+            if let Some(child_infos_bind_group) = effect_cache.child_infos_bind_group() {
+                compute_pass.set_bind_group(2, child_infos_bind_group, &[]);
+            }
             compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
             trace!(
                 "indirect dispatch compute dispatched: num_batches={} workgroup_count={}",

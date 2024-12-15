@@ -74,13 +74,20 @@ struct ParticleGroup {
     /// Index of the [`GpuRenderGroupIndirect`] struct inside the global
     /// [`EffectsMeta::render_group_dispatch_buffer`].
     indirect_render_index: u32,
-    // Offset (in u32 count) of the event indirect dispatch struct inside its
-    // buffer. This avoids having to align those 16-byte structs to the GPU
-    // alignment (at least 32 bytes, even 256 bytes on some).
-    event_indirect_dispatch_index: u32,
-    /// Index of this effect as a child of its parent. This indexes into the parent's
-    /// array of ChildInfo.
-    child_index: u32,
+    /// Offset (in u32 count) of the init indirect dispatch struct inside its
+    /// buffer. This avoids having to align those 16-byte structs to the GPU
+    /// alignment (at least 32 bytes, even 256 bytes on some).
+    init_indirect_dispatch_index: u32,
+    /// Index of this effect into its parent's ChildInfo array
+    /// ([`EffectChildren::effect_cache_ids`] and its associated GPU
+    /// array). This starts at zero for the first child of each effect, and is
+    /// only unique per parent, not globally. Only available if this effect is a
+    /// child of another effect (i.e. if it has a parent).
+    local_child_index: u32,
+    /// For children, global index of the ChildInfo into the shared array.
+    global_child_index: u32,
+    /// For parents, base index of the their first ChildInfo into the shared array.
+    base_child_index: u32,
     {{PARTICLE_GROUP_PADDING}}
 }
 

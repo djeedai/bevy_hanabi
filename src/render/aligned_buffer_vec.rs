@@ -556,7 +556,7 @@ impl HybridAlignedBufferVec {
         self.is_stale = true;
 
         // Calculate the number of (aligned) rows to allocate
-        let num_rows = ((src.len() + self.item_align - 1) / self.item_align) as u32;
+        let num_rows = src.len().div_ceil(self.item_align) as u32;
 
         // Try to find a block of free rows which can accomodate it, and pick the
         // smallest one in order to limit wasted space.
@@ -716,7 +716,7 @@ impl HybridAlignedBufferVec {
         }
         let size = self.values.len();
         trace!(
-            "write_buffer: size={}B item_align={}B",
+            "hybrid abv: write_buffer: size={}B item_align={}B",
             size,
             self.item_align,
         );

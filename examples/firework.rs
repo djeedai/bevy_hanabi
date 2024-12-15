@@ -59,7 +59,7 @@ fn create_rocket_effect() -> EffectAsset {
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     // Give a bit of variation by randomizing the lifetime per particle
-    let lifetime = writer.lit(0.012).expr(); //writer.lit(0.8).uniform(writer.lit(1.2)).expr();
+    let lifetime = writer.lit(1.5).expr(); //writer.lit(0.8).uniform(writer.lit(1.2)).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     // Add constant downward acceleration to simulate gravity
@@ -102,7 +102,7 @@ fn create_rocket_effect() -> EffectAsset {
         .update(update_drag)
         .update(update_accel)
         .update(update_spawn_trail)
-        .update(update_spawn_on_die)
+        //.update(update_spawn_on_die)
         .render(ColorOverLifetimeModifier {
             gradient: Gradient::constant(Vec4::ONE),
         })
@@ -122,7 +122,7 @@ fn create_sparkle_trail_effect() -> EffectAsset {
 
     // The velocity is random in any direction
     let vel = writer.rand(VectorType::VEC3F).normalized();
-    let speed = writer.lit(1.).uniform(writer.lit(4.));
+    let speed = writer.lit(1.); //.uniform(writer.lit(4.));
     let vel = (vel * speed).expr();
     let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, vel);
 
@@ -130,7 +130,7 @@ fn create_sparkle_trail_effect() -> EffectAsset {
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     // Give a bit of variation by randomizing the lifetime per particle
-    let lifetime = writer.lit(0.2).uniform(writer.lit(0.4)).expr();
+    let lifetime = writer.lit(0.2).expr(); //.uniform(writer.lit(0.4)).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     // Add constant downward acceleration to simulate gravity
@@ -176,8 +176,8 @@ fn create_trails_effect() -> EffectAsset {
 
     // The velocity is random in any direction
     let center = writer.attr(Attribute::POSITION);
-    let speed = writer.lit(60.).uniform(writer.lit(80.));
-    let dir = writer.rand(VectorType::VEC3F);
+    let speed = writer.lit(60.); //.uniform(writer.lit(80.));
+    let dir = writer.lit(Vec3::X); // writer.rand(VectorType::VEC3F);
     let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, (center + dir * speed).expr());
 
     let age = writer.lit(0.).expr();
@@ -240,7 +240,7 @@ fn setup(mut commands: Commands, mut debug_settings: ResMut<DebugSettings>) {
 
     debug_settings.start_capture_on_new_effect = true;
     //debug_settings.capture_duration = Duration::from_millis(5000);
-    debug_settings.capture_frame_count = 3;
+    debug_settings.capture_frame_count = 5;
 }
 
 fn update(
@@ -282,16 +282,17 @@ fn create_effect(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>
         EffectParent::new(rocket_entity),
     ));
 
-    // Trails
-    let trails_effect = effects.add(create_trails_effect());
-    commands.spawn((
-        Name::new("trails"),
-        ParticleEffectBundle {
-            effect: ParticleEffect::new(trails_effect),
-            ..Default::default()
-        },
-        // Set the rocket effect as parent. This gives access to the rocket effect's particles,
-        // which in turns allows inheriting their position (and other attributes if needed).
-        EffectParent::new(rocket_entity),
-    ));
+    // // Trails
+    // let trails_effect = effects.add(create_trails_effect());
+    // commands.spawn((
+    //     Name::new("trails"),
+    //     ParticleEffectBundle {
+    //         effect: ParticleEffect::new(trails_effect),
+    //         ..Default::default()
+    //     },
+    //     // Set the rocket effect as parent. This gives access to the rocket
+    // effect's particles,     // which in turns allows inheriting their
+    // position (and other attributes if needed).
+    //     EffectParent::new(rocket_entity),
+    // ));
 }
