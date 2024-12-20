@@ -172,7 +172,11 @@ use std::fmt::Write as _;
 
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
-use bevy::{prelude::*, utils::HashSet};
+use bevy::{
+    prelude::*,
+    render::sync_world::{MainEntity, RenderEntity, SyncToRenderWorld},
+    utils::HashSet,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -604,6 +608,7 @@ impl From<&PropertyInstance> for PropertyValue {
 /// for example.
 #[derive(Debug, Default, Clone, Component, Reflect)]
 #[reflect(Component)]
+#[require(CompiledParticleEffect, SyncToRenderWorld)]
 pub struct ParticleEffect {
     /// Handle of the effect to instantiate.
     pub handle: Handle<EffectAsset>,
@@ -896,8 +901,10 @@ impl EffectShaderSource {
         if asset.simulation_space == SimulationSpace::Local {
             layout_flags |= LayoutFlags::LOCAL_SPACE_SIMULATION;
         }
-        if let AlphaMode::Mask(_) = &asset.alpha_mode {
-            layout_flags |= LayoutFlags::USE_ALPHA_MASK;
+        match &asset.alpha_mode {
+            AlphaMode::Mask(_) => layout_flags.insert(LayoutFlags::USE_ALPHA_MASK),
+            AlphaMode::Opaque => layout_flags.insert(LayoutFlags::OPAQUE),
+            _ => layout_flags.remove(LayoutFlags::USE_ALPHA_MASK | LayoutFlags::OPAQUE),
         }
         if asset.ribbon_group.is_some() {
             layout_flags |= LayoutFlags::RIBBONS;
@@ -1314,6 +1321,11 @@ impl CompiledParticleEffect {
 
         self.layout_flags = shader_source.layout_flags;
         self.alpha_mode = asset.alpha_mode;
+        trace!(
+            "Compiled effect sources: layout_flags={:?} alpha_mode={:?}",
+            self.layout_flags,
+            self.alpha_mode
+        );
 
         // TODO - Replace with Option<EffectShader { handle: Handle<Shader>, hash:
         // u64 }> where the hash takes into account the code and extra code
@@ -1619,7 +1631,7 @@ fn update_properties_from_asset(
 /// [`extract_effects()`]: crate::render::extract_effects
 #[derive(Event)]
 struct RemovedEffectsEvent {
-    entities: Vec<Entity>,
+    entities: Vec<(MainEntity, Option<RenderEntity>)>,
 }
 
 /// Gather all the removed [`ParticleEffect`] components to allow cleaning-up
@@ -1628,11 +1640,25 @@ struct RemovedEffectsEvent {
 /// This system executes inside the [`EffectSystems::GatherRemovedEffects`]
 /// set of the [`PostUpdate`] schedule.
 fn gather_removed_effects(
+    q_effects: Query<Option<RenderEntity>, With<ParticleEffect>>,
     mut removed_effects: RemovedComponents<ParticleEffect>,
     mut removed_effects_event_writer: EventWriter<RemovedEffectsEvent>,
 ) {
     let entities: Vec<Entity> = removed_effects.read().collect();
     if !entities.is_empty() {
+        let entities = entities
+            .iter()
+            .map(|main_entity| {
+                (
+                    MainEntity::from(*main_entity),
+                    q_effects
+                        .get(*main_entity)
+                        .ok()
+                        .flatten()
+                        .map(RenderEntity::from),
+                )
+            })
+            .collect();
         removed_effects_event_writer.send(RemovedEffectsEvent { entities });
     }
 }

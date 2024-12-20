@@ -25,12 +25,13 @@ use crate::{
     compile_effects, gather_removed_effects,
     properties::EffectProperties,
     render::{
-        extract_effect_events, extract_effects, prepare_bind_groups, prepare_effects,
-        prepare_gpu_resources, queue_effects, DispatchIndirectPipeline, DrawEffects,
-        EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects,
-        GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect,
-        GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline,
-        ShaderCache, SimParams, StorageType as _, VfxSimulateDriverNode, VfxSimulateNode,
+        add_remove_effects, extract_effect_events, extract_effects, prepare_bind_groups,
+        prepare_effects, prepare_gpu_resources, queue_effects, DispatchIndirectPipeline,
+        DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta,
+        ExtractedEffects, GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata,
+        GpuRenderGroupIndirect, GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline,
+        ParticlesUpdatePipeline, ShaderCache, SimParams, StorageType as _, VfxSimulateDriverNode,
+        VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_initializers,
@@ -311,7 +312,8 @@ impl Plugin for HanabiPlugin {
             .add_systems(
                 Render,
                 (
-                    prepare_effects
+                    (add_remove_effects, prepare_effects)
+                        .chain()
                         .in_set(EffectSystems::PrepareEffectAssets)
                         // Ensure we run after Bevy prepared the render Mesh
                         .after(allocate_and_free_meshes),

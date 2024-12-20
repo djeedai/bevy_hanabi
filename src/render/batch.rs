@@ -7,12 +7,15 @@ use std::{
 use bevy::math::FloatOrd;
 use bevy::{
     prelude::*,
-    render::render_resource::{Buffer, CachedComputePipelineId},
+    render::{
+        render_resource::{Buffer, CachedComputePipelineId},
+        sync_world::MainEntity,
+    },
 };
 
 use super::{
     effect_cache::{DispatchBufferIndices, EffectSlices},
-    EffectCacheId, GpuCompressedTransform, LayoutFlags,
+    GpuCompressedTransform, LayoutFlags,
 };
 use crate::{
     spawn::EffectInitializer, AlphaMode, EffectAsset, EffectShader, ParticleLayout, PropertyLayout,
@@ -32,8 +35,6 @@ pub(crate) struct EffectBatches {
     pub spawner_base: u32,
     /// The initializer (spawner or cloner) for each particle group.
     pub initializers: Vec<EffectInitializer>,
-    /// The effect cache ID.
-    pub effect_cache_id: EffectCacheId,
     /// The indices within the various indirect dispatch buffers.
     pub dispatch_buffer_indices: DispatchBufferIndices,
     /// The index of the first [`GpuParticleGroup`] structure in the global
@@ -114,7 +115,6 @@ impl EffectBatches {
     pub fn from_input(
         input: BatchesInput,
         spawner_base: u32,
-        effect_cache_id: EffectCacheId,
         init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds>,
         dispatch_buffer_indices: DispatchBufferIndices,
         first_particle_group_buffer_index: u32,
@@ -124,7 +124,6 @@ impl EffectBatches {
             spawner_base,
             initializers: input.initializers.clone(),
             particle_layout: input.effect_slices.particle_layout,
-            effect_cache_id,
             dispatch_buffer_indices,
             first_particle_group_buffer_index,
             group_batches: input
@@ -149,7 +148,7 @@ impl EffectBatches {
                 .map(|shaders| shaders.render.clone())
                 .collect(),
             init_and_update_pipeline_ids,
-            entities: vec![input.entity.index()],
+            entities: vec![input.main_entity.id().index()],
             group_order: input.group_order,
         }
     }
@@ -160,8 +159,10 @@ impl EffectBatches {
 pub(crate) struct BatchesInput {
     /// Handle of the underlying effect asset describing the effect.
     pub handle: Handle<EffectAsset>,
-    /// Entity index excluding generation ([`Entity::index()`]). This is
-    /// transient for a single frame, so the generation is useless.
+    /// Main entity of the [`ParticleEffect`], used for visibility.
+    pub main_entity: MainEntity,
+    /// Render entity of the [`CachedEffect`]. FIXME - doesn't work with
+    /// batching!
     pub entity: Entity,
     /// Effect slices.
     pub effect_slices: EffectSlices,

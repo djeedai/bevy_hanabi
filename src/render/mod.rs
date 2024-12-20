@@ -37,7 +37,7 @@ use bevy::{
         },
         render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue},
-        sync_world::{MainEntity, TemporaryRenderEntity},
+        sync_world::{MainEntity, RenderEntity, TemporaryRenderEntity},
         texture::GpuImage,
         view::{
             ExtractedView, RenderVisibleEntities, ViewTarget, ViewUniform, ViewUniformOffset,
@@ -49,7 +49,9 @@ use bevy::{
 };
 use bitflags::bitflags;
 use bytemuck::{Pod, Zeroable};
-use effect_cache::{RenderGroupDispatchIndices, TrailDispatchBufferIndices};
+use effect_cache::{
+    BufferState, CachedEffect, EffectSlices, RenderGroupDispatchIndices, TrailDispatchBufferIndices,
+};
 use fixedbitset::FixedBitSet;
 use naga_oil::compose::{Composer, NagaModuleDescriptor};
 use rand::random;
@@ -75,7 +77,7 @@ mod shader_cache;
 
 use aligned_buffer_vec::AlignedBufferVec;
 use buffer_table::{BufferTable, BufferTableId};
-pub(crate) use effect_cache::{EffectCache, EffectCacheId};
+pub(crate) use effect_cache::EffectCache;
 pub use shader_cache::ShaderCache;
 
 use self::batch::EffectBatches;
@@ -1272,6 +1274,14 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
 /// [`ParticleEffect`]: crate::ParticleEffect
 #[derive(Debug, Component)]
 pub(crate) struct ExtractedEffect {
+    /// Main world entity owning the [`CompiledParticleEffect`] this effect was
+    /// extracted from. Mainly used for visibility.
+    pub main_entity: MainEntity,
+    /// Render world entity, if any, where the [`CachedEffect`] component
+    /// caching this extracted effect resides. If this component was never
+    /// cached in the render world, this is `None`. In that case a new
+    /// [`CachedEffect`] will be spawned automatically.
+    pub render_entity: RenderEntity,
     /// Handle to the effect asset this instance is based on.
     /// The handle is weak to prevent refcount cycles and gracefully handle
     /// assets unloaded or destroyed after a draw call has been submitted.
@@ -1327,7 +1337,9 @@ pub struct AddedEffect {
     /// Entity with a newly-added [`ParticleEffect`] component.
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
-    pub entity: Entity,
+    pub entity: MainEntity,
+    #[allow(dead_code)]
+    pub render_entity: RenderEntity,
     pub groups: Vec<AddedEffectGroup>,
     /// Layout of particle attributes.
     pub particle_layout: ParticleLayout,
@@ -1354,11 +1366,11 @@ pub(crate) struct ExtractedEffects {
     /// is on.
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
-    pub effects: HashMap<Entity, ExtractedEffect>,
-    /// Entites which had their [`ParticleEffect`] component removed.
+    pub effects: HashMap<MainEntity, ExtractedEffect>,
+    /// Entities which had their [`ParticleEffect`] component removed.
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
-    pub removed_effect_entities: Vec<Entity>,
+    pub removed_effect_entities: Vec<RenderEntity>,
     /// Newly added effects without a GPU allocation yet.
     pub added_effects: Vec<AddedEffect>,
 }
@@ -1403,6 +1415,7 @@ pub(crate) fn extract_effects(
             // All existing ParticleEffect components
             Query<(
                 Entity,
+                &RenderEntity,
                 Option<&InheritedVisibility>,
                 Option<&ViewVisibility>,
                 &EffectInitializers,
@@ -1412,7 +1425,7 @@ pub(crate) fn extract_effects(
             )>,
             // Newly added ParticleEffect components
             Query<
-                (Entity, &CompiledParticleEffect),
+                (Entity, &RenderEntity, &CompiledParticleEffect),
                 (Added<CompiledParticleEffect>, With<GlobalTransform>),
             >,
         )>,
@@ -1437,9 +1450,11 @@ pub(crate) fn extract_effects(
         removed_effects_event_reader
             .read()
             .fold(vec![], |mut acc, ev| {
-                // FIXME - Need to clone because we can't consume the event, we only have
-                // read-only access to the main world
-                acc.append(&mut ev.entities.clone());
+                acc.extend(
+                    ev.entities
+                        .iter()
+                        .filter_map(|(_, render_entity)| *render_entity),
+                );
                 acc
             });
     trace!(
@@ -1451,30 +1466,33 @@ pub(crate) fn extract_effects(
     extracted_effects.added_effects = query
         .p1()
         .iter()
-        .filter_map(|(entity, compiled_effect)| {
+        .filter_map(|(entity, render_entity, compiled_effect)| {
             let handle = compiled_effect.asset.clone_weak();
             let asset = effects.get(&compiled_effect.asset)?;
             let particle_layout = asset.particle_layout();
             assert!(
                 particle_layout.size() > 0,
-                "Invalid empty particle layout for effect '{}' on entity {:?}. Did you forget to add some modifier to the asset?",
+                "Invalid empty particle layout for effect '{}' on entity {:?} (render entity {:?}). Did you forget to add some modifier to the asset?",
                 asset.name,
-                entity
+                entity,
+                render_entity.id(),
             );
             let property_layout = asset.property_layout();
             let group_order = asset.calculate_group_order();
 
             trace!(
-                "Found new effect: entity {:?} | capacities {:?} | particle_layout {:?} | \
+                "Found new effect: entity {:?} | render entity {:?} | capacities {:?} | particle_layout {:?} | \
                  property_layout {:?} | layout_flags {:?}",
                  entity,
+                 render_entity.id(),
                  asset.capacities(),
                  particle_layout,
                  property_layout,
                  compiled_effect.layout_flags);
 
             Some(AddedEffect {
-                entity,
+                entity: MainEntity::from(entity),
+                render_entity: *render_entity,
                 groups: asset.capacities().iter().zip(asset.init.iter()).map(|(&capacity, init)| {
                     AddedEffectGroup {
                         capacity,
@@ -1496,7 +1514,8 @@ pub(crate) fn extract_effects(
     // Loop over all existing effects to extract them
     extracted_effects.effects.clear();
     for (
-        entity,
+        main_entity,
+        render_entity,
         maybe_inherited_visibility,
         maybe_view_visibility,
         initializers,
@@ -1525,7 +1544,7 @@ pub(crate) fn extract_effects(
         let Some(asset) = effects.get(&effect.asset) else {
             trace!(
                 "EffectAsset not ready; skipping ParticleEffect instance on entity {:?}.",
-                entity
+                main_entity
             );
             continue;
         };
@@ -1559,17 +1578,20 @@ pub(crate) fn extract_effects(
         let alpha_mode = effect.alpha_mode;
 
         trace!(
-            "Extracted instance of effect '{}' on entity {:?}: texture_layout_count={} texture_count={} layout_flags={:?}",
+            "Extracted instance of effect '{}' on entity {:?} (render entity {:?}): texture_layout_count={} texture_count={} layout_flags={:?}",
             asset.name,
-            entity,
+            main_entity,
+            render_entity.id(),
             texture_layout.layout.len(),
             effect.textures.len(),
             layout_flags,
         );
 
         extracted_effects.effects.insert(
-            entity,
+            MainEntity::from(main_entity),
             ExtractedEffect {
+                render_entity: *render_entity,
+                main_entity: main_entity.into(),
                 handle: effect.asset.clone_weak(),
                 particle_layout: asset.particle_layout().clone(),
                 property_layout,
@@ -1719,12 +1741,6 @@ impl GpuLimits {
 /// effects.
 #[derive(Resource)]
 pub struct EffectsMeta {
-    /// Map from an entity of the main world with a [`ParticleEffect`] component
-    /// attached to it, to the associated effect slice allocated in the
-    /// [`EffectCache`].
-    ///
-    /// [`ParticleEffect`]: crate::ParticleEffect
-    entity_map: HashMap<Entity, EffectCacheId>,
     /// Bind group for the camera view, containing the camera projection and
     /// other uniform values related to the camera.
     view_bind_group: Option<BindGroup>,
@@ -1787,7 +1803,6 @@ impl EffectsMeta {
         );
 
         Self {
-            entity_map: HashMap::default(),
             view_bind_group: None,
             sim_params_bind_group: None,
             spawner_bind_group: None,
@@ -1831,10 +1846,19 @@ impl EffectsMeta {
 
     /// Allocate internal resources for newly spawned effects, and deallocate
     /// them for just-removed ones.
+    ///
+    /// After this system ran, all valid extracted effects from the main world
+    /// have a corresponding entity with a [`CachedEffect`] component in the
+    /// render world. An extracted effect is considered valid if it passed some
+    /// basic checks, like having a valid mesh. Note however that the main
+    /// world's entity might still be missing its [`RenderEntity`]
+    /// reference, since we cannot yet write into the main world.
     pub fn add_remove_effects(
         &mut self,
+        mut commands: Commands,
+        q_cached_effects: &Query<(MainEntity, &CachedEffect, &DispatchBufferIndices)>,
         mut added_effects: Vec<AddedEffect>,
-        removed_effect_entities: Vec<Entity>,
+        removed_effect_entities: Vec<RenderEntity>,
         render_device: &RenderDevice,
         render_queue: &RenderQueue,
         effect_bind_groups: &mut ResMut<EffectBindGroups>,
@@ -1846,54 +1870,72 @@ impl EffectsMeta {
             "Removing {} despawned effects",
             removed_effect_entities.len()
         );
-        for entity in &removed_effect_entities {
-            trace!("Removing ParticleEffect on entity {:?}", entity);
-            if let Some(effect_cache_id) = self.entity_map.remove(entity) {
-                trace!(
-                    "=> ParticleEffect on entity {:?} had cache ID {:?}, removing...",
-                    entity,
-                    effect_cache_id
+        for render_entity in &removed_effect_entities {
+            trace!(
+                "Removing ParticleEffect on render entity {:?}",
+                render_entity
+            );
+
+            // Schedule a despawn of the render entity for the end of this system
+            if let Some(cmd) = commands.get_entity(render_entity.id()) {
+                cmd.despawn_recursive();
+            } else {
+                warn!("Unknown render entity {:?}, cannot despawn", render_entity);
+                continue;
+            }
+
+            // Fecth the components of the effect being destroyed. Note that the despawn
+            // command above is not yet applied, so this query should always succeed.
+            let Ok((main_entity, cached_effect, dispatch_buffer_indices)) =
+                q_cached_effects.get(render_entity.id())
+            else {
+                error!(
+                    "Render entity {:?} exists, but failed to query its components.",
+                    render_entity
                 );
-                if let Some(cached_effect) = effect_cache.remove(effect_cache_id) {
-                    // Clear bind groups associated with the removed buffer
-                    trace!(
-                        "=> GPU buffer #{} gone, destroying its bind groups...",
-                        cached_effect.buffer_index
-                    );
-                    effect_bind_groups
-                        .particle_buffers
-                        .remove(&cached_effect.buffer_index);
+                continue;
+            };
 
-                    let slices_ref = &cached_effect.slices;
-                    debug_assert!(slices_ref.ranges.len() >= 2);
-                    let group_count = (slices_ref.ranges.len() - 1) as u32;
+            // Deallocate the effect slice in the GPU effect buffer, and if this was the
+            // last slice, also deallocate the GPU buffer itself.
+            trace!(
+                "=> ParticleEffect on render entity {:?} associated with main entity {:?}, removing...",
+                render_entity,
+                main_entity,
+            );
+            if let Ok(BufferState::Free) = effect_cache.remove(cached_effect) {
+                // Clear bind groups associated with the removed buffer
+                trace!(
+                    "=> GPU buffer #{} gone, destroying its bind groups...",
+                    cached_effect.buffer_index
+                );
+                effect_bind_groups
+                    .particle_buffers
+                    .remove(&cached_effect.buffer_index);
 
-                    let first_row = slices_ref
-                        .dispatch_buffer_indices
-                        .first_update_group_dispatch_buffer_index
-                        .0;
-                    for table_id in first_row..(first_row + group_count) {
-                        self.dispatch_indirect_buffer
-                            .remove(BufferTableId(table_id));
-                    }
-                    self.render_effect_dispatch_buffer.remove(
-                        slices_ref
-                            .dispatch_buffer_indices
-                            .render_effect_metadata_buffer_index,
-                    );
-                    if let RenderGroupDispatchIndices::Allocated {
-                        first_render_group_dispatch_buffer_index,
-                        ..
-                    } = &slices_ref
-                        .dispatch_buffer_indices
-                        .render_group_dispatch_indices
+                let group_count = cached_effect.slices.group_count();
+
+                let first_row = dispatch_buffer_indices
+                    .first_update_group_dispatch_buffer_index
+                    .0;
+                for table_id in first_row..(first_row + group_count) {
+                    self.dispatch_indirect_buffer
+                        .remove(BufferTableId(table_id));
+                }
+
+                self.render_effect_dispatch_buffer
+                    .remove(dispatch_buffer_indices.render_effect_metadata_buffer_index);
+
+                if let RenderGroupDispatchIndices::Allocated {
+                    first_render_group_dispatch_buffer_index,
+                    ..
+                } = &dispatch_buffer_indices.render_group_dispatch_indices
+                {
+                    for row_index in (first_render_group_dispatch_buffer_index.0)
+                        ..(first_render_group_dispatch_buffer_index.0 + group_count)
                     {
-                        for row_index in (first_render_group_dispatch_buffer_index.0)
-                            ..(first_render_group_dispatch_buffer_index.0 + group_count)
-                        {
-                            self.render_group_dispatch_buffer
-                                .remove(BufferTableId(row_index));
-                        }
+                        self.render_group_dispatch_buffer
+                            .remove(BufferTableId(row_index));
                     }
                 }
             }
@@ -1928,7 +1970,7 @@ impl EffectsMeta {
 
             // Insert the effect into the cache. This will allocate all the necessary GPU
             // resources as needed.
-            let cache_id = effect_cache.insert(
+            let cached_effect = effect_cache.insert(
                 added_effect.handle,
                 added_effect
                     .groups
@@ -1938,19 +1980,20 @@ impl EffectsMeta {
                 &added_effect.particle_layout,
                 &added_effect.property_layout,
                 added_effect.layout_flags,
-                dispatch_buffer_indices,
                 added_effect.group_order,
             );
-
-            let entity = added_effect.entity;
-            self.entity_map.insert(entity, cache_id);
+            commands.entity(added_effect.render_entity.id()).insert((
+                added_effect.entity,
+                cached_effect,
+                dispatch_buffer_indices,
+            ));
 
             trace!(
-                "+ added effect cache ID {:?}: entity={:?} \
+                "+ added effect entity {:?}: main_entity={:?} \
                 first_update_group_dispatch_buffer_index={} \
                 render_effect_dispatch_buffer_id={}",
-                cache_id,
-                entity,
+                added_effect.render_entity,
+                added_effect.entity,
                 first_update_group_dispatch_buffer_index.0,
                 render_effect_dispatch_buffer_id.0
             );
@@ -2047,24 +2090,24 @@ impl Default for LayoutFlags {
     }
 }
 
-pub(crate) fn prepare_effects(
-    mut commands: Commands,
-    sim_params: Res<SimParams>,
+/// Spawn a new render entity with a [`CachedEffect`] component for any newly
+/// allocated effect, and conversely despawn any entity with such component for
+/// removed effects.
+///
+/// After this system ran, and its commands are applied, all valid extracted
+/// effects have a corresponding entity in the render world, with a
+/// [`CachedEffect`] component. From there, we operate on those exclusively.
+pub(crate) fn add_remove_effects(
+    q_cached_effects: Query<(MainEntity, &CachedEffect, &DispatchBufferIndices)>,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
-    pipeline_cache: Res<PipelineCache>,
-    init_pipeline: Res<ParticlesInitPipeline>,
-    update_pipeline: Res<ParticlesUpdatePipeline>,
-    mesh_allocator: Res<MeshAllocator>,
-    render_meshes: Res<RenderAssets<RenderMesh>>,
-    mut specialized_init_pipelines: ResMut<SpecializedComputePipelines<ParticlesInitPipeline>>,
-    mut specialized_update_pipelines: ResMut<SpecializedComputePipelines<ParticlesUpdatePipeline>>,
+    commands: Commands,
     mut effects_meta: ResMut<EffectsMeta>,
     mut effect_cache: ResMut<EffectCache>,
     mut extracted_effects: ResMut<ExtractedEffects>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
 ) {
-    trace!("prepare_effects");
+    trace!("add_remove_effects");
 
     // Clear last frame's buffer resizes which may have occured during last frame,
     // during `Node::run()` while the `BufferTable` could not be mutated. This is
@@ -2081,18 +2124,67 @@ pub(crate) fn prepare_effects(
         .clear_previous_frame_resizes();
 
     // Allocate new effects, deallocate removed ones
-    let removed_effect_entities = std::mem::take(&mut extracted_effects.removed_effect_entities);
-    for entity in &removed_effect_entities {
-        extracted_effects.effects.remove(entity);
-    }
     effects_meta.add_remove_effects(
+        commands,
+        &q_cached_effects,
         std::mem::take(&mut extracted_effects.added_effects),
-        removed_effect_entities,
+        std::mem::take(&mut extracted_effects.removed_effect_entities),
         &render_device,
         &render_queue,
         &mut effect_bind_groups,
         &mut effect_cache,
     );
+}
+
+// pub(crate) fn update_cached_effects(
+//     extracted_effects: Res<ExtractedEffects>,
+//     mut q_cached_effects: Query<(MainEntity, &mut CachedEffect, &mut
+// DispatchBufferIndices)>, ) {
+//     for (main_entity, extracted_effect) in extracted_effects.effects.iter() {
+//         // Only process existing CachedEffect
+//         let Some(render_entity) = extracted_effect.render_entity.as_ref()
+// else {             continue;
+//         };
+
+//         // Resolve the CachedEffect from its owning render world's entity
+//         let Ok((entity_main, cached_effect, dispatch_buffer_indices)) =
+//             q_cached_effects.get_mut(render_entity.id())
+//         else {
+//             continue;
+//         };
+//         assert_eq!(main_entity.id(), entity_main);
+
+//         //if cached_effect.group_order != extracted_effect.group_order //
+// TODO - not extracted!         debug_assert_eq!(
+//             cached_effect.slices.group_count(),
+//             cached_effect.group_order.len() as u32
+//         );
+//         if extracted_effect.initializers.len() as u32 !=
+// cached_effect.slices.group_count() {             // Number of group changed
+
+//         }
+//     }
+// }
+
+pub(crate) fn prepare_effects(
+    mut commands: Commands,
+    sim_params: Res<SimParams>,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    pipeline_cache: Res<PipelineCache>,
+    init_pipeline: Res<ParticlesInitPipeline>,
+    update_pipeline: Res<ParticlesUpdatePipeline>,
+    mesh_allocator: Res<MeshAllocator>,
+    render_meshes: Res<RenderAssets<RenderMesh>>,
+    effect_cache: Res<EffectCache>,
+    mut specialized_init_pipelines: ResMut<SpecializedComputePipelines<ParticlesInitPipeline>>,
+    mut specialized_update_pipelines: ResMut<SpecializedComputePipelines<ParticlesUpdatePipeline>>,
+    mut effects_meta: ResMut<EffectsMeta>,
+    mut extracted_effects: ResMut<ExtractedEffects>,
+    mut effect_bind_groups: ResMut<EffectBindGroups>,
+    mut q_cached_effects: Query<(MainEntity, &CachedEffect, &mut DispatchBufferIndices)>,
+) {
+    trace!("prepare_effects");
 
     // // sort first by z and then by handle. this ensures that, when possible,
     // batches span multiple z layers // batches won't span z-layers if there is
@@ -2107,14 +2199,12 @@ pub(crate) fn prepare_effects(
     let effects = std::mem::take(&mut extracted_effects.effects);
     let effect_entity_list = effects
         .into_iter()
-        .filter_map(|(entity, extracted_effect)| {
-            let effect_cache_id = *effects_meta.entity_map.get(&entity).unwrap();
-
+        .filter_map(|(main_entity, extracted_effect)| {
             // If the mesh is not available, skip this effect
             let Some(render_mesh) = render_meshes.get(extracted_effect.mesh.id()) else {
                 trace!(
-                    "Effect cache ID {:?}: missing render mesh {:?}",
-                    effect_cache_id,
+                    "Effect main_entity {:?}: missing render mesh {:?}",
+                    main_entity,
                     extracted_effect.mesh
                 );
                 return None;
@@ -2123,8 +2213,8 @@ pub(crate) fn prepare_effects(
                 mesh_allocator.mesh_vertex_slice(&extracted_effect.mesh.id())
             else {
                 trace!(
-                    "Effect cache ID {:?}: missing render mesh vertex slice",
-                    effect_cache_id
+                    "Effect main_entity {:?}: missing render mesh vertex slice",
+                    main_entity
                 );
                 return None;
             };
@@ -2136,21 +2226,25 @@ pub(crate) fn prepare_effects(
             ) && mesh_index_buffer_slice.is_none()
             {
                 trace!(
-                    "Effect cache ID {:?}: missing render mesh index slice",
-                    effect_cache_id
+                    "Effect main_entity {:?}: missing render mesh index slice",
+                    main_entity
                 );
                 return None;
             }
 
-            // Now that the mesh has been processed by Bevy itself, we know where it's
-            // allocated inside the GPU buffer, so we can extract its base vertex and index
+            // Skip effects not cached. Since we're iterating over the extracted effects instead of the cached ones, it might happen we didn't cache some effect on purpose because they failed earlier validations. 
+            let Ok((_main_entity, cached_effect,mut dispatch_buffer_indices))
+                = q_cached_effects.get_mut(extracted_effect.render_entity.id()) else {
+                trace!("Unknown render entity {:?} for extracted effect.", extracted_effect.render_entity.id());
+                return None;
+            };
+
+            // Now that the mesh has been processed by Bevy itself, we know where it's allocated inside the GPU buffer, so we can extract its base vertex and index
             // values, and allocate our indirect structs.
-            let dispatch_buffer_indices =
-                effect_cache.get_dispatch_buffer_indices_mut(effect_cache_id);
             if let RenderGroupDispatchIndices::Pending { groups } =
                 &dispatch_buffer_indices.render_group_dispatch_indices
             {
-                trace!("Effect cache ID {:?}: allocating render group indirect dispatch entries for {} groups...", effect_cache_id, groups.len());
+                trace!("Effect render_entity {:?}: allocating render group indirect dispatch entries for {} groups...", extracted_effect.render_entity, groups.len());
                 let mut current_base_instance = 0;
                 let first_render_group_dispatch_buffer_index = allocate_sequential_buffers(
                     &mut effects_meta.render_group_dispatch_buffer,
@@ -2222,13 +2316,20 @@ pub(crate) fn prepare_effects(
                     };
             }
 
-            let property_buffer = effect_cache.get_property_buffer(effect_cache_id).cloned(); // clone handle for lifetime
-            let effect_slices = effect_cache.get_slices(effect_cache_id);
-            let group_order = effect_cache.get_group_order(effect_cache_id);
+            let buffer_index = cached_effect.buffer_index;
+
+            let property_buffer = effect_cache.get_property_buffer(buffer_index).cloned(); // clone handle for lifetime
+            let effect_slices = EffectSlices {
+                slices: cached_effect.slices.ranges.clone(),
+                buffer_index: cached_effect.buffer_index,
+                particle_layout: cached_effect.slices.particle_layout().clone(),
+            };
+            let group_order = cached_effect.group_order.clone();
 
             Some(BatchesInput {
                 handle: extracted_effect.handle,
-                entity,
+                entity: extracted_effect.render_entity.id(),
+                main_entity: extracted_effect.main_entity,
                 effect_slices,
                 property_layout: extracted_effect.property_layout.clone(),
                 effect_shaders: extracted_effect.effect_shaders.clone(),
@@ -2243,7 +2344,7 @@ pub(crate) fn prepare_effects(
                 inverse_transform: extracted_effect.inverse_transform.into(),
                 particle_layout: extracted_effect.particle_layout.clone(),
                 property_buffer,
-                group_order: group_order.to_vec(),
+                group_order,
                 property_data: extracted_effect.property_data,
                 initializers: extracted_effect.initializers,
                 #[cfg(feature = "2d")]
@@ -2421,10 +2522,9 @@ pub(crate) fn prepare_effects(
             }
         }
 
-        let effect_cache_id = *effects_meta.entity_map.get(&input.entity).unwrap();
-        let dispatch_buffer_indices = effect_cache
-            .get_dispatch_buffer_indices(effect_cache_id)
-            .clone();
+        let Ok((_, _, dispatch_buffer_indices)) = q_cached_effects.get(input.entity) else {
+            continue;
+        };
 
         // Create the particle group buffer entries.
         let mut first_particle_group_buffer_index = None;
@@ -2486,9 +2586,8 @@ pub(crate) fn prepare_effects(
         let batches = EffectBatches::from_input(
             input,
             spawner_base,
-            effect_cache_id,
             init_and_update_pipeline_ids,
-            dispatch_buffer_indices,
+            dispatch_buffer_indices.clone(),
             first_particle_group_buffer_index.unwrap_or_default(),
         );
         let batches_entity = commands.spawn(batches).insert(TemporaryRenderEntity).id();
@@ -2625,9 +2724,11 @@ pub struct EffectBindGroups {
     particle_buffers: HashMap<u32, BufferBindGroups>,
     /// Map of bind groups for image assets used as particle textures.
     images: HashMap<AssetId<Image>, BindGroup>,
-    /// Map from effect index to its update render indirect bind group (group
+    /// Map from buffer index to its update render indirect bind group (group
     /// 3).
-    update_render_indirect_bind_groups: HashMap<EffectCacheId, BindGroup>,
+    // FIXME - possibly doesn't work with batch if different effects in same buffer need different
+    // bindings, not sure...
+    update_render_indirect_bind_groups: HashMap<u32, BindGroup>,
     /// Map from an effect material to its bind group.
     material_bind_groups: HashMap<Material, BindGroup>,
 }
@@ -2912,7 +3013,11 @@ fn emit_binned_draw<T, F>(
             );
 
             if ParticleRenderAlphaMaskPipelineKey::from(batches.layout_flags) != alpha_mask {
-                trace!("Mismatching alpha mask pipeline key. Skipped.");
+                trace!(
+                    "Mismatching alpha mask pipeline key (batches={:?}, expected={:?}). Skipped.",
+                    batches.layout_flags,
+                    alpha_mask
+                );
                 continue;
             }
 
@@ -3558,8 +3663,6 @@ pub(crate) fn prepare_bind_groups(
         #[cfg(feature = "trace")]
         let _span_buffer = bevy::utils::tracing::info_span!("create_batch_bind_groups").entered();
 
-        let effect_cache_id = effect_batches.effect_cache_id;
-
         // Convert indirect buffer offsets from indices to bytes.
         let first_effect_particle_group_buffer_offset = effects_meta
             .gpu_limits
@@ -3594,7 +3697,7 @@ pub(crate) fn prepare_bind_groups(
 
         if effect_bind_groups
             .update_render_indirect_bind_groups
-            .get(&effect_cache_id)
+            .get(&effect_batches.buffer_index)
             .is_none()
         {
             let DispatchBufferIndices {
@@ -3646,10 +3749,10 @@ pub(crate) fn prepare_bind_groups(
             );
 
             trace!(
-                "Created new update render indirect bind group for effect #{:?}: \
+                "Created new update render indirect bind group for buffer index {}: \
                 render_effect={} \
                 render_group={} group_count={}",
-                effect_cache_id,
+                effect_batches.buffer_index,
                 render_effect_dispatch_buffer_index.0,
                 first_render_group_dispatch_buffer_index.0,
                 effect_batches.group_batches.len()
@@ -3658,7 +3761,7 @@ pub(crate) fn prepare_bind_groups(
             effect_bind_groups
                 .update_render_indirect_bind_groups
                 .insert(
-                    effect_cache_id,
+                    effect_batches.buffer_index,
                     particles_buffer_layout_update_render_indirect,
                 );
         }
@@ -4353,8 +4456,6 @@ impl Node for VfxSimulateNode {
                                 const WORKGROUP_SIZE: u32 = 64;
                                 let workgroup_count = spawn_count.div_ceil(WORKGROUP_SIZE);
 
-                                let effect_cache_id = batches.effect_cache_id;
-
                                 // for (effect_entity, effect_slice) in
                                 // effects_meta.entity_map.iter()
                                 // Retrieve the ExtractedEffect from the entity
@@ -4368,7 +4469,7 @@ impl Node for VfxSimulateNode {
                                 //     &effects_meta.effect_cache.buffers()[batch.buffer_index as
                                 // usize];
                                 let Some(particles_init_bind_group) =
-                                    effect_cache.init_bind_group(effect_cache_id)
+                                    effect_cache.init_bind_group(batches.buffer_index)
                                 else {
                                     error!(
                                         "Failed to find init particle buffer bind group for \
@@ -4451,8 +4552,6 @@ impl Node for VfxSimulateNode {
                                     [dest_group_index as usize]
                                     .init;
 
-                                let effect_cache_id = batches.effect_cache_id;
-
                                 let Some(clone_pipeline) =
                                     pipeline_cache.get_compute_pipeline(clone_pipeline_id)
                                 else {
@@ -4471,12 +4570,12 @@ impl Node for VfxSimulateNode {
                                 };
 
                                 let Some(particles_init_bind_group) =
-                                    effect_cache.init_bind_group(effect_cache_id)
+                                    effect_cache.init_bind_group(batches.buffer_index)
                                 else {
                                     error!(
                                         "Failed to find clone particle buffer bind group \
-                                                 for entity {:?}, effect cache ID {:?}",
-                                        entity, effect_cache_id
+                                                 for entity {:?}, buffer index {}",
+                                        entity, batches.buffer_index
                                     );
                                     continue;
                                 };
@@ -4628,14 +4727,12 @@ impl Node for VfxSimulateNode {
 
             // Dispatch update compute jobs
             for (entity, batches) in self.effect_query.iter_manual(world) {
-                let effect_cache_id = batches.effect_cache_id;
-
                 let Some(particles_update_bind_group) =
-                    effect_cache.update_bind_group(effect_cache_id)
+                    effect_cache.update_bind_group(batches.buffer_index)
                 else {
                     error!(
-                        "Failed to find update particle buffer bind group for entity {:?}, effect cache ID {:?}",
-                        entity, effect_cache_id
+                        "Failed to find update particle buffer bind group for entity {:?}, buffer index {}",
+                        entity, batches.buffer_index
                     );
                     continue;
                 };
@@ -4646,11 +4743,11 @@ impl Node for VfxSimulateNode {
 
                 let Some(update_render_indirect_bind_group) = effect_bind_groups
                     .update_render_indirect_bind_groups
-                    .get(&effect_cache_id)
+                    .get(&batches.buffer_index)
                 else {
                     error!(
-                        "Failed to find update render indirect bind group for effect cache ID: {:?}, IDs present: {:?}",
-                        effect_cache_id,
+                        "Failed to find update render indirect bind group for buffer index: {}, IDs present: {:?}",
+                        batches.buffer_index,
                         effect_bind_groups
                             .update_render_indirect_bind_groups
                             .keys()
