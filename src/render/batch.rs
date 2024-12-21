@@ -136,7 +136,7 @@ impl EffectBatches {
                 .collect(),
             handle: input.handle.clone(),
             layout_flags: input.layout_flags,
-            mesh: cached_mesh.mesh.clone(),
+            mesh: cached_mesh.mesh,
             mesh_buffer: cached_mesh.buffer.clone(),
             mesh_slice: cached_mesh.range.clone(),
             texture_layout: input.texture_layout.clone(),
