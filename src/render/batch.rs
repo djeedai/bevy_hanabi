@@ -15,11 +15,10 @@ use bevy::{
 
 use super::{
     effect_cache::{DispatchBufferIndices, EffectSlices},
-    GpuCompressedTransform, LayoutFlags,
+    CachedMesh, LayoutFlags,
 };
 use crate::{
-    spawn::EffectInitializer, AlphaMode, EffectAsset, EffectShader, ParticleLayout, PropertyLayout,
-    TextureLayout,
+    spawn::EffectInitializer, AlphaMode, EffectAsset, EffectShader, ParticleLayout, TextureLayout,
 };
 
 /// Data needed to render all batches pertaining to a specific effect.
@@ -46,8 +45,8 @@ pub(crate) struct EffectBatches {
     pub particle_layout: ParticleLayout,
     /// Flags describing the render layout.
     pub layout_flags: LayoutFlags,
-    /// Asset handle of the effect mesh to draw.
-    pub mesh: Handle<Mesh>,
+    /// Asset ID of the effect mesh to draw.
+    pub mesh: AssetId<Mesh>,
     /// GPU buffer storing the [`mesh`] of the effect.
     pub mesh_buffer: Buffer,
     /// Slice inside the GPU buffer for the effect mesh.
@@ -113,7 +112,8 @@ pub(crate) struct EffectBatch {
 impl EffectBatches {
     /// Create a new batch from a single input.
     pub fn from_input(
-        input: BatchesInput,
+        cached_mesh: &CachedMesh,
+        input: &mut BatchesInput,
         spawner_base: u32,
         init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds>,
         dispatch_buffer_indices: DispatchBufferIndices,
@@ -123,7 +123,7 @@ impl EffectBatches {
             buffer_index: input.effect_slices.buffer_index,
             spawner_base,
             initializers: input.initializers.clone(),
-            particle_layout: input.effect_slices.particle_layout,
+            particle_layout: input.effect_slices.particle_layout.clone(),
             dispatch_buffer_indices,
             first_particle_group_buffer_index,
             group_batches: input
@@ -134,13 +134,13 @@ impl EffectBatches {
                     slice: range[0]..range[1],
                 })
                 .collect(),
-            handle: input.handle,
+            handle: input.handle.clone(),
             layout_flags: input.layout_flags,
-            mesh: input.mesh.clone(),
-            mesh_buffer: input.mesh_buffer,
-            mesh_slice: input.mesh_slice,
-            texture_layout: input.texture_layout,
-            textures: input.textures,
+            mesh: cached_mesh.mesh.clone(),
+            mesh_buffer: cached_mesh.buffer.clone(),
+            mesh_slice: cached_mesh.range.clone(),
+            texture_layout: input.texture_layout.clone(),
+            textures: input.textures.clone(),
             alpha_mode: input.alpha_mode,
             render_shaders: input
                 .effect_shaders
@@ -149,13 +149,13 @@ impl EffectBatches {
                 .collect(),
             init_and_update_pipeline_ids,
             entities: vec![input.main_entity.id().index()],
-            group_order: input.group_order,
+            group_order: input.group_order.clone(),
         }
     }
 }
 
 /// Effect batching input, obtained from extracted effects.
-#[derive(Debug)]
+#[derive(Debug, Component)]
 pub(crate) struct BatchesInput {
     /// Handle of the underlying effect asset describing the effect.
     pub handle: Handle<EffectAsset>,
@@ -163,40 +163,28 @@ pub(crate) struct BatchesInput {
     pub main_entity: MainEntity,
     /// Render entity of the [`CachedEffect`]. FIXME - doesn't work with
     /// batching!
+    #[allow(dead_code)]
     pub entity: Entity,
     /// Effect slices.
     pub effect_slices: EffectSlices,
-    /// Layout of the effect properties.
-    pub property_layout: PropertyLayout,
     /// Effect shaders.
     pub effect_shaders: Vec<EffectShader>,
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
-    /// Asset handle of the effect mesh to draw.
-    pub mesh: Handle<Mesh>,
-    /// GPU buffer storing the [`mesh`] of the effect.
-    pub mesh_buffer: Buffer,
-    /// Slice inside the GPU buffer for the effect mesh.
-    pub mesh_slice: Range<u32>,
     /// Texture layout.
     pub texture_layout: TextureLayout,
     /// Textures.
     pub textures: Vec<Handle<Image>>,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
+    #[allow(dead_code)]
     pub particle_layout: ParticleLayout,
     pub initializers: Vec<EffectInitializer>,
     /// The order in which we evaluate groups.
     pub group_order: Vec<u32>,
-    /// Emitter transform.
-    pub transform: GpuCompressedTransform,
-    /// Emitter inverse transform.
-    pub inverse_transform: GpuCompressedTransform,
-    /// GPU buffer where properties for this batch need to be written.
-    pub property_buffer: Option<Buffer>,
-    /// Serialized property data.
-    // FIXME - Contains a single effect's data; should handle multiple ones.
-    pub property_data: Option<Vec<u8>>,
+    /// Emitter position.
+    #[cfg(feature = "3d")]
+    pub position: Vec3,
     /// Sort key, for 2D only.
     #[cfg(feature = "2d")]
     pub z_sort_key_2d: FloatOrd,
@@ -204,6 +192,15 @@ pub(crate) struct BatchesInput {
 
 #[derive(Debug)]
 pub(crate) struct InitAndUpdatePipelineIds {
-    pub(crate) init: CachedComputePipelineId,
-    pub(crate) update: CachedComputePipelineId,
+    pub init: CachedComputePipelineId,
+    pub update: CachedComputePipelineId,
+}
+
+#[derive(Debug, Component)]
+pub(crate) struct CachedGroups {
+    pub spawner_base: u32,
+    pub first_particle_group_buffer_index: Option<u32>,
+    // Note: Stolen each frame, so invalid if not re-extracted each frame. This is how we tell if
+    // an effect is active for the current frame.
+    pub init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds>,
 }
