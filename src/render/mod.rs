@@ -1306,12 +1306,8 @@ pub(crate) struct ExtractedEffect {
     ///
     /// [`EffectSpawner::tick()`]: crate::EffectSpawner::tick
     pub initializers: Vec<EffectInitializer>,
-    /// Global transform of the effect origin, extracted from the
-    /// [`GlobalTransform`].
-    pub transform: Mat4,
-    /// Inverse global transform of the effect origin, extracted from the
-    /// [`GlobalTransform`].
-    pub inverse_transform: Mat4,
+    /// Global transform of the effect origin.
+    pub transform: GlobalTransform,
     /// Layout flags.
     pub layout_flags: LayoutFlags,
     pub mesh: Handle<Mesh>,
@@ -1362,11 +1358,8 @@ pub struct AddedEffectGroup {
 /// render world as a render resource.
 #[derive(Default, Resource)]
 pub(crate) struct ExtractedEffects {
-    /// Map of extracted effects from the entity the source [`ParticleEffect`]
-    /// is on.
-    ///
-    /// [`ParticleEffect`]: crate::ParticleEffect
-    pub effects: HashMap<MainEntity, ExtractedEffect>,
+    /// Extracted effects this frame.
+    pub effects: Vec<ExtractedEffect>,
     /// Entities which had their [`ParticleEffect`] component removed.
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
@@ -1553,8 +1546,6 @@ pub(crate) fn extract_effects(
         let z_sort_key_2d = effect.z_layer_2d;
 
         let property_layout = asset.property_layout();
-        let texture_layout = asset.module().texture_layout();
-
         let property_data = if let Some(properties) = maybe_properties {
             // Note: must check that property layout is not empty, because the
             // EffectProperties component is marked as changed when added but contains an
@@ -1570,6 +1561,7 @@ pub(crate) fn extract_effects(
             None
         };
 
+        let texture_layout = asset.module().texture_layout();
         let layout_flags = effect.layout_flags;
         let mesh = match effect.mesh {
             None => effects_meta.default_mesh.clone(),
@@ -1587,29 +1579,24 @@ pub(crate) fn extract_effects(
             layout_flags,
         );
 
-        extracted_effects.effects.insert(
-            MainEntity::from(main_entity),
-            ExtractedEffect {
-                render_entity: *render_entity,
-                main_entity: main_entity.into(),
-                handle: effect.asset.clone_weak(),
-                particle_layout: asset.particle_layout().clone(),
-                property_layout,
-                property_data,
-                initializers: initializers.0.clone(),
-                transform: transform.compute_matrix(),
-                // TODO - more efficient/correct way than inverse()?
-                inverse_transform: transform.compute_matrix().inverse(),
-                layout_flags,
-                mesh,
-                texture_layout,
-                textures: effect.textures.clone(),
-                alpha_mode,
-                effect_shaders: effect_shaders.to_vec(),
-                #[cfg(feature = "2d")]
-                z_sort_key_2d,
-            },
-        );
+        extracted_effects.effects.push(ExtractedEffect {
+            render_entity: *render_entity,
+            main_entity: main_entity.into(),
+            handle: effect.asset.clone_weak(),
+            particle_layout: asset.particle_layout().clone(),
+            property_layout,
+            property_data,
+            initializers: initializers.0.clone(),
+            transform: *transform,
+            layout_flags,
+            mesh,
+            texture_layout,
+            textures: effect.textures.clone(),
+            alpha_mode,
+            effect_shaders: effect_shaders.to_vec(),
+            #[cfg(feature = "2d")]
+            z_sort_key_2d,
+        });
     }
 }
 
@@ -2136,36 +2123,6 @@ pub(crate) fn add_remove_effects(
     );
 }
 
-// pub(crate) fn update_cached_effects(
-//     extracted_effects: Res<ExtractedEffects>,
-//     mut q_cached_effects: Query<(MainEntity, &mut CachedEffect, &mut
-// DispatchBufferIndices)>, ) {
-//     for (main_entity, extracted_effect) in extracted_effects.effects.iter() {
-//         // Only process existing CachedEffect
-//         let Some(render_entity) = extracted_effect.render_entity.as_ref()
-// else {             continue;
-//         };
-
-//         // Resolve the CachedEffect from its owning render world's entity
-//         let Ok((entity_main, cached_effect, dispatch_buffer_indices)) =
-//             q_cached_effects.get_mut(render_entity.id())
-//         else {
-//             continue;
-//         };
-//         assert_eq!(main_entity.id(), entity_main);
-
-//         //if cached_effect.group_order != extracted_effect.group_order //
-// TODO - not extracted!         debug_assert_eq!(
-//             cached_effect.slices.group_count(),
-//             cached_effect.group_order.len() as u32
-//         );
-//         if extracted_effect.initializers.len() as u32 !=
-// cached_effect.slices.group_count() {             // Number of group changed
-
-//         }
-//     }
-// }
-
 /// Indexed mesh metadata for [`CachedMesh`].
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -2239,12 +2196,11 @@ pub(crate) fn prepare_effects(
     let mut total_effect_count = 0;
     let mut total_group_count = 0;
     let effects = std::mem::take(&mut extracted_effects.effects);
-
-    for (main_entity, extracted_effect) in effects.into_iter() {
+    for extracted_effect in effects.into_iter() {
         // Skip effects not cached. Since we're iterating over the extracted effects
         // instead of the cached ones, it might happen we didn't cache some effect on
         // purpose because they failed earlier validations.
-        let Ok((_main_entity, cached_effect, mut dispatch_buffer_indices)) =
+        let Ok((main_entity, cached_effect, mut dispatch_buffer_indices)) =
             q_cached_effects.get_mut(extracted_effect.render_entity.id())
         else {
             trace!(
@@ -2481,45 +2437,46 @@ pub(crate) fn prepare_effects(
         // Allocate the spawner entry for the effect instance
         let spawner_base = effects_meta.spawner_buffer.len() as u32;
         for initializer in extracted_effect.initializers.iter() {
-            match initializer {
+            let transform = extracted_effect.transform.compute_matrix().into();
+            let inverse_transform = Mat4::from(
+                // Inverse the Affine3A first, then convert to Mat4.This is a lot more
+                // efficient than inversing the Mat4.
+                extracted_effect.transform.affine().inverse(),
+            )
+            .into();
+            // FIXME - Probably bad to re-seed each time there's a change
+            let seed = random::<u32>();
+            // FIXME: the effect_index is global inside the global spawner buffer,
+            // but the group_index is the index of the particle buffer, which can
+            // in theory (with batching) contain > 1 effect per buffer.
+            let effect_index = effect_slices.buffer_index;
+            let spawner_params = match initializer {
                 EffectInitializer::Spawner(effect_spawner) => {
                     let spawner_params = GpuSpawnerParams {
-                        transform: extracted_effect.transform.into(),
-                        inverse_transform: extracted_effect.inverse_transform.into(),
+                        transform,
+                        inverse_transform,
                         spawn: effect_spawner.spawn_count as i32,
-                        // FIXME - Probably bad to re-seed each time there's a change
-                        seed: random::<u32>(),
-                        count: 0,
-                        // FIXME: the effect_index is global inside the global spawner buffer,
-                        // but the group_index is the index of the particle buffer, which can
-                        // in theory (with batching) contain > 1 effect per buffer.
-                        effect_index: effect_slices.buffer_index,
-                        lifetime: 0.0,
-                        pad: Default::default(),
+                        seed,
+                        effect_index,
+                        ..default()
                     };
                     trace!("spawner params = {:?}", spawner_params);
-                    effects_meta.spawner_buffer.push(spawner_params);
+                    spawner_params
                 }
-
                 EffectInitializer::Cloner(effect_cloner) => {
                     let spawner_params = GpuSpawnerParams {
-                        transform: extracted_effect.transform.into(),
-                        inverse_transform: extracted_effect.inverse_transform.into(),
-                        spawn: 0,
-                        // FIXME - Probably bad to re-seed each time there's a change
-                        seed: random::<u32>(),
-                        count: 0,
-                        // FIXME: the effect_index is global inside the global spawner buffer,
-                        // but the group_index is the index of the particle buffer, which can
-                        // in theory (with batching) contain > 1 effect per buffer.
-                        effect_index: effect_slices.buffer_index,
+                        transform,
+                        inverse_transform,
+                        seed,
+                        effect_index,
                         lifetime: effect_cloner.cloner.lifetime,
-                        pad: Default::default(),
+                        ..default()
                     };
                     trace!("cloner params = {:?}", spawner_params);
-                    effects_meta.spawner_buffer.push(spawner_params);
+                    spawner_params
                 }
-            }
+            };
+            effects_meta.spawner_buffer.push(spawner_params);
         }
 
         // Allocate the particle group buffer entries for the effect instance
@@ -2559,12 +2516,6 @@ pub(crate) fn prepare_effects(
         }
         assert_eq!(local_group_count, init_and_update_pipeline_ids.len());
 
-        #[cfg(feature = "3d")]
-        let position = {
-            let position = extracted_effect.transform.col(3);
-            Vec3::new(position.x, position.y, position.z)
-        };
-
         trace!(
             "Updating cached effect at entity {:?} ({} groups)...",
             extracted_effect.render_entity.id(),
@@ -2588,7 +2539,7 @@ pub(crate) fn prepare_effects(
                 #[cfg(feature = "2d")]
                 z_sort_key_2d: extracted_effect.z_sort_key_2d,
                 #[cfg(feature = "3d")]
-                position,
+                position: extracted_effect.transform.translation(),
             },
             CachedMesh {
                 mesh: extracted_effect.mesh.id(),
