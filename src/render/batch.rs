@@ -182,7 +182,7 @@ pub(crate) struct BatchesInput {
     pub initializers: Vec<EffectInitializer>,
     /// The order in which we evaluate groups.
     pub group_order: Vec<u32>,
-    /// Emitter position.
+    /// Emitter position, for 3D sorting.
     #[cfg(feature = "3d")]
     pub position: Vec3,
     /// Sort key, for 2D only.
