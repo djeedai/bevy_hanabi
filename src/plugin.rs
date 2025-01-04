@@ -30,8 +30,8 @@ use crate::{
         DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache,
         EffectsMeta, ExtractedEffects, GpuDispatchIndirect, GpuParticleGroup,
         GpuRenderEffectMetadata, GpuRenderGroupIndirect, GpuSpawnerParams, ParticlesInitPipeline,
-        ParticlesRenderPipeline, ParticlesUpdatePipeline, ShaderCache, SimParams, StorageType as _,
-        VfxSimulateDriverNode, VfxSimulateNode,
+        ParticlesRenderPipeline, ParticlesUpdatePipeline, PropertyCache, ShaderCache, SimParams,
+        StorageType as _, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_initializers,
@@ -277,13 +277,15 @@ impl Plugin for HanabiPlugin {
             EffectsMeta::new(render_device.clone(), &mut assets)
         };
 
-        let effect_cache = EffectCache::new(render_device);
+        let effect_cache = EffectCache::new(render_device.clone());
+        let property_cache = PropertyCache::new(render_device);
 
         // Register the custom render pipeline
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .insert_resource(effects_meta)
             .insert_resource(effect_cache)
+            .insert_resource(property_cache)
             .init_resource::<EffectBindGroups>()
             .init_resource::<DispatchIndirectPipeline>()
             .init_resource::<ParticlesInitPipeline>()

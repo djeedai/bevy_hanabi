@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Changed the `ParticleEffect` component to require the `CompiledParticleEffect` and `SyncToRenderWorld` components.
+- Renamed `PropertyLayout::size()` to `cpu_size()` to prevent confusion.
+  The GPU size is given by `min_binding_size()`, and can be greater.
+- `PropertyLayout::generate_code()` now returns an `Option<String>` for clarity,
+  which is `None` if the layout is empty (as opposed to an empty string previously).
 
 ### Fixed
 

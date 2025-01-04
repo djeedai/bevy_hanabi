@@ -1,4 +1,4 @@
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, ops::Range};
 
 use bevy::{
     log::trace,
@@ -11,6 +11,7 @@ use bevy::{
 };
 use bytemuck::{cast_slice, Pod};
 use copyless::VecHelper;
+use wgpu::{BindingResource, BufferBinding};
 
 /// Like Bevy's [`BufferVec`], but with extra per-item alignment.
 ///
@@ -246,8 +247,511 @@ impl<T: Pod + ShaderSize> std::ops::IndexMut<usize> for AlignedBufferVec<T> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FreeRow(pub Range<u32>);
+
+impl PartialOrd for FreeRow {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.start.partial_cmp(&other.0.start)
+    }
+}
+
+impl Ord for FreeRow {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.start.cmp(&other.0.start)
+    }
+}
+
+/// Like [`AlignedBufferVec`], but for heterogenous data.
+#[derive(Debug)]
+pub struct HybridAlignedBufferVec {
+    /// Pending values accumulated on CPU and not yet written to GPU.
+    values: Vec<u8>,
+    /// GPU buffer if already allocated, or `None` otherwise.
+    buffer: Option<Buffer>,
+    /// Capacity of the buffer, in bytes.
+    capacity: usize,
+    /// Alignment of each element, in bytes.
+    item_align: usize,
+    /// GPU buffer usages.
+    buffer_usage: BufferUsages,
+    /// Optional GPU buffer name, for debugging.
+    label: Option<String>,
+    /// Free ranges available for re-allocation. Those are row ranges; byte
+    /// ranges are obtained by multiplying these by `item_align`.
+    free_rows: Vec<FreeRow>,
+    /// Is the GPU buffer stale and the CPU one need to be re-uploaded?
+    is_stale: bool,
+}
+
+impl HybridAlignedBufferVec {
+    /// Create a new collection.
+    ///
+    /// `item_align` is an optional additional alignment for items in the
+    /// collection. If greater than the natural alignment dictated by WGSL
+    /// rules, this extra alignment is enforced. Otherwise it's ignored (so you
+    /// can pass `None` to ignore, which defaults to no alignment).
+    pub fn new(
+        buffer_usage: BufferUsages,
+        item_align: Option<NonZeroU64>,
+        label: Option<String>,
+    ) -> Self {
+        let item_align = item_align.map(|nz| nz.get()).unwrap_or(1) as usize;
+        trace!(
+            "HybridAlignedBufferVec['{}']: item_align={} byte",
+            label.as_ref().map(|s| &s[..]).unwrap_or(""),
+            item_align,
+        );
+        Self {
+            values: vec![],
+            buffer: None,
+            capacity: 0,
+            item_align,
+            buffer_usage,
+            label,
+            free_rows: vec![],
+            is_stale: true,
+        }
+    }
+
+    #[inline]
+    pub fn buffer(&self) -> Option<&Buffer> {
+        self.buffer.as_ref()
+    }
+
+    /// Get a binding for the entire buffer.
+    #[allow(dead_code)]
+    #[inline]
+    pub fn max_binding(&self) -> Option<BindingResource> {
+        // FIXME - Return a Buffer wrapper first, which can be unwrapped, then from that
+        // wrapper implement all the xxx_binding() helpers. That avoids a bunch of "if
+        // let Some()" everywhere when we know the buffer is valid. The only reason the
+        // buffer might not be valid is if it was not created, and in that case
+        // we wouldn't be calling the xxx_bindings() helpers, we'd have earlied out
+        // before.
+        let buffer = self.buffer()?;
+        Some(BindingResource::Buffer(BufferBinding {
+            buffer,
+            offset: 0,
+            size: None, // entire buffer
+        }))
+    }
+
+    /// Get a binding for the first `size` bytes of the buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `size` is zero.
+    #[allow(dead_code)]
+    #[inline]
+    pub fn lead_binding(&self, size: u32) -> Option<BindingResource> {
+        let buffer = self.buffer()?;
+        let size = NonZeroU64::new(size as u64).unwrap();
+        Some(BindingResource::Buffer(BufferBinding {
+            buffer,
+            offset: 0,
+            size: Some(size),
+        }))
+    }
+
+    /// Get a binding for a subset of the elements of the buffer.
+    ///
+    /// Returns a binding for the elements in the range `offset..offset+count`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `offset` is not a multiple of the alignment specified on
+    /// construction.
+    ///
+    /// Panics if `size` is zero.
+    #[allow(dead_code)]
+    #[inline]
+    pub fn range_binding(&self, offset: u32, size: u32) -> Option<BindingResource> {
+        assert!(offset as usize % self.item_align == 0);
+        let buffer = self.buffer()?;
+        let size = NonZeroU64::new(size as u64).unwrap();
+        Some(BindingResource::Buffer(BufferBinding {
+            buffer,
+            offset: offset as u64,
+            size: Some(size),
+        }))
+    }
+
+    /// Capacity of the allocated GPU buffer, in bytes.
+    ///
+    /// This may be zero if the buffer was not allocated yet. In general, this
+    /// can differ from the actual data size cached on CPU and waiting to be
+    /// uploaded to GPU.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    // #[inline]
+    // pub fn len(&self) -> usize {
+    //     self.values.len()
+    // }
+
+    /// Alignment, in bytes, of all the elements.
+    #[allow(dead_code)]
+    #[inline]
+    pub fn item_align(&self) -> usize {
+        self.item_align
+    }
+
+    /// Calculate a dynamic byte offset for a bind group from an array element
+    /// index.
+    ///
+    /// This returns the product of `index` by the internal [`item_align()`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the `index` is too large, producing a byte offset larger than
+    /// `u32::MAX`.
+    ///
+    /// [`item_align()`]: crate::HybridAlignedBufferVec::item_align
+    #[allow(dead_code)]
+    #[inline]
+    pub fn dynamic_offset(&self, index: usize) -> u32 {
+        let offset = self.item_align * index;
+        assert!(offset <= u32::MAX as usize);
+        u32::try_from(offset).expect("HybridAlignedBufferVec index out of bounds")
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    /// Append a value to the buffer.
+    ///
+    /// As with [`set_content()`], the content is stored on the CPU and uploaded
+    /// on the GPU once [`write_buffers()`] is called.
+    ///
+    /// # Returns
+    ///
+    /// Returns a range starting at the byte offset at which the new element was
+    /// inserted, which is guaranteed to be a multiple of [`item_align()`].
+    /// The range span is the item byte size.
+    ///
+    /// [`item_align()`]: self::HybridAlignedBufferVec::item_align
+    #[allow(dead_code)]
+    pub fn push<T: Pod + ShaderSize>(&mut self, value: &T) -> Range<u32> {
+        let src: &[u8] = cast_slice(std::slice::from_ref(value));
+        assert_eq!(value.size().get() as usize, src.len());
+        self.push_raw(src)
+    }
+
+    /// Append a slice of values to the buffer.
+    ///
+    /// The values are assumed to be tightly packed, and will be copied
+    /// back-to-back into the buffer, without any padding between them. This
+    /// means that the individul slice items must be properly aligned relative
+    /// to the beginning of the slice.
+    ///
+    /// As with [`set_content()`], the content is stored on the CPU and uploaded
+    /// on the GPU once [`write_buffers()`] is called.
+    ///
+    /// # Returns
+    ///
+    /// Returns a range starting at the byte offset at which the new element
+    /// (the slice) was inserted, which is guaranteed to be a multiple of
+    /// [`item_align()`]. The range span is the item byte size.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the byte size of the element `T` is not at least a multiple of
+    /// the minimum GPU alignment, which is 4 bytes. Note that this doesn't
+    /// guarantee that the written data is well-formed for use on GPU, as array
+    /// elements on GPU have other alignment requirements according to WGSL, but
+    /// at least this catches obvious errors.
+    ///
+    /// [`item_align()`]: self::HybridAlignedBufferVec::item_align
+    #[allow(dead_code)]
+    pub fn push_many<T: Pod + ShaderSize>(&mut self, value: &[T]) -> Range<u32> {
+        assert_eq!(size_of::<T>() % 4, 0);
+        let src: &[u8] = cast_slice(value);
+        self.push_raw(src)
+    }
+
+    pub fn push_raw(&mut self, src: &[u8]) -> Range<u32> {
+        self.is_stale = true;
+
+        // Calculate the number of (aligned) rows to allocate
+        let num_rows = src.len().div_ceil(self.item_align) as u32;
+
+        // Try to find a block of free rows which can accomodate it, and pick the
+        // smallest one in order to limit wasted space.
+        let mut best_slot: Option<(u32, usize)> = None;
+        for (index, range) in self.free_rows.iter().enumerate() {
+            let free_rows = range.0.end - range.0.start;
+            if free_rows >= num_rows {
+                let wasted_rows = free_rows - num_rows;
+                // If we found a slot with the exact size, just use it already
+                if wasted_rows == 0 {
+                    best_slot = Some((0, index));
+                    break;
+                }
+                // Otherwise try to find the smallest oversized slot to reduce wasted space
+                if let Some(best_slot) = best_slot.as_mut() {
+                    if wasted_rows < best_slot.0 {
+                        *best_slot = (wasted_rows, index);
+                    }
+                } else {
+                    best_slot = Some((wasted_rows, index));
+                }
+            }
+        }
+
+        // Insert into existing space
+        if let Some((_, index)) = best_slot {
+            let row_range = self.free_rows.remove(index);
+            debug_assert_eq!(row_range.0.start as usize % self.item_align, 0);
+            let offset = row_range.0.start as usize * self.item_align;
+            let free_size = (row_range.0.end - row_range.0.start) as usize * self.item_align;
+            let size = src.len();
+            assert!(size <= free_size);
+
+            let dst = self.values.as_mut_ptr();
+            // SAFETY: dst is guaranteed to point to allocated bytes, which are already
+            // initialized from a previous call, and are initialized by overwriting the
+            // bytes with those of a POD type.
+            #[allow(unsafe_code)]
+            unsafe {
+                let dst = dst.add(offset);
+                dst.copy_from_nonoverlapping(src.as_ptr(), size);
+            }
+
+            let start = offset as u32;
+            let end = start + size as u32;
+            start..end
+        }
+        // Insert at end of vector, after resizing it
+        else {
+            // Calculate new aligned insertion offset and new capacity
+            let offset = self.values.len().next_multiple_of(self.item_align);
+            let size = src.len();
+            let new_capacity = offset + size;
+            if new_capacity > self.values.capacity() {
+                self.values.reserve(new_capacity - self.values.len())
+            }
+
+            // Insert padding if needed
+            if offset > self.values.len() {
+                self.values.resize(offset, 0);
+            }
+
+            // Insert serialized value
+            // Dealing with safe code via Vec::spare_capacity_mut() is quite difficult
+            // without the upcoming (unstable) additions to MaybeUninit to deal with arrays.
+            // To prevent having to loop over individual u8, we use direct pointers instead.
+            assert!(self.values.capacity() >= offset + size);
+            assert_eq!(self.values.len(), offset);
+            let dst = self.values.as_mut_ptr();
+            // SAFETY: dst is guaranteed to point to allocated (offset+size) bytes, which
+            // are written by copying a Pod type, so ensures those values are initialized,
+            // and the final size is set to exactly (offset+size).
+            #[allow(unsafe_code)]
+            unsafe {
+                let dst = dst.add(offset);
+                dst.copy_from_nonoverlapping(src.as_ptr(), size);
+                self.values.set_len(offset + size);
+            }
+
+            debug_assert_eq!(offset % self.item_align, 0);
+            let start = offset as u32;
+            let end = start + size as u32;
+            start..end
+        }
+    }
+
+    /// Remove a range of bytes previously added.
+    ///
+    /// Remove a range of bytes previously returned by adding one or more
+    /// elements with [`push()`] or [`push_many()`].
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if the range was valid and the corresponding data was
+    /// removed, or `false` otherwise. In that case, the buffer is not modified.
+    ///
+    /// [`push()`]: Self::push
+    /// [`push_many()`]: Self::push_many
+    pub fn remove(&mut self, range: Range<u32>) -> bool {
+        // Can only remove entire blocks starting at an aligned size
+        let align = self.item_align as u32;
+        if range.start % align != 0 {
+            return false;
+        }
+
+        // Check for out of bounds argument
+        let end = self.values.len() as u32;
+        if range.start >= end || range.end > end {
+            return false;
+        }
+
+        // Note: See below, sometimes self.values() has some padding left we couldn't
+        // recover earlier beause we didn't know the size of this allocation, but we
+        // need to still deallocate the row here.
+        if range.end == end || range.end.next_multiple_of(align) == end {
+            // If the allocation is at the end of the buffer, shorten the CPU values. This
+            // ensures is_empty() eventually returns true.
+            let mut new_row_end = range.start.div_ceil(align);
+
+            // Walk the (sorted) free list to also dequeue any range which is now at the end
+            // of the buffer
+            while let Some(free_row) = self.free_rows.pop() {
+                if free_row.0.end == new_row_end {
+                    new_row_end = free_row.0.start;
+                } else {
+                    self.free_rows.push(free_row);
+                    break;
+                }
+            }
+
+            // Note: we can't really recover any padding here because we don't know the
+            // exact size of that allocation, only its row-aligned size.
+            self.values.truncate((new_row_end * align) as usize);
+        } else {
+            // Otherwise, save the row into the free list.
+            let start = range.start / align;
+            let end = range.end.div_ceil(align);
+            let free_row = FreeRow(start..end);
+
+            // Insert as sorted
+            if self.free_rows.is_empty() {
+                // Special case to simplify below, and to avoid binary_search()
+                self.free_rows.push(free_row);
+            } else if let Err(index) = self.free_rows.binary_search(&free_row) {
+                if index >= self.free_rows.len() {
+                    // insert at end
+                    let prev = self.free_rows.last_mut().unwrap(); // known
+                    if prev.0.end == free_row.0.start {
+                        // merge with last value
+                        prev.0.end = free_row.0.end;
+                    } else {
+                        // insert last, with gap
+                        self.free_rows.push(free_row);
+                    }
+                } else if index == 0 {
+                    // insert at start
+                    let next = &mut self.free_rows[0];
+                    if free_row.0.end == next.0.start {
+                        // merge with next
+                        next.0.start = free_row.0.start;
+                    } else {
+                        // insert first, with gap
+                        self.free_rows.insert(0, free_row);
+                    }
+                } else {
+                    // insert between 2 existing elements
+                    let prev = &mut self.free_rows[index - 1];
+                    if prev.0.end == free_row.0.start {
+                        // merge with previous value
+                        prev.0.end = free_row.0.end;
+
+                        let prev = self.free_rows[index - 1].clone();
+                        let next = &mut self.free_rows[index];
+                        if prev.0.end == next.0.start {
+                            // also merge prev with next, and remove prev
+                            next.0.start = prev.0.start;
+                            self.free_rows.remove(index - 1);
+                        }
+                    } else {
+                        let next = &mut self.free_rows[index];
+                        if free_row.0.end == next.0.start {
+                            // merge with next value
+                            next.0.start = free_row.0.start;
+                        } else {
+                            // insert between 2 values, with gaps on both sides
+                            self.free_rows.insert(0, free_row);
+                        }
+                    }
+                }
+            } else {
+                // The range exists in the free list, this means it's already removed. This is a
+                // duplicate; ignore it.
+                return false;
+            }
+        }
+        self.is_stale = true;
+        true
+    }
+
+    /// Reserve some capacity into the buffer.
+    ///
+    /// If the buffer is reallocated, the old content (on the GPU) is lost, and
+    /// needs to be re-uploaded to the newly-created buffer. This is done with
+    /// [`write_buffer()`].
+    ///
+    /// # Returns
+    ///
+    /// `true` if the buffer was (re)allocated, or `false` if an existing buffer
+    /// was reused which already had enough capacity.
+    ///
+    /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
+    pub fn reserve(&mut self, capacity: usize, device: &RenderDevice) -> bool {
+        if capacity > self.capacity {
+            trace!(
+                "reserve: increase capacity from {} to {} bytes",
+                self.capacity,
+                capacity,
+            );
+            self.capacity = capacity;
+            self.buffer = Some(device.create_buffer(&BufferDescriptor {
+                label: self.label.as_ref().map(|s| &s[..]),
+                size: capacity as BufferAddress,
+                usage: BufferUsages::COPY_DST | self.buffer_usage,
+                mapped_at_creation: false,
+            }));
+            self.is_stale = !self.values.is_empty();
+            // FIXME - this discards the old content if any!!!
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Schedule the buffer write to GPU.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the buffer was (re)allocated, `false` otherwise. If the buffer
+    /// was reallocated, all bind groups referencing the old buffer should be
+    /// destroyed.
+    pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
+        if self.values.is_empty() || !self.is_stale {
+            return false;
+        }
+        let size = self.values.len();
+        trace!(
+            "hybrid abv: write_buffer: size={}B item_align={}B",
+            size,
+            self.item_align,
+        );
+        let buffer_changed = self.reserve(size, device);
+        if let Some(buffer) = &self.buffer {
+            queue.write_buffer(buffer, 0, self.values.as_slice());
+            self.is_stale = false;
+        }
+        buffer_changed
+    }
+
+    #[allow(dead_code)]
+    pub fn clear(&mut self) {
+        if !self.values.is_empty() {
+            self.is_stale = true;
+        }
+        self.values.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU64;
+
     use bevy::math::Vec3;
     use bytemuck::{Pod, Zeroable};
 
@@ -358,6 +862,166 @@ mod tests {
             });
             assert!(!abv.is_empty());
             assert_eq!(abv.len(), 1);
+        }
+    }
+
+    #[test]
+    fn habv_remove() {
+        let mut habv =
+            HybridAlignedBufferVec::new(BufferUsages::STORAGE, NonZeroU64::new(32), None);
+        assert!(habv.is_empty());
+        assert_eq!(habv.item_align, 32);
+
+        // +r -r
+        {
+            let r = habv.push(&42u32);
+            assert_eq!(r, 0..4);
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 4);
+            assert!(habv.free_rows.is_empty());
+
+            assert!(habv.remove(r));
+            assert!(habv.is_empty());
+            assert!(habv.values.is_empty());
+            assert!(habv.free_rows.is_empty());
+        }
+
+        // +r0 +r1 +r2 -r0 -r0 -r1 -r2
+        {
+            let r0 = habv.push(&42u32);
+            let r1 = habv.push(&84u32);
+            let r2 = habv.push(&84u32);
+            assert_eq!(r0, 0..4);
+            assert_eq!(r1, 32..36);
+            assert_eq!(r2, 64..68);
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 68);
+            assert!(habv.free_rows.is_empty());
+
+            assert!(habv.remove(r0.clone()));
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 68);
+            assert_eq!(habv.free_rows.len(), 1);
+            assert_eq!(habv.free_rows[0], FreeRow(0..1));
+
+            // dupe; no-op
+            assert!(!habv.remove(r0));
+
+            assert!(habv.remove(r1.clone()));
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 68);
+            assert_eq!(habv.free_rows.len(), 1); // merged!
+            assert_eq!(habv.free_rows[0], FreeRow(0..2));
+
+            assert!(habv.remove(r2));
+            assert!(habv.is_empty());
+            assert_eq!(habv.values.len(), 0);
+            assert!(habv.free_rows.is_empty());
+        }
+
+        // +r0 +r1 +r2 -r1 -r0 -r2
+        {
+            let r0 = habv.push(&42u32);
+            let r1 = habv.push(&84u32);
+            let r2 = habv.push(&84u32);
+            assert_eq!(r0, 0..4);
+            assert_eq!(r1, 32..36);
+            assert_eq!(r2, 64..68);
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 68);
+            assert!(habv.free_rows.is_empty());
+
+            assert!(habv.remove(r1.clone()));
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 68);
+            assert_eq!(habv.free_rows.len(), 1);
+            assert_eq!(habv.free_rows[0], FreeRow(1..2));
+
+            assert!(habv.remove(r0.clone()));
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 68);
+            assert_eq!(habv.free_rows.len(), 1); // merged!
+            assert_eq!(habv.free_rows[0], FreeRow(0..2));
+
+            assert!(habv.remove(r2));
+            assert!(habv.is_empty());
+            assert_eq!(habv.values.len(), 0);
+            assert!(habv.free_rows.is_empty());
+        }
+
+        // +r0 +r1 +r2 -r1 -r2 -r0
+        {
+            let r0 = habv.push(&42u32);
+            let r1 = habv.push(&84u32);
+            let r2 = habv.push(&84u32);
+            assert_eq!(r0, 0..4);
+            assert_eq!(r1, 32..36);
+            assert_eq!(r2, 64..68);
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 68);
+            assert!(habv.free_rows.is_empty());
+
+            assert!(habv.remove(r1.clone()));
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 68);
+            assert_eq!(habv.free_rows.len(), 1);
+            assert_eq!(habv.free_rows[0], FreeRow(1..2));
+
+            assert!(habv.remove(r2.clone()));
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 32); // can't recover exact alloc (4), only row-aligned size (32)
+            assert!(habv.free_rows.is_empty()); // merged!
+
+            assert!(habv.remove(r0));
+            assert!(habv.is_empty());
+            assert_eq!(habv.values.len(), 0);
+            assert!(habv.free_rows.is_empty());
+        }
+
+        // +r0 +r1 +r2 +r3 +r4 -r3 -r1 -r2 -r4 r0
+        {
+            let r0 = habv.push(&42u32);
+            let r1 = habv.push(&84u32);
+            let r2 = habv.push(&84u32);
+            let r3 = habv.push(&84u32);
+            let r4 = habv.push(&84u32);
+            assert_eq!(r0, 0..4);
+            assert_eq!(r1, 32..36);
+            assert_eq!(r2, 64..68);
+            assert_eq!(r3, 96..100);
+            assert_eq!(r4, 128..132);
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 132);
+            assert!(habv.free_rows.is_empty());
+
+            assert!(habv.remove(r3.clone()));
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 132);
+            assert_eq!(habv.free_rows.len(), 1);
+            assert_eq!(habv.free_rows[0], FreeRow(3..4));
+
+            assert!(habv.remove(r1.clone()));
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 132);
+            assert_eq!(habv.free_rows.len(), 2);
+            assert_eq!(habv.free_rows[0], FreeRow(1..2)); // sorted!
+            assert_eq!(habv.free_rows[1], FreeRow(3..4));
+
+            assert!(habv.remove(r2.clone()));
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 132);
+            assert_eq!(habv.free_rows.len(), 1); // merged!
+            assert_eq!(habv.free_rows[0], FreeRow(1..4)); // merged!
+
+            assert!(habv.remove(r4.clone()));
+            assert!(!habv.is_empty());
+            assert_eq!(habv.values.len(), 32); // can't recover exact alloc (4), only row-aligned size (32)
+            assert!(habv.free_rows.is_empty());
+
+            assert!(habv.remove(r0));
+            assert!(habv.is_empty());
+            assert_eq!(habv.values.len(), 0);
+            assert!(habv.free_rows.is_empty());
         }
     }
 }

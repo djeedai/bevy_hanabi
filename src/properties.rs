@@ -435,7 +435,7 @@ impl EffectProperties {
     /// the given property layout. The size of the output blob is guaranteed
     /// to be equal to the size of the layout.
     pub(crate) fn serialize(&self, layout: &PropertyLayout) -> Vec<u8> {
-        let size = layout.size() as usize;
+        let size = layout.cpu_size() as usize;
         let mut data = vec![0; size];
         // FIXME: O(n^2) search due to offset() being O(n) linear search already
         for property in &self.properties {
@@ -496,13 +496,13 @@ impl std::fmt::Debug for PropertyLayoutEntry {
 
 /// Layout of properties for an effect.
 ///
-/// The `PropertyLayout` describes the memory layout of properties inside the
+/// The [`PropertyLayout`] describes the memory layout of properties inside the
 /// GPU buffer where their values are stored. This forms a contract between the
 /// CPU side where properties are written each frame, and the GPU shaders where
 /// they're subsequently read.
 ///
 /// The layout is immutable once created. To create a different layout, build a
-/// new `PropertyLayout` from scratch, typically with [`new()`].
+/// new [`PropertyLayout`] from scratch, typically with [`new()`].
 ///
 /// # Example
 ///
@@ -513,7 +513,7 @@ impl std::fmt::Debug for PropertyLayoutEntry {
 ///     Property::new("my_property", Vec3::ZERO),
 ///     Property::new("other_property", 3.4_f32),
 /// ]);
-/// assert_eq!(layout.size(), 16);
+/// assert_eq!(layout.cpu_size(), 16);
 /// ```
 ///
 /// [`new()`]: crate::PropertyLayout::new
@@ -536,7 +536,7 @@ impl PropertyLayout {
     /// let layout = PropertyLayout::empty();
     /// assert!(layout.is_empty());
     /// ```
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         Self { layout: vec![] }
     }
 
@@ -709,13 +709,16 @@ impl PropertyLayout {
         self.layout.is_empty()
     }
 
-    /// Get the size of the layout in bytes.
+    /// Get the CPU size of the layout in bytes.
     ///
-    /// The size of a layout is the sum of the offset and size of its last
-    /// property. The last property doesn't have any padding, since padding's
-    /// purpose is to align the next property in the layout.
+    /// The CPU size of a layout is the size of the data when serialized on the
+    /// CPU side. It's the sum of the offset and size of its last property. The
+    /// last property doesn't have any padding.
     ///
     /// If the layout is empty, this returns zero.
+    ///
+    /// When the data is uploaded on GPU, its size is [`min_binding_size()`],
+    /// which can be greater than the CPU size due to WGSL padding rules.
     ///
     /// # Example
     ///
@@ -726,9 +729,11 @@ impl PropertyLayout {
     ///     Property::new("my_property", Vec3::ZERO),
     ///     Property::new("other_property", 3.4_f32),
     /// ]);
-    /// assert_eq!(layout.size(), 16);
+    /// assert_eq!(layout.cpu_size(), 16);
     /// ```
-    pub fn size(&self) -> u32 {
+    ///
+    /// [`min_binding_size()`]: Self::min_binding_size()
+    pub fn cpu_size(&self) -> u32 {
         if self.layout.is_empty() {
             0
         } else {
@@ -737,10 +742,10 @@ impl PropertyLayout {
         }
     }
 
-    /// Get the alignment of the layout in bytes.
+    /// Get the GPU alignment of the layout in bytes.
     ///
-    /// This is the largest alignment of all the properties. If the layout is
-    /// empty, this returns zero.
+    /// This is the largest alignment of all the properties, as defined by WGSL.
+    /// If the layout is empty, this returns zero.
     ///
     /// # Example
     ///
@@ -789,17 +794,20 @@ impl PropertyLayout {
             .map(|entry| (entry.offset, &entry.property))
     }
 
-    /// Minimum binding size in bytes.
+    /// Minimum binding size in bytes (GPU size).
     ///
-    /// This corresponds to the stride of the properties struct in WGSL when
-    /// contained inside an array.
+    /// This corresponds to the stride of the properties struct in WGSL, and
+    /// therefore the minimum size of a buffer to store the properties.
     ///
     /// # Panics
     ///
     /// Panics if the layout is empty, which is not valid once used on GPU.
     pub fn min_binding_size(&self) -> NonZeroU64 {
-        assert!(!self.layout.is_empty());
-        let size = self.size() as usize;
+        assert!(
+            !self.layout.is_empty(),
+            "Cannot compute min binding size for empty property layout."
+        );
+        let size = self.cpu_size() as usize;
         let align = self.align();
         NonZeroU64::new(size.next_multiple_of(align) as u64).unwrap()
     }
@@ -821,13 +829,17 @@ impl PropertyLayout {
         self.layout.iter().any(|entry| entry.property.name == name)
     }
 
-    /// Generate the WGSL property code corresponding to the layout.
+    /// Generate the WGSL code of the property struct corresponding to the
+    /// layout.
     ///
-    /// This generates code declaring the `Properties` struct in WGSL, or an
-    /// empty string if the layout is empty. The `Properties` struct contains
-    /// the values of all the effect properties, as defined by this layout.
-    pub fn generate_code(&self) -> String {
+    /// This generates code declaring the `Properties` struct in WGSL, or `None`
+    /// if the layout is empty. The `Properties` struct contains the values
+    /// of all the effect properties, as defined by this layout.
+    pub fn generate_code(&self) -> Option<String> {
         // debug_assert!(self.layout.is_sorted_by_key(|entry| entry.offset));
+        if self.layout.is_empty() {
+            return None;
+        }
         let content = self
             .layout
             .iter()
@@ -838,17 +850,14 @@ impl PropertyLayout {
                     entry.property.value_type().to_wgsl_string()
                 )
             })
-            .fold(String::new(), |mut a, b| {
+            .fold("struct Properties {\n".to_string(), |mut a, b| {
                 a.reserve(b.len() + 1);
                 a.push_str(&b);
                 a.push('\n');
                 a
-            });
-        if content.is_empty() {
-            String::new()
-        } else {
-            format!("struct Properties {{\n{}}}\n", content)
-        }
+            })
+            + "}\n";
+        Some(content)
     }
 
     /// Get the offset in byte of the property with the given name.
@@ -987,11 +996,18 @@ mod tests {
     fn layout_empty() {
         let l = PropertyLayout::empty();
         assert!(l.is_empty());
-        assert_eq!(l.size(), 0);
+        assert_eq!(l.cpu_size(), 0);
         assert_eq!(l.align(), 0);
         assert_eq!(l.properties().next(), None);
         let s = l.generate_code();
-        assert!(s.is_empty());
+        assert!(s.is_none());
+    }
+
+    #[test]
+    #[should_panic]
+    fn layout_empty_min_binding_size_panic() {
+        let l = PropertyLayout::empty();
+        _ = l.min_binding_size();
     }
 
     #[test]
@@ -1002,7 +1018,7 @@ mod tests {
         let prop4 = Property::new("vec4", Vec4::Y);
         let layout = PropertyLayout::new([&prop1, &prop2, &prop3, &prop4]);
         assert!(!layout.is_empty());
-        assert_eq!(layout.size(), 40);
+        assert_eq!(layout.cpu_size(), 40);
         assert_eq!(layout.align(), 16);
         assert_eq!(layout.min_binding_size(), NonZeroU64::new(48).unwrap());
         let mut it = layout.properties();
@@ -1017,13 +1033,16 @@ mod tests {
         let s = layout.generate_code();
         assert_eq!(
             s,
-            r#"struct Properties {
+            Some(
+                r#"struct Properties {
     vec4: vec4<f32>,
     vec3: vec3<f32>,
     f32: f32,
     vec2: vec2<f32>,
 }
 "#
+                .to_string()
+            )
         );
     }
 
@@ -1034,7 +1053,7 @@ mod tests {
         let prop3 = Property::new("vec3b", Vec3::NEG_X);
         let layout = PropertyLayout::new([&prop1, &prop2, &prop3]);
         assert!(!layout.is_empty());
-        assert_eq!(layout.size(), 32);
+        assert_eq!(layout.cpu_size(), 32);
         assert_eq!(layout.align(), 16);
         assert_eq!(layout.min_binding_size(), NonZeroU64::new(32).unwrap());
         let mut it = layout.properties();
@@ -1046,12 +1065,15 @@ mod tests {
         let s = layout.generate_code();
         assert_eq!(
             s,
-            r#"struct Properties {
+            Some(
+                r#"struct Properties {
     vec3a: vec3<f32>,
     vec3b: vec3<f32>,
     vec2: vec2<f32>,
 }
 "#
+                .to_string()
+            )
         );
     }
 
@@ -1061,7 +1083,7 @@ mod tests {
         let prop2 = Property::new("vec3", Vec3::ZERO);
         let layout = PropertyLayout::new([&prop1, &prop2]);
         assert!(!layout.is_empty());
-        assert_eq!(layout.size(), 20);
+        assert_eq!(layout.cpu_size(), 20);
         assert_eq!(layout.align(), 16);
         assert_eq!(layout.min_binding_size(), NonZeroU64::new(32).unwrap());
         let mut it = layout.properties();
@@ -1072,11 +1094,14 @@ mod tests {
         let s = layout.generate_code();
         assert_eq!(
             s,
-            r#"struct Properties {
+            Some(
+                r#"struct Properties {
     vec3: vec3<f32>,
     vec2: vec2<f32>,
 }
 "#
+                .to_string()
+            )
         );
     }
 
@@ -1086,7 +1111,7 @@ mod tests {
         let prop2 = Property::new("vec2", Vec2::NEG_Y);
         let layout = PropertyLayout::new([&prop1, &prop2]);
         assert!(!layout.is_empty());
-        assert_eq!(layout.size(), 12);
+        assert_eq!(layout.cpu_size(), 12);
         assert_eq!(layout.align(), 8);
         assert_eq!(layout.min_binding_size(), NonZeroU64::new(16).unwrap());
         let mut it = layout.properties();
@@ -1097,11 +1122,14 @@ mod tests {
         let s = layout.generate_code();
         assert_eq!(
             s,
-            r#"struct Properties {
+            Some(
+                r#"struct Properties {
     vec2: vec2<f32>,
     f32: f32,
 }
 "#
+                .to_string()
+            )
         );
     }
 
@@ -1301,7 +1329,7 @@ mod tests {
         ]);
         let layout = PropertyLayout::new(ep.properties().iter().map(|pi| &pi.def));
         let blob = ep.serialize(&layout);
-        assert_eq!(blob.len(), layout.size() as usize);
+        assert_eq!(blob.len(), layout.cpu_size() as usize);
 
         let pi_a = &ep.properties()[0];
         let size = pi_a.def.size();
