@@ -115,7 +115,7 @@ impl PropertyCache {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
+                    ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: true,
                     min_binding_size: Some(GpuSpawnerParams::min_size()),
                 },
@@ -181,7 +181,7 @@ impl PropertyCache {
                             binding: 0,
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Buffer {
-                                ty: BufferBindingType::Storage { read_only: false },
+                                ty: BufferBindingType::Storage { read_only: true },
                                 has_dynamic_offset: true,
                                 min_binding_size: Some(GpuSpawnerParams::min_size()),
                             },

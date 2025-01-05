@@ -1,5 +1,5 @@
 #import bevy_hanabi::vfx_common::{
-    ParticleGroup, SimParams, Spawner,
+    ParticleGroup, SimParams,
     DI_OFFSET_X, DI_OFFSET_PONG,
     RGI_OFFSET_ALIVE_COUNT, RGI_OFFSET_MAX_UPDATE, RGI_OFFSET_DEAD_COUNT,
     RGI_OFFSET_MAX_SPAWN, RGI_OFFSET_INSTANCE_COUNT, REM_OFFSET_PING

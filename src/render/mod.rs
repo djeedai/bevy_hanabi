@@ -292,16 +292,12 @@ pub(crate) struct GpuSpawnerParams {
     spawn: i32,
     /// Spawn seed, for randomized modifiers.
     seed: u32,
-    /// Current number of used particles.
-    count: i32,
-    /// Index of the effect in the indirect dispatch and render buffers.
-    effect_index: u32,
     /// The time in seconds that the cloned particles live, if this is a cloner.
     ///
     /// If this is a spawner, this value is zero.
     lifetime: f32,
     /// Padding.
-    pad: [u32; 3],
+    pad: [u32; 5],
 }
 
 #[repr(C)]
@@ -1119,7 +1115,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             .create_bind_group_layout("hanabi:buffer_layout_render", &entries);
 
         let mut layout = vec![self.view_layout.clone(), particles_buffer_layout];
-        let mut shader_defs = vec!["SPAWNER_READONLY".into()];
+        let mut shader_defs = vec![];
 
         let vertex_buffer_layout = key.mesh_layout.as_ref().and_then(|mesh_layout| {
             mesh_layout
@@ -2528,10 +2524,6 @@ pub(crate) fn prepare_effects(
             .into();
             // FIXME - Probably bad to re-seed each time there's a change
             let seed = random::<u32>();
-            // FIXME: the effect_index is global inside the global spawner buffer,
-            // but the group_index is the index of the particle buffer, which can
-            // in theory (with batching) contain > 1 effect per buffer.
-            let effect_index = effect_slices.buffer_index;
             let spawner_params = match initializer {
                 EffectInitializer::Spawner(effect_spawner) => {
                     let spawner_params = GpuSpawnerParams {
@@ -2539,7 +2531,6 @@ pub(crate) fn prepare_effects(
                         inverse_transform,
                         spawn: effect_spawner.spawn_count as i32,
                         seed,
-                        effect_index,
                         ..default()
                     };
                     trace!("spawner params = {:?}", spawner_params);
@@ -2550,7 +2541,6 @@ pub(crate) fn prepare_effects(
                         transform,
                         inverse_transform,
                         seed,
-                        effect_index,
                         lifetime: effect_cloner.cloner.lifetime,
                         ..default()
                     };
