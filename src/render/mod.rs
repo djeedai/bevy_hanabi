@@ -2167,11 +2167,9 @@ pub(crate) fn add_remove_effects(
 
     // Allocate all the property buffer(s) as needed, before we move to the next
     // step which will need those buffers to schedule data copies from CPU.
-    for buffer in property_cache.buffers_mut() {
-        if let Some(buffer) = buffer {
-            let _changed = buffer.write_buffer(&render_device, &render_queue);
-            // FIXME - invalidate bind groups!
-        }
+    for buffer in property_cache.buffers_mut().iter_mut().flatten() {
+        let _changed = buffer.write_buffer(&render_device, &render_queue);
+        // FIXME - invalidate bind groups!
     }
 }
 
@@ -2422,10 +2420,12 @@ pub(crate) fn prepare_effects(
         // proper layout (or the default no-property one).
         let spawner_buffer_layout = property_cache
             .bind_group_layout(property_layout_min_binding_size)
-            .expect(&format!(
-                "Failed to find bind group layout for property binding size {:?}",
-                property_layout_min_binding_size,
-            ));
+            .unwrap_or_else(|| {
+                panic!(
+                    "Failed to find bind group layout for property binding size {:?}",
+                    property_layout_min_binding_size,
+                )
+            });
         trace!(
             "Retrieved property bind group layout {:?} for binding size {:?}...",
             spawner_buffer_layout.id(),
@@ -4024,11 +4024,10 @@ pub(crate) fn prepare_bind_groups(
 
         // Bind group for the init compute shader to simulate particles.
         // TODO - move this creation in RenderSet::PrepareBindGroups
-        if let Err(_) = effect_cache.create_sim_bind_group(
-            effect_batches.buffer_index,
-            &render_device,
-            group_binding,
-        ) {
+        if effect_cache
+            .create_sim_bind_group(effect_batches.buffer_index, &render_device, group_binding)
+            .is_err()
+        {
             error!("No particle buffer allocated for entity {:?}", entity);
             continue;
         }

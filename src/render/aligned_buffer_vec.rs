@@ -252,7 +252,7 @@ struct FreeRow(pub Range<u32>);
 
 impl PartialOrd for FreeRow {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.0.start.partial_cmp(&other.0.start)
+        Some(self.cmp(other))
     }
 }
 

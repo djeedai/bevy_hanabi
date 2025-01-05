@@ -873,7 +873,7 @@ impl EffectCache {
         let effect_buffer: &mut Option<EffectBuffer> =
             self.buffers.get_mut(buffer_index as usize).ok_or(())?;
         let effect_buffer = effect_buffer.as_mut().ok_or(())?;
-        effect_buffer.create_sim_bind_group(buffer_index, &render_device, group_binding);
+        effect_buffer.create_sim_bind_group(buffer_index, render_device, group_binding);
         Ok(())
     }
 

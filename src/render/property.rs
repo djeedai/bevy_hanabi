@@ -250,8 +250,7 @@ impl PropertyCache {
     pub fn get_buffer(&self, buffer_index: u32) -> Option<&Buffer> {
         self.buffers[buffer_index as usize]
             .as_ref()
-            .map(|pb| pb.buffer())
-            .flatten()
+            .and_then(|pb| pb.buffer())
     }
 
     /// Deallocated and remove properties from the cache.
