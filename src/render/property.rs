@@ -111,6 +111,7 @@ impl PropertyCache {
     pub fn new(device: RenderDevice) -> Self {
         let bgl = device.create_bind_group_layout(
             "hanabi:bind_group_layout:no_property",
+            // @group(2) @binding(0) var<storage, read> spawner: Spawner;
             &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
@@ -177,6 +178,7 @@ impl PropertyCache {
                 let bgl = self.device.create_bind_group_layout(
                     Some(&label[..]),
                     &[
+                        // @group(2) @binding(0) var<storage, read> spawner: Spawner;
                         BindGroupLayoutEntry {
                             binding: 0,
                             visibility: ShaderStages::COMPUTE,
@@ -187,6 +189,7 @@ impl PropertyCache {
                             },
                             count: None,
                         },
+                        // @group(2) @binding(1) var<storage, read> properties : Properties;
                         BindGroupLayoutEntry {
                             binding: 1,
                             visibility: ShaderStages::COMPUTE,

@@ -301,6 +301,7 @@ impl EffectBuffer {
             render_device.limits().min_storage_buffer_offset_alignment,
         );
         let mut entries = vec![
+            // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
             BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::VERTEX,
@@ -311,6 +312,7 @@ impl EffectBuffer {
                 },
                 count: None,
             },
+            // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
             BindGroupLayoutEntry {
                 binding: 1,
                 visibility: ShaderStages::VERTEX,
@@ -321,6 +323,7 @@ impl EffectBuffer {
                 },
                 count: None,
             },
+            // @group(1) @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
             BindGroupLayoutEntry {
                 binding: 2,
                 visibility: ShaderStages::VERTEX,
@@ -333,6 +336,7 @@ impl EffectBuffer {
             },
         ];
         if layout_flags.contains(LayoutFlags::LOCAL_SPACE_SIMULATION) {
+            // @group(1) @binding(3) var<storage, read> spawner : Spawner;
             entries.push(BindGroupLayoutEntry {
                 binding: 3,
                 visibility: ShaderStages::VERTEX,

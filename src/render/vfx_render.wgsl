@@ -31,7 +31,7 @@ struct VertexOutput {
 @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
 #ifdef RENDER_NEEDS_SPAWNER
-@group(1) @binding(3) var<storage, read> spawner : Spawner; // NOTE - same group as update
+@group(1) @binding(3) var<storage, read> spawner : Spawner;
 #endif
 {{MATERIAL_BINDINGS}}
 

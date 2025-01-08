@@ -604,6 +604,7 @@ impl FromWorld for ParticlesInitPipeline {
 
         let sim_params_layout = render_device.create_bind_group_layout(
             "hanabi:bind_group_layout:update_sim_params",
+            // @group(0) @binding(0) var<uniform> sim_params: SimParams;
             &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
@@ -755,6 +756,8 @@ impl FromWorld for ParticlesUpdatePipeline {
         let render_indirect_layout = render_device.create_bind_group_layout(
             "hanabi:update_render_indirect_layout",
             &[
+                // @group(3) @binding(0) var<storage, read_write> render_effect_indirect :
+                // RenderEffectMetadata;
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::COMPUTE,
@@ -765,13 +768,14 @@ impl FromWorld for ParticlesUpdatePipeline {
                     },
                     count: None,
                 },
+                // @group(3) @binding(1) var<storage, read_write> render_group_indirect :
+                // array<RenderGroupIndirect>;
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        // Array; needs padded size
                         min_binding_size: Some(render_group_indirect_size),
                     },
                     count: None,
@@ -932,6 +936,7 @@ impl FromWorld for ParticlesRenderPipeline {
         let view_layout = render_device.create_bind_group_layout(
             "hanabi:view_layout_render",
             &[
+                // @group(0) @binding(0) var<uniform> view: View;
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::VERTEX_FRAGMENT,
@@ -942,6 +947,7 @@ impl FromWorld for ParticlesRenderPipeline {
                     },
                     count: None,
                 },
+                // @group(0) @binding(1) var<uniform> sim_params : SimParams;
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStages::VERTEX_FRAGMENT,
@@ -1743,12 +1749,6 @@ pub struct EffectsMeta {
     /// Bind group #0 of the vfx_indirect shader, containing both the indirect
     /// compute dispatch and render buffers.
     dr_indirect_bind_group: Option<BindGroup>,
-    /// Bind group #3 of the vfx_init shader, containing the indirect render
-    /// buffer, in the case of a spawner with no source buffer.
-    init_render_indirect_spawn_bind_group: Option<BindGroup>,
-    /// Bind group #3 of the vfx_init shader, containing the indirect render
-    /// buffer, in the case of a cloner with a source buffer.
-    init_render_indirect_clone_bind_group: Option<BindGroup>,
     /// Global shared GPU uniform buffer storing the simulation parameters,
     /// uploaded each frame from CPU to GPU.
     sim_params_uniforms: UniformBuffer<GpuSimParams>,
@@ -1796,8 +1796,6 @@ impl EffectsMeta {
             view_bind_group: None,
             sim_params_bind_group: None,
             dr_indirect_bind_group: None,
-            init_render_indirect_spawn_bind_group: None,
-            init_render_indirect_clone_bind_group: None,
             sim_params_uniforms: UniformBuffer::default(),
             spawner_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
@@ -2045,8 +2043,7 @@ impl EffectsMeta {
         {
             // All those bind groups use the buffer so need to be re-created
             self.dr_indirect_bind_group = None;
-            self.init_render_indirect_spawn_bind_group = None;
-            self.init_render_indirect_clone_bind_group = None;
+            effect_bind_groups.init_render_indirect_bind_groups.clear();
             effect_bind_groups
                 .update_render_indirect_bind_groups
                 .clear();
@@ -2065,8 +2062,7 @@ impl EffectsMeta {
         {
             // All those bind groups use the buffer so need to be re-created
             self.dr_indirect_bind_group = None;
-            self.init_render_indirect_spawn_bind_group = None;
-            self.init_render_indirect_clone_bind_group = None;
+            effect_bind_groups.init_render_indirect_bind_groups.clear();
             effect_bind_groups
                 .update_render_indirect_bind_groups
                 .clear();
@@ -2965,10 +2961,13 @@ pub struct EffectBindGroups {
     particle_buffers: HashMap<u32, BufferBindGroups>,
     /// Map of bind groups for image assets used as particle textures.
     images: HashMap<AssetId<Image>, BindGroup>,
+    /// Map from buffer index to its init render indirect bind group (group
+    /// 3), one per group in the effect.
+    // FIXME - doesn't work with batching; this should be the instance ID
+    init_render_indirect_bind_groups: HashMap<u32, Vec<BindGroup>>,
     /// Map from buffer index to its update render indirect bind group (group
     /// 3).
-    // FIXME - possibly doesn't work with batch if different effects in same buffer need different
-    // bindings, not sure...
+    // FIXME - doesn't work with batching; this should be the instance ID
     update_render_indirect_bind_groups: HashMap<u32, BindGroup>,
     /// Map from an effect material to its bind group.
     material_bind_groups: HashMap<Material, BindGroup>,
@@ -3773,72 +3772,6 @@ pub(crate) fn prepare_bind_groups(
             }
             _ => None,
         };
-
-        let (init_render_indirect_spawn_bind_group, init_render_indirect_clone_bind_group) = match (
-            effects_meta.render_effect_dispatch_buffer.buffer(),
-            effects_meta.render_group_dispatch_buffer.buffer(),
-        ) {
-            (Some(render_effect_dispatch_buffer), Some(render_group_dispatch_buffer)) => (
-                Some(render_device.create_bind_group(
-                    "hanabi:bind_group_init_render_dispatch_spawn",
-                    &init_pipeline.render_indirect_spawn_layout,
-                    &[
-                        BindGroupEntry {
-                            binding: 0,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: render_effect_dispatch_buffer,
-                                offset: 0,
-                                size: Some(effects_meta.gpu_limits.render_effect_indirect_size()),
-                            }),
-                        },
-                        BindGroupEntry {
-                            binding: 1,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: render_group_dispatch_buffer,
-                                offset: 0,
-                                size: Some(effects_meta.gpu_limits.render_group_indirect_size()),
-                            }),
-                        },
-                    ],
-                )),
-                Some(render_device.create_bind_group(
-                    "hanabi:bind_group_init_render_dispatch_clone",
-                    &init_pipeline.render_indirect_clone_layout,
-                    &[
-                        BindGroupEntry {
-                            binding: 0,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: render_effect_dispatch_buffer,
-                                offset: 0,
-                                size: Some(effects_meta.gpu_limits.render_effect_indirect_size()),
-                            }),
-                        },
-                        BindGroupEntry {
-                            binding: 1,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: render_group_dispatch_buffer,
-                                offset: 0,
-                                size: Some(effects_meta.gpu_limits.render_group_indirect_size()),
-                            }),
-                        },
-                        BindGroupEntry {
-                            binding: 2,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: render_group_dispatch_buffer,
-                                offset: 0,
-                                size: Some(effects_meta.gpu_limits.render_group_indirect_size()),
-                            }),
-                        },
-                    ],
-                )),
-            ),
-
-            (_, _) => (None, None),
-        };
-
-        // Create the bind group for the indirect render buffer use in the init shader
-        effects_meta.init_render_indirect_spawn_bind_group = init_render_indirect_spawn_bind_group;
-        effects_meta.init_render_indirect_clone_bind_group = init_render_indirect_clone_bind_group;
     }
 
     // Make a copy of the buffer ID before borrowing effects_meta mutably in the
@@ -4022,6 +3955,115 @@ pub(crate) fn prepare_bind_groups(
             continue;
         }
 
+        // Bind group #3 of init pass
+        // FIXME - this is instance-dependent, not buffer-dependent
+        if effect_bind_groups
+            .init_render_indirect_bind_groups
+            .get(&effect_batches.buffer_index)
+            .is_none()
+        {
+            let DispatchBufferIndices {
+                render_effect_metadata_buffer_index: render_effect_dispatch_buffer_index,
+                render_group_dispatch_indices,
+                ..
+            } = &effect_batches.dispatch_buffer_indices;
+            let RenderGroupDispatchIndices::Allocated {
+                first_render_group_dispatch_buffer_index,
+                trail_dispatch_buffer_indices,
+            } = render_group_dispatch_indices
+            else {
+                continue;
+            };
+
+            let render_effect_indirect_size = effects_meta.gpu_limits.render_effect_indirect_size();
+            let render_group_indirect_size = effects_meta.gpu_limits.render_group_indirect_size();
+
+            // Create one bind group per effect group. We don't batch them anyway for now...
+            let bind_groups = (0..effect_batches.group_batches.len())
+                .map(|group_index| {
+                    let is_cloner = matches!(effect_batches.initializers[group_index], EffectInitializer::Cloner(_));
+                    let dst_src_indices = if is_cloner {
+                        let trail_indices = &trail_dispatch_buffer_indices[&(group_index as u32)];
+                        [trail_indices.dest.0, trail_indices.src.0]
+                    } else {
+                        let idx = first_render_group_dispatch_buffer_index.0;
+                        [idx, idx]
+                    };
+                    let entries = [
+                        // @group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: BindingResource::Buffer(BufferBinding {
+                                buffer: effects_meta
+                                    .render_effect_dispatch_buffer
+                                    .buffer()
+                                    .unwrap(),
+                                offset: effects_meta.gpu_limits.render_effect_indirect_offset(
+                                    render_effect_dispatch_buffer_index.0,
+                                ),
+                                size: Some(render_effect_indirect_size),
+                            }),
+                        },
+                        // @group(3) @binding(1) var<storage, read_write> dest_render_group_indirect: RenderGroupIndirect;
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: BindingResource::Buffer(BufferBinding {
+                                buffer: effects_meta
+                                    .render_group_dispatch_buffer
+                                    .buffer()
+                                    .unwrap(),
+                                offset: effects_meta.gpu_limits.render_group_indirect_offset(
+                                    dst_src_indices[0]
+                                ),
+                                size: Some(render_group_indirect_size),
+                            }),
+                        },
+                        // @group(3) @binding(2) var<storage, read_write> src_render_group_indirect: RenderGroupIndirect;
+                        BindGroupEntry {
+                            binding: 2,
+                            resource: BindingResource::Buffer(BufferBinding {
+                                buffer: effects_meta
+                                    .render_group_dispatch_buffer
+                                    .buffer()
+                                    .unwrap(),
+                                offset: effects_meta.gpu_limits.render_group_indirect_offset(
+                                    dst_src_indices[1],
+                                ),
+                                size: Some(render_group_indirect_size),
+                            }),
+                        },
+                    ];
+
+                    let (layout, entries) = if is_cloner {
+                        (&init_pipeline.render_indirect_clone_layout, &entries[..])
+                    } else  {
+                        (&init_pipeline.render_indirect_spawn_layout, &entries[0..2])
+                    };
+
+                    let bind_group = render_device.create_bind_group("hanabi:bind_group_init_render_group_dispatch", layout, entries);
+
+                    trace!(
+                        "Created new init render indirect bind group for group #{} buffer index {}: render_effect={} dest_group={} src_group={}",
+                        group_index,
+                        effect_batches.buffer_index,
+                        render_effect_dispatch_buffer_index.0,
+                        dst_src_indices[0],
+                        dst_src_indices[1],
+                    );
+
+                    bind_group
+                })
+                .collect::<Vec<_>>();
+
+            effect_bind_groups.init_render_indirect_bind_groups.insert(
+                // FIXME - this is instance-dependent, not buffer-dependent
+                effect_batches.buffer_index,
+                bind_groups,
+            );
+        }
+
+        // Bind group #3 of update pass
+        // FIXME - this is instance-dependent, not buffer-dependent
         if effect_bind_groups
             .update_render_indirect_bind_groups
             .get(&effect_batches.buffer_index)
@@ -4052,6 +4094,8 @@ pub(crate) fn prepare_bind_groups(
                 "hanabi:bind_group_update_render_group_dispatch",
                 &update_pipeline.render_indirect_layout,
                 &[
+                    // @group(3) @binding(0) var<storage, read_write> render_effect_indirect :
+                    // RenderEffectMetadata;
                     BindGroupEntry {
                         binding: 0,
                         resource: BindingResource::Buffer(BufferBinding {
@@ -4062,6 +4106,8 @@ pub(crate) fn prepare_bind_groups(
                             size: Some(render_effect_indirect_size),
                         }),
                     },
+                    // @group(3) @binding(1) var<storage, read_write> render_group_indirect :
+                    // array<RenderGroupIndirect>;
                     BindGroupEntry {
                         binding: 1,
                         resource: BindingResource::Buffer(BufferBinding {
@@ -4088,6 +4134,7 @@ pub(crate) fn prepare_bind_groups(
             effect_bind_groups
                 .update_render_indirect_bind_groups
                 .insert(
+                    // FIXME - this is instance-dependent, not buffer-dependent
                     effect_batches.buffer_index,
                     particles_buffer_layout_update_render_indirect,
                 );
@@ -4439,7 +4486,7 @@ fn create_init_render_indirect_bind_group_layout(
             visibility: ShaderStages::COMPUTE,
             ty: BindingType::Buffer {
                 ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: true,
+                has_dynamic_offset: false,
                 min_binding_size: Some(render_effect_indirect_size),
             },
             count: None,
@@ -4450,7 +4497,7 @@ fn create_init_render_indirect_bind_group_layout(
             visibility: ShaderStages::COMPUTE,
             ty: BindingType::Buffer {
                 ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: true,
+                has_dynamic_offset: false,
                 min_binding_size: Some(render_group_indirect_size),
             },
             count: None,
@@ -4465,7 +4512,7 @@ fn create_init_render_indirect_bind_group_layout(
             visibility: ShaderStages::COMPUTE,
             ty: BindingType::Buffer {
                 ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: true,
+                has_dynamic_offset: false,
                 min_binding_size: Some(render_group_indirect_size),
             },
             count: None,
@@ -4625,20 +4672,15 @@ impl Node for VfxSimulateNode {
 
                 // Dispatch init compute jobs
                 for (entity, batches) in self.effect_query.iter_manual(world) {
-                    let RenderGroupDispatchIndices::Allocated {
-                        first_render_group_dispatch_buffer_index,
-                        trail_dispatch_buffer_indices,
-                    } = &batches
-                        .dispatch_buffer_indices
-                        .render_group_dispatch_indices
+                    let Some(render_indirect_bind_groups) = effect_bind_groups
+                        .init_render_indirect_bind_groups
+                        .get(&batches.buffer_index)
                     else {
                         continue;
                     };
 
                     for &dest_group_index in batches.group_order.iter() {
                         let initializer = &batches.initializers[dest_group_index as usize];
-                        let dest_render_group_dispatch_buffer_index =
-                            first_render_group_dispatch_buffer_index.offset(dest_group_index);
 
                         // Destination group spawners are packed one after one another.
                         let spawner_index = batches.spawner_base + dest_group_index;
@@ -4658,10 +4700,6 @@ impl Node for VfxSimulateNode {
                                         label: Some("hanabi:init"),
                                         timestamp_writes: None,
                                     });
-
-                                let render_effect_dispatch_buffer_index = batches
-                                    .dispatch_buffer_indices
-                                    .render_effect_metadata_buffer_index;
 
                                 // FIXME - Currently we unconditionally count
                                 // all groups because the dispatch pass always
@@ -4728,29 +4766,15 @@ impl Node for VfxSimulateNode {
                                     continue;
                                 };
 
-                                let render_effect_indirect_offset =
-                                    effects_meta.gpu_limits.render_effect_indirect_offset(
-                                        render_effect_dispatch_buffer_index.0,
-                                    );
-
-                                let render_group_indirect_offset =
-                                    effects_meta.gpu_limits.render_group_indirect_offset(
-                                        dest_render_group_dispatch_buffer_index.0,
-                                    );
-
                                 trace!(
                                     "record commands for init pipeline of effect {:?} \
                                         (spawn {} = {} workgroups) spawner_base={} \
-                                        spawner_offset={} \
-                                        render_effect_indirect_offset={} \
-                                        first_render_group_indirect_offset={}...",
+                                        spawner_offset={}...",
                                     batches.handle,
                                     spawn_count,
                                     workgroup_count,
                                     spawner_index,
                                     spawner_offset,
-                                    render_effect_indirect_offset,
-                                    render_group_indirect_offset,
                                 );
 
                                 // Dispatch init pass
@@ -4775,14 +4799,8 @@ impl Node for VfxSimulateNode {
                                 );
                                 compute_pass.set_bind_group(
                                     3,
-                                    effects_meta
-                                        .init_render_indirect_spawn_bind_group
-                                        .as_ref()
-                                        .unwrap(),
-                                    &[
-                                        render_effect_indirect_offset as u32,
-                                        render_group_indirect_offset as u32,
-                                    ],
+                                    &render_indirect_bind_groups[dest_group_index as usize],
+                                    &[],
                                 );
                                 compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
                                 trace!("init compute dispatched");
@@ -4836,28 +4854,6 @@ impl Node for VfxSimulateNode {
                                     continue;
                                 };
 
-                                let render_effect_dispatch_buffer_index = batches
-                                    .dispatch_buffer_indices
-                                    .render_effect_metadata_buffer_index;
-                                let clone_dest_render_group_dispatch_buffer_index =
-                                    trail_dispatch_buffer_indices[&dest_group_index].dest;
-                                let clone_src_render_group_dispatch_buffer_index =
-                                    trail_dispatch_buffer_indices[&dest_group_index].src;
-
-                                let render_effect_indirect_offset =
-                                    effects_meta.gpu_limits.render_effect_indirect_offset(
-                                        render_effect_dispatch_buffer_index.0,
-                                    );
-
-                                let clone_dest_render_group_indirect_offset =
-                                    effects_meta.gpu_limits.render_group_indirect_offset(
-                                        clone_dest_render_group_dispatch_buffer_index.0,
-                                    );
-                                let clone_src_render_group_indirect_offset =
-                                    effects_meta.gpu_limits.render_group_indirect_offset(
-                                        clone_src_render_group_dispatch_buffer_index.0,
-                                    );
-
                                 let first_update_group_dispatch_buffer_index = batches
                                     .dispatch_buffer_indices
                                     .first_update_group_dispatch_buffer_index;
@@ -4890,15 +4886,8 @@ impl Node for VfxSimulateNode {
                                 );
                                 compute_pass.set_bind_group(
                                     3,
-                                    effects_meta
-                                        .init_render_indirect_clone_bind_group
-                                        .as_ref()
-                                        .unwrap(),
-                                    &[
-                                        render_effect_indirect_offset as u32,
-                                        clone_dest_render_group_indirect_offset as u32,
-                                        clone_src_render_group_indirect_offset as u32,
-                                    ],
+                                    &render_indirect_bind_groups[dest_group_index as usize],
+                                    &[],
                                 );
 
                                 if let Some(dispatch_indirect_buffer) =
