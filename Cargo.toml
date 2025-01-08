@@ -216,6 +216,15 @@ required-features = [
     "bevy/bevy_window",
 ]
 
+[[test]]
+name = "properties"
+path = "gpu_tests/properties.rs"
+harness = false
+required-features = [
+    "bevy/bevy_winit",
+    "bevy/bevy_window",
+]
+
 [workspace]
 resolver = "2"
 members = ["."]

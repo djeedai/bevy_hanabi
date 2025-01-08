@@ -15,7 +15,7 @@ use bevy::{
 
 use super::{
     effect_cache::{DispatchBufferIndices, EffectSlices},
-    CachedMesh, LayoutFlags,
+    CachedMesh, LayoutFlags, PropertyBindGroupKey,
 };
 use crate::{
     spawn::EffectInitializer, AlphaMode, EffectAsset, EffectShader, ParticleLayout, TextureLayout,
@@ -30,6 +30,12 @@ pub(crate) struct EffectBatches {
     pub group_batches: Vec<EffectBatch>,
     /// Index of the buffer.
     pub buffer_index: u32,
+    /// Index of the property buffer, if any.
+    pub property_key: Option<PropertyBindGroupKey>,
+    /// Offset in bytes into the property buffer where the Property struct is
+    /// located for this effect.
+    // FIXME: This is a per-instance value which prevents batching :(
+    pub property_offset: Option<u32>,
     /// Index of the first Spawner of the effects in the batch.
     pub spawner_base: u32,
     /// The initializer (spawner or cloner) for each particle group.
@@ -118,9 +124,14 @@ impl EffectBatches {
         init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds>,
         dispatch_buffer_indices: DispatchBufferIndices,
         first_particle_group_buffer_index: u32,
+        property_key: Option<PropertyBindGroupKey>,
+        property_offset: Option<u32>,
     ) -> EffectBatches {
+        assert_eq!(property_key.is_some(), property_offset.is_some());
         EffectBatches {
             buffer_index: input.effect_slices.buffer_index,
+            property_key,
+            property_offset,
             spawner_base,
             initializers: input.initializers.clone(),
             particle_layout: input.effect_slices.particle_layout.clone(),
