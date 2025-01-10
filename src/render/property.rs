@@ -1,4 +1,7 @@
-use std::{num::NonZeroU64, ops::Range};
+use std::{
+    num::{NonZeroU32, NonZeroU64},
+    ops::Range,
+};
 
 use bevy::{
     log::trace,
@@ -78,8 +81,33 @@ impl PropertyBuffer {
     #[allow(dead_code)]
     #[inline]
     pub fn free(&mut self, range: Range<u32>) -> BufferState {
-        if self.buffer.remove(range) && self.buffer.is_empty() {
-            BufferState::Free
+        let id = self
+            .buffer
+            .buffer()
+            .map(|buf| {
+                let id: NonZeroU32 = buf.id().into();
+                id.get()
+            })
+            .unwrap_or(u32::MAX);
+        let size = self.buffer.len();
+        if self.buffer.remove(range) {
+            if self.buffer.is_empty() {
+                BufferState::Free
+            } else if self.buffer.len() != size
+                || self
+                    .buffer
+                    .buffer()
+                    .map(|buf| {
+                        let id: NonZeroU32 = buf.id().into();
+                        id.get()
+                    })
+                    .unwrap_or(u32::MAX)
+                    != id
+            {
+                BufferState::Resized
+            } else {
+                BufferState::Used
+            }
         } else {
             BufferState::Used
         }
@@ -215,6 +243,7 @@ impl PropertyCache {
                     // FIXME - Currently PropertyBuffer::allocate() always succeeds and
                     // grows indefinitely
                     let range = buffer.allocate(property_layout);
+                    trace!("Allocate new slice in property buffer #{buffer_index} for layout {property_layout:?}: range={range:?}");
                     Some(CachedEffectProperties {
                         buffer_index: buffer_index as u32,
                         range,
@@ -265,19 +294,17 @@ impl PropertyCache {
             "Removing cached properties {:?} from cache.",
             cached_effect_properties
         );
-        let Some(buffer) = self
+        let entry = self
             .buffers
             .get_mut(cached_effect_properties.buffer_index as usize)
-        else {
-            return Err(CachedPropertiesError::InvalidBufferIndex(
+            .ok_or(CachedPropertiesError::InvalidBufferIndex(
                 cached_effect_properties.buffer_index,
-            ));
-        };
-        let Some(buffer) = buffer.as_mut() else {
-            return Err(CachedPropertiesError::BufferDeallocated(
+            ))?;
+        let buffer = entry
+            .as_mut()
+            .ok_or(CachedPropertiesError::BufferDeallocated(
                 cached_effect_properties.buffer_index,
-            ));
-        };
+            ))?;
         Ok(buffer.free(cached_effect_properties.range.clone()))
     }
 }

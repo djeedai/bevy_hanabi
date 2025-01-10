@@ -172,11 +172,7 @@ use std::fmt::Write as _;
 
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
-use bevy::{
-    prelude::*,
-    render::sync_world::{MainEntity, RenderEntity, SyncToRenderWorld},
-    utils::HashSet,
-};
+use bevy::{prelude::*, render::sync_world::SyncToRenderWorld, utils::HashSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -1630,47 +1626,6 @@ fn update_properties_from_asset(
         };
 
         EffectProperties::update(properties, asset.properties(), effect.is_added());
-    }
-}
-
-/// Event sent by [`gather_removed_effects()`] with the list of effects removed
-/// during this frame.
-///
-/// The event is consumed during the extract phase by the [`extract_effects()`]
-/// system, to clean-up unused GPU resources.
-///
-/// [`extract_effects()`]: crate::render::extract_effects
-#[derive(Event)]
-struct RemovedEffectsEvent {
-    entities: Vec<(MainEntity, Option<RenderEntity>)>,
-}
-
-/// Gather all the removed [`ParticleEffect`] components to allow cleaning-up
-/// unused GPU resources.
-///
-/// This system executes inside the [`EffectSystems::GatherRemovedEffects`]
-/// set of the [`PostUpdate`] schedule.
-fn gather_removed_effects(
-    q_effects: Query<Option<RenderEntity>, With<ParticleEffect>>,
-    mut removed_effects: RemovedComponents<ParticleEffect>,
-    mut removed_effects_event_writer: EventWriter<RemovedEffectsEvent>,
-) {
-    let entities: Vec<Entity> = removed_effects.read().collect();
-    if !entities.is_empty() {
-        let entities = entities
-            .iter()
-            .map(|main_entity| {
-                (
-                    MainEntity::from(*main_entity),
-                    q_effects
-                        .get(*main_entity)
-                        .ok()
-                        .flatten()
-                        .map(RenderEntity::from),
-                )
-            })
-            .collect();
-        removed_effects_event_writer.send(RemovedEffectsEvent { entities });
     }
 }
 
