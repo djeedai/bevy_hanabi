@@ -811,10 +811,8 @@ impl EffectCache {
     /// This iterates over all valid buffers and calls
     /// [`EffectBuffer::invalidate_sim_bind_group()`] on each one.
     pub fn invalidate_sim_bind_groups(&mut self) {
-        for buffer in &mut self.buffers {
-            if let Some(buffer) = buffer {
-                buffer.invalidate_sim_bind_group();
-            }
+        for buffer in self.buffers.iter_mut().flatten() {
+            buffer.invalidate_sim_bind_group();
         }
     }
 

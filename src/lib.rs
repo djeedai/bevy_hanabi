@@ -1560,8 +1560,7 @@ fn compile_effects(
     {
         // If the ParticleEffect didn't change, and the compiled one is for the correct
         // asset, then there's nothing to do.
-        let need_rebuild =
-            effect.is_changed() || material.as_ref().map_or(false, |r| r.is_changed());
+        let need_rebuild = effect.is_changed() || material.as_ref().is_some_and(|r| r.is_changed());
         if !need_rebuild && (compiled_effect.asset == effect.handle) {
             continue;
         }

@@ -2422,7 +2422,7 @@ pub(crate) fn prepare_effects(
                 init_pipeline.temp_spawner_buffer_layout = Some(spawner_buffer_layout.clone());
                 let init_pipeline_id: CachedComputePipelineId = specialized_init_pipelines
                     .specialize(
-                        &pipeline_cache,
+                        pipeline_cache,
                         &init_pipeline,
                         ParticleInitPipelineKey {
                             shader: shader.init.clone(),
@@ -2436,7 +2436,7 @@ pub(crate) fn prepare_effects(
                 // https://github.com/bevyengine/bevy/issues/17132
                 update_pipeline.temp_spawner_buffer_layout = Some(spawner_buffer_layout.clone());
                 let update_pipeline_id = specialized_update_pipelines.specialize(
-                    &pipeline_cache,
+                    pipeline_cache,
                     &update_pipeline,
                     ParticleUpdatePipelineKey {
                         shader: shader.update.clone(),
@@ -2688,12 +2688,12 @@ pub(crate) fn prepare_effects(
 
     // Perform any GPU allocation if we (lazily) allocated some rows into the render
     // group dispatch indirect buffer.
-    effects_meta.allocate_gpu(&render_device, &render_queue, &mut effect_bind_groups);
+    effects_meta.allocate_gpu(render_device, render_queue, &mut effect_bind_groups);
 
     // Write the entire spawner buffer for this frame, for all effects combined
     if effects_meta
         .spawner_buffer
-        .write_buffer(&render_device, &render_queue)
+        .write_buffer(render_device, render_queue)
     {
         // All property bind groups use the spawner buffer, which was reallocate
         effect_bind_groups.property_bind_groups.clear();
@@ -2703,7 +2703,7 @@ pub(crate) fn prepare_effects(
     // Write the entire particle group buffer for this frame
     if effects_meta
         .particle_group_buffer
-        .write_buffer(&render_device, &render_queue)
+        .write_buffer(render_device, render_queue)
     {
         // The buffer changed; invalidate all bind groups for all effects.
         effect_cache.invalidate_sim_bind_groups();
@@ -2730,7 +2730,7 @@ pub(crate) fn prepare_effects(
     let prev_buffer_id = effects_meta.sim_params_uniforms.buffer().map(|b| b.id());
     effects_meta
         .sim_params_uniforms
-        .write_buffer(&render_device, &render_queue);
+        .write_buffer(render_device, render_queue);
     if prev_buffer_id != effects_meta.sim_params_uniforms.buffer().map(|b| b.id()) {
         // Buffer changed, invalidate bind groups
         effects_meta.sim_params_bind_group = None;
@@ -3101,18 +3101,17 @@ impl EffectBindGroups {
                 Some(vec)
             } else {
                 // Same size; only re-create needed entries
-                for group_index in 0..effect_batches.group_batches.len() {
+                for (group_index, entry) in vec.iter_mut().enumerate() {
                     let (is_cloner, key) = make_key(group_index as u32);
-                    if vec[group_index].key != key {
-                        vec[group_index].bind_group =
-                            make_bind_group(group_index as u32, is_cloner, &key);
-                        vec[group_index].key = key;
+                    if entry.key != key {
+                        entry.bind_group = make_bind_group(group_index as u32, is_cloner, &key);
+                        entry.key = key;
                     }
                 }
                 None
             }
         } else {
-            Some(entry.or_insert(vec![]))
+            Some(entry.or_default())
         };
         if let Some(vec) = vec {
             // Re-create all entries
