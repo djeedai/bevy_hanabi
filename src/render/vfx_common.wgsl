@@ -18,7 +18,7 @@ struct SimParams {
 }
 
 struct Spawner {
-    // Compressed transform of the emitter.
+    /// Compressed transform of the emitter.
     transform: mat3x4<f32>, // transposed (row-major)
     /// Inverse compressed transform of the emitter.
     inverse_transform: mat3x4<f32>, // transposed (row-major)

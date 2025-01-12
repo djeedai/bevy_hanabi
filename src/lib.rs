@@ -199,7 +199,7 @@ pub use graph::*;
 pub use modifier::*;
 pub use plugin::{EffectSystems, HanabiPlugin};
 pub use properties::*;
-pub use render::{LayoutFlags, ShaderCache};
+pub use render::{DebugSettings, LayoutFlags, ShaderCache};
 pub use spawn::{
     tick_initializers, Cloner, CpuValue, EffectCloner, EffectInitializer, EffectInitializers,
     EffectSpawner, Initializer, Random, Spawner,
@@ -1347,16 +1347,19 @@ impl CompiledParticleEffect {
             .map(|effect_group_shader_source| {
                 let init = shader_cache.get_or_insert(
                     &asset.name,
+                    "init",
                     &effect_group_shader_source.init,
                     shaders,
                 );
                 let update = shader_cache.get_or_insert(
                     &asset.name,
+                    "update",
                     &effect_group_shader_source.update,
                     shaders,
                 );
                 let render = shader_cache.get_or_insert(
                     &asset.name,
+                    "render",
                     &effect_group_shader_source.render,
                     shaders,
                 );

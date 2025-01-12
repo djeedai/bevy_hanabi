@@ -27,12 +27,12 @@ use crate::{
     render::{
         add_effects, batch_effects, extract_effect_events, extract_effects,
         on_remove_cached_effect, on_remove_cached_properties, prepare_bind_groups, prepare_effects,
-        prepare_gpu_resources, queue_effects, DispatchIndirectPipeline, DrawEffects,
+        prepare_gpu_resources, queue_effects, DebugSettings, DispatchIndirectPipeline, DrawEffects,
         EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects,
         GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect,
         GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline,
-        PropertyCache, ShaderCache, SimParams, StorageType as _, VfxSimulateDriverNode,
-        VfxSimulateNode,
+        PropertyCache, RenderDebugSettings, ShaderCache, SimParams, StorageType as _,
+        VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_initializers,
@@ -184,6 +184,7 @@ impl Plugin for HanabiPlugin {
         app.init_asset::<EffectAsset>()
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<ShaderCache>()
+            .init_resource::<DebugSettings>()
             .init_resource::<Time<EffectSimulation>>()
             .configure_sets(
                 PostUpdate,
@@ -274,6 +275,7 @@ impl Plugin for HanabiPlugin {
             .insert_resource(effects_meta)
             .insert_resource(effect_cache)
             .insert_resource(property_cache)
+            .init_resource::<RenderDebugSettings>()
             .init_resource::<EffectBindGroups>()
             .init_resource::<DispatchIndirectPipeline>()
             .init_resource::<ParticlesInitPipeline>()

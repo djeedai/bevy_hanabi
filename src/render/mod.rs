@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     num::{NonZero, NonZeroU32, NonZeroU64},
     ops::Range,
+    time::Duration,
 };
 use std::{iter, marker::PhantomData};
 
@@ -1394,6 +1395,73 @@ pub(crate) fn extract_effect_events(
     *images = image_events.read().copied().collect();
 }
 
+/// Debugging settings.
+///
+/// Settings used to debug Hanabi. These have no effect on the actual behavior
+/// of Hanabi, but may affect its performance.
+///
+/// # Example
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_hanabi::*;
+/// fn startup(mut debug_settings: ResMut<DebugSettings>) {
+///     // Each time a new effect is spawned, capture 2 frames
+///     debug_settings.start_capture_on_new_effect = true;
+///     debug_settings.capture_frame_count = 2;
+/// }
+/// ```
+#[derive(Debug, Default, Clone, Copy, Resource)]
+pub struct DebugSettings {
+    /// Enable automatically starting a GPU debugger capture as soon as this
+    /// frame starts rendering (extract phase).
+    ///
+    /// Enable this feature to automatically capture one or more GPU frames when
+    /// the [`extract_effects`] system runs next. This instructs any attached
+    /// GPU debugger to start a capture; this has no effect if no debugger
+    /// is attached.
+    ///
+    /// If a capture is already on-going this has no effect; the on-going
+    /// capture needs to be terminated first. Note however that a capture can
+    /// stop and another start in the same frame.
+    ///
+    /// This value is not reset automatically. If you set this to `true`, you
+    /// should set it back to `false` on next frame to avoid capturing forever.
+    pub start_capture_this_frame: bool,
+
+    /// Enable automatically starting a GPU debugger capture when one or more
+    /// effects are spawned.
+    ///
+    /// Enable this feature to automatically capture one or more GPU frames when
+    /// a new effect is spawned (as detected by ECS change detection). This
+    /// instructs any attached GPU debugger to start a capture; this has no
+    /// effect if no debugger is attached.
+    pub start_capture_on_new_effect: bool,
+
+    /// Number of frames to capture with a GPU debugger.
+    ///
+    /// By default this value is zero, and a GPU debugger capture runs for a
+    /// single frame. If a non-zero frame count is specified here, the capture
+    /// will instead stop once the specified number of frames has been recorded.
+    ///
+    /// You should avoid setting this to a value too large, to prevent the
+    /// capture size from getting out of control. A typical value is 1 to 3
+    /// frames, or possibly more (up to 10) for exceptional contexts. Some GPU
+    /// debuggers or graphics APIs might further limit this value on their own,
+    /// so there's no guarantee the graphics API will honor this value.
+    pub capture_frame_count: u32,
+}
+
+#[derive(Debug, Default, Clone, Copy, Resource)]
+pub(crate) struct RenderDebugSettings {
+    /// Is a GPU debugger capture on-going?
+    is_capturing: bool,
+    /// Start time of any on-going GPU debugger capture.
+    capture_start: Duration,
+    /// Number of frames captured so far for on-going GPU debugger capture.
+    captured_frames: u32,
+}
+
 /// System extracting data for rendering of all active [`ParticleEffect`]
 /// components.
 ///
@@ -1403,6 +1471,11 @@ pub(crate) fn extract_effect_events(
 /// [`ExtractedEffects`] resource.
 ///
 /// This system runs in parallel of [`extract_effect_events`].
+///
+/// If any GPU debug capture is configured to start or stop in
+/// [`DebugSettings`], they do so at the beginning of this system. This ensures
+/// that all GPU commands produced by Hanabi are recorded (but may miss some
+/// from Bevy itself, if another Bevy system runs before this one).
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 pub(crate) fn extract_effects(
@@ -1432,9 +1505,43 @@ pub(crate) fn extract_effects(
     >,
     mut sim_params: ResMut<SimParams>,
     mut extracted_effects: ResMut<ExtractedEffects>,
+    render_device: Res<RenderDevice>,
+    debug_settings: Extract<Res<DebugSettings>>,
+    mut render_debug_settings: ResMut<RenderDebugSettings>,
     effects_meta: Res<EffectsMeta>,
 ) {
     trace!("extract_effects");
+
+    // Manage GPU debug capture
+    if render_debug_settings.is_capturing {
+        render_debug_settings.captured_frames += 1;
+
+        // Stop any pending capture if needed
+        if render_debug_settings.captured_frames >= debug_settings.capture_frame_count {
+            render_device.wgpu_device().stop_capture();
+            render_debug_settings.is_capturing = false;
+            warn!(
+                "Stopped GPU debug capture after {} frames, at t={}s.",
+                render_debug_settings.captured_frames,
+                real_time.elapsed().as_secs_f64()
+            );
+        }
+    }
+    if !render_debug_settings.is_capturing {
+        // If no pending capture, consider starting a new one
+        if debug_settings.start_capture_this_frame
+            || (debug_settings.start_capture_on_new_effect && !query.p1().is_empty())
+        {
+            render_device.wgpu_device().start_capture();
+            render_debug_settings.is_capturing = true;
+            render_debug_settings.capture_start = real_time.elapsed();
+            render_debug_settings.captured_frames = 0;
+            warn!(
+                "Started GPU debug capture at t={}s.",
+                render_debug_settings.capture_start.as_secs_f64()
+            );
+        }
+    }
 
     // Save simulation params into render world
     sim_params.time = time.elapsed_secs_f64();
@@ -1501,19 +1608,19 @@ pub(crate) fn extract_effects(
         maybe_inherited_visibility,
         maybe_view_visibility,
         initializers,
-        effect,
+        compiled_effect,
         maybe_properties,
         transform,
     ) in query.p0().iter_mut()
     {
         // Check if shaders are configured
-        let effect_shaders = effect.get_configured_shaders();
+        let effect_shaders = compiled_effect.get_configured_shaders();
         if effect_shaders.is_empty() {
             continue;
         }
 
         // Check if hidden, unless always simulated
-        if effect.simulation_condition == SimulationCondition::WhenVisible
+        if compiled_effect.simulation_condition == SimulationCondition::WhenVisible
             && !maybe_inherited_visibility
                 .map(|cv| cv.get())
                 .unwrap_or(true)
@@ -1523,7 +1630,7 @@ pub(crate) fn extract_effects(
         }
 
         // Check if asset is available, otherwise silently ignore
-        let Some(asset) = effects.get(&effect.asset) else {
+        let Some(asset) = effects.get(&compiled_effect.asset) else {
             trace!(
                 "EffectAsset not ready; skipping ParticleEffect instance on entity {:?}.",
                 main_entity
@@ -1532,7 +1639,7 @@ pub(crate) fn extract_effects(
         };
 
         #[cfg(feature = "2d")]
-        let z_sort_key_2d = effect.z_layer_2d;
+        let z_sort_key_2d = compiled_effect.z_layer_2d;
 
         let property_layout = asset.property_layout();
         let property_data = if let Some(properties) = maybe_properties {
@@ -1551,12 +1658,12 @@ pub(crate) fn extract_effects(
         };
 
         let texture_layout = asset.module().texture_layout();
-        let layout_flags = effect.layout_flags;
-        let mesh = match effect.mesh {
+        let layout_flags = compiled_effect.layout_flags;
+        let mesh = match compiled_effect.mesh {
             None => effects_meta.default_mesh.clone(),
             Some(ref mesh) => (*mesh).clone(),
         };
-        let alpha_mode = effect.alpha_mode;
+        let alpha_mode = compiled_effect.alpha_mode;
 
         trace!(
             "Extracted instance of effect '{}' on entity {:?} (render entity {:?}): texture_layout_count={} texture_count={} layout_flags={:?}",
@@ -1564,14 +1671,14 @@ pub(crate) fn extract_effects(
             main_entity,
             render_entity.id(),
             texture_layout.layout.len(),
-            effect.textures.len(),
+            compiled_effect.textures.len(),
             layout_flags,
         );
 
         extracted_effects.effects.push(ExtractedEffect {
             render_entity: *render_entity,
             main_entity: main_entity.into(),
-            handle: effect.asset.clone_weak(),
+            handle: compiled_effect.asset.clone_weak(),
             particle_layout: asset.particle_layout().clone(),
             property_layout,
             property_data,
@@ -1580,7 +1687,7 @@ pub(crate) fn extract_effects(
             layout_flags,
             mesh,
             texture_layout,
-            textures: effect.textures.clone(),
+            textures: compiled_effect.textures.clone(),
             alpha_mode,
             effect_shaders: effect_shaders.to_vec(),
             #[cfg(feature = "2d")]
