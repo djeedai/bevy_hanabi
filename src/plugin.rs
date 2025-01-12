@@ -22,22 +22,23 @@ use bevy::{
 use crate::asset::EffectAssetLoader;
 use crate::{
     asset::EffectAsset,
-    compile_effects, gather_removed_effects,
+    compile_effects,
     properties::EffectProperties,
     render::{
-        add_remove_effects, batch_effects, extract_effect_events, extract_effects,
-        prepare_bind_groups, prepare_effects, prepare_gpu_resources, queue_effects,
-        DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache,
-        EffectsMeta, ExtractedEffects, GpuDispatchIndirect, GpuParticleGroup,
-        GpuRenderEffectMetadata, GpuRenderGroupIndirect, GpuSpawnerParams, ParticlesInitPipeline,
-        ParticlesRenderPipeline, ParticlesUpdatePipeline, PropertyCache, ShaderCache, SimParams,
-        StorageType as _, VfxSimulateDriverNode, VfxSimulateNode,
+        add_effects, batch_effects, extract_effect_events, extract_effects,
+        on_remove_cached_effect, on_remove_cached_properties, prepare_bind_groups, prepare_effects,
+        prepare_gpu_resources, queue_effects, DispatchIndirectPipeline, DrawEffects,
+        EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects,
+        GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect,
+        GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline,
+        PropertyCache, ShaderCache, SimParams, StorageType as _, VfxSimulateDriverNode,
+        VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_initializers,
     time::effect_simulation_time_system,
     update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
-    RemovedEffectsEvent, Spawner,
+    Spawner,
 };
 
 /// Labels for the Hanabi systems.
@@ -68,16 +69,6 @@ pub enum EffectSystems {
     /// declared properties should run before this set in order for changes to
     /// be taken into account in the same frame.
     UpdatePropertiesFromAsset,
-
-    /// Gather all removed [`ParticleEffect`] components during the
-    /// [`PostUpdate`] set, to clean-up unused GPU resources.
-    ///
-    /// Systems deleting entities with a [`ParticleEffect`] component should run
-    /// before this set if they want the particle effect is cleaned-up during
-    /// the same frame.
-    ///
-    /// [`ParticleEffect`]: crate::ParticleEffect
-    GatherRemovedEffects,
 
     /// Prepare effect assets for the extracted effects.
     ///
@@ -191,7 +182,6 @@ impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
         // Register asset
         app.init_asset::<EffectAsset>()
-            .add_event::<RemovedEffectsEvent>()
             .insert_resource(Random(spawn::new_rng()))
             .init_resource::<ShaderCache>()
             .init_resource::<Time<EffectSimulation>>()
@@ -203,7 +193,6 @@ impl Plugin for HanabiPlugin {
                         // ComputedVisibility was updated.
                         .after(VisibilitySystems::VisibilityPropagate),
                     EffectSystems::CompileEffects,
-                    EffectSystems::GatherRemovedEffects,
                 ),
             )
             .configure_sets(
@@ -222,7 +211,6 @@ impl Plugin for HanabiPlugin {
                     tick_initializers.in_set(EffectSystems::TickSpawners),
                     compile_effects.in_set(EffectSystems::CompileEffects),
                     update_properties_from_asset.in_set(EffectSystems::UpdatePropertiesFromAsset),
-                    gather_removed_effects.in_set(EffectSystems::GatherRemovedEffects),
                     check_visibility::<WithCompiledParticleEffect>
                         .in_set(VisibilitySystems::CheckVisibility),
                 ),
@@ -314,7 +302,7 @@ impl Plugin for HanabiPlugin {
             .add_systems(
                 Render,
                 (
-                    (add_remove_effects, prepare_effects, batch_effects)
+                    (add_effects, prepare_effects, batch_effects)
                         .chain()
                         .in_set(EffectSystems::PrepareEffectAssets)
                         // Ensure we run after Bevy prepared the render Mesh
@@ -331,6 +319,10 @@ impl Plugin for HanabiPlugin {
                         .after(prepare_assets::<GpuImage>),
                 ),
             );
+        render_app.world_mut().add_observer(on_remove_cached_effect);
+        render_app
+            .world_mut()
+            .add_observer(on_remove_cached_properties);
 
         // Register the draw function for drawing the particles. This will be called
         // during the main 2D/3D pass, at the Transparent2d/3d phase, after the

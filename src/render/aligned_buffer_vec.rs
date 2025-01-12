@@ -388,10 +388,15 @@ impl HybridAlignedBufferVec {
         self.capacity
     }
 
-    // #[inline]
-    // pub fn len(&self) -> usize {
-    //     self.values.len()
-    // }
+    /// Current buffer size, in bytes.
+    ///
+    /// This represents the size of the CPU data uploaded to GPU. Pending a GPU
+    /// buffer re-allocation or re-upload, this size might differ from the
+    /// actual GPU buffer size. But they're eventually consistent.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
 
     /// Alignment, in bytes, of all the elements.
     #[allow(dead_code)]
@@ -508,7 +513,6 @@ impl HybridAlignedBufferVec {
         // Insert into existing space
         if let Some((_, index)) = best_slot {
             let row_range = self.free_rows.remove(index);
-            debug_assert_eq!(row_range.0.start as usize % self.item_align, 0);
             let offset = row_range.0.start as usize * self.item_align;
             let free_size = (row_range.0.end - row_range.0.start) as usize * self.item_align;
             let size = src.len();
@@ -535,7 +539,8 @@ impl HybridAlignedBufferVec {
             let size = src.len();
             let new_capacity = offset + size;
             if new_capacity > self.values.capacity() {
-                self.values.reserve(new_capacity - self.values.len())
+                let additional = new_capacity - self.values.len();
+                self.values.reserve(additional)
             }
 
             // Insert padding if needed
