@@ -1470,7 +1470,7 @@ pub enum BuiltInOperator {
     /// - Otherwise, the initial value is `true`.
     ///
     /// At the end of the update pass, if the particle has both the
-    /// [`Attribute::AGE`] and   [`Attribute::LIFETIME`], then the flag is
+    /// [`Attribute::AGE`] and [`Attribute::LIFETIME`], then the flag is
     /// re-evaluated as:
     ///
     /// ```wgsl

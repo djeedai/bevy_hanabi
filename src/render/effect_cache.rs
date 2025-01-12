@@ -22,7 +22,7 @@ use crate::{
 /// for a single effect.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectSlices {
-    /// Slices into the underlying BufferVec of the group.
+    /// Slices into the underlying [`BufferVec`]` of the group.
     ///
     /// The length of this vector is the number of particle groups plus one.
     /// The range of the first group is (slices[0]..slices[1]), the index of
@@ -30,9 +30,9 @@ pub struct EffectSlices {
     ///
     /// This is measured in items, not bytes.
     pub slices: Vec<u32>,
-    /// The index of the buffer.
+    /// Index of the buffer in the [`EffectCache`].
     pub buffer_index: u32,
-    /// Particle layout of the slice.
+    /// Particle layout of the effect.
     pub particle_layout: ParticleLayout,
 }
 
@@ -125,6 +125,15 @@ struct SimulateBindGroupKey {
     size: u32,
 }
 
+impl SimulateBindGroupKey {
+    /// Invalid key, often used as placeholder.
+    pub const INVALID: Self = Self {
+        buffer: None,
+        offset: u32::MAX,
+        size: 0,
+    };
+}
+
 /// Storage for a single kind of effects, sharing the same buffer(s).
 ///
 /// Currently only accepts a single unique item size (particle size), fixed at
@@ -211,12 +220,15 @@ impl EffectBuffer {
             particle_layout.min_binding_size().get(),
         );
 
+        // Calculate the clamped capacity of the group, in number of particles.
         let capacity = capacity.max(Self::MIN_CAPACITY);
         debug_assert!(
             capacity > 0,
             "Attempted to create a zero-sized effect buffer."
         );
 
+        // Allocate the particle buffer itself, containing the attributes of each
+        // particle.
         let particle_capacity_bytes: BufferAddress =
             capacity as u64 * particle_layout.min_binding_size().get();
         let particle_label = label
@@ -381,7 +393,7 @@ impl EffectBuffer {
             free_slices: vec![],
             asset,
             simulate_bind_group: None,
-            simulate_bind_group_key: default(),
+            simulate_bind_group_key: SimulateBindGroupKey::INVALID,
         }
     }
 
@@ -498,7 +510,7 @@ impl EffectBuffer {
     /// [`create_sim_bind_group()`]: self::EffectBuffer::create_sim_bind_group
     fn invalidate_sim_bind_group(&mut self) {
         self.simulate_bind_group = None;
-        self.simulate_bind_group_key = default();
+        self.simulate_bind_group_key = SimulateBindGroupKey::INVALID;
     }
 
     /// Return the cached bind group for the init and update passes.

@@ -5,6 +5,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added new `DebugSettings` resource, allowing to instruct a GPU debugger to start capturing API commands,
+  either right away or each time a new effect is spawned.
+
 ### Changed
 
 - Changed the `ParticleEffect` component to require the `CompiledParticleEffect` and `SyncToRenderWorld` components.
