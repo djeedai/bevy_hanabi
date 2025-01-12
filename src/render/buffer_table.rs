@@ -531,7 +531,10 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             self.free_indices.splice(pos..pos, index..(index + count));
         }
 
-        debug_assert!((self.free_indices.len() as u32) < self.active_count);
+        debug_assert!(
+            (self.free_indices.is_empty() && self.active_count == 0)
+                || (self.free_indices.len() as u32) < self.active_count
+        );
     }
 
     /// Allocate any GPU buffer if needed, based on the most recent capacity
