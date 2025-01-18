@@ -178,7 +178,7 @@ jobs:
             sleep 1
           done
         env:
-          CARGO_INCREMENTAL: 0
+          CARGO_INCREMENTAL: 1
 
   check-format:
     name: Check format
