@@ -29,17 +29,6 @@ struct Spawner {
     /// PRNG seed for this effect instance. Currently this can change each time the
     /// effect is recompiled, and cannot be set deterministically (TODO).
     seed: u32,
-    // Can't use storage<read> with atomics
-#ifdef SPAWNER_READONLY
-    count: i32,
-#else
-    count: atomic<i32>,
-#endif
-    /// Global index of the effect in the various shared buffers.
-    ///
-    /// This is a globally unique index for all active effect instances, used to index
-    /// global buffers like the spawner buffer or the render indirect dispatch buffer.
-    effect_index: u32,
     // The lifetime to initialize particles with. This is only used for cloners
     // (i.e. trails or ribbons).
     lifetime: f32,

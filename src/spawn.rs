@@ -972,9 +972,11 @@ pub fn tick_initializers(
     let dt = time.delta_secs();
 
     for (entity, effect, maybe_inherited_visibility, maybe_initializers) in query.iter_mut() {
-        // TODO - maybe cache simulation_condition so we don't need to unconditionally
-        // query the asset?
         let Some(asset) = effects.get(&effect.handle) else {
+            trace!(
+                "Effect asset with handle {:?} is not available; skipped initializers tick.",
+                effect.handle
+            );
             continue;
         };
 
@@ -983,6 +985,10 @@ pub fn tick_initializers(
                 .map(|iv| iv.get())
                 .unwrap_or(true)
         {
+            trace!(
+                "Effect asset with handle {:?} is not visible, and simulates only WhenVisible; skipped initializers tick.",
+                effect.handle
+            );
             continue;
         }
 

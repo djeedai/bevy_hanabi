@@ -173,10 +173,7 @@ use std::fmt::Write as _;
 
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
-use bevy::{
-    prelude::*,
-    utils::{HashMap, HashSet},
-};
+use bevy::{prelude::*, render::sync_world::SyncToRenderWorld, utils::HashSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -567,11 +564,13 @@ impl From<&PropertyInstance> for PropertyValue {
     }
 }
 
-/// Visual effect made of particles.
+/// Particle-based visual effect instance.
 ///
-/// The particle effect component represent a single instance of a visual
+/// The particle effect component represents a single instance of a visual
 /// effect. The visual effect itself is described by a handle to an
-/// [`EffectAsset`]. This instance is associated to an [`Entity`], inheriting
+/// [`EffectAsset`].
+///
+/// This instance is associated to an [`Entity`], inheriting
 /// its [`Transform`] as the origin frame for its particle spawning.
 ///
 /// # Content
@@ -585,14 +584,24 @@ impl From<&PropertyInstance> for PropertyValue {
 /// overridden per instance. For minor variations use different assets. If you
 /// need too many variants try to use a property instead.
 ///
-/// # Dependencies
+/// # Component dependencies
+///
+/// ## Mandatory components
 ///
 /// This component must always be paired with a [`CompiledParticleEffect`]
 /// component. Failure to do so will prevent the effect instance from working.
+/// Note however that the [`ParticleEffect`] component _requires_ (in the sense
+/// of Bevy ECS) the [`CompiledParticleEffect`] component, so you can simply
+/// insert the former, and Bevy will insert the latter automatically.
 ///
-/// When spawning a new [`ParticleEffect`], consider using the
-/// [`ParticleEffectBundle`] to ensure all the necessary components are present
-/// on the entity for the effect to render correctly.
+/// Currently a [`Transform`] and [`GlobalTransform`] components are also
+/// mandatory.
+///
+/// ## Optional components
+///
+/// If a [`Visibility`] component is present, it determines whether the effect
+/// is visible. This influences simulation when using
+/// [`SimulationCondition::WhenVisible`].
 ///
 /// # Change detection
 ///
@@ -608,6 +617,7 @@ impl From<&PropertyInstance> for PropertyValue {
 /// for example.
 #[derive(Debug, Default, Clone, Component, Reflect)]
 #[reflect(Component)]
+#[require(CompiledParticleEffect, SyncToRenderWorld)]
 pub struct ParticleEffect {
     /// Handle of the effect to instantiate.
     pub handle: Handle<EffectAsset>,
@@ -892,11 +902,11 @@ impl EffectShaderSource {
 
         // Generate the shader code defining the per-effect properties, if any
         let property_layout = asset.property_layout();
-        let properties_code = property_layout.generate_code();
+        let properties_code = property_layout.generate_code().unwrap_or_default();
         let properties_binding_code = if property_layout.is_empty() {
             "// (no properties)".to_string()
         } else {
-            "@group(1) @binding(3) var<storage, read> properties : Properties;".to_string()
+            "@group(2) @binding(1) var<storage, read> properties : Properties;".to_string()
         };
 
         // Parent particle buffer binding for init pass, if the effect has a parent.
@@ -952,8 +962,10 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
         if asset.simulation_space == SimulationSpace::Local {
             layout_flags |= LayoutFlags::LOCAL_SPACE_SIMULATION;
         }
-        if let AlphaMode::Mask(_) = &asset.alpha_mode {
-            layout_flags |= LayoutFlags::USE_ALPHA_MASK;
+        match &asset.alpha_mode {
+            AlphaMode::Mask(_) => layout_flags.insert(LayoutFlags::USE_ALPHA_MASK),
+            AlphaMode::Opaque => layout_flags.insert(LayoutFlags::OPAQUE),
+            _ => layout_flags.remove(LayoutFlags::USE_ALPHA_MASK | LayoutFlags::OPAQUE),
         }
         if asset.ribbon_group.is_some() {
             layout_flags |= LayoutFlags::RIBBONS;
@@ -1088,7 +1100,7 @@ struct ParentParticleBuffer {{
                     }
                 } else {
                     warn!(
-                        "Asset {} specifies motion integration but is missing {}.",
+                        "Asset '{}' specifies motion integration but is missing {}. Particles won't move unless the POSITION attribute is explicitly assigned. Set MotionIntegration::None to remove this warning.",
                         asset.name,
                         if has_position {
                             "Attribute::VELOCITY"
@@ -1301,13 +1313,12 @@ struct ParentParticleBuffer {{
 
 /// Compiled data for a [`ParticleEffect`].
 ///
-/// This component is managed automatically, and generally should not be
-/// accessed manually. It contains data generated from the associated
-/// [`ParticleEffect`] component located on the same [`Entity`]. The data is
-/// split into this component in particular for change detection reasons, and
-/// any change to the associated [`ParticleEffect`] will cause the values of
-/// this component to be recalculated. Otherwise the data is cached
-/// frame-to-frame for performance.
+/// This component is managed automatically, and should not be accessed
+/// manually. It contains data generated from the associated [`ParticleEffect`]
+/// component located on the same [`Entity`]. The data is split into this
+/// component for change detection reasons, and any change to the associated
+/// [`ParticleEffect`] will cause the values of this component to be
+/// recalculated. Otherwise the data is cached frame-to-frame for performance.
 ///
 /// All [`ParticleEffect`]s are compiled by the system running in the
 /// [`EffectSystems::CompileEffects`] set every frame when they're spawned or
@@ -1442,6 +1453,11 @@ impl CompiledParticleEffect {
         self.layout_flags = shader_source.layout_flags;
         self.alpha_mode = asset.alpha_mode;
         self.parent_particle_layout = parent_layout;
+        trace!(
+            "Compiled effect sources: layout_flags={:?} alpha_mode={:?}",
+            self.layout_flags,
+            self.alpha_mode
+        );
 
         // TODO - Replace with Option<EffectShader { handle: Handle<Shader>, hash:
         // u64 }> where the hash takes into account the code and extra code
@@ -1722,7 +1738,7 @@ fn compile_effects(
 
         // If the ParticleEffect didn't change, and the compiled one is for the correct
         // asset, then there's nothing to do.
-        let material_changed = material.as_ref().map_or(false, |r| r.is_changed());
+        let material_changed = material.as_ref().is_some_and(|r| r.is_changed());
         let need_rebuild =
             effect.is_changed() || material_changed || compiled_effect.children != child_entities;
         if !need_rebuild && (compiled_effect.asset == effect.handle) {
@@ -1801,33 +1817,6 @@ fn update_properties_from_asset(
         };
 
         EffectProperties::update(properties, asset.properties(), effect.is_added());
-    }
-}
-
-/// Event sent by [`gather_removed_effects()`] with the list of effects removed
-/// during this frame.
-///
-/// The event is consumed during the extract phase by the [`extract_effects()`]
-/// system, to clean-up unused GPU resources.
-///
-/// [`extract_effects()`]: crate::render::extract_effects
-#[derive(Event)]
-struct RemovedEffectsEvent {
-    entities: Vec<Entity>,
-}
-
-/// Gather all the removed [`ParticleEffect`] components to allow cleaning-up
-/// unused GPU resources.
-///
-/// This system executes inside the [`EffectSystems::GatherRemovedEffects`]
-/// set of the [`PostUpdate`] schedule.
-fn gather_removed_effects(
-    mut removed_effects: RemovedComponents<ParticleEffect>,
-    mut removed_effects_event_writer: EventWriter<RemovedEffectsEvent>,
-) {
-    let entities: Vec<Entity> = removed_effects.read().collect();
-    if !entities.is_empty() {
-        removed_effects_event_writer.send(RemovedEffectsEvent { entities });
     }
 }
 

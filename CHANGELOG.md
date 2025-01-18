@@ -3,6 +3,33 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added new `DebugSettings` resource, allowing to instruct a GPU debugger to start capturing API commands,
+  either right away or each time a new effect is spawned.
+
+### Changed
+
+- Changed the `ParticleEffect` component to require the `CompiledParticleEffect` and `SyncToRenderWorld` components.
+- Renamed `PropertyLayout::size()` to `cpu_size()` to prevent confusion.
+  The GPU size is given by `min_binding_size()`, and can be greater due to WGSL padding rules being different from Rust ones.
+- `PropertyLayout::generate_code()` now returns an `Option<String>` for clarity,
+  which is `None` if the layout is empty (as opposed to an empty string previously).
+- Removed effects are now deallocated from the render world before the extract schedule, instead of during it.
+  This should have no consequence, unless you were using a system inserted explicitly before Hanabi's extraction.
+
+### Fixed
+
+- Fixed a bug with opaque effects not rendering.
+
+### Removed
+
+- Removed the `EffectSystems::GatherRemovedEffects` system set.
+  Removed effects are now processed via observers, which execute during the render world sync just before extraction.
+  Removed the `RemovedEffectsEvent` type too.
+
 ## [0.14.0] 2024-12-09
 
 ### Added

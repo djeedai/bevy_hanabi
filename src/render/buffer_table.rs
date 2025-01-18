@@ -119,6 +119,10 @@ pub struct BufferTable<T: Pod + ShaderSize> {
     /// constraints.
     aligned_size: usize,
     /// Capacity of the buffer, in number of rows.
+    ///
+    /// This is the expected capacity, as requested by CPU side allocations and
+    /// deallocations. The GPU buffer might not have been resized yet to handle
+    /// it, so might be allocated with a different size.
     capacity: u32,
     /// Size of the "active" portion of the table, which includes allocated rows
     /// and any row in the free list. All other rows in the
@@ -344,9 +348,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             self.active_count += 1;
             index
         } else {
-            // Note: this is inefficient O(n) but we need to apply the same logic as the
-            // EffectCache because we rely on indices being in sync.
-            self.free_indices.remove(0)
+            self.free_indices.pop().unwrap()
         };
         let allocated_count = self
             .buffer
@@ -373,6 +375,98 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         BufferTableId(index)
     }
 
+    /// Insert several new contiguous rows into the table.
+    ///
+    /// For performance reasons, this buffers the row content on the CPU until
+    /// the next GPU update, to minimize the number of CPU to GPU transfers.
+    ///
+    /// # Returns
+    ///
+    /// Returns the index of the first entry. Other entries follow right after
+    /// it.
+    pub fn insert_contiguous(&mut self, values: impl ExactSizeIterator<Item = T>) -> BufferTableId {
+        let count = values.len() as u32;
+        trace!(
+            "Inserting {} contiguous values into table buffer '{}' with {} free indices, capacity: {}, active_size: {}",
+            count,
+            self.safe_name(),
+            self.free_indices.len(),
+            self.capacity,
+            self.active_count
+        );
+        let first_index = if self.free_indices.is_empty() {
+            let index = self.active_count;
+            if index == self.capacity {
+                self.capacity += count;
+            }
+            debug_assert!(index < self.capacity);
+            self.active_count += count;
+            index
+        } else {
+            let mut s = 0;
+            let mut n = 1;
+            let mut i = 1;
+            while i < self.free_indices.len() {
+                debug_assert!(self.free_indices[i] > self.free_indices[i - 1]); // always sorted
+                if self.free_indices[i] == self.free_indices[i - 1] + 1 {
+                    // contiguous
+                    n += 1;
+                    if n == count {
+                        break;
+                    }
+                } else {
+                    // non-contiguous; restart a new sequence
+                    debug_assert!(n < count);
+                    s = i;
+                }
+                i += 1;
+            }
+            if n == count {
+                // Found a range of 'count' consecutive entries. Consume it.
+                let index = self.free_indices[s];
+                self.free_indices.splice(s..=i, []);
+                index
+            } else {
+                // No free range for 'count' consecutive entries. Allocate at end instead.
+                let index = self.active_count;
+                if index == self.capacity {
+                    self.capacity += count;
+                }
+                debug_assert!(index < self.capacity);
+                self.active_count += count;
+                index
+            }
+        };
+        let allocated_count = self
+            .buffer
+            .as_ref()
+            .map(|ab| ab.allocated_count())
+            .unwrap_or(0);
+        trace!(
+            "Found {} free indices {}..{}, capacity: {}, active_count: {}, allocated_count: {}",
+            count,
+            first_index,
+            first_index + count,
+            self.capacity,
+            self.active_count,
+            allocated_count
+        );
+        for (i, value) in values.enumerate() {
+            let index = first_index + i as u32;
+            if index < allocated_count {
+                self.pending_values.alloc().init((index, value));
+            } else {
+                let extra_index = index - allocated_count;
+                if extra_index < self.extra_pending_values.len() as u32 {
+                    self.extra_pending_values[extra_index as usize] = value;
+                } else {
+                    self.extra_pending_values.alloc().init(value);
+                }
+            }
+        }
+        BufferTableId(first_index)
+    }
+
     /// Remove a row from the table.
     #[allow(dead_code)]
     pub fn remove(&mut self, id: BufferTableId) {
@@ -395,15 +489,63 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         }
     }
 
+    /// Remove a range of rows from the table.
+    #[allow(dead_code)]
+    pub fn remove_range(&mut self, first: BufferTableId, count: u32) {
+        let index = first.0;
+        assert!(index + count <= self.active_count);
+
+        // If this is the last item in the active zone, just shrink the active zone
+        // (implicit free list).
+        if index == self.active_count - count {
+            self.active_count -= count;
+            self.capacity -= count;
+
+            // Also try to remove free indices
+            if self.free_indices.len() as u32 == self.active_count {
+                // Easy case: everything is free, clear everything
+                self.free_indices.clear();
+                self.active_count = 0;
+                self.capacity = 0;
+            } else {
+                // Some rows are still allocated. Dequeue from end while we have a contiguous
+                // tail of free indices.
+                let mut num_popped = 0;
+                while let Some(idx) = self.free_indices.pop() {
+                    if idx < self.active_count - 1 - num_popped {
+                        self.free_indices.push(idx);
+                        break;
+                    }
+                    num_popped += 1;
+                }
+                self.active_count -= num_popped;
+                self.capacity -= num_popped;
+            }
+        } else {
+            // This is very inefficient but we need to apply the same logic as the
+            // EffectCache because we rely on indices being in sync.
+            let pos = self
+                .free_indices
+                .binary_search(&index) // will fail
+                .unwrap_or_else(|e| e); // will get position of insertion
+            self.free_indices.splice(pos..pos, index..(index + count));
+        }
+
+        debug_assert!(
+            (self.free_indices.is_empty() && self.active_count == 0)
+                || (self.free_indices.len() as u32) < self.active_count
+        );
+    }
+
     /// Allocate any GPU buffer if needed, based on the most recent capacity
     /// requested.
     ///
     /// This should be called only once per frame after all allocation requests
     /// have been made via [`insert()`] but before the GPU buffer is actually
     /// updated. This is an optimization to enable allocating the GPU buffer
-    /// earlier than it's actually needed. Calling this multiple times will work
-    /// but will be inefficient and allocate GPU buffers for nothing. Not
-    /// calling it is safe, as the next update will call it just-in-time anyway.
+    /// earlier than it's actually needed. Calling this multiple times is not
+    /// supported, and might assert. Not calling it is safe, as the next
+    /// update will call it just-in-time anyway.
     ///
     /// # Returns
     ///
@@ -475,12 +617,39 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
 
             if let Some(ab) = self.buffer.as_mut() {
                 // If there's any data currently in the GPU buffer, we need to copy it on next
-                // update to preserve it, but only if there's no pending copy already.
-                if self.active_count > 0 && ab.old_buffer.is_none() {
-                    ab.old_buffer = Some(ab.buffer.clone()); // TODO: swap
+                // update to preserve it.
+                if self.active_count > 0 {
+                    // Current buffer has value to preserve, save it into old_buffer before
+                    // replacing it with the newly-allocated one.
+
+                    // By design we can't have all active entries as free ones; we should have
+                    // updated active_count=0 and cleared the free list if that was the case.
+                    debug_assert!(self.free_indices.len() < self.active_count as usize);
+
+                    // If we already have an old buffer, that means we already have scheduled a copy
+                    // to preserve some values. And we can't do that twice per frame.
+                    assert!(
+                        ab.old_buffer.is_none(),
+                        "allocate_gpu() called twice before write_buffer() took effect."
+                    );
+
+                    // Swap old <-> new
+                    let mut old_buffer = new_buffer;
+                    std::mem::swap(&mut old_buffer, &mut ab.buffer);
+                    ab.old_buffer = Some(old_buffer);
                     ab.old_count = ab.count;
+                } else {
+                    // Current buffer is unused, so we don't need to preserve anything.
+
+                    // It could happen we reallocate during the frame then immediately free the rows
+                    // to preserve, such that we don't need in the end to preserve anything.
+                    if let Some(old_buffer) = ab.old_buffer.take() {
+                        old_buffer.destroy();
+                    }
+
+                    ab.buffer.destroy();
+                    ab.buffer = new_buffer;
                 }
-                ab.buffer = new_buffer;
                 ab.count = self.capacity;
             } else {
                 self.buffer = Some(AllocatedBuffer {
@@ -608,7 +777,7 @@ mod tests {
     }
 
     #[test]
-    fn table_sizes() {
+    fn buffer_table_sizes() {
         // Rust
         assert_eq!(std::mem::size_of::<GpuDummy>(), 12);
         assert_eq!(std::mem::align_of::<GpuDummy>(), 4);
@@ -691,6 +860,92 @@ mod tests {
             assert!(!table.is_empty());
             assert_eq!(table.len(), 1);
         }
+    }
+
+    #[test]
+    fn buffer_table_insert() {
+        let mut table =
+            BufferTable::<GpuDummy>::new(BufferUsages::STORAGE, NonZeroU64::new(32), None);
+
+        // [x]
+        let id1 = table.insert(GpuDummy::default());
+        assert_eq!(id1.0, 0);
+        assert_eq!(table.active_count, 1);
+        assert!(table.free_indices.is_empty());
+
+        // [x x]
+        let id2 = table.insert(GpuDummy::default());
+        assert_eq!(id2.0, 1);
+        assert_eq!(table.active_count, 2);
+        assert!(table.free_indices.is_empty());
+
+        // [- x]
+        table.remove(id1);
+        assert_eq!(table.active_count, 2);
+        assert_eq!(table.free_indices.len(), 1);
+        assert_eq!(table.free_indices[0], 0);
+
+        // [- x x x]
+        let id3 = table.insert_contiguous([GpuDummy::default(); 2].into_iter());
+        assert_eq!(id3.0, 2); // at the end (doesn't fit in free slot #0)
+        assert_eq!(table.active_count, 4);
+        assert_eq!(table.free_indices.len(), 1);
+        assert_eq!(table.free_indices[0], 0);
+
+        // [- - x x]
+        table.remove(id2);
+        assert_eq!(table.active_count, 4);
+        assert_eq!(table.free_indices.len(), 2);
+        assert_eq!(table.free_indices[0], 0);
+        assert_eq!(table.free_indices[1], 1);
+
+        // [x x x x]
+        let id4 = table.insert_contiguous([GpuDummy::default(); 2].into_iter());
+        assert_eq!(id4.0, 0); // this times it fit into slot #0-#1
+        assert_eq!(table.active_count, 4);
+        assert!(table.free_indices.is_empty());
+
+        // [- - x x]
+        table.remove_range(id4, 2);
+        assert_eq!(table.active_count, 4);
+        assert_eq!(table.free_indices.len(), 2);
+        assert_eq!(table.free_indices[0], 0);
+        assert_eq!(table.free_indices[1], 1);
+
+        // []
+        table.remove_range(id3, 2);
+        assert_eq!(table.active_count, 0);
+        assert!(table.free_indices.is_empty());
+
+        // [x x]
+        let id5 = table.insert_contiguous([GpuDummy::default(); 2].into_iter());
+        assert_eq!(id5.0, 0);
+        assert_eq!(table.active_count, 2);
+        assert!(table.free_indices.is_empty());
+
+        // [x x x x]
+        let id6 = table.insert_contiguous([GpuDummy::default(); 2].into_iter());
+        assert_eq!(id6.0, 2);
+        assert_eq!(table.active_count, 4);
+        assert!(table.free_indices.is_empty());
+
+        // [x x x x x x]
+        let id7 = table.insert_contiguous([GpuDummy::default(); 2].into_iter());
+        assert_eq!(id7.0, 4);
+        assert_eq!(table.active_count, 6);
+        assert!(table.free_indices.is_empty());
+
+        // [x x - - x x]
+        table.remove_range(id6, 2);
+        assert_eq!(table.active_count, 6);
+        assert_eq!(table.free_indices.len(), 2);
+        assert_eq!(table.free_indices[0], 2);
+        assert_eq!(table.free_indices[1], 3);
+
+        // [x x]
+        table.remove_range(id7, 2);
+        assert_eq!(table.active_count, 2);
+        assert!(table.free_indices.is_empty());
     }
 }
 

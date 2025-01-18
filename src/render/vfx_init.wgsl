@@ -19,18 +19,21 @@ struct ParticleBuffer {
 {{PROPERTIES}}
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
+
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
-{{PROPERTIES_BINDING}}
 #ifdef USE_GPU_SPAWN_EVENTS
 @group(1) @binding(4) var<storage, read> child_info : array<ChildInfo>;
 @group(1) @binding(5) var<storage, read_write> event_buffer : EventBuffer;
 #endif
 {{PARENT_PARTICLE_BINDING}}
-@group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as update  // FIXME - this should be read-only
-@group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
-@group(3) @binding(1) var<storage, read_write> dest_render_group_indirect : RenderGroupIndirect;
+
+@group(2) @binding(0) var<storage, read> spawner: Spawner;
+{{PROPERTIES_BINDING}}
+
+@group(3) @binding(0) var<storage, read_write> render_effect_indirect: RenderEffectMetadata;
+@group(3) @binding(1) var<storage, read_write> dest_render_group_indirect: RenderGroupIndirect;
 #ifdef CLONE
 @group(3) @binding(2) var<storage, read_write> src_render_group_indirect : RenderGroupIndirect;
 #endif

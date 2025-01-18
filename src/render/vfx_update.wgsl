@@ -21,14 +21,14 @@ struct ParticleBuffer {
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
-{{PROPERTIES_BINDING}}
 #ifdef EMITS_GPU_SPAWN_EVENTS
 {{CHILDREN_EVENT_BUFFER_BINDINGS}}
 #endif
 
-@group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as init
+@group(2) @binding(0) var<storage, read> spawner : Spawner;
+{{PROPERTIES_BINDING}}
 
-@group(3) @binding(0) var<storage, read_write> render_effect_indirect : array<RenderEffectMetadata>;
+@group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
 @group(3) @binding(1) var<storage, read_write> render_group_indirect : array<RenderGroupIndirect>;
 
 {{UPDATE_EXTRA}}
