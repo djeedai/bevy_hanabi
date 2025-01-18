@@ -512,7 +512,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 // tail of free indices.
                 let mut num_popped = 0;
                 while let Some(idx) = self.free_indices.pop() {
-                    if idx < self.active_count {
+                    if idx < self.active_count - 1 - num_popped {
                         self.free_indices.push(idx);
                         break;
                     }
@@ -543,9 +543,9 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     /// This should be called only once per frame after all allocation requests
     /// have been made via [`insert()`] but before the GPU buffer is actually
     /// updated. This is an optimization to enable allocating the GPU buffer
-    /// earlier than it's actually needed. Calling this multiple times will work
-    /// but will be inefficient and allocate GPU buffers for nothing. Not
-    /// calling it is safe, as the next update will call it just-in-time anyway.
+    /// earlier than it's actually needed. Calling this multiple times is not
+    /// supported, and might assert. Not calling it is safe, as the next
+    /// update will call it just-in-time anyway.
     ///
     /// # Returns
     ///
@@ -617,12 +617,39 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
 
             if let Some(ab) = self.buffer.as_mut() {
                 // If there's any data currently in the GPU buffer, we need to copy it on next
-                // update to preserve it, but only if there's no pending copy already.
-                if self.active_count > 0 && ab.old_buffer.is_none() {
-                    ab.old_buffer = Some(ab.buffer.clone()); // TODO: swap
+                // update to preserve it.
+                if self.active_count > 0 {
+                    // Current buffer has value to preserve, save it into old_buffer before
+                    // replacing it with the newly-allocated one.
+
+                    // By design we can't have all active entries as free ones; we should have
+                    // updated active_count=0 and cleared the free list if that was the case.
+                    debug_assert!(self.free_indices.len() < self.active_count as usize);
+
+                    // If we already have an old buffer, that means we already have scheduled a copy
+                    // to preserve some values. And we can't do that twice per frame.
+                    assert!(
+                        ab.old_buffer.is_none(),
+                        "allocate_gpu() called twice before write_buffer() took effect."
+                    );
+
+                    // Swap old <-> new
+                    let mut old_buffer = new_buffer;
+                    std::mem::swap(&mut old_buffer, &mut ab.buffer);
+                    ab.old_buffer = Some(old_buffer);
                     ab.old_count = ab.count;
+                } else {
+                    // Current buffer is unused, so we don't need to preserve anything.
+
+                    // It could happen we reallocate during the frame then immediately free the rows
+                    // to preserve, such that we don't need in the end to preserve anything.
+                    if let Some(old_buffer) = ab.old_buffer.take() {
+                        old_buffer.destroy();
+                    }
+
+                    ab.buffer.destroy();
+                    ab.buffer = new_buffer;
                 }
-                ab.buffer = new_buffer;
                 ab.count = self.capacity;
             } else {
                 self.buffer = Some(AllocatedBuffer {
@@ -840,46 +867,84 @@ mod tests {
         let mut table =
             BufferTable::<GpuDummy>::new(BufferUsages::STORAGE, NonZeroU64::new(32), None);
 
+        // [x]
         let id1 = table.insert(GpuDummy::default());
         assert_eq!(id1.0, 0);
         assert_eq!(table.active_count, 1);
         assert!(table.free_indices.is_empty());
 
+        // [x x]
         let id2 = table.insert(GpuDummy::default());
         assert_eq!(id2.0, 1);
         assert_eq!(table.active_count, 2);
         assert!(table.free_indices.is_empty());
 
+        // [- x]
         table.remove(id1);
         assert_eq!(table.active_count, 2);
         assert_eq!(table.free_indices.len(), 1);
         assert_eq!(table.free_indices[0], 0);
 
+        // [- x x x]
         let id3 = table.insert_contiguous([GpuDummy::default(); 2].into_iter());
         assert_eq!(id3.0, 2); // at the end (doesn't fit in free slot #0)
         assert_eq!(table.active_count, 4);
         assert_eq!(table.free_indices.len(), 1);
         assert_eq!(table.free_indices[0], 0);
 
+        // [- - x x]
         table.remove(id2);
         assert_eq!(table.active_count, 4);
         assert_eq!(table.free_indices.len(), 2);
         assert_eq!(table.free_indices[0], 0);
         assert_eq!(table.free_indices[1], 1);
 
+        // [x x x x]
         let id4 = table.insert_contiguous([GpuDummy::default(); 2].into_iter());
         assert_eq!(id4.0, 0); // this times it fit into slot #0-#1
         assert_eq!(table.active_count, 4);
         assert!(table.free_indices.is_empty());
 
+        // [- - x x]
         table.remove_range(id4, 2);
         assert_eq!(table.active_count, 4);
         assert_eq!(table.free_indices.len(), 2);
         assert_eq!(table.free_indices[0], 0);
         assert_eq!(table.free_indices[1], 1);
 
+        // []
         table.remove_range(id3, 2);
         assert_eq!(table.active_count, 0);
+        assert!(table.free_indices.is_empty());
+
+        // [x x]
+        let id5 = table.insert_contiguous([GpuDummy::default(); 2].into_iter());
+        assert_eq!(id5.0, 0);
+        assert_eq!(table.active_count, 2);
+        assert!(table.free_indices.is_empty());
+
+        // [x x x x]
+        let id6 = table.insert_contiguous([GpuDummy::default(); 2].into_iter());
+        assert_eq!(id6.0, 2);
+        assert_eq!(table.active_count, 4);
+        assert!(table.free_indices.is_empty());
+
+        // [x x x x x x]
+        let id7 = table.insert_contiguous([GpuDummy::default(); 2].into_iter());
+        assert_eq!(id7.0, 4);
+        assert_eq!(table.active_count, 6);
+        assert!(table.free_indices.is_empty());
+
+        // [x x - - x x]
+        table.remove_range(id6, 2);
+        assert_eq!(table.active_count, 6);
+        assert_eq!(table.free_indices.len(), 2);
+        assert_eq!(table.free_indices[0], 2);
+        assert_eq!(table.free_indices[1], 3);
+
+        // [x x]
+        table.remove_range(id7, 2);
+        assert_eq!(table.active_count, 2);
         assert!(table.free_indices.is_empty());
     }
 }

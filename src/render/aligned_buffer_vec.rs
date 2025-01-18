@@ -181,6 +181,9 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
                 size
             );
             self.capacity = capacity;
+            if let Some(buffer) = self.buffer.take() {
+                buffer.destroy();
+            }
             self.buffer = Some(device.create_buffer(&BufferDescriptor {
                 label: self.label.as_ref().map(|s| &s[..]),
                 size: size as BufferAddress,
@@ -705,6 +708,9 @@ impl HybridAlignedBufferVec {
                 capacity,
             );
             self.capacity = capacity;
+            if let Some(buffer) = self.buffer.take() {
+                buffer.destroy();
+            }
             self.buffer = Some(device.create_buffer(&BufferDescriptor {
                 label: self.label.as_ref().map(|s| &s[..]),
                 size: capacity as BufferAddress,
