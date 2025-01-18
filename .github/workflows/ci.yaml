@@ -142,22 +142,8 @@ jobs:
           CARGO_INCREMENTAL: 0
 
   run-examples:
-    #runs-on: ubuntu-latest # Bug: Library libxkbcommon-x11.so could not be loaded.
-    runs-on: windows-latest
+    runs-on: macos-latest
     steps:
-      - name: Install Bevy dependencies
-        run: |
-          sudo apt-get update;
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
-            libasound2-dev libudev-dev;
-        if: runner.os == 'linux'
-      # - name: Install graphic drivers
-      #   run: |
-      #     sudo apt-get update -y -qq
-      #     sudo add-apt-repository ppa:kisak/kisak-mesa -y
-      #     sudo apt-get update
-      #     sudo apt install -y xvfb libegl1-mesa libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers
-      #   if: runner.os == 'linux'
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:
@@ -171,55 +157,28 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-build-all-stable-${{ hashFiles('**/Cargo.toml') }}
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - name: Build & run examples (Linux)
+      - name: Build & run examples (macOS)
         run: |
           for example in .github/example-run/3d/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_pbr bevy/bevy_ui bevy/default_font 3d serde bevy/bevy_ci_testing"
-            sleep 10
+            time CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_pbr bevy/bevy_ui bevy/default_font 3d serde bevy/bevy_ci_testing"
+            sleep 1
           done
           for example in .github/example-run/3dpng/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_pbr bevy/bevy_ui bevy/default_font bevy/png 3d serde bevy/bevy_ci_testing"
-            sleep 10
+            time CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_pbr bevy/bevy_ui bevy/default_font bevy/png 3d serde bevy/bevy_ci_testing"
+            sleep 1
           done
           for example in .github/example-run/2d/*.ron; do
             example_name=`basename $example .ron`
             echo "running $example_name - "`date`
-            time CI_TESTING_CONFIG=$example xvfb-run cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_sprite bevy/bevy_ui bevy/default_font 2d serde bevy/bevy_ci_testing"
-            sleep 10
+            time CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_sprite bevy/bevy_ui bevy/default_font 2d serde bevy/bevy_ci_testing"
+            sleep 1
           done
         env:
-          CARGO_INCREMENTAL: 0
-        if: runner.os == 'linux'
-      - name: Build & run examples (Windows)
-        shell: bash
-        run: |
-          for example in .github/example-run/3d/*.ron; do
-            example_name=`basename $example .ron`
-            echo "running $example_name - "`date`
-            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_pbr bevy/bevy_ui bevy/default_font 3d serde bevy/bevy_ci_testing"
-            sleep 10
-          done
-          for example in .github/example-run/3dpng/*.ron; do
-            example_name=`basename $example .ron`
-            echo "running $example_name - "`date`
-            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_pbr bevy/bevy_ui bevy/default_font bevy/png 3d serde bevy/bevy_ci_testing"
-            sleep 10
-          done
-          for example in .github/example-run/2d/*.ron; do
-            example_name=`basename $example .ron`
-            echo "running $example_name - "`date`
-            time WGPU_BACKEND=dx12 CI_TESTING_CONFIG=$example cargo run --example $example_name --no-default-features --features="bevy/bevy_winit bevy/bevy_window bevy/bevy_sprite bevy/bevy_ui bevy/default_font 2d serde bevy/bevy_ci_testing"
-            sleep 10
-          done
-        env:
-          CARGO_INCREMENTAL: 0
-        if: runner.os == 'windows'
+          CARGO_INCREMENTAL: 1
 
   check-format:
     name: Check format
