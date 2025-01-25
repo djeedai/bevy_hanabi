@@ -173,7 +173,11 @@ use std::fmt::Write as _;
 
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
-use bevy::{prelude::*, render::sync_world::SyncToRenderWorld, utils::HashSet};
+use bevy::{
+    prelude::*,
+    render::sync_world::SyncToRenderWorld,
+    utils::{HashMap, HashSet},
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -778,6 +782,8 @@ impl EffectShaderSource {
     /// various shaders (init/update/render).
     pub fn generate(
         asset: &EffectAsset,
+        // Note: ideally the below fields are folded into the asset, but currently the parent
+        // relationship and GPU event one are not encoded in assets.
         parent_layout: Option<&ParticleLayout>,
         num_event_bindings: u32,
     ) -> Result<EffectShaderSource, ShaderGenerateError> {
@@ -798,6 +804,14 @@ impl EffectShaderSource {
                 asset.name
             )));
         }
+        if let Some(parent_layout) = parent_layout {
+            if parent_layout.size() == 0 {
+                return Err(ShaderGenerateError::Validate(format!(
+                    "Effect using asset {} has invalid empty parent particle layout.",
+                    asset.name
+                )));
+            }
+        }
 
         // Currently the POSITION attribute is mandatory, as it's always used by the
         // render shader.
@@ -810,7 +824,10 @@ impl EffectShaderSource {
 
         // Generate the WGSL code declaring all the attributes inside the Particle
         // struct.
-        let particle_attributes_code = particle_layout.generate_code();
+        let attributes_code = particle_layout.generate_code();
+        let parent_attributes_code = parent_layout
+            .map(|layout| layout.generate_code())
+            .unwrap_or_default();
 
         // For the renderer, assign all its inputs to the values of the attributes
         // present, or a default value.
@@ -909,27 +926,20 @@ impl EffectShaderSource {
             "@group(2) @binding(1) var<storage, read> properties : Properties;".to_string()
         };
 
-        // Parent particle buffer binding for init pass, if the effect has a parent.
-        let parent_particle_binding_code = if parent_layout.is_some() {
-            format!("@group(1) @binding(6) var<storage, read> parent_particle_buffer : ParentParticleBuffer;")
-        } else {
-            "// (no parent effect)".to_string()
-        };
-
-        // Event buffer bindings for the update pass, if the effect has one or more
-        // child effects.
-        let mut children_event_buffer_bindings_code = String::with_capacity(256);
-        children_event_buffer_bindings_code.push_str(&format!(
-            "@group(1) @binding(4) var<storage, read_write> child_infos : array<ChildInfo, {}>;\n",
+        // Event buffer bindings for the update pass, if the effect emits GPU events to
+        // one or more other effects.
+        let mut emit_event_buffer_bindings_code = String::with_capacity(256);
+        emit_event_buffer_bindings_code.push_str(&format!(
+            "@group(3) @binding(2) var<storage, read_write> child_infos : array<ChildInfo, {}>;\n",
             num_event_bindings.to_wgsl_string()
         ));
-        let mut children_event_buffer_append_code = String::with_capacity(1024);
-        let base_binding_index = 5;
+        let mut emit_event_buffer_append_funcs_code = String::with_capacity(1024);
+        let base_binding_index = 3;
         for i in 0..num_event_bindings {
             let binding_index = base_binding_index + i;
-            children_event_buffer_bindings_code.push_str(&format!(
-                "@group(1) @binding({binding_index}) var<storage, read_write> event_buffer_{i} : EventBuffer;\n"));
-            children_event_buffer_append_code.push_str(&format!(
+            emit_event_buffer_bindings_code.push_str(&format!(
+                "@group(3) @binding({binding_index}) var<storage, read_write> event_buffer_{i} : EventBuffer;\n"));
+            emit_event_buffer_append_funcs_code.push_str(&format!(
                 r##"/// Append one or more spawn events to the event buffer.
 fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
     let base_child_index = particle_groups[{{{{GROUP_INDEX}}}}].base_child_index;
@@ -944,13 +954,13 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
                 i,
             ));
         }
-        children_event_buffer_bindings_code.pop();
-        if children_event_buffer_bindings_code.is_empty() {
-            children_event_buffer_bindings_code = "// (no child effect)".into();
+        emit_event_buffer_bindings_code.pop();
+        if emit_event_buffer_bindings_code.is_empty() {
+            emit_event_buffer_bindings_code = "// (not emitting GPU events)".into();
         }
-        children_event_buffer_append_code.pop();
-        if children_event_buffer_append_code.is_empty() {
-            children_event_buffer_append_code = "// (no child effect)".into();
+        emit_event_buffer_append_funcs_code.pop();
+        if emit_event_buffer_append_funcs_code.is_empty() {
+            emit_event_buffer_append_funcs_code = "// (not emitting GPU events)".into();
         }
 
         // Start from the base module containing the expressions actually serialized in
@@ -969,6 +979,9 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
         }
         if asset.ribbon_group.is_some() {
             layout_flags |= LayoutFlags::RIBBONS;
+        }
+        if parent_layout.is_some() {
+            layout_flags |= LayoutFlags::READ_PARENT_PARTICLE;
         }
 
         let mut group_shader_sources = vec![];
@@ -1015,30 +1028,14 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
                 Initializer::Spawner(_) => 0,
                 Initializer::Cloner(cloner) => cloner.src_group_index,
             };
-            let parent_particles_code = parent_layout
-                .map(|layout| {
-                    let attributes = layout.generate_code();
-                    format!(
-                        r#"struct ParentParticle {{
-    {attributes}
-}}
-
-struct ParentParticleBuffer {{
-    particles: array<ParentParticle>,
-}}
-"#
-                    )
-                })
-                .unwrap_or_default();
 
             let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
-                .replace("{{PARTICLE_ATTRIBUTES}}", &particle_attributes_code)
+                .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{PARENT_ATTRIBUTES}}", &parent_attributes_code)
                 .replace("{{INIT_CODE}}", &init_code)
                 .replace("{{INIT_EXTRA}}", &init_extra)
-                .replace("{{PARENT_PARTICLES}}", &parent_particles_code)
                 .replace("{{PROPERTIES}}", &properties_code)
                 .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
-                .replace("{{PARENT_PARTICLE_BINDING}}", &parent_particle_binding_code)
                 .replace("{{SRC_GROUP_INDEX}}", &src_group_index.to_string())
                 .replace("{{DEST_GROUP_INDEX}}", &dest_group_index.to_string())
                 .replace(
@@ -1256,7 +1253,8 @@ struct ParentParticleBuffer {{
             // Configure the update shader template, and make sure a corresponding shader
             // asset exists
             let update_shader_source = PARTICLES_UPDATE_SHADER_TEMPLATE
-                .replace("{{PARTICLE_ATTRIBUTES}}", &particle_attributes_code)
+                .replace("{{ATTRIBUTES}}", &attributes_code)
+                .replace("{{PARENT_ATTRIBUTES}}", &parent_attributes_code)
                 .replace("{{AGE_CODE}}", &age_code)
                 .replace("{{REAP_CODE}}", &reap_code)
                 .replace("{{UPDATE_CODE}}", &update_code)
@@ -1265,12 +1263,12 @@ struct ParentParticleBuffer {{
                 .replace("{{PROPERTIES}}", &properties_code)
                 .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
                 .replace(
-                    "{{CHILDREN_EVENT_BUFFER_BINDINGS}}",
-                    &children_event_buffer_bindings_code,
+                    "{{EMIT_EVENT_BUFFER_BINDINGS}}",
+                    &emit_event_buffer_bindings_code,
                 )
                 .replace(
-                    "{{CHILDREN_EVENT_BUFFER_APPEND}}",
-                    &children_event_buffer_append_code,
+                    "{{EMIT_EVENT_BUFFER_APPEND_FUNCS}}",
+                    &emit_event_buffer_append_funcs_code,
                 )
                 .replace("{{GROUP_INDEX}}", &dest_group_index_code);
             trace!(
@@ -1282,7 +1280,7 @@ struct ParentParticleBuffer {{
             // Configure the render shader template, and make sure a corresponding shader
             // asset exists
             let render_shader_source = PARTICLES_RENDER_SHADER_TEMPLATE
-                .replace("{{PARTICLE_ATTRIBUTES}}", &particle_attributes_code)
+                .replace("{{ATTRIBUTES}}", &attributes_code)
                 .replace("{{INPUTS}}", &inputs_code)
                 .replace("{{MATERIAL_BINDINGS}}", &material_bindings_code)
                 .replace("{{VERTEX_MODIFIERS}}", &vertex_code)
@@ -1805,7 +1803,7 @@ fn update_properties_from_asset(
     assets: Res<Assets<EffectAsset>>,
     mut q_effects: Query<(Ref<ParticleEffect>, &mut EffectProperties), Changed<ParticleEffect>>,
 ) {
-    trace!("====== update_properties_from_asset()");
+    trace!("update_properties_from_asset()");
 
     // Loop over all existing effects, including invisible ones
     for (effect, properties) in q_effects.iter_mut() {

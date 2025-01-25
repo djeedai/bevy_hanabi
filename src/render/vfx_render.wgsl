@@ -7,7 +7,7 @@
 }
 
 struct Particle {
-{{PARTICLE_ATTRIBUTES}}
+{{ATTRIBUTES}}
 }
 
 struct ParticleBuffer {
@@ -27,12 +27,14 @@ struct VertexOutput {
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<uniform> sim_params : SimParams;
+
 @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> dispatch_indirect : UpdateIndirectDispatch;
 #ifdef RENDER_NEEDS_SPAWNER
 @group(1) @binding(3) var<storage, read> spawner : Spawner;
 #endif
+
 {{MATERIAL_BINDINGS}}
 
 fn get_camera_position_effect_space() -> vec3<f32> {

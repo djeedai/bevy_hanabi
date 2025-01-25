@@ -12,7 +12,6 @@ use bevy::{
 };
 use bytemuck::{cast_slice, Pod};
 use copyless::VecHelper;
-use wgpu::{BindingResource, BufferBinding};
 
 /// Like Bevy's [`BufferVec`], but with extra per-item alignment.
 ///

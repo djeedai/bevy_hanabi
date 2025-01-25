@@ -7,12 +7,24 @@
 }
 
 struct Particle {
-{{PARTICLE_ATTRIBUTES}}
+{{ATTRIBUTES}}
 }
 
 struct ParticleBuffer {
     particles: array<Particle>,
 }
+
+#ifdef READ_PARENT_PARTICLE
+
+struct ParentParticle {{
+    {{PARENT_ATTRIBUTES}}
+}}
+
+struct ParentParticleBuffer {{
+    particles: array<ParentParticle>,
+}}
+
+#endif
 
 {{PROPERTIES}}
 
@@ -21,8 +33,8 @@ struct ParticleBuffer {
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
-#ifdef EMITS_GPU_SPAWN_EVENTS
-{{CHILDREN_EVENT_BUFFER_BINDINGS}}
+#ifdef READ_PARENT_PARTICLE
+@group(1) @binding(3) var<storage, read> parent_particle_buffer : ParentParticleBuffer;
 #endif
 
 @group(2) @binding(0) var<storage, read> spawner : Spawner;
@@ -30,11 +42,14 @@ struct ParticleBuffer {
 
 @group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
 @group(3) @binding(1) var<storage, read_write> render_group_indirect : array<RenderGroupIndirect>;
+#ifdef EMITS_GPU_SPAWN_EVENTS
+{{EMIT_EVENT_BUFFER_BINDINGS}}
+#endif
 
 {{UPDATE_EXTRA}}
 
 #ifdef EMITS_GPU_SPAWN_EVENTS
-{{CHILDREN_EVENT_BUFFER_APPEND}}
+{{EMIT_EVENT_BUFFER_APPEND_FUNCS}}
 #endif
 
 @compute @workgroup_size(64)

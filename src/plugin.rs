@@ -25,20 +25,21 @@ use crate::{
     compile_effects,
     properties::EffectProperties,
     render::{
-        add_effects, batch_effects, extract_effect_events, extract_effects,
+        add_effects, batch_effects, extract_effect_events, extract_effects, fixup_parents,
         on_remove_cached_effect, on_remove_cached_properties, prepare_bind_groups, prepare_effects,
-        prepare_gpu_resources, queue_effects, DebugSettings, DispatchIndirectPipeline, DrawEffects,
-        EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, ExtractedEffects,
+        prepare_gpu_resources, prepare_property_buffers, queue_effects, resolve_parents,
+        DebugSettings, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups,
+        EffectCache, EffectsMeta, EventCache, ExtractedEffects, GpuBufferOperationQueue,
         GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect,
         GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline,
-        PropertyCache, RenderDebugSettings, ShaderCache, SimParams, StorageType as _,
-        VfxSimulateDriverNode, VfxSimulateNode,
+        PropertyBindGroups, PropertyCache, RenderDebugSettings, ShaderCache, SimParams,
+        StorageType as _, UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_initializers,
     time::effect_simulation_time_system,
     update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
-    Spawner,
+    Spawner, ToWgslString,
 };
 
 /// Labels for the Hanabi systems.
@@ -350,7 +351,8 @@ impl Plugin for HanabiPlugin {
         };
 
         let effect_cache = EffectCache::new(render_device.clone());
-        let property_cache = PropertyCache::new(render_device);
+        let property_cache = PropertyCache::new(render_device.clone());
+        let event_cache = EventCache::new(render_device);
 
         // Register the custom render pipeline
         let render_app = app.sub_app_mut(RenderApp);
@@ -358,8 +360,10 @@ impl Plugin for HanabiPlugin {
             .insert_resource(effects_meta)
             .insert_resource(effect_cache)
             .insert_resource(property_cache)
+            .insert_resource(event_cache)
             .init_resource::<RenderDebugSettings>()
             .init_resource::<EffectBindGroups>()
+            .init_resource::<PropertyBindGroups>()
             .init_resource::<GpuBufferOperationQueue>()
             .init_resource::<UtilsPipeline>()
             .init_resource::<DispatchIndirectPipeline>()
@@ -390,7 +394,13 @@ impl Plugin for HanabiPlugin {
             .add_systems(
                 Render,
                 (
-                    (add_effects, prepare_effects, batch_effects)
+                    (
+                        add_effects,
+                        resolve_parents,
+                        fixup_parents,
+                        prepare_effects,
+                        batch_effects,
+                    )
                         .chain()
                         .in_set(EffectSystems::PrepareEffectAssets)
                         // Ensure we run after Bevy prepared the render Mesh
@@ -401,6 +411,10 @@ impl Plugin for HanabiPlugin {
                     prepare_gpu_resources
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         .after(prepare_view_uniforms)
+                        .before(prepare_bind_groups),
+                    prepare_property_buffers
+                        .in_set(EffectSystems::PrepareEffectGpuResources)
+                        .after(add_effects)
                         .before(prepare_bind_groups),
                     prepare_bind_groups
                         .in_set(EffectSystems::PrepareBindGroups)

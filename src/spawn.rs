@@ -638,6 +638,18 @@ pub enum EffectInitializer {
 }
 
 impl EffectInitializer {
+    /// Check if this initializer is an [`EffectInitializer::Spawner`] variant.
+    #[inline]
+    pub fn is_spawner(&self) -> bool {
+        matches!(self, Self::Cloner(_))
+    }
+
+    /// Check if this initializer is an [`EffectInitializer::Cloner`] variant.
+    #[inline]
+    pub fn is_cloner(&self) -> bool {
+        matches!(self, Self::Cloner(_))
+    }
+
     /// If this initializer is a spawner, returns an immutable reference to it.
     pub fn get_spawner(&self) -> Option<&EffectSpawner> {
         match *self {

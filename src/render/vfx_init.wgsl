@@ -7,14 +7,24 @@
 }
 
 struct Particle {
-{{PARTICLE_ATTRIBUTES}}
+{{ATTRIBUTES}}
 }
 
 struct ParticleBuffer {
     particles: array<Particle>,
 }
 
-{{PARENT_PARTICLES}}
+#ifdef READ_PARENT_PARTICLE
+
+struct ParentParticle {{
+    {{PARENT_ATTRIBUTES}}
+}}
+
+struct ParentParticleBuffer {{
+    particles: array<ParentParticle>,
+}}
+
+#endif
 
 {{PROPERTIES}}
 
@@ -23,19 +33,22 @@ struct ParticleBuffer {
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
-#ifdef USE_GPU_SPAWN_EVENTS
-@group(1) @binding(4) var<storage, read> child_info : array<ChildInfo>;
-@group(1) @binding(5) var<storage, read_write> event_buffer : EventBuffer;
+#ifdef READ_PARENT_PARTICLE
+@group(1) @binding(3) var<storage, read> parent_particle_buffer : ParentParticleBuffer;
 #endif
-{{PARENT_PARTICLE_BINDING}}
 
-@group(2) @binding(0) var<storage, read> spawner: Spawner;
+@group(2) @binding(0) var<storage, read> spawner : Spawner;
 {{PROPERTIES_BINDING}}
 
-@group(3) @binding(0) var<storage, read_write> render_effect_indirect: RenderEffectMetadata;
-@group(3) @binding(1) var<storage, read_write> dest_render_group_indirect: RenderGroupIndirect;
+@group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
+@group(3) @binding(1) var<storage, read_write> dest_render_group_indirect : RenderGroupIndirect;
 #ifdef CLONE
 @group(3) @binding(2) var<storage, read_write> src_render_group_indirect : RenderGroupIndirect;
+#endif
+#ifdef CONSUME_GPU_SPAWN_EVENTS
+// FIXME - read_write because of (spurious) atomicLoad(); should be non-atomic here...
+@group(3) @binding(3) var<storage, read_write> child_info : array<ChildInfo>;
+@group(3) @binding(4) var<storage, read> event_buffer : EventBuffer;
 #endif
 
 {{INIT_EXTRA}}
@@ -53,7 +66,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap to the actual number of spawning requested by CPU or GPU, since compute shaders run
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
-#ifdef USE_GPU_SPAWN_EVENTS
+#ifdef CONSUME_GPU_SPAWN_EVENTS
     let event_index = thread_index;
     let local_child_index = particle_groups[0].local_child_index; //< FIXME - Probably wrong...
     let event_count = atomicLoad(&child_info[local_child_index].event_count); //< FIXME - doesn't need atomic if only loading in parallel...
@@ -121,7 +134,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
 #else  // CLONE
 
-#ifndef USE_GPU_SPAWN_EVENTS
+#ifndef CONSUME_GPU_SPAWN_EVENTS
     // Spawner transform
     let transform = transpose(
         mat4x4(
@@ -133,7 +146,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     );
 #endif
 
-#ifdef USE_GPU_SPAWN_EVENTS
+#ifdef CONSUME_GPU_SPAWN_EVENTS
     // Fetch parent particle which triggered this spawn
     let parent_index = event_buffer.spawn_events[event_index].particle_index;
     let parent_particle = parent_particle_buffer.particles[parent_index];
@@ -150,8 +163,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 #endif  // ATTRIBUTE_NEXT
 
     // Only add emitter's transform to CPU-spawned particles. GPU-spawned particles
-    // don't have a CPU spawner to read from.
-#ifndef USE_GPU_SPAWN_EVENTS
+    // don't have a CPU spawner to read from (they can read the parent particle
+    // transform, which is equivalent).
+#ifndef CONSUME_GPU_SPAWN_EVENTS
     {{SIMULATION_SPACE_TRANSFORM_PARTICLE}}
 #endif
 
