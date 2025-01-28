@@ -121,20 +121,17 @@
 //! ```
 //!
 //! Then add an instance of that effect to an entity by spawning a
-//! [`ParticleEffect`] component referencing the asset. The simplest way is
-//! to use the [`ParticleEffectBundle`] to ensure all required components are
-//! spawned together.
+//! [`ParticleEffect`] component referencing the asset.
 //!
 //! ```
 //! # use bevy::prelude::*;
 //! # use bevy_hanabi::prelude::*;
 //! # fn spawn_effect(mut commands: Commands) {
 //! #   let effect_asset = Handle::<EffectAsset>::default();
-//! commands.spawn(ParticleEffectBundle {
-//!     effect: ParticleEffect::new(effect_asset),
-//!     transform: Transform::from_translation(Vec3::Y),
-//!     ..Default::default()
-//! });
+//! commands.spawn((
+//!     ParticleEffect::new(effect_asset),
+//!     Transform::from_translation(Vec3::Y),
+//! );
 //! # }
 //! ```
 //!
@@ -149,8 +146,7 @@
 //!    supported, though. In any case however, the asset doesn't do anything by
 //!    itself.
 //! 2. At runtime, when the application is running, create an actual particle
-//!    effect instance by spawning a [`ParticleEffect`] component (or use the
-//!    [`ParticleEffectBundle`] for simplicity). The component references the
+//!    effect instance by spawning a [`ParticleEffect`] component. The component references the
 //!    [`EffectAsset`] via its `handle` field. Multiple instances can reference
 //!    the same asset at the same time, and some changes to the asset are
 //!    reflected to its instances, although not all changes are supported. In
@@ -178,7 +174,6 @@ use thiserror::Error;
 
 mod asset;
 pub mod attributes;
-mod bundle;
 mod gradient;
 pub mod graph;
 pub mod modifier;
@@ -193,7 +188,6 @@ mod test_utils;
 
 pub use asset::{AlphaMode, EffectAsset, MotionIntegration, SimulationCondition};
 pub use attributes::*;
-pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use graph::*;
 pub use modifier::*;
@@ -616,7 +610,16 @@ impl From<&PropertyInstance> for PropertyValue {
 /// for example.
 #[derive(Debug, Default, Clone, Component, Reflect)]
 #[reflect(Component)]
-#[require(CompiledParticleEffect, SyncToRenderWorld)]
+#[require(
+    CompiledParticleEffect,
+    EffectProperties,
+    Transform,
+    GlobalTransform,
+    Visibility,
+    InheritedVisibility,
+    ViewVisibility, 
+    SyncToRenderWorld
+)]
 pub struct ParticleEffect {
     /// Handle of the effect to instantiate.
     pub handle: Handle<EffectAsset>,
@@ -2044,7 +2047,7 @@ else { return c1; }
             let world = app.world_mut();
 
             // Spawn particle effect
-            let entity = world.spawn(ParticleEffectBundle::default()).id();
+            let entity = world.spawn(ParticleEffect::default()).id();
 
             // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
             world.spawn(Camera3d::default());
