@@ -81,19 +81,16 @@ impl InstanceManager {
             commands
                 .spawn((
                     Name::new(format!("{:?}", pos)),
-                    ParticleEffectBundle {
-                        effect: ParticleEffect::new(if alt {
-                            self.alt_effect.clone()
-                        } else {
-                            self.effect.clone()
-                        }),
-                        transform: Transform::from_translation(Vec3::new(
-                            pos.x as f32 * 10.,
-                            pos.y as f32 * 10.,
-                            0.,
-                        )),
-                        ..Default::default()
-                    },
+                    ParticleEffect::new(if alt {
+                        self.alt_effect.clone()
+                    } else {
+                        self.effect.clone()
+                    }),
+                    Transform::from_translation(Vec3::new(
+                        pos.x as f32 * 10.,
+                        pos.y as f32 * 10.,
+                        0.,
+                    )),
                     // Only used if alt_effect, but just simpler to add all the time for this
                     // example only.
                     EffectMaterial {

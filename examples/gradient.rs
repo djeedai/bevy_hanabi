@@ -87,7 +87,7 @@ fn setup(
     commands
         .spawn((
             Name::new("effect"),
-            ParticleEffectBundle::new(effect),
+            ParticleEffect::new(effect),
             // We need to spawn the effect with the same render layer as the camera, otherwise it
             // won't be rendered.
             RenderLayers::layer(3),

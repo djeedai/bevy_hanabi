@@ -164,11 +164,8 @@ fn setup(
     commands
         .spawn((
             Name::new("0"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect1),
-                transform: Transform::from_translation(Vec3::new(-30., 0., 0.)),
-                ..Default::default()
-            },
+            ParticleEffect::new(effect1),
+            Transform::from_translation(Vec3::new(-30., 0., 0.)),
             RenderLayers::layer(0),
         ))
         .with_children(|p| {
@@ -186,11 +183,8 @@ fn setup(
     commands
         .spawn((
             Name::new("1"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect2),
-                transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
-                ..Default::default()
-            },
+            ParticleEffect::new(effect2),
+            Transform::from_translation(Vec3::new(0., 0., 0.)),
             RenderLayers::layer(1),
         ))
         .with_children(|p| {
@@ -208,11 +202,8 @@ fn setup(
     commands
         .spawn((
             Name::new("2"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect3),
-                transform: Transform::from_translation(Vec3::new(30., 0., 0.)),
-                ..Default::default()
-            },
+            ParticleEffect::new(effect3),
+            Transform::from_translation(Vec3::new(30., 0., 0.)),
             RenderLayers::layer(2),
         ))
         .with_children(|p| {

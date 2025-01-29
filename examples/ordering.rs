@@ -113,12 +113,9 @@ fn setup(
 
     commands.spawn((
         Name::new("firework"),
-        ParticleEffectBundle {
-            effect: ParticleEffect::new(effect1),
-            transform: Transform {
-                translation: Vec3::Z,
-                ..default()
-            },
+        ParticleEffect::new(effect1),
+        Transform {
+            translation: Vec3::Z,
             ..default()
         },
     ));

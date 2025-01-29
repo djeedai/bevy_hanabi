@@ -147,10 +147,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     commands.spawn((
         Name::new("firework"),
-        ParticleEffectBundle {
-            effect: ParticleEffect::new(effect1),
-            transform: Transform::IDENTITY,
-            ..Default::default()
-        },
+        ParticleEffect::new(effect1),
+        Transform::IDENTITY,
     ));
 }
