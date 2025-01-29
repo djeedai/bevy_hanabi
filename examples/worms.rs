@@ -129,11 +129,8 @@ fn setup(
 
     commands.spawn((
         Name::new("worms"),
-        ParticleEffectBundle {
-            effect: ParticleEffect::new(effect),
-            transform: Transform::IDENTITY,
-            ..default()
-        },
+        ParticleEffect::new(effect),
+        Transform::IDENTITY,
         EffectMaterial {
             images: vec![circle],
         },

@@ -100,13 +100,11 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     let effect = effects.add(effect);
 
-    commands
-        .spawn(ParticleEffectBundle {
-            effect: ParticleEffect::new(effect),
-            transform: Transform::IDENTITY,
-            ..default()
-        })
-        .insert(Name::new("ribbon"));
+    commands.spawn((
+        Name::new("ribbon"),
+        ParticleEffect::new(effect),
+        Transform::IDENTITY,
+    ));
 }
 
 fn move_head(

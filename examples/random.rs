@@ -83,11 +83,8 @@ fn setup(
     commands
         .spawn((
             Name::new("emit:random"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect),
-                transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
-                ..Default::default()
-            },
+            ParticleEffect::new(effect),
+            Transform::from_translation(Vec3::new(0., 0., 0.)),
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin

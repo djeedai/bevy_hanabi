@@ -102,10 +102,7 @@ fn setup(
         .with_children(|p| {
             p.spawn((
                 Name::new("WhenVisible"),
-                ParticleEffectBundle {
-                    effect: ParticleEffect::new(effect1),
-                    ..Default::default()
-                },
+                ParticleEffect::new(effect1),
             ));
         });
 
@@ -122,10 +119,7 @@ fn setup(
         .with_children(|p| {
             p.spawn((
                 Name::new("Always"),
-                ParticleEffectBundle {
-                    effect: ParticleEffect::new(effect2),
-                    ..Default::default()
-                },
+                ParticleEffect::new(effect2),
             ));
         });
 }

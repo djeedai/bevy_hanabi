@@ -95,13 +95,10 @@ fn setup(
 
     // Spawn an instance of the particle effect, and override its Z layer to
     // be above the reference white square previously spawned.
-    commands
-        .spawn(ParticleEffectBundle {
-            // Assign the Z layer so it appears in the egui inspector and can be modified at runtime
-            effect: ParticleEffect::new(effect).with_z_layer_2d(Some(0.1)),
-            ..default()
-        })
-        .insert(Name::new("effect:2d"));
+    commands.spawn((
+        Name::new("effect:2d"),
+        ParticleEffect::new(effect).with_z_layer_2d(Some(0.1)),
+    ));
 }
 
 fn update_plane(time: Res<Time>, mut query: Query<&mut Transform, With<Mesh2d>>) {

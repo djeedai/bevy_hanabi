@@ -143,9 +143,10 @@ fn setup(
             .render(ScreenSpaceSizeModifier),
     );
 
-    commands
-        .spawn(ParticleEffectBundle::new(effect))
-        .insert(Name::new("effect"));
+    commands.spawn((
+        Name::new("effect"),
+        ParticleEffect::new(effect),
+    ));
 }
 
 fn update(

@@ -100,10 +100,7 @@ fn setup(
     // Spawn the effect.
     commands.spawn((
         Name::new("cartoon explosion"),
-        ParticleEffectBundle {
-            effect: ParticleEffect::new(effect),
-            ..default()
-        },
+        ParticleEffect::new(effect),
     ));
 }
 
