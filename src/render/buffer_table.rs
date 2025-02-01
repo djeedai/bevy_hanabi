@@ -42,6 +42,12 @@ impl BufferTableId {
     }
 }
 
+impl Default for BufferTableId {
+    fn default() -> Self {
+        Self::INVALID
+    }
+}
+
 #[derive(Debug)]
 struct AllocatedBuffer {
     /// Currently allocated buffer, of size equal to `size`.

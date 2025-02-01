@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added new `DebugSettings` resource, allowing to instruct a GPU debugger to start capturing API commands,
   either right away or each time a new effect is spawned.
+- Added new `DefaultMesh` resource storing the default mesh used for particles when `EffectAsset::mesh` is `None`.
+  The default mesh remains a Z-facing unit quad.
 
 ### Changed
 

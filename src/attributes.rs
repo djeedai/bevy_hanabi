@@ -122,7 +122,12 @@
 //! [modifiers]: crate::modifier
 //! [`SetAttributeModifier`]: crate::modifier::SetAttributeModifier
 
-use std::{any::Any, borrow::Cow, fmt::Display, num::NonZeroU64};
+use std::{
+    any::Any,
+    borrow::Cow,
+    fmt::Display,
+    num::{NonZeroU32, NonZeroU64},
+};
 
 use bevy::{
     math::{Vec2, Vec3, Vec4},
@@ -1673,6 +1678,16 @@ impl ParticleLayout {
         let size = self.size() as usize;
         let align = self.align();
         NonZeroU64::new(size.next_multiple_of(align) as u64).unwrap()
+    }
+
+    /// Minimum binding size in bytes.
+    ///
+    /// This corresponds to the stride of the attribute struct in WGSL when
+    /// contained inside an array.
+    pub fn min_binding_size32(&self) -> NonZeroU32 {
+        let size = self.size();
+        let align = self.align() as u32;
+        NonZeroU32::new(size.next_multiple_of(align)).unwrap()
     }
 
     pub(crate) fn attributes(&self) -> &[AttributeLayout] {

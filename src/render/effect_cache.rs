@@ -1,4 +1,8 @@
-use std::{cmp::Ordering, num::NonZeroU64, ops::Range};
+use std::{
+    cmp::Ordering,
+    num::{NonZeroU32, NonZeroU64},
+    ops::Range,
+};
 
 use bevy::{
     asset::Handle,
@@ -9,82 +13,42 @@ use bevy::{
 };
 use bytemuck::cast_slice_mut;
 
-use super::{buffer_table::BufferTableId, AddedEffectGroup};
+use super::{buffer_table::BufferTableId, BufferBindingSource};
 use crate::{
     asset::EffectAsset,
-    render::{GpuDispatchIndirect, GpuSpawnerParams, LayoutFlags, StorageType as _},
+    render::{
+        calc_hash, event::GpuChildInfo, GpuDispatchIndirect, GpuEffectMetadata, GpuSpawnerParams,
+        LayoutFlags, StorageType as _, INDIRECT_INDEX_SIZE,
+    },
     ParticleLayout,
 };
 
-/// Describes all particle groups' slices of particles in the particle buffer
+/// Describes all particle slices of particles in the particle buffer
 /// for a single effect.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EffectSlices {
-    /// Slices into the underlying [`BufferVec`] of the group.
-    ///
-    /// The length of this vector is the number of particle groups plus one.
-    /// The range of the first group is (slices[0]..slices[1]), the index of
-    /// the second group is (slices[1]..slices[2]), etc.
+pub struct EffectSlice {
+    /// Slice into the underlying [`BufferVec`].
     ///
     /// This is measured in items, not bytes.
-    pub slices: Vec<u32>,
+    pub slice: Range<u32>,
     /// Index of the buffer in the [`EffectCache`].
     pub buffer_index: u32,
     /// Particle layout of the effect.
     pub particle_layout: ParticleLayout,
 }
 
-impl Ord for EffectSlices {
+impl Ord for EffectSlice {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.buffer_index.cmp(&other.buffer_index) {
-            Ordering::Equal => self.slices.first().cmp(&other.slices.first()),
+            Ordering::Equal => self.slice.start.cmp(&other.slice.start),
             ord => ord,
         }
     }
 }
 
-impl PartialOrd for EffectSlices {
+impl PartialOrd for EffectSlice {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
-    }
-}
-
-/// Describes all particle groups' slices of particles in the particle buffer
-/// for a single effect, as well as the [`DispatchBufferIndices`].
-#[derive(Debug)]
-pub struct SlicesRef {
-    pub ranges: Vec<u32>,
-    particle_layout: ParticleLayout,
-}
-
-impl SlicesRef {
-    pub fn group_count(&self) -> u32 {
-        debug_assert!(self.ranges.len() >= 2);
-        (self.ranges.len() - 1) as u32
-    }
-
-    #[allow(dead_code)]
-    pub fn group_capacity(&self, group_index: u32) -> u32 {
-        assert!(group_index + 1 < self.ranges.len() as u32);
-        let start = self.ranges[group_index as usize];
-        let end = self.ranges[group_index as usize + 1];
-        end - start
-    }
-
-    #[allow(dead_code)]
-    pub fn total_capacity(&self) -> u32 {
-        if self.ranges.is_empty() {
-            0
-        } else {
-            debug_assert!(self.ranges.len() >= 2);
-            let start = self.ranges[0];
-            let end = self.ranges[self.ranges.len() - 1];
-            end - start
-        }
-    }
-
-    pub fn particle_layout(&self) -> &ParticleLayout {
-        &self.particle_layout
     }
 }
 
@@ -93,7 +57,7 @@ impl SlicesRef {
 pub struct SliceRef {
     /// Range into an [`EffectBuffer`], in item count.
     range: Range<u32>,
-    particle_layout: ParticleLayout,
+    pub(crate) particle_layout: ParticleLayout,
 }
 
 impl SliceRef {
@@ -108,16 +72,20 @@ impl SliceRef {
     pub fn byte_size(&self) -> usize {
         (self.len() as usize) * (self.particle_layout.min_binding_size().get() as usize)
     }
+
+    pub fn range(&self) -> Range<u32> {
+        self.range.clone()
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct InitBindGroupKey {
+struct SimBindGroupKey {
     buffer: Option<BufferId>,
     offset: u32,
     size: u32,
 }
 
-impl InitBindGroupKey {
+impl SimBindGroupKey {
     /// Invalid key, often used as placeholder.
     pub const INVALID: Self = Self {
         buffer: None,
@@ -126,20 +94,24 @@ impl InitBindGroupKey {
     };
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct UpdateBindGroupKey {
-    buffer: Option<BufferId>,
-    offset: u32,
-    size: u32,
+impl From<&BufferBindingSource> for SimBindGroupKey {
+    fn from(value: &BufferBindingSource) -> Self {
+        Self {
+            buffer: Some(value.buffer.id()),
+            offset: value.offset,
+            size: value.size.get(),
+        }
+    }
 }
 
-impl UpdateBindGroupKey {
-    /// Invalid key, often used as placeholder.
-    pub const INVALID: Self = Self {
-        buffer: None,
-        offset: u32::MAX,
-        size: 0,
-    };
+impl From<Option<BufferBindingSource>> for SimBindGroupKey {
+    fn from(value: Option<BufferBindingSource>) -> Self {
+        Self {
+            buffer: value.as_ref().map(|bbs| bbs.buffer.id()),
+            offset: value.as_ref().map(|bss| bss.offset).unwrap_or_default(),
+            size: value.map(|bss| bss.size.get()).unwrap_or_default(),
+        }
+    }
 }
 
 /// Storage for a single kind of effects, sharing the same buffer(s).
@@ -164,14 +136,7 @@ pub struct EffectBuffer {
     particle_layout: ParticleLayout,
     /// Flags
     layout_flags: LayoutFlags,
-    // /// Bind group layout for the init pass.
-    //particles_buffer_layout_init: BindGroupLayout,
-    /// Bind group layout for the update pass, once created. Unlike the init
-    /// pass, this one is created lazily because it depends on the number of
-    /// child effects for which to write GPU spawn events, which is known later
-    /// and can vary at runtime after this effect is allocated.
-    particles_buffer_layout_update: Option<(u32, BindGroupLayout)>,
-    /// Bind group layout of the particle buffer (group @1) for the render pass.
+    /// Layout of the particle@1 bind group for the render pass.
     render_particles_buffer_layout: BindGroupLayout,
     /// Total buffer capacity, in number of particles.
     capacity: u32,
@@ -187,14 +152,11 @@ pub struct EffectBuffer {
     /// Handle of all effects common in this buffer. TODO - replace with
     /// compatible layout.
     asset: Handle<EffectAsset>,
-    /// Bind group for the per-buffer data (group @1) of the init pass.
-    init_bind_group: Option<BindGroup>,
-    /// Key the `init_bind_group` was created from.
-    init_bind_group_key: InitBindGroupKey,
-    /// Bind group for the per-buffer data (group @1) of the update pass.
-    update_bind_group: Option<BindGroup>,
-    /// Key the `update_bind_group` was created from.
-    update_bind_group_key: UpdateBindGroupKey,
+    /// Bind group for the per-buffer data (group @1) of the simulation passes
+    /// (init and udpate).
+    sim_bind_group: Option<BindGroup>,
+    /// Key the `sim_bind_group` was created from.
+    sim_bind_group_key: SimBindGroupKey,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -258,7 +220,8 @@ impl EffectBuffer {
             mapped_at_creation: false,
         });
 
-        // Each indirect buffer stores 3 arrays of u32, of length the number of particles
+        // Each indirect buffer stores 3 arrays of u32, of length the number of
+        // particles
         let capacity_bytes: BufferAddress = capacity as u64 * 4 * 3;
 
         let indirect_label = format!("hanabi:buffer:vfx{buffer_index}_indirect");
@@ -350,17 +313,13 @@ impl EffectBuffer {
             indirect_buffer,
             particle_layout,
             layout_flags,
-            //particles_buffer_layout_init,
-            particles_buffer_layout_update: None,
             render_particles_buffer_layout,
             capacity,
             used_size: 0,
             free_slices: vec![],
             asset,
-            init_bind_group: None,
-            init_bind_group_key: InitBindGroupKey::INVALID,
-            update_bind_group: None,
-            update_bind_group_key: UpdateBindGroupKey::INVALID,
+            sim_bind_group: None,
+            sim_bind_group_key: SimBindGroupKey::INVALID,
         }
     }
 
@@ -370,68 +329,6 @@ impl EffectBuffer {
 
     pub fn layout_flags(&self) -> LayoutFlags {
         self.layout_flags
-    }
-
-    // pub fn particle_layout_bind_group_init(&self) -> &BindGroupLayout {
-    //     &self.particles_buffer_layout_init
-    // }
-
-    pub fn ensure_particle_update_bind_group_layout(
-        &mut self,
-        num_event_buffers: u32,
-        render_device: &RenderDevice,
-        particle_layout_min_binding_size: NonZeroU64,
-    ) {
-        trace!(
-            "Ensuring bind group layout for update pass with {} event buffers...",
-            num_event_buffers
-        );
-
-        // If there's already a layout for that particular number of event buffers,
-        // we're done
-        if let Some((num, _)) = self.particles_buffer_layout_update.as_ref() {
-            if *num == num_event_buffers {
-                trace!(
-                    "-> Bind group layout already exists for {} event buffers.",
-                    num_event_buffers
-                );
-                return;
-            }
-        }
-
-        // Otherwise create a new layout, overwritting any existing one
-        let particles_buffer_layout_update = EffectBuffer::make_update_layout(
-            render_device,
-            particle_layout_min_binding_size,
-            num_event_buffers,
-        );
-        self.particles_buffer_layout_update =
-            Some((num_event_buffers, particles_buffer_layout_update));
-        trace!(
-            "-> Created new bind group layout for {} event buffers.",
-            num_event_buffers
-        );
-    }
-
-    /// Get the particle layout bind group of the update pass with the given
-    /// number of child event buffers.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Some` if and only if a bind group layout exists which was
-    /// created for the same number of event buffers as `num_event_buffers`. To
-    /// ensure such a layout exists ahead of time, use
-    /// [`ensure_particle_update_bind_group_layout()`].
-    ///
-    /// [`ensure_particle_update_bind_group_layout()`]: crate::EffectBuffer::ensure_particle_update_bind_group_layout
-    pub fn particle_layout_bind_group_update(
-        &self,
-        num_event_buffers: u32,
-    ) -> Option<&BindGroupLayout> {
-        self.particles_buffer_layout_update
-            .as_ref()
-            .filter(|(num, _)| *num == num_event_buffers)
-            .map(|(_, layout)| layout)
     }
 
     pub fn render_particles_buffer_layout(&self) -> &BindGroupLayout {
@@ -459,188 +356,90 @@ impl EffectBuffer {
         })
     }
 
-    /// Create the bind group for the init and update passes if needed.
+    /// Create the "particle" bind group @1 for the init and update passes if
+    /// needed.
     ///
     /// The `buffer_index` must be the index of the current [`EffectBuffer`]
-    /// inside the [`EffectCache`]. The `group_binding` is the binding resource
-    /// for the particle groups of this buffer.
-    pub fn create_init_bind_group(
+    /// inside the [`EffectCache`].
+    pub fn create_particle_sim_bind_group(
         &mut self,
+        layout: &BindGroupLayout,
         buffer_index: u32,
         render_device: &RenderDevice,
-        particle_group_buffer: &Buffer,
-        particle_group_offset: u64,
-        particle_group_size: NonZeroU64,
+        parent: Option<BufferBindingSource>,
     ) {
-        let key = InitBindGroupKey {
-            buffer: Some(particle_group_buffer.id()),
-            offset: particle_group_offset as u32,
-            size: particle_group_size.get() as u32,
-        };
-
-        if self.init_bind_group.is_some() && self.init_bind_group_key == key {
+        let key: SimBindGroupKey = parent.clone().into();
+        if self.sim_bind_group.is_some() && self.sim_bind_group_key == key {
             return;
         }
 
-        let group_binding = BufferBinding {
-            buffer: particle_group_buffer,
-            offset: particle_group_offset,
-            size: Some(particle_group_size),
-        };
+        let label = format!("hanabi:bind_group:sim:particle@1:vfx{}", buffer_index);
+        let entries: &[BindGroupEntry] =
+            if let Some(parent_binding) = parent.as_ref().map(|bbs| bbs.binding()) {
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: self.max_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: self.indirect_max_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: parent_binding,
+                    },
+                ]
+            } else {
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: self.max_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: self.indirect_max_binding(),
+                    },
+                ]
+            };
 
-        let child_infos_buffer_binding = BufferBinding {
-            buffer: child_infos_buffer,
-            offset: child_infos_offset,
-            size: Some(child_infos_size),
-        };
-
-        let event_buffer_binding = BufferBinding {
-            buffer: event_buffer,
-            offset: event_offset,
-            size: Some(event_size),
-        };
-
-        let layout = self.particle_layout_bind_group_sim();
-        let label = format!("hanabi:bind_group_init_batch{}", buffer_index);
-        let bindings = [
-            BindGroupEntry {
-                binding: 0,
-                resource: self.max_binding(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: self.indirect_max_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: BindingResource::Buffer(group_binding),
-            },
-            BindGroupEntry {
-                binding: 4,
-                resource: BindingResource::Buffer(child_infos_buffer_binding),
-            },
-            BindGroupEntry {
-                binding: 5,
-                resource: BindingResource::Buffer(event_buffer_binding),
-            },
-        ];
         trace!(
-            "Create init bind group '{}' with {} entries",
+            "Create particle simulation bind group '{}' with {} entries",
             label,
-            bindings.len()
+            entries.len()
         );
-        let bind_group = render_device.create_bind_group(Some(&label[..]), layout, &bindings);
-        self.init_bind_group = Some(bind_group);
-        self.init_bind_group_key = key;
+        let bind_group = render_device.create_bind_group(Some(&label[..]), layout, &entries);
+        self.sim_bind_group = Some(bind_group);
+        self.sim_bind_group_key = key;
     }
 
     /// Invalidate any existing simulate bind group.
     ///
     /// Invalidate any existing bind group previously created by
-    /// [`create_sim_bind_group()`], generally because a buffer was
+    /// [`create_particle_sim_bind_group()`], generally because a buffer was
     /// re-allocated. This forces a re-creation of the bind group
-    /// next time [`create_init_bind_group()`] is called.
+    /// next time [`create_particle_sim_bind_group()`] is called.
     ///
-    /// [`create_init_bind_group()`]: self::EffectBuffer::create_init_bind_group
-    fn invalidate_init_bind_group(&mut self) {
-        self.init_bind_group = None;
-        self.init_bind_group_key = InitBindGroupKey::INVALID;
+    /// [`create_particle_sim_bind_group()`]: self::EffectBuffer::create_particle_sim_bind_group
+    fn invalidate_particle_sim_bind_group(&mut self) {
+        self.sim_bind_group = None;
+        self.sim_bind_group_key = SimBindGroupKey::INVALID;
     }
 
-    /// Return the cached bind group for the update pass.
+    /// Return the cached particle@1 bind group for the simulation (init and
+    /// update) passes.
     ///
     /// This is the per-buffer bind group at binding @1 which binds all
     /// per-buffer resources shared by all effect instances batched in a single
-    /// buffer. The bind group is created by [`create_init_bind_group()`], and
-    /// cached until a call to [`invalidate_init_bind_group()`] clears the
+    /// buffer. The bind group is created by
+    /// [`create_particle_sim_bind_group()`], and cached until a call to
+    /// [`invalidate_particle_sim_bind_groups()`] clears the
     /// cached reference.
     ///
-    /// [`create_init_bind_group()`]: self::EffectBuffer::create_init_bind_group
-    /// [`invalidate_init_bind_group()`]: self::EffectBuffer::invalidate_init_bind_group
-    pub fn init_bind_group(&self) -> Option<&BindGroup> {
-        self.init_bind_group.as_ref()
-    }
-
-    /// Create the bind group for the update pass if needed.
-    ///
-    /// The `buffer_index` must be the index of the current [`EffectBuffer`]
-    /// inside the [`EffectCache`]. The `group_binding` is the binding resource
-    /// for the particle groups of this buffer.
-    pub fn create_update_bind_group(
-        &mut self,
-        buffer_index: u32,
-        render_device: &RenderDevice,
-        particle_group_buffer: &Buffer,
-        particle_group_offset: u64,
-        particle_group_size: NonZeroU64,
-    ) {
-        let key = UpdateBindGroupKey {
-            buffer: Some(particle_group_buffer.id()),
-            offset: particle_group_offset as u32,
-            size: particle_group_size.get() as u32,
-        };
-
-        if self.update_bind_group.is_some() && self.update_bind_group_key == key {
-            return;
-        }
-
-        let group_binding = BufferBinding {
-            buffer: particle_group_buffer,
-            offset: particle_group_offset,
-            size: Some(particle_group_size),
-        };
-
-        let layout = self.particle_layout_bind_group_sim();
-        let label = format!("hanabi:bind_group_update_batch{}", buffer_index);
-        let bindings = [
-            BindGroupEntry {
-                binding: 0,
-                resource: self.max_binding(),
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: self.indirect_max_binding(),
-            },
-            BindGroupEntry {
-                binding: 2,
-                resource: BindingResource::Buffer(group_binding),
-            },
-        ];
-        trace!(
-            "Create update bind group '{}' with {} entries",
-            label,
-            bindings.len()
-        );
-        let bind_group = render_device.create_bind_group(Some(&label[..]), layout, &bindings);
-        self.update_bind_group = Some(bind_group);
-        self.update_bind_group_key = key;
-    }
-
-    /// Invalidate any existing simulate bind group.
-    ///
-    /// Invalidate any existing bind group previously created by
-    /// [`create_update_bind_group()`], generally because a buffer was
-    /// re-allocated. This forces a re-creation of the bind group
-    /// next time [`create_update_bind_group()`] is called.
-    ///
-    /// [`create_update_bind_group()`]: self::EffectBuffer::create_update_bind_group
-    fn invalidate_update_bind_group(&mut self) {
-        self.update_bind_group = None;
-        self.update_bind_group_key = UpdateBindGroupKey::INVALID;
-    }
-
-    /// Return the cached bind group for the update pass.
-    ///
-    /// This is the per-buffer bind group at binding @1 which binds all
-    /// per-buffer resources shared by all effect instances batched in a single
-    /// buffer. The bind group is created by [`create_update_bind_group()`], and
-    /// cached until a call to [`invalidate_update_bind_group()`] clears the
-    /// cached reference.
-    ///
-    /// [`create_update_bind_group()`]: self::EffectBuffer::create_update_bind_group
-    /// [`invalidate_update_bind_group()`]: self::EffectBuffer::invalidate_update_bind_group
-    pub fn update_bind_group(&self) -> Option<&BindGroup> {
-        self.update_bind_group.as_ref()
+    /// [`create_particle_sim_bind_group()`]: self::EffectBuffer::create_particle_sim_bind_group
+    /// [`invalidate_particle_sim_bind_groups()`]: self::EffectBuffer::invalidate_particle_sim_bind_groups
+    pub fn particle_sim_bind_group(&self) -> Option<&BindGroup> {
+        self.sim_bind_group.as_ref()
     }
 
     /// Try to recycle a free slice to store `size` items.
@@ -791,84 +590,32 @@ impl EffectBuffer {
 #[derive(Debug, Component)]
 pub(crate) struct CachedEffect {
     /// Index into the [`EffectCache::buffers`] of the buffer storing the
-    /// particles for this effect. This includes all particles of all effect
-    /// groups.
+    /// particles for this effect.
     pub buffer_index: u32,
-    /// The group slices within that buffer. All groups for an effect are always
-    /// stored contiguously inside the same GPU buffer.
-    pub slices: SlicesRef,
-    /// The order in which we evaluate groups.
-    pub group_order: Vec<u32>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct PendingEffectGroup {
-    pub capacity: u32,
-    pub src_group_index_if_trail: Option<u32>,
-}
-
-impl From<&AddedEffectGroup> for PendingEffectGroup {
-    fn from(value: &AddedEffectGroup) -> Self {
-        Self {
-            capacity: value.capacity,
-            src_group_index_if_trail: value.src_group_index_if_trail,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum RenderGroupDispatchIndices {
-    Pending {
-        groups: Box<[PendingEffectGroup]>,
-    },
-    Allocated {
-        /// The index of the first render group indirect dispatch buffer.
-        ///
-        /// There will be one such dispatch buffer for each particle group.
-        first_render_group_dispatch_buffer_index: BufferTableId,
-        /// Map from a group index to its source and destination rows into the
-        /// render group dispatch buffer.
-        trail_dispatch_buffer_indices: HashMap<u32, TrailDispatchBufferIndices>,
-    },
-}
-
-impl Default for RenderGroupDispatchIndices {
-    fn default() -> Self {
-        Self::Pending {
-            groups: Box::new([]),
-        }
-    }
+    /// The effect slice within that buffer.
+    pub slice: SliceRef,
 }
 
 /// The indices in the indirect dispatch buffers for a single effect, as well as
 /// that of the metadata buffer.
-#[derive(Debug, Clone, Component)]
+#[derive(Debug, Default, Clone, Copy, Component)]
 pub(crate) struct DispatchBufferIndices {
-    /// The index of the first update group indirect dispatch buffer.
+    /// The index of the [`GpuDispatchIndirect`] in
+    /// [`EffectsMeta::update_dispatch_indirect_buffer`].
     ///
-    /// There will be one such dispatch buffer for each particle group.
-    pub(crate) first_update_group_dispatch_buffer_index: BufferTableId,
-    /// The index of the render indirect metadata buffer.
-    pub(crate) render_effect_metadata_buffer_table_id: BufferTableId,
-    /// Render group dispatch indirect indices for all groups of the effect.
-    pub(crate) render_group_dispatch_indices: RenderGroupDispatchIndices,
+    /// [`EffectsMeta::update_dispatch_indirect_buffer`]: super::EffectsMeta::update_dispatch_indirect_buffer
+    pub(crate) update_dispatch_indirect_buffer_table_id: BufferTableId,
+    /// The index of the [`GpuEffectMetadata`] in
+    /// [`EffectsMeta::effect_metadata_buffer`].
+    ///
+    /// [`EffectsMeta::effect_metadata_buffer`]: super::EffectsMeta::effect_metadata_buffer
+    pub(crate) effect_metadata_buffer_table_id: BufferTableId,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TrailDispatchBufferIndices {
-    pub(crate) dest: BufferTableId,
-    pub(crate) src: BufferTableId,
-}
-
-impl Default for DispatchBufferIndices {
-    // For testing purposes only.
-    fn default() -> Self {
-        DispatchBufferIndices {
-            first_update_group_dispatch_buffer_index: BufferTableId::INVALID,
-            render_effect_metadata_buffer_table_id: BufferTableId::INVALID,
-            render_group_dispatch_indices: default(),
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ParticleBindGroupLayoutKey {
+    pub min_binding_size: NonZeroU32,
+    pub parent_min_binding_size: Option<NonZeroU32>,
 }
 
 /// Cache for effect instances sharing common GPU data structures.
@@ -880,6 +627,17 @@ pub struct EffectCache {
     /// be `None` if the entry is not used. Since the buffers are referenced
     /// by index, we cannot move them once they're allocated.
     buffers: Vec<Option<EffectBuffer>>,
+    /// Cache of bind group layouts for the particle@1 bind groups of the
+    /// simulation passes (init and update). Since all bindings depend only
+    /// on buffers managed by the [`EffectCache`], we also cache the layouts
+    /// here for convenience.
+    particle_bind_group_layouts: HashMap<ParticleBindGroupLayoutKey, BindGroupLayout>,
+    /// Cache of bind group layouts for the metadata@3 bind group of the init
+    /// pass.
+    metadata_init_bind_group_layout: [Option<BindGroupLayout>; 2],
+    /// Cache of bind group layouts for the metadata@3 bind group of the
+    /// updatepass.
+    metadata_update_bind_group_layouts: HashMap<u32, BindGroupLayout>,
 }
 
 impl EffectCache {
@@ -887,6 +645,9 @@ impl EffectCache {
         Self {
             render_device: device,
             buffers: vec![],
+            particle_bind_group_layouts: default(),
+            metadata_init_bind_group_layout: [None, None],
+            metadata_update_bind_group_layouts: default(),
         }
     }
 
@@ -981,8 +742,8 @@ impl EffectCache {
     //         });
     //     }
 
-    //     let label = format!("hanabi:bind_group:init_batch{}", buffer_index);
-    //     trace!(
+    //     let label = format!("hanabi:bind_group:init:particle@1:batch{}",
+    // buffer_index);     trace!(
     //         "Create init bind group '{}' with {} entries",
     //         label,
     //         bindings.len()
@@ -1103,7 +864,7 @@ impl EffectCache {
     //         });
     //     }
 
-    //     let label = format!("hanabi:bind_group:update_batch{}", buffer_index);
+    //     let label = format!("hanabi:bind_group:update:batch{}", buffer_index);
     //     trace!(
     //         "Create update bind group '{}' with {} entries",
     //         label,
@@ -1136,36 +897,24 @@ impl EffectCache {
         self.buffers.get_mut(buffer_index as usize)?.as_mut()
     }
 
-    /// Invalidate all the "init" bind groups for all buffers.
+    /// Invalidate all the particle@1 bind group for all buffers.
     ///
     /// This iterates over all valid buffers and calls
-    /// [`EffectBuffer::invalidate_init_bind_group()`] on each one.
-    pub fn invalidate_init_bind_groups(&mut self) {
+    /// [`EffectBuffer::invalidate_particle_sim_bind_group()`] on each one.
+    pub fn invalidate_particle_sim_bind_groups(&mut self) {
         for buffer in self.buffers.iter_mut().flatten() {
-            buffer.invalidate_init_bind_group();
-        }
-    }
-
-    /// Invalidate all the "update" bind groups for all buffers.
-    ///
-    /// This iterates over all valid buffers and calls
-    /// [`EffectBuffer::invalidate_update_bind_group()`] on each one.
-    pub fn invalidate_update_bind_groups(&mut self) {
-        for buffer in self.buffers.iter_mut().flatten() {
-            buffer.invalidate_update_bind_group();
+            buffer.invalidate_particle_sim_bind_group();
         }
     }
 
     pub fn insert(
         &mut self,
         asset: Handle<EffectAsset>,
-        capacities: Vec<u32>,
+        capacity: u32,
         particle_layout: &ParticleLayout,
         layout_flags: LayoutFlags,
-        group_order: Vec<u32>,
     ) -> CachedEffect {
-        let total_capacity = capacities.iter().cloned().sum();
-        trace!("Inserting new effect into cache: total_capacity={total_capacity}");
+        trace!("Inserting new effect into cache: capacity={capacity}");
         let (buffer_index, slice) = self
             .buffers
             .iter_mut()
@@ -1180,7 +929,7 @@ impl EffectCache {
 
                     // Try to allocate a slice into the buffer
                     buffer
-                        .allocate_slice(total_capacity, particle_layout)
+                        .allocate_slice(capacity, particle_layout)
                         .map(|slice| (buffer_index, slice))
                 } else {
                     None
@@ -1189,15 +938,15 @@ impl EffectCache {
             .unwrap_or_else(|| {
                 // Cannot find any suitable buffer; allocate a new one
                 let buffer_index = self.buffers.iter().position(|buf| buf.is_none()).unwrap_or(self.buffers.len());
-                let byte_size = total_capacity.checked_mul(particle_layout.min_binding_size().get() as u32).unwrap_or_else(|| panic!(
+                let byte_size = capacity.checked_mul(particle_layout.min_binding_size().get() as u32).unwrap_or_else(|| panic!(
                     "Effect size overflow: capacities={:?} particle_layout={:?} item_size={}",
-                    capacities, particle_layout, particle_layout.min_binding_size().get()
+                    capacity, particle_layout, particle_layout.min_binding_size().get()
                 ));
                 trace!(
                     "Creating new effect buffer #{} for effect {:?} (capacities={:?}, particle_layout={:?} item_size={}, byte_size={})",
                     buffer_index,
                     asset,
-                    capacities,
+                    capacity,
                     particle_layout,
                     particle_layout.min_binding_size().get(),
                     byte_size
@@ -1205,12 +954,12 @@ impl EffectCache {
                 let mut buffer = EffectBuffer::new(
                     buffer_index as u32,
                     asset,
-                    total_capacity,
+                    capacity,
                     particle_layout.clone(),
                     layout_flags,
                     &self.render_device,
                 );
-                let slice_ref = buffer.allocate_slice(total_capacity, particle_layout).unwrap();
+                let slice_ref = buffer.allocate_slice(capacity, particle_layout).unwrap();
                 if buffer_index >= self.buffers.len() {
                     self.buffers.push(Some(buffer));
                 } else {
@@ -1220,31 +969,20 @@ impl EffectCache {
                 (buffer_index, slice_ref)
             });
 
-        // Calculate sub-allocations for each group within the total slice allocated
-        // above
-        let mut ranges = vec![slice.range.start];
-        let group_count = capacities.len();
-        for capacity in capacities {
-            let start_index = ranges.last().unwrap();
-            ranges.push(start_index + capacity);
-        }
-        debug_assert_eq!(ranges.len(), group_count + 1);
-
-        let slices = SlicesRef {
-            ranges,
+        let slice = SliceRef {
+            range: slice.range.clone(),
             particle_layout: slice.particle_layout,
         };
 
         trace!(
             "Insert effect buffer_index={} slice={}B particle_layout={:?}",
             buffer_index,
-            slices.particle_layout.min_binding_size().get(),
-            slices.particle_layout,
+            slice.particle_layout.min_binding_size().get(),
+            slice.particle_layout,
         );
         CachedEffect {
             buffer_index: buffer_index as u32,
-            slices,
-            group_order,
+            slice,
         }
 
         // cached_child_info: event_buffer_ref.map(|event_buffer_ref|
@@ -1261,6 +999,26 @@ impl EffectCache {
         // children this // effect has. Leave this empty for now, until
         // resolve_parents() fix it up if // needed.
         // children: None,
+    }
+
+    /// Remove an effect from the cache. If this was the last effect, drop the
+    /// underlying buffer and return the index of the dropped buffer.
+    pub fn remove(&mut self, cached_effect: &CachedEffect) -> Result<BufferState, ()> {
+        // Resolve the buffer by index
+        let Some(maybe_buffer) = self.buffers.get_mut(cached_effect.buffer_index as usize) else {
+            return Err(());
+        };
+        let Some(buffer) = maybe_buffer.as_mut() else {
+            return Err(());
+        };
+
+        // Free the slice inside the resolved buffer
+        if buffer.free_slice(cached_effect.slice.clone()) == BufferState::Free {
+            *maybe_buffer = None;
+            return Ok(BufferState::Free);
+        }
+
+        Ok(BufferState::Used)
     }
 
     // pub fn get_slices(&self, id: EffectCacheId) -> EffectSlices {
@@ -1405,90 +1163,309 @@ impl EffectCache {
     //     &self.effects[&id].group_order
     // }
 
-    /// Get the init bind group for a cached effect.
-    pub fn init_bind_group(&self, buffer_index: u32) -> Option<&BindGroup> {
-        self.buffers[buffer_index as usize]
-            .as_ref()
-            .and_then(|eb| eb.init_bind_group())
-    }
+    //
+    // Bind group layouts
+    //
 
-    /// Get the update bind group for a cached effect.
-    #[inline]
-    pub fn update_bind_group(&self, buffer_index: u32) -> Option<&BindGroup> {
-        self.buffers[buffer_index as usize]
-            .as_ref()
-            .and_then(|eb| eb.update_bind_group())
-    }
-
-    pub fn create_init_bind_group(
+    /// Ensure a bind group layout exists for the bind group @1 ("particles")
+    /// for use with the given min binding sizes.
+    pub fn ensure_particle_bind_group_layout(
         &mut self,
-        buffer_index: u32,
-        render_device: &RenderDevice,
-        particle_group_buffer: &Buffer,
-        particle_group_offset: u64,
-        particle_group_size: NonZeroU64,
-    ) -> Result<(), ()> {
-        // Create the bind group
-        let slot = self.buffers.get_mut(buffer_index as usize).ok_or(())?;
-        let effect_buffer = slot.as_mut().ok_or(())?;
-        effect_buffer.create_init_bind_group(
-            buffer_index,
-            render_device,
-            particle_group_buffer,
-            particle_group_offset,
-            particle_group_size,
-        );
-        Ok(())
+        min_binding_size: NonZeroU32,
+        parent_min_binding_size: Option<NonZeroU32>,
+    ) -> &BindGroupLayout {
+        // FIXME - This "ensure" pattern means we never de-allocate entries. This is
+        // probably fine, because there's a limited number of realistic combinations,
+        // but could cause wastes if e.g. loading widely different scenes.
+        let key = ParticleBindGroupLayoutKey {
+            min_binding_size,
+            parent_min_binding_size,
+        };
+        self.particle_bind_group_layouts
+            .entry(key)
+            .or_insert_with(|| {
+                create_particle_sim_bind_group_layout(
+                    &self.render_device,
+                    min_binding_size,
+                    parent_min_binding_size,
+                )
+            })
     }
 
-    pub fn create_update_bind_group(
-        &mut self,
-        buffer_index: u32,
-        render_device: &RenderDevice,
-        particle_group_buffer: &Buffer,
-        particle_group_offset: u64,
-        particle_group_size: NonZeroU64,
-    ) -> Result<(), ()> {
-        // Create the bind group
-        let slot = self.buffers.get_mut(buffer_index as usize).ok_or(())?;
-        let effect_buffer = slot.as_mut().ok_or(())?;
-        effect_buffer.create_update_bind_group(
-            buffer_index,
-            render_device,
-            particle_group_buffer,
-            particle_group_offset,
-            particle_group_size,
-        );
-        Ok(())
+    /// Get the bind group layout for the bind group @1 ("particles") for use
+    /// with the given min binding sizes.
+    pub fn particle_bind_group_layout(
+        &self,
+        min_binding_size: NonZeroU32,
+        parent_min_binding_size: Option<NonZeroU32>,
+    ) -> Option<&BindGroupLayout> {
+        let key = ParticleBindGroupLayoutKey {
+            min_binding_size,
+            parent_min_binding_size,
+        };
+        self.particle_bind_group_layouts.get(&key)
     }
 
-    /// Remove an effect from the cache. If this was the last effect, drop the
-    /// underlying buffer and return the index of the dropped buffer.
-    pub fn remove(&mut self, cached_effect: &CachedEffect) -> Result<BufferState, ()> {
-        // Resolve the buffer by index
-        let Some(maybe_buffer) = self.buffers.get_mut(cached_effect.buffer_index as usize) else {
-            return Err(());
-        };
-        let Some(buffer) = maybe_buffer.as_mut() else {
-            return Err(());
-        };
-
-        // Reconstruct the original slice
-        let slice = SliceRef {
-            range: cached_effect.slices.ranges[0]..*cached_effect.slices.ranges.last().unwrap(),
-            // FIXME: clone() needed to return CachedEffectIndices, but really we don't care about
-            // returning the ParticleLayout, so should split...
-            particle_layout: cached_effect.slices.particle_layout.clone(),
-        };
-
-        // Free the slice inside the resolved buffer
-        if buffer.free_slice(slice) == BufferState::Free {
-            *maybe_buffer = None;
-            return Ok(BufferState::Free);
+    /// Ensure a bind group layout exists for the metadata@3 bind group of
+    /// the init pass.
+    pub fn ensure_metadata_init_bind_group_layout(&mut self, consume_gpu_spawn_events: bool) {
+        let layout = &mut self.metadata_init_bind_group_layout[consume_gpu_spawn_events as usize];
+        if layout.is_none() {
+            *layout = Some(create_metadata_init_bind_group_layout(
+                &self.render_device,
+                consume_gpu_spawn_events,
+            ));
         }
-
-        Ok(BufferState::Used)
     }
+
+    /// Get the bind group layout for the metadata@3 bind group of the init
+    /// pass.
+    pub fn metadata_init_bind_group_layout(
+        &self,
+        consume_gpu_spawn_events: bool,
+    ) -> Option<&BindGroupLayout> {
+        self.metadata_init_bind_group_layout[consume_gpu_spawn_events as usize].as_ref()
+    }
+
+    /// Ensure a bind group layout exists for the metadata@3 bind group of
+    /// the update pass.
+    pub fn ensure_metadata_update_bind_group_layout(&mut self, num_event_buffers: u32) {
+        self.metadata_update_bind_group_layouts
+            .entry(num_event_buffers)
+            .or_insert_with(|| {
+                create_metadata_update_bind_group_layout(&self.render_device, num_event_buffers)
+            });
+    }
+
+    /// Get the bind group layout for the metadata@3 bind group of the
+    /// update pass.
+    pub fn metadata_update_bind_group_layout(
+        &self,
+        num_event_buffers: u32,
+    ) -> Option<&BindGroupLayout> {
+        self.metadata_update_bind_group_layouts
+            .get(&num_event_buffers)
+    }
+
+    //
+    // Bind groups
+    //
+
+    /// Get the "particle" bind group for the simulation (init and update)
+    /// passes a cached effect stored in a given GPU particle buffer.
+    pub fn particle_sim_bind_group(&self, buffer_index: u32) -> Option<&BindGroup> {
+        self.buffers[buffer_index as usize]
+            .as_ref()
+            .and_then(|eb| eb.particle_sim_bind_group())
+    }
+
+    pub fn create_particle_sim_bind_group(
+        &mut self,
+        buffer_index: u32,
+        render_device: &RenderDevice,
+        min_binding_size: NonZeroU32,
+        parent_min_binding_size: Option<NonZeroU32>,
+        parent: Option<BufferBindingSource>,
+    ) -> Result<(), ()> {
+        // Create the bind group
+        let layout = self
+            .ensure_particle_bind_group_layout(min_binding_size, parent_min_binding_size)
+            .clone();
+        let slot = self.buffers.get_mut(buffer_index as usize).ok_or(())?;
+        let effect_buffer = slot.as_mut().ok_or(())?;
+        effect_buffer.create_particle_sim_bind_group(&layout, buffer_index, render_device, parent);
+        Ok(())
+    }
+}
+
+/// Create the bind group layout for the "particle" group (@1) of the init and
+/// update passes.
+fn create_particle_sim_bind_group_layout(
+    render_device: &RenderDevice,
+    particle_layout_min_binding_size: NonZeroU32,
+    parent_particle_layout_min_binding_size: Option<NonZeroU32>,
+) -> BindGroupLayout {
+    let mut entries = Vec::with_capacity(3);
+
+    // @group(1) @binding(0) var<storage, read_write> particle_buffer :
+    // ParticleBuffer
+    entries.push(BindGroupLayoutEntry {
+        binding: 0,
+        visibility: ShaderStages::COMPUTE,
+        ty: BindingType::Buffer {
+            ty: BufferBindingType::Storage { read_only: false },
+            has_dynamic_offset: false,
+            min_binding_size: Some(particle_layout_min_binding_size.into()),
+        },
+        count: None,
+    });
+
+    // @group(1) @binding(1) var<storage, read_write> indirect_buffer :
+    // IndirectBuffer
+    entries.push(BindGroupLayoutEntry {
+        binding: 1,
+        visibility: ShaderStages::COMPUTE,
+        ty: BindingType::Buffer {
+            ty: BufferBindingType::Storage { read_only: false },
+            has_dynamic_offset: false,
+            min_binding_size: Some(NonZeroU64::new(INDIRECT_INDEX_SIZE as _).unwrap()),
+        },
+        count: None,
+    });
+
+    // @group(1) @binding(2) var<storage, read> parent_particle_buffer :
+    // ParentParticleBuffer;
+    if let Some(min_binding_size) = parent_particle_layout_min_binding_size {
+        entries.push(BindGroupLayoutEntry {
+            binding: 2,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: Some(min_binding_size.into()),
+            },
+            count: None,
+        });
+    }
+
+    let hash = calc_hash(&entries);
+    let label = format!("hanabi:bind_group_layout:sim:particles_{:016X}", hash);
+    trace!(
+        "Creating particle bind group layout '{}' for init passes with {} entries. (parent_buffer:{})",
+        label,
+        entries.len(),
+        parent_particle_layout_min_binding_size.is_some(),
+    );
+    render_device.create_bind_group_layout(&label[..], &entries)
+}
+
+/// Create the bind group layout for the metadata@3 bind group of the init pass.
+fn create_metadata_init_bind_group_layout(
+    render_device: &RenderDevice,
+    consume_gpu_spawn_events: bool,
+) -> BindGroupLayout {
+    let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
+    let effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
+
+    let mut entries = Vec::with_capacity(3);
+
+    // @group(3) @binding(0) var<storage, read_write> effect_metadata :
+    // EffectMetadata;
+    entries.push(BindGroupLayoutEntry {
+        binding: 0,
+        visibility: ShaderStages::COMPUTE,
+        ty: BindingType::Buffer {
+            ty: BufferBindingType::Storage { read_only: false },
+            has_dynamic_offset: false,
+            // This WGSL struct is manually padded, so the Rust type GpuEffectMetadata doesn't
+            // reflect its true min size.
+            min_binding_size: Some(effect_metadata_size),
+        },
+        count: None,
+    });
+
+    if consume_gpu_spawn_events {
+        // @group(3) @binding(1) var<storage, read> child_info_buffer : ChildInfoBuffer;
+        entries.push(BindGroupLayoutEntry {
+            binding: 1,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: false },
+                has_dynamic_offset: false,
+                min_binding_size: Some(GpuChildInfo::min_size()),
+            },
+            count: None,
+        });
+
+        // @group(3) @binding(2) var<storage, read> event_buffer : EventBuffer;
+        entries.push(BindGroupLayoutEntry {
+            binding: 2,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: Some(NonZeroU64::new(4).unwrap()),
+            },
+            count: None,
+        });
+    }
+
+    let hash = calc_hash(&entries);
+    let label = format!("hanabi:bind_group_layout:init:metadata_{:016X}", hash);
+    trace!(
+        "Creating particle bind group layout '{}' for init pass with {} entries. (consume_gpu_spawn_events:{})",
+        label,
+        entries.len(),
+        consume_gpu_spawn_events,
+    );
+    render_device.create_bind_group_layout(&label[..], &entries)
+}
+
+/// Create the bind group layout for the metadata@3 bind group of the update
+/// pass.
+fn create_metadata_update_bind_group_layout(
+    render_device: &RenderDevice,
+    num_event_buffers: u32,
+) -> BindGroupLayout {
+    let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
+    let effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
+
+    let mut entries = Vec::with_capacity(num_event_buffers as usize + 2);
+
+    // @group(3) @binding(0) var<storage, read_write> effect_metadata :
+    // EffectMetadata;
+    entries.push(BindGroupLayoutEntry {
+        binding: 0,
+        visibility: ShaderStages::COMPUTE,
+        ty: BindingType::Buffer {
+            ty: BufferBindingType::Storage { read_only: false },
+            has_dynamic_offset: false,
+            // This WGSL struct is manually padded, so the Rust type GpuEffectMetadata doesn't
+            // reflect its true min size.
+            min_binding_size: Some(effect_metadata_size),
+        },
+        count: None,
+    });
+
+    if num_event_buffers > 0 {
+        // @group(3) @binding(1) var<storage, read_write> child_infos : array<ChildInfo,
+        // N>;
+        entries.push(BindGroupLayoutEntry {
+            binding: 1,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: false },
+                has_dynamic_offset: false,
+                min_binding_size: Some(GpuChildInfo::min_size()),
+            },
+            count: None,
+        });
+
+        for i in 0..num_event_buffers {
+            // @group(3) @binding(2+i) var<storage, read_write> event_buffer_#i :
+            // EventBuffer;
+            entries.push(BindGroupLayoutEntry {
+                binding: 2 + i,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(NonZeroU64::new(4).unwrap()),
+                },
+                count: None,
+            });
+        }
+    }
+
+    let hash = calc_hash(&entries);
+    let label = format!("hanabi:bind_group_layout:update:metadata_{:016X}", hash);
+    trace!(
+        "Creating particle bind group layout '{}' for init update with {} entries. (num_event_buffers:{})",
+        label,
+        entries.len(),
+        num_event_buffers,
+    );
+    render_device.create_bind_group_layout(&label[..], &entries)
 }
 
 #[cfg(all(test, feature = "gpu_tests"))]
@@ -1507,13 +1484,13 @@ mod gpu_tests {
     #[test]
     fn effect_slice_ord() {
         let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
-        let slice1 = EffectSlices {
-            slices: vec![0, 32],
+        let slice1 = EffectSlice {
+            slice: 0..32,
             buffer_index: 1,
             particle_layout: particle_layout.clone(),
         };
-        let slice2 = EffectSlices {
-            slices: vec![32, 64],
+        let slice2 = EffectSlice {
+            slice: 32..64,
             buffer_index: 1,
             particle_layout: particle_layout.clone(),
         };
@@ -1522,8 +1499,8 @@ mod gpu_tests {
         assert!(slice2 > slice1);
         assert!(slice2 >= slice1);
 
-        let slice3 = EffectSlices {
-            slices: vec![0, 32],
+        let slice3 = EffectSlice {
+            slice: 0..32,
             buffer_index: 0,
             particle_layout,
         };
@@ -1737,48 +1714,30 @@ mod gpu_tests {
 
         let asset = Handle::<EffectAsset>::default();
         let capacity = EffectBuffer::MIN_CAPACITY;
-        let capacities = vec![capacity];
-        let group_order = vec![0];
         let item_size = l32.size();
 
         // Insert an effect
-        let effect1 = effect_cache.insert(
-            asset.clone(),
-            capacities.clone(),
-            &l32,
-            LayoutFlags::NONE,
-            group_order.clone(),
-        );
+        let effect1 = effect_cache.insert(asset.clone(), capacity, &l32, LayoutFlags::NONE);
         //assert!(effect1.is_valid());
-        let slice1 = &effect1.slices;
-        assert_eq!(slice1.group_count(), 1);
-        assert_eq!(slice1.group_capacity(0), capacity);
-        assert_eq!(slice1.total_capacity(), capacity);
+        let slice1 = &effect1.slice;
+        assert_eq!(slice1.len(), capacity);
         assert_eq!(
             slice1.particle_layout.min_binding_size().get() as u32,
             item_size
         );
-        assert_eq!(slice1.ranges, vec![0, capacity]);
+        assert_eq!(slice1.range, 0..capacity);
         assert_eq!(effect_cache.buffers().len(), 1);
 
         // Insert a second copy of the same effect
-        let effect2 = effect_cache.insert(
-            asset.clone(),
-            capacities.clone(),
-            &l32,
-            LayoutFlags::NONE,
-            group_order.clone(),
-        );
+        let effect2 = effect_cache.insert(asset.clone(), capacity, &l32, LayoutFlags::NONE);
         //assert!(effect2.is_valid());
-        let slice2 = &effect2.slices;
-        assert_eq!(slice2.group_count(), 1);
-        assert_eq!(slice2.group_capacity(0), capacity);
-        assert_eq!(slice2.total_capacity(), capacity);
+        let slice2 = &effect2.slice;
+        assert_eq!(slice2.len(), capacity);
         assert_eq!(
             slice2.particle_layout.min_binding_size().get() as u32,
             item_size
         );
-        assert_eq!(slice2.ranges, vec![0, capacity]);
+        assert_eq!(slice2.range, 0..capacity);
         assert_eq!(effect_cache.buffers().len(), 2);
 
         // Remove the first effect instance
@@ -1794,17 +1753,15 @@ mod gpu_tests {
         }
 
         // Regression #60
-        let effect3 = effect_cache.insert(asset, capacities, &l32, LayoutFlags::NONE, group_order);
+        let effect3 = effect_cache.insert(asset, capacity, &l32, LayoutFlags::NONE);
         //assert!(effect3.is_valid());
-        let slice3 = &effect3.slices;
-        assert_eq!(slice3.group_count(), 1);
-        assert_eq!(slice3.group_capacity(0), capacity);
-        assert_eq!(slice3.total_capacity(), capacity);
+        let slice3 = &effect3.slice;
+        assert_eq!(slice3.len(), capacity);
         assert_eq!(
             slice3.particle_layout.min_binding_size().get() as u32,
             item_size
         );
-        assert_eq!(slice3.ranges, vec![0, capacity]);
+        assert_eq!(slice3.range, 0..capacity);
         // Note: currently batching is disabled, so each instance has its own buffer.
         assert_eq!(effect_cache.buffers().len(), 2);
         {

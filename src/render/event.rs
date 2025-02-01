@@ -1,11 +1,8 @@
-use std::{
-    num::{NonZeroU32, NonZeroU64},
-    ops::Range,
-};
+use std::{num::NonZeroU64, ops::Range};
 
 use bevy::{
     log::{trace, warn},
-    prelude::{Component, Entity, Mut, ResMut, Resource},
+    prelude::{Component, Entity, ResMut, Resource},
     render::{
         render_resource::{BindGroup, BindGroupLayout, Buffer, BufferVec, ShaderType},
         renderer::{RenderDevice, RenderQueue},
@@ -19,7 +16,7 @@ use wgpu::{
 
 use super::{
     aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState, EffectBindGroups,
-    GpuInitDispatchIndirect,
+    GpuDispatchIndirect,
 };
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -124,32 +121,6 @@ impl EventBuffer {
     }
 }
 
-pub(crate) struct EventBufferBinding {
-    buffer: Buffer,
-    /// Offset in number of u32 elements (4 bytes).
-    offset: u32,
-    /// Size in number of u32 elements (4 bytes).
-    size: NonZeroU32,
-}
-
-impl EventBufferBinding {
-    pub fn binding(&self) -> BindingResource {
-        BindingResource::Buffer(BufferBinding {
-            buffer: &self.buffer,
-            offset: self.offset as u64 * 4,
-            size: Some(self.size.into()),
-        })
-    }
-
-    pub fn max_binding(&self) -> BindingResource {
-        BindingResource::Buffer(BufferBinding {
-            buffer: &self.buffer,
-            offset: 0,
-            size: None,
-        })
-    }
-}
-
 /// Child effect(s), if any. Only available if this effect is the parent
 /// effect for one or more child effects.
 #[derive(Debug, Component)]
@@ -185,7 +156,7 @@ impl CachedParent {
     }
 
     /// Base offset of the first child into the global
-    /// [`EffectCache::child_infos_buffer`], in number of element.
+    /// [`EventCache::child_infos_buffer`], in number of element.
     pub fn first_child_index(&self) -> u32 {
         self.byte_range.start / size_of::<GpuChildInfo>() as u32
     }
@@ -200,7 +171,7 @@ pub(crate) struct CachedChild {
     /// Index of this child effect into its parent's ChildInfo array
     /// ([`EffectChildren::effect_cache_ids`] and its associated GPU
     /// array). This starts at zero for the first child of each effect, and is
-    /// only unique per parent, not globally.
+    /// only unique per parent only, not globally.
     pub local_child_index: u32,
     /// Global index of this child effect into the shared global
     /// [`EventCache::child_infos_buffer`] array. This is a unique index across
@@ -208,38 +179,52 @@ pub(crate) struct CachedChild {
     ///
     /// [`EventCache::child_infos_buffer`]: super::EventCache::child_infos_buffer
     pub global_child_index: u32,
-    /// Index of the dispatch entry into the [`init_indirect_dispatch_buffer`]
-    /// array.
+    /// Index of the [`GpuDispatchIndirect`] entry into the
+    /// [`init_indirect_dispatch_buffer`] array.
     ///
-    /// [`init_indirect_dispatch_buffer`]: super::EffectCache::init_indirect_dispatch_buffer
-    pub dispatch_index: u32,
+    /// [`init_indirect_dispatch_buffer`]: super::EventCache::init_indirect_dispatch_buffer
+    pub init_indirect_dispatch_index: u32,
     // /// Event buffer allocation events are consumed from.
     //pub event_buffer_ref: CachedEffectEvents,
 }
 
+/// GPU representation of the child info data structure storing some data for a
+/// child effect. The associated CPU representation is [`CachedEffectEvents`].
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct GpuChildInfo {
-    /// Index of the [`GpuInitDispatchIndirect`] inside the
-    /// [`EventCache::init_indirect_dispatch_buffer`].
+    /// Index of the [`GpuDispatchIndirect`] inside the
+    /// [`EventCache::init_indirect_dispatch_buffer`] used to dispatch the init
+    /// pass of this child effect.
     pub init_indirect_dispatch_index: u32,
-    /// Number of events currently stored inside the [`EventBuffer`]. This is
-    /// updated atomically by the GPU while stored in the
-    /// [`EventCache::child_infos_buffer`].
+    /// Number of events currently stored inside the [`EventBuffer`] slice
+    /// associated with this child effect. This is updated atomically by the
+    /// GPU while stored in the [`EventCache::child_infos_buffer`].
     pub event_count: i32,
 }
 
 #[derive(Debug, Component)]
 pub struct CachedEffectEvents {
     /// Index of the [`EventBuffer`] inside the [`EventCache::buffers`]
-    /// collection.
+    /// collection where a slice of events is allocated, for this effect to
+    /// consume.
     pub buffer_index: u32,
-    /// Index of the [`GpuInitDispatchIndirect`] inside the
+    /// Range, in items (4 bytes), where the events are stored inside the
+    /// [`EventBuffer`]. This determines the capacity, in event count, for this
+    /// effect. The number of used events is stored on the GPU in
+    /// [`GpuChildInfo::event_count`].
+    pub range: Range<u32>,
+    /// Index of the [`GpuDispatchIndirect`] inside the
     /// [`EventCache::init_indirect_dispatch_buffer`].
     pub init_indirect_dispatch_index: u32,
-    /// Range, in items (4 bytes), where the events are stored inside the
-    /// [`EventBuffer`].
-    pub range: Range<u32>,
+}
+
+impl CachedEffectEvents {
+    /// Capacity of this allocation, in number of GPU events. The number of used
+    /// events is stored on the GPU in [`GpuChildInfo::event_count`].
+    pub fn capacity(&self) -> u32 {
+        self.range.len() as u32
+    }
 }
 
 /// Error code for [`EventCache::free()`].
@@ -265,15 +250,15 @@ pub struct EventCache {
     /// be `None` if the entry is not used. Since the buffers are referenced
     /// by index, we cannot move them once they're allocated.
     buffers: Vec<Option<EventBuffer>>,
-    /// Single shared GPU buffer storing all the [`GpuInitDispatchIndirect`]
+    /// Single shared GPU buffer storing all the [`GpuDispatchIndirect`]
     /// structs for all the indirect init passes. Any effect allocating storage
     /// for GPU events also get an entry into this buffer, to allow consuming
     /// the events from an init pass indirectly dispatched (GPU-driven).
     // Note: we abuse BufferVec but never copy anything from CPU
-    init_indirect_dispatch_buffer: BufferVec<GpuInitDispatchIndirect>,
+    init_indirect_dispatch_buffer: BufferVec<GpuDispatchIndirect>,
     /// Bind group layout for the indirect dispatch pass, which clears the GPU
     /// event counts ([`GpuChildInfo::event_count`]).
-    child_infos_bgl: BindGroupLayout,
+    child_infos_bind_group_layout: BindGroupLayout,
     /// Bind group for the indirect dispatch pass, which clears the GPU event
     /// counts ([`GpuChildInfo::event_count`]).
     child_infos_bind_group: Option<BindGroup>,
@@ -309,7 +294,7 @@ impl EventCache {
             ),
             buffers: vec![],
             init_indirect_dispatch_buffer,
-            child_infos_bgl,
+            child_infos_bind_group_layout: child_infos_bgl,
             // Can't create until the buffer is ready
             child_infos_bind_group: None,
         }
@@ -341,6 +326,9 @@ impl EventCache {
 
     /// Allocate a memory block to store the given number of GPU events.
     ///
+    /// The allocation always succeeds, allocating a new GPU event buffer if
+    /// none of the existing ones can store the requested number of events.
+    ///
     /// # Returns
     ///
     /// The [`CachedEffectEvents`] component representing the allocation.
@@ -353,14 +341,15 @@ impl EventCache {
 
         // Allocate an entry into the indirect dispatch buffer
         // The value pushed is a dummy; see allocate_frame_buffers().
-        let init_indirect_dispatch_index =
-            self.init_indirect_dispatch_buffer
-                .push(GpuInitDispatchIndirect::default()) as u32;
+        let init_indirect_dispatch_index = self
+            .init_indirect_dispatch_buffer
+            .push(GpuDispatchIndirect::default()) as u32;
 
         // Try to find an allocated GPU buffer with enough capacity
         let mut empty_index = None;
         for (buffer_index, buffer) in self.buffers.iter_mut().enumerate() {
             let Some(buffer) = buffer.as_mut() else {
+                // Remember the first empty slot in case we need to allocate a new GPU buffer
                 if empty_index.is_none() {
                     empty_index = Some(buffer_index);
                 }
@@ -378,9 +367,9 @@ impl EventCache {
             }
         }
 
-        // Cannot find any suitable buffer; allocate a new one
+        // Cannot find any suitable GPU event buffer; allocate a new one
 
-        // Find a slot where to store the new buffer
+        // Compute the slot where to store the new buffer
         let buffer_index = empty_index.unwrap_or(self.buffers.len());
 
         // Create the GPU bfufer
@@ -411,7 +400,7 @@ impl EventCache {
         trace!("Created new event buffer #{buffer_index} '{label}' with {byte_size} bytes ({capacity} events; align={align}B)");
         let mut buffer = EventBuffer::new(buffer, capacity);
 
-        // Allocate from the new event buffer
+        // Allocate a slice from the new event buffer
         let event_slice = buffer.allocate(num_events).expect("Failed to allocate event slice inside new buffer specifically created for this allocation.");
         trace!("Allocate new slice in event buffer #{buffer_index} for {num_events} events: range={event_slice:?}");
 
@@ -472,24 +461,12 @@ impl EventCache {
         &mut self,
         parent_entity: Entity,
         children: Vec<Entity>,
+        child_infos: &[GpuChildInfo],
     ) -> CachedParent {
-        let child_infos = children
-            .iter()
-            .map(|child_entity| {
-                let init_indirect_dispatch_index = self
-                    .get_init_indirect_dispatch_index(*child_entity)
-                    .expect(&format!(
-                        "Failed to find init indirect dispatch index of child effect #{:?}.",
-                        *child_entity
-                    ));
-                GpuChildInfo {
-                    init_indirect_dispatch_index,
-                    event_count: 0,
-                }
-            })
-            .collect::<Vec<_>>();
+        assert_eq!(children.len(), child_infos.len());
+        assert!(!children.is_empty());
 
-        let byte_range = self.child_infos_buffer.push_many(&child_infos[..]);
+        let byte_range = self.child_infos_buffer.push_many(child_infos);
         assert_eq!(byte_range.start as usize % size_of::<GpuChildInfo>(), 0);
         trace!(
             "Parent {:?}: newly allocated ChildInfo[] array at +{}",
@@ -509,34 +486,22 @@ impl EventCache {
         &mut self,
         parent_entity: Entity,
         children: Vec<Entity>,
+        child_infos: &[GpuChildInfo],
         cached_parent: &mut CachedParent,
     ) {
         trace!(
-            "De-allocating old ChildInfo[] entry at range {:?}",
+            "Parent {:?}: De-allocating old ChildInfo[] entry at range {:?}",
+            parent_entity,
             cached_parent.byte_range
         );
-        self.child_infos_buffer.remove(cached_parent.byte_range);
+        self.child_infos_buffer
+            .remove(cached_parent.byte_range.clone());
 
-        let child_infos = children
-            .iter()
-            .map(|child_entity| {
-                let init_indirect_dispatch_index = self
-                    .get_init_indirect_dispatch_index(*child_entity)
-                    .expect(&format!(
-                        "Failed to find init indirect dispatch index of child effect #{:?}.",
-                        *child_entity
-                    ));
-                GpuChildInfo {
-                    init_indirect_dispatch_index,
-                    event_count: 0,
-                }
-            })
-            .collect::<Vec<_>>();
-
-        let byte_range = self.child_infos_buffer.push_many(&child_infos[..]);
+        let byte_range = self.child_infos_buffer.push_many(child_infos);
         assert_eq!(byte_range.start as usize % size_of::<GpuChildInfo>(), 0);
         trace!(
-            "Allocated new ChildInfo[] entry at byte range {:?}",
+            "Parent {:?}: Allocated new ChildInfo[] entry at byte range {:?}",
+            parent_entity,
             byte_range
         );
 
@@ -549,7 +514,8 @@ impl EventCache {
         &mut self,
         render_device: &RenderDevice,
         render_queue: &RenderQueue,
-        effect_bind_groups: &mut ResMut<EffectBindGroups>,
+        // FIXME
+        _effect_bind_groups: &mut ResMut<EffectBindGroups>,
     ) {
         // Note: we abuse BufferVec for its ability to manage the GPU buffer, but
         // we don't use its CPU side capabilities. So we only need the GPU buffer to be
@@ -565,14 +531,23 @@ impl EventCache {
             // If the child infos buffer changed, all init bind groups of children and all
             // update bind groups of parents are invalid because they all use that globally
             // shared buffer.
-            // FIXME - it's quite hard to tell for now; just invalidate everything
-            for buffer in &mut self.buffers {
-                if let Some(buffer) = buffer {
-                    buffer.invalidate_all_bind_groups();
-                }
-            }
 
-            effect_bind_groups.init_fill_dispatch.clear();
+            todo!("Invalidate ChildInfo bind groups");
+
+            // Init pass
+            // FIXME group@3 if CONSUME_GPU_SPAWN_EVENTS
+
+            // Indirect pass
+            // FIXME group@3 if HAS_GPU_SPAWN_EVENTS
+
+            // FIXME - it's quite hard to tell for now; just invalidate
+            // everything for buffer in &mut self.buffers {
+            //     if let Some(buffer) = buffer {
+            //         buffer.invalidate_all_bind_groups();
+            //     }
+            // }
+
+            //effect_bind_groups.init_fill_dispatch.clear();
         }
     }
 
@@ -586,10 +561,10 @@ impl EventCache {
         &self.child_infos_buffer
     }
 
-    // #[inline]
-    // pub fn init_indirect_dispatch_buffer_binding(&self) ->
-    // Option<BindingResource> {     self.init_indirect_dispatch_buffer.
-    // binding() }
+    #[inline]
+    pub fn init_indirect_dispatch_binding_resource(&self) -> Option<BindingResource> {
+        self.init_indirect_dispatch_buffer.binding()
+    }
 
     // pub fn get_init_indirect_dispatch_index(&self, id: EffectCacheId) ->
     // Option<u32> {     Some(

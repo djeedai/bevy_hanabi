@@ -370,14 +370,14 @@ impl PropertyBindGroups {
             .entry(*property_key)
             .or_insert_with(|| {
                 trace!(
-                    "Creating new bind group for property buffer #{} and binding size {}",
+                    "Creating new spawner@2 bind group for property buffer #{} and binding size {}",
                     property_key.buffer_index,
                     property_key.binding_size
                 );
                 render_device.create_bind_group(
                     Some(
                         &format!(
-                            "hanabi:bind_group:property{}_size{}",
+                            "hanabi:bind_group:spawner@2:property{}_size{}",
                             property_key.buffer_index, property_key.binding_size
                         )[..],
                     ),

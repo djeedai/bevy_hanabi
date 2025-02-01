@@ -21,7 +21,7 @@ use bevy::{
 #[cfg(feature = "serde")]
 use crate::asset::EffectAssetLoader;
 use crate::{
-    asset::EffectAsset,
+    asset::{DefaultMesh, EffectAsset},
     compile_effects,
     properties::EffectProperties,
     render::{
@@ -30,13 +30,13 @@ use crate::{
         prepare_gpu_resources, prepare_property_buffers, queue_effects, resolve_parents,
         DebugSettings, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups,
         EffectCache, EffectsMeta, EventCache, ExtractedEffects, GpuBufferOperationQueue,
-        GpuDispatchIndirect, GpuParticleGroup, GpuRenderEffectMetadata, GpuRenderGroupIndirect,
-        GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline,
-        PropertyBindGroups, PropertyCache, RenderDebugSettings, ShaderCache, SimParams,
-        StorageType as _, UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
+        GpuEffectMetadata, GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline,
+        ParticlesUpdatePipeline, PropertyBindGroups, PropertyCache, RenderDebugSettings,
+        ShaderCache, SimParams, StorageType as _, UtilsPipeline, VfxSimulateDriverNode,
+        VfxSimulateNode,
     },
     spawn::{self, Random},
-    tick_initializers,
+    tick_spawners,
     time::effect_simulation_time_system,
     update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
     Spawner, ToWgslString,
@@ -138,52 +138,16 @@ impl HanabiPlugin {
     pub(crate) fn make_common_shader(min_storage_buffer_offset_alignment: u32) -> Shader {
         let spawner_padding_code =
             GpuSpawnerParams::padding_code(min_storage_buffer_offset_alignment);
-        let dispatch_indirect_padding_code =
-            GpuDispatchIndirect::padding_code(min_storage_buffer_offset_alignment);
-        let dispatch_indirect_stride_code =
-            (GpuDispatchIndirect::aligned_size(min_storage_buffer_offset_alignment).get() as u32)
-                .to_wgsl_string();
-        let render_effect_indirect_padding_code =
-            GpuRenderEffectMetadata::padding_code(min_storage_buffer_offset_alignment);
-        let render_group_indirect_padding_code =
-            GpuRenderGroupIndirect::padding_code(min_storage_buffer_offset_alignment);
-        let particle_group_padding_code =
-            GpuParticleGroup::padding_code(min_storage_buffer_offset_alignment);
+        let effect_metadata_padding_code =
+            GpuEffectMetadata::padding_code(min_storage_buffer_offset_alignment);
         let render_effect_indirect_size =
-            GpuRenderEffectMetadata::aligned_size(min_storage_buffer_offset_alignment);
-        let render_effect_indirect_stride_code =
+            GpuEffectMetadata::aligned_size(min_storage_buffer_offset_alignment);
+        let effect_metadata_stride_code =
             (render_effect_indirect_size.get() as u32).to_wgsl_string();
-        let render_group_indirect_size =
-            GpuRenderGroupIndirect::aligned_size(min_storage_buffer_offset_alignment);
-        let render_group_indirect_stride_code =
-            (render_group_indirect_size.get() as u32).to_wgsl_string();
         let common_code = include_str!("render/vfx_common.wgsl")
             .replace("{{SPAWNER_PADDING}}", &spawner_padding_code)
-            .replace(
-                "{{DISPATCH_INDIRECT_PADDING}}",
-                &dispatch_indirect_padding_code,
-            )
-            .replace(
-                "{{DISPATCH_INDIRECT_STRIDE}}",
-                &dispatch_indirect_stride_code,
-            )
-            .replace(
-                "{{RENDER_EFFECT_INDIRECT_PADDING}}",
-                &render_effect_indirect_padding_code,
-            )
-            .replace(
-                "{{RENDER_EFFECT_INDIRECT_STRIDE}}",
-                &render_effect_indirect_stride_code,
-            )
-            .replace(
-                "{{RENDER_GROUP_INDIRECT_PADDING}}",
-                &render_group_indirect_padding_code,
-            )
-            .replace(
-                "{{RENDER_GROUP_INDIRECT_STRIDE}}",
-                &render_group_indirect_stride_code,
-            )
-            .replace("{{PARTICLE_GROUP_PADDING}}", &particle_group_padding_code);
+            .replace("{{EFFECT_METADATA_PADDING}}", &effect_metadata_padding_code)
+            .replace("{{EFFECT_METADATA_STRIDE}}", &effect_metadata_stride_code);
         Shader::from_wgsl(
             common_code,
             std::path::Path::new(file!())
@@ -208,22 +172,13 @@ impl HanabiPlugin {
         has_events: bool,
     ) -> Shader {
         let render_effect_indirect_size =
-            GpuRenderEffectMetadata::aligned_size(min_storage_buffer_offset_alignment);
+            GpuEffectMetadata::aligned_size(min_storage_buffer_offset_alignment);
         let render_effect_indirect_stride_code =
             (render_effect_indirect_size.get() as u32).to_wgsl_string();
-        let render_group_indirect_size =
-            GpuRenderGroupIndirect::aligned_size(min_storage_buffer_offset_alignment);
-        let render_group_indirect_stride_code =
-            (render_group_indirect_size.get() as u32).to_wgsl_string();
-        let indirect_code = include_str!("render/vfx_indirect.wgsl")
-            .replace(
-                "{{RENDER_EFFECT_INDIRECT_STRIDE}}",
-                &render_effect_indirect_stride_code,
-            )
-            .replace(
-                "{{RENDER_GROUP_INDIRECT_STRIDE}}",
-                &render_group_indirect_stride_code,
-            );
+        let indirect_code = include_str!("render/vfx_indirect.wgsl").replace(
+            "{{EFFECT_METADATA_STRIDE}}",
+            &render_effect_indirect_stride_code,
+        );
         Shader::from_wgsl(
             indirect_code,
             std::path::Path::new(file!())
@@ -248,6 +203,7 @@ impl Plugin for HanabiPlugin {
         // Register asset
         app.init_asset::<EffectAsset>()
             .insert_resource(Random(spawn::new_rng()))
+            .init_resource::<DefaultMesh>()
             .init_resource::<ShaderCache>()
             .init_resource::<DebugSettings>()
             .init_resource::<Time<EffectSimulation>>()
@@ -274,7 +230,7 @@ impl Plugin for HanabiPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    tick_initializers.in_set(EffectSystems::TickSpawners),
+                    tick_spawners.in_set(EffectSystems::TickSpawners),
                     compile_effects.in_set(EffectSystems::CompileEffects),
                     update_properties_from_asset.in_set(EffectSystems::UpdatePropertiesFromAsset),
                     check_visibility::<WithCompiledParticleEffect>
@@ -340,15 +296,11 @@ impl Plugin for HanabiPlugin {
             (indirect_shader_noevent, indirect_shader_events)
         };
 
-        let effects_meta = {
-            let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
-            EffectsMeta::new(
-                render_device.clone(),
-                &mut meshes,
-                indirect_shader_noevent,
-                indirect_shader_events,
-            )
-        };
+        let effects_meta = EffectsMeta::new(
+            render_device.clone(),
+            indirect_shader_noevent,
+            indirect_shader_events,
+        );
 
         let effect_cache = EffectCache::new(render_device.clone());
         let property_cache = PropertyCache::new(render_device.clone());

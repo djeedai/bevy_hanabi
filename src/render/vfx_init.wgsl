@@ -1,6 +1,6 @@
 #import bevy_hanabi::vfx_common::{
-    ChildInfo, EventBuffer, InitIndirectDispatch, IndirectBuffer, ParticleGroup,
-    RenderEffectMetadata, RenderGroupIndirect, SimParams, Spawner,
+    ChildInfo, ChildInfoBuffer, EventBuffer, IndirectDispatch, IndirectBuffer,
+    EffectMetadata, RenderGroupIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
     rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
@@ -30,25 +30,22 @@ struct ParentParticleBuffer {{
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 
+// "particle" group @1
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
-@group(1) @binding(2) var<storage, read> particle_groups : array<ParticleGroup>;
 #ifdef READ_PARENT_PARTICLE
-@group(1) @binding(3) var<storage, read> parent_particle_buffer : ParentParticleBuffer;
+@group(1) @binding(2) var<storage, read> parent_particle_buffer : ParentParticleBuffer;
 #endif
 
+// "spawner" group @2
 @group(2) @binding(0) var<storage, read> spawner : Spawner;
 {{PROPERTIES_BINDING}}
 
-@group(3) @binding(0) var<storage, read_write> render_effect_indirect : RenderEffectMetadata;
-@group(3) @binding(1) var<storage, read_write> dest_render_group_indirect : RenderGroupIndirect;
-#ifdef CLONE
-@group(3) @binding(2) var<storage, read_write> src_render_group_indirect : RenderGroupIndirect;
-#endif
+// "metadata" group @3
+@group(3) @binding(0) var<storage, read_write> effect_metadata : EffectMetadata;
 #ifdef CONSUME_GPU_SPAWN_EVENTS
-// FIXME - read_write because of (spurious) atomicLoad(); should be non-atomic here...
-@group(3) @binding(3) var<storage, read_write> child_info : array<ChildInfo>;
-@group(3) @binding(4) var<storage, read> event_buffer : EventBuffer;
+@group(3) @binding(1) var<storage, read> child_info_buffer : ChildInfoBuffer;
+@group(3) @binding(2) var<storage, read> event_buffer : EventBuffer;
 #endif
 
 {{INIT_EXTRA}}
@@ -59,7 +56,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap to max number of dead particles, copied from dead_count at the end of the
     // previous iteration, and constant during this pass (unlike dead_count).
-    let max_spawn = atomicLoad(&dest_render_group_indirect.max_spawn);
+    let max_spawn = atomicLoad(&render_group_indirect.max_spawn);
     if (thread_index >= max_spawn) {
         return;
     }
@@ -68,8 +65,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
 #ifdef CONSUME_GPU_SPAWN_EVENTS
     let event_index = thread_index;
-    let local_child_index = particle_groups[0].local_child_index; //< FIXME - Probably wrong...
-    let event_count = atomicLoad(&child_info[local_child_index].event_count); //< FIXME - doesn't need atomic if only loading in parallel...
+    let global_child_index = effect_metadata.global_child_index;
+    let event_count = child_info_buffer.rows[global_child_index].event_count;
     if (event_index >= u32(event_count)) {
         return;
     }
@@ -77,64 +74,24 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Cap to the actual number of spawning requested by CPU (in the case of
     // spawners) or the number of particles present in the source group (in the
     // case of cloners).
-#ifdef CLONE
-    // FIXME: This doesn't actually need to be atomic.
-    let spawn_count: u32 = atomicLoad(&src_render_group_indirect.alive_count);
-#else   // CLONE
     let spawn_count: u32 = u32(spawner.spawn);
-#endif  // CLONE
     if (thread_index >= spawn_count) {
         return;
     }
 #endif
 
     // Always write into ping, read from pong
-    let ping = render_effect_indirect.ping;
+    let ping = effect_metadata.ping;
     let pong = 1u - ping;
 
-#ifdef CLONE
-    let src_base_index = particle_groups[{{SRC_GROUP_INDEX}}].effect_particle_offset +
-        particle_groups[{{SRC_GROUP_INDEX}}].indirect_index;
-    let src_index = indirect_buffer.indices[3u * (src_base_index + thread_index) + ping];
-#endif  // CLONE
-
     // Recycle a dead particle from the destination group
-    var dest_base_index = particle_groups[{{DEST_GROUP_INDEX}}].effect_particle_offset +
-        particle_groups[{{DEST_GROUP_INDEX}}].indirect_index;
-    let dest_dead_index = atomicSub(&dest_render_group_indirect.dead_count, 1u) - 1u;
+    var dest_base_index = particle_group.effect_particle_offset + particle_group.indirect_index;
+    let dest_dead_index = atomicSub(&effect_metadata.dead_count, 1u) - 1u;
     let dest_index = indirect_buffer.indices[3u * (dest_base_index + dest_dead_index) + 2u];
 
     // Initialize the PRNG seed
     seed = pcg_hash(dest_index ^ spawner.seed);
 
-#ifdef CLONE
-
-    // Start from a pure clone of the head particle in the source group
-    var particle: Particle = particle_buffer.particles[src_index];
-
-    {{INIT_CODE}}
-
-    // For trails and ribbons, age and lifetime are managed automatically.
-    particle.age = 0.0;
-    particle.lifetime = spawner.lifetime;
-
-    // Insert the cloned particle into the linked list
-#ifdef ATTRIBUTE_PREV
-#ifdef ATTRIBUTE_NEXT
-    let prev = particle.prev;
-    let next = src_index;
-    particle_buffer.particles[next].prev = dest_index;
-    if (prev != 0xffffffffu) {
-        particle_buffer.particles[prev].next = dest_index;
-    }
-    particle.next = src_index;
-    particle.prev = prev;
-#endif  // ATTRIBUTE_NEXT
-#endif  // ATTRIBUTE_PREV
-
-#else  // CLONE
-
-#ifndef CONSUME_GPU_SPAWN_EVENTS
     // Spawner transform
     let transform = transpose(
         mat4x4(
@@ -144,7 +101,6 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
             vec4<f32>(0.0, 0.0, 0.0, 1.0)
         )
     );
-#endif
 
 #ifdef CONSUME_GPU_SPAWN_EVENTS
     // Fetch parent particle which triggered this spawn
@@ -169,14 +125,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     {{SIMULATION_SPACE_TRANSFORM_PARTICLE}}
 #endif
 
-#endif  // CLONE
-
     // Count as alive
-    atomicAdd(&dest_render_group_indirect.alive_count, 1u);
+    atomicAdd(&effect_metadata.alive_count, 1u);
 
     // Add to alive list
-    let dest_indirect_index = atomicAdd(&dest_render_group_indirect.instance_count, 1u);
-    indirect_buffer.indices[3u * (dest_base_index + dest_indirect_index) + ping] = dest_index;
+    let indirect_index = atomicAdd(&effect_metadata.instance_count, 1u);
+    indirect_buffer.indices[3u * (dest_base_index + indirect_index) + ping] = dest_index;
 
     // Write back new particle
     particle_buffer.particles[dest_index] = particle;

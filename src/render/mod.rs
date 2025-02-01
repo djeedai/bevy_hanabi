@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::{
     borrow::Cow,
     hash::{DefaultHasher, Hash, Hasher},
@@ -5,9 +6,7 @@ use std::{
     ops::{DerefMut as _, Range},
     time::Duration,
 };
-use std::{iter, marker::PhantomData};
 
-use batch::{CachedGroups, InitAndUpdatePipelineIds};
 #[cfg(feature = "2d")]
 use bevy::core_pipeline::core_2d::{Transparent2d, CORE_2D_DEPTH_FORMAT};
 #[cfg(feature = "2d")]
@@ -51,24 +50,21 @@ use bevy::{
 };
 use bitflags::bitflags;
 use bytemuck::{Pod, Zeroable};
-use effect_cache::{
-    BufferState, CachedEffect, EffectSlices, RenderGroupDispatchIndices, TrailDispatchBufferIndices,
-};
+use effect_cache::{BufferState, CachedEffect, EffectSlice};
 use event::{CachedChild, CachedEffectEvents, CachedParent, GpuChildInfo};
 use fixedbitset::FixedBitSet;
 use naga_oil::compose::{Composer, NagaModuleDescriptor};
 
 use crate::{
-    asset::EffectAsset,
+    asset::{DefaultMesh, EffectAsset},
     calc_func_id,
     plugin::WithCompiledParticleEffect,
     render::{
-        batch::{BatchesInput, EffectDrawBatch},
+        batch::{BatchesInput, EffectDrawBatch, InitAndUpdatePipelineIds},
         effect_cache::DispatchBufferIndices,
     },
-    spawn::{EffectCloner, EffectInitializer, EffectInitializers, Initializer},
     AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
-    ParticleLayout, PropertyLayout, SimulationCondition, TextureLayout,
+    EffectSpawner, ParticleLayout, PropertyLayout, SimulationCondition, TextureLayout,
 };
 
 mod aligned_buffer_vec;
@@ -81,7 +77,7 @@ mod property;
 mod shader_cache;
 
 use aligned_buffer_vec::AlignedBufferVec;
-use buffer_table::{BufferTable, BufferTableId};
+use buffer_table::BufferTable;
 pub(crate) use effect_cache::EffectCache;
 pub(crate) use event::EventCache;
 pub(crate) use property::{
@@ -100,6 +96,36 @@ fn calc_hash<H: Hash>(value: &H) -> u64 {
     let mut hasher = DefaultHasher::default();
     value.hash(&mut hasher);
     hasher.finish()
+}
+
+/// Source data to create a buffer binding.
+#[derive(Debug, Clone)]
+pub(crate) struct BufferBindingSource {
+    buffer: Buffer,
+    /// Offset in number of u32 elements (4 bytes).
+    offset: u32,
+    /// Size in number of u32 elements (4 bytes).
+    size: NonZeroU32,
+}
+
+impl BufferBindingSource {
+    /// Get a binding over the source data.
+    pub fn binding(&self) -> BindingResource {
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.buffer,
+            offset: self.offset as u64 * 4,
+            size: Some(self.size.into()),
+        })
+    }
+
+    /// Get a binding over the entire buffer, which includes the source data.
+    pub fn max_binding(&self) -> BindingResource {
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.buffer,
+            offset: 0,
+            size: None,
+        })
+    }
 }
 
 /// Simulation parameters, available to all shaders of all effects.
@@ -147,12 +173,12 @@ struct GpuSimParams {
     ///
     /// This is a lower-precision variant of [`SimParams::time`].
     real_time: f32,
-    /// Total number of groups to simulate this frame. Used by the indirect
+    /// Total number of effects to update this frame. Used by the indirect
     /// compute pipeline to cap the compute thread to the actual number of
-    /// groups to process.
+    /// effects to process.
     ///
     /// This is only used by the `vfx_indirect` compute shader.
-    num_groups: u32,
+    num_effects: u32,
 }
 
 impl Default for GpuSimParams {
@@ -164,7 +190,7 @@ impl Default for GpuSimParams {
             virtual_time: 0.0,
             real_delta_time: 0.04,
             real_time: 0.0,
-            num_groups: 0,
+            num_effects: 0,
         }
     }
 }
@@ -201,9 +227,9 @@ impl From<&SimParams> for GpuSimParams {
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub(crate) struct GpuCompressedTransform {
-    pub x_row: Vec4,
-    pub y_row: Vec4,
-    pub z_row: Vec4,
+    pub x_row: [f32; 4],
+    pub y_row: [f32; 4],
+    pub z_row: [f32; 4],
 }
 
 impl From<Mat4> for GpuCompressedTransform {
@@ -212,9 +238,9 @@ impl From<Mat4> for GpuCompressedTransform {
         #[cfg(test)]
         crate::test_utils::assert_approx_eq!(tr.w_axis, Vec4::W);
         Self {
-            x_row: tr.x_axis,
-            y_row: tr.y_axis,
-            z_row: tr.z_axis,
+            x_row: tr.x_axis.to_array(),
+            y_row: tr.y_axis.to_array(),
+            z_row: tr.z_axis.to_array(),
         }
     }
 }
@@ -225,9 +251,9 @@ impl From<&Mat4> for GpuCompressedTransform {
         #[cfg(test)]
         crate::test_utils::assert_approx_eq!(tr.w_axis, Vec4::W);
         Self {
-            x_row: tr.x_axis,
-            y_row: tr.y_axis,
-            z_row: tr.z_axis,
+            x_row: tr.x_axis.to_array(),
+            y_row: tr.y_axis.to_array(),
+            z_row: tr.z_axis.to_array(),
         }
     }
 }
@@ -237,9 +263,9 @@ impl GpuCompressedTransform {
     #[allow(dead_code)]
     pub fn translation(&self) -> Vec3 {
         Vec3 {
-            x: self.x_row.w,
-            y: self.y_row.w,
-            z: self.z_row.w,
+            x: self.x_row[3],
+            y: self.y_row[3],
+            z: self.z_row[3],
         }
     }
 }
@@ -304,64 +330,43 @@ pub(crate) struct GpuSpawnerParams {
     spawn: i32,
     /// Spawn seed, for randomized modifiers.
     seed: u32,
-    /// The time in seconds that the cloned particles live, if this is a cloner.
-    ///
-    /// If this is a spawner, this value is zero.
-    lifetime: f32,
-    /// Padding.
-    pad: [u32; 5],
+    /// Index of the pong (read) buffer for indirect indices, used by the render
+    /// shader to fetch particles and render them.
+    render_pong: u32,
 }
 
+/// GPU representation of an indirect compute dispatch input.
+///
+/// Note that unlike most other data structure, this doesn't need to be aligned
+/// (except for the default 4-byte align for most GPU types) to any uniform or
+/// storage buffer offset alignment, because the buffer storing this is only
+/// ever used as input to indirect dispatch commands, and never bound as a
+/// shader resource.
+///
+/// See https://docs.rs/wgpu/latest/wgpu/util/struct.DispatchIndirectArgs.html.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct GpuDispatchIndirect {
     pub x: u32,
     pub y: u32,
     pub z: u32,
-    pub pong: u32,
 }
 
 impl Default for GpuDispatchIndirect {
-    fn default() -> Self {
-        Self {
-            x: 0,
-            y: 1,
-            z: 1,
-            pong: 0,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Pod, Zeroable, ShaderType)]
-pub struct GpuInitDispatchIndirect {
-    pub x: u32,
-    pub y: u32,
-    pub z: u32,
-}
-
-impl Default for GpuInitDispatchIndirect {
     fn default() -> Self {
         Self { x: 0, y: 1, z: 1 }
     }
 }
 
-#[repr(C)]
-#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
-pub struct GpuRenderEffectMetadata {
-    pub ping: u32,
-}
-
-/// Indirect draw parameters, with some data of our own tacked on to the end.
+/// Stores metadata about each particle effect.
 ///
-/// A few fields of this differ depending on whether the mesh is indexed or
-/// non-indexed.
+/// This is written by the CPU and read by the GPU.
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
-pub struct GpuRenderGroupIndirect {
+pub struct GpuEffectMetadata {
     /// The number of vertices in the mesh, if non-indexed; if indexed, the
     /// number of indices in the mesh.
-    pub vertex_count: u32,
+    pub vertex_or_index_count: u32,
     /// The number of instances to render.
     pub instance_count: u32,
     /// The first index to render, if the mesh is indexed; the offset of the
@@ -372,41 +377,26 @@ pub struct GpuRenderGroupIndirect {
     pub vertex_offset_or_base_instance: i32,
     /// The first instance to render, if indexed; unused if non-indexed.
     pub base_instance: u32,
-    //
-    pub alive_count: u32,
-    pub max_update: u32,
-    pub dead_count: u32,
-    pub max_spawn: u32,
-}
 
-/// Stores metadata about each particle group.
-///
-/// This is written by the CPU and read by the GPU.
-#[repr(C)]
-#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
-pub struct GpuParticleGroup {
-    /// The absolute index of this particle group in the global particle group
-    /// buffer, which includes all effects.
-    pub global_group_index: u32,
-    /// The global index of the particle effect.
-    pub effect_index: u32,
-    /// The relative index of this particle group in the effect.
-    ///
-    /// For example, the first group in an effect has index 0, the second has
-    /// index 1, etc. This is always 0 when not using groups.
-    pub group_index_in_effect: u32,
-    /// The index of the first particle in this group in the indirect index
-    /// buffer.
-    pub indirect_index: u32,
-    /// The capacity of this group, in number of particles.
-    pub capacity: u32,
-    /// The index of the first particle in the particle and indirect buffers of
-    /// this effect.
-    pub effect_particle_offset: u32,
+    // Additional data not part of the required draw indirect args
+    /// Number of alive particles.
+    pub alive_count: u32,
+    /// Cached value of `alive_count` to cap threads in update pass.
+    pub max_update: u32,
+    /// Number of dead particles.
+    pub dead_count: u32,
+    /// Cached value of `dead_count` to cap threads in init pass.
+    pub max_spawn: u32,
+    /// Index of the ping buffer for particle indices. Init and update compute
+    /// passes always write into the ping buffer and read from the pong buffer.
+    /// The buffers are swapped (ping = 1 - ping) during the indirect dispatch.
+    pub ping: u32,
+    /// Index of the [`GpuSpawnerParams] struct.
+    pub spawner_index: u32,
     /// Index of the [`GpuDispatchIndirect`] struct inside the global
     /// [`EffectsMeta::dispatch_indirect_buffer`].
     pub indirect_dispatch_index: u32,
-    /// Index of the [`GpuRenderGroupIndirect`] struct inside the global
+    /// Index of the [`GpuRenderIndirect`] struct inside the global
     /// [`EffectsMeta::render_group_dispatch_buffer`].
     pub indirect_render_index: u32,
     /// Offset (in u32 count) of the init indirect dispatch struct inside its
@@ -419,7 +409,10 @@ pub struct GpuParticleGroup {
     /// only unique per parent, not globally. Only available if this effect is a
     /// child of another effect (i.e. if it has a parent).
     pub local_child_index: u32,
+    /// For children, global index of the ChildInfo into the shared array.
     pub global_child_index: u32,
+    /// For parents, base index of the their first ChildInfo into the shared
+    /// array.
     pub base_child_index: u32,
 }
 
@@ -427,8 +420,9 @@ pub struct GpuParticleGroup {
 /// shader.
 #[derive(Resource)]
 pub(crate) struct DispatchIndirectPipeline {
-    dispatch_indirect_layout: BindGroupLayout,
     sim_params_layout: BindGroupLayout,
+    dispatch_indirect_layout: BindGroupLayout,
+    spawner_layout: BindGroupLayout,
     child_infos_layout: BindGroupLayout,
     indirect_shader_noevent: Handle<Shader>,
     indirect_shader_events: Handle<Shader>,
@@ -449,72 +443,12 @@ impl FromWorld for DispatchIndirectPipeline {
         };
 
         let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
-        let render_effect_indirect_size = GpuRenderEffectMetadata::aligned_size(storage_alignment);
-        let render_group_indirect_size = GpuRenderGroupIndirect::aligned_size(storage_alignment);
+        let render_effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
         let dispatch_indirect_size = GpuDispatchIndirect::aligned_size(storage_alignment);
-        let particle_group_size = GpuParticleGroup::aligned_size(storage_alignment);
-
-        trace!(
-            "GpuRenderEffectMetadata: min_size={} padded_size={} | GpuRenderGroupIndirect: min_size={} padded_size={} | \
-            GpuDispatchIndirect: min_size={} padded_size={} | GpuParticleGroup: min_size={} padded_size={}",
-            GpuRenderEffectMetadata::min_size(),
-            render_effect_indirect_size,
-            GpuRenderGroupIndirect::min_size(),
-            render_group_indirect_size,
-            GpuDispatchIndirect::min_size(),
-            dispatch_indirect_size,
-            GpuParticleGroup::min_size(),
-            particle_group_size
-        );
-        let dispatch_indirect_layout = render_device.create_bind_group_layout(
-            "hanabi:bind_group_layout:dispatch_indirect_dispatch_indirect",
-            &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(render_effect_indirect_size),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(render_group_indirect_size),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(dispatch_indirect_size),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(particle_group_size),
-                    },
-                    count: None,
-                },
-            ],
-        );
 
         trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_layout = render_device.create_bind_group_layout(
-            "hanabi:bind_group_layout:dispatch_indirect_sim_params",
+            "hanabi:bind_group_layout:dispatch_indirect:sim_params",
             &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
@@ -527,8 +461,59 @@ impl FromWorld for DispatchIndirectPipeline {
             }],
         );
 
+        trace!(
+            "GpuEffectMetadata: min_size={} padded_size={} | GpuDispatchIndirect: min_size={} padded_size={}",
+            GpuEffectMetadata::min_size(),
+            render_effect_metadata_size,
+            GpuDispatchIndirect::min_size(),
+            dispatch_indirect_size,
+        );
+        let dispatch_indirect_layout = render_device.create_bind_group_layout(
+            "hanabi:bind_group_layout:dispatch_indirect:dispatch_indirect",
+            &[
+                // @group(0) @binding(0) var<storage, read_write> effect_metadata_buffer :
+                // array<u32>;
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(render_effect_metadata_size),
+                    },
+                    count: None,
+                },
+                // @group(0) @binding(2) var<storage, read_write> dispatch_indirect_buffer :
+                // array<u32>;
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(dispatch_indirect_size),
+                    },
+                    count: None,
+                },
+            ],
+        );
+
+        let spawner_layout = render_device.create_bind_group_layout(
+            "hanabi:bind_group_layout:dispatch_indirect:spawner",
+            &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: Some(GpuSpawnerParams::min_size()),
+                },
+                count: None,
+            }],
+        );
+
         let child_infos_layout = render_device.create_bind_group_layout(
-            "hanabi:bind_group_layout:dispatch_indirect_child_infos",
+            "hanabi:bind_group_layout:dispatch_indirect:child_infos",
             &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
@@ -542,8 +527,9 @@ impl FromWorld for DispatchIndirectPipeline {
         );
 
         Self {
-            dispatch_indirect_layout,
             sim_params_layout,
+            dispatch_indirect_layout,
+            spawner_layout,
             child_infos_layout,
             indirect_shader_noevent,
             indirect_shader_events,
@@ -570,14 +556,18 @@ impl SpecializedComputePipeline for DispatchIndirectPipeline {
             key.has_events
         );
 
-        let mut shader_defs = Vec::with_capacity(1);
+        let mut shader_defs = Vec::with_capacity(2);
+        // Spawner struct needs to be defined with padding, because it's bound as an
+        // array
+        shader_defs.push("SPAWNER_PADDING".into());
         if key.has_events {
-            shader_defs.push(ShaderDefVal::Bool("HAS_GPU_SPAWN_EVENTS".to_string(), true));
+            shader_defs.push("HAS_GPU_SPAWN_EVENTS".into());
         }
 
         let mut layout = Vec::with_capacity(3);
-        layout.push(self.dispatch_indirect_layout.clone());
         layout.push(self.sim_params_layout.clone());
+        layout.push(self.dispatch_indirect_layout.clone());
+        layout.push(self.spawner_layout.clone());
         if key.has_events {
             layout.push(self.child_infos_layout.clone());
         }
@@ -1163,42 +1153,15 @@ impl UtilsPipeline {
 pub(crate) struct ParticlesInitPipeline {
     render_device: RenderDevice,
     sim_params_layout: BindGroupLayout,
-    render_indirect_spawn_layout: BindGroupLayout,
-    render_indirect_clone_layout: BindGroupLayout,
-    // Workaround for specialize() not being able to access external data: we temporarily store the
-    // bind group layout just before calling specialize, and remove it after.
+
+    // Temporary values passed to specialize()
     // https://github.com/bevyengine/bevy/issues/17132
-    temp_particles_buffer_layout: Option<BindGroupLayout>,
-    temp_spawner_buffer_layout: Option<BindGroupLayout>,
-}
-
-bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct ParticleInitPipelineKeyFlags: u8 {
-        const CLONE = (1u8 << 0);
-        const ATTRIBUTE_PREV = (1u8 << 1);
-        const ATTRIBUTE_NEXT = (1u8 << 2);
-        const CONSUME_GPU_SPAWN_EVENTS = (1u8 << 3);
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct ParticleInitPipelineKey {
-    /// Compute shader, with snippets applied, but not preprocessed yet.
-    shader: Handle<Shader>,
-    /// Minimum binding size in bytes for the particle layout buffer.
-    particle_layout_min_binding_size: NonZeroU64,
-    /// Minimum binding size in bytes for the particle layout buffer of the
-    /// parent effect, if any.
-    /// Key: READ_PARENT_PARTICLE
-    parent_particle_layout_min_binding_size: Option<NonZeroU64>,
-    /// Pipeline flags.
-    flags: ParticleInitPipelineKeyFlags,
-    /// ID of the spawner bind group layout this pipeline was specialized with.
-    spawner_bind_group_layout_id: BindGroupLayoutId,
-    /// ID of the particles bind group layout this pipeline was specialized
-    /// with.
-    particles_bind_group_layout_id: BindGroupLayoutId,
+    /// Layout of the particle@1 bind group this pipeline was specialized with.
+    temp_particle_bind_group_layout: Option<BindGroupLayout>,
+    /// Layout of the spawner@2 bind group this pipeline was specialized with.
+    temp_spawner_bind_group_layout: Option<BindGroupLayout>,
+    /// Layout of the metadata@3 bind group this pipeline was specialized with.
+    temp_metadata_bind_group_layout: Option<BindGroupLayout>,
 }
 
 impl FromWorld for ParticlesInitPipeline {
@@ -1220,26 +1183,47 @@ impl FromWorld for ParticlesInitPipeline {
             }],
         );
 
-        let render_indirect_spawn_layout = create_init_render_indirect_bind_group_layout(
-            render_device,
-            "hanabi:bind_group_layout:init_render_indirect_spawn",
-            false,
-        );
-        let render_indirect_clone_layout = create_init_render_indirect_bind_group_layout(
-            render_device,
-            "hanabi:bind_group_layout:init_render_indirect_clone",
-            true,
-        );
-
         Self {
             render_device: render_device.clone(),
             sim_params_layout,
-            render_indirect_spawn_layout,
-            render_indirect_clone_layout,
-            temp_particles_buffer_layout: None,
-            temp_spawner_buffer_layout: None,
+            temp_particle_bind_group_layout: None,
+            temp_spawner_bind_group_layout: None,
+            temp_metadata_bind_group_layout: None,
         }
     }
+}
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct ParticleInitPipelineKeyFlags: u8 {
+        //const CLONE = (1u8 << 0); // DEPRECATED
+        const ATTRIBUTE_PREV = (1u8 << 1);
+        const ATTRIBUTE_NEXT = (1u8 << 2);
+        const CONSUME_GPU_SPAWN_EVENTS = (1u8 << 3);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ParticleInitPipelineKey {
+    /// Compute shader, with snippets applied, but not preprocessed yet.
+    shader: Handle<Shader>,
+    /// Minimum binding size in bytes for the particle layout buffer.
+    particle_layout_min_binding_size: NonZeroU32,
+    /// Minimum binding size in bytes for the particle layout buffer of the
+    /// parent effect, if any.
+    /// Key: READ_PARENT_PARTICLE
+    parent_particle_layout_min_binding_size: Option<NonZeroU32>,
+    /// Pipeline flags.
+    flags: ParticleInitPipelineKeyFlags,
+    /// Layout of the particle@1 bind group this pipeline was specialized with.
+    // Note: can't directly store BindGroupLayout because it's not Eq nor Hash
+    particle_bind_group_layout_id: BindGroupLayoutId,
+    /// Layout of the spawner@2 bind group this pipeline was specialized with.
+    // Note: can't directly store BindGroupLayout because it's not Eq nor Hash
+    spawner_bind_group_layout_id: BindGroupLayoutId,
+    /// Layout of the metadata@3 bind group this pipeline was specialized with.
+    // Note: can't directly store BindGroupLayout because it's not Eq nor Hash
+    metadata_bind_group_layout_id: BindGroupLayoutId,
 }
 
 impl SpecializedComputePipeline for ParticlesInitPipeline {
@@ -1250,10 +1234,7 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
         let hash = calc_hash(&key);
         trace!("Specializing init pipeline {hash:016X} with key {key:?}");
 
-        let mut shader_defs = Vec::with_capacity(3);
-        if key.flags.contains(ParticleInitPipelineKeyFlags::CLONE) {
-            shader_defs.push("CLONE".into());
-        }
+        let mut shader_defs = Vec::with_capacity(4);
         if key
             .flags
             .contains(ParticleInitPipelineKeyFlags::ATTRIBUTE_PREV)
@@ -1276,23 +1257,25 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
             shader_defs.push("READ_PARENT_PARTICLE".into());
         }
 
-        let render_indirect_layout = if key.flags.contains(ParticleInitPipelineKeyFlags::CLONE) {
-            self.render_indirect_clone_layout.clone()
-        } else {
-            self.render_indirect_spawn_layout.clone()
-        };
-
         // This should always be valid when specialize() is called, by design. This is
         // how we pass the value to specialize() to work around the lack of access to
         // external data.
         // https://github.com/bevyengine/bevy/issues/17132
-        let particles_buffer_layout = self.temp_particles_buffer_layout.as_ref().unwrap();
+        let particle_bind_group_layout = self.temp_particle_bind_group_layout.as_ref().unwrap();
         assert_eq!(
-            particles_buffer_layout.id(),
-            key.particles_bind_group_layout_id
+            particle_bind_group_layout.id(),
+            key.particle_bind_group_layout_id
         );
-        let spawner_buffer_layout = self.temp_spawner_buffer_layout.as_ref().unwrap();
-        assert_eq!(spawner_buffer_layout.id(), key.spawner_bind_group_layout_id);
+        let spawner_bind_group_layout = self.temp_spawner_bind_group_layout.as_ref().unwrap();
+        assert_eq!(
+            spawner_bind_group_layout.id(),
+            key.spawner_bind_group_layout_id
+        );
+        let metadata_bind_group_layout = self.temp_metadata_bind_group_layout.as_ref().unwrap();
+        assert_eq!(
+            metadata_bind_group_layout.id(),
+            key.metadata_bind_group_layout_id
+        );
 
         let label = format!("hanabi:pipeline:init_{hash:016X}");
         trace!(
@@ -1307,9 +1290,9 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
             label: Some(label.into()),
             layout: vec![
                 self.sim_params_layout.clone(),
-                particles_buffer_layout.clone(),
-                spawner_buffer_layout.clone(),
-                render_indirect_layout,
+                particle_bind_group_layout.clone(),
+                spawner_bind_group_layout.clone(),
+                metadata_bind_group_layout.clone(),
             ],
             shader: key.shader,
             shader_defs,
@@ -1324,12 +1307,15 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
 pub(crate) struct ParticlesUpdatePipeline {
     render_device: RenderDevice,
     sim_params_layout: BindGroupLayout,
-    render_indirect_layout: BindGroupLayout,
-    // Workaround for specialize() not being able to access external data: we temporarily store the
-    // bind group layout just before calling specialize, and remove it after.
+
+    // Temporary values passed to specialize()
     // https://github.com/bevyengine/bevy/issues/17132
-    temp_particles_buffer_layout: Option<BindGroupLayout>,
-    temp_spawner_buffer_layout: Option<BindGroupLayout>,
+    /// Layout of the particle@1 bind group this pipeline was specialized with.
+    temp_particle_bind_group_layout: Option<BindGroupLayout>,
+    /// Layout of the spawner@2 bind group this pipeline was specialized with.
+    temp_spawner_bind_group_layout: Option<BindGroupLayout>,
+    /// Layout of the metadata@3 bind group this pipeline was specialized with.
+    temp_metadata_bind_group_layout: Option<BindGroupLayout>,
 }
 
 impl FromWorld for ParticlesUpdatePipeline {
@@ -1338,7 +1324,7 @@ impl FromWorld for ParticlesUpdatePipeline {
 
         trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_layout = render_device.create_bind_group_layout(
-            "hanabi:update_sim_params_layout",
+            "hanabi:bind_group_layout:update:particle",
             &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
@@ -1351,50 +1337,12 @@ impl FromWorld for ParticlesUpdatePipeline {
             }],
         );
 
-        let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
-        let render_effect_indirect_size = GpuRenderEffectMetadata::aligned_size(storage_alignment);
-        let render_group_indirect_size = GpuRenderGroupIndirect::aligned_size(storage_alignment);
-        trace!("GpuRenderEffectMetadata: min_size={} padded_size={} | GpuRenderGroupIndirect: min_size={} padded_size={}",
-            GpuRenderEffectMetadata::min_size(),
-            render_effect_indirect_size.get(),
-            GpuRenderGroupIndirect::min_size(),
-            render_group_indirect_size.get());
-        let render_indirect_layout = render_device.create_bind_group_layout(
-            "hanabi:update_render_indirect_layout",
-            &[
-                // @group(3) @binding(0) var<storage, read_write> render_effect_indirect :
-                // RenderEffectMetadata;
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(render_effect_indirect_size),
-                    },
-                    count: None,
-                },
-                // @group(3) @binding(1) var<storage, read_write> render_group_indirect :
-                // array<RenderGroupIndirect>;
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(render_group_indirect_size),
-                    },
-                    count: None,
-                },
-            ],
-        );
-
         Self {
             render_device: render_device.clone(),
             sim_params_layout,
-            render_indirect_layout,
-            temp_particles_buffer_layout: None,
-            temp_spawner_buffer_layout: None,
+            temp_particle_bind_group_layout: None,
+            temp_spawner_bind_group_layout: None,
+            temp_metadata_bind_group_layout: None,
         }
     }
 }
@@ -1408,15 +1356,18 @@ pub(crate) struct ParticleUpdatePipelineKey {
     /// Minimum binding size in bytes for the particle layout buffer of the
     /// parent effect, if any.
     /// Key: READ_PARENT_PARTICLE
-    parent_particle_layout_min_binding_size: Option<NonZeroU64>,
+    parent_particle_layout_min_binding_size: Option<NonZeroU32>,
     /// Key: EMITS_GPU_SPAWN_EVENTS
     num_event_buffers: u32,
-    is_trail: bool,
-    /// ID of the spawner bind group layout this pipeline was specialized with.
+    /// Layout of the particle@1 bind group this pipeline was specialized with.
+    // Note: can't directly store BindGroupLayout because it's not Eq nor Hash
+    particle_bind_group_layout_id: BindGroupLayoutId,
+    /// Layout of the spawner@2 bind group this pipeline was specialized with.
+    // Note: can't directly store BindGroupLayout because it's not Eq nor Hash
     spawner_bind_group_layout_id: BindGroupLayoutId,
-    /// ID of the particles bind group layout this pipeline was specialized
-    /// with.
-    particles_bind_group_layout_id: BindGroupLayoutId,
+    /// Layout of the metadata@3 bind group this pipeline was specialized with.
+    // Note: can't directly store BindGroupLayout because it's not Eq nor Hash
+    metadata_bind_group_layout_id: BindGroupLayoutId,
 }
 
 impl SpecializedComputePipeline for ParticlesUpdatePipeline {
@@ -1427,16 +1378,16 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
         let hash = calc_hash(&key);
         trace!("Specializing update pipeline {hash:016X} with key {key:?}");
 
-        let mut shader_defs = Vec::with_capacity(4);
-        shader_defs.push("REM_MAX_SPAWN_ATOMIC".into());
+        let mut shader_defs = Vec::with_capacity(6);
+        shader_defs.push("EM_MAX_SPAWN_ATOMIC".into());
+        // ChildInfo needs atomic event_count because all threads append to the event
+        // buffer(s) in parallel.
+        shader_defs.push("CHILD_INFO_IS_ATOMIC".into());
         if key.particle_layout.contains(Attribute::PREV) {
             shader_defs.push("ATTRIBUTE_PREV".into());
         }
         if key.particle_layout.contains(Attribute::NEXT) {
             shader_defs.push("ATTRIBUTE_NEXT".into());
-        }
-        if key.is_trail {
-            shader_defs.push("TRAIL".into());
         }
         if key.parent_particle_layout_min_binding_size.is_some() {
             shader_defs.push("READ_PARENT_PARTICLE".into());
@@ -1449,13 +1400,21 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
         // how we pass the value to specialize() to work around the lack of access to
         // external data.
         // https://github.com/bevyengine/bevy/issues/17132
-        let particles_buffer_layout = self.temp_particles_buffer_layout.as_ref().unwrap();
+        let particle_bind_group_layout = self.temp_particle_bind_group_layout.as_ref().unwrap();
         assert_eq!(
-            particles_buffer_layout.id(),
-            key.particles_bind_group_layout_id
+            particle_bind_group_layout.id(),
+            key.particle_bind_group_layout_id
         );
-        let spawner_buffer_layout = self.temp_spawner_buffer_layout.as_ref().unwrap();
-        assert_eq!(spawner_buffer_layout.id(), key.spawner_bind_group_layout_id);
+        let spawner_bind_group_layout = self.temp_spawner_bind_group_layout.as_ref().unwrap();
+        assert_eq!(
+            spawner_bind_group_layout.id(),
+            key.spawner_bind_group_layout_id
+        );
+        let metadata_bind_group_layout = self.temp_metadata_bind_group_layout.as_ref().unwrap();
+        assert_eq!(
+            metadata_bind_group_layout.id(),
+            key.metadata_bind_group_layout_id
+        );
 
         let hash = calc_func_id(&key);
         let label = format!("hanabi:pipeline:update_{hash:016X}");
@@ -1471,9 +1430,9 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             label: Some(label.into()),
             layout: vec![
                 self.sim_params_layout.clone(),
-                particles_buffer_layout.clone(),
-                spawner_buffer_layout.clone(),
-                self.render_indirect_layout.clone(),
+                particle_bind_group_layout.clone(),
+                spawner_bind_group_layout.clone(),
+                metadata_bind_group_layout.clone(),
             ],
             shader: key.shader,
             shader_defs,
@@ -1772,7 +1731,6 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         // Key: LOCAL_SPACE_SIMULATION
         if key.local_space_simulation {
             shader_defs.push("LOCAL_SPACE_SIMULATION".into());
-            shader_defs.push("RENDER_NEEDS_SPAWNER".into());
         }
 
         match key.alpha_mask {
@@ -1939,13 +1897,14 @@ pub(crate) struct ExtractedEffect {
     ///
     /// [`property_layout`]: crate::render::ExtractedEffect::property_layout
     pub property_data: Option<Vec<u8>>,
-    /// Maps a group number to the runtime initializer for that group.
+    /// Effect spawner.
     ///
     /// Obtained from calling [`EffectSpawner::tick()`] on the source effect
     /// instance.
     ///
     /// [`EffectSpawner::tick()`]: crate::EffectSpawner::tick
-    pub initializers: Vec<EffectInitializer>,
+    pub effect_spawner: EffectSpawner, /* TODO - move to separate component instead of
+                                        * extracting into this struct? */
     /// Global transform of the effect origin.
     pub transform: GlobalTransform,
     /// Layout flags.
@@ -1958,7 +1917,7 @@ pub(crate) struct ExtractedEffect {
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
     /// Effect shaders.
-    pub effect_shaders: Vec<EffectShader>,
+    pub effect_shaders: EffectShader,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
     #[cfg(feature = "2d")]
@@ -1983,7 +1942,11 @@ pub struct AddedEffect {
     pub entity: MainEntity,
     #[allow(dead_code)]
     pub render_entity: RenderEntity,
-    pub groups: Vec<AddedEffectGroup>,
+    /// Capacity, in number of particles, of the effect.
+    pub capacity: u32,
+    /// Resolved particle mesh, either the one provided by the user or the
+    /// default one. This should always be valid.
+    pub mesh: Handle<Mesh>,
     /// Parent effect, if any.
     pub parent: Option<AddedEffectParent>,
     /// Layout of particle attributes.
@@ -1991,16 +1954,10 @@ pub struct AddedEffect {
     /// Layout of properties for the effect, if properties are used at all, or
     /// an empty layout.
     pub property_layout: PropertyLayout,
+    /// Effect flags.
     pub layout_flags: LayoutFlags,
     /// Handle of the effect asset.
     pub handle: Handle<EffectAsset>,
-    /// The order in which we evaluate groups.
-    pub group_order: Vec<u32>,
-}
-
-pub struct AddedEffectGroup {
-    pub capacity: u32,
-    pub src_group_index_if_trail: Option<u32>,
 }
 
 /// Collection of all extracted effects for this frame, inserted into the
@@ -2134,18 +2091,18 @@ pub(crate) fn extract_effects(
             &RenderEntity,
             Option<&InheritedVisibility>,
             Option<&ViewVisibility>,
-            &EffectInitializers,
+            &EffectSpawner,
             &CompiledParticleEffect,
             Option<Ref<EffectProperties>>,
             &GlobalTransform,
         )>,
     >,
-    mut sim_params: ResMut<SimParams>,
-    mut extracted_effects: ResMut<ExtractedEffects>,
     render_device: Res<RenderDevice>,
     debug_settings: Extract<Res<DebugSettings>>,
+    default_mesh: Extract<Res<DefaultMesh>>,
+    mut sim_params: ResMut<SimParams>,
+    mut extracted_effects: ResMut<ExtractedEffects>,
     mut render_debug_settings: ResMut<RenderDebugSettings>,
-    effects_meta: Res<EffectsMeta>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::utils::tracing::info_span!("extract_effects").entered();
@@ -2205,14 +2162,17 @@ pub(crate) fn extract_effects(
                 render_entity.id(),
             );
             let property_layout = asset.property_layout();
-            let group_order = asset.calculate_group_order();
+            let mesh = compiled_effect
+        .mesh
+        .clone()
+        .unwrap_or(default_mesh.0.clone());
 
             trace!(
-                "Found new effect: entity {:?} | render entity {:?} | capacities {:?} | particle_layout {:?} | \
+                "Found new effect: entity {:?} | render entity {:?} | capacity {:?} | particle_layout {:?} | \
                  property_layout {:?} | layout_flags {:?}",
                  entity,
                  render_entity.id(),
-                 asset.capacities(),
+                 asset.capacity(),
                  particle_layout,
                  property_layout,
                  compiled_effect.layout_flags);
@@ -2224,23 +2184,15 @@ pub(crate) fn extract_effects(
                 event_count: 400,
             });
 
-            trace!("Found new effect: entity {:?} | capacities {:?} | particle_layout {:?} | property_layout {:?} | layout_flags {:?}", entity, asset.capacities(), particle_layout, property_layout, compiled_effect.layout_flags);
+            trace!("Found new effect: entity {:?} | capacity {:?} | particle_layout {:?} | property_layout {:?} | layout_flags {:?}", entity, asset.capacity(), particle_layout, property_layout, compiled_effect.layout_flags);
             Some(AddedEffect {
                 entity: MainEntity::from(entity),
                 render_entity: *render_entity,
+                capacity: asset.capacity(),
+                mesh,
                 parent,
-                groups: asset.capacities().iter().zip(asset.init.iter()).map(|(&capacity, init)| {
-                    AddedEffectGroup {
-                        capacity,
-                        src_group_index_if_trail: match init {
-                            Initializer::Spawner(_) => None,
-                            Initializer::Cloner(cloner) => Some(cloner.src_group_index),
-                        }
-                    }
-                }).collect(),
                 particle_layout,
                 property_layout,
-                group_order,
                 layout_flags: compiled_effect.layout_flags,
                 handle,
             })
@@ -2254,17 +2206,16 @@ pub(crate) fn extract_effects(
         render_entity,
         maybe_inherited_visibility,
         maybe_view_visibility,
-        initializers,
+        effect_spawner,
         compiled_effect,
         maybe_properties,
         transform,
     ) in q_effects.iter()
     {
         // Check if shaders are configured
-        let effect_shaders = compiled_effect.get_configured_shaders();
-        if effect_shaders.is_empty() {
+        let Some(effect_shaders) = compiled_effect.get_configured_shaders() else {
             continue;
-        }
+        };
 
         // Check if hidden, unless always simulated
         if compiled_effect.simulation_condition == SimulationCondition::WhenVisible
@@ -2320,10 +2271,10 @@ pub(crate) fn extract_effects(
 
         let texture_layout = asset.module().texture_layout();
         let layout_flags = compiled_effect.layout_flags;
-        let mesh = match compiled_effect.mesh {
-            None => effects_meta.default_mesh.clone(),
-            Some(ref mesh) => (*mesh).clone(),
-        };
+        let mesh = compiled_effect
+            .mesh
+            .clone()
+            .unwrap_or(default_mesh.0.clone());
         let alpha_mode = compiled_effect.alpha_mode;
 
         trace!(
@@ -2345,14 +2296,14 @@ pub(crate) fn extract_effects(
             property_layout,
             parent_particle_layout: compiled_effect.parent_particle_layout.clone(),
             property_data,
-            initializers: initializers.0.clone(),
+            effect_spawner: *effect_spawner,
             transform: *transform,
             layout_flags,
             mesh,
             texture_layout,
             textures: compiled_effect.textures.clone(),
             alpha_mode,
-            effect_shaders: effect_shaders.to_vec(),
+            effect_shaders: effect_shaders.clone(),
             #[cfg(feature = "2d")]
             z_sort_key_2d,
         });
@@ -2372,23 +2323,11 @@ struct GpuLimits {
     /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
     dispatch_indirect_aligned_size: NonZeroU32,
 
-    /// Size of [`GpuRenderEffectMetadata`] aligned to the contraint of
+    /// Size of [`GpuEffectMetadata`] aligned to the contraint of
     /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
     ///
     /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
-    render_effect_indirect_aligned_size: NonZeroU32,
-
-    /// Size of [`GpuRenderGroupIndirect`] aligned to the contraint of
-    /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
-    ///
-    /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
-    render_group_indirect_aligned_size: NonZeroU32,
-
-    /// Size of [`GpuParticleGroup`] aligned to the contraint of
-    /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
-    ///
-    /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
-    particle_group_aligned_size: NonZeroU32,
+    effect_metadata_aligned_size: NonZeroU32,
 }
 
 impl GpuLimits {
@@ -2403,45 +2342,27 @@ impl GpuLimits {
         )
         .unwrap();
 
-        let render_effect_indirect_aligned_size = NonZeroU32::new(
-            GpuRenderEffectMetadata::min_size()
-                .get()
-                .next_multiple_of(storage_buffer_align) as u32,
-        )
-        .unwrap();
-
-        let render_group_indirect_aligned_size = NonZeroU32::new(
-            GpuRenderGroupIndirect::min_size()
-                .get()
-                .next_multiple_of(storage_buffer_align) as u32,
-        )
-        .unwrap();
-
-        let particle_group_aligned_size = NonZeroU32::new(
-            GpuParticleGroup::min_size()
+        let effect_metadata_aligned_size = NonZeroU32::new(
+            GpuEffectMetadata::min_size()
                 .get()
                 .next_multiple_of(storage_buffer_align) as u32,
         )
         .unwrap();
 
         trace!(
-            "GPU-aligned sizes (align: {} B):\n- GpuRenderEffectMetadata: {} B -> {} B\n\
-            - GpuRenderGroupIndirect: {} B -> {} B\n- GpuParticleGroup: {} B -> {} B",
+            "GPU-aligned sizes (align: {} B):\n- GpuDispatchIndirect: {} B -> {} B\n\
+            - GpuEffectMetadata: {} B -> {} B",
             storage_buffer_align,
-            GpuRenderEffectMetadata::min_size().get(),
+            GpuDispatchIndirect::min_size().get(),
             dispatch_indirect_aligned_size.get(),
-            GpuRenderGroupIndirect::min_size().get(),
-            render_effect_indirect_aligned_size.get(),
-            GpuParticleGroup::min_size().get(),
-            particle_group_aligned_size.get()
+            GpuEffectMetadata::min_size().get(),
+            effect_metadata_aligned_size.get(),
         );
 
         Self {
             storage_buffer_align: NonZeroU32::new(storage_buffer_align as u32).unwrap(),
             dispatch_indirect_aligned_size,
-            render_effect_indirect_aligned_size,
-            render_group_indirect_aligned_size,
-            particle_group_aligned_size,
+            effect_metadata_aligned_size,
         }
     }
 
@@ -2455,35 +2376,15 @@ impl GpuLimits {
         self.dispatch_indirect_aligned_size.get() * buffer_index
     }
 
-    /// Byte offset of the [`GpuRenderEffectMetadata`] of a given buffer.
-    pub fn render_effect_indirect_offset(&self, buffer_index: u32) -> u64 {
-        self.render_effect_indirect_aligned_size.get() as u64 * buffer_index as u64
+    /// Byte offset of the [`GpuEffectMetadata`] of a given buffer.
+    pub fn effect_metadata_offset(&self, buffer_index: u32) -> u64 {
+        self.effect_metadata_aligned_size.get() as u64 * buffer_index as u64
     }
 
-    /// Byte alignment for [`GpuRenderEffectMetadata`].
-    pub fn render_effect_indirect_size(&self) -> NonZeroU64 {
-        NonZeroU64::new(self.render_effect_indirect_aligned_size.get() as u64).unwrap()
+    /// Byte alignment for [`GpuEffectMetadata`].
+    pub fn effect_metadata_size(&self) -> NonZeroU64 {
+        NonZeroU64::new(self.effect_metadata_aligned_size.get() as u64).unwrap()
     }
-
-    /// Byte offset for the [`GpuRenderGroupIndirect`] of a given buffer.
-    pub fn render_group_indirect_offset(&self, buffer_index: u32) -> u64 {
-        self.render_group_indirect_aligned_size.get() as u64 * buffer_index as u64
-    }
-
-    /// Byte alignment for [`GpuRenderGroupIndirect`].
-    pub fn render_group_indirect_size(&self) -> NonZeroU64 {
-        NonZeroU64::new(self.render_group_indirect_aligned_size.get() as u64).unwrap()
-    }
-
-    /// Byte offset for the [`GpuParticleGroup`] of a given buffer.
-    pub fn particle_group_offset(&self, buffer_index: u32) -> u32 {
-        self.particle_group_aligned_size.get() * buffer_index
-    }
-}
-
-struct CacheEntry {
-    cache_entity: Entity,
-    parent_entity: Option<Entity>,
 }
 
 /// Global resource containing the GPU data to draw all the particle effects in
@@ -2495,12 +2396,6 @@ struct CacheEntry {
 /// effects.
 #[derive(Resource)]
 pub struct EffectsMeta {
-    /// Map from an entity of the main world with a [`ParticleEffect`] component
-    /// attached to it, to the associated effect slice allocated in the
-    /// [`EffectCache`].
-    ///
-    /// [`ParticleEffect`]: crate::ParticleEffect
-    entity_map: HashMap<Entity, CacheEntry>,
     /// Bind group for the camera view, containing the camera projection and
     /// other uniform values related to the camera.
     view_bind_group: Option<BindGroup>,
@@ -2518,22 +2413,10 @@ pub struct EffectsMeta {
     spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
     /// Global shared GPU buffer storing the various indirect dispatch structs
     /// for the indirect dispatch of the Update pass.
-    dispatch_indirect_buffer: BufferTable<GpuDispatchIndirect>,
-    /// Global shared GPU buffer storing the various `RenderEffectMetadata`
+    update_dispatch_indirect_buffer: BufferTable<GpuDispatchIndirect>,
+    /// Global shared GPU buffer storing the various `EffectMetadata`
     /// structs for the active effect instances.
-    render_effect_dispatch_buffer: BufferTable<GpuRenderEffectMetadata>,
-    /// Stores the GPU `RenderGroupIndirect` structures, which describe mutable
-    /// data specific to a particle group.
-    ///
-    /// These structures also store the data needed for indirect dispatch of
-    /// drawcalls.
-    render_group_dispatch_buffer: BufferTable<GpuRenderGroupIndirect>,
-    /// Stores the GPU `ParticleGroup` structures, which are metadata describing
-    /// each particle group that's populated by the CPU and read (only read) by
-    /// the GPU.
-    particle_group_buffer: AlignedBufferVec<GpuParticleGroup>,
-    /// The mesh used when particle effects don't specify one (i.e. a quad).
-    default_mesh: Handle<Mesh>,
+    effect_metadata_buffer: BufferTable<GpuEffectMetadata>,
     /// Various GPU limits and aligned sizes lazily allocated and cached for
     /// convenience.
     gpu_limits: GpuLimits,
@@ -2551,12 +2434,9 @@ pub struct EffectsMeta {
 impl EffectsMeta {
     pub fn new(
         device: RenderDevice,
-        mesh_assets: &mut Assets<Mesh>,
         indirect_shader_noevent: Handle<Shader>,
         indirect_shader_events: Handle<Shader>,
     ) -> Self {
-        let default_mesh = mesh_assets.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)));
-
         let gpu_limits = GpuLimits::from_device(&device);
 
         // Ensure individual GpuSpawnerParams elements are properly aligned so they can
@@ -2568,7 +2448,6 @@ impl EffectsMeta {
         );
 
         Self {
-            entity_map: default(),
             view_bind_group: None,
             sim_params_bind_group: None,
             dr_indirect_bind_group: None,
@@ -2578,7 +2457,7 @@ impl EffectsMeta {
                 NonZeroU64::new(item_align),
                 Some("hanabi:buffer:spawner".to_string()),
             ),
-            dispatch_indirect_buffer: BufferTable::new(
+            update_dispatch_indirect_buffer: BufferTable::new(
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
                 // NOTE: Technically we're using an offset in dispatch_workgroups_indirect(), but
                 // `min_storage_buffer_offset_alignment` is documented as being for the offset in
@@ -2587,22 +2466,11 @@ impl EffectsMeta {
                 NonZeroU64::new(item_align),
                 Some("hanabi:buffer:dispatch_indirect".to_string()),
             ),
-            render_effect_dispatch_buffer: BufferTable::new(
+            effect_metadata_buffer: BufferTable::new(
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
                 NonZeroU64::new(item_align),
                 Some("hanabi:buffer:render_effect_dispatch".to_string()),
             ),
-            render_group_dispatch_buffer: BufferTable::new(
-                BufferUsages::STORAGE | BufferUsages::INDIRECT,
-                NonZeroU64::new(item_align),
-                Some("hanabi:buffer:render_group_dispatch".to_string()),
-            ),
-            particle_group_buffer: AlignedBufferVec::new(
-                BufferUsages::STORAGE,
-                NonZeroU64::new(item_align),
-                Some("hanabi:buffer:particle_group".to_string()),
-            ),
-            default_mesh,
             gpu_limits,
             indirect_shader_noevent,
             indirect_shader_events,
@@ -2628,6 +2496,8 @@ impl EffectsMeta {
         mut added_effects: Vec<AddedEffect>,
         render_device: &RenderDevice,
         render_queue: &RenderQueue,
+        mesh_allocator: &MeshAllocator,
+        render_meshes: &RenderAssets<RenderMesh>,
         effect_bind_groups: &mut ResMut<EffectBindGroups>,
         effect_cache: &mut ResMut<EffectCache>,
         property_cache: &mut ResMut<PropertyCache>,
@@ -2640,46 +2510,127 @@ impl EffectsMeta {
         // order, so doesn't support offset.
 
         trace!("Adding {} newly spawned effects", added_effects.len());
-        for added_effect in added_effects.drain(..) {
-            trace!(
-                "+ added effect: total_capacity={}",
-                added_effect.groups.iter().map(|g| g.capacity).sum::<u32>()
-            );
+        for mut added_effect in added_effects.drain(..) {
+            trace!("+ added effect: capacity={}", added_effect.capacity);
 
             // Allocate per-group update dispatch indirect
-            let first_update_group_dispatch_buffer_index =
-                self.dispatch_indirect_buffer.insert_contiguous(
-                    iter::repeat(GpuDispatchIndirect::default()).take(added_effect.groups.len()),
-                );
+            let update_dispatch_indirect_buffer_table_id = self
+                .update_dispatch_indirect_buffer
+                .insert(GpuDispatchIndirect::default());
 
-            // Allocate per-effect metadata
-            let render_effect_dispatch_buffer_table_id = self
-                .render_effect_dispatch_buffer
-                .insert(GpuRenderEffectMetadata::default());
+            // Allocate per-effect metadata. Note that we run after Bevy has allocated
+            // meshes, so we already know the buffer and position of the particle mesh, and
+            // can fill the indirect args with it.
+            let (gpu_effect_metadata, cached_mesh) = {
+                let Some(render_mesh) = render_meshes.get(added_effect.mesh.id()) else {
+                    trace!(
+                        "Effect main_entity {:?}: cannot find render mesh {:?}",
+                        added_effect.entity,
+                        added_effect.mesh
+                    );
+                    continue;
+                };
+                let Some(mesh_vertex_buffer_slice) =
+                    mesh_allocator.mesh_vertex_slice(&added_effect.mesh.id())
+                else {
+                    trace!(
+                        "Effect main_entity {:?}: cannot find vertex slice of render mesh {:?}",
+                        added_effect.entity,
+                        added_effect.mesh
+                    );
+                    continue;
+                };
+                let mesh_index_buffer_slice =
+                    mesh_allocator.mesh_index_slice(&added_effect.mesh.id());
+                let indexed = if let RenderMeshBufferInfo::Indexed { index_format, .. } =
+                    render_mesh.buffer_info
+                {
+                    if let Some(ref slice) = mesh_index_buffer_slice {
+                        Some(MeshIndexSlice {
+                            format: index_format,
+                            buffer: slice.buffer.clone(),
+                            range: slice.range.clone(),
+                        })
+                    } else {
+                        trace!(
+                            "Effect main_entity {:?}: cannot find index slice of render mesh {:?}",
+                            added_effect.entity,
+                            added_effect.mesh
+                        );
+                        continue;
+                    }
+                } else {
+                    None
+                };
 
+                (
+                    match &mesh_index_buffer_slice {
+                        // Indexed mesh rendering
+                        Some(mesh_index_buffer_slice) => {
+                            let ret = GpuEffectMetadata {
+                                vertex_or_index_count: mesh_index_buffer_slice.range.len() as u32,
+                                instance_count: 0,
+                                first_index_or_vertex_offset: mesh_index_buffer_slice.range.start,
+                                vertex_offset_or_base_instance: mesh_vertex_buffer_slice.range.start
+                                    as i32,
+                                base_instance: 0,
+                                alive_count: 0,
+                                max_update: 0,
+                                dead_count: added_effect.capacity,
+                                max_spawn: added_effect.capacity,
+                                ..default()
+                            };
+                            trace!("+ Effect[indexed]: {:?}", ret);
+                            ret
+                        }
+                        // Non-indexed mesh rendering
+                        None => {
+                            let ret = GpuEffectMetadata {
+                                vertex_or_index_count: mesh_vertex_buffer_slice.range.len() as u32,
+                                instance_count: 0,
+                                first_index_or_vertex_offset: mesh_vertex_buffer_slice.range.start,
+                                vertex_offset_or_base_instance: 0,
+                                base_instance: 0,
+                                alive_count: 0,
+                                max_update: 0,
+                                dead_count: added_effect.capacity,
+                                max_spawn: added_effect.capacity,
+                                ..default()
+                            };
+                            trace!("+ Effect[non-indexed]: {:?}", ret);
+                            ret
+                        }
+                    },
+                    CachedMesh {
+                        mesh: added_effect.mesh.id(),
+                        buffer: mesh_vertex_buffer_slice.buffer.clone(),
+                        range: mesh_vertex_buffer_slice.range.clone(),
+                        indexed,
+                    },
+                )
+            };
+            let effect_metadata_buffer_table_id =
+                self.effect_metadata_buffer.insert(gpu_effect_metadata);
             let dispatch_buffer_indices = DispatchBufferIndices {
-                first_update_group_dispatch_buffer_index,
-                render_effect_metadata_buffer_table_id: render_effect_dispatch_buffer_table_id,
-                render_group_dispatch_indices: RenderGroupDispatchIndices::Pending {
-                    groups: added_effect.groups.iter().map(Into::into).collect(),
-                },
+                update_dispatch_indirect_buffer_table_id,
+                effect_metadata_buffer_table_id,
             };
 
-            // Insert the effect into the cache. This will allocate all the necessary GPU
-            // resources as needed.
+            // Insert the effect into the cache. This will allocate all the necessary
+            // mandatory GPU resources as needed.
             let cached_effect = effect_cache.insert(
                 added_effect.handle,
-                added_effect
-                    .groups
-                    .iter()
-                    .map(|group| group.capacity)
-                    .collect(),
+                added_effect.capacity,
                 &added_effect.particle_layout,
                 added_effect.layout_flags,
-                added_effect.group_order,
             );
             let mut cmd = commands.entity(added_effect.render_entity.id());
-            cmd.insert((added_effect.entity, cached_effect, dispatch_buffer_indices));
+            cmd.insert((
+                added_effect.entity,
+                cached_effect,
+                dispatch_buffer_indices,
+                cached_mesh,
+            ));
 
             // Allocate storage for properties if needed
             if !added_effect.property_layout.is_empty() {
@@ -2689,14 +2640,13 @@ impl EffectsMeta {
                 cmd.remove::<CachedEffectProperties>();
             }
 
-            // Allocate storage for parent if needed
-            let parent_entity = added_effect.parent.map(|p| p.entity);
+            // Allocate storage for child info if needed
             if let Some(parent) = added_effect.parent.take() {
                 let cached_child_info = CachedChild {
                     parent: parent.entity,
                     local_child_index: u32::MAX,
                     global_child_index: u32::MAX,
-                    dispatch_index: u32::MAX,
+                    init_indirect_dispatch_index: u32::MAX,
                 };
                 cmd.insert(cached_child_info);
             } else {
@@ -2704,40 +2654,29 @@ impl EffectsMeta {
             }
 
             // Allocate storage for events if needed
-            let event_count = added_effect
-                .parent
-                .as_ref()
-                .map(|parent| parent.event_count)
-                .unwrap_or_default();
-            if event_count > 0 {
-                let cached_events = event_cache.allocate(event_count);
+            if let Some(parent) = added_effect.parent.as_ref() {
+                let cached_events = event_cache.allocate(parent.event_count);
                 cmd.insert(cached_events);
             } else {
                 cmd.remove::<CachedEffectEvents>();
             }
 
-            // Update entity map
-            let cache_entity = cmd.id();
-            let entity = added_effect.entity;
-            self.entity_map.insert(
-                entity.id(),
-                CacheEntry {
-                    cache_entity,
-                    parent_entity,
-                },
-            );
+            // Ensure the particle@1 bind group layout exists for the given configuration of
+            // particle layout and (optionally) parent particle layout.
+            {
+                let parent_min_binding_size = added_effect
+                    .parent
+                    .map(|added_parent| added_parent.layout.min_binding_size32());
+                effect_cache.ensure_particle_bind_group_layout(
+                    added_effect.particle_layout.min_binding_size32(),
+                    parent_min_binding_size,
+                );
+            }
 
-            // Ensure the bind group layout for the update pass exists for the particular
-            // config of this effect, before the update pipeline specialization needs it to
-            // create the pipeline layout.
-            let effect_buffer = effect_cache
-                .get_buffer_mut(cached_effect.buffer_index)
-                .unwrap();
-            effect_buffer.ensure_particle_update_bind_group_layout(
-                input.child_effects.len() as u32,
-                &render_device,
-                input.effect_slices.particle_layout.min_binding_size(),
-            );
+            // We cannot yet determine the layout of the metadata@3 bind group, because it
+            // depends on the number of children, and this is encoded indirectly via the
+            // number of child effects pointing to this parent, and only calculated later in
+            // resolve_parents().
 
             trace!(
                 "+ added effect entity {:?}: main_entity={:?} \
@@ -2745,8 +2684,8 @@ impl EffectsMeta {
                 render_effect_dispatch_buffer_id={}",
                 added_effect.render_entity,
                 added_effect.entity,
-                first_update_group_dispatch_buffer_index.0,
-                render_effect_dispatch_buffer_table_id.0
+                update_dispatch_indirect_buffer_table_id.0,
+                effect_metadata_buffer_table_id.0
             );
         }
 
@@ -2754,46 +2693,70 @@ impl EffectsMeta {
         // (re)allocation based on the new buffer size. The actual GPU buffer content
         // will be written later.
         if self
-            .dispatch_indirect_buffer
+            .update_dispatch_indirect_buffer
             .allocate_gpu(render_device, render_queue)
         {
             // All those bind groups use the buffer so need to be re-created
             effect_bind_groups.particle_buffers.clear();
         }
         if self
-            .render_effect_dispatch_buffer
+            .effect_metadata_buffer
             .allocate_gpu(render_device, render_queue)
         {
             // All those bind groups use the buffer so need to be re-created
             self.dr_indirect_bind_group = None;
-            effect_bind_groups.init_render_indirect_bind_groups.clear();
-            effect_bind_groups
-                .update_render_indirect_bind_groups
-                .clear();
-            event_cache.invalidate_child_infos_bind_group();
+            effect_bind_groups.init_metadata_bind_groups.clear();
+            effect_bind_groups.update_metadata_bind_groups.clear();
         }
     }
 
     /// Allocate any GPU buffer and schedule buffer copies for reallocations.
     pub fn allocate_gpu(
         &mut self,
-        render_device: &RenderDevice,
-        render_queue: &RenderQueue,
-        effect_bind_groups: &mut ResMut<EffectBindGroups>,
-        effect_cache: &mut ResMut<EffectCache>,
+        _render_device: &RenderDevice,
+        _render_queue: &RenderQueue,
+        _effect_bind_groups: &mut ResMut<EffectBindGroups>,
+        _effect_cache: &mut ResMut<EffectCache>,
     ) {
-        if self
-            .render_group_dispatch_buffer
-            .allocate_gpu(render_device, render_queue)
-        {
-            // All those bind groups use the buffer so need to be re-created
-            self.dr_indirect_bind_group = None;
-            effect_bind_groups.init_render_indirect_bind_groups.clear();
-            effect_bind_groups
-                .update_render_indirect_bind_groups
-                .clear();
-            event_cache.invalidate_child_infos_bind_group();
-        }
+        // if self
+        //     .render_indirect_dispatch_buffer
+        //     .allocate_gpu(render_device, render_queue)
+        // {
+        //     // All those bind groups use the buffer so need to be re-created
+        //     self.dr_indirect_bind_group = None;
+        //     effect_bind_groups.init_render_indirect_bind_groups.clear();
+        //     effect_bind_groups
+        //         .update_render_indirect_bind_groups
+        //         .clear();
+        //     event_cache.invalidate_child_infos_bind_group();
+        // }
+    }
+
+    pub fn allocate_spawner(
+        &mut self,
+        global_transform: &GlobalTransform,
+        spawn_count: u32,
+    ) -> u32 {
+        let spawner_base = self.spawner_buffer.len() as u32;
+        let transform = global_transform.compute_matrix().into();
+        let inverse_transform = Mat4::from(
+            // Inverse the Affine3A first, then convert to Mat4.This is a lot more
+            // efficient than inversing the Mat4.
+            global_transform.affine().inverse(),
+        )
+        .into();
+        // FIXME - Probably bad to re-seed each time there's a change
+        let seed = rand::random::<u32>();
+        let spawner_params = GpuSpawnerParams {
+            transform,
+            inverse_transform,
+            spawn: spawn_count as i32,
+            seed,
+            ..default()
+        };
+        trace!("spawner params = {:?}", spawner_params);
+        self.spawner_buffer.push(spawner_params);
+        spawner_base
     }
 }
 
@@ -2895,30 +2858,12 @@ pub(crate) fn on_remove_cached_effect(
     effect_bind_groups
         .particle_buffers
         .remove(&cached_effect.buffer_index);
-
-    let group_count = cached_effect.slices.group_count();
-
-    let first_row = dispatch_buffer_indices
-        .first_update_group_dispatch_buffer_index
-        .0;
     effects_meta
-        .dispatch_indirect_buffer
-        .remove_range(BufferTableId(first_row), group_count);
-
+        .update_dispatch_indirect_buffer
+        .remove(dispatch_buffer_indices.update_dispatch_indirect_buffer_table_id);
     effects_meta
-        .render_effect_dispatch_buffer
-        .remove(dispatch_buffer_indices.render_effect_metadata_buffer_table_id);
-
-    if let RenderGroupDispatchIndices::Allocated {
-        first_render_group_dispatch_buffer_index,
-        ..
-    } = &dispatch_buffer_indices.render_group_dispatch_indices
-    {
-        effects_meta.render_group_dispatch_buffer.remove_range(
-            BufferTableId(first_render_group_dispatch_buffer_index.0),
-            group_count,
-        );
-    }
+        .effect_metadata_buffer
+        .remove(dispatch_buffer_indices.effect_metadata_buffer_table_id);
 }
 
 /// Update the [`CachedEffect`] component for any newly allocated effect.
@@ -2929,6 +2874,8 @@ pub(crate) fn on_remove_cached_effect(
 pub(crate) fn add_effects(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
+    mesh_allocator: Res<MeshAllocator>,
+    render_meshes: Res<RenderAssets<RenderMesh>>,
     commands: Commands,
     mut effects_meta: ResMut<EffectsMeta>,
     mut effect_cache: ResMut<EffectCache>,
@@ -2946,13 +2893,10 @@ pub(crate) fn add_effects(
     // the first point at which we can do that where we're not blocking the main
     // world (so, excluding the extract system).
     effects_meta
-        .dispatch_indirect_buffer
+        .update_dispatch_indirect_buffer
         .clear_previous_frame_resizes();
     effects_meta
-        .render_effect_dispatch_buffer
-        .clear_previous_frame_resizes();
-    effects_meta
-        .render_group_dispatch_buffer
+        .effect_metadata_buffer
         .clear_previous_frame_resizes();
 
     // Allocate new effects
@@ -2961,6 +2905,8 @@ pub(crate) fn add_effects(
         std::mem::take(&mut extracted_effects.added_effects),
         &render_device,
         &render_queue,
+        &mesh_allocator,
+        &render_meshes,
         &mut effect_bind_groups,
         &mut effect_cache,
         &mut property_cache,
@@ -3019,10 +2965,10 @@ fn is_child_list_changed(parent_entity: Entity, old: &[Entity], new: &[Entity]) 
 /// slice for all children of each parent.
 pub(crate) fn resolve_parents(
     mut commands: Commands,
-    mut q_child_effects: Query<(Entity, &mut CachedChild), With<CachedEffect>>,
+    mut q_child_effects: Query<(Entity, &mut CachedChild, &CachedEffectEvents), With<CachedEffect>>,
     mut q_parent_effects: Query<(Entity, &mut CachedParent), With<CachedEffect>>,
     mut event_cache: ResMut<EventCache>,
-    mut children_from_parent: Local<HashMap<Entity, Vec<Entity>>>,
+    mut children_from_parent: Local<HashMap<Entity, (Vec<Entity>, Vec<GpuChildInfo>)>>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::utils::tracing::info_span!("resolve_parents").entered();
@@ -3035,13 +2981,17 @@ pub(crate) fn resolve_parents(
         let extra = num_parent_effects - children_from_parent.capacity();
         children_from_parent.reserve(extra);
     }
-    for (child_entity, mut cached_child_info) in q_child_effects.iter_mut() {
+    for (child_entity, mut cached_child_info, cached_effect_events) in q_child_effects.iter_mut() {
         let parent_entity = cached_child_info.parent;
 
         // Push the child entity into the children list
-        let child_vec = children_from_parent.entry(parent_entity).or_default();
+        let (child_vec, child_infos) = children_from_parent.entry(parent_entity).or_default();
         let local_child_index = child_vec.len() as u32;
         child_vec.push(child_entity);
+        child_infos.push(GpuChildInfo {
+            event_count: 0,
+            init_indirect_dispatch_index: cached_effect_events.init_indirect_dispatch_index,
+        });
 
         // Update the cached child info. The global child index cannot yet be
         // calculated, as we might need to re-allocate the child list in the global
@@ -3053,7 +3003,8 @@ pub(crate) fn resolve_parents(
     // and re-allocate their GpuChildInfo if needed.
     for (parent_entity, mut cached_parent) in q_parent_effects.iter_mut() {
         // Fetch the newly extracted list of children
-        let Some((_, children)) = children_from_parent.remove_entry(&parent_entity) else {
+        let Some((_, (children, child_infos))) = children_from_parent.remove_entry(&parent_entity)
+        else {
             trace!("Entity {parent_entity:?} is no more a parent, removing CachedChildren component...");
             commands.entity(parent_entity).remove::<CachedParent>();
             continue;
@@ -3064,14 +3015,20 @@ pub(crate) fn resolve_parents(
             continue;
         }
 
-        event_cache.reallocate_child_infos(parent_entity, children, cached_parent.deref_mut());
+        event_cache.reallocate_child_infos(
+            parent_entity,
+            children,
+            &child_infos[..],
+            cached_parent.deref_mut(),
+        );
     }
 
     // Once this is done, the children hash map contains all entries which don't
     // already have a CachedChildren component. That is, all entities which are new
     // parents.
-    for (parent_entity, children) in children_from_parent.drain() {
-        let cached_parent = event_cache.allocate_child_infos(parent_entity, children);
+    for (parent_entity, (children, child_infos)) in children_from_parent.drain() {
+        let cached_parent =
+            event_cache.allocate_child_infos(parent_entity, children, &child_infos[..]);
         commands.entity(parent_entity).insert(cached_parent);
     }
 
@@ -3090,6 +3047,7 @@ pub(crate) fn resolve_parents(
 pub fn fixup_parents(
     q_changed_parents: Query<(Entity, &CachedParent), Changed<CachedParent>>,
     mut q_children: Query<&mut CachedChild>,
+    mut _effect_cache: ResMut<EffectCache>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::utils::tracing::info_span!("fixup_parents").entered();
@@ -3121,11 +3079,25 @@ pub fn fixup_parents(
                 cached_child_info.global_child_index
             );
         }
+
+        // Now that we know the number of children per effect, we can ensure the
+        // "metadata" (@3) bind group layout exists. This was deferred from
+        // add_effects() earlier where we didn't know yet.
+        // {
+        //     let parent_min_binding_size = added_effect
+        //         .parent
+        //         .map(|added_parent|
+        // added_parent.layout.min_binding_size32());     effect_cache.
+        // ensure_particle_bind_group_layout(         added_effect.
+        // particle_layout.min_binding_size32(),
+        //         parent_min_binding_size,
+        //     );
+        // }
     }
 }
 
 /// Indexed mesh metadata for [`CachedMesh`].
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub(crate) struct MeshIndexSlice {
     /// Index format.
@@ -3137,7 +3109,7 @@ pub(crate) struct MeshIndexSlice {
 }
 
 /// Render world cached mesh infos for a single effect instance.
-#[derive(Debug, Component)]
+#[derive(Debug, Clone, Component)]
 pub(crate) struct CachedMesh {
     /// Asset of the effect mesh to draw.
     pub mesh: AssetId<Mesh>,
@@ -3171,8 +3143,6 @@ pub struct PrepareEffectsReadOnlyParams<'w, 's> {
     sim_params: Res<'w, SimParams>,
     render_device: Res<'w, RenderDevice>,
     render_queue: Res<'w, RenderQueue>,
-    mesh_allocator: Res<'w, MeshAllocator>,
-    render_meshes: Res<'w, RenderAssets<RenderMesh>>,
     #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
@@ -3206,9 +3176,11 @@ pub(crate) fn prepare_effects(
     mut q_cached_effects: Query<(
         MainEntity,
         &CachedEffect,
+        &CachedMesh,
         &mut DispatchBufferIndices,
         Option<&CachedEffectProperties>,
         Option<&CachedParent>,
+        Option<&CachedChild>,
         Option<&CachedEffectEvents>,
     )>,
     mut gpu_buffer_operation_queue: ResMut<GpuBufferOperationQueue>,
@@ -3222,8 +3194,6 @@ pub(crate) fn prepare_effects(
     let render_device = read_params.render_device.into_inner();
     let render_queue = read_params.render_queue.into_inner();
     let pipeline_cache = pipelines.pipeline_cache.into_inner();
-    let mesh_allocator = read_params.mesh_allocator.into_inner();
-    let render_meshes = read_params.render_meshes.into_inner();
 
     // // sort first by z and then by handle. this ensures that, when possible,
     // batches span multiple z layers // batches won't span z-layers if there is
@@ -3272,23 +3242,25 @@ pub(crate) fn prepare_effects(
 
     // Clear per-instance buffers, which are filled below and re-uploaded each frame
     effects_meta.spawner_buffer.clear();
-    effects_meta.particle_group_buffer.clear();
 
     // Build batcher inputs from extracted effects, updating all cached components
     // for each effect on the fly.
     let mut total_effect_count = 0;
-    let mut total_group_count = 0;
+    let mut total_effect_count = 0;
     let effects = std::mem::take(&mut extracted_effects.effects);
     for extracted_effect in effects.into_iter() {
         // Skip effects not cached. Since we're iterating over the extracted effects
         // instead of the cached ones, it might happen we didn't cache some effect on
         // purpose because they failed earlier validations.
+        // FIXME - extract into ECS directly so we don't have to do that?
         let Ok((
             main_entity,
             cached_effect,
+            cached_mesh,
             mut dispatch_buffer_indices,
             cached_effect_properties,
             cached_parent,
+            cached_child,
             cached_effect_events,
         )) = q_cached_effects.get_mut(extracted_effect.render_entity.id())
         else {
@@ -3299,141 +3271,15 @@ pub(crate) fn prepare_effects(
             continue;
         };
 
-        // If the mesh is not available, skip this effect
-        let Some(render_mesh) = render_meshes.get(extracted_effect.mesh.id()) else {
-            trace!(
-                "Effect main_entity {:?}: missing render mesh {:?}",
-                main_entity,
-                extracted_effect.mesh
-            );
-            continue;
-        };
-        let Some(mesh_vertex_buffer_slice) =
-            mesh_allocator.mesh_vertex_slice(&extracted_effect.mesh.id())
-        else {
-            trace!(
-                "Effect main_entity {:?}: missing render mesh vertex slice",
-                main_entity
-            );
-            continue;
-        };
-        let mesh_index_buffer_slice = mesh_allocator.mesh_index_slice(&extracted_effect.mesh.id());
-        let indexed =
-            if let RenderMeshBufferInfo::Indexed { index_format, .. } = render_mesh.buffer_info {
-                if let Some(ref slice) = mesh_index_buffer_slice {
-                    Some(MeshIndexSlice {
-                        format: index_format,
-                        buffer: slice.buffer.clone(),
-                        range: slice.range.clone(),
-                    })
-                } else {
-                    trace!(
-                        "Effect main_entity {:?}: missing render mesh index slice",
-                        main_entity
-                    );
-                    continue;
-                }
-            } else {
-                None
-            };
-
-        // let parent_buffer_index = parents.get(&entity).cloned();
-        // let child_effects = if let Some(children) = children.get_mut(&entity) {
-        //     std::mem::take(children)
-        // } else {
-        //     vec![]
-        // };
-
-        // Now that the mesh has been processed by Bevy itself, we know where it's
-        // allocated inside the GPU buffer, so we can extract its base vertex and index
-        // values, and allocate our indirect structs.
-        if let RenderGroupDispatchIndices::Pending { groups } =
-            &dispatch_buffer_indices.render_group_dispatch_indices
-        {
-            trace!("Effect render_entity {:?}: allocating render group indirect dispatch entries for {} groups...", extracted_effect.render_entity, groups.len());
-            let mut current_base_instance = 0;
-            let first_render_group_dispatch_buffer_index = effects_meta
-                .render_group_dispatch_buffer
-                .insert_contiguous(groups.iter().map(|group| {
-                    let indirect_dispatch = match &mesh_index_buffer_slice {
-                        // Indexed mesh rendering
-                        Some(mesh_index_buffer_slice) => {
-                            let ret = GpuRenderGroupIndirect {
-                                vertex_count: mesh_index_buffer_slice.range.len() as u32,
-                                instance_count: 0,
-                                first_index_or_vertex_offset: mesh_index_buffer_slice.range.start,
-                                vertex_offset_or_base_instance: mesh_vertex_buffer_slice.range.start
-                                    as i32,
-                                base_instance: current_base_instance as u32,
-                                alive_count: 0,
-                                max_update: 0,
-                                dead_count: group.capacity,
-                                max_spawn: group.capacity,
-                            };
-                            trace!("+ Group[indexed]: {:?}", ret);
-                            ret
-                        }
-                        // Non-indexed mesh rendering
-                        None => {
-                            let ret = GpuRenderGroupIndirect {
-                                vertex_count: mesh_vertex_buffer_slice.range.len() as u32,
-                                instance_count: 0,
-                                first_index_or_vertex_offset: mesh_vertex_buffer_slice.range.start,
-                                vertex_offset_or_base_instance: current_base_instance,
-                                base_instance: current_base_instance as u32,
-                                alive_count: 0,
-                                max_update: 0,
-                                dead_count: group.capacity,
-                                max_spawn: group.capacity,
-                            };
-                            trace!("+ Group[non-indexed]: {:?}", ret);
-                            ret
-                        }
-                    };
-                    current_base_instance += group.capacity as i32;
-                    indirect_dispatch
-                }));
-
-            let mut trail_dispatch_buffer_indices = HashMap::new();
-            for (dest_group_index, group) in groups.iter().enumerate() {
-                let Some(src_group_index) = group.src_group_index_if_trail else {
-                    continue;
-                };
-                trail_dispatch_buffer_indices.insert(
-                    dest_group_index as u32,
-                    TrailDispatchBufferIndices {
-                        dest: first_render_group_dispatch_buffer_index
-                            .offset(dest_group_index as u32),
-                        src: first_render_group_dispatch_buffer_index.offset(src_group_index),
-                    },
-                );
-            }
-
-            trace!(
-                    "-> Allocated {} render group dispatch indirect entries at offset +{}. Trails: {:?}",
-                    groups.len(),
-                    first_render_group_dispatch_buffer_index.0,
-                    trail_dispatch_buffer_indices
-                );
-            dispatch_buffer_indices.render_group_dispatch_indices =
-                RenderGroupDispatchIndices::Allocated {
-                    first_render_group_dispatch_buffer_index,
-                    trail_dispatch_buffer_indices,
-                };
-        }
-
-        let effect_slices = EffectSlices {
-            slices: cached_effect.slices.ranges.clone(),
+        let effect_slice = EffectSlice {
+            slice: cached_effect.slice.range(),
             buffer_index: cached_effect.buffer_index,
-            particle_layout: cached_effect.slices.particle_layout().clone(),
+            particle_layout: cached_effect.slice.particle_layout.clone(),
         };
 
-        let particle_layout_min_binding_size = effect_slices.particle_layout.min_binding_size();
         let has_event_buffer = cached_parent.is_some();
         // FIXME: decouple "consumes event" from "reads parent particle" (here, p.layout
         // should be Option<T>, not T)
-        let parent_particle_layout_min_binding_size =
-            cached_parent.map(|p| p.layout.min_binding_size());
         let property_layout_min_binding_size = if extracted_effect.property_layout.is_empty() {
             None
         } else {
@@ -3452,7 +3298,7 @@ pub(crate) fn prepare_effects(
             Some(global_child_index),
         ) = (
             event_buffer_ref,
-            input.init_indirect_dispatch_index,
+            init_indirect_dispatch_index,
             global_child_index,
         ) {
             debug_assert_eq!(
@@ -3488,11 +3334,11 @@ pub(crate) fn prepare_effects(
             let mut flags = ParticleInitPipelineKeyFlags::empty();
             flags.set(
                 ParticleInitPipelineKeyFlags::ATTRIBUTE_PREV,
-                effect_slices.particle_layout.contains(Attribute::PREV),
+                effect_slice.particle_layout.contains(Attribute::PREV),
             );
             flags.set(
                 ParticleInitPipelineKeyFlags::ATTRIBUTE_NEXT,
-                effect_slices.particle_layout.contains(Attribute::NEXT),
+                effect_slice.particle_layout.contains(Attribute::NEXT),
             );
             flags.set(
                 ParticleInitPipelineKeyFlags::CONSUME_GPU_SPAWN_EVENTS,
@@ -3504,7 +3350,7 @@ pub(crate) fn prepare_effects(
         // This should always exist by the time we reach this point, because we should
         // have inserted any property in the cache, which would have allocated the
         // proper bind group layout (or the default no-property one).
-        let spawner_buffer_layout = property_cache
+        let spawner_bind_group_layout = property_cache
             .bind_group_layout(property_layout_min_binding_size)
             .unwrap_or_else(|| {
                 panic!(
@@ -3514,232 +3360,159 @@ pub(crate) fn prepare_effects(
             });
         trace!(
             "Retrieved property bind group layout {:?} for binding size {:?}...",
-            spawner_buffer_layout.id(),
+            spawner_bind_group_layout.id(),
             property_layout_min_binding_size
         );
 
-        // Specialize the init pipeline based on the effect.
-        let init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds> = extracted_effect
-            .effect_shaders
-            .iter()
-            .enumerate()
-            .map(|(group_index, shader)| {
-                let mut flags = init_pipeline_key_flags;
-
-                // If this is a cloner, add the appropriate flag.
-                match extracted_effect.initializers[group_index] {
-                    EffectInitializer::Spawner(_) => {}
-                    EffectInitializer::Cloner(_) => {
-                        flags.insert(ParticleInitPipelineKeyFlags::CLONE);
-                    }
-                }
-
-                // https://github.com/bevyengine/bevy/issues/17132
-                pipelines.init_pipeline.temp_particles_buffer_layout =
-                    Some(create_init_bind_group_layout(
-                        &self.render_device,
-                        particle_layout_min_binding_size,
-                        has_event_buffer,
-                        parent_particle_layout_min_binding_size,
-                    ));
-                pipelines.init_pipeline.temp_spawner_buffer_layout =
-                    Some(spawner_buffer_layout.clone());
-                let init_pipeline_id: CachedComputePipelineId = specialized_init_pipelines
-                    .specialize(
-                        pipeline_cache,
-                        &pipelines.init_pipeline,
-                        ParticleInitPipelineKey {
-                            shader: shader.init.clone(),
-                            particle_layout_min_binding_size,
-                            parent_particle_layout_min_binding_size,
-                            flags,
-                            // Currently redundant
-                            particles_bind_group_layout_id: pipelines
-                                .init_pipeline
-                                .temp_particles_buffer_layout
-                                .as_ref()
-                                .unwrap()
-                                .id(),
-                            spawner_bind_group_layout_id: pipelines
-                                .init_pipeline
-                                .temp_spawner_buffer_layout
-                                .as_ref()
-                                .unwrap()
-                                .id(),
-                        },
+        // Fetch the bind group layouts from the cache
+        let (parent_particle_layout_min_binding_size, parent_buffer_index) =
+            if let Some(cached_child) = cached_child.as_ref() {
+                let Ok((parent_entity, parent_cached_effect, _, _, _, _, _, _)) =
+                    q_cached_effects.get(cached_child.parent)
+                else {
+                    // At this point we should have discarded invalid effects with a missing parent,
+                    // so if the parent is not found this is a bug.
+                    error!(
+                        "Effect main_entity {:?}: parent render entity {:?} not found.",
+                        main_entity, cached_child.parent
                     );
-                // keep things tidy; this is just a hack, should not persist
-                pipelines.init_pipeline.temp_particles_buffer_layout = None;
-                pipelines.init_pipeline.temp_spawner_buffer_layout = None;
-                trace!("Init pipeline specialized: id={:?}", init_pipeline_id);
+                    continue;
+                };
+                (
+                    Some(
+                        parent_cached_effect
+                            .slice
+                            .particle_layout
+                            .min_binding_size32(),
+                    ),
+                    Some(parent_cached_effect.buffer_index),
+                )
+            } else {
+                (None, None)
+            };
+        let particle_bind_group_layout = effect_cache
+            .particle_bind_group_layout(
+                effect_slice.particle_layout.min_binding_size32(),
+                parent_particle_layout_min_binding_size,
+            )
+            .unwrap()
+            .clone();
 
-                // https://github.com/bevyengine/bevy/issues/17132
-                pipelines.update_pipeline.temp_particles_buffer_layout =
-                    Some(create_update_bind_group_layout(
-                        &self.render_device,
-                        particle_layout_min_binding_size,
-                        key.num_event_buffers,
-                    ));
-                pipelines.update_pipeline.temp_spawner_buffer_layout =
-                    Some(spawner_buffer_layout.clone());
-                let update_pipeline_id = specialized_update_pipelines.specialize(
-                    pipeline_cache,
-                    &pipelines.update_pipeline,
-                    ParticleUpdatePipelineKey {
-                        shader: shader.update.clone(),
-                        particle_layout: effect_slices.particle_layout.clone(),
-                        parent_particle_layout_min_binding_size: cached_parent
-                            .map(|parent| parent.layout.min_binding_size()),
-                        num_event_buffers: input.child_effects.len() as u32,
-                        is_trail: matches!(
-                            extracted_effect.initializers[group_index],
-                            EffectInitializer::Cloner(_)
-                        ),
-                        // Currently redundant
-                        particles_bind_group_layout_id: pipelines
-                            .update_pipeline
-                            .temp_particles_buffer_layout
-                            .as_ref()
-                            .unwrap()
-                            .id(),
-                        spawner_bind_group_layout_id: pipelines
-                            .update_pipeline
-                            .temp_spawner_buffer_layout
-                            .as_ref()
-                            .unwrap()
-                            .id(),
-                    },
-                );
-                // keep things tidy; this is just a hack, should not persist
-                pipelines.update_pipeline.temp_particles_buffer_layout = None;
-                pipelines.update_pipeline.temp_spawner_buffer_layout = None;
-                trace!("Update pipeline specialized: id={:?}", update_pipeline_id);
+        let particle_layout_min_binding_size = effect_slice.particle_layout.min_binding_size32();
+        let spawner_bind_group_layout = spawner_bind_group_layout.clone();
 
-                InitAndUpdatePipelineIds {
-                    init: init_pipeline_id,
-                    update: update_pipeline_id,
-                }
-            })
-            .collect();
+        // Specialize the init pipeline based on the effect.
+        let init_pipeline_id = {
+            let mut flags: ParticleInitPipelineKeyFlags = init_pipeline_key_flags;
+
+            let consume_gpu_spawn_events =
+                flags.contains(ParticleInitPipelineKeyFlags::CONSUME_GPU_SPAWN_EVENTS);
+
+            // Fetch the metadata@3 bind group layout from the cache
+            let metadata_bind_group_layout = effect_cache
+                .metadata_init_bind_group_layout(consume_gpu_spawn_events)
+                .unwrap()
+                .clone();
+
+            // https://github.com/bevyengine/bevy/issues/17132
+            pipelines.init_pipeline.temp_particle_bind_group_layout =
+                Some(particle_bind_group_layout);
+            pipelines.init_pipeline.temp_spawner_bind_group_layout =
+                Some(spawner_bind_group_layout);
+            pipelines.init_pipeline.temp_metadata_bind_group_layout =
+                Some(metadata_bind_group_layout);
+            let init_pipeline_id: CachedComputePipelineId = specialized_init_pipelines.specialize(
+                pipeline_cache,
+                &pipelines.init_pipeline,
+                ParticleInitPipelineKey {
+                    shader: extracted_effect.effect_shaders.init.clone(),
+                    particle_layout_min_binding_size,
+                    parent_particle_layout_min_binding_size,
+                    flags,
+                    particle_bind_group_layout_id: particle_bind_group_layout.id(),
+                    spawner_bind_group_layout_id: spawner_bind_group_layout.id(),
+                    metadata_bind_group_layout_id: metadata_bind_group_layout.id(),
+                },
+            );
+            // keep things tidy; this is just a hack, should not persist
+            pipelines.init_pipeline.temp_particle_bind_group_layout = None;
+            pipelines.init_pipeline.temp_spawner_bind_group_layout = None;
+            pipelines.init_pipeline.temp_metadata_bind_group_layout = None;
+            trace!("Init pipeline specialized: id={:?}", init_pipeline_id);
+
+            init_pipeline_id
+        };
+
+        let update_pipeline_id = {
+            let num_event_buffers = cached_parent
+                .map(|p| p.children.len() as u32)
+                .unwrap_or_default();
+
+            // Fetch the bind group layouts from the cache
+            let metadata_bind_group_layout = effect_cache
+                .metadata_update_bind_group_layout(num_event_buffers)
+                .unwrap()
+                .clone();
+
+            // https://github.com/bevyengine/bevy/issues/17132
+            pipelines.update_pipeline.temp_particle_bind_group_layout =
+                Some(particle_bind_group_layout);
+            pipelines.update_pipeline.temp_spawner_bind_group_layout =
+                Some(spawner_bind_group_layout);
+            pipelines.update_pipeline.temp_metadata_bind_group_layout =
+                Some(metadata_bind_group_layout);
+            let update_pipeline_id = specialized_update_pipelines.specialize(
+                pipeline_cache,
+                &pipelines.update_pipeline,
+                ParticleUpdatePipelineKey {
+                    shader: extracted_effect.effect_shaders.update.clone(),
+                    particle_layout: effect_slice.particle_layout.clone(),
+                    parent_particle_layout_min_binding_size,
+                    num_event_buffers,
+                    particle_bind_group_layout_id: particle_bind_group_layout.id(),
+                    spawner_bind_group_layout_id: spawner_bind_group_layout.id(),
+                    metadata_bind_group_layout_id: metadata_bind_group_layout.id(),
+                },
+            );
+            // keep things tidy; this is just a hack, should not persist
+            pipelines.update_pipeline.temp_particle_bind_group_layout = None;
+            pipelines.update_pipeline.temp_spawner_bind_group_layout = None;
+            pipelines.update_pipeline.temp_metadata_bind_group_layout = None;
+            trace!("Update pipeline specialized: id={:?}", update_pipeline_id);
+
+            update_pipeline_id
+        };
+
+        let init_and_update_pipeline_ids = InitAndUpdatePipelineIds {
+            init: init_pipeline_id,
+            update: update_pipeline_id,
+        };
 
         // Output some debug info
+        trace!("init_shader = {:?}", extracted_effect.effect_shaders.init);
         trace!(
-            "init_shader(s) = {:?}",
-            extracted_effect
-                .effect_shaders
-                .iter()
-                .map(|shaders| shaders.init.clone())
+            "update_shader = {:?}",
+            extracted_effect.effect_shaders.update
         );
         trace!(
-            "update_shader(s) = {:?}",
-            extracted_effect
-                .effect_shaders
-                .iter()
-                .map(|shaders| shaders.update.clone())
-        );
-        trace!(
-            "render_shader(s) = {:?}",
-            extracted_effect
-                .effect_shaders
-                .iter()
-                .map(|shaders| shaders.render.clone())
+            "render_shader = {:?}",
+            extracted_effect.effect_shaders.render
         );
         trace!("layout_flags = {:?}", extracted_effect.layout_flags);
-        trace!("particle_layout = {:?}", effect_slices.particle_layout);
+        trace!("particle_layout = {:?}", effect_slice.particle_layout);
         #[cfg(feature = "2d")]
         {
             trace!("z_sort_key_2d = {:?}", extracted_effect.z_sort_key_2d);
         }
 
-        // Allocate the spawner entry for the effect instance
-        let spawner_base = effects_meta.spawner_buffer.len() as u32;
-        for initializer in extracted_effect.initializers.iter() {
-            let transform = extracted_effect.transform.compute_matrix().into();
-            let inverse_transform = Mat4::from(
-                // Inverse the Affine3A first, then convert to Mat4.This is a lot more
-                // efficient than inversing the Mat4.
-                extracted_effect.transform.affine().inverse(),
-            )
-            .into();
-            // FIXME - Probably bad to re-seed each time there's a change
-            let seed = rand::random::<u32>();
-            let spawner_params = match initializer {
-                EffectInitializer::Spawner(effect_spawner) => {
-                    let spawner_params = GpuSpawnerParams {
-                        transform,
-                        inverse_transform,
-                        spawn: effect_spawner.spawn_count as i32,
-                        seed,
-                        ..default()
-                    };
-                    trace!("spawner params = {:?}", spawner_params);
-                    spawner_params
-                }
-                EffectInitializer::Cloner(effect_cloner) => {
-                    let spawner_params = GpuSpawnerParams {
-                        transform,
-                        inverse_transform,
-                        seed,
-                        lifetime: effect_cloner.cloner.lifetime,
-                        ..default()
-                    };
-                    trace!("cloner params = {:?}", spawner_params);
-                    spawner_params
-                }
-            };
-            effects_meta.spawner_buffer.push(spawner_params);
-        }
-
-        // Allocate the particle group buffer entries for the effect instance
-        let mut first_particle_group_buffer_index = None;
-        let mut local_group_count = 0;
-        for (group_index, range) in effect_slices.slices.windows(2).enumerate() {
-            let indirect_render_index = match &dispatch_buffer_indices.render_group_dispatch_indices
-            {
-                RenderGroupDispatchIndices::Allocated {
-                    first_render_group_dispatch_buffer_index,
-                    ..
-                } => first_render_group_dispatch_buffer_index.0 + group_index as u32,
-                _ => u32::MAX, /* should never happen, as lazily allocated above (unless
-                                * something went wrong) */
-            };
-            let particle_group_buffer_index =
-                effects_meta.particle_group_buffer.push(GpuParticleGroup {
-                    global_group_index: total_group_count,
-                    effect_index: dispatch_buffer_indices
-                        .render_effect_metadata_buffer_table_id
-                        .0,
-                    group_index_in_effect: group_index as u32,
-                    indirect_index: range[0],
-                    capacity: range[1] - range[0],
-                    effect_particle_offset: effect_slices.slices[0],
-                    indirect_dispatch_index: dispatch_buffer_indices
-                        .first_update_group_dispatch_buffer_index
-                        .0
-                        + group_index as u32,
-                    indirect_render_index,
-                    // We can safely unwrap_or() here, if we don't do indirect dispatch then this
-                    // value is not read anyway.
-                    init_indirect_dispatch_index: input
-                        .init_indirect_dispatch_index
-                        .unwrap_or(u32::MAX),
-                    // We can safely unwrap_or() here, if we're not a child then this is unused.
-                    local_child_index: local_child_index.unwrap_or(u32::MAX),
-                    global_child_index: global_child_index.unwrap_or(u32::MAX),
-                    base_child_index: base_child_index.unwrap_or(u32::MAX),
-                });
-            if group_index == 0 {
-                first_particle_group_buffer_index = Some(particle_group_buffer_index as u32);
-            }
-            total_group_count += 1;
-            local_group_count += 1;
-        }
-        assert_eq!(local_group_count, init_and_update_pipeline_ids.len());
+        let spawner_base = effects_meta.allocate_spawner(
+            &extracted_effect.transform,
+            extracted_effect.effect_spawner.spawn_count,
+        );
 
         trace!(
-            "Updating cached effect at entity {:?} ({} groups)...",
-            extracted_effect.render_entity.id(),
-            init_and_update_pipeline_ids.len(),
+            "Updating cached effect at entity {:?}...",
+            extracted_effect.render_entity.id()
         );
         let mut cmd = commands.entity(extracted_effect.render_entity.id());
         cmd.insert((
@@ -3747,31 +3520,30 @@ pub(crate) fn prepare_effects(
                 handle: extracted_effect.handle,
                 entity: extracted_effect.render_entity.id(),
                 main_entity: extracted_effect.main_entity,
-                effect_slices,
-                effect_shaders: extracted_effect.effect_shaders.clone(),
+                effect_slice,
+                init_and_update_pipeline_ids,
+                parent_particle_layout: extracted_effect.parent_particle_layout.clone(),
+                parent_buffer_index,
+                event_buffer_index: cached_effect_events.map(|cee| cee.buffer_index),
+                child_effects: cached_parent
+                    .map(|cp| cp.children.clone())
+                    .unwrap_or_default(),
                 layout_flags: extracted_effect.layout_flags,
                 texture_layout: extracted_effect.texture_layout.clone(),
                 textures: extracted_effect.textures.clone(),
                 alpha_mode: extracted_effect.alpha_mode,
                 particle_layout: extracted_effect.particle_layout.clone(),
-                group_order: cached_effect.group_order.clone(),
-                initializers: extracted_effect.initializers,
-                #[cfg(feature = "2d")]
-                z_sort_key_2d: extracted_effect.z_sort_key_2d,
+                shaders: extracted_effect.effect_shaders,
+                spawner_base,
+                spawn_count: extracted_effect.effect_spawner.spawn_count,
                 #[cfg(feature = "3d")]
                 position: extracted_effect.transform.translation(),
+                init_indirect_dispatch_index: cached_child
+                    .map(|cc| cc.init_indirect_dispatch_index),
+                #[cfg(feature = "2d")]
+                z_sort_key_2d: extracted_effect.z_sort_key_2d,
             },
-            CachedMesh {
-                mesh: extracted_effect.mesh.id(),
-                buffer: mesh_vertex_buffer_slice.buffer.clone(),
-                range: mesh_vertex_buffer_slice.range.clone(),
-                indexed,
-            },
-            CachedGroups {
-                spawner_base,
-                first_particle_group_buffer_index,
-                init_and_update_pipeline_ids,
-            },
+            cached_mesh.clone(),
         ));
 
         // Update properties
@@ -3857,7 +3629,7 @@ pub(crate) fn prepare_effects(
     trace!(
         "Collected {} extracted effect(s) and {} groups",
         total_effect_count,
-        total_group_count
+        total_effect_count
     );
 
     // Perform any GPU allocation if we (lazily) allocated some rows into the render
@@ -3881,32 +3653,22 @@ pub(crate) fn prepare_effects(
         property_bind_groups.clear(true);
     }
 
-    // Write the entire particle group buffer for this frame
-    if effects_meta
-        .particle_group_buffer
-        .write_buffer(render_device, render_queue)
-    {
-        // The buffer changed; invalidate all bind groups for all effects.
-        effect_cache.invalidate_init_bind_groups();
-        effect_cache.invalidate_update_bind_groups();
-    }
-
     // Update simulation parameters
     effects_meta.sim_params_uniforms.set(sim_params.into());
     {
         let gpu_sim_params = effects_meta.sim_params_uniforms.get_mut();
-        gpu_sim_params.num_groups = total_group_count;
+        gpu_sim_params.num_effects = total_effect_count;
 
         trace!(
             "Simulation parameters: time={} delta_time={} virtual_time={} \
-                virtual_delta_time={} real_time={} real_delta_time={} num_groups={}",
+                virtual_delta_time={} real_time={} real_delta_time={} num_effects={}",
             gpu_sim_params.time,
             gpu_sim_params.delta_time,
             gpu_sim_params.virtual_time,
             gpu_sim_params.virtual_delta_time,
             gpu_sim_params.real_time,
             gpu_sim_params.real_delta_time,
-            gpu_sim_params.num_groups,
+            gpu_sim_params.num_effects,
         );
     }
     let prev_buffer_id = effects_meta.sim_params_uniforms.buffer().map(|b| b.id());
@@ -3925,7 +3687,6 @@ pub(crate) fn batch_effects(
         Entity,
         &CachedMesh,
         Option<&CachedProperties>,
-        &mut CachedGroups,
         &mut DispatchBufferIndices,
         &mut BatchesInput,
     )>,
@@ -3946,14 +3707,8 @@ pub(crate) fn batch_effects(
     // FIXME - This is in ECS order, if we re-add the sorting above we need a
     // different order here!
     trace!("Batching {} effects...", q_cached_effects.iter().len());
-    for (
-        entity,
-        cached_mesh,
-        cached_properties,
-        mut cached_groups,
-        dispatch_buffer_indices,
-        mut input,
-    ) in &mut q_cached_effects
+    for (entity, cached_mesh, cached_properties, dispatch_buffer_indices, mut input) in
+        &mut q_cached_effects
     {
         // Detect if this cached effect was not updated this frame by a new extracted
         // effect. This happens when e.g. the effect is invisible and not simulated, or
@@ -3961,13 +3716,13 @@ pub(crate) fn batch_effects(
         // as a marker, because each frame we move it out of the CachedGroup
         // component during batching, so if empty this means a new one was not created
         // this frame.
-        if cached_groups.init_and_update_pipeline_ids.is_empty() {
-            trace!(
-                "Skipped cached effect on render entity {:?}: not extracted this frame.",
-                entity
-            );
-            continue;
-        }
+        // if input.init_and_update_pipeline_ids.is_empty() {
+        //     trace!(
+        //         "Skipped cached effect on render entity {:?}: not extracted this
+        // frame.",         entity
+        //     );
+        //     continue;
+        // }
 
         #[cfg(feature = "2d")]
         let z_sort_key_2d = input.z_sort_key_2d;
@@ -3975,20 +3730,13 @@ pub(crate) fn batch_effects(
         #[cfg(feature = "3d")]
         let translation_3d = input.position;
 
-        let local_group_count = cached_groups.init_and_update_pipeline_ids.len() as u32;
-
         // Spawn one shared EffectBatches for all groups of this effect. This contains
         // most of the data needed to drive rendering, except the per-group data.
         // However this doesn't drive rendering; this is just storage.
         let batches = EffectBatch::from_input(
             cached_mesh,
             &mut input,
-            cached_groups.spawner_base,
-            std::mem::take(&mut cached_groups.init_and_update_pipeline_ids),
             dispatch_buffer_indices.clone(),
-            cached_groups
-                .first_particle_group_buffer_index
-                .unwrap_or_default(),
             cached_properties.map(|cp| PropertyBindGroupKey {
                 buffer_index: cp.buffer_index,
                 binding_size: cp.binding_size,
@@ -3997,27 +3745,21 @@ pub(crate) fn batch_effects(
         );
         let batches_entity = commands.spawn(batches).insert(TemporaryRenderEntity).id();
         trace!(
-            "Spawned effect batch with {} groups at entity {:?} from cached mesh of entity {:?}.",
-            local_group_count,
+            "Spawned effect batch at entity {:?} from cached mesh of entity {:?}.",
             batches_entity,
             entity,
         );
 
-        // Spawn one EffectDrawBatch per group, to actually drive rendering. Each group
-        // renders with a different indirect call. These are the entities that the
-        // render phase items will receive.
-        for group_index in 0..local_group_count {
-            commands
-                .spawn(EffectDrawBatch {
-                    batches_entity,
-                    group_index,
-                    #[cfg(feature = "2d")]
-                    z_sort_key_2d,
-                    #[cfg(feature = "3d")]
-                    translation_3d,
-                })
-                .insert(TemporaryRenderEntity);
-        }
+        // Spawn an EffectDrawBatch, to actually drive rendering.
+        commands
+            .spawn(EffectDrawBatch {
+                batches_entity,
+                #[cfg(feature = "2d")]
+                z_sort_key_2d,
+                #[cfg(feature = "3d")]
+                translation_3d,
+            })
+            .insert(TemporaryRenderEntity);
     }
 }
 
@@ -4029,17 +3771,10 @@ pub(crate) fn batch_effects(
 pub(crate) struct BufferBindGroups {
     /// Bind group for the render shader.
     ///
-    /// The optional binding behind the RENDER_NEEDS_SPAWNER conditional exists
-    /// only when local space simulation is used, to get access to the emitter
-    /// transform.
-    ///
     /// ```wgsl
     /// @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
     /// @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
-    /// @binding(2) var<storage, read> dispatch_indirect : UpdateIndirectDispatch;
-    /// #ifdef RENDER_NEEDS_SPAWNER
-    /// @binding(3) var<storage, read> spawner : Spawner;
-    /// #endif
+    /// @binding(2) var<storage, read> spawner : Spawner;
     /// ```
     render: BindGroup,
     // /// Bind group for filling the indirect dispatch arguments of any child init
@@ -4118,31 +3853,56 @@ struct BindingKey {
     pub size: NonZeroU32,
 }
 
+impl<'a> From<BufferSlice<'a>> for BindingKey {
+    fn from(value: BufferSlice<'a>) -> Self {
+        Self {
+            buffer_id: value.buffer.id(),
+            offset: value.offset,
+            size: value.size,
+        }
+    }
+}
+
+impl<'a> From<&BufferSlice<'a>> for BindingKey {
+    fn from(value: &BufferSlice<'a>) -> Self {
+        Self {
+            buffer_id: value.buffer.id(),
+            offset: value.offset,
+            size: value.size,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ConsumeEventKey {
     child_infos: BindingKey,
     events: BindingKey,
 }
 
+impl<'a> From<&ConsumeEventBuffers<'a>> for ConsumeEventKey {
+    fn from(value: &ConsumeEventBuffers) -> Self {
+        Self {
+            child_infos: value.child_infos.into(),
+            events: value.events.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct InitRenderIndirectBindGroupKey {
+struct InitMetadataBindGroupKey {
     pub buffer_index: u32,
-    pub render_effect_buffer: BufferId,
-    pub render_effect_offset: u32,
-    pub render_group_buffer: BufferId,
-    pub render_group_offset_dst: u32,
-    pub render_group_offset_src: u32,
+    pub effect_metadata_buffer: BufferId,
+    pub effect_metadata_offset: u32,
     pub consume_event_key: Option<ConsumeEventKey>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct UpdateRenderIndirectBindGroupKey {
+struct UpdateMetadataBindGroupKey {
     pub buffer_index: u32,
-    pub render_effect_buffer: BufferId,
-    pub render_effect_offset: u32,
-    pub render_group_buffer: BufferId,
-    pub render_group_offset: u32,
-    pub event_buffers: Vec<BindingKey>,
+    pub effect_metadata_buffer: BufferId,
+    pub effect_metadata_offset: u32,
+    pub child_infos: BindingKey,
+    pub event_buffers_keys: Vec<BindingKey>,
 }
 
 struct CachedBindGroup<K: Eq> {
@@ -4160,6 +3920,26 @@ struct BufferSlice<'a> {
     pub size: NonZeroU32,
 }
 
+impl<'a> From<BufferSlice<'a>> for BufferBinding<'a> {
+    fn from(value: BufferSlice<'a>) -> Self {
+        Self {
+            buffer: value.buffer,
+            offset: value.offset.into(),
+            size: Some(value.size.into()),
+        }
+    }
+}
+
+impl<'a> From<&BufferSlice<'a>> for BufferBinding<'a> {
+    fn from(value: &BufferSlice<'a>) -> Self {
+        Self {
+            buffer: value.buffer,
+            offset: value.offset.into(),
+            size: Some(value.size.into()),
+        }
+    }
+}
+
 struct ConsumeEventBuffers<'a> {
     child_infos: BufferSlice<'a>,
     events: BufferSlice<'a>,
@@ -4172,20 +3952,18 @@ pub struct EffectBindGroups {
     particle_buffers: HashMap<u32, BufferBindGroups>,
     /// Map of bind groups for image assets used as particle textures.
     images: HashMap<AssetId<Image>, BindGroup>,
-    /// Map from buffer index to its init render indirect bind group (group
-    /// 3), one per group in the effect.
+    /// Map from buffer index to its metadata bind group (group 3) for the init
+    /// pass.
     // FIXME - doesn't work with batching; this should be the instance ID
-    init_render_indirect_bind_groups:
-        HashMap<u32, Vec<CachedBindGroup<InitRenderIndirectBindGroupKey>>>,
-    /// Map from buffer index to its update render indirect bind group (group
-    /// 3).
+    init_metadata_bind_groups: HashMap<u32, CachedBindGroup<InitMetadataBindGroupKey>>,
+    /// Map from buffer index to its metadata bind group (group 3) for the
+    /// update pass.
     // FIXME - doesn't work with batching; this should be the instance ID
-    update_render_indirect_bind_groups:
-        HashMap<u32, CachedBindGroup<UpdateRenderIndirectBindGroupKey>>,
+    update_metadata_bind_groups: HashMap<u32, CachedBindGroup<UpdateMetadataBindGroupKey>>,
     /// Map from an effect material to its bind group.
     material_bind_groups: HashMap<Material, BindGroup>,
-    /// Map from an event buffer index to the bind group for the init fill pass
-    /// in charge of filling all its init dispatches.
+    /// Map from an event buffer index to the bind group @0 for the init fill
+    /// pass in charge of filling all its init dispatches.
     init_fill_dispatch: HashMap<u32, BindGroup>,
 }
 
@@ -4196,344 +3974,179 @@ impl EffectBindGroups {
             .map(|bg| &bg.render)
     }
 
-    pub(self) fn get_or_create_init_render_indirect(
+    /// Retrieve the metadata@3 bind group for the init pass, creating it if
+    /// needed.
+    pub(self) fn get_or_create_init_metadata(
         &mut self,
-        effect_batches: &EffectBatch,
+        effect_batch: &EffectBatch,
         gpu_limits: &GpuLimits,
         render_device: &RenderDevice,
-        spawn_layout: &BindGroupLayout,
-        clone_layout: &BindGroupLayout,
-        render_effect_buffer: &Buffer,
-        render_group_buffer: &Buffer,
+        layout: &BindGroupLayout,
+        effect_metadata_buffer: &Buffer,
         consume_event_buffers: Option<ConsumeEventBuffers>,
-    ) -> Result<(), ()> {
+    ) -> Result<&BindGroup, ()> {
         let DispatchBufferIndices {
-            render_effect_metadata_buffer_table_id: render_effect_dispatch_buffer_index,
-            render_group_dispatch_indices,
+            effect_metadata_buffer_table_id,
             ..
-        } = &effect_batches.dispatch_buffer_indices;
-        let RenderGroupDispatchIndices::Allocated {
-            first_render_group_dispatch_buffer_index,
-            trail_dispatch_buffer_indices,
-        } = render_group_dispatch_indices
-        else {
-            return Err(());
+        } = &effect_batch.dispatch_buffer_indices;
+
+        let effect_metadata_offset =
+            gpu_limits.effect_metadata_offset(effect_metadata_buffer_table_id.0) as u32;
+        let key = InitMetadataBindGroupKey {
+            buffer_index: effect_batch.buffer_index,
+            effect_metadata_buffer: effect_metadata_buffer.id(),
+            effect_metadata_offset,
+            consume_event_key: consume_event_buffers.as_ref().map(Into::into),
         };
 
-        let consume_event_key = if let Some(consume_event_buffers) = consume_event_buffers.as_ref()
-        {
-            Some(ConsumeEventKey {
-                child_infos: BindingKey {
-                    buffer_id: consume_event_buffers.child_infos.buffer.id(),
-                    offset: consume_event_buffers.child_infos.offset,
-                    size: consume_event_buffers.child_infos.size,
-                },
-                events: BindingKey {
-                    buffer_id: consume_event_buffers.events.buffer.id(),
-                    offset: consume_event_buffers.events.offset,
-                    size: consume_event_buffers.events.size,
-                },
-            })
-        } else {
-            None
-        };
-
-        let make_key = |group_index: u32| {
-            let is_cloner = effect_batches.group_batches[group_index as usize]
-                .initializer
-                .is_cloner();
-            let dst_src_indices = if is_cloner {
-                let trail_indices = &trail_dispatch_buffer_indices[&group_index];
-                [trail_indices.dest.0, trail_indices.src.0]
-            } else {
-                let idx = first_render_group_dispatch_buffer_index.0;
-                [idx, idx]
-            };
-
-            let key = InitRenderIndirectBindGroupKey {
-                buffer_index: effect_batches.buffer_index,
-                render_effect_buffer: render_effect_buffer.id(),
-                render_effect_offset: gpu_limits
-                    .render_effect_indirect_offset(render_effect_dispatch_buffer_index.0)
-                    as u32,
-                render_group_buffer: render_group_buffer.id(),
-                render_group_offset_dst: gpu_limits.render_group_indirect_offset(dst_src_indices[0])
-                    as u32,
-                render_group_offset_src: gpu_limits.render_group_indirect_offset(dst_src_indices[1])
-                    as u32,
-                consume_event_key,
-            };
-
-            (is_cloner, key)
-        };
-
-        let make_bind_group = |group_index: u32,
-                               is_cloner: bool,
-                               key: &InitRenderIndirectBindGroupKey| {
-            let mut entries = Vec::with_capacity(5);
+        let make_entry = || {
+            let mut entries = Vec::with_capacity(3);
             entries.push(
-                // @group(3) @binding(0) var<storage, read_write> render_effect_indirect :
-                // RenderEffectMetadata;
+                // @group(3) @binding(0) var<storage, read_write> effect_metadata : EffectMetadata;
                 BindGroupEntry {
                     binding: 0,
                     resource: BindingResource::Buffer(BufferBinding {
-                        buffer: render_effect_buffer,
-                        offset: key.render_effect_offset as u64,
-                        size: Some(gpu_limits.render_effect_indirect_size()),
+                        buffer: effect_metadata_buffer,
+                        offset: key.effect_metadata_offset as u64,
+                        size: Some(gpu_limits.effect_metadata_size()),
                     }),
                 },
             );
-            entries.push(
-                // @group(3) @binding(1) var<storage, read_write> dest_render_group_indirect:
-                // RenderGroupIndirect;
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::Buffer(BufferBinding {
-                        buffer: render_group_buffer,
-                        offset: key.render_group_offset_dst as u64,
-                        size: Some(gpu_limits.render_group_indirect_size()),
-                    }),
-                },
-            );
-            if is_cloner {
-                entries.push(
-                    // @group(3) @binding(2) var<storage, read_write> src_render_group_indirect:
-                    // RenderGroupIndirect;
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: render_group_buffer,
-                            offset: key.render_group_offset_src as u64,
-                            size: Some(gpu_limits.render_group_indirect_size()),
-                        }),
-                    },
-                );
-            }
             if let Some(consume_event_buffers) = consume_event_buffers.as_ref() {
                 entries.push(
-                    // @group(3) @binding(3) var<storage, read_write> child_info :
-                    // array<ChildInfo>;
+                    // @group(3) @binding(1) var<storage, read> child_info_buffer : ChildInfoBuffer;
                     BindGroupEntry {
-                        binding: 3,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: &consume_event_buffers.child_infos.buffer,
-                            offset: consume_event_buffers.child_infos.offset as u64,
-                            size: Some(consume_event_buffers.child_infos.size.into()),
-                        }),
+                        binding: 1,
+                        resource: BindingResource::Buffer(consume_event_buffers.child_infos.into()),
                     },
                 );
                 entries.push(
-                    // @group(3) @binding(4) var<storage, read> event_buffer : EventBuffer;
+                    // @group(3) @binding(2) var<storage, read> event_buffer : EventBuffer;
                     BindGroupEntry {
-                        binding: 4,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: &consume_event_buffers.events.buffer,
-                            offset: consume_event_buffers.events.offset as u64,
-                            size: Some(consume_event_buffers.events.size.into()),
-                        }),
+                        binding: 2,
+                        resource: BindingResource::Buffer(consume_event_buffers.events.into()),
                     },
                 );
             }
 
-            let layout = if is_cloner {
-                clone_layout
-            } else {
-                spawn_layout
-            };
-
             let bind_group = render_device.create_bind_group(
-                "hanabi:bind_group_init_render_group_dispatch",
+                "hanabi:bind_group:init:metadata@3",
                 layout,
                 &entries[..],
             );
 
             trace!(
-                "Created new init render indirect bind group for group #{} buffer index {}: render_effect={} dest_group={} src_group={}",
-                group_index,
-                effect_batches.buffer_index,
-                render_effect_dispatch_buffer_index.0,
-                key.render_group_offset_dst,
-                key.render_group_offset_src,
-            );
+                    "Created new metadata@3 bind group for init pass and buffer index {}: effect_metadata={}",
+                    effect_batch.buffer_index,
+                    effect_metadata_buffer_table_id.0,
+                );
 
             bind_group
         };
 
-        let mut entry = self
-            .init_render_indirect_bind_groups
-            .entry(effect_batches.buffer_index);
-        let vec = if let Entry::Occupied(occ) = &mut entry {
-            let vec = occ.get_mut();
-            if vec.len() != effect_batches.group_batches.len() {
-                // Size differs; re-create all entries
-                vec.clear();
-                Some(vec)
-            } else {
-                // Same size; only re-create needed entries
-                for (group_index, entry) in vec.iter_mut().enumerate() {
-                    let (is_cloner, key) = make_key(group_index as u32);
-                    if entry.key != key {
-                        entry.bind_group = make_bind_group(group_index as u32, is_cloner, &key);
-                        entry.key = key;
-                    }
+        Ok(&self
+            .init_metadata_bind_groups
+            .entry(effect_batch.buffer_index)
+            .and_modify(|cbg| {
+                if cbg.key != key {
+                    cbg.key = key.clone();
+                    cbg.bind_group = make_entry();
                 }
-                None
-            }
-        } else {
-            Some(entry.or_default())
-        };
-        if let Some(vec) = vec {
-            // Re-create all entries
-            debug_assert!(vec.is_empty());
-            for group_index in 0..effect_batches.group_batches.len() {
-                let (is_cloner, key) = make_key(group_index as u32);
-                let bind_group = make_bind_group(group_index as u32, is_cloner, &key);
-                vec.push(CachedBindGroup { key, bind_group });
-            }
-        }
-
-        Ok(())
+            })
+            .or_insert(CachedBindGroup {
+                key: key.clone(),
+                bind_group: make_entry(),
+            })
+            .bind_group)
     }
 
-    pub(self) fn get_or_create_update_render_indirect(
+    /// Retrieve the metadata@3 bind group for the update pass, creating it if needed.
+    pub(self) fn get_or_create_update_metadata(
         &mut self,
-        effect_batches: &EffectBatch,
+        effect_batch: &EffectBatch,
         gpu_limits: &GpuLimits,
         render_device: &RenderDevice,
         layout: &BindGroupLayout,
         render_effect_buffer: &Buffer,
-        render_group_buffer: &Buffer,
+        child_infos: BufferSlice,
         event_buffers: Vec<BufferSlice>,
-    ) -> Result<(), ()> {
+    ) -> Result<&BindGroup, ()> {
         let DispatchBufferIndices {
-            render_effect_metadata_buffer_table_id: render_effect_dispatch_buffer_index,
-            render_group_dispatch_indices,
+            effect_metadata_buffer_table_id,
             ..
-        } = &effect_batches.dispatch_buffer_indices;
-        let RenderGroupDispatchIndices::Allocated {
-            first_render_group_dispatch_buffer_index,
-            ..
-        } = render_group_dispatch_indices
-        else {
-            return Err(());
-        };
+        } = &effect_batch.dispatch_buffer_indices;
 
-        let event_buffers_keys = event_buffers
-            .iter()
-            .map(|slice| BindingKey {
-                buffer_id: slice.buffer.id(),
-                offset: slice.offset,
-                size: slice.size,
-            })
-            .collect::<Vec<_>>();
+        let event_buffers_keys = event_buffers.iter().map(Into::into).collect::<Vec<_>>();
 
-        let key = UpdateRenderIndirectBindGroupKey {
-            buffer_index: effect_batches.buffer_index,
-            render_effect_buffer: render_effect_buffer.id(),
-            render_group_buffer: render_group_buffer.id(),
-            render_effect_offset: gpu_limits
-                .render_effect_indirect_offset(render_effect_dispatch_buffer_index.0)
+        let key = UpdateMetadataBindGroupKey {
+            buffer_index: effect_batch.buffer_index,
+            effect_metadata_buffer: render_effect_buffer.id(),
+            effect_metadata_offset: gpu_limits
+                .effect_metadata_offset(effect_metadata_buffer_table_id.0)
                 as u32,
-            render_group_offset: gpu_limits
-                .render_group_indirect_offset(first_render_group_dispatch_buffer_index.0)
-                as u32,
-            event_buffers: event_buffers_keys,
+            child_infos: child_infos.into(),
+            event_buffers_keys,
         };
 
         let make_entry = || {
-            let storage_alignment = gpu_limits.storage_buffer_align.get();
-            let render_effect_indirect_size =
-                GpuRenderEffectMetadata::aligned_size(storage_alignment);
-            let total_render_group_indirect_size = NonZeroU64::new(
-                GpuRenderGroupIndirect::aligned_size(storage_alignment).get()
-                    * effect_batches.group_batches.len() as u64,
-            )
-            .unwrap();
-
             let mut entries = Vec::with_capacity(2 + event_buffers.len());
-            // @group(3) @binding(0) var<storage, read_write> render_effect_indirect :
-            // RenderEffectMetadata;
+            // @group(3) @binding(0) var<storage, read_write> effect_metadata :
+            // EffectMetadata;
             entries.push(BindGroupEntry {
                 binding: 0,
                 resource: BindingResource::Buffer(BufferBinding {
                     buffer: render_effect_buffer,
-                    offset: key.render_effect_offset as u64,
-                    size: Some(render_effect_indirect_size),
-                }),
-            });
-            // @group(3) @binding(1) var<storage, read_write> render_group_indirect :
-            // array<RenderGroupIndirect>;
-            entries.push(BindGroupEntry {
-                binding: 1,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer: render_group_buffer,
-                    offset: key.render_group_offset as u64,
-                    size: Some(total_render_group_indirect_size),
+                    offset: key.effect_metadata_offset as u64,
+                    size: Some(gpu_limits.effect_metadata_aligned_size.into()),
                 }),
             });
             if !event_buffers.is_empty() {
-                // @group(3) @binding(2) var<storage, read_write> child_infos : array<ChildInfo,
+                // @group(3) @binding(1) var<storage, read_write> child_infos : array<ChildInfo,
                 // N>;
                 entries.push(BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::Buffer(BufferBinding {
-                        buffer: render_group_buffer,
-                        offset: slice.offset as u64,
-                        size: Some(slice.size.into()),
-                    }),
+                    binding: 1,
+                    resource: BindingResource::Buffer(child_infos.into()),
                 });
 
                 for (index, slice) in event_buffers.iter().enumerate() {
-                    // @group(3) @binding(3+N) var<storage, read_write> event_buffer_N :
+                    // @group(3) @binding(2+N) var<storage, read_write> event_buffer_N :
                     // EventBuffer;
                     entries.push(BindGroupEntry {
-                        binding: 3 + index as u32,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: &slice.buffer,
-                            offset: slice.offset as u64,
-                            size: Some(slice.size.into()),
-                        }),
+                        binding: 2 + index as u32,
+                        resource: BindingResource::Buffer(slice.into()),
                     });
                 }
             }
 
             let bind_group = render_device.create_bind_group(
-                "hanabi:bind_group_update_render_group_dispatch",
+                "hanabi:bind_group:update:metadata@3",
                 layout,
                 &entries[..],
             );
 
             trace!(
-                "Created new update render indirect bind group for buffer index {}: \
-                    render_effect={} \
-                    render_group={} group_count={}",
-                effect_batches.buffer_index,
-                render_effect_dispatch_buffer_index.0,
-                first_render_group_dispatch_buffer_index.0,
-                effect_batches.group_batches.len()
+                "Created new metadata@3 bind group for update pass and buffer index {}: effect_metadata={}",
+                effect_batch.buffer_index,
+                effect_metadata_buffer_table_id.0,
             );
 
             bind_group
         };
 
-        let entry = self
-            .update_render_indirect_bind_groups
-            .entry(effect_batches.buffer_index);
-        if let Entry::Occupied(occ) = &entry {
-            if occ.get().key != key {
-                entry.and_modify(|e| {
-                    e.key = key;
-                    e.bind_group = make_entry();
-                });
-            }
-        } else {
-            entry.or_insert(CachedBindGroup {
-                key,
+        Ok(&self
+            .update_metadata_bind_groups
+            .entry(effect_batch.buffer_index)
+            .and_modify(|cbg| {
+                if cbg.key != key {
+                    cbg.key = key.clone();
+                    cbg.bind_group = make_entry();
+                }
+            })
+            .or_insert(CachedBindGroup {
+                key: key.clone(),
                 bind_group: make_entry(),
-            });
-        }
-
-        Ok(())
+            })
+            .bind_group)
     }
 
     pub fn init_fill_dispatch(&self, event_buffer_index: u32) -> Option<&BindGroup> {
@@ -4569,7 +4182,7 @@ fn emit_sorted_draw<T, F>(
     #[cfg(all(feature = "2d", feature = "3d"))] pipeline_mode: PipelineMode,
 ) where
     T: SortedPhaseItem,
-    F: Fn(CachedRenderPipelineId, (Entity, MainEntity), &EffectDrawBatch, u32, &ExtractedView) -> T,
+    F: Fn(CachedRenderPipelineId, (Entity, MainEntity), &EffectDrawBatch, &ExtractedView) -> T,
 {
     trace!("emit_sorted_draw() {} views", views.iter().len());
 
@@ -4603,14 +4216,13 @@ fn emit_sorted_draw<T, F>(
             let _span_draw = bevy::utils::tracing::info_span!("draw_batch").entered();
 
             trace!(
-                "Process draw batch: draw_entity={:?} group_index={} batches_entity={:?}",
+                "Process draw batch: draw_entity={:?} batches_entity={:?}",
                 draw_entity,
-                draw_batch.group_index,
                 draw_batch.batches_entity,
             );
 
             // Get the EffectBatches this EffectDrawBatch is part of.
-            let Ok((batches_entity, batches)) = effect_batches.get(draw_batch.batches_entity)
+            let Ok((batches_entity, effect_batch)) = effect_batches.get(draw_batch.batches_entity)
             else {
                 continue;
             };
@@ -4618,13 +4230,13 @@ fn emit_sorted_draw<T, F>(
             trace!(
                 "-> EffectBaches: entity={:?} buffer_index={} spawner_base={} layout_flags={:?}",
                 batches_entity,
-                batches.buffer_index,
-                batches.spawner_base,
-                batches.layout_flags,
+                effect_batch.buffer_index,
+                effect_batch.spawner_base,
+                effect_batch.layout_flags,
             );
 
             // AlphaMask is a binned draw, so no sorted draw can possibly use it
-            if batches
+            if effect_batch
                 .layout_flags
                 .intersects(LayoutFlags::USE_ALPHA_MASK | LayoutFlags::OPAQUE)
             {
@@ -4640,7 +4252,7 @@ fn emit_sorted_draw<T, F>(
             // TODO - Profile to confirm.
             #[cfg(feature = "trace")]
             let _span_check_vis = bevy::utils::tracing::info_span!("check_visibility").entered();
-            let has_visible_entity = batches
+            let has_visible_entity = effect_batch
                 .entities
                 .iter()
                 .any(|index| view_entities.contains(*index as usize));
@@ -4652,24 +4264,26 @@ fn emit_sorted_draw<T, F>(
             _span_check_vis.exit();
 
             // Create and cache the bind group layout for this texture layout
-            render_pipeline.cache_material(&batches.texture_layout);
+            render_pipeline.cache_material(&effect_batch.texture_layout);
 
             // FIXME - We draw the entire batch, but part of it may not be visible in this
             // view! We should re-batch for the current view specifically!
 
-            let local_space_simulation = batches
+            let local_space_simulation = effect_batch
                 .layout_flags
                 .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
-            let alpha_mask = ParticleRenderAlphaMaskPipelineKey::from(batches.layout_flags);
-            let flipbook = batches.layout_flags.contains(LayoutFlags::FLIPBOOK);
-            let needs_uv = batches.layout_flags.contains(LayoutFlags::NEEDS_UV);
-            let needs_normal = batches.layout_flags.contains(LayoutFlags::NEEDS_NORMAL);
-            let ribbons = batches.layout_flags.contains(LayoutFlags::RIBBONS);
-            let image_count = batches.texture_layout.layout.len() as u8;
+            let alpha_mask = ParticleRenderAlphaMaskPipelineKey::from(effect_batch.layout_flags);
+            let flipbook = effect_batch.layout_flags.contains(LayoutFlags::FLIPBOOK);
+            let needs_uv = effect_batch.layout_flags.contains(LayoutFlags::NEEDS_UV);
+            let needs_normal = effect_batch
+                .layout_flags
+                .contains(LayoutFlags::NEEDS_NORMAL);
+            let ribbons = effect_batch.layout_flags.contains(LayoutFlags::RIBBONS);
+            let image_count = effect_batch.texture_layout.layout.len() as u8;
 
             // FIXME - Maybe it's better to copy the mesh layout into the batch, instead of
             // re-querying here...?
-            let Some(render_mesh) = render_meshes.get(batches.mesh) else {
+            let Some(render_mesh) = render_meshes.get(effect_batch.mesh) else {
                 trace!("Batch has no render mesh, skipped.");
                 continue;
             };
@@ -4677,8 +4291,8 @@ fn emit_sorted_draw<T, F>(
 
             // Specialize the render pipeline based on the effect batch
             trace!(
-                "Specializing render pipeline: render_shaders={:?} image_count={} alpha_mask={:?} flipbook={:?} hdr={}",
-                batches.group_batches.iter().map(|gb| &gb.render_shader),
+                "Specializing render pipeline: render_shader={:?} image_count={} alpha_mask={:?} flipbook={:?} hdr={}",
+                effect_batch.render_shader,
                 image_count,
                 alpha_mask,
                 flipbook,
@@ -4686,15 +4300,9 @@ fn emit_sorted_draw<T, F>(
             );
 
             // Add a draw pass for the effect batch
-            trace!(
-                "Emitting individual draws for batches and groups: group_batches.len()={}",
-                batches.group_batches.len()
-            );
-            let render_shader_source =
-                &batches.group_batches[draw_batch.group_index as usize].render_shader;
-            trace!("Emit for group index #{}", draw_batch.group_index);
+            trace!("Emitting individual draw for batch");
 
-            let alpha_mode = batches.alpha_mode;
+            let alpha_mode = effect_batch.alpha_mode;
 
             #[cfg(feature = "trace")]
             let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
@@ -4702,10 +4310,10 @@ fn emit_sorted_draw<T, F>(
                 pipeline_cache,
                 render_pipeline,
                 ParticleRenderPipelineKey {
-                    shader: render_shader_source.clone(),
+                    shader: effect_batch.render_shader.clone(),
                     mesh_layout: Some(mesh_layout),
-                    particle_layout: batches.particle_layout.clone(),
-                    texture_layout: batches.texture_layout.clone(),
+                    particle_layout: effect_batch.particle_layout.clone(),
+                    texture_layout: effect_batch.texture_layout.clone(),
                     local_space_simulation,
                     alpha_mask,
                     alpha_mode,
@@ -4722,25 +4330,19 @@ fn emit_sorted_draw<T, F>(
             #[cfg(feature = "trace")]
             _span_specialize.exit();
 
-            trace!(
-                "+ Render pipeline specialized: id={:?} -> group_index={}",
-                render_pipeline_id,
-                draw_batch.group_index
-            );
+            trace!("+ Render pipeline specialized: id={:?}", render_pipeline_id,);
             trace!(
                 "+ Add Transparent for batch on draw_entity {:?}: buffer_index={} \
-                group_index={} spawner_base={} handle={:?}",
+                spawner_base={} handle={:?}",
                 draw_entity,
-                batches.buffer_index,
-                draw_batch.group_index,
-                batches.spawner_base,
-                batches.handle
+                effect_batch.buffer_index,
+                effect_batch.spawner_base,
+                effect_batch.handle
             );
             render_phase.add(make_phase_item(
                 render_pipeline_id,
                 (draw_entity, MainEntity::from(Entity::PLACEHOLDER)),
                 draw_batch,
-                draw_batch.group_index,
                 view,
             ));
         }
@@ -4763,7 +4365,7 @@ fn emit_binned_draw<T, F>(
     alpha_mask: ParticleRenderAlphaMaskPipelineKey,
 ) where
     T: BinnedPhaseItem,
-    F: Fn(CachedRenderPipelineId, &EffectDrawBatch, u32, &ExtractedView) -> T::BinKey,
+    F: Fn(CachedRenderPipelineId, &EffectDrawBatch, &ExtractedView) -> T::BinKey,
 {
     use bevy::render::render_phase::BinnedRenderPhaseType;
 
@@ -4796,30 +4398,28 @@ fn emit_binned_draw<T, F>(
             let _span_draw = bevy::utils::tracing::info_span!("draw_batch").entered();
 
             trace!(
-                "Process draw batch: draw_entity={:?} group_index={} batches_entity={:?}",
+                "Process draw batch: draw_entity={:?} batches_entity={:?}",
                 draw_entity,
-                draw_batch.group_index,
                 draw_batch.batches_entity,
             );
 
             // Get the EffectBatches this EffectDrawBatch is part of.
-            let Ok((batches_entity, batches)) = effect_batches.get(draw_batch.batches_entity)
-            else {
+            let Ok((batches_entity, batch)) = effect_batches.get(draw_batch.batches_entity) else {
                 continue;
             };
 
             trace!(
                 "-> EffectBaches: entity={:?} buffer_index={} spawner_base={} layout_flags={:?}",
                 batches_entity,
-                batches.buffer_index,
-                batches.spawner_base,
-                batches.layout_flags,
+                batch.buffer_index,
+                batch.spawner_base,
+                batch.layout_flags,
             );
 
-            if ParticleRenderAlphaMaskPipelineKey::from(batches.layout_flags) != alpha_mask {
+            if ParticleRenderAlphaMaskPipelineKey::from(batch.layout_flags) != alpha_mask {
                 trace!(
                     "Mismatching alpha mask pipeline key (batches={:?}, expected={:?}). Skipped.",
-                    batches.layout_flags,
+                    batch.layout_flags,
                     alpha_mask
                 );
                 continue;
@@ -4833,7 +4433,7 @@ fn emit_binned_draw<T, F>(
             // TODO - Profile to confirm.
             #[cfg(feature = "trace")]
             let _span_check_vis = bevy::utils::tracing::info_span!("check_visibility").entered();
-            let has_visible_entity = batches
+            let has_visible_entity = batch
                 .entities
                 .iter()
                 .any(|index| view_entities.contains(*index as usize));
@@ -4845,26 +4445,26 @@ fn emit_binned_draw<T, F>(
             _span_check_vis.exit();
 
             // Create and cache the bind group layout for this texture layout
-            render_pipeline.cache_material(&batches.texture_layout);
+            render_pipeline.cache_material(&batch.texture_layout);
 
             // FIXME - We draw the entire batch, but part of it may not be visible in this
             // view! We should re-batch for the current view specifically!
 
-            let local_space_simulation = batches
+            let local_space_simulation = batch
                 .layout_flags
                 .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
-            let alpha_mask = ParticleRenderAlphaMaskPipelineKey::from(batches.layout_flags);
-            let flipbook = batches.layout_flags.contains(LayoutFlags::FLIPBOOK);
-            let needs_uv = batches.layout_flags.contains(LayoutFlags::NEEDS_UV);
-            let needs_normal = batches.layout_flags.contains(LayoutFlags::NEEDS_NORMAL);
-            let ribbons = batches.layout_flags.contains(LayoutFlags::RIBBONS);
-            let image_count = batches.texture_layout.layout.len() as u8;
-            let render_mesh = render_meshes.get(batches.mesh);
+            let alpha_mask = ParticleRenderAlphaMaskPipelineKey::from(batch.layout_flags);
+            let flipbook = batch.layout_flags.contains(LayoutFlags::FLIPBOOK);
+            let needs_uv = batch.layout_flags.contains(LayoutFlags::NEEDS_UV);
+            let needs_normal = batch.layout_flags.contains(LayoutFlags::NEEDS_NORMAL);
+            let ribbons = batch.layout_flags.contains(LayoutFlags::RIBBONS);
+            let image_count = batch.texture_layout.layout.len() as u8;
+            let render_mesh = render_meshes.get(batch.mesh);
 
             // Specialize the render pipeline based on the effect batch
             trace!(
                 "Specializing render pipeline: render_shaders={:?} image_count={} alpha_mask={:?} flipbook={:?} hdr={}",
-                batches.group_batches.iter().map(|gb| &gb.render_shader),
+                batch.render_shader,
                 image_count,
                 alpha_mask,
                 flipbook,
@@ -4872,15 +4472,9 @@ fn emit_binned_draw<T, F>(
             );
 
             // Add a draw pass for the effect batch
-            trace!(
-                "Emitting individual draws for batches and groups: group_batches.len()={}",
-                batches.group_batches.len()
-            );
-            let render_shader_source =
-                &batches.group_batches[draw_batch.group_index as usize].render_shader;
-            trace!("Emit for group index #{}", draw_batch.group_index);
+            trace!("Emitting individual draw for batch");
 
-            let alpha_mode = batches.alpha_mode;
+            let alpha_mode = batch.alpha_mode;
 
             let Some(mesh_layout) = render_mesh.map(|gpu_mesh| gpu_mesh.layout.clone()) else {
                 trace!("Missing mesh vertex buffer layout. Skipped.");
@@ -4893,10 +4487,10 @@ fn emit_binned_draw<T, F>(
                 pipeline_cache,
                 render_pipeline,
                 ParticleRenderPipelineKey {
-                    shader: render_shader_source.clone(),
+                    shader: batch.render_shader.clone(),
                     mesh_layout: Some(mesh_layout),
-                    particle_layout: batches.particle_layout.clone(),
-                    texture_layout: batches.texture_layout.clone(),
+                    particle_layout: batch.particle_layout.clone(),
+                    texture_layout: batch.texture_layout.clone(),
                     local_space_simulation,
                     alpha_mask,
                     alpha_mode,
@@ -4913,22 +4507,17 @@ fn emit_binned_draw<T, F>(
             #[cfg(feature = "trace")]
             _span_specialize.exit();
 
-            trace!(
-                "+ Render pipeline specialized: id={:?} -> group_index={}",
-                render_pipeline_id,
-                draw_batch.group_index
-            );
+            trace!("+ Render pipeline specialized: id={:?}", render_pipeline_id,);
             trace!(
                 "+ Add Transparent for batch on draw_entity {:?}: buffer_index={} \
-                group_index={} spawner_base={} handle={:?}",
+                spawner_base={} handle={:?}",
                 draw_entity,
-                batches.buffer_index,
-                draw_batch.group_index,
-                batches.spawner_base,
-                batches.handle
+                batch.buffer_index,
+                batch.spawner_base,
+                batch.handle
             );
             render_phase.add(
-                make_bin_key(render_pipeline_id, draw_batch, draw_batch.group_index, view),
+                make_bin_key(render_pipeline_id, draw_batch, view),
                 (draw_entity, MainEntity::from(Entity::PLACEHOLDER)),
                 BinnedRenderPhaseType::NonMesh,
             );
@@ -5012,11 +4601,11 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &render_meshes,
                 &pipeline_cache,
-                |id, entity, draw_batch, _group, _view| Transparent2d {
-                    draw_function: draw_effects_function_2d,
-                    pipeline: id,
-                    entity,
+                |id, entity, draw_batch, _view| Transparent2d {
                     sort_key: draw_batch.z_sort_key_2d,
+                    entity,
+                    pipeline: id,
+                    draw_function: draw_effects_function_2d,
                     batch_range: 0..1,
                     extra_index: PhaseItemExtraIndex::NONE,
                 },
@@ -5052,7 +4641,7 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &render_meshes,
                 &pipeline_cache,
-                |id, entity, batch, _group, view| Transparent3d {
+                |id, entity, batch, view| Transparent3d {
                     draw_function: draw_effects_function_3d,
                     pipeline: id,
                     entity,
@@ -5090,7 +4679,7 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 &render_meshes,
-                |id, _batch, _group, _view| OpaqueNoLightmap3dBinKey {
+                |id, _batch, _view| OpaqueNoLightmap3dBinKey {
                     pipeline: id,
                     draw_function: draw_effects_function_alpha_mask,
                     asset_id: AssetId::<Image>::default().untyped(),
@@ -5131,7 +4720,7 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 &render_meshes,
-                |id, _batch, _group, _view| OpaqueNoLightmap3dBinKey {
+                |id, _batch, _view| OpaqueNoLightmap3dBinKey {
                     pipeline: id,
                     draw_function: draw_effects_function_opaque,
                     asset_id: AssetId::<Image>::default().untyped(),
@@ -5158,7 +4747,7 @@ pub(crate) fn queue_effects(
 /// access to the current camera view.
 pub(crate) fn prepare_gpu_resources(
     mut effects_meta: ResMut<EffectsMeta>,
-    mut effect_cache: ResMut<EffectCache>,
+    //mut effect_cache: ResMut<EffectCache>,
     mut event_cache: ResMut<EventCache>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
     render_device: Res<RenderDevice>,
@@ -5191,7 +4780,8 @@ pub(crate) fn prepare_gpu_resources(
     ));
 
     // Re-/allocate any GPU buffer needed by the effect cache
-    effect_cache.prepare_buffers(&render_device, &render_queue, &mut effect_bind_groups);
+    //effect_cache.prepare_buffers(&render_device, &render_queue, &mut
+    // effect_bind_groups);
     event_cache.prepare_buffers(&render_device, &render_queue, &mut effect_bind_groups);
 }
 
@@ -5226,12 +4816,26 @@ pub(crate) fn prepare_bind_groups(
         #[cfg(feature = "trace")]
         let _span = bevy::utils::tracing::info_span!("shared_bind_groups").entered();
 
-        // Create the bind group for the global simulation parameters
+        // Make a copy of the buffer IDs before borrowing effects_meta mutably in the
+        // loop below. Also allows earlying out before doing any work in case some
+        // buffer is missing.
+        let Some(dispatch_indirect_buffer) = effects_meta
+            .update_dispatch_indirect_buffer
+            .buffer()
+            .cloned()
+        else {
+            return;
+        };
+        let Some(spawner_buffer) = effects_meta.spawner_buffer.buffer().cloned() else {
+            return;
+        };
+
+        // Create the sim_params@0 bind group for the global simulation parameters,
+        // which is shared by the init and update passes.
         if effects_meta.sim_params_bind_group.is_none() {
             effects_meta.sim_params_bind_group = Some(render_device.create_bind_group(
-                "hanabi:bind_group_sim_params",
-                &update_pipeline.sim_params_layout, /* FIXME - Shared with vfx_update, is
-                                                     * that OK? */
+                "hanabi:bind_group:sim_params@0",
+                &update_pipeline.sim_params_layout, // FIXME - Shared with init
                 &[BindGroupEntry {
                     binding: 0,
                     resource: effects_meta.sim_params_uniforms.binding().unwrap(),
@@ -5239,111 +4843,43 @@ pub(crate) fn prepare_bind_groups(
             ));
         }
 
-        // Create the bind group for the spawner parameters in the no-property variant.
-        // For the other variants with properties, we need the binding size, so we'll
-        // lazily create them below when looping on effect instances.
-        trace!(
-            "Spawner buffer bind group: size={} aligned_size={}",
-            GpuSpawnerParams::min_size().get(),
-            effects_meta.spawner_buffer.aligned_size()
-        );
-        assert!(
-            effects_meta.spawner_buffer.aligned_size()
-                >= GpuSpawnerParams::min_size().get() as usize
-        );
-        if effect_bind_groups.no_property_bind_group.is_none() {
-            // If all effects use properties, there won't be a layout for the no-property
-            // variant. This is fine, we don't need it.
-            if let Some(layout) = property_cache.bind_group_layout(None) {
-                trace!("Creating new bind group for no-property variant.");
-                effect_bind_groups.no_property_bind_group = Some(
-                    render_device.create_bind_group(
-                        "hanabi:bind_group:no_property{}",
-                        layout,
-                        &[BindGroupEntry {
-                            binding: 0,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: &spawner_buffer,
-                                offset: 0,
-                                size: Some(
-                                    NonZeroU64::new(
-                                        effects_meta.spawner_buffer.aligned_size() as u64
-                                    )
-                                    .unwrap(),
-                                ),
-                            }),
-                        }],
-                    ),
-                );
-            }
-        }
-
-        // Create the bind group for the indirect dispatch of all effects
+        // Create the @0 bind group for the indirect dispatch of all effects at once
         effects_meta.dr_indirect_bind_group = match (
-            effects_meta.render_effect_dispatch_buffer.buffer(),
-            effects_meta.render_group_dispatch_buffer.buffer(),
-            effects_meta.dispatch_indirect_buffer.buffer(),
-            effects_meta.particle_group_buffer.buffer(),
+            effects_meta.effect_metadata_buffer.buffer(),
+            effects_meta.update_dispatch_indirect_buffer.buffer(),
         ) {
-            (
-                Some(render_effect_dispatch_buffer),
-                Some(render_group_dispatch_buffer),
-                Some(dispatch_indirect_buffer),
-                Some(particle_group_buffer),
-            ) => {
+            (Some(effect_metadata_buffer), Some(dispatch_indirect_buffer)) => {
                 // Base bind group for indirect pass
                 Some(render_device.create_bind_group(
-                    "hanabi:bind_group_vfx_indirect_dr_indirect",
+                    "hanabi:bind_group:vfx_indirect:dr_indirect@0",
                     &dispatch_indirect_pipeline.dispatch_indirect_layout,
                     &[
+                        // @group(1) @binding(0) var<storage, read_write> effect_metadata_buffer : array<u32>;
                         BindGroupEntry {
                             binding: 0,
                             resource: BindingResource::Buffer(BufferBinding {
-                                buffer: render_effect_dispatch_buffer,
+                                buffer: effect_metadata_buffer,
                                 offset: 0,
-                                size: None, //NonZeroU64::new(256), // Some(GpuRenderIndirect::min_size()),
+                                size: None, //NonZeroU64::new(256), // Some(GpuEffectMetadata::min_size()),
                             }),
                         },
+                        // @group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer : array<u32>;
                         BindGroupEntry {
                             binding: 1,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: render_group_dispatch_buffer,
-                                offset: 0,
-                                size: None, //NonZeroU64::new(256), // Some(GpuRenderIndirect::min_size()),
-                            }),
-                        },
-                        BindGroupEntry {
-                            binding: 2,
                             resource: BindingResource::Buffer(BufferBinding {
                                 buffer: dispatch_indirect_buffer,
                                 offset: 0,
                                 size: None, //NonZeroU64::new(256), // Some(GpuDispatchIndirect::min_size()),
                             }),
                         },
-                        BindGroupEntry {
-                            binding: 3,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: particle_group_buffer,
-                                offset: 0,
-                                size: None,
-                            }),
-                        },
                     ],
                 ))
             }
+
+            // Some buffer is not yet available, can't create the bind group
             _ => None,
         };
     }
-
-    // Make a copy of the buffer ID before borrowing effects_meta mutably in the
-    // loop below
-    let Some(dispatch_indirect_buffer) = effects_meta.dispatch_indirect_buffer.buffer().cloned()
-    else {
-        return;
-    };
-    let Some(spawner_buffer) = effects_meta.spawner_buffer.buffer().cloned() else {
-        return;
-    };
 
     // Create the per-buffer bind groups
     trace!("Create per-buffer bind groups...");
@@ -5414,7 +4950,7 @@ pub(crate) fn prepare_bind_groups(
                     effect_buffer.layout_flags()
                 );
                 let render = render_device.create_bind_group(
-                    &format!("hanabi:bind_group:render_vfx{buffer_index}_particles")[..],
+                    &format!("hanabi:bind_group:particles@1:render_vfx{buffer_index}")[..],
                     effect_buffer.render_particles_buffer_layout(),
                     &entries,
                 );
@@ -5441,7 +4977,7 @@ pub(crate) fn prepare_bind_groups(
             .entry(event_buffer_index);
         if matches!(entry, Entry::Vacant(_)) {
             trace!(
-                "Event buffer #{} missing a bind group for init fill args. Trying to create now...",
+                "Event buffer #{} missing a bind group @0 for init fill args. Trying to create now...",
                 event_buffer_index
             );
 
@@ -5452,20 +4988,21 @@ pub(crate) fn prepare_bind_groups(
                 continue;
             };
 
-            let child_id = event_buffer.effect_cache_id();
-            let Some(source_binding) = effect_cache.get_child_info_max_binding(child_id) else {
-                warn!("Event buffer #{event_buffer_index} for effect #{child_id:?} has {args_count} operations pending, but the effect cache has no get_child_info_max_binding for the source buffer. Discarding event operations for this frame. This will result in particles not spawning.");
+            let Some(source_binding_resource) = event_cache.child_infos().max_binding() else {
+                warn!("Event buffer #{event_buffer_index} has {args_count} operations pending, but the effect cache has no child_infos binding for the source buffer. Discarding event operations for this frame. This will result in particles not spawning.");
                 continue;
             };
 
-            let Some(target_binding) = effect_cache.init_indirect_dispatch_buffer_binding() else {
-                warn!("Event buffer #{event_buffer_index} for effect #{child_id:?} has {args_count} operations pending, but the effect cache has no init_indirect_dispatch_buffer_binding for the target buffer. Discarding event operations for this frame. This will result in particles not spawning.");
+            let Some(target_binding_resource) =
+                event_cache.init_indirect_dispatch_binding_resource()
+            else {
+                warn!("Event buffer #{event_buffer_index} has {args_count} operations pending, but the effect cache has no init_indirect_dispatch_binding_resource for the target buffer. Discarding event operations for this frame. This will result in particles not spawning.");
                 continue;
             };
 
             // Actually create the new bind group entry
             entry.insert(render_device.create_bind_group(
-                &format!("hanabi:bind_group:event{event_buffer_index}_init_fill_dispatch")[..],
+                &format!("hanabi:bind_group:init_fill_dispatch@0:event{event_buffer_index}")[..],
                 &utils_pipeline.bind_group_layout,
                 &[
                     // @group(0) @binding(0) var<uniform> args : BufferOperationArgs
@@ -5476,13 +5013,13 @@ pub(crate) fn prepare_bind_groups(
                     // @group(0) @binding(1) var<storage, read> src_buffer : array<u32>
                     BindGroupEntry {
                         binding: 1,
-                        resource: BindingResource::Buffer(source_binding),
+                        resource: source_binding_resource,
                     },
                     // @group(0) @binding(2) var<storage, read_write> dst_buffer :
                     // array<u32>
                     BindGroupEntry {
                         binding: 2,
-                        resource: target_binding,
+                        resource: target_binding_resource,
                     },
                 ],
             ));
@@ -5496,12 +5033,12 @@ pub(crate) fn prepare_bind_groups(
     // Create the per-effect bind groups
     let spawner_buffer_binding_size =
         NonZeroU64::new(effects_meta.spawner_buffer.aligned_size() as u64).unwrap();
-    for (entity, effect_batches) in effect_batches.iter() {
+    for (entity, effect_batch) in effect_batches.iter() {
         #[cfg(feature = "trace")]
         let _span_buffer = bevy::utils::tracing::info_span!("create_batch_bind_groups").entered();
 
         // Create the property bind group @2 if needed
-        if let Some(property_key) = &effect_batches.property_key {
+        if let Some(property_key) = &effect_batch.property_key {
             property_bind_groups.ensure_exists(
                 property_key,
                 &property_cache,
@@ -5512,44 +5049,15 @@ pub(crate) fn prepare_bind_groups(
             );
         }
 
-        // Convert indirect buffer offsets from indices to bytes.
-        let first_effect_particle_group_buffer_offset = effects_meta
-            .gpu_limits
-            .particle_group_offset(effect_batches.first_particle_group_buffer_index)
-            as u64;
-        let effect_particle_groups_buffer_size = NonZeroU64::try_from(
-            u32::from(effects_meta.gpu_limits.particle_group_aligned_size) as u64
-                * effect_batches.group_batches.len() as u64,
-        )
-        .unwrap();
-
-        // Bind group @1 for the init compute shader to simulate particles.
+        // Bind group particle@1 for the simulate compute shaders (init and udpate) to
+        // simulate particles.
         if effect_cache
-            .create_init_bind_group(
-                effect_batches.buffer_index,
-                effect_batches.parent_buffer_index,
+            .create_particle_sim_bind_group(
+                effect_batch.buffer_index,
                 &render_device,
-                effects_meta.particle_group_buffer.buffer().unwrap(),
-                first_effect_particle_group_buffer_offset,
-                effect_particle_groups_buffer_size,
-                &effect_batches.child_effects[..],
-            )
-            .is_err()
-        {
-            error!("No particle buffer allocated for entity {:?}", entity);
-            continue;
-        }
-
-        // Bind group @1 for the update compute shader to simulate particles.
-        if effect_cache
-            .create_update_bind_group(
-                effect_batches.buffer_index,
-                effect_batches.parent_buffer_index,
-                &render_device,
-                effects_meta.particle_group_buffer.buffer().unwrap(),
-                first_effect_particle_group_buffer_offset,
-                effect_particle_groups_buffer_size,
-                &effect_batches.child_effects[..],
+                effect_batch.particle_layout.min_binding_size32(),
+                parent_min_binding_size,
+                parent,
             )
             .is_err()
         {
@@ -5559,11 +5067,11 @@ pub(crate) fn prepare_bind_groups(
 
         // Bind group @3 of init pass
         // FIXME - this is instance-dependent, not buffer-dependent
-        let spawn_events = if effect_batches
+        let spawn_events = if effect_batch
             .layout_flags
             .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS)
         {
-            let event_buffer_index = effect_batches
+            let event_buffer_index = effect_batch
                 .event_buffer_index
                 .expect("Missing event buffer index on batch with CONSUME_GPU_SPAWN_EVENTS flag.");
             Some(ConsumeEventBuffers {
@@ -5574,14 +5082,12 @@ pub(crate) fn prepare_bind_groups(
             None
         };
         if effect_bind_groups
-            .get_or_create_init_render_indirect(
-                effect_batches,
+            .get_or_create_init_metadata(
+                effect_batch,
                 &effects_meta.gpu_limits,
                 &render_device,
-                &init_pipeline.render_indirect_spawn_layout,
-                &init_pipeline.render_indirect_clone_layout,
-                effects_meta.render_effect_dispatch_buffer.buffer().unwrap(),
-                effects_meta.render_group_dispatch_buffer.buffer().unwrap(),
+                &init_spawn_layout,
+                effects_meta.effect_metadata_buffer.buffer().unwrap(),
                 spawn_events,
             )
             .is_err()
@@ -5592,13 +5098,16 @@ pub(crate) fn prepare_bind_groups(
         // Bind group @3 of update pass
         // FIXME - this is instance-dependent, not buffer-dependent
         if effect_bind_groups
-            .get_or_create_update_render_indirect(
-                effect_batches,
+            .get_or_create_update_metadata(
+                effect_batch,
                 &effects_meta.gpu_limits,
                 &render_device,
                 &update_pipeline.render_indirect_layout,
-                effects_meta.render_effect_dispatch_buffer.buffer().unwrap(),
-                effects_meta.render_group_dispatch_buffer.buffer().unwrap(),
+                effects_meta.effect_metadata_buffer.buffer().unwrap(),
+                effects_meta
+                    .render_indirect_dispatch_buffer
+                    .buffer()
+                    .unwrap(),
             )
             .is_err()
         {
@@ -5608,23 +5117,23 @@ pub(crate) fn prepare_bind_groups(
         // Ensure the particle texture(s) are available as GPU resources and that a bind
         // group for them exists
         // FIXME fix this insert+get below
-        if !effect_batches.texture_layout.layout.is_empty() {
+        if !effect_batch.texture_layout.layout.is_empty() {
             // This should always be available, as this is cached into the render pipeline
             // just before we start specializing it.
             let Some(material_bind_group_layout) =
-                render_pipeline.get_material(&effect_batches.texture_layout)
+                render_pipeline.get_material(&effect_batch.texture_layout)
             else {
                 error!(
                     "Failed to find material bind group layout for buffer #{}",
-                    effect_batches.buffer_index
+                    effect_batch.buffer_index
                 );
                 continue;
             };
 
             // TODO = move
             let material = Material {
-                layout: effect_batches.texture_layout.clone(),
-                textures: effect_batches.textures.iter().map(|h| h.id()).collect(),
+                layout: effect_batch.texture_layout.clone(),
+                textures: effect_batch.textures.iter().map(|h| h.id()).collect(),
             };
             assert_eq!(material.layout.layout.len(), material.textures.len());
 
@@ -5700,7 +5209,7 @@ fn draw<'w>(
         meshes,
         mesh_allocator,
         views,
-        effects,
+        q_effect_batch,
         effect_draw_batches,
     ) = params.get(world);
     let view_uniform = views.get(view).unwrap();
@@ -5709,7 +5218,9 @@ fn draw<'w>(
     let meshes = meshes.into_inner();
     let mesh_allocator = mesh_allocator.into_inner();
     let effect_draw_batch = effect_draw_batches.get(entity.0).unwrap();
-    let effect_batches = effects.get(effect_draw_batch.batches_entity).unwrap();
+    let effect_batch = q_effect_batch
+        .get(effect_draw_batch.batches_entity)
+        .unwrap();
 
     let gpu_limits = &effects_meta.gpu_limits;
 
@@ -5721,20 +5232,10 @@ fn draw<'w>(
 
     pass.set_render_pipeline(pipeline);
 
-    let Some(render_mesh): Option<&RenderMesh> = meshes.get(effect_batches.mesh) else {
+    let Some(render_mesh): Option<&RenderMesh> = meshes.get(effect_batch.mesh) else {
         return;
     };
-    let Some(vertex_buffer_slice) = mesh_allocator.mesh_vertex_slice(&effect_batches.mesh) else {
-        return;
-    };
-
-    let RenderGroupDispatchIndices::Allocated {
-        first_render_group_dispatch_buffer_index,
-        ..
-    } = &effect_batches
-        .dispatch_buffer_indices
-        .render_group_dispatch_indices
-    else {
+    let Some(vertex_buffer_slice) = mesh_allocator.mesh_vertex_slice(&effect_batch.mesh) else {
         return;
     };
 
@@ -5742,10 +5243,10 @@ fn draw<'w>(
     // FIXME - need to upload "vertex_buffer_slice.range.start as i32" into
     // "base_vertex" in the indirect struct...
     assert_eq!(
-        effect_batches.mesh_buffer.id(),
+        effect_batch.mesh_buffer.id(),
         vertex_buffer_slice.buffer.id()
     );
-    assert_eq!(effect_batches.mesh_slice, vertex_buffer_slice.range);
+    assert_eq!(effect_batch.mesh_slice, vertex_buffer_slice.range);
     pass.set_vertex_buffer(0, vertex_buffer_slice.buffer.slice(..));
 
     // View properties (camera matrix, etc.)
@@ -5756,17 +5257,17 @@ fn draw<'w>(
     );
 
     // Particles buffer
-    let dispatch_indirect_offset = gpu_limits.dispatch_indirect_offset(effect_batches.buffer_index);
+    let dispatch_indirect_offset = gpu_limits.dispatch_indirect_offset(effect_batch.buffer_index);
     trace!(
         "set_bind_group(1): dispatch_indirect_offset={}",
         dispatch_indirect_offset
     );
-    let spawner_base = effect_batches.spawner_base;
+    let spawner_base = effect_batch.spawner_base;
     let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
     assert!(spawner_buffer_aligned >= GpuSpawnerParams::min_size().get() as usize);
     let spawner_offset = spawner_base * spawner_buffer_aligned as u32;
     let dyn_uniform_indices: [u32; 2] = [dispatch_indirect_offset, spawner_offset];
-    let dyn_uniform_indices = if effect_batches
+    let dyn_uniform_indices = if effect_batch
         .layout_flags
         .contains(LayoutFlags::LOCAL_SPACE_SIMULATION)
     {
@@ -5777,7 +5278,7 @@ fn draw<'w>(
     pass.set_bind_group(
         1,
         effect_bind_groups
-            .particle_render(effect_batches.buffer_index)
+            .particle_render(effect_batch.buffer_index)
             .unwrap(),
         dyn_uniform_indices,
     );
@@ -5785,45 +5286,45 @@ fn draw<'w>(
     // Particle texture
     // TODO = move
     let material = Material {
-        layout: effect_batches.texture_layout.clone(),
-        textures: effect_batches.textures.iter().map(|h| h.id()).collect(),
+        layout: effect_batch.texture_layout.clone(),
+        textures: effect_batch.textures.iter().map(|h| h.id()).collect(),
     };
-    if !effect_batches.texture_layout.layout.is_empty() {
+    if !effect_batch.texture_layout.layout.is_empty() {
         if let Some(bind_group) = effect_bind_groups.material_bind_groups.get(&material) {
             pass.set_bind_group(2, bind_group, &[]);
         } else {
             // Texture(s) not ready; skip this drawing for now
             trace!(
                 "Particle material bind group not available for batch buf={}. Skipping draw call.",
-                effect_batches.buffer_index,
+                effect_batch.buffer_index,
             );
-            return; // continue;
+            return;
         }
     }
 
-    let render_indirect_buffer = effects_meta.render_group_dispatch_buffer.buffer().unwrap();
-    let group_index = effect_draw_batch.group_index;
-    let effect_batch = &effect_batches.group_batches[group_index as usize];
-
-    let render_group_dispatch_indirect_index =
-        first_render_group_dispatch_buffer_index.offset(group_index);
-
     trace!(
         "Draw up to {} particles with {} vertices per particle for batch from buffer #{} \
-            (render_group_dispatch_indirect_index={:?}, group_index={}).",
+            (render_group_dispatch_indirect_index={:?}).",
         effect_batch.slice.len(),
         render_mesh.vertex_count,
-        effect_batches.buffer_index,
+        effect_batch.buffer_index,
         render_group_dispatch_indirect_index,
-        group_index,
     );
+
+    let Some(indirect_buffer) = effects_meta.effect_metadata_buffer.buffer() else {
+        trace!(
+            "The metadata buffer containing the indirect draw args is not ready for batch buf=#{}. Skipping draw call.",
+            effect_batch.buffer_index,
+        );
+        return;
+    };
 
     match render_mesh.buffer_info {
         RenderMeshBufferInfo::Indexed {
             count: _,
             index_format,
         } => {
-            let Some(index_buffer_slice) = mesh_allocator.mesh_index_slice(&effect_batches.mesh)
+            let Some(index_buffer_slice) = mesh_allocator.mesh_index_slice(&effect_batch.mesh)
             else {
                 return;
             };
@@ -5831,16 +5332,16 @@ fn draw<'w>(
             pass.set_index_buffer(index_buffer_slice.buffer.slice(..), 0, index_format);
 
             pass.draw_indexed_indirect(
-                render_indirect_buffer,
+                indirect_buffer,
                 render_group_dispatch_indirect_index.0 as u64
-                    * u32::from(gpu_limits.render_group_indirect_aligned_size) as u64,
+                    * gpu_limits.effect_metadata_aligned_size.get() as u64,
             );
         }
         RenderMeshBufferInfo::NonIndexed => {
             pass.draw_indirect(
-                render_indirect_buffer,
+                indirect_buffer,
                 render_group_dispatch_indirect_index.0 as u64
-                    * u32::from(gpu_limits.render_group_indirect_aligned_size) as u64,
+                    * gpu_limits.effect_metadata_aligned_size.get() as u64,
             );
         }
     }
@@ -5934,252 +5435,6 @@ impl Draw<Opaque3d> for DrawEffects {
     }
 }
 
-fn create_init_render_indirect_bind_group_layout(
-    render_device: &RenderDevice,
-    label: &str,
-    clone: bool,
-) -> BindGroupLayout {
-    let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
-    let render_effect_indirect_size = GpuRenderEffectMetadata::aligned_size(storage_alignment);
-    let render_group_indirect_size = GpuRenderGroupIndirect::aligned_size(storage_alignment);
-
-    let mut entries = vec![
-        // @binding(0) var<storage, read_write> render_effect_indirect :
-        // RenderEffectMetadata
-        BindGroupLayoutEntry {
-            binding: 0,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: false,
-                min_binding_size: Some(render_effect_indirect_size),
-            },
-            count: None,
-        },
-        // @binding(1) var<storage, read_write> dest_render_group_indirect : RenderGroupIndirect
-        BindGroupLayoutEntry {
-            binding: 1,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: false,
-                min_binding_size: Some(render_group_indirect_size),
-            },
-            count: None,
-        },
-    ];
-
-    if clone {
-        // @binding(2) var<storage, read_write> src_render_group_indirect :
-        // RenderGroupIndirect
-        entries.push(BindGroupLayoutEntry {
-            binding: 2,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: false,
-                min_binding_size: Some(render_group_indirect_size),
-            },
-            count: None,
-        });
-    }
-
-    render_device.create_bind_group_layout(label, &entries)
-}
-
-fn create_init_bind_group_layout(
-    render_device: &RenderDevice,
-    particle_layout_min_binding_size: NonZeroU64,
-    has_event_buffer: bool,
-    parent_particle_layout_min_binding_size: Option<NonZeroU64>,
-) -> BindGroupLayout {
-    let mut entries = Vec::with_capacity(5);
-
-    // @group(1) @binding(0) var<storage, read_write> particle_buffer :
-    // ParticleBuffer
-    entries.push(BindGroupLayoutEntry {
-        binding: 0,
-        visibility: ShaderStages::COMPUTE,
-        ty: BindingType::Buffer {
-            ty: BufferBindingType::Storage { read_only: false },
-            has_dynamic_offset: false,
-            min_binding_size: Some(particle_layout_min_binding_size),
-        },
-        count: None,
-    });
-
-    // @group(1) @binding(1) var<storage, read_write> indirect_buffer :
-    // IndirectBuffer
-    entries.push(BindGroupLayoutEntry {
-        binding: 1,
-        visibility: ShaderStages::COMPUTE,
-        ty: BindingType::Buffer {
-            ty: BufferBindingType::Storage { read_only: false },
-            has_dynamic_offset: false,
-            min_binding_size: BufferSize::new(INDIRECT_INDEX_SIZE as _),
-        },
-        count: None,
-    });
-
-    // @group(1) @binding(2) var<storage, read> particle_groups :
-    // array<ParticleGroup>
-    entries.push(BindGroupLayoutEntry {
-        binding: 2,
-        visibility: ShaderStages::COMPUTE,
-        ty: BindingType::Buffer {
-            ty: BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size: Some(GpuParticleGroup::SHADER_SIZE),
-        },
-        count: None,
-    });
-
-    if has_event_buffer {
-        // @group(1) @binding(4) var<storage, read> child_info : array<ChildInfo>
-        entries.push(BindGroupLayoutEntry {
-            binding: 4,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: BufferSize::new(8), // sizeof(ChildInfo)
-            },
-            count: None,
-        });
-
-        // @group(1) @binding(5) var<storage, read_write> event_buffer : EventBuffer
-        entries.push(BindGroupLayoutEntry {
-            binding: 5,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: false,
-                min_binding_size: BufferSize::new(4), // sizeof(SpawnEvent)
-            },
-            count: None,
-        });
-    }
-
-    // @group(1) @binding(6) var<storage, read> parent_particle_buffer :
-    // ParentParticleBuffer;
-    if let Some(min_binding_size) = parent_particle_layout_min_binding_size {
-        entries.push(BindGroupLayoutEntry {
-            binding: 6,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: Some(min_binding_size),
-            },
-            count: None,
-        });
-    }
-
-    let hash = calc_hash(&entries);
-    let label = format!("hanabi:buffer_layout:init_particles_{:016X}", hash);
-    trace!(
-        "Creating particle bind group layout '{}' for init passes with {} entries. (event_buffer:{}, parent_buffer:{})",
-        label,
-        entries.len(),
-        has_event_buffer,
-        parent_particle_layout_min_binding_size.is_some(),
-    );
-    render_device.create_bind_group_layout(&label[..], &entries)
-}
-
-fn create_update_bind_group_layout(
-    render_device: &RenderDevice,
-    particle_layout_min_binding_size: NonZeroU64,
-    num_event_buffers: u32,
-) -> BindGroupLayout {
-    let mut entries = Vec::with_capacity(4 + 2 * num_event_buffers as usize);
-
-    // @group(1) @binding(0) var<storage, read_write> particle_buffer :
-    // ParticleBuffer
-    entries.push(BindGroupLayoutEntry {
-        binding: 0,
-        visibility: ShaderStages::COMPUTE,
-        ty: BindingType::Buffer {
-            ty: BufferBindingType::Storage { read_only: false },
-            has_dynamic_offset: false,
-            min_binding_size: Some(particle_layout_min_binding_size),
-        },
-        count: None,
-    });
-
-    // @group(1) @binding(1) var<storage, read_write> indirect_buffer :
-    // IndirectBuffer
-    entries.push(BindGroupLayoutEntry {
-        binding: 1,
-        visibility: ShaderStages::COMPUTE,
-        ty: BindingType::Buffer {
-            ty: BufferBindingType::Storage { read_only: false },
-            has_dynamic_offset: false,
-            min_binding_size: BufferSize::new(INDIRECT_INDEX_SIZE as _),
-        },
-        count: None,
-    });
-
-    // @group(1) @binding(2) var<storage, read> particle_groups :
-    // array<ParticleGroup>
-    entries.push(BindGroupLayoutEntry {
-        binding: 2,
-        visibility: ShaderStages::COMPUTE,
-        ty: BindingType::Buffer {
-            ty: BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
-            min_binding_size: Some(GpuParticleGroup::SHADER_SIZE),
-        },
-        count: None,
-    });
-
-    if num_event_buffers > 0 {
-        let child_infos_size = GpuChildInfo::SHADER_SIZE.get() * num_event_buffers as u64;
-
-        // @group(1) @binding(4) var<storage, read_write> child_infos :
-        // array<ChildInfo>; N>
-        entries.push(BindGroupLayoutEntry {
-            binding: 4,
-            visibility: ShaderStages::COMPUTE,
-            ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: false },
-                has_dynamic_offset: false,
-                min_binding_size: Some(BufferSize::new(child_infos_size).unwrap()), // sizeof(array<ChildInfos; N>)
-            },
-            count: None,
-        });
-
-        // N times: @group(1) @binding(...) var<storage, read_write> event_buffer_N :
-        // EventBuffer
-        let mut next_binding_index = 5;
-        for _ in 0..num_event_buffers {
-            entries.push(BindGroupLayoutEntry {
-                binding: next_binding_index,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(4), // sizeof(SpawnEvent)
-                },
-                count: None,
-            });
-            next_binding_index += 1;
-        }
-    }
-
-    let hash = calc_hash(&entries);
-    let label = format!("hanabi:buffer_layout:update_particles_{:016X}", hash);
-
-    trace!(
-        "Creating particle bind group layout '{}' for simulation passes with {} entries. (num_event_buffers:{})\n{:?}",
-        label,
-        entries.len(),
-        num_event_buffers,
-        entries
-    );
-    render_device.create_bind_group_layout(&label[..], &entries)
-}
-
 /// Render node to run the simulation sub-graph once per frame.
 ///
 /// This node doesn't simulate anything by itself, but instead schedules the
@@ -6215,14 +5470,14 @@ impl Node for VfxSimulateDriverNode {
 /// batches to simulate them.
 pub(crate) struct VfxSimulateNode {
     /// Query to retrieve the batches of effects to simulate and render.
-    effect_query: QueryState<(Entity, Read<EffectBatch>)>,
+    q_effect_batch: QueryState<(Entity, Read<EffectBatch>)>,
 }
 
 impl VfxSimulateNode {
     /// Create a new node for simulating the effects of the given world.
     pub fn new(world: &mut World) -> Self {
         Self {
-            effect_query: QueryState::new(world),
+            q_effect_batch: QueryState::new(world),
         }
     }
 }
@@ -6234,7 +5489,7 @@ impl Node for VfxSimulateNode {
 
     fn update(&mut self, world: &mut World) {
         trace!("VfxSimulateNode::update()");
-        self.effect_query.update_archetypes(world);
+        self.q_effect_batch.update_archetypes(world);
     }
 
     fn run(
@@ -6248,6 +5503,7 @@ impl Node for VfxSimulateNode {
         let pipeline_cache = world.resource::<PipelineCache>();
         let effects_meta = world.resource::<EffectsMeta>();
         let effect_bind_groups = world.resource::<EffectBindGroups>();
+        let property_bind_groups = world.resource::<PropertyBindGroups>();
         let utils_pipeline = world.resource::<UtilsPipeline>();
         let effect_cache = world.resource::<EffectCache>();
         let event_cache = world.resource::<EventCache>();
@@ -6257,13 +5513,10 @@ impl Node for VfxSimulateNode {
         {
             let command_encoder = render_context.command_encoder();
             effects_meta
-                .dispatch_indirect_buffer
+                .update_dispatch_indirect_buffer
                 .write_buffer(command_encoder);
             effects_meta
-                .render_effect_dispatch_buffer
-                .write_buffer(command_encoder);
-            effects_meta
-                .render_group_dispatch_buffer
+                .effect_metadata_buffer
                 .write_buffer(command_encoder);
         }
 
@@ -6293,284 +5546,151 @@ impl Node for VfxSimulateNode {
                             timestamp_writes: None,
                         });
 
-                // Dispatch init compute jobs for all effects
-                for (entity, batches) in self.effect_query.iter_manual(world) {
-                    let Some(render_indirect_bind_groups) = effect_bind_groups
-                        .init_render_indirect_bind_groups
-                        .get(&batches.buffer_index)
+                // Bind group simparams@0 is common to everything, only set once per init pass
+                compute_pass.set_bind_group(
+                    0,
+                    effects_meta.sim_params_bind_group.as_ref().unwrap(),
+                    &[],
+                );
+
+                // Dispatch init compute jobs for all batches
+                let mut last_pipeline_id = None;
+                for (entity, effect_batch) in self.q_effect_batch.iter_manual(world) {
+                    // Do not dispatch any init work if there's nothing to spawn this frame for the
+                    // batch. Note that this hopefully should have been skipped earlier.
+                    {
+                        let indirect_dispatch = effect_batch
+                            .layout_flags
+                            .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS);
+                        let spawn_count = effect_batch.spawn_count;
+                        if spawn_count == 0 && !indirect_dispatch {
+                            warn!("-> init batch empty (spawn_count={spawn_count}, indirect_dispatch={indirect_dispatch}); should have been skipped earlier... (TODO)");
+                            continue;
+                        }
+                    }
+
+                    // Fetch bind group particle@1
+                    let Some(particle_bind_group) =
+                        effect_cache.particle_sim_bind_group(effect_batch.buffer_index)
                     else {
+                        error!(
+                            "Failed to find init particle@1 bind group for entity {:?}, buffer index {}",
+                            entity, effect_batch.buffer_index
+                        );
                         continue;
                     };
 
-                    // For each group in this effect, dispatch its init pass
-                    for &dest_group_index in batches.group_order.iter() {
-                        let initializer =
-                            &batches.group_batches[dest_group_index as usize].initializer;
-
-                        // Destination group spawners are packed one after one another.
-                        let spawner_index = batches.spawner_base + dest_group_index;
-                        let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
-                        assert!(
-                            spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize
+                    // Fetch bind group metadata@3
+                    let Some(metadata_bind_group) = effect_bind_groups
+                        .init_metadata_bind_groups
+                        .get(&effect_batch.buffer_index)
+                    else {
+                        error!(
+                            "Failed to find init metadata@3 bind group for buffer index: {}, buffer index {}",
+                            entity, effect_batch.buffer_index
                         );
-                        let spawner_offset = spawner_index * spawner_aligned_size as u32;
+                        continue;
+                    };
 
-                        let property_offset = batches.property_offset;
-
-                        match initializer {
-                            EffectInitializer::Spawner(effect_spawner) => {
-                                // FIXME - Currently we unconditionally count
-                                // all groups because the dispatch pass always
-                                // runs on all groups. We should consider if
-                                // it's worth skipping e.g. dormant or finished
-                                // effects at the cost of extra complexity.
-                                // total_group_count += batches.group_batches.len() as u32;
-
-                                let pipeline_id = batches.group_batches[dest_group_index as usize]
-                                    .init_and_update_pipeline_ids
-                                    .init;
-                                let Some(init_pipeline) =
-                                    pipeline_cache.get_compute_pipeline(pipeline_id)
-                                else {
-                                    // if let CachedPipelineState::Err(err) = pipeline_cache
-                                    //     .get_compute_pipeline_state(
-                                    //         batches.init_and_update_pipeline_ids
-                                    //             [dest_group_index as usize]
-                                    //             .init,
-                                    //     )
-                                    // {
-                                    //     error!(
-                                    //         "Failed to find init pipeline #{} for effect {:?}: \
-                                    //         {:?}",
-                                    //         batches.init_and_update_pipeline_ids
-                                    //             [dest_group_index as usize]
-                                    //             .init
-                                    //             .id(),
-                                    //         entity,
-                                    //         err
-                                    //     );
-                                    // }
-                                    continue;
-                                };
-
-                                // Do not dispatch any init work if there's nothing to spawn this
-                                // frame
-                                {
-                                    let indirect_dispatch = batches
-                                        .layout_flags
-                                        .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS);
-                                    let spawn_count = effect_spawner.spawn_count;
-                                    if spawn_count == 0 && !indirect_dispatch {
-                                        trace!("-> init batch empty (spawn_count={spawn_count}, indirect_dispatch={indirect_dispatch})");
-                                        continue;
-                                    }
-                                }
-
-                                // for (effect_entity, effect_slice) in
-                                // effects_meta.entity_map.iter()
-                                // Retrieve the ExtractedEffect from the entity
-                                // trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
-                                // effect_slice); let effect =
-                                // self.effect_query.get_manual(world, *effect_entity).unwrap();
-
-                                // Get the slice to init
-                                // let effect_slice = effects_meta.get(&effect_entity);
-                                // let effect_group =
-                                //     &effects_meta.effect_cache.buffers()[batch.buffer_index as
-                                // usize];
-                                let Some(particles_init_bind_group) =
-                                    effect_cache.init_bind_group(batches.buffer_index)
-                                else {
-                                    error!(
-                                        "Failed to find init particle buffer bind group for \
-                                        entity {:?}",
-                                        entity
-                                    );
-                                    continue;
-                                };
-
-                                // Dispatch init pass
-                                compute_pass.set_pipeline(init_pipeline);
-                                compute_pass.set_bind_group(
-                                    0,
-                                    effects_meta.sim_params_bind_group.as_ref().unwrap(),
-                                    &[],
-                                );
-                                compute_pass.set_bind_group(1, particles_init_bind_group, &[]);
-                                let offsets = if let Some(property_offset) = property_offset {
-                                    vec![spawner_offset, property_offset]
-                                } else {
-                                    vec![spawner_offset]
-                                };
-                                compute_pass.set_bind_group(
-                                    2,
-                                    effect_bind_groups
-                                        .property(batches.property_key.as_ref())
-                                        .unwrap(),
-                                    &offsets[..],
-                                );
-                                compute_pass.set_bind_group(
-                                    3,
-                                    &render_indirect_bind_groups[dest_group_index as usize]
-                                        .bind_group,
-                                    &[],
-                                );
-                                if let Some(indirect_index) = batches.init_indirect_dispatch_index {
-                                    assert!(batches
-                                        .layout_flags
-                                        .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS));
-
-                                    // Note: the indirect offset of a dispatch workgroup only needs
-                                    // 4-byte alignment
-                                    assert_eq!(GpuInitDispatchIndirect::min_size().get(), 12);
-                                    let indirect_offset = indirect_index as u64 * 12;
-
-                                    trace!(
-                                        "record commands for indirect init pipeline of effect {:?} \
-                                            indirect_index={} \
-                                            indirect_offset={} \
-                                            spawner_base={} \
-                                            spawner_offset={}...",
-                                        batches.handle,
-                                        indirect_index,
-                                        indirect_offset,
-                                        spawner_index,
-                                        spawner_offset,
-                                    );
-
-                                    compute_pass.dispatch_workgroups_indirect(
-                                        event_cache.init_indirect_dispatch_buffer().unwrap(),
-                                        indirect_offset,
-                                    );
-                                } else {
-                                    assert!(!batches
-                                        .layout_flags
-                                        .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS));
-
-                                    const WORKGROUP_SIZE: u32 = 64;
-                                    let workgroup_count =
-                                        effect_spawner.spawn_count.div_ceil(WORKGROUP_SIZE);
-
-                                    trace!(
-                                        "record commands for init pipeline of effect {:?} \
-                                            (spawn {} = {} workgroups) spawner_base={} \
-                                            spawner_offset={}...",
-                                        batches.handle,
-                                        effect_spawner.spawn_count,
-                                        workgroup_count,
-                                        spawner_index,
-                                        spawner_offset,
-                                    );
-
-                                    compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
-                                }
-
-                                trace!("init compute dispatched");
-                            }
-
-                            EffectInitializer::Cloner(EffectCloner {
-                                cloner,
-                                clone_this_frame: spawn_this_frame,
-                                ..
-                            }) => {
-                                if !spawn_this_frame {
-                                    continue;
-                                }
-
-                                let clone_pipeline_id = batches.group_batches
-                                    [dest_group_index as usize]
-                                    .init_and_update_pipeline_ids
-                                    .init;
-
-                                let Some(clone_pipeline) =
-                                    pipeline_cache.get_compute_pipeline(clone_pipeline_id)
-                                else {
-                                    if let CachedPipelineState::Err(err) =
-                                        pipeline_cache.get_compute_pipeline_state(clone_pipeline_id)
-                                    {
-                                        error!(
-                                            "Failed to find clone pipeline #{} for effect \
-                                                    {:?}: {:?}",
-                                            clone_pipeline_id.id(),
-                                            entity,
-                                            err
-                                        );
-                                    }
-                                    continue;
-                                };
-
-                                let Some(particles_init_bind_group) =
-                                    effect_cache.init_bind_group(batches.buffer_index)
-                                else {
-                                    error!(
-                                        "Failed to find clone particle buffer bind group \
-                                                 for entity {:?}, buffer index {}",
-                                        entity, batches.buffer_index
-                                    );
-                                    continue;
-                                };
-
-                                let first_update_group_dispatch_buffer_index = batches
-                                    .dispatch_buffer_indices
-                                    .first_update_group_dispatch_buffer_index;
-
-                                let src_group_index = cloner.src_group_index;
-                                let update_src_group_dispatch_buffer_offset =
-                                    effects_meta.gpu_limits.dispatch_indirect_offset(
-                                        first_update_group_dispatch_buffer_index.0
-                                            + src_group_index,
-                                    );
-
-                                // Setup clone pass
-                                compute_pass.set_pipeline(clone_pipeline);
-                                compute_pass.set_bind_group(
-                                    0,
-                                    effects_meta.sim_params_bind_group.as_ref().unwrap(),
-                                    &[],
-                                );
-                                compute_pass.set_bind_group(1, particles_init_bind_group, &[]);
-                                let offsets = if let Some(property_offset) = property_offset {
-                                    vec![spawner_offset, property_offset]
-                                } else {
-                                    vec![spawner_offset]
-                                };
-                                compute_pass.set_bind_group(
-                                    2,
-                                    effect_bind_groups
-                                        .property(batches.property_key.as_ref())
-                                        .unwrap(),
-                                    &offsets[..],
-                                );
-                                compute_pass.set_bind_group(
-                                    3,
-                                    &render_indirect_bind_groups[dest_group_index as usize]
-                                        .bind_group,
-                                    &[],
-                                );
-
-                                if let Some(dispatch_indirect_buffer) =
-                                    effects_meta.dispatch_indirect_buffer.buffer()
-                                {
-                                    trace!(
-                                        "record commands for init clone pipeline of effect {:?} \
-                                            first_update_group_dispatch_buffer_index={} \
-                                            src_group_index={} \
-                                            update_src_group_dispatch_buffer_offset={}...",
-                                        batches.handle,
-                                        first_update_group_dispatch_buffer_index.0,
-                                        src_group_index,
-                                        update_src_group_dispatch_buffer_offset,
-                                    );
-
-                                    compute_pass.dispatch_workgroups_indirect(
-                                        dispatch_indirect_buffer,
-                                        update_src_group_dispatch_buffer_offset as u64,
-                                    );
-                                }
-                                trace!("clone compute dispatched");
-                            }
+                    // Fetch compute pipeline
+                    let pipeline_id = effect_batch.init_and_update_pipeline_ids.init;
+                    let Some(init_pipeline) = pipeline_cache.get_compute_pipeline(pipeline_id)
+                    else {
+                        if let CachedPipelineState::Err(err) =
+                            pipeline_cache.get_compute_pipeline_state(pipeline_id)
+                        {
+                            error!(
+                                "Failed to find init pipeline #{} for effect {:?}: {:?}",
+                                pipeline_id.id(),
+                                entity,
+                                err
+                            );
                         }
+                        continue;
+                    };
+
+                    // Bind compute pipeline if changed
+                    if Some(init_pipeline.id()) != last_pipeline_id {
+                        compute_pass.set_pipeline(init_pipeline);
+                        last_pipeline_id = Some(init_pipeline.id());
                     }
+
+                    // Compute dynamic offsets
+                    let spawner_index = effect_batch.spawner_base;
+                    let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
+                    assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
+                    let spawner_offset = spawner_index * spawner_aligned_size as u32;
+                    let property_offset = effect_batch.property_offset;
+
+                    // Setup init pass
+                    compute_pass.set_bind_group(1, particle_bind_group, &[]);
+                    let offsets = if let Some(property_offset) = property_offset {
+                        vec![spawner_offset, property_offset]
+                    } else {
+                        vec![spawner_offset]
+                    };
+                    compute_pass.set_bind_group(
+                        2,
+                        property_bind_groups
+                            .get(effect_batch.property_key.as_ref())
+                            .unwrap(),
+                        &offsets[..],
+                    );
+                    compute_pass.set_bind_group(3, &metadata_bind_group.bind_group, &[]);
+
+                    // Dispatch init job
+                    if let Some(indirect_index) = effect_batch.init_indirect_dispatch_index {
+                        // Indirect dispatch via GPU spawn events
+                        assert!(effect_batch
+                            .layout_flags
+                            .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS));
+
+                        // Note: the indirect offset of a dispatch workgroup only needs
+                        // 4-byte alignment
+                        assert_eq!(GpuDispatchIndirect::min_size().get(), 12);
+                        let indirect_offset = indirect_index as u64 * 12;
+
+                        trace!(
+                            "record commands for indirect init pipeline of effect {:?} \
+                                indirect_index={} \
+                                indirect_offset={} \
+                                spawner_base={} \
+                                spawner_offset={}...",
+                            effect_batch.handle,
+                            indirect_index,
+                            indirect_offset,
+                            spawner_index,
+                            spawner_offset,
+                        );
+
+                        compute_pass.dispatch_workgroups_indirect(
+                            event_cache.init_indirect_dispatch_buffer().unwrap(),
+                            indirect_offset,
+                        );
+                    } else {
+                        // Direct dispatch via CPU spawn count
+                        assert!(!effect_batch
+                            .layout_flags
+                            .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS));
+
+                        const WORKGROUP_SIZE: u32 = 64;
+                        let workgroup_count = effect_batch.spawn_count.div_ceil(WORKGROUP_SIZE);
+
+                        trace!(
+                            "record commands for init pipeline of effect {:?} \
+                                (spawn {} particles => {} workgroups) spawner_base={} \
+                                spawner_offset={}...",
+                            effect_batch.handle,
+                            effect_batch.spawn_count,
+                            workgroup_count,
+                            spawner_index,
+                            spawner_offset,
+                        );
+
+                        compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
+                    }
+
+                    trace!("init compute dispatched");
                 }
             }
         }
@@ -6610,42 +5730,52 @@ impl Node for VfxSimulateNode {
                 return Ok(());
             };
 
-            // FIXME - The `vfx_indirect` shader assumes a contiguous array of ParticleGroup
-            // structures. So we need to pass the full array size, and we
-            // just update the unused groups for nothing. Otherwise we might
-            // update some unused group and miss some used ones, if there's any gap
-            // in the array.
             const WORKGROUP_SIZE: u32 = 64;
-            let total_group_count = effects_meta.particle_group_buffer.len() as u32;
-            let workgroup_count = total_group_count.div_ceil(WORKGROUP_SIZE);
+            let total_effect_count = effects_meta.effect_metadata_buffer.len();
+            let workgroup_count = total_effect_count.div_ceil(WORKGROUP_SIZE);
 
-            // Setup compute pass
+            // Setup vfx_indirect pass
             compute_pass.set_pipeline(indirect_pipeline);
             compute_pass.set_bind_group(
                 0,
+                effects_meta.sim_params_bind_group.as_ref().unwrap(),
+                &[],
+            );
+            compute_pass.set_bind_group(
+                1,
                 // FIXME - got some unwrap() panic here, investigate... possibly race
                 // condition!
                 effects_meta.dr_indirect_bind_group.as_ref().unwrap(),
                 &[],
             );
             compute_pass.set_bind_group(
-                1,
-                effects_meta.sim_params_bind_group.as_ref().unwrap(),
+                2,
+                effects_meta.spawner_buffer_bind_group.as_ref().unwrap(),
                 &[],
             );
             if let Some(child_infos_bind_group) = effect_cache.child_infos_bind_group() {
-                compute_pass.set_bind_group(2, child_infos_bind_group, &[]);
+                compute_pass.set_bind_group(3, child_infos_bind_group, &[]);
             }
             compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
             trace!(
-                "indirect dispatch compute dispatched: num_batches={} workgroup_count={}",
-                total_group_count,
+                "indirect dispatch compute dispatched: total_effect_count={} workgroup_count={}",
+                total_effect_count,
                 workgroup_count
             );
         }
 
         // Compute update pass
         {
+            let Some(indirect_buffer) = effects_meta.update_dispatch_indirect_buffer.buffer()
+            else {
+                warn!("Missing indirect buffer for update pass, cannot dispatch anything.");
+                render_context
+                    .command_encoder()
+                    .insert_debug_marker("ERROR:MissingUpdateIndirectBuffer");
+                // FIXME - Bevy doesn't allow returning custom errors here...
+                return Ok(());
+            };
+
             let mut compute_pass =
                 render_context
                     .command_encoder()
@@ -6654,147 +5784,106 @@ impl Node for VfxSimulateNode {
                         timestamp_writes: None,
                     });
 
+            // Bind group simparams@0 is common to everything, only set once per update pass
+            compute_pass.set_bind_group(
+                0,
+                effects_meta.sim_params_bind_group.as_ref().unwrap(),
+                &[],
+            );
+
             // Dispatch update compute jobs
-            for (entity, batches) in self.effect_query.iter_manual(world) {
-                let Some(particles_update_bind_group) = effect_cache
-                    .update_bind_group(batches.buffer_index, &batches.child_effects[..])
+            let mut last_pipeline_id = None;
+            for (entity, effect_batch) in self.q_effect_batch.iter_manual(world) {
+                // Fetch bind group particle@1
+                let Some(particle_bind_group) =
+                    effect_cache.particle_sim_bind_group(effect_batch.buffer_index)
                 else {
                     error!(
-                        "Failed to find update particle buffer bind group for entity {:?}, buffer index {}",
-                        entity, batches.buffer_index
+                        "Failed to find update particle@1 bind group for entity {:?}, buffer index {}",
+                        entity, effect_batch.buffer_index
                     );
                     continue;
                 };
 
-                let first_update_group_dispatch_buffer_index = batches
-                    .dispatch_buffer_indices
-                    .first_update_group_dispatch_buffer_index;
-
-                let group_count = batches.group_order.len() as u32;
-                let Some(update_render_indirect_bind_group) = effect_bind_groups
-                    .update_render_indirect_bind_groups
-                    .get(&batches.buffer_index)
+                // Fetch bind group metadata@3
+                let Some(metadata_bind_group) = effect_bind_groups
+                    .update_metadata_bind_groups
+                    .get(&effect_batch.buffer_index)
                 else {
                     error!(
-                        "Failed to find update render indirect bind group for buffer index: {}, IDs present: {:?}",
-                        batches.buffer_index,
-                        effect_bind_groups
-                            .update_render_indirect_bind_groups
-                            .keys()
-                            .collect::<Vec<_>>()
+                        "Failed to find update metadata@3 bind group for buffer index: {}, buffer index {}",
+                        entity, effect_batch.buffer_index
                     );
                     continue;
                 };
 
-                for &group_index in batches.group_order.iter() {
-                    let init_and_update_pipeline_id =
-                        &batches.group_batches[group_index as usize].init_and_update_pipeline_ids;
-                    let Some(update_pipeline) =
-                        pipeline_cache.get_compute_pipeline(init_and_update_pipeline_id.update)
-                    else {
-                        if let CachedPipelineState::Err(err) = pipeline_cache
-                            .get_compute_pipeline_state(init_and_update_pipeline_id.update)
-                        {
-                            error!(
-                                "Failed to find update pipeline #{} for effect {:?}, group {}: {:?}",
-                                init_and_update_pipeline_id.update.id(),
-                                entity,
-                                group_index,
-                                err
-                            );
-                        }
-                        continue;
-                    };
-
-                    let RenderGroupDispatchIndices::Allocated {
-                        first_render_group_dispatch_buffer_index,
-                        ..
-                    } = &batches
-                        .dispatch_buffer_indices
-                        .render_group_dispatch_indices
-                    else {
-                        continue;
-                    };
-                    let render_group_dispatch_buffer_index =
-                        BufferTableId(first_render_group_dispatch_buffer_index.0 + group_index);
-                    let render_group_indirect_offset = effects_meta
-                        .gpu_limits
-                        .render_group_indirect_offset(render_group_dispatch_buffer_index.0)
-                        as u32;
-
-                    let update_group_dispatch_buffer_offset =
-                        effects_meta.gpu_limits.dispatch_indirect_offset(
-                            first_update_group_dispatch_buffer_index.0 + group_index,
+                // Fetch compute pipeline
+                let pipeline_id = effect_batch.init_and_update_pipeline_ids.update;
+                let Some(update_pipeline) = pipeline_cache.get_compute_pipeline(pipeline_id) else {
+                    if let CachedPipelineState::Err(err) =
+                        pipeline_cache.get_compute_pipeline_state(pipeline_id)
+                    {
+                        error!(
+                            "Failed to find update pipeline #{} for effect {:?}: {:?}",
+                            pipeline_id.id(),
+                            entity,
+                            err
                         );
-
-                    // Destination group spawners are packed one after one another.
-                    let spawner_index = batches.spawner_base + group_index;
-                    let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
-                    assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
-                    let spawner_offset = spawner_index * spawner_aligned_size as u32;
-
-                    let property_offset = batches.property_offset;
-
-                    // for (effect_entity, effect_slice) in effects_meta.entity_map.iter()
-                    // Retrieve the ExtractedEffect from the entity
-                    // trace!("effect_entity={:?} effect_slice={:?}", effect_entity,
-                    // effect_slice); let effect =
-                    // self.effect_query.get_manual(world, *effect_entity).unwrap();
-
-                    // Get the slice to update
-                    // let effect_slice = effects_meta.get(&effect_entity);
-                    // let effect_group =
-                    //     &effects_meta.effect_cache.buffers()[batch.buffer_index as usize];
-
-                    trace!(
-                        "record commands for update pipeline of effect {:?} \
-                        spawner_base={} update_group_dispatch_buffer_offset={}…",
-                        batches.handle,
-                        spawner_index,
-                        update_group_dispatch_buffer_offset,
-                    );
-
-                    // Setup compute pass
-                    compute_pass.set_pipeline(update_pipeline);
-                    compute_pass.set_bind_group(
-                        0,
-                        effects_meta.sim_params_bind_group.as_ref().unwrap(),
-                        &[],
-                    );
-                    compute_pass.set_bind_group(1, particles_update_bind_group, &[]);
-                    let offsets = if let Some(property_offset) = property_offset {
-                        vec![spawner_offset, property_offset]
-                    } else {
-                        vec![spawner_offset]
-                    };
-                    compute_pass.set_bind_group(
-                        2,
-                        effect_bind_groups
-                            .property(batches.property_key.as_ref())
-                            .unwrap(),
-                        &offsets[..],
-                    );
-                    compute_pass.set_bind_group(
-                        3,
-                        &update_render_indirect_bind_group.bind_group,
-                        &[],
-                    );
-
-                    if let Some(buffer) = effects_meta.dispatch_indirect_buffer.buffer() {
-                        trace!(
-                            "dispatch_workgroups_indirect: buffer={:?} offset={}",
-                            buffer,
-                            update_group_dispatch_buffer_offset,
-                        );
-                        compute_pass.dispatch_workgroups_indirect(
-                            buffer,
-                            update_group_dispatch_buffer_offset as u64,
-                        );
-                        // TODO - offset
                     }
+                    continue;
+                };
 
-                    trace!("update compute dispatched");
+                // Bind compute pipeline if changed
+                if Some(update_pipeline.id()) != last_pipeline_id {
+                    compute_pass.set_pipeline(update_pipeline);
+                    last_pipeline_id = Some(update_pipeline.id());
                 }
+
+                // Compute dynamic offsets
+                let spawner_index = effect_batch.spawner_base;
+                let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
+                assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
+                let spawner_offset = spawner_index * spawner_aligned_size as u32;
+                let property_offset = effect_batch.property_offset;
+
+                trace!(
+                    "record commands for update pipeline of effect {:?} spawner_base={}",
+                    effect_batch.handle,
+                    spawner_index,
+                );
+
+                // Setup update pass
+                compute_pass.set_bind_group(1, particle_bind_group, &[]);
+                let offsets = if let Some(property_offset) = property_offset {
+                    vec![spawner_offset, property_offset]
+                } else {
+                    vec![spawner_offset]
+                };
+                compute_pass.set_bind_group(
+                    2,
+                    property_bind_groups
+                        .get(effect_batch.property_key.as_ref())
+                        .unwrap(),
+                    &offsets[..],
+                );
+                compute_pass.set_bind_group(3, &metadata_bind_group.bind_group, &[]);
+
+                // Dispatch update job
+                let dispatch_indirect_buffer_table_id = effect_batch
+                    .dispatch_buffer_indices
+                    .update_dispatch_indirect_buffer_table_id;
+                let dispatch_indirect_offset = effects_meta
+                    .gpu_limits
+                    .dispatch_indirect_offset(dispatch_indirect_buffer_table_id.0);
+                trace!(
+                    "dispatch_workgroups_indirect: buffer={:?} offset={}B",
+                    indirect_buffer,
+                    dispatch_indirect_offset,
+                );
+                compute_pass
+                    .dispatch_workgroups_indirect(indirect_buffer, dispatch_indirect_offset as u64);
+
+                trace!("update compute dispatched");
             }
         }
 
@@ -6834,13 +5923,9 @@ mod tests {
         let limits = GpuLimits::from_device(&device);
 
         // assert!(limits.storage_buffer_align().get() >= 1);
+        assert!(limits.effect_metadata_offset(256) >= 256 * GpuEffectMetadata::min_size().get());
         assert!(
-            limits.render_effect_indirect_offset(256)
-                >= 256 * GpuRenderEffectMetadata::min_size().get()
-        );
-        assert!(
-            limits.render_group_indirect_offset(256)
-                >= 256 * GpuRenderGroupIndirect::min_size().get()
+            limits.render_group_indirect_offset(256) >= 256 * GpuRenderIndirect::min_size().get()
         );
         assert!(
             limits.dispatch_indirect_offset(256) as u64

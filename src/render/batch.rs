@@ -1,7 +1,4 @@
-use std::{
-    fmt::Debug,
-    ops::{Index, Range},
-};
+use std::{fmt::Debug, ops::Range};
 
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
@@ -14,28 +11,10 @@ use bevy::{
 };
 
 use super::{
-    effect_cache::{DispatchBufferIndices, EffectSlices},
+    effect_cache::{DispatchBufferIndices, EffectSlice},
     CachedMesh, LayoutFlags, PropertyBindGroupKey,
 };
-use crate::{
-    spawn::EffectInitializer, AlphaMode, EffectAsset, EffectShader, ParticleLayout, TextureLayout,
-};
-
-/// Batch data specific to a single particle group.
-#[derive(Debug)]
-pub(crate) struct GroupBatch {
-    /// Slice of particles in the GPU effect buffer referenced by
-    /// [`EffectBatch::buffer_index`]. The GPU buffer is shared by all groups.
-    pub slice: Range<u32>,
-    /// Initializer for the group.
-    pub initializer: EffectInitializer,
-    /// Init and update compute pipelines specialized for this group.
-    pub init_and_update_pipeline_ids: InitAndUpdatePipelineIds,
-    /// Configured shader used for the particle rendering of this group.
-    /// Note that we don't need to keep the init/update shaders alive because
-    /// their pipeline specialization is doing it via the specialization key.
-    pub render_shader: Handle<Shader>,
-}
+use crate::{AlphaMode, EffectAsset, EffectShader, ParticleLayout, TextureLayout};
 
 /// Batch of effects dispatched and rendered together.
 #[derive(Debug, Component)]
@@ -44,8 +23,17 @@ pub(crate) struct EffectBatch {
     pub handle: Handle<EffectAsset>,
     /// Index of the buffer.
     pub buffer_index: u32,
-    /// One batch per particle group.
-    pub group_batches: Vec<GroupBatch>,
+    /// Slice of particles in the GPU effect buffer referenced by
+    /// [`EffectBatch::buffer_index`]. The GPU buffer is shared by all groups.
+    pub slice: Range<u32>,
+    /// Number of particles to spawn for this effect.
+    pub spawn_count: u32,
+    /// Init and update compute pipelines specialized for this group.
+    pub init_and_update_pipeline_ids: InitAndUpdatePipelineIds,
+    /// Configured shader used for the particle rendering of this group.
+    /// Note that we don't need to keep the init/update shaders alive because
+    /// their pipeline specialization is doing it via the specialization key.
+    pub render_shader: Handle<Shader>,
     /// Index of the buffer of the parent effect, if any.
     pub parent_buffer_index: Option<u32>,
     /// Index of the event buffer, if this effect consumes GPU spawn events.
@@ -66,14 +54,6 @@ pub(crate) struct EffectBatch {
     pub spawner_base: u32,
     /// The indices within the various indirect dispatch buffers.
     pub dispatch_buffer_indices: DispatchBufferIndices,
-    /// The index of the first [`GpuParticleGroup`] structure in the global
-    /// [`EffectsMeta::particle_group_buffer`] buffer. The buffer is currently
-    /// re-created each frame, so the rows for multiple groups of an effect are
-    /// guaranteed to be contiguous.
-    ///
-    /// [`GpuParticleGroup`]: super::GpuParticleGroup
-    /// [`EffectsMeta::particle_group_buffer`]: super::EffectsMeta::particle_group_buffer
-    pub first_particle_group_buffer_index: u32,
     /// Particle layout shared by all batched effects and groups.
     pub particle_layout: ParticleLayout,
     /// Flags describing the render layout.
@@ -97,32 +77,20 @@ pub(crate) struct EffectBatch {
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
     pub entities: Vec<u32>,
-    /// The order in which we evaluate groups.
-    pub group_order: Vec<u32>,
     /// Index of the [`GpuInitDispatchIndirect`] struct into the init indirect
     /// dispatch buffer, if using indirect init dispatch only.
     pub init_indirect_dispatch_index: Option<u32>,
-}
-
-impl Index<u32> for EffectBatch {
-    type Output = GroupBatch;
-
-    fn index(&self, index: u32) -> &Self::Output {
-        &self.group_batches[index as usize]
-    }
 }
 
 /// Single effect batch to drive rendering.
 ///
 /// This component is spawned into the render world during the prepare phase
 /// ([`prepare_effects()`]), once per effect batch per group. In turns it
-/// references an [`EffectBatches`] component containing all the shared data for
+/// references an [`EffectBatch`] component containing all the shared data for
 /// all the groups of the effect.
 #[derive(Debug, Component)]
 pub(crate) struct EffectDrawBatch {
-    /// Group index of the batch.
-    pub group_index: u32,
-    /// Entity holding the [`EffectBatches`] this batch is part of.
+    /// Entity holding the [`EffectBatch`] this batch is part of.
     pub batches_entity: Entity,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
@@ -139,42 +107,26 @@ impl EffectBatch {
     pub fn from_input(
         cached_mesh: &CachedMesh,
         input: &mut BatchesInput,
-        spawner_base: u32,
-        mut init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds>,
         dispatch_buffer_indices: DispatchBufferIndices,
-        first_particle_group_buffer_index: u32,
         property_key: Option<PropertyBindGroupKey>,
         property_offset: Option<u32>,
     ) -> EffectBatch {
-        let group_batches = input
-            .effect_slices
-            .slices
-            .windows(2)
-            .map(|range| range[0]..range[1])
-            .zip(input.groups.iter())
-            .zip(init_and_update_pipeline_ids.drain(..))
-            .map(|((slice, group_input), ids)| GroupBatch {
-                slice,
-                initializer: group_input.initializer,
-                init_and_update_pipeline_ids: ids,
-                render_shader: group_input.shaders.render.clone(),
-            })
-            .collect();
-
         assert_eq!(property_key.is_some(), property_offset.is_some());
         EffectBatch {
             handle: input.handle.clone(),
-            group_batches,
-            buffer_index: input.effect_slices.buffer_index,
+            buffer_index: input.effect_slice.buffer_index,
+            slice: input.effect_slice.slice.clone(),
+            spawn_count: input.spawn_count,
+            init_and_update_pipeline_ids: input.init_and_update_pipeline_ids,
+            render_shader: input.shaders.render.clone(),
             parent_buffer_index: input.parent_buffer_index,
             event_buffer_index: input.event_buffer_index,
             child_effects: input.child_effects.clone(),
             property_key,
             property_offset,
-            spawner_base,
-            particle_layout: input.effect_slices.particle_layout.clone(),
+            spawner_base: input.spawner_base,
+            particle_layout: input.effect_slice.particle_layout.clone(),
             dispatch_buffer_indices,
-            first_particle_group_buffer_index,
             layout_flags: input.layout_flags,
             mesh: cached_mesh.mesh,
             mesh_buffer: cached_mesh.buffer.clone(),
@@ -184,17 +136,8 @@ impl EffectBatch {
             alpha_mode: input.alpha_mode,
             entities: vec![input.main_entity.id().index()],
             init_indirect_dispatch_index: input.init_indirect_dispatch_index,
-            group_order: input.group_order.clone(),
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct GroupInput {
-    /// Group shaders.
-    pub shaders: EffectShader,
-    /// Group initializer.
-    pub initializer: EffectInitializer,
 }
 
 /// Effect batching input, obtained from extracted effects.
@@ -204,13 +147,13 @@ pub(crate) struct BatchesInput {
     pub handle: Handle<EffectAsset>,
     /// Main entity of the [`ParticleEffect`], used for visibility.
     pub main_entity: MainEntity,
-    /// Render entity of the [`CachedEffect`]. FIXME - doesn't work with
-    /// batching!
+    /// Render entity of the [`CachedEffect`].
     #[allow(dead_code)]
     pub entity: Entity,
     /// Effect slices.
-    // FIXME - Contains a single effect's data (multiple groups); should handle multiple ones.
-    pub effect_slices: EffectSlices,
+    pub effect_slice: EffectSlice,
+    /// Compute pipeline IDs of the specialized and cached pipelines.
+    pub init_and_update_pipeline_ids: InitAndUpdatePipelineIds,
     /// Particle layout of the parent effect, if any.
     pub parent_particle_layout: Option<ParticleLayout>,
     /// Index of the buffer of the parent effect, if any.
@@ -229,9 +172,13 @@ pub(crate) struct BatchesInput {
     pub alpha_mode: AlphaMode,
     #[allow(dead_code)]
     pub particle_layout: ParticleLayout,
-    pub groups: Vec<GroupInput>,
-    /// The order in which we evaluate groups.
-    pub group_order: Vec<u32>,
+    /// Effect shaders.
+    pub shaders: EffectShader,
+    /// Index of the [`GpuSpawnerParams`] in the
+    /// [`EffectsCache::spawner_buffer`].
+    pub spawner_base: u32,
+    /// Number of particles to spawn for this effect.
+    pub spawn_count: u32,
     /// Emitter position, for 3D sorting.
     #[cfg(feature = "3d")]
     pub position: Vec3,
@@ -243,17 +190,8 @@ pub(crate) struct BatchesInput {
     pub z_sort_key_2d: FloatOrd,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct InitAndUpdatePipelineIds {
     pub init: CachedComputePipelineId,
     pub update: CachedComputePipelineId,
-}
-
-#[derive(Debug, Component)]
-pub(crate) struct CachedGroups {
-    pub spawner_base: u32,
-    pub first_particle_group_buffer_index: Option<u32>,
-    // Note: Stolen each frame, so invalid if not re-extracted each frame. This is how we tell if
-    // an effect is active for the current frame.
-    pub init_and_update_pipeline_ids: Vec<InitAndUpdatePipelineIds>,
 }
