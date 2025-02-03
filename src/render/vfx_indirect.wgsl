@@ -15,7 +15,7 @@
 @group(2) @binding(0) var<storage, read> spawner_buffer : array<Spawner>;
 
 #ifdef HAS_GPU_SPAWN_EVENTS
-@group(3) @binding(0) var<storage, read_write> child_info : array<ChildInfo>;
+@group(3) @binding(0) var<storage, read_write> child_info_buffer : ChildInfoBuffer;
 #endif
 
 /// Calculate the indirect workgroups counts based on the number of particles alive.
@@ -26,8 +26,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 #ifdef HAS_GPU_SPAWN_EVENTS
     // Clear any GPU event. The indexing is safe because there are always less child effects
     // than there are effects in total, so 'index' will always cover the entire child info array.
-    if (thread_index < arrayLength(&child_info)) {
-        child_info[thread_index].event_count = 0;
+    if (thread_index < arrayLength(&child_info_buffer.rows)) {
+        child_info_buffer.rows[thread_index].event_count = 0;
     }
 #endif
 

@@ -4,20 +4,23 @@ use bevy::{
     log::{trace, warn},
     prelude::{Component, Entity, ResMut, Resource},
     render::{
-        render_resource::{BindGroup, BindGroupLayout, Buffer, BufferVec, ShaderType},
+        render_resource::{
+            BindGroup, BindGroupLayout, Buffer, BufferVec, ShaderSize as _, ShaderType,
+        },
         renderer::{RenderDevice, RenderQueue},
     },
 };
 use bytemuck::{Pod, Zeroable};
 use wgpu::{
-    util::BufferInitDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BufferBinding,
-    BufferBindingType, BufferUsages, ShaderStages,
+    util::BufferInitDescriptor, BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType,
+    BufferBinding, BufferBindingType, BufferUsages, ShaderStages,
 };
 
 use super::{
-    aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState, EffectBindGroups,
-    GpuDispatchIndirect,
+    aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState, BufferBindingSource,
+    EffectBindGroups, GpuDispatchIndirect,
 };
+use crate::ParticleLayout;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EventSlice {
@@ -121,20 +124,22 @@ impl EventBuffer {
     }
 }
 
-/// Child effect(s), if any. Only available if this effect is the parent
-/// effect for one or more child effects.
+/// Data about the child effect(s) of this effect. This component is only
+/// present on an effect instance if that effect is the parent effect for at
+/// least one child effect.
 #[derive(Debug, Component)]
-pub(crate) struct CachedParent {
-    /// Child effects.
-    pub children: Vec<Entity>,
+pub(crate) struct CachedParentInfo {
+    /// Render world entities of the child effects, and their associated event
+    /// buffer binding source.
+    pub children: Vec<(Entity, BufferBindingSource)>,
     /// Indices in bytes into the global [`EffectCache::child_infos_buffer`] of
-    /// the child infos for all the child effects of this parent effect. The
-    /// child effects are always allocated as a single contiguous block,
+    /// the [`GpuChildInfo`]s for all the child effects of this parent effect.
+    /// The child effects are always allocated as a single contiguous block,
     /// which needs to be mapped into a shader binding point.
     pub byte_range: Range<u32>,
 }
 
-impl CachedParent {
+impl CachedParentInfo {
     /// Get a binding of the given underlying child info buffer spanning over
     /// the range of this child effect entry.
     pub fn binding<'a>(&self, buffer: &'a Buffer) -> BufferBinding<'a> {
@@ -162,16 +167,37 @@ impl CachedParent {
     }
 }
 
-/// Info about this effect as a child of another effect. Only available if
-/// this effect has a parent effect.
+/// Reference to the parent of an effect instance.
+///
+/// This is a weak reference to the parent while pending resolving. This
+/// component is always present on an effect instance if that effect is the
+/// child effect for another effect (that is, this effect has a parent effect),
+/// even if the parent is invalid. Once the parent is resolved,
+/// [`CachedChildInfo`] is also spawned.
 #[derive(Debug, Component)]
-pub(crate) struct CachedChild {
+pub(crate) struct CachedParentRef {
+    /// The render entity of the parent of this effect instance.
+    pub entity: Entity,
+}
+
+/// Data about this effect as a child of another effect.
+///
+/// This component is only present on an effect instance if that effect is the
+/// child effect for another effect (that is, this effect has a parent effect).
+/// However, unlike [`CachedParentRef`], if the parent could no be resolved then
+/// this component is absent.
+#[derive(Debug, Component)]
+pub(crate) struct CachedChildInfo {
     /// Render entity of the parent effect.
+    // FIXME - consider removing here, since it duplicates CachedParentRef::entity?
     pub parent: Entity,
-    /// Index of this child effect into its parent's ChildInfo array
-    /// ([`EffectChildren::effect_cache_ids`] and its associated GPU
-    /// array). This starts at zero for the first child of each effect, and is
-    /// only unique per parent only, not globally.
+    /// Parent's particle layout.
+    pub parent_particle_layout: ParticleLayout,
+    /// Parent's buffer.
+    pub parent_buffer_binding_source: BufferBindingSource,
+    /// Index of this child effect into its parent's [`GpuChildInfo`] array.
+    /// This starts at zero for the first child of each effect, and is only
+    /// unique per parent only, not globally.
     pub local_child_index: u32,
     /// Global index of this child effect into the shared global
     /// [`EventCache::child_infos_buffer`] array. This is a unique index across
@@ -184,8 +210,6 @@ pub(crate) struct CachedChild {
     ///
     /// [`init_indirect_dispatch_buffer`]: super::EventCache::init_indirect_dispatch_buffer
     pub init_indirect_dispatch_index: u32,
-    // /// Event buffer allocation events are consumed from.
-    //pub event_buffer_ref: CachedEffectEvents,
 }
 
 /// GPU representation of the child info data structure storing some data for a
@@ -203,7 +227,7 @@ pub struct GpuChildInfo {
     pub event_count: i32,
 }
 
-#[derive(Debug, Component)]
+#[derive(Debug, Clone, Component)]
 pub struct CachedEffectEvents {
     /// Index of the [`EventBuffer`] inside the [`EventCache::buffers`]
     /// collection where a slice of events is allocated, for this effect to
@@ -258,10 +282,10 @@ pub struct EventCache {
     init_indirect_dispatch_buffer: BufferVec<GpuDispatchIndirect>,
     /// Bind group layout for the indirect dispatch pass, which clears the GPU
     /// event counts ([`GpuChildInfo::event_count`]).
-    child_infos_bind_group_layout: BindGroupLayout,
+    indirect_child_info_buffer_bind_group_layout: BindGroupLayout,
     /// Bind group for the indirect dispatch pass, which clears the GPU event
     /// counts ([`GpuChildInfo::event_count`]).
-    child_infos_bind_group: Option<BindGroup>,
+    indirect_child_info_buffer_bind_group: Option<BindGroup>,
 }
 
 impl EventCache {
@@ -271,8 +295,8 @@ impl EventCache {
             BufferVec::new(BufferUsages::STORAGE | BufferUsages::INDIRECT);
         init_indirect_dispatch_buffer.set_label(Some("hanabi:buffer:init_indirect_dispatch"));
 
-        let child_infos_bgl = device.create_bind_group_layout(
-            "hanabi:bind_group_layout:indirect_child_infos",
+        let child_infos_bind_group_layout = device.create_bind_group_layout(
+            "hanabi:bind_group_layout:indirect:child_infos@3",
             &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
@@ -294,9 +318,9 @@ impl EventCache {
             ),
             buffers: vec![],
             init_indirect_dispatch_buffer,
-            child_infos_bind_group_layout: child_infos_bgl,
+            indirect_child_info_buffer_bind_group_layout: child_infos_bind_group_layout,
             // Can't create until the buffer is ready
-            child_infos_bind_group: None,
+            indirect_child_info_buffer_bind_group: None,
         }
     }
 
@@ -460,9 +484,9 @@ impl EventCache {
     pub fn allocate_child_infos(
         &mut self,
         parent_entity: Entity,
-        children: Vec<Entity>,
+        children: Vec<(Entity, BufferBindingSource)>,
         child_infos: &[GpuChildInfo],
-    ) -> CachedParent {
+    ) -> CachedParentInfo {
         assert_eq!(children.len(), child_infos.len());
         assert!(!children.is_empty());
 
@@ -474,7 +498,7 @@ impl EventCache {
             byte_range.start
         );
 
-        CachedParent {
+        CachedParentInfo {
             children,
             byte_range,
         }
@@ -485,28 +509,31 @@ impl EventCache {
     pub fn reallocate_child_infos(
         &mut self,
         parent_entity: Entity,
-        children: Vec<Entity>,
+        children: Vec<(Entity, BufferBindingSource)>,
         child_infos: &[GpuChildInfo],
-        cached_parent: &mut CachedParent,
+        cached_parent_info: &mut CachedParentInfo,
     ) {
         trace!(
             "Parent {:?}: De-allocating old ChildInfo[] entry at range {:?}",
             parent_entity,
-            cached_parent.byte_range
+            cached_parent_info.byte_range
         );
         self.child_infos_buffer
-            .remove(cached_parent.byte_range.clone());
+            .remove(cached_parent_info.byte_range.clone());
 
         let byte_range = self.child_infos_buffer.push_many(child_infos);
-        assert_eq!(byte_range.start as usize % size_of::<GpuChildInfo>(), 0);
+        assert_eq!(
+            byte_range.start as usize % GpuChildInfo::SHADER_SIZE.get() as usize,
+            0
+        );
         trace!(
             "Parent {:?}: Allocated new ChildInfo[] entry at byte range {:?}",
             parent_entity,
             byte_range
         );
 
-        cached_parent.children = children;
-        cached_parent.byte_range = byte_range;
+        cached_parent_info.children = children;
+        cached_parent_info.byte_range = byte_range;
     }
 
     /// Re-/allocate any buffer for the current frame.
@@ -576,4 +603,31 @@ impl EventCache {
     //             .dispatch_index,
     //     )
     // }
+
+    pub fn ensure_indirect_child_info_buffer_bind_group(
+        &mut self,
+        device: &RenderDevice,
+    ) -> Option<&BindGroup> {
+        let Some(buffer) = self.child_infos_buffer() else {
+            return None;
+        };
+        // TODO - stop re-creating each frame...
+        self.indirect_child_info_buffer_bind_group = Some(device.create_bind_group(
+            "hanabi:bind_group:indirect:child_infos@3",
+            &self.indirect_child_info_buffer_bind_group_layout,
+            &[BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::Buffer(BufferBinding {
+                    buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            }],
+        ));
+        self.indirect_child_info_buffer_bind_group.as_ref()
+    }
+
+    pub fn indirect_child_info_buffer_bind_group(&self) -> Option<&BindGroup> {
+        self.indirect_child_info_buffer_bind_group.as_ref()
+    }
 }

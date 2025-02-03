@@ -104,12 +104,16 @@ impl From<&BufferBindingSource> for SimBindGroupKey {
     }
 }
 
-impl From<Option<BufferBindingSource>> for SimBindGroupKey {
-    fn from(value: Option<BufferBindingSource>) -> Self {
-        Self {
-            buffer: value.as_ref().map(|bbs| bbs.buffer.id()),
-            offset: value.as_ref().map(|bss| bss.offset).unwrap_or_default(),
-            size: value.map(|bss| bss.size.get()).unwrap_or_default(),
+impl From<Option<&BufferBindingSource>> for SimBindGroupKey {
+    fn from(value: Option<&BufferBindingSource>) -> Self {
+        if let Some(bbs) = value {
+            Self {
+                buffer: Some(bbs.buffer.id()),
+                offset: bbs.offset,
+                size: bbs.size.get(),
+            }
+        } else {
+            Self::INVALID
         }
     }
 }
@@ -345,6 +349,16 @@ impl EffectBuffer {
         })
     }
 
+    /// Return a binding source for the entire particle buffer.
+    pub fn max_binding_source(&self) -> BufferBindingSource {
+        let capacity_bytes = self.capacity * self.particle_layout.min_binding_size32().get();
+        BufferBindingSource {
+            buffer: self.particle_buffer.clone(),
+            offset: 0,
+            size: NonZeroU32::new(capacity_bytes).unwrap(),
+        }
+    }
+
     /// Return a binding for the entire indirect buffer associated with the
     /// current effect buffer.
     pub fn indirect_max_binding(&self) -> BindingResource {
@@ -366,16 +380,16 @@ impl EffectBuffer {
         layout: &BindGroupLayout,
         buffer_index: u32,
         render_device: &RenderDevice,
-        parent: Option<BufferBindingSource>,
+        parent_binding_source: Option<&BufferBindingSource>,
     ) {
-        let key: SimBindGroupKey = parent.clone().into();
+        let key: SimBindGroupKey = parent_binding_source.into();
         if self.sim_bind_group.is_some() && self.sim_bind_group_key == key {
             return;
         }
 
         let label = format!("hanabi:bind_group:sim:particle@1:vfx{}", buffer_index);
         let entries: &[BindGroupEntry] =
-            if let Some(parent_binding) = parent.as_ref().map(|bbs| bbs.binding()) {
+            if let Some(parent_binding) = parent_binding_source.as_ref().map(|bbs| bbs.binding()) {
                 &[
                     BindGroupEntry {
                         binding: 0,
@@ -651,246 +665,30 @@ impl EffectCache {
         }
     }
 
+    /// Get all the buffer slots. Unallocated slots are `None`. This can be
+    /// indexed by the buffer index.
     #[allow(dead_code)]
     #[inline]
     pub fn buffers(&self) -> &[Option<EffectBuffer>] {
         &self.buffers
     }
 
+    /// Get all the buffer slots. Unallocated slots are `None`. This can be
+    /// indexed by the buffer index.
     #[allow(dead_code)]
     #[inline]
     pub fn buffers_mut(&mut self) -> &mut [Option<EffectBuffer>] {
         &mut self.buffers
     }
 
-    // /// Ensure the bind group for the init pass exists.
-    // ///
-    // /// The `buffer_index` must be the index of the [`EffectBuffer`] inside this
-    // /// [`EffectCache`]. The `group_binding` is the binding resource for the
-    // /// particle groups of this buffer. The parent buffer binding is an optional
-    // /// binding in case the effect has a parent effect.
-    // pub fn ensure_init_bind_group(
-    //     &mut self,
-    //     effect_cache_id: EffectCacheId,
-    //     buffer_index: u32,
-    //     parent_buffer_index: Option<u32>,
-    //     group_binding: BufferBinding,
-    //     event_buffer_binding: Option<BindingResource>,
-    // ) -> bool {
-    //     let Some(effect_buffer) = &self.buffers[buffer_index as usize] else {
-    //         return false;
-    //     };
-    //     if effect_buffer.init_bind_group().is_some() {
-    //         return true;
-    //     }
-
-    //     let parent_buffer_binding = if let Some(parent_buffer_index) =
-    // parent_buffer_index {         let Some(parent_effect_buffer) =
-    // self.buffers.get(parent_buffer_index as usize) else {             return
-    // false;         };
-    //         let Some(binding) = parent_effect_buffer
-    //             .as_ref()
-    //             .map(|buffer| buffer.max_binding())
-    //         else {
-    //             return false;
-    //         };
-    //         Some(binding)
-    //     } else {
-    //         None
-    //     };
-
-    //     let layout = effect_buffer.particle_layout_bind_group_init();
-
-    //     let mut bindings = vec![
-    //         BindGroupEntry {
-    //             binding: 0,
-    //             resource: effect_buffer.max_binding(),
-    //         },
-    //         BindGroupEntry {
-    //             binding: 1,
-    //             resource: effect_buffer.indirect_max_binding(),
-    //         },
-    //         BindGroupEntry {
-    //             binding: 2,
-    //             resource: BindingResource::Buffer(group_binding),
-    //         },
-    //     ];
-    //     if let Some(property_binding) = effect_buffer.properties_max_binding() {
-    //         bindings.push(BindGroupEntry {
-    //             binding: 3,
-    //             resource: property_binding,
-    //         });
-    //     }
-    //     // FIXME - this binding depends on whether the particular effect is a
-    // child, but     // the buffer itself should in theory be common to
-    // multiple effects (batching)     if let Some(child_info_binding) =
-    // self.get_child_info_max_binding(effect_cache_id) {         bindings.
-    // push(BindGroupEntry {             binding: 4,
-    //             resource: BindingResource::Buffer(child_info_binding),
-    //         });
-    //     }
-    //     if let Some(event_buffer_binding) = event_buffer_binding {
-    //         bindings.push(BindGroupEntry {
-    //             binding: 5,
-    //             resource: event_buffer_binding,
-    //         });
-    //     }
-    //     if let Some(parent_buffer) = parent_buffer_binding {
-    //         bindings.push(BindGroupEntry {
-    //             binding: 6,
-    //             resource: parent_buffer,
-    //         });
-    //     }
-
-    //     let label = format!("hanabi:bind_group:init:particle@1:batch{}",
-    // buffer_index);     trace!(
-    //         "Create init bind group '{}' with {} entries",
-    //         label,
-    //         bindings.len()
-    //     );
-    //     let init_bind_group =
-    //         self.render_device
-    //             .create_bind_group(Some(&label[..]), layout, &bindings);
-
-    //     // Now that the bind group is created, and the borrows to the various
-    // buffers     // are released, we can mutably borrow the main EffectBuffer
-    // to assign the newly     // created bind group.
-    //     self.buffers[buffer_index as usize]
-    //         .as_mut()
-    //         .unwrap()
-    //         .set_init_bind_group(init_bind_group);
-
-    //     return true;
-    // }
-
-    // /// Ensure the bind group for the update pass exists.
-    // ///
-    // /// The `buffer_index` must be the index of the [`EffectBuffer`] inside this
-    // /// [`EffectCache`]. The `group_binding` is the binding resource for the
-    // /// particle groups of this buffer. The child buffer indices is an optional
-    // /// slice of buffer indices in case the effect has one or more child
-    // /// effects.
-    // ///
-    // /// This lazy bind group creation is necessary because the bind group not
-    // /// only depends on the current effect, but also on its children. To avoid
-    // /// complex management when a child changes, we lazily ensure at the last
-    // /// minute that the bind group is compatible with the current parent/child
-    // /// hierarchy, and if not re-create it.
-    // pub fn ensure_update_bind_group(
-    //     &mut self,
-    //     effect_cache_id: EffectCacheId,
-    //     buffer_index: u32,
-    //     group_binding: BufferBinding,
-    //     child_ids: &[EffectCacheId],
-    // ) -> bool {
-    //     let Some(buffer) = &self.buffers[buffer_index as usize] else {
-    //         return false;
-    //     };
-    //     if buffer.update_bind_group(child_ids).is_some() {
-    //         return true;
-    //     }
-
-    //     let num_event_buffers = child_ids.len() as u32;
-    //     let Some(layout) =
-    // buffer.particle_layout_bind_group_update(num_event_buffers) else {
-    //         warn!(
-    //             "Failed to find particle layout bind group for update pass with
-    // {} event buffers.",             num_event_buffers
-    //         );
-    //         return false;
-    //     };
-
-    //     let mut bindings = vec![
-    //         BindGroupEntry {
-    //             binding: 0,
-    //             resource: buffer.max_binding(),
-    //         },
-    //         BindGroupEntry {
-    //             binding: 1,
-    //             resource: buffer.indirect_max_binding(),
-    //         },
-    //         BindGroupEntry {
-    //             binding: 2,
-    //             resource: BindingResource::Buffer(group_binding),
-    //         },
-    //     ];
-    //     if let Some(property_binding) = buffer.properties_max_binding() {
-    //         bindings.push(BindGroupEntry {
-    //             binding: 3,
-    //             resource: property_binding,
-    //         });
-    //     }
-    //     if let (Some(buffer), Some(_children_effect_entry)) = (
-    //         self.child_infos_buffer.buffer(),
-    //         self.effects
-    //             .get(&effect_cache_id)
-    //             .map(|cei| cei.children.as_ref())
-    //             .flatten(),
-    //     ) {
-    //         bindings.push(BindGroupEntry {
-    //             binding: 4,
-    //             //resource:
-    // BindingResource::Buffer(children_effect_entry.binding(buffer)),
-    //             resource: BindingResource::Buffer(BufferBinding {
-    //                 buffer,
-    //                 offset: 0,
-    //                 size: None,
-    //             }),
-    //         });
-    //     }
-    //     // The buffer has one or more child effect(s), and those effects each own
-    // an     // event buffer we need to bind in order to write events to.
-    //     // Note: we need to store those bindings in a second array (Vec) to keep
-    // them     // alive while the first array (`bindings`) references them.
-    //     let mut child_bindings = Vec::with_capacity(child_ids.len());
-    //     let mut next_binding_index = 5;
-    //     for buffer_id in child_ids {
-    //         if let (Some(event_buffer_binding), Some(_event_dispatch_index)) = (
-    //             self.get_event_buffer_binding(*buffer_id),
-    //             self.get_event_dispatch_index(*buffer_id),
-    //         ) {
-    //             child_bindings.push((next_binding_index, event_buffer_binding));
-    //         }
-
-    //         // Increment always, even if a buffer is not available, as the index
-    // binding is         // mapped 1:1 with children. We will just miss a
-    // buffer and not be able to write         // events for that particular
-    // child effect.         next_binding_index += 1;
-    //     }
-    //     for (binding_index, ebb) in &child_bindings[..] {
-    //         bindings.push(BindGroupEntry {
-    //             binding: *binding_index,
-    //             resource: ebb.binding(),
-    //         });
-    //     }
-
-    //     let label = format!("hanabi:bind_group:update:batch{}", buffer_index);
-    //     trace!(
-    //         "Create update bind group '{}' with {} entries",
-    //         label,
-    //         bindings.len()
-    //     );
-    //     let update_bind_group =
-    //         self.render_device
-    //             .create_bind_group(Some(&label[..]), layout, &bindings);
-
-    //     // Now that the bind group is created, and the borrows to the various
-    // buffers     // are released, we can mutably borrow the main EffectBuffer
-    // to assign the newly     // created bind group.
-    //     self.buffers[buffer_index as usize]
-    //         .as_mut()
-    //         .unwrap()
-    //         .set_update_bind_group(child_ids, update_bind_group);
-
-    //     return true;
-    // }
-
+    /// Fetch a specific buffer by index.
     #[allow(dead_code)]
     #[inline]
     pub fn get_buffer(&self, buffer_index: u32) -> Option<&EffectBuffer> {
         self.buffers.get(buffer_index as usize)?.as_ref()
     }
 
+    /// Fetch a specific buffer by index.
     #[allow(dead_code)]
     #[inline]
     pub fn get_buffer_mut(&mut self, buffer_index: u32) -> Option<&mut EffectBuffer> {
@@ -907,6 +705,7 @@ impl EffectCache {
         }
     }
 
+    /// Insert a new effect instance in the cache.
     pub fn insert(
         &mut self,
         asset: Handle<EffectAsset>,
@@ -984,21 +783,6 @@ impl EffectCache {
             buffer_index: buffer_index as u32,
             slice,
         }
-
-        // cached_child_info: event_buffer_ref.map(|event_buffer_ref|
-        // CachedChildInfo {     init_indirect: InitIndirect {
-        //         dispatch_index: init_indirect_dispatch_index.unwrap(),
-        //         event_buffer_ref,
-        //     },
-        //     // Resolved later in resolve_parents()
-        //     parent_cache_id: EffectCacheId::INVALID,
-        //     local_child_index: u32::MAX,
-        //     global_child_index: u32::MAX,
-        // }),
-        // // At this point we didn't resolve parents, so we don't know how many
-        // children this // effect has. Leave this empty for now, until
-        // resolve_parents() fix it up if // needed.
-        // children: None,
     }
 
     /// Remove an effect from the cache. If this was the last effect, drop the
@@ -1090,24 +874,6 @@ impl EffectCache {
 
     // pub fn invalidate_child_infos_bind_group(&mut self) {
     //     self.child_infos_bind_group = None;
-    // }
-
-    // pub fn ensure_child_infos_bind_group(&mut self, device: &RenderDevice) {
-    //     let Some(buffer) = self.child_infos_buffer() else {
-    //         return;
-    //     };
-    //     self.child_infos_bind_group = Some(device.create_bind_group(
-    //         "hanabi:bind_group:indirect_child_infos",
-    //         &self.child_infos_bgl,
-    //         &[BindGroupEntry {
-    //             binding: 0,
-    //             resource: BindingResource::Buffer(BufferBinding {
-    //                 buffer,
-    //                 offset: 0,
-    //                 size: None,
-    //             }),
-    //         }],
-    //     ));
     // }
 
     // pub fn child_infos_bind_group(&self) -> Option<&BindGroup> {
@@ -1265,7 +1031,7 @@ impl EffectCache {
         render_device: &RenderDevice,
         min_binding_size: NonZeroU32,
         parent_min_binding_size: Option<NonZeroU32>,
-        parent: Option<BufferBindingSource>,
+        parent_binding_source: Option<&BufferBindingSource>,
     ) -> Result<(), ()> {
         // Create the bind group
         let layout = self
@@ -1273,7 +1039,12 @@ impl EffectCache {
             .clone();
         let slot = self.buffers.get_mut(buffer_index as usize).ok_or(())?;
         let effect_buffer = slot.as_mut().ok_or(())?;
-        effect_buffer.create_particle_sim_bind_group(&layout, buffer_index, render_device, parent);
+        effect_buffer.create_particle_sim_bind_group(
+            &layout,
+            buffer_index,
+            render_device,
+            parent_binding_source,
+        );
         Ok(())
     }
 }

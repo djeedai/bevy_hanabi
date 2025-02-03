@@ -381,6 +381,43 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         BufferTableId(index)
     }
 
+    /// Update an existing row in the table.
+    ///
+    /// For performance reasons, this buffers the row content on the CPU until
+    /// the next GPU update, to minimize the number of CPU to GPU transfers.
+    ///
+    /// Calling this function multiple times overwrites the previous value. Only
+    /// the last value recorded each frame will be uploaded to GPU.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `id` is invalid.
+    pub fn update(&mut self, id: BufferTableId, value: T) {
+        assert!(id.is_valid());
+        trace!(
+            "Updating row {} of table buffer '{}'",
+            id.0,
+            self.safe_name(),
+        );
+        let allocated_count = self
+            .buffer
+            .as_ref()
+            .map(|ab| ab.allocated_count())
+            .unwrap_or(0);
+        assert!(id.0 < allocated_count);
+        if let Some(idx) = self
+            .pending_values
+            .iter()
+            .position(|&(index, _)| index == id.0)
+        {
+            // Overwrite a previous update. This ensures we never upload more than one
+            // update per row, which would waste GPU bandwidth.
+            self.pending_values[idx] = (id.0, value);
+        } else {
+            self.pending_values.alloc().init((id.0, value));
+        }
+    }
+
     /// Insert several new contiguous rows into the table.
     ///
     /// For performance reasons, this buffers the row content on the CPU until

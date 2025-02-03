@@ -921,10 +921,9 @@ impl EffectShaderSource {
         // Event buffer bindings for the update pass, if the effect emits GPU events to
         // one or more other effects.
         let mut emit_event_buffer_bindings_code = String::with_capacity(256);
-        emit_event_buffer_bindings_code.push_str(&format!(
-            "@group(3) @binding(1) var<storage, read_write> child_infos : array<ChildInfo, {}>;\n",
-            num_event_bindings.to_wgsl_string()
-        ));
+        emit_event_buffer_bindings_code.push_str(
+            "@group(3) @binding(1) var<storage, read_write> child_info_buffer : ChildInfoBuffer;\n",
+        );
         let mut emit_event_buffer_append_funcs_code = String::with_capacity(1024);
         let base_binding_index = 2;
         for i in 0..num_event_bindings {
@@ -934,9 +933,9 @@ impl EffectShaderSource {
             emit_event_buffer_append_funcs_code.push_str(&format!(
                 r##"/// Append one or more spawn events to the event buffer.
 fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
-    let base_child_index = particle_groups[{{{{GROUP_INDEX}}}}].base_child_index;
+    let base_child_index = effects_metadata.base_child_index;
     let capacity = arrayLength(&event_buffer_{0}.spawn_events);
-    let base = min(u32(atomicAdd(&child_infos[base_child_index + {0}].event_count, i32(count))), capacity);
+    let base = min(u32(atomicAdd(&child_info_buffer.rows[base_child_index + {0}].event_count, i32(count))), capacity);
     let capped_count = min(count, capacity - base);
     for (var i = 0u; i < capped_count; i += 1u) {{
         event_buffer_{0}.spawn_events[base + i].particle_index = particle_index;

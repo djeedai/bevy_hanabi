@@ -1,4 +1,4 @@
-use std::{fmt::Debug, ops::Range};
+use std::{fmt::Debug, num::NonZeroU32, ops::Range};
 
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
@@ -12,34 +12,64 @@ use bevy::{
 
 use super::{
     effect_cache::{DispatchBufferIndices, EffectSlice},
-    CachedMesh, LayoutFlags, PropertyBindGroupKey,
+    event::{CachedChildInfo, CachedEffectEvents},
+    BufferBindingSource, CachedMesh, LayoutFlags, PropertyBindGroupKey,
 };
 use crate::{AlphaMode, EffectAsset, EffectShader, ParticleLayout, TextureLayout};
+
+#[derive(Debug)]
+pub(crate) enum BatchSpawnInfo {
+    /// Spawn a number of particles uploaded from CPU each frame.
+    CpuSpawner {
+        /// Total number of particles to spawn for the batch. This is only used
+        /// to calculate the number of compute workgroups to dispatch.
+        total_spawn_count: u32,
+    },
+
+    /// Spawn a number of particles calculated on GPU from "spawn events", which
+    /// generally emitted by another effect.
+    GpuSpawner {
+        /// Index into the init indirect dispatch buffer of the
+        /// [`GpuDispatchIndirect`] instance for this batch.
+        ///
+        /// [`GpuDispatchIndirect`]: super::GpuDispatchIndirect
+        init_indirect_dispatch_index: u32,
+        /// Index of the [`EventBuffer`] where the GPU spawn events consumed by
+        /// this batch are stored.
+        ///
+        /// [`EventBuffer`]: super::event::EventBuffer
+        event_buffer_index: u32,
+    },
+}
 
 /// Batch of effects dispatched and rendered together.
 #[derive(Debug, Component)]
 pub(crate) struct EffectBatch {
     /// Handle of the underlying effect asset describing the effect.
     pub handle: Handle<EffectAsset>,
-    /// Index of the buffer.
+    /// Index of the [`EffectBuffer`].
+    ///
+    /// [`EffectBuffer`]: super::effect_cache::EffectBuffer
     pub buffer_index: u32,
     /// Slice of particles in the GPU effect buffer referenced by
-    /// [`EffectBatch::buffer_index`]. The GPU buffer is shared by all groups.
+    /// [`EffectBatch::buffer_index`].
     pub slice: Range<u32>,
-    /// Number of particles to spawn for this effect.
-    pub spawn_count: u32,
-    /// Init and update compute pipelines specialized for this group.
+    /// Spawn info for this batch
+    pub spawn_info: BatchSpawnInfo,
+    /// Specialized init and update compute pipelines.
     pub init_and_update_pipeline_ids: InitAndUpdatePipelineIds,
     /// Configured shader used for the particle rendering of this group.
     /// Note that we don't need to keep the init/update shaders alive because
     /// their pipeline specialization is doing it via the specialization key.
     pub render_shader: Handle<Shader>,
-    /// Index of the buffer of the parent effect, if any.
+    /// Index of the buffer of the parent effect, if any. If a parent exists,
+    /// its particle buffer is made available (read-only) for a child effect to
+    /// read its attributes.
     pub parent_buffer_index: Option<u32>,
-    /// Index of the event buffer, if this effect consumes GPU spawn events.
-    pub event_buffer_index: Option<u32>,
+    pub parent_min_binding_size: Option<NonZeroU32>,
+    pub parent_binding_source: Option<BufferBindingSource>,
     /// Child effects, if any.
-    pub child_effects: Vec<Entity>,
+    pub child_effects: Vec<(Entity, BufferBindingSource)>,
     /// Index of the property buffer, if any.
     pub property_key: Option<PropertyBindGroupKey>,
     /// Offset in bytes into the property buffer where the Property struct is
@@ -77,9 +107,7 @@ pub(crate) struct EffectBatch {
     ///
     /// [`ParticleEffect`]: crate::ParticleEffect
     pub entities: Vec<u32>,
-    /// Index of the [`GpuInitDispatchIndirect`] struct into the init indirect
-    /// dispatch buffer, if using indirect init dispatch only.
-    pub init_indirect_dispatch_index: Option<u32>,
+    pub cached_effect_events: Option<CachedEffectEvents>,
 }
 
 /// Single effect batch to drive rendering.
@@ -106,21 +134,42 @@ impl EffectBatch {
     /// Create a new batch from a single input.
     pub fn from_input(
         cached_mesh: &CachedMesh,
-        input: &mut BatchesInput,
+        cached_effect_events: Option<&CachedEffectEvents>,
+        cached_child_info: Option<&CachedChildInfo>,
+        input: &mut BatchInput,
         dispatch_buffer_indices: DispatchBufferIndices,
         property_key: Option<PropertyBindGroupKey>,
         property_offset: Option<u32>,
     ) -> EffectBatch {
         assert_eq!(property_key.is_some(), property_offset.is_some());
+        assert_eq!(
+            input.event_buffer_index.is_some(),
+            input.init_indirect_dispatch_index.is_some()
+        );
+
+        let spawn_info = if let Some(event_buffer_index) = input.event_buffer_index {
+            BatchSpawnInfo::GpuSpawner {
+                init_indirect_dispatch_index: input.init_indirect_dispatch_index.unwrap(),
+                event_buffer_index,
+            }
+        } else {
+            BatchSpawnInfo::CpuSpawner {
+                total_spawn_count: input.spawn_count,
+            }
+        };
+
         EffectBatch {
             handle: input.handle.clone(),
             buffer_index: input.effect_slice.buffer_index,
             slice: input.effect_slice.slice.clone(),
-            spawn_count: input.spawn_count,
+            spawn_info,
             init_and_update_pipeline_ids: input.init_and_update_pipeline_ids,
             render_shader: input.shaders.render.clone(),
             parent_buffer_index: input.parent_buffer_index,
-            event_buffer_index: input.event_buffer_index,
+            parent_min_binding_size: cached_child_info
+                .map(|cci| cci.parent_particle_layout.min_binding_size32()),
+            parent_binding_source: cached_child_info
+                .map(|cci| cci.parent_buffer_binding_source.clone()),
             child_effects: input.child_effects.clone(),
             property_key,
             property_offset,
@@ -135,14 +184,14 @@ impl EffectBatch {
             textures: input.textures.clone(),
             alpha_mode: input.alpha_mode,
             entities: vec![input.main_entity.id().index()],
-            init_indirect_dispatch_index: input.init_indirect_dispatch_index,
+            cached_effect_events: cached_effect_events.cloned(),
         }
     }
 }
 
 /// Effect batching input, obtained from extracted effects.
 #[derive(Debug, Component)]
-pub(crate) struct BatchesInput {
+pub(crate) struct BatchInput {
     /// Handle of the underlying effect asset describing the effect.
     pub handle: Handle<EffectAsset>,
     /// Main entity of the [`ParticleEffect`], used for visibility.
@@ -161,7 +210,7 @@ pub(crate) struct BatchesInput {
     /// Index of the event buffer, if this effect consumes GPU spawn events.
     pub event_buffer_index: Option<u32>,
     /// Child effects, if any.
-    pub child_effects: Vec<Entity>,
+    pub child_effects: Vec<(Entity, BufferBindingSource)>,
     /// Various flags related to the effect.
     pub layout_flags: LayoutFlags,
     /// Texture layout.

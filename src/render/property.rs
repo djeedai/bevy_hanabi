@@ -20,13 +20,19 @@ use wgpu::{
 use super::{aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState};
 use crate::{render::GpuSpawnerParams, PropertyLayout};
 
+/// Allocation into the [`PropertyCache`] for an effect instance. This component
+/// is only present on an effect instance if that effect uses properties.
 #[derive(Debug, Clone, PartialEq, Eq, Component)]
 pub struct CachedEffectProperties {
+    /// Index of the [`PropertyBuffer`] inside the [`PropertyCache`].
     pub buffer_index: u32,
+    /// Slice of GPU buffer where the storage for properties is allocated.
     pub range: Range<u32>,
 }
 
 impl CachedEffectProperties {
+    /// Convert this allocation into a bind group key, used for bind group
+    /// re-creation when a change is detected in the key.
     pub fn to_key(&self) -> PropertyBindGroupKey {
         PropertyBindGroupKey {
             buffer_index: self.buffer_index,
