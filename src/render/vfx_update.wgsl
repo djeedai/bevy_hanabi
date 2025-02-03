@@ -16,13 +16,13 @@ struct ParticleBuffer {
 
 #ifdef READ_PARENT_PARTICLE
 
-struct ParentParticle {{
+struct ParentParticle {
     {{PARENT_ATTRIBUTES}}
-}}
+}
 
-struct ParentParticleBuffer {{
+struct ParentParticleBuffer {
     particles: array<ParentParticle>,
-}}
+}
 
 #endif
 

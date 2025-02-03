@@ -2326,12 +2326,6 @@ struct GpuLimits {
     /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
     storage_buffer_align: NonZeroU32,
 
-    /// Size of [`GpuDispatchIndirect`] aligned to the contraint of
-    /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
-    ///
-    /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
-    dispatch_indirect_aligned_size: NonZeroU32,
-
     /// Size of [`GpuEffectMetadata`] aligned to the contraint of
     /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
     ///
@@ -2344,13 +2338,6 @@ impl GpuLimits {
         let storage_buffer_align =
             render_device.limits().min_storage_buffer_offset_alignment as u64;
 
-        let dispatch_indirect_aligned_size = NonZeroU32::new(
-            GpuDispatchIndirect::min_size()
-                .get()
-                .next_multiple_of(storage_buffer_align) as u32,
-        )
-        .unwrap();
-
         let effect_metadata_aligned_size = NonZeroU32::new(
             GpuEffectMetadata::min_size()
                 .get()
@@ -2359,18 +2346,14 @@ impl GpuLimits {
         .unwrap();
 
         trace!(
-            "GPU-aligned sizes (align: {} B):\n- GpuDispatchIndirect: {} B -> {} B\n\
-            - GpuEffectMetadata: {} B -> {} B",
+            "GPU-aligned sizes (align: {} B):\n- GpuEffectMetadata: {} B -> {} B",
             storage_buffer_align,
-            GpuDispatchIndirect::min_size().get(),
-            dispatch_indirect_aligned_size.get(),
             GpuEffectMetadata::min_size().get(),
             effect_metadata_aligned_size.get(),
         );
 
         Self {
             storage_buffer_align: NonZeroU32::new(storage_buffer_align as u32).unwrap(),
-            dispatch_indirect_aligned_size,
             effect_metadata_aligned_size,
         }
     }
@@ -2378,11 +2361,6 @@ impl GpuLimits {
     /// Byte alignment for any storage buffer binding.
     pub fn storage_buffer_align(&self) -> NonZeroU32 {
         self.storage_buffer_align
-    }
-
-    /// Byte alignment for [`GpuDispatchIndirect`].
-    pub fn dispatch_indirect_offset(&self, buffer_index: u32) -> u32 {
-        self.dispatch_indirect_aligned_size.get() * buffer_index
     }
 
     /// Byte offset of the [`GpuEffectMetadata`] of a given buffer.
@@ -5103,6 +5081,9 @@ pub(crate) fn prepare_bind_groups(
             .or_insert_with(|| {
                 // Bind group particle@1 for render pass
                 trace!("Creating particle@1 bind group for buffer #{buffer_index} in render pass");
+                let spawner_min_binding_size = GpuSpawnerParams::aligned_size(
+                    render_device.limits().min_storage_buffer_offset_alignment,
+                );
                 let entries = [
                     // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
                     BindGroupEntry {
@@ -5120,7 +5101,7 @@ pub(crate) fn prepare_bind_groups(
                         resource: BindingResource::Buffer(BufferBinding {
                             buffer: &spawner_buffer,
                             offset: 0,
-                            size: None,
+                            size: Some(spawner_min_binding_size),
                         }),
                     },
                 ];
@@ -5464,30 +5445,16 @@ fn draw<'w>(
     );
 
     // Particles buffer
-    let dispatch_indirect_offset = gpu_limits.dispatch_indirect_offset(effect_batch.buffer_index);
-    trace!(
-        "set_bind_group(1): dispatch_indirect_offset={}",
-        dispatch_indirect_offset
-    );
     let spawner_base = effect_batch.spawner_base;
     let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
     assert!(spawner_buffer_aligned >= GpuSpawnerParams::min_size().get() as usize);
     let spawner_offset = spawner_base * spawner_buffer_aligned as u32;
-    let dyn_uniform_indices: [u32; 2] = [dispatch_indirect_offset, spawner_offset];
-    let dyn_uniform_indices = if effect_batch
-        .layout_flags
-        .contains(LayoutFlags::LOCAL_SPACE_SIMULATION)
-    {
-        &dyn_uniform_indices
-    } else {
-        &dyn_uniform_indices[..1]
-    };
     pass.set_bind_group(
         1,
         effect_bind_groups
             .particle_render(effect_batch.buffer_index)
             .unwrap(),
-        dyn_uniform_indices,
+        &[spawner_offset],
     );
 
     // Particle texture
@@ -6118,9 +6085,7 @@ impl Node for VfxSimulateNode {
                 let dispatch_indirect_buffer_table_id = effect_batch
                     .dispatch_buffer_indices
                     .update_dispatch_indirect_buffer_table_id;
-                let dispatch_indirect_offset = effects_meta
-                    .gpu_limits
-                    .dispatch_indirect_offset(dispatch_indirect_buffer_table_id.0);
+                let dispatch_indirect_offset = dispatch_indirect_buffer_table_id.0 * 12;
                 trace!(
                     "dispatch_workgroups_indirect: buffer={:?} offset={}B",
                     indirect_buffer,
@@ -6170,10 +6135,6 @@ mod tests {
 
         // assert!(limits.storage_buffer_align().get() >= 1);
         assert!(limits.effect_metadata_offset(256) >= 256 * GpuEffectMetadata::min_size().get());
-        assert!(
-            limits.dispatch_indirect_offset(256) as u64
-                >= 256 * GpuDispatchIndirect::min_size().get()
-        );
     }
 
     #[cfg(feature = "gpu_tests")]
