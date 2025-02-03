@@ -17,8 +17,8 @@ use super::{buffer_table::BufferTableId, BufferBindingSource};
 use crate::{
     asset::EffectAsset,
     render::{
-        calc_hash, event::GpuChildInfo, GpuDispatchIndirect, GpuEffectMetadata, GpuSpawnerParams,
-        LayoutFlags, StorageType as _, INDIRECT_INDEX_SIZE,
+        calc_hash, event::GpuChildInfo, GpuEffectMetadata, GpuSpawnerParams, LayoutFlags,
+        StorageType as _, INDIRECT_INDEX_SIZE,
     },
     ParticleLayout,
 };
@@ -251,7 +251,7 @@ impl EffectBuffer {
         }
 
         // Create the render layout.
-        let dispatch_indirect_size = GpuDispatchIndirect::aligned_size(
+        let spawner_params_size = GpuSpawnerParams::aligned_size(
             render_device.limits().min_storage_buffer_offset_alignment,
         );
         let mut entries = vec![
@@ -273,18 +273,18 @@ impl EffectBuffer {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(std::mem::size_of::<u32>() as u64),
+                    min_binding_size: Some(NonZeroU64::new(INDIRECT_INDEX_SIZE as u64).unwrap()),
                 },
                 count: None,
             },
-            // @group(1) @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
+            // @group(1) @binding(2) var<storage, read> spawner : Spawner;
             BindGroupLayoutEntry {
                 binding: 2,
                 visibility: ShaderStages::VERTEX,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: true,
-                    min_binding_size: Some(dispatch_indirect_size),
+                    min_binding_size: Some(spawner_params_size),
                 },
                 count: None,
             },

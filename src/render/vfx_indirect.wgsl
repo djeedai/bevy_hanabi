@@ -1,8 +1,8 @@
 #import bevy_hanabi::vfx_common::{
-    ChildInfo, SimParams, Spawner,
+    ChildInfo, ChildInfoBuffer, SimParams, Spawner,
     EM_OFFSET_ALIVE_COUNT, EM_OFFSET_MAX_UPDATE, EM_OFFSET_DEAD_COUNT,
     EM_OFFSET_MAX_SPAWN, EM_OFFSET_INSTANCE_COUNT, EM_OFFSET_INDIRECT_DISPATCH_INDEX,
-    EM_OFFSET_PING, DISPATCH_INDIRECT_STRIDE, EFFECT_METADATA_STRIDE,
+    EM_OFFSET_PING, DISPATCH_INDIRECT_STRIDE, EFFECT_METADATA_STRIDE, EM_OFFSET_SPAWNER_INDEX
 }
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
@@ -12,7 +12,7 @@
 // Tightly packed array of IndirectDispatch[], accessed as u32 array.
 @group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer : array<u32>;
 
-@group(2) @binding(0) var<storage, read> spawner_buffer : array<Spawner>;
+@group(2) @binding(0) var<storage, read_write> spawner_buffer : array<Spawner>;
 
 #ifdef HAS_GPU_SPAWN_EVENTS
 @group(3) @binding(0) var<storage, read_write> child_info_buffer : ChildInfoBuffer;

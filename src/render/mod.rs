@@ -431,11 +431,17 @@ pub struct GpuEffectMetadata {
 /// shader.
 #[derive(Resource)]
 pub(crate) struct DispatchIndirectPipeline {
-    sim_params_layout: BindGroupLayout,
-    dispatch_indirect_layout: BindGroupLayout,
-    spawner_layout: BindGroupLayout,
-    child_infos_layout: BindGroupLayout,
+    /// Layout of bind group sim_params@0.
+    sim_params_bind_group_layout: BindGroupLayout,
+    /// Layout of bind group effect_metadata@1.
+    effect_metadata_bind_group_layout: BindGroupLayout,
+    /// Layout of bind group spawner@2.
+    spawner_bind_group_layout: BindGroupLayout,
+    /// Layout of bind group child_infos@3.
+    child_infos_bind_group_layout: BindGroupLayout,
+    /// Shader when no GPU events are used (no bind group @3).
     indirect_shader_noevent: Handle<Shader>,
+    /// Shader when GPU events are used (bind group @3 present).
     indirect_shader_events: Handle<Shader>,
 }
 
@@ -455,10 +461,11 @@ impl FromWorld for DispatchIndirectPipeline {
 
         let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
         let render_effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
-        let dispatch_indirect_size = GpuDispatchIndirect::aligned_size(storage_alignment);
+        let spawner_min_binding_size = GpuSpawnerParams::aligned_size(storage_alignment);
 
+        // @group(0) @binding(0) var<uniform> sim_params : SimParams;
         trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
-        let sim_params_layout = render_device.create_bind_group_layout(
+        let sim_params_bind_group_layout = render_device.create_bind_group_layout(
             "hanabi:bind_group_layout:dispatch_indirect:sim_params",
             &[BindGroupLayoutEntry {
                 binding: 0,
@@ -473,14 +480,12 @@ impl FromWorld for DispatchIndirectPipeline {
         );
 
         trace!(
-            "GpuEffectMetadata: min_size={} padded_size={} | GpuDispatchIndirect: min_size={} padded_size={}",
+            "GpuEffectMetadata: min_size={} padded_size={}",
             GpuEffectMetadata::min_size(),
             render_effect_metadata_size,
-            GpuDispatchIndirect::min_size(),
-            dispatch_indirect_size,
         );
-        let dispatch_indirect_layout = render_device.create_bind_group_layout(
-            "hanabi:bind_group_layout:dispatch_indirect:dispatch_indirect",
+        let effect_metadata_bind_group_layout = render_device.create_bind_group_layout(
+            "hanabi:bind_group_layout:dispatch_indirect:effect_metadata@1",
             &[
                 // @group(0) @binding(0) var<storage, read_write> effect_metadata_buffer :
                 // array<u32>;
@@ -502,28 +507,34 @@ impl FromWorld for DispatchIndirectPipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(dispatch_indirect_size),
+                        min_binding_size: Some(
+                            NonZeroU64::new(INDIRECT_INDEX_SIZE as u64).unwrap(),
+                        ),
                     },
                     count: None,
                 },
             ],
         );
 
-        let spawner_layout = render_device.create_bind_group_layout(
-            "hanabi:bind_group_layout:dispatch_indirect:spawner",
+        // @group(2) @binding(0) var<storage, read_write> spawner_buffer :
+        // array<Spawner>;
+        let spawner_bind_group_layout = render_device.create_bind_group_layout(
+            "hanabi:bind_group_layout:dispatch_indirect:spawner@2",
             &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
+                    ty: BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
-                    min_binding_size: Some(GpuSpawnerParams::min_size()),
+                    min_binding_size: Some(spawner_min_binding_size),
                 },
                 count: None,
             }],
         );
 
-        let child_infos_layout = render_device.create_bind_group_layout(
+        // @group(3) @binding(0) var<storage, read_write> child_info_buffer :
+        // ChildInfoBuffer;
+        let child_infos_bind_group_layout = render_device.create_bind_group_layout(
             "hanabi:bind_group_layout:dispatch_indirect:child_infos",
             &[BindGroupLayoutEntry {
                 binding: 0,
@@ -538,10 +549,10 @@ impl FromWorld for DispatchIndirectPipeline {
         );
 
         Self {
-            sim_params_layout,
-            dispatch_indirect_layout,
-            spawner_layout,
-            child_infos_layout,
+            sim_params_bind_group_layout,
+            effect_metadata_bind_group_layout,
+            spawner_bind_group_layout,
+            child_infos_bind_group_layout,
             indirect_shader_noevent,
             indirect_shader_events,
         }
@@ -575,12 +586,12 @@ impl SpecializedComputePipeline for DispatchIndirectPipeline {
             shader_defs.push("HAS_GPU_SPAWN_EVENTS".into());
         }
 
-        let mut layout = Vec::with_capacity(3);
-        layout.push(self.sim_params_layout.clone());
-        layout.push(self.dispatch_indirect_layout.clone());
-        layout.push(self.spawner_layout.clone());
+        let mut layout = Vec::with_capacity(4);
+        layout.push(self.sim_params_bind_group_layout.clone());
+        layout.push(self.effect_metadata_bind_group_layout.clone());
+        layout.push(self.spawner_bind_group_layout.clone());
         if key.has_events {
-            layout.push(self.child_infos_layout.clone());
+            layout.push(self.child_infos_bind_group_layout.clone());
         }
 
         let label = format!(
@@ -1528,7 +1539,7 @@ impl FromWorld for ParticlesRenderPipeline {
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
         let view_layout = render_device.create_bind_group_layout(
-            "hanabi:view_layout_render",
+            "hanabi:bind_group_layout:render:view@0",
             &[
                 // @group(0) @binding(0) var<uniform> view: View;
                 BindGroupLayoutEntry {
@@ -1652,12 +1663,9 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
         trace!("Specializing render pipeline for key: {key:?}");
 
-        let dispatch_indirect_size = GpuDispatchIndirect::aligned_size(
-            self.render_device
-                .limits()
-                .min_storage_buffer_offset_alignment,
-        );
-        let mut entries = vec![
+        trace!("Creating layout for bind group particle@1 of render pass");
+        let entries = [
+            // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
             BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::VERTEX,
@@ -1668,29 +1676,19 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 },
                 count: None,
             },
+            // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
             BindGroupLayoutEntry {
                 binding: 1,
                 visibility: ShaderStages::VERTEX,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(4u64),
+                    min_binding_size: Some(NonZeroU64::new(INDIRECT_INDEX_SIZE as u64).unwrap()),
                 },
                 count: None,
             },
+            // @group(1) @binding(2) var<storage, read> spawner : Spawner;
             BindGroupLayoutEntry {
-                binding: 2,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(dispatch_indirect_size),
-                },
-                count: None,
-            },
-        ];
-        if key.local_space_simulation {
-            entries.push(BindGroupLayoutEntry {
                 binding: 3,
                 visibility: ShaderStages::VERTEX,
                 ty: BindingType::Buffer {
@@ -1699,22 +1697,13 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                     min_binding_size: Some(GpuSpawnerParams::min_size()),
                 },
                 count: None,
-            });
-        }
-
-        trace!(
-            "GpuParticle: layout.min_binding_size={}",
-            key.particle_layout.min_binding_size()
-        );
-        trace!(
-            "Creating render bind group layout with {} entries",
-            entries.len()
-        );
-        let particles_buffer_layout = self
+            },
+        ];
+        let particle_bind_group_layout = self
             .render_device
-            .create_bind_group_layout("hanabi:buffer_layout_render", &entries);
+            .create_bind_group_layout("hanabi:bind_group_layout:render:particle@1", &entries[..]);
 
-        let mut layout = vec![self.view_layout.clone(), particles_buffer_layout];
+        let mut layout = vec![self.view_layout.clone(), particle_bind_group_layout];
         let mut shader_defs = vec![];
 
         let vertex_buffer_layout = key.mesh_layout.as_ref().and_then(|mesh_layout| {
@@ -2473,11 +2462,8 @@ impl EffectsMeta {
             ),
             update_dispatch_indirect_buffer: BufferTable::new(
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
-                // NOTE: Technically we're using an offset in dispatch_workgroups_indirect(), but
-                // `min_storage_buffer_offset_alignment` is documented as being for the offset in
-                // BufferBinding and the dynamic offset in set_bind_group(), so either the
-                // documentation is lacking or we don't need to align here.
-                NonZeroU64::new(item_align),
+                // Indirect dispatch args don't need to be aligned
+                None,
                 Some("hanabi:buffer:dispatch_indirect".to_string()),
             ),
             effect_metadata_buffer: BufferTable::new(
@@ -5002,7 +4988,7 @@ pub(crate) fn prepare_bind_groups(
                 // Base bind group for indirect pass
                 Some(render_device.create_bind_group(
                     "hanabi:bind_group:vfx_indirect:metadata@1",
-                    &dispatch_indirect_pipeline.dispatch_indirect_layout,
+                    &dispatch_indirect_pipeline.effect_metadata_bind_group_layout,
                     &[
                         // @group(1) @binding(0) var<storage, read_write> effect_metadata_buffer : array<u32>;
                         BindGroupEntry {
@@ -5035,7 +5021,7 @@ pub(crate) fn prepare_bind_groups(
         if effects_meta.indirect_spawner_bind_group.is_none() {
             let bind_group = render_device.create_bind_group(
                 "hanabi:bind_group:vfx_indirect:spawner@2",
-                &dispatch_indirect_pipeline.dispatch_indirect_layout,
+                &dispatch_indirect_pipeline.effect_metadata_bind_group_layout,
                 &[
                     // @group(2) @binding(0) var<storage, read> spawner_buffer : array<Spawner>;
                     BindGroupEntry {
@@ -5697,185 +5683,188 @@ impl Node for VfxSimulateNode {
             );
         }
 
+        // If there's no batch, there's nothing more to do. Avoid continuing because
+        // some GPU resources are missing, which is expected when there's no effect but
+        // is an error (and will log warnings/errors) otherwise.
+        if self.q_effect_batch.iter_manual(world).len() == 0 {
+            return Ok(());
+        }
+
         // Compute init pass
-        // let mut total_group_count = 0;
         {
-            {
-                trace!("init: loop over effect batches...");
+            trace!("init: loop over effect batches...");
 
-                let mut compute_pass =
-                    render_context
-                        .command_encoder()
-                        .begin_compute_pass(&ComputePassDescriptor {
-                            label: Some("hanabi:init"),
-                            timestamp_writes: None,
-                        });
+            let mut compute_pass =
+                render_context
+                    .command_encoder()
+                    .begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("hanabi:init"),
+                        timestamp_writes: None,
+                    });
 
-                // Bind group simparams@0 is common to everything, only set once per init pass
-                compute_pass.set_bind_group(
-                    0,
-                    effects_meta
-                        .indirect_sim_params_bind_group
-                        .as_ref()
-                        .unwrap(),
-                    &[],
-                );
+            // Bind group simparams@0 is common to everything, only set once per init pass
+            compute_pass.set_bind_group(
+                0,
+                effects_meta
+                    .indirect_sim_params_bind_group
+                    .as_ref()
+                    .unwrap(),
+                &[],
+            );
 
-                // Dispatch init compute jobs for all batches
-                let mut last_pipeline_id = None;
-                for (entity, effect_batch) in self.q_effect_batch.iter_manual(world) {
-                    // Do not dispatch any init work if there's nothing to spawn this frame for the
-                    // batch. Note that this hopefully should have been skipped earlier.
-                    {
-                        let use_indirect_dispatch = effect_batch
-                            .layout_flags
-                            .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS);
-                        match effect_batch.spawn_info {
-                            BatchSpawnInfo::CpuSpawner { total_spawn_count } => {
-                                assert!(!use_indirect_dispatch);
-                                if total_spawn_count == 0 {
-                                    warn!("-> init batch empty (total_spawn_count=0); should have been skipped earlier... (TODO)");
-                                    continue;
-                                }
-                            }
-                            BatchSpawnInfo::GpuSpawner { .. } => {
-                                assert!(use_indirect_dispatch);
+            // Dispatch init compute jobs for all batches
+            let mut last_pipeline_id = None;
+            for (entity, effect_batch) in self.q_effect_batch.iter_manual(world) {
+                // Do not dispatch any init work if there's nothing to spawn this frame for the
+                // batch. Note that this hopefully should have been skipped earlier.
+                {
+                    let use_indirect_dispatch = effect_batch
+                        .layout_flags
+                        .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS);
+                    match effect_batch.spawn_info {
+                        BatchSpawnInfo::CpuSpawner { total_spawn_count } => {
+                            assert!(!use_indirect_dispatch);
+                            if total_spawn_count == 0 {
+                                warn!("-> init batch empty (total_spawn_count=0); should have been skipped earlier... (TODO)");
+                                continue;
                             }
                         }
+                        BatchSpawnInfo::GpuSpawner { .. } => {
+                            assert!(use_indirect_dispatch);
+                        }
                     }
+                }
 
-                    // Fetch bind group particle@1
-                    let Some(particle_bind_group) =
-                        effect_cache.particle_sim_bind_group(effect_batch.buffer_index)
-                    else {
-                        error!(
+                // Fetch bind group particle@1
+                let Some(particle_bind_group) =
+                    effect_cache.particle_sim_bind_group(effect_batch.buffer_index)
+                else {
+                    error!(
                             "Failed to find init particle@1 bind group for entity {:?}, buffer index {}",
                             entity, effect_batch.buffer_index
                         );
-                        continue;
-                    };
+                    continue;
+                };
 
-                    // Fetch bind group metadata@3
-                    let Some(metadata_bind_group) = effect_bind_groups
-                        .init_metadata_bind_groups
-                        .get(&effect_batch.buffer_index)
-                    else {
-                        error!(
+                // Fetch bind group metadata@3
+                let Some(metadata_bind_group) = effect_bind_groups
+                    .init_metadata_bind_groups
+                    .get(&effect_batch.buffer_index)
+                else {
+                    error!(
                             "Failed to find init metadata@3 bind group for buffer index: {}, buffer index {}",
                             entity, effect_batch.buffer_index
                         );
-                        continue;
-                    };
+                    continue;
+                };
 
-                    // Fetch compute pipeline
-                    let pipeline_id = effect_batch.init_and_update_pipeline_ids.init;
-                    let Some(init_pipeline) = pipeline_cache.get_compute_pipeline(pipeline_id)
-                    else {
-                        if let CachedPipelineState::Err(err) =
-                            pipeline_cache.get_compute_pipeline_state(pipeline_id)
-                        {
-                            error!(
-                                "Failed to find init pipeline #{} for effect {:?}: {:?}",
-                                pipeline_id.id(),
-                                entity,
-                                err
-                            );
-                        }
-                        continue;
-                    };
-
-                    // Bind compute pipeline if changed
-                    if Some(init_pipeline.id()) != last_pipeline_id {
-                        compute_pass.set_pipeline(init_pipeline);
-                        last_pipeline_id = Some(init_pipeline.id());
+                // Fetch compute pipeline
+                let pipeline_id = effect_batch.init_and_update_pipeline_ids.init;
+                let Some(init_pipeline) = pipeline_cache.get_compute_pipeline(pipeline_id) else {
+                    if let CachedPipelineState::Err(err) =
+                        pipeline_cache.get_compute_pipeline_state(pipeline_id)
+                    {
+                        error!(
+                            "Failed to find init pipeline #{} for effect {:?}: {:?}",
+                            pipeline_id.id(),
+                            entity,
+                            err
+                        );
                     }
+                    continue;
+                };
 
-                    // Compute dynamic offsets
-                    let spawner_index = effect_batch.spawner_base;
-                    let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
-                    assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
-                    let spawner_offset = spawner_index * spawner_aligned_size as u32;
-                    let property_offset = effect_batch.property_offset;
+                // Bind compute pipeline if changed
+                if Some(init_pipeline.id()) != last_pipeline_id {
+                    compute_pass.set_pipeline(init_pipeline);
+                    last_pipeline_id = Some(init_pipeline.id());
+                }
 
-                    // Setup init pass
-                    compute_pass.set_bind_group(1, particle_bind_group, &[]);
-                    let offsets = if let Some(property_offset) = property_offset {
-                        vec![spawner_offset, property_offset]
-                    } else {
-                        vec![spawner_offset]
-                    };
-                    compute_pass.set_bind_group(
-                        2,
-                        property_bind_groups
-                            .get(effect_batch.property_key.as_ref())
-                            .unwrap(),
-                        &offsets[..],
-                    );
-                    compute_pass.set_bind_group(3, &metadata_bind_group.bind_group, &[]);
+                // Compute dynamic offsets
+                let spawner_index = effect_batch.spawner_base;
+                let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
+                assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
+                let spawner_offset = spawner_index * spawner_aligned_size as u32;
+                let property_offset = effect_batch.property_offset;
 
-                    // Dispatch init job
-                    match effect_batch.spawn_info {
-                        // Indirect dispatch via GPU spawn events
-                        BatchSpawnInfo::GpuSpawner {
-                            init_indirect_dispatch_index,
-                            ..
-                        } => {
-                            assert!(effect_batch
-                                .layout_flags
-                                .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS));
+                // Setup init pass
+                compute_pass.set_bind_group(1, particle_bind_group, &[]);
+                let offsets = if let Some(property_offset) = property_offset {
+                    vec![spawner_offset, property_offset]
+                } else {
+                    vec![spawner_offset]
+                };
+                compute_pass.set_bind_group(
+                    2,
+                    property_bind_groups
+                        .get(effect_batch.property_key.as_ref())
+                        .unwrap(),
+                    &offsets[..],
+                );
+                compute_pass.set_bind_group(3, &metadata_bind_group.bind_group, &[]);
 
-                            // Note: the indirect offset of a dispatch workgroup only needs
-                            // 4-byte alignment
-                            assert_eq!(GpuDispatchIndirect::min_size().get(), 12);
-                            let indirect_offset = init_indirect_dispatch_index as u64 * 12;
+                // Dispatch init job
+                match effect_batch.spawn_info {
+                    // Indirect dispatch via GPU spawn events
+                    BatchSpawnInfo::GpuSpawner {
+                        init_indirect_dispatch_index,
+                        ..
+                    } => {
+                        assert!(effect_batch
+                            .layout_flags
+                            .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS));
 
-                            trace!(
-                                "record commands for indirect init pipeline of effect {:?} \
+                        // Note: the indirect offset of a dispatch workgroup only needs
+                        // 4-byte alignment
+                        assert_eq!(GpuDispatchIndirect::min_size().get(), 12);
+                        let indirect_offset = init_indirect_dispatch_index as u64 * 12;
+
+                        trace!(
+                            "record commands for indirect init pipeline of effect {:?} \
                                 init_indirect_dispatch_index={} \
                                 indirect_offset={} \
                                 spawner_base={} \
                                 spawner_offset={}...",
-                                effect_batch.handle,
-                                init_indirect_dispatch_index,
-                                indirect_offset,
-                                spawner_index,
-                                spawner_offset,
-                            );
+                            effect_batch.handle,
+                            init_indirect_dispatch_index,
+                            indirect_offset,
+                            spawner_index,
+                            spawner_offset,
+                        );
 
-                            compute_pass.dispatch_workgroups_indirect(
-                                event_cache.init_indirect_dispatch_buffer().unwrap(),
-                                indirect_offset,
-                            );
-                        }
-
-                        // Direct dispatch via CPU spawn count
-                        BatchSpawnInfo::CpuSpawner {
-                            total_spawn_count: spawn_count,
-                        } => {
-                            assert!(!effect_batch
-                                .layout_flags
-                                .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS));
-
-                            const WORKGROUP_SIZE: u32 = 64;
-                            let workgroup_count = spawn_count.div_ceil(WORKGROUP_SIZE);
-
-                            trace!(
-                                "record commands for init pipeline of effect {:?} \
-                                (spawn {} particles => {} workgroups) spawner_base={} \
-                                spawner_offset={}...",
-                                effect_batch.handle,
-                                spawn_count,
-                                workgroup_count,
-                                spawner_index,
-                                spawner_offset,
-                            );
-
-                            compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
-                        }
+                        compute_pass.dispatch_workgroups_indirect(
+                            event_cache.init_indirect_dispatch_buffer().unwrap(),
+                            indirect_offset,
+                        );
                     }
 
-                    trace!("init compute dispatched");
+                    // Direct dispatch via CPU spawn count
+                    BatchSpawnInfo::CpuSpawner {
+                        total_spawn_count: spawn_count,
+                    } => {
+                        assert!(!effect_batch
+                            .layout_flags
+                            .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS));
+
+                        const WORKGROUP_SIZE: u32 = 64;
+                        let workgroup_count = spawn_count.div_ceil(WORKGROUP_SIZE);
+
+                        trace!(
+                            "record commands for init pipeline of effect {:?} \
+                                (spawn {} particles => {} workgroups) spawner_base={} \
+                                spawner_offset={}...",
+                            effect_batch.handle,
+                            spawn_count,
+                            workgroup_count,
+                            spawner_index,
+                            spawner_offset,
+                        );
+
+                        compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
+                    }
                 }
+
+                trace!("init compute dispatched");
             }
         }
 
