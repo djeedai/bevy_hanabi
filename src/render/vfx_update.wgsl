@@ -1,5 +1,5 @@
 #import bevy_hanabi::vfx_common::{
-    ChildInfo, EventBuffer, IndirectDispatch, IndirectBuffer,
+    ChildInfo, ChildInfoBuffer, EventBuffer, IndirectDispatch, IndirectBuffer,
     EffectMetadata, RenderGroupIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
@@ -62,15 +62,11 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
-    let effect_index = spawner.effect_index;
-
     // Always write into ping, read from pong
-    let ping = effect_metadata[effect_index].ping;
-    let pong = 1u - ping;
+    let write_index = effect_metadata.ping;
+    let read_index = 1u - write_index;
 
-    let effect_particle_offset = particle_groups[{{GROUP_INDEX}}].effect_particle_offset;
-    let base_index = effect_particle_offset + particle_groups[{{GROUP_INDEX}}].indirect_index;
-    let index = indirect_buffer.indices[3u * (base_index + thread_index) + pong];
+    let index = indirect_buffer.indices[3u * thread_index + read_index];
 
     // Initialize the PRNG seed
     seed = pcg_hash(index ^ spawner.seed);
@@ -108,7 +104,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
         // Save dead index
         let dead_index = atomicAdd(&effect_metadata.dead_count, 1u);
-        indirect_buffer.indices[3u * (base_index + dead_index) + 2u] = index;
+        indirect_buffer.indices[3u * dead_index + 2u] = index;
 
         // Also increment copy of dead count, which was updated in dispatch indirect
         // pass just before, and need to remain correct after this pass
@@ -117,6 +113,6 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     } else {
         // Increment alive particle count and write indirection index for later rendering
         let indirect_index = atomicAdd(&effect_metadata.instance_count, 1u);
-        indirect_buffer.indices[3u * (base_index + indirect_index) + ping] = index;
+        indirect_buffer.indices[3u * indirect_index + write_index] = index;
     }
 }

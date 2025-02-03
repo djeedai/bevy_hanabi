@@ -7,7 +7,7 @@ use bevy::{
     log::{error, trace},
     prelude::{Component, Entity, OnRemove, Query, Res, ResMut, Resource, Trigger},
     render::{
-        render_resource::{BindGroup, BindGroupLayout, Buffer, ShaderType as _},
+        render_resource::{BindGroup, BindGroupLayout, Buffer},
         renderer::{RenderDevice, RenderQueue},
     },
     utils::HashMap,
@@ -18,7 +18,10 @@ use wgpu::{
 };
 
 use super::{aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState};
-use crate::{render::GpuSpawnerParams, PropertyLayout};
+use crate::{
+    render::{GpuSpawnerParams, StorageType},
+    PropertyLayout,
+};
 
 /// Allocation into the [`PropertyCache`] for an effect instance. This component
 /// is only present on an effect instance if that effect uses properties.
@@ -144,6 +147,8 @@ pub struct PropertyCache {
 
 impl PropertyCache {
     pub fn new(device: RenderDevice) -> Self {
+        let spawner_min_binding_size =
+            GpuSpawnerParams::aligned_size(device.limits().min_storage_buffer_offset_alignment);
         let bgl = device.create_bind_group_layout(
             "hanabi:bind_group_layout:no_property",
             // @group(2) @binding(0) var<storage, read> spawner: Spawner;
@@ -153,7 +158,7 @@ impl PropertyCache {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: true,
-                    min_binding_size: Some(GpuSpawnerParams::min_size()),
+                    min_binding_size: Some(spawner_min_binding_size),
                 },
                 count: None,
             }],
@@ -197,18 +202,21 @@ impl PropertyCache {
 
         // Ensure there's a bind group layout for the property variant with that binding
         // size
-        let min_binding_size = property_layout.min_binding_size();
+        let properties_min_binding_size = property_layout.min_binding_size();
+        let spawner_min_binding_size = GpuSpawnerParams::aligned_size(
+            self.device.limits().min_storage_buffer_offset_alignment,
+        );
         self.bind_group_layouts
-            .entry(min_binding_size.get() as u32)
+            .entry(properties_min_binding_size.get() as u32)
             .or_insert_with(|| {
                 let label = format!(
                     "hanabi:bind_group_layout:property_size{}",
-                    min_binding_size.get()
+                    properties_min_binding_size.get()
                 );
                 trace!(
                     "Create new property bind group layout '{}' for binding size {} bytes.",
                     label,
-                    min_binding_size.get()
+                    properties_min_binding_size.get()
                 );
                 let bgl = self.device.create_bind_group_layout(
                     Some(&label[..]),
@@ -220,7 +228,7 @@ impl PropertyCache {
                             ty: BindingType::Buffer {
                                 ty: BufferBindingType::Storage { read_only: true },
                                 has_dynamic_offset: true,
-                                min_binding_size: Some(GpuSpawnerParams::min_size()),
+                                min_binding_size: Some(spawner_min_binding_size),
                             },
                             count: None,
                         },
@@ -231,7 +239,7 @@ impl PropertyCache {
                             ty: BindingType::Buffer {
                                 ty: BufferBindingType::Storage { read_only: true },
                                 has_dynamic_offset: true,
-                                min_binding_size: Some(min_binding_size),
+                                min_binding_size: Some(properties_min_binding_size),
                             },
                             count: None,
                         },
@@ -408,6 +416,42 @@ impl PropertyBindGroups {
                     ],
                 )
             });
+        Ok(())
+    }
+
+    /// Ensure the bind group for the given key exists, creating it if needed.
+    pub fn ensure_exists_no_property(
+        &mut self,
+        property_cache: &PropertyCache,
+        spawner_buffer: &Buffer,
+        spawner_buffer_binding_size: NonZeroU64,
+        render_device: &RenderDevice,
+        debug_entity: Entity,
+    ) -> Result<(), ()> {
+        let Some(layout) = property_cache.bind_group_layout(None) else {
+            error!(
+                "Missing property bind group layout for no-property variant, referenced by effect batch on render entity {:?}.",
+                debug_entity
+            );
+            return Err(());
+        };
+
+        if self.no_property_bind_group.is_none() {
+            trace!("Creating new spawner@2 bind group for no-property variant");
+            self.no_property_bind_group = Some(render_device.create_bind_group(
+                Some("hanabi:bind_group:spawner@2:no-property"),
+                layout,
+                &[BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Buffer(BufferBinding {
+                        buffer: &spawner_buffer,
+                        offset: 0,
+                        size: Some(spawner_buffer_binding_size),
+                    }),
+                }],
+            ));
+        }
+
         Ok(())
     }
 

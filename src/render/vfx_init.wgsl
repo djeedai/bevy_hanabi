@@ -16,13 +16,13 @@ struct ParticleBuffer {
 
 #ifdef READ_PARENT_PARTICLE
 
-struct ParentParticle {{
+struct ParentParticle {
     {{PARENT_ATTRIBUTES}}
-}}
+}
 
-struct ParentParticleBuffer {{
+struct ParentParticleBuffer {
     particles: array<ParentParticle>,
-}}
+}
 
 #endif
 
@@ -56,7 +56,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap to max number of dead particles, copied from dead_count at the end of the
     // previous iteration, and constant during this pass (unlike dead_count).
-    let max_spawn = atomicLoad(&render_group_indirect.max_spawn);
+    let max_spawn = atomicLoad(&effect_metadata.max_spawn);
     if (thread_index >= max_spawn) {
         return;
     }
@@ -81,16 +81,15 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 #endif
 
     // Always write into ping, read from pong
-    let ping = effect_metadata.ping;
-    let pong = 1u - ping;
+    let write_index = effect_metadata.ping;
+    let read_index = 1u - write_index;
 
     // Recycle a dead particle from the destination group
-    var dest_base_index = particle_group.effect_particle_offset + particle_group.indirect_index;
-    let dest_dead_index = atomicSub(&effect_metadata.dead_count, 1u) - 1u;
-    let dest_index = indirect_buffer.indices[3u * (dest_base_index + dest_dead_index) + 2u];
+    let dead_index = atomicSub(&effect_metadata.dead_count, 1u) - 1u;
+    let index = indirect_buffer.indices[3u * dead_index + 2u];
 
     // Initialize the PRNG seed
-    seed = pcg_hash(dest_index ^ spawner.seed);
+    seed = pcg_hash(index ^ spawner.seed);
 
     // Spawner transform
     let transform = transpose(
@@ -102,7 +101,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         )
     );
 
-#ifdef CONSUME_GPU_SPAWN_EVENTS
+#ifdef READ_PARENT_PARTICLE
     // Fetch parent particle which triggered this spawn
     let parent_index = event_buffer.spawn_events[event_index].particle_index;
     let parent_particle = parent_particle_buffer.particles[parent_index];
@@ -129,9 +128,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     atomicAdd(&effect_metadata.alive_count, 1u);
 
     // Add to alive list
-    let indirect_index = atomicAdd(&effect_metadata.instance_count, 1u);
-    indirect_buffer.indices[3u * (dest_base_index + indirect_index) + ping] = dest_index;
+    let instance_index = atomicAdd(&effect_metadata.instance_count, 1u);
+    indirect_buffer.indices[3u * instance_index + write_index] = index;
 
     // Write back new particle
-    particle_buffer.particles[dest_index] = particle;
+    particle_buffer.particles[index] = particle;
 }

@@ -1269,14 +1269,18 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
         {
             shader_defs.push("ATTRIBUTE_NEXT".into());
         }
-        if key
+        let consume_gpu_spawn_events = key
             .flags
-            .contains(ParticleInitPipelineKeyFlags::CONSUME_GPU_SPAWN_EVENTS)
-        {
+            .contains(ParticleInitPipelineKeyFlags::CONSUME_GPU_SPAWN_EVENTS);
+        if consume_gpu_spawn_events {
             shader_defs.push("CONSUME_GPU_SPAWN_EVENTS".into());
         }
+        // FIXME - for now this needs to keep in sync with consume_gpu_spawn_events
         if key.parent_particle_layout_min_binding_size.is_some() {
+            assert!(consume_gpu_spawn_events);
             shader_defs.push("READ_PARENT_PARTICLE".into());
+        } else {
+            assert!(!consume_gpu_spawn_events);
         }
 
         // This should always be valid when specialize() is called, by design. This is
@@ -1664,6 +1668,11 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         trace!("Specializing render pipeline for key: {key:?}");
 
         trace!("Creating layout for bind group particle@1 of render pass");
+        let alignment = self
+            .render_device
+            .limits()
+            .min_storage_buffer_offset_alignment;
+        let spawner_min_binding_size = GpuSpawnerParams::aligned_size(alignment);
         let entries = [
             // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
             BindGroupLayoutEntry {
@@ -1689,12 +1698,12 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             },
             // @group(1) @binding(2) var<storage, read> spawner : Spawner;
             BindGroupLayoutEntry {
-                binding: 3,
+                binding: 2,
                 visibility: ShaderStages::VERTEX,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: true,
-                    min_binding_size: Some(GpuSpawnerParams::min_size()),
+                    min_binding_size: Some(spawner_min_binding_size),
                 },
                 count: None,
             },
@@ -2674,9 +2683,18 @@ impl EffectsMeta {
                 );
             }
 
-            // We cannot yet determine the layout of the metadata@3 bind group, because it
-            // depends on the number of children, and this is encoded indirectly via the
-            // number of child effects pointing to this parent, and only calculated later in
+            // Ensure the metadata@3 bind group layout exists for init pass.
+            {
+                let consume_gpu_spawn_events = added_effect
+                    .layout_flags
+                    .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS);
+                effect_cache.ensure_metadata_init_bind_group_layout(consume_gpu_spawn_events);
+            }
+
+            // We cannot yet determine the layout of the metadata@3 bind group for the
+            // update pass, because it depends on the number of children, and
+            // this is encoded indirectly via the number of child effects
+            // pointing to this parent, and only calculated later in
             // resolve_parents().
 
             trace!(
@@ -3185,7 +3203,7 @@ pub(crate) fn prepare_effects(
     mut pipelines: PipelineSystemParams,
     property_cache: Res<PropertyCache>,
     event_cache: Res<EventCache>,
-    effect_cache: Res<EffectCache>,
+    mut effect_cache: ResMut<EffectCache>,
     mut specialized_init_pipelines: ResMut<SpecializedComputePipelines<ParticlesInitPipeline>>,
     mut specialized_update_pipelines: ResMut<SpecializedComputePipelines<ParticlesUpdatePipeline>>,
     mut specialized_indirect_pipelines: ResMut<
@@ -3298,7 +3316,7 @@ pub(crate) fn prepare_effects(
             particle_layout: cached_effect.slice.particle_layout.clone(),
         };
 
-        let has_event_buffer = cached_parent_info.is_some();
+        let has_event_buffer = cached_child_info.is_some();
         // FIXME: decouple "consumes event" from "reads parent particle" (here, p.layout
         // should be Option<T>, not T)
         let property_layout_min_binding_size = if extracted_effect.property_layout.is_empty() {
@@ -3382,12 +3400,12 @@ pub(crate) fn prepare_effects(
             .bind_group_layout(property_layout_min_binding_size)
             .unwrap_or_else(|| {
                 panic!(
-                    "Failed to find bind group layout for property binding size {:?}",
+                    "Failed to find spawner@2 bind group layout for property binding size {:?}",
                     property_layout_min_binding_size,
                 )
             });
         trace!(
-            "Retrieved property bind group layout {:?} for binding size {:?}...",
+            "Retrieved spawner@2 bind group layout {:?} for property binding size {:?}.",
             spawner_bind_group_layout.id(),
             property_layout_min_binding_size
         );
@@ -3425,6 +3443,12 @@ pub(crate) fn prepare_effects(
             )
             .unwrap()
             .clone();
+        trace!(
+            "Retrieved particle@1 bind group layout {:?} for particle binding size {:?} and parent binding size {:?}.",
+            particle_bind_group_layout.id(),
+            effect_slice.particle_layout.min_binding_size32(),
+            parent_particle_layout_min_binding_size,
+        );
 
         let particle_layout_min_binding_size = effect_slice.particle_layout.min_binding_size32();
         let spawner_bind_group_layout = spawner_bind_group_layout.clone();
@@ -3476,6 +3500,13 @@ pub(crate) fn prepare_effects(
             let num_event_buffers = cached_parent_info
                 .map(|p| p.children.len() as u32)
                 .unwrap_or_default();
+
+            // FIXME: currently don't hava a way to determine when this is needed, because
+            // we know the number of children per parent only after resolving
+            // all parents, but by that point we forgot if this is a newly added
+            // effect or not. So since we need to re-ensure for all effects, not
+            // only new ones, might as well do here...
+            effect_cache.ensure_metadata_update_bind_group_layout(num_event_buffers);
 
             // Fetch the bind group layouts from the cache
             let metadata_bind_group_layout = effect_cache
@@ -4008,7 +4039,7 @@ struct UpdateMetadataBindGroupKey {
     pub buffer_index: u32,
     pub effect_metadata_buffer: BufferId,
     pub effect_metadata_offset: u32,
-    pub child_info_buffer: Option<BufferId>,
+    pub child_info_buffer_id: Option<BufferId>,
     pub event_buffers_keys: Vec<BindingKey>,
 }
 
@@ -4163,7 +4194,7 @@ impl EffectBindGroups {
             );
 
             trace!(
-                    "Created new metadata@3 bind group for init pass and buffer index {}: effect_metadata={}",
+                    "Created new metadata@3 bind group for init pass and buffer index {}: effect_metadata=#{}",
                     effect_batch.buffer_index,
                     effect_metadata_buffer_table_id.0,
                 );
@@ -4207,7 +4238,14 @@ impl EffectBindGroups {
         // Check arguments consistency
         assert_eq!(effect_batch.child_effects.len(), event_buffers.len());
         let emits_gpu_spawn_events = event_buffers.len() > 0;
-        assert_eq!(emits_gpu_spawn_events, child_info_buffer.is_some());
+        let child_info_buffer_id = if emits_gpu_spawn_events {
+            child_info_buffer.as_ref().map(|buffer| buffer.id())
+        } else {
+            // Note: child_info_buffer can be Some() if allocated, but we only consider it
+            // if relevant, that is if the effect emits GPU spawn events.
+            None
+        };
+        assert_eq!(emits_gpu_spawn_events, child_info_buffer_id.is_some());
 
         let event_buffers_keys = event_buffers
             .iter()
@@ -4220,7 +4258,7 @@ impl EffectBindGroups {
             effect_metadata_offset: gpu_limits
                 .effect_metadata_offset(effect_metadata_buffer_table_id.0)
                 as u32,
-            child_info_buffer: child_info_buffer.as_ref().map(|buffer| buffer.id()),
+            child_info_buffer_id,
             event_buffers_keys,
         };
 
@@ -4236,7 +4274,9 @@ impl EffectBindGroups {
                     size: Some(gpu_limits.effect_metadata_aligned_size.into()),
                 }),
             });
-            if let Some(child_info_buffer) = child_info_buffer {
+            if emits_gpu_spawn_events {
+                let child_info_buffer = child_info_buffer.unwrap();
+
                 // @group(3) @binding(1) var<storage, read_write> child_info_buffer :
                 // ChildInfoBuffer;
                 entries.push(BindGroupEntry {
@@ -5021,7 +5061,7 @@ pub(crate) fn prepare_bind_groups(
         if effects_meta.indirect_spawner_bind_group.is_none() {
             let bind_group = render_device.create_bind_group(
                 "hanabi:bind_group:vfx_indirect:spawner@2",
-                &dispatch_indirect_pipeline.effect_metadata_bind_group_layout,
+                &dispatch_indirect_pipeline.spawner_bind_group_layout,
                 &[
                     // @group(2) @binding(0) var<storage, read> spawner_buffer : array<Spawner>;
                     BindGroupEntry {
@@ -5183,6 +5223,17 @@ pub(crate) fn prepare_bind_groups(
                 error!("Failed to create property bind group for effect {entity:?}: {err:?}");
                 continue;
             }
+        } else {
+            if let Err(err) = property_bind_groups.ensure_exists_no_property(
+                &property_cache,
+                &spawner_buffer,
+                spawner_buffer_binding_size,
+                &render_device,
+                entity,
+            ) {
+                error!("Failed to create property bind group for effect {entity:?}: {err:?}");
+                continue;
+            }
         }
 
         // Bind group particle@1 for the simulate compute shaders (init and udpate) to
@@ -5248,6 +5299,7 @@ pub(crate) fn prepare_bind_groups(
         // FIXME - this is instance-dependent, not buffer-dependent#
         {
             let num_event_buffers = effect_batch.child_effects.len() as u32;
+
             let Some(update_metadata_layout) =
                 effect_cache.metadata_update_bind_group_layout(num_event_buffers)
             else {

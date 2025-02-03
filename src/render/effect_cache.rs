@@ -156,8 +156,7 @@ pub struct EffectBuffer {
     /// Handle of all effects common in this buffer. TODO - replace with
     /// compatible layout.
     asset: Handle<EffectAsset>,
-    /// Bind group for the per-buffer data (group @1) of the simulation passes
-    /// (init and udpate).
+    /// Bind group particle@1 of the simulation passes (init and udpate).
     sim_bind_group: Option<BindGroup>,
     /// Key the `sim_bind_group` was created from.
     sim_bind_group_key: SimBindGroupKey,
@@ -225,7 +224,7 @@ impl EffectBuffer {
         });
 
         // Each indirect buffer stores 3 arrays of u32, of length the number of
-        // particles
+        // particles.
         let capacity_bytes: BufferAddress = capacity as u64 * 4 * 3;
 
         let indirect_label = format!("hanabi:buffer:vfx{buffer_index}_indirect");
@@ -254,7 +253,7 @@ impl EffectBuffer {
         let spawner_params_size = GpuSpawnerParams::aligned_size(
             render_device.limits().min_storage_buffer_offset_alignment,
         );
-        let mut entries = vec![
+        let entries = [
             // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
             BindGroupLayoutEntry {
                 binding: 0,
@@ -289,20 +288,7 @@ impl EffectBuffer {
                 count: None,
             },
         ];
-        if layout_flags.contains(LayoutFlags::LOCAL_SPACE_SIMULATION) {
-            // @group(1) @binding(3) var<storage, read> spawner : Spawner;
-            entries.push(BindGroupLayoutEntry {
-                binding: 3,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(GpuSpawnerParams::min_size()), // TODO - array
-                },
-                count: None,
-            });
-        }
-        let label = format!("hanabi:bind_group_layout:render:vfx{buffer_index}_particles");
+        let label = format!("hanabi:bind_group_layout:render:particles@1:vfx{buffer_index}");
         trace!(
             "Creating render layout '{}' with {} entries (flags: {:?})",
             label,
@@ -310,7 +296,7 @@ impl EffectBuffer {
             layout_flags
         );
         let render_particles_buffer_layout =
-            render_device.create_bind_group_layout(&label[..], &entries);
+            render_device.create_bind_group_layout(&label[..], &entries[..]);
 
         Self {
             particle_buffer,
@@ -418,9 +404,10 @@ impl EffectBuffer {
             };
 
         trace!(
-            "Create particle simulation bind group '{}' with {} entries",
+            "Create particle simulation bind group '{}' with {} entries (has_parent:{})",
             label,
-            entries.len()
+            entries.len(),
+            parent_binding_source.is_some(),
         );
         let bind_group = render_device.create_bind_group(Some(&label[..]), layout, &entries);
         self.sim_bind_group = Some(bind_group);
@@ -1102,7 +1089,7 @@ fn create_particle_sim_bind_group_layout(
     let hash = calc_hash(&entries);
     let label = format!("hanabi:bind_group_layout:sim:particles_{:016X}", hash);
     trace!(
-        "Creating particle bind group layout '{}' for init passes with {} entries. (parent_buffer:{})",
+        "Creating particle bind group layout '{}' for init pass with {} entries. (parent_buffer:{})",
         label,
         entries.len(),
         parent_particle_layout_min_binding_size.is_some(),
@@ -1141,7 +1128,7 @@ fn create_metadata_init_bind_group_layout(
             binding: 1,
             visibility: ShaderStages::COMPUTE,
             ty: BindingType::Buffer {
-                ty: BufferBindingType::Storage { read_only: false },
+                ty: BufferBindingType::Storage { read_only: true },
                 has_dynamic_offset: false,
                 min_binding_size: Some(GpuChildInfo::min_size()),
             },
@@ -1162,9 +1149,17 @@ fn create_metadata_init_bind_group_layout(
     }
 
     let hash = calc_hash(&entries);
-    let label = format!("hanabi:bind_group_layout:init:metadata_{:016X}", hash);
+    let label = format!(
+        "hanabi:bind_group_layout:init:metadata@3_{}{:016X}",
+        if consume_gpu_spawn_events {
+            "events"
+        } else {
+            "noevent"
+        },
+        hash
+    );
     trace!(
-        "Creating particle bind group layout '{}' for init pass with {} entries. (consume_gpu_spawn_events:{})",
+        "Creating metadata@3 bind group layout '{}' for init pass with {} entries. (consume_gpu_spawn_events:{})",
         label,
         entries.len(),
         consume_gpu_spawn_events,

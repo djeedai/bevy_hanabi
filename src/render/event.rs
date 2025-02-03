@@ -279,6 +279,7 @@ pub struct EventCache {
     /// for GPU events also get an entry into this buffer, to allow consuming
     /// the events from an init pass indirectly dispatched (GPU-driven).
     // Note: we abuse BufferVec but never copy anything from CPU
+    // FIXME - merge with the update pass one, we don't need 2 buffers storing the same type
     init_indirect_dispatch_buffer: BufferVec<GpuDispatchIndirect>,
     /// Bind group layout for the indirect dispatch pass, which clears the GPU
     /// event counts ([`GpuChildInfo::event_count`]).
@@ -554,7 +555,7 @@ impl EventCache {
         self.child_infos_buffer
             .write_buffer(render_device, render_queue);
         let new_buffer = self.child_infos_buffer.buffer().map(|b| b.id());
-        if old_buffer != new_buffer {
+        if old_buffer != new_buffer && old_buffer.is_some() {
             // If the child infos buffer changed, all init bind groups of children and all
             // update bind groups of parents are invalid because they all use that globally
             // shared buffer.
