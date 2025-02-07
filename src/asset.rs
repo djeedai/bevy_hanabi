@@ -2,6 +2,7 @@
 use bevy::asset::{io::Reader, AssetLoader, LoadContext};
 use bevy::{
     asset::{Asset, Assets, Handle},
+    log::trace,
     math::{Vec2, Vec3},
     prelude::{Component, Entity, FromWorld, Mesh, Plane3d, Resource, World},
     reflect::Reflect,
@@ -247,6 +248,7 @@ impl FromWorld for DefaultMesh {
     fn from_world(world: &mut World) -> Self {
         let mut meshes = world.resource_mut::<Assets<Mesh>>();
         let handle = meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)));
+        trace!("Created DefaultMesh(Plane3d/Z): handle={handle:?}");
         Self(handle)
     }
 }

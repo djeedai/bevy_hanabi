@@ -354,6 +354,7 @@ impl Plugin for HanabiPlugin {
                         batch_effects,
                     )
                         .chain()
+                        .after(prepare_assets::<bevy::render::mesh::RenderMesh>)
                         .in_set(EffectSystems::PrepareEffectAssets)
                         // Ensure we run after Bevy prepared the render Mesh
                         .after(allocate_and_free_meshes),

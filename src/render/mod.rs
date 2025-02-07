@@ -2178,13 +2178,14 @@ pub(crate) fn extract_effects(
 
             trace!(
                 "Found new effect: entity {:?} | render entity {:?} | capacity {:?} | particle_layout {:?} | \
-                 property_layout {:?} | layout_flags {:?}",
+                 property_layout {:?} | layout_flags {:?} | mesh {:?}",
                  entity,
                  render_entity.id(),
                  asset.capacity(),
                  particle_layout,
                  property_layout,
-                 compiled_effect.layout_flags);
+                 compiled_effect.layout_flags,
+                 mesh);
 
             let parent = compiled_effect.parent.map(|entity| AddedEffectParent {
                 entity,
@@ -2509,11 +2510,15 @@ impl EffectsMeta {
             // meshes, so we already know the buffer and position of the particle mesh, and
             // can fill the indirect args with it.
             let (gpu_effect_metadata, cached_mesh) = {
+                // FIXME - this is too soon because prepare_assets::<RenderMesh>() didn't necessarily run. we should defer CachedMesh until later,
+                // as we don't really need it here anyway. use Added<CachedEffect> to detect newly added effects later in the render frame?
+                // note also that we use cmd.get(entity).insert() so technically the CachedEffect _could_ already exist... maybe should
+                // only do the bare minimum here (insert into caches) and not update components eagerly? not sure...
+
                 let Some(render_mesh) = render_meshes.get(added_effect.mesh.id()) else {
-                    trace!(
-                        "Effect main_entity {:?}: cannot find render mesh {:?}",
-                        added_effect.entity,
-                        added_effect.mesh
+                    warn!(
+                        "Cannot find render mesh of particle effect instance on entity {:?}, despite applying default mesh. Invalid asset handle: {:?}",
+                        added_effect.entity, added_effect.mesh
                     );
                     continue;
                 };
@@ -3200,6 +3205,7 @@ pub(crate) fn prepare_effects(
         Option<&CachedChildInfo>,
         Option<&CachedEffectEvents>,
     )>,
+    q_debug_all_entities: Query<MainEntity>,
     mut gpu_buffer_operation_queue: ResMut<GpuBufferOperationQueue>,
 ) {
     #[cfg(feature = "trace")]
@@ -3281,10 +3287,22 @@ pub(crate) fn prepare_effects(
             cached_effect_events,
         )) = q_cached_effects.get(extracted_effect.render_entity.id())
         else {
-            trace!(
+            warn!(
                 "Unknown render entity {:?} for extracted effect.",
                 extracted_effect.render_entity.id()
             );
+            if let Ok(main_entity) = q_debug_all_entities.get(extracted_effect.render_entity.id()) {
+                info!(
+                    "Render entity {:?} exists with main entity {:?}, some component missing!",
+                    extracted_effect.render_entity.id(),
+                    main_entity
+                );
+            } else {
+                info!(
+                    "Render entity {:?} does not exists with a MainEntity.",
+                    extracted_effect.render_entity.id()
+                );
+            }
             continue;
         };
 
