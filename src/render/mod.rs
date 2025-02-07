@@ -3731,7 +3731,7 @@ pub(crate) fn prepare_effects(
             if let Some(indexed) = &cached_mesh.indexed {
                 gpu_effect_metadata.vertex_or_index_count = indexed.range.len() as u32;
                 gpu_effect_metadata.first_index_or_vertex_offset = indexed.range.start;
-                gpu_effect_metadata.vertex_offset_or_base_instance = indexed.range.start as i32;
+                gpu_effect_metadata.vertex_offset_or_base_instance = cached_mesh.range.start as i32;
             } else {
                 gpu_effect_metadata.vertex_or_index_count = cached_mesh.range.len() as u32;
                 gpu_effect_metadata.first_index_or_vertex_offset = cached_mesh.range.start;
