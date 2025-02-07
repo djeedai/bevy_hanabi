@@ -2452,12 +2452,12 @@ impl EffectsMeta {
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
                 // Indirect dispatch args don't need to be aligned
                 None,
-                Some("hanabi:buffer:dispatch_indirect".to_string()),
+                Some("hanabi:buffer:update_dispatch_indirect".to_string()),
             ),
             effect_metadata_buffer: BufferTable::new(
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
                 NonZeroU64::new(item_align),
-                Some("hanabi:buffer:render_effect_dispatch".to_string()),
+                Some("hanabi:buffer:effect_metadata".to_string()),
             ),
             gpu_limits,
             indirect_shader_noevent,
@@ -2510,10 +2510,13 @@ impl EffectsMeta {
             // meshes, so we already know the buffer and position of the particle mesh, and
             // can fill the indirect args with it.
             let (gpu_effect_metadata, cached_mesh) = {
-                // FIXME - this is too soon because prepare_assets::<RenderMesh>() didn't necessarily run. we should defer CachedMesh until later,
-                // as we don't really need it here anyway. use Added<CachedEffect> to detect newly added effects later in the render frame?
-                // note also that we use cmd.get(entity).insert() so technically the CachedEffect _could_ already exist... maybe should
-                // only do the bare minimum here (insert into caches) and not update components eagerly? not sure...
+                // FIXME - this is too soon because prepare_assets::<RenderMesh>() didn't
+                // necessarily run. we should defer CachedMesh until later,
+                // as we don't really need it here anyway. use Added<CachedEffect> to detect
+                // newly added effects later in the render frame? note also that
+                // we use cmd.get(entity).insert() so technically the CachedEffect _could_
+                // already exist... maybe should only do the bare minimum here
+                // (insert into caches) and not update components eagerly? not sure...
 
                 let Some(render_mesh) = render_meshes.get(added_effect.mesh.id()) else {
                     warn!(
@@ -3198,7 +3201,7 @@ pub(crate) fn prepare_effects(
     q_cached_effects: Query<(
         MainEntity,
         &CachedEffect,
-        &CachedMesh,
+        Ref<CachedMesh>,
         &DispatchBufferIndices,
         Option<&CachedEffectProperties>,
         Option<&CachedParentInfo>,
@@ -3574,36 +3577,33 @@ pub(crate) fn prepare_effects(
             extracted_effect.render_entity.id()
         );
         let mut cmd = commands.entity(extracted_effect.render_entity.id());
-        cmd.insert((
-            BatchInput {
-                handle: extracted_effect.handle,
-                entity: extracted_effect.render_entity.id(),
-                main_entity: extracted_effect.main_entity,
-                effect_slice,
-                init_and_update_pipeline_ids,
-                parent_particle_layout: extracted_effect.parent_particle_layout.clone(),
-                parent_buffer_index,
-                event_buffer_index: cached_effect_events.map(|cee| cee.buffer_index),
-                child_effects: cached_parent_info
-                    .map(|cp| cp.children.clone())
-                    .unwrap_or_default(),
-                layout_flags: extracted_effect.layout_flags,
-                texture_layout: extracted_effect.texture_layout.clone(),
-                textures: extracted_effect.textures.clone(),
-                alpha_mode: extracted_effect.alpha_mode,
-                particle_layout: extracted_effect.particle_layout.clone(),
-                shaders: extracted_effect.effect_shaders,
-                spawner_base: spawner_index,
-                spawn_count: extracted_effect.effect_spawner.spawn_count,
-                #[cfg(feature = "3d")]
-                position: extracted_effect.transform.translation(),
-                init_indirect_dispatch_index: cached_child_info
-                    .map(|cc| cc.init_indirect_dispatch_index),
-                #[cfg(feature = "2d")]
-                z_sort_key_2d: extracted_effect.z_sort_key_2d,
-            },
-            cached_mesh.clone(),
-        ));
+        cmd.insert(BatchInput {
+            handle: extracted_effect.handle,
+            entity: extracted_effect.render_entity.id(),
+            main_entity: extracted_effect.main_entity,
+            effect_slice,
+            init_and_update_pipeline_ids,
+            parent_particle_layout: extracted_effect.parent_particle_layout.clone(),
+            parent_buffer_index,
+            event_buffer_index: cached_effect_events.map(|cee| cee.buffer_index),
+            child_effects: cached_parent_info
+                .map(|cp| cp.children.clone())
+                .unwrap_or_default(),
+            layout_flags: extracted_effect.layout_flags,
+            texture_layout: extracted_effect.texture_layout.clone(),
+            textures: extracted_effect.textures.clone(),
+            alpha_mode: extracted_effect.alpha_mode,
+            particle_layout: extracted_effect.particle_layout.clone(),
+            shaders: extracted_effect.effect_shaders,
+            spawner_base: spawner_index,
+            spawn_count: extracted_effect.effect_spawner.spawn_count,
+            #[cfg(feature = "3d")]
+            position: extracted_effect.transform.translation(),
+            init_indirect_dispatch_index: cached_child_info
+                .map(|cc| cc.init_indirect_dispatch_index),
+            #[cfg(feature = "2d")]
+            z_sort_key_2d: extracted_effect.z_sort_key_2d,
+        });
 
         // Update properties
         if let Some(cached_effect_properties) = cached_effect_properties {
@@ -3685,9 +3685,9 @@ pub(crate) fn prepare_effects(
 
         // Now that the effect is entirely prepared and all GPU resources are allocated,
         // update its GpuEffectMetadata with all those infos.
-        // FIXME - should do this only when the below change, via some invalidation
-        // mechanism and ECS change detection.
-        {
+        // FIXME - should do this only when the below changes (not only the mesh), via
+        // some invalidation mechanism and ECS change detection.
+        if cached_mesh.is_changed() {
             let capacity = cached_effect.slice.len();
 
             // Global and local indices of this effect as a child of another (parent) effect
@@ -3743,6 +3743,11 @@ pub(crate) fn prepare_effects(
             effects_meta.effect_metadata_buffer.update(
                 dispatch_buffer_indices.effect_metadata_buffer_table_id,
                 gpu_effect_metadata,
+            );
+
+            warn!(
+                "Updated metadata entry {} for effect {:?}, this will reset it.",
+                dispatch_buffer_indices.effect_metadata_buffer_table_id.0, main_entity
             );
         }
 
