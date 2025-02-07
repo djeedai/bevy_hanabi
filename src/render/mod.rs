@@ -2702,6 +2702,7 @@ impl EffectsMeta {
             .allocate_gpu(render_device, render_queue)
         {
             // All those bind groups use the buffer so need to be re-created
+            trace!("*** Dispatch indirect buffer for update pass re-allocated; clearing all bind groups using it.");
             effect_bind_groups.particle_buffers.clear();
         }
         if self
@@ -2709,6 +2710,7 @@ impl EffectsMeta {
             .allocate_gpu(render_device, render_queue)
         {
             // All those bind groups use the buffer so need to be re-created
+            trace!("*** Effect metadata buffer re-allocated; clearing all bind groups using it.");
             self.indirect_metadata_bind_group = None;
             effect_bind_groups.init_metadata_bind_groups.clear();
             effect_bind_groups.update_metadata_bind_groups.clear();
@@ -4208,13 +4210,21 @@ impl EffectBindGroups {
             .entry(effect_batch.buffer_index)
             .and_modify(|cbg| {
                 if cbg.key != key {
+                    trace!(
+                        "Bind group key changed for init metadata@3, re-creating bind group... old={:?} new={:?}",
+                        cbg.key,
+                        key
+                    );
                     cbg.key = key.clone();
                     cbg.bind_group = make_entry();
                 }
             })
-            .or_insert(CachedBindGroup {
-                key: key.clone(),
-                bind_group: make_entry(),
+            .or_insert_with(|| {
+                trace!("Inserting new bind group for init metadata@3 with key={:?}", key);
+                CachedBindGroup {
+                    key: key.clone(),
+                    bind_group: make_entry(),
+                }
             })
             .bind_group)
     }
@@ -4319,13 +4329,24 @@ impl EffectBindGroups {
             .entry(effect_batch.buffer_index)
             .and_modify(|cbg| {
                 if cbg.key != key {
+                    trace!(
+                        "Bind group key changed for update metadata@3, re-creating bind group... old={:?} new={:?}",
+                        cbg.key,
+                        key
+                    );
                     cbg.key = key.clone();
                     cbg.bind_group = make_entry();
                 }
             })
-            .or_insert(CachedBindGroup {
-                key: key.clone(),
-                bind_group: make_entry(),
+            .or_insert_with(|| {
+                trace!(
+                    "Inserting new bind group for update metadata@3 with key={:?}",
+                    key
+                );
+                CachedBindGroup {
+                    key: key.clone(),
+                    bind_group: make_entry(),
+                }
             })
             .bind_group)
     }
@@ -5767,7 +5788,6 @@ impl Node for VfxSimulateNode {
                         BatchSpawnInfo::CpuSpawner { total_spawn_count } => {
                             assert!(!use_indirect_dispatch);
                             if total_spawn_count == 0 {
-                                warn!("-> init batch empty (total_spawn_count=0); should have been skipped earlier... (TODO)");
                                 continue;
                             }
                         }
