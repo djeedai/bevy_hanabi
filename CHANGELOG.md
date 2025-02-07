@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the `EffectSystems::GatherRemovedEffects` system set.
   Removed effects are now processed via observers, which execute during the render world sync just before extraction.
   Removed the `RemovedEffectsEvent` type too.
+- Removed the `EffectInitializers` component. For CPU spawning, use `EffectSpawner` instead.
+  For GPU spawning, see the migration guide about the removal of groups and use of `EffectParent` and GPU spawn events.
 
 ## [0.14.0] 2024-12-09
 

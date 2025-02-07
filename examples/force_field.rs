@@ -318,7 +318,7 @@ fn setup(
 }
 
 fn spawn_on_click(
-    mut q_effect: Query<(&mut EffectInitializers, &mut Transform), Without<Projection>>,
+    mut q_effect: Query<(&mut EffectSpawner, &mut Transform), Without<Projection>>,
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Projection>>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
@@ -326,7 +326,7 @@ fn spawn_on_click(
     // Note: On first frame where the effect spawns, EffectSpawner is spawned during
     // CoreSet::PostUpdate, so will not be available yet. Ignore for a frame if
     // so.
-    let Ok((mut initializers, mut effect_transform)) = q_effect.get_single_mut() else {
+    let Ok((mut effect_spawner, mut effect_transform)) = q_effect.get_single_mut() else {
         return;
     };
 
@@ -343,7 +343,7 @@ fn spawn_on_click(
                 effect_transform.translation = spawning_pos;
 
                 // Spawn a single burst of particles
-                initializers.reset();
+                effect_spawner.reset();
             }
         }
     }

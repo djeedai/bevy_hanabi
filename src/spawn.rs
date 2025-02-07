@@ -152,11 +152,10 @@ impl<T: Copy + FromReflect + FloatHash> Hash for CpuValue<T> {
 /// spawn is stored as a floating-point number, and any remainder accumulates
 /// for the next emitting.
 ///
-/// The spawner itself is embedded into the [`EffectInitializers`] component.
-/// Once per frame the [`tick_initializers()`] system will add the component if
+/// Once per frame the [`tick_spawners()`] system will add the component if
 /// it's missing, cloning the [`Spawner`] from the source [`EffectAsset`], then
-/// tick the [`Spawner`] stored in the [`EffectInitializers`]. The resulting
-/// number of particles to spawn for the frame is then stored into
+/// tick that [`Spawner`] stored in the component. The resulting number of
+/// particles to spawn for the frame is then stored into
 /// [`EffectSpawner::spawn_count`]. You can override that value to manually
 /// control each frame how many particles are spawned.
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
@@ -655,9 +654,9 @@ impl EffectSpawner {
 /// the render world.
 ///
 /// Once the system determined that the effect instance needs to be simulated
-/// this frame, it ticks the effect's initializer by calling
-/// [`EffectSpawner::tick()`], adding a new [`EffectInitializers`] component if
-/// it doesn't already exist on the same entity as the [`ParticleEffect`].
+/// this frame, it ticks the effect's spawner by calling
+/// [`EffectSpawner::tick()`], adding a new [`EffectSpawner`] component if it
+/// doesn't already exist on the same entity as the [`ParticleEffect`].
 ///
 /// [`VisibilitySystems::VisibilityPropagate`]: bevy::render::view::VisibilitySystems::VisibilityPropagate
 /// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
