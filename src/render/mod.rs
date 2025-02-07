@@ -3156,8 +3156,6 @@ pub(crate) struct CachedMesh {
 pub(crate) struct CachedProperties {
     /// Layout of the effect properties.
     pub layout: PropertyLayout,
-    /// GPU buffer containing the property data.
-    pub buffer: Buffer,
     /// Index of the buffer in the [`EffectCache`].
     pub buffer_index: u32,
     /// Offset in bytes inside the buffer.
@@ -3189,7 +3187,7 @@ pub(crate) fn prepare_effects(
     mut commands: Commands,
     read_params: PrepareEffectsReadOnlyParams,
     mut pipelines: PipelineSystemParams,
-    property_cache: Res<PropertyCache>,
+    mut property_cache: ResMut<PropertyCache>,
     event_cache: Res<EventCache>,
     mut effect_cache: ResMut<EffectCache>,
     mut specialized_init_pipelines: ResMut<SpecializedComputePipelines<ParticlesInitPipeline>>,
@@ -3630,50 +3628,36 @@ pub(crate) fn prepare_effects(
                     );
                 }
             } else {
-                // Effect has properties, needs a component. However it can only get one if
-                // there's a buffer allocated.
-                if let Some(buffer) =
-                    property_cache.get_buffer(cached_effect_properties.buffer_index)
-                {
-                    // Insert a new component or overwrite the existing one
-                    cmd.insert(CachedProperties {
-                        layout: extracted_effect.property_layout.clone(),
-                        buffer: buffer.clone(),
-                        buffer_index: cached_effect_properties.buffer_index,
-                        offset: cached_effect_properties.range.start,
-                        binding_size: cached_effect_properties.range.len() as u32,
-                    });
+                // Insert a new component or overwrite the existing one
+                cmd.insert(CachedProperties {
+                    layout: extracted_effect.property_layout.clone(),
+                    buffer_index: cached_effect_properties.buffer_index,
+                    offset: cached_effect_properties.range.start,
+                    binding_size: cached_effect_properties.range.len() as u32,
+                });
 
-                    // Write properties for this effect if they were modified.
-                    // FIXME - This doesn't work with batching!
-                    if let Some(property_data) = &extracted_effect.property_data {
-                        trace!(
-                        "Properties changed; (re-)uploading to GPU... New data: {} bytes. Capacity: {} bytes.",
-                        property_data.len(),
-                        cached_effect_properties.range.len(),
-                    );
-                        if property_data.len() <= cached_effect_properties.range.len() {
-                            render_queue.write_buffer(
-                                buffer,
-                                cached_effect_properties.range.start as u64,
-                                property_data,
-                            );
-                        } else {
-                            error!(
+                // Write properties for this effect if they were modified.
+                // FIXME - This doesn't work with batching!
+                if let Some(property_data) = &extracted_effect.property_data {
+                    trace!(
+                    "Properties changed; (re-)uploading to GPU... New data: {} bytes. Capacity: {} bytes.",
+                    property_data.len(),
+                    cached_effect_properties.range.len(),
+                );
+                    if property_data.len() <= cached_effect_properties.range.len() {
+                        let property_buffer = property_cache.buffers_mut()
+                            [cached_effect_properties.buffer_index as usize]
+                            .as_mut()
+                            .unwrap();
+                        property_buffer.write(cached_effect_properties.range.start, property_data);
+                    } else {
+                        error!(
                             "Cannot upload properties: existing property slice in property buffer #{} is too small ({} bytes) for the new data ({} bytes).",
                             cached_effect_properties.buffer_index,
                             cached_effect_properties.range.len(),
                             property_data.len()
                         );
-                        }
                     }
-                } else {
-                    error!(
-                    "Render entity {:?} has a CachedEffectProperties component referencing the property buffer #{}, but that buffer was not found.",
-                    extracted_effect.render_entity.id(),
-                    cached_effect_properties.buffer_index
-                );
-                    cmd.remove::<CachedProperties>();
                 }
             }
         } else {
@@ -5886,12 +5870,14 @@ impl Node for VfxSimulateNode {
                                 init_indirect_dispatch_index={} \
                                 indirect_offset={} \
                                 spawner_base={} \
-                                spawner_offset={}...",
+                                spawner_offset={} \
+                                property_key={:?}...",
                             effect_batch.handle,
                             init_indirect_dispatch_index,
                             indirect_offset,
                             spawner_index,
                             spawner_offset,
+                            effect_batch.property_key,
                         );
 
                         compute_pass.dispatch_workgroups_indirect(
@@ -5914,12 +5900,14 @@ impl Node for VfxSimulateNode {
                         trace!(
                             "record commands for init pipeline of effect {:?} \
                                 (spawn {} particles => {} workgroups) spawner_base={} \
-                                spawner_offset={}...",
+                                spawner_offset={} \
+                                property_key={:?}...",
                             effect_batch.handle,
                             spawn_count,
                             workgroup_count,
                             spawner_index,
                             spawner_offset,
+                            effect_batch.property_key,
                         );
 
                         compute_pass.dispatch_workgroups(workgroup_count, 1, 1);

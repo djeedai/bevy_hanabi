@@ -785,6 +785,27 @@ impl HybridAlignedBufferVec {
         true
     }
 
+    /// Update an allocated entry with new data
+    pub fn update(&mut self, offset: u32, data: &[u8]) {
+        // Can only update entire blocks starting at an aligned size
+        let align = self.item_align as u32;
+        if offset % align != 0 {
+            return;
+        }
+
+        // Check for out of bounds argument
+        let end = self.values.len() as u32;
+        let data_end = offset + data.len() as u32;
+        if offset >= end || data_end > end {
+            return;
+        }
+
+        let dst: &mut [u8] = &mut self.values[offset as usize..data_end as usize];
+        dst.copy_from_slice(data);
+
+        self.is_stale = true;
+    }
+
     /// Reserve some capacity into the buffer.
     ///
     /// If the buffer is reallocated, the old content (on the GPU) is lost, and

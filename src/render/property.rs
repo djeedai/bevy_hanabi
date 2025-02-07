@@ -123,6 +123,10 @@ impl PropertyBuffer {
         }
     }
 
+    pub fn write(&mut self, offset: u32, data: &[u8]) {
+        self.buffer.update(offset, data);
+    }
+
     #[inline]
     pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
         self.buffer.write_buffer(device, queue)
