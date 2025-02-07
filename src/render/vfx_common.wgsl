@@ -91,7 +91,8 @@ struct IndirectDispatch {
     z: u32,
 }
 
-const DISPATCH_INDIRECT_STRIDE: u32 = 12u;
+/// Stride in u32 count (4 bytes) of the IndirectDispatch struct.
+const DISPATCH_INDIRECT_STRIDE: u32 = 3u;
 
 // Effect metadata offsets. Used when accessing a tightly packed array of EffectMetadata
 // as a raw array<u32>, so that we can avoid WGSL struct padding and keep data more compact
