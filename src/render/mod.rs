@@ -127,6 +127,14 @@ impl BufferBindingSource {
     }
 }
 
+impl PartialEq for BufferBindingSource {
+    fn eq(&self, other: &Self) -> bool {
+        self.buffer.id() == other.buffer.id()
+            && self.offset == other.offset
+            && self.size == other.size
+    }
+}
+
 impl<'a> From<&'a BufferBindingSource> for BufferBinding<'a> {
     fn from(value: &'a BufferBindingSource) -> Self {
         BufferBinding {
@@ -887,6 +895,7 @@ impl GpuBufferOperationQueue {
                     if prev.src_stride == cur.src_stride
                     // at this point src_offset == child_index, and we want them to be contiguous in the source buffer so that we can increment by src_stride
                     && cur.src_offset == prev.src_offset + 1
+                    && cur.dst_offset == prev.dst_offset + 1
                     {
                         prev.count += 1;
                         trace!("-> merged op with previous one {:?}", prev);
@@ -897,7 +906,7 @@ impl GpuBufferOperationQueue {
                 let sorted_args_index = sorted_args.len() as u32;
                 sorted_ifda.push(InitFillDispatchArgs {
                     event_buffer_index: ifda.event_buffer_index,
-                    event_slice: 0..0,
+                    event_slice: ifda.event_slice.clone(),
                     args_index: sorted_args_index,
                 });
                 sorted_args.push(self.args_buffer_unsorted[ifda.args_index as usize]);
@@ -2944,7 +2953,15 @@ fn is_child_list_changed(
 /// slice for all children of each parent.
 pub(crate) fn resolve_parents(
     mut commands: Commands,
-    q_child_effects: Query<(Entity, &CachedParentRef, &CachedEffectEvents), With<CachedEffect>>,
+    q_child_effects: Query<
+        (
+            Entity,
+            &CachedParentRef,
+            &CachedEffectEvents,
+            Option<&CachedChildInfo>,
+        ),
+        With<CachedEffect>,
+    >,
     q_cached_effects: Query<&CachedEffect>,
     mut q_parent_effects: Query<(Entity, &mut CachedParentInfo), With<CachedEffect>>,
     effect_cache: Res<EffectCache>,
@@ -2965,7 +2982,9 @@ pub(crate) fn resolve_parents(
         let extra = num_parent_effects - children_from_parent.capacity();
         children_from_parent.reserve(extra);
     }
-    for (child_entity, cached_parent_ref, cached_effect_events) in q_child_effects.iter() {
+    for (child_entity, cached_parent_ref, cached_effect_events, cached_child_info) in
+        q_child_effects.iter()
+    {
         let parent_entity = cached_parent_ref.entity;
 
         // Resolve the parent
@@ -3006,6 +3025,26 @@ pub(crate) fn resolve_parents(
             event_count: 0,
             init_indirect_dispatch_index: cached_effect_events.init_indirect_dispatch_index,
         });
+
+        // Check if child info changed. Avoid overwriting if no change.
+        if let Some(old_cached_child_info) = cached_child_info {
+            if parent_entity == old_cached_child_info.parent
+                && parent_cached_effect.slice.particle_layout
+                    == old_cached_child_info.parent_particle_layout
+                && parent_buffer_binding_source
+                    == old_cached_child_info.parent_buffer_binding_source
+                // Note: if local child index didn't change, then keep global one too for now. Chances are the parent didn't change, but anyway we can't know for now without inspecting all its children.
+                && local_child_index == old_cached_child_info.local_child_index
+                && cached_effect_events.init_indirect_dispatch_index
+                    == old_cached_child_info.init_indirect_dispatch_index
+            {
+                trace!(
+                    "ChildInfo didn't change for child entity {:?}, skipping component write.",
+                    child_entity
+                );
+                continue;
+            }
+        }
 
         // Allocate (or overwrite, if already existing) the child info, now that the
         // parent is resolved.
@@ -3108,8 +3147,6 @@ pub fn fixup_parents(
                 cached_child_info.global_child_index
             );
         }
-
-        // Once all
     }
 }
 
@@ -3340,7 +3377,7 @@ pub(crate) fn prepare_effects(
             let init_indirect_dispatch_index = cached_effect_events.init_indirect_dispatch_index;
             let child_info_size_u32 = GpuChildInfo::min_size().get() as u32 / 4;
             assert_eq!(0, cached_parent_info.byte_range.start % 4);
-            let global_child_index = cached_parent_info.byte_range.start / 4;
+            let global_child_index = cached_child_info.global_child_index;
 
             // Schedule a fill dispatch
             let event_buffer_index = cached_effect_events.buffer_index;
@@ -4288,7 +4325,9 @@ impl EffectBindGroups {
                 for (index, (_, buffer_binding_source)) in event_buffers.iter().enumerate() {
                     // @group(3) @binding(2+N) var<storage, read_write> event_buffer_N :
                     // EventBuffer;
-                    // FIXME - BufferBindingSource originally was for Events, counting in u32, but then moved to counting in bytes, so now need some conversion. Need to review all of this...
+                    // FIXME - BufferBindingSource originally was for Events, counting in u32, but
+                    // then moved to counting in bytes, so now need some conversion. Need to review
+                    // all of this...
                     let mut buffer_binding: BufferBinding = buffer_binding_source.into();
                     buffer_binding.offset *= 4;
                     buffer_binding.size = buffer_binding
