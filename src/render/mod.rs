@@ -2190,8 +2190,8 @@ pub(crate) fn extract_effects(
             let parent = compiled_effect.parent.map(|entity| AddedEffectParent {
                 entity,
                 layout: compiled_effect.parent_particle_layout.as_ref().unwrap().clone(),
-                // FIXME - fixed 400 events per child (per frame) for now...
-                event_count: 400,
+                // FIXME - fixed 256 events per child (per frame) for now... this neatly avoids any issue with alignment 32/256 byte storage buffer align for bind groups
+                event_count: 256,
             });
 
             trace!("Found new effect: entity {:?} | capacity {:?} | particle_layout {:?} | property_layout {:?} | layout_flags {:?}", entity, asset.capacity(), particle_layout, property_layout, compiled_effect.layout_flags);

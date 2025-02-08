@@ -102,7 +102,7 @@ fn create_rocket_effect() -> EffectAsset {
         .update(update_drag)
         .update(update_accel)
         .update(update_spawn_trail)
-        //.update(update_spawn_on_die)
+        .update(update_spawn_on_die)
         .render(ColorOverLifetimeModifier {
             gradient: Gradient::constant(Vec4::ONE),
         })
@@ -239,7 +239,6 @@ fn setup(mut commands: Commands, mut debug_settings: ResMut<DebugSettings>) {
     ));
 
     debug_settings.start_capture_on_new_effect = true;
-    //debug_settings.capture_duration = Duration::from_millis(5000);
     debug_settings.capture_frame_count = 5;
 }
 
@@ -282,17 +281,16 @@ fn create_effect(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>
         EffectParent::new(rocket_entity),
     ));
 
-    // // Trails
-    // let trails_effect = effects.add(create_trails_effect());
-    // commands.spawn((
-    //     Name::new("trails"),
-    //     ParticleEffectBundle {
-    //         effect: ParticleEffect::new(trails_effect),
-    //         ..Default::default()
-    //     },
-    //     // Set the rocket effect as parent. This gives access to the rocket
-    // effect's particles,     // which in turns allows inheriting their
-    // position (and other attributes if needed).
-    //     EffectParent::new(rocket_entity),
-    // ));
+    // Trails
+    let trails_effect = effects.add(create_trails_effect());
+    commands.spawn((
+        Name::new("trails"),
+        ParticleEffectBundle {
+            effect: ParticleEffect::new(trails_effect),
+            ..Default::default()
+        },
+        // Set the rocket effect as parent. This gives access to the rocket effect's particles,
+        // which in turns allows inheriting their    position (and other attributes if needed).
+        EffectParent::new(rocket_entity),
+    ));
 }
