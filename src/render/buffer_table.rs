@@ -422,17 +422,24 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             .as_ref()
             .map(|ab| ab.allocated_count())
             .unwrap_or(0);
-        assert!(id.0 < allocated_count);
-        if let Some(idx) = self
-            .pending_values
-            .iter()
-            .position(|&(index, _)| index == id.0)
-        {
+        if id.0 < allocated_count {
+            if let Some(idx) = self
+                .pending_values
+                .iter()
+                .position(|&(index, _)| index == id.0)
+            {
+                // Overwrite a previous update. This ensures we never upload more than one
+                // update per row, which would waste GPU bandwidth.
+                self.pending_values[idx] = (id.0, value);
+            } else {
+                self.pending_values.alloc().init((id.0, value));
+            }
+        } else {
+            let extra_index = (id.0 - allocated_count) as usize;
+            assert!(extra_index < self.extra_pending_values.len());
             // Overwrite a previous update. This ensures we never upload more than one
             // update per row, which would waste GPU bandwidth.
-            self.pending_values[idx] = (id.0, value);
-        } else {
-            self.pending_values.alloc().init((id.0, value));
+            self.extra_pending_values[extra_index] = value;
         }
     }
 
@@ -665,7 +672,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                         let src: &[u8] = cast_slice(std::slice::from_ref(&content));
                         let dst_range = byte_offset..(byte_offset + self.item_size);
                         trace!(
-                            "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
+                            "+ init_copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
                             index,
                             src.as_ptr(),
                             dst_range,
@@ -748,7 +755,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 let src: &[u8] = cast_slice(std::slice::from_ref(&content));
                 let dst_range = ..self.item_size;
                 trace!(
-                    "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
+                    "+ old_copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
                     index,
                     src.as_ptr(),
                     dst_range,

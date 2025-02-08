@@ -2705,16 +2705,6 @@ impl EffectsMeta {
             trace!("*** Dispatch indirect buffer for update pass re-allocated; clearing all bind groups using it.");
             effect_bind_groups.particle_buffers.clear();
         }
-        if self
-            .effect_metadata_buffer
-            .allocate_gpu(render_device, render_queue)
-        {
-            // All those bind groups use the buffer so need to be re-created
-            trace!("*** Effect metadata buffer re-allocated; clearing all bind groups using it.");
-            self.indirect_metadata_bind_group = None;
-            effect_bind_groups.init_metadata_bind_groups.clear();
-            effect_bind_groups.update_metadata_bind_groups.clear();
-        }
     }
 
     pub fn allocate_spawner(
@@ -3196,6 +3186,7 @@ pub(crate) fn prepare_effects(
         SpecializedComputePipelines<DispatchIndirectPipeline>,
     >,
     mut effects_meta: ResMut<EffectsMeta>,
+    mut effect_bind_groups: ResMut<EffectBindGroups>,
     mut extracted_effects: ResMut<ExtractedEffects>,
     mut property_bind_groups: ResMut<PropertyBindGroups>,
     q_cached_effects: Query<(
@@ -3740,6 +3731,18 @@ pub(crate) fn prepare_effects(
         prepared_effect_count += 1;
     }
     trace!("Prepared {prepared_effect_count}/{extracted_effect_count} extracted effect(s)");
+
+    // Once all EffectMetadata values are written, schedule a GPU upload
+    if effects_meta
+        .effect_metadata_buffer
+        .allocate_gpu(render_device, render_queue)
+    {
+        // All those bind groups use the buffer so need to be re-created
+        trace!("*** Effect metadata buffer re-allocated; clearing all bind groups using it.");
+        effects_meta.indirect_metadata_bind_group = None;
+        effect_bind_groups.init_metadata_bind_groups.clear();
+        effect_bind_groups.update_metadata_bind_groups.clear();
+    }
 
     // Once all GPU operations for this frame are enqueued, upload them to GPU
     gpu_buffer_operation_queue.end_frame(&render_device, &render_queue);
