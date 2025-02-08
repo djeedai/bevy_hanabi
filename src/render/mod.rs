@@ -103,9 +103,7 @@ fn calc_hash<H: Hash>(value: &H) -> u64 {
 #[derive(Debug, Clone)]
 pub(crate) struct BufferBindingSource {
     buffer: Buffer,
-    /// Offset in number of u32 elements (4 bytes).
     offset: u32,
-    /// Size in number of u32 elements (4 bytes).
     size: NonZeroU32,
 }
 
@@ -2187,11 +2185,12 @@ pub(crate) fn extract_effects(
                  compiled_effect.layout_flags,
                  mesh);
 
+            // FIXME - fixed 256 events per child (per frame) for now... this neatly avoids any issue with alignment 32/256 byte storage buffer align for bind groups
+            const FIXME_HARD_CODED_EVENT_COUNT: u32 = 256;
             let parent = compiled_effect.parent.map(|entity| AddedEffectParent {
                 entity,
                 layout: compiled_effect.parent_particle_layout.as_ref().unwrap().clone(),
-                // FIXME - fixed 256 events per child (per frame) for now... this neatly avoids any issue with alignment 32/256 byte storage buffer align for bind groups
-                event_count: 256,
+                event_count: FIXME_HARD_CODED_EVENT_COUNT,
             });
 
             trace!("Found new effect: entity {:?} | capacity {:?} | particle_layout {:?} | property_layout {:?} | layout_flags {:?}", entity, asset.capacity(), particle_layout, property_layout, compiled_effect.layout_flags);
@@ -4289,9 +4288,15 @@ impl EffectBindGroups {
                 for (index, (_, buffer_binding_source)) in event_buffers.iter().enumerate() {
                     // @group(3) @binding(2+N) var<storage, read_write> event_buffer_N :
                     // EventBuffer;
+                    // FIXME - BufferBindingSource originally was for Events, counting in u32, but then moved to counting in bytes, so now need some conversion. Need to review all of this...
+                    let mut buffer_binding: BufferBinding = buffer_binding_source.into();
+                    buffer_binding.offset *= 4;
+                    buffer_binding.size = buffer_binding
+                        .size
+                        .map(|sz| NonZeroU64::new(sz.get() * 4).unwrap());
                     entries.push(BindGroupEntry {
                         binding: 2 + index as u32,
-                        resource: BindingResource::Buffer(buffer_binding_source.into()),
+                        resource: BindingResource::Buffer(buffer_binding),
                     });
                 }
             }
