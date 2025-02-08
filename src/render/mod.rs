@@ -5314,7 +5314,9 @@ pub(crate) fn prepare_bind_groups(
             let consume_gpu_spawn_events = effect_batch
                 .layout_flags
                 .contains(LayoutFlags::CONSUME_GPU_SPAWN_EVENTS);
-            let spawn_events = if let BatchSpawnInfo::GpuSpawner { .. } = effect_batch.spawn_info {
+            let consume_event_buffers = if let BatchSpawnInfo::GpuSpawner { .. } =
+                effect_batch.spawn_info
+            {
                 assert!(consume_gpu_spawn_events);
                 let cached_effect_events = effect_batch.cached_effect_events.as_ref().unwrap();
                 Some(ConsumeEventBuffers {
@@ -5323,8 +5325,9 @@ pub(crate) fn prepare_bind_groups(
                         buffer: event_cache
                             .get_buffer(cached_effect_events.buffer_index)
                             .unwrap(),
-                        offset: cached_effect_events.range.start,
-                        size: NonZeroU32::new(cached_effect_events.range.len() as u32).unwrap(),
+                        // Note: event range is in u32 count, not bytes
+                        offset: cached_effect_events.range.start * 4,
+                        size: NonZeroU32::new(cached_effect_events.range.len() as u32 * 4).unwrap(),
                     },
                 })
             } else {
@@ -5343,7 +5346,7 @@ pub(crate) fn prepare_bind_groups(
                     &render_device,
                     &init_metadata_layout,
                     effects_meta.effect_metadata_buffer.buffer().unwrap(),
-                    spawn_events,
+                    consume_event_buffers,
                 )
                 .is_err()
             {

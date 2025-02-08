@@ -59,7 +59,7 @@ fn create_rocket_effect() -> EffectAsset {
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
     // Give a bit of variation by randomizing the lifetime per particle
-    let lifetime = writer.lit(1.5).expr(); //writer.lit(0.8).uniform(writer.lit(1.2)).expr();
+    let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
 
     // Add constant downward acceleration to simulate gravity
@@ -85,13 +85,12 @@ fn create_rocket_effect() -> EffectAsset {
     // events for its child(ren) effects.
     let update_spawn_on_die = EmitSpawnEventModifier {
         condition: EventEmitCondition::OnDie,
-        count: 100,
+        count: 1000,
         // We use channel #1 for the explosion itself; see EffectParent
         child_index: 1,
     };
 
-    //let spawner = Spawner::rate(1.0.into());
-    let spawner = Spawner::once(1.0.into(), true);
+    let spawner = Spawner::rate(1.0.into());
 
     EffectAsset::new(32, spawner, writer.finish())
         .with_name("rocket")
@@ -176,8 +175,12 @@ fn create_trails_effect() -> EffectAsset {
 
     // The velocity is random in any direction
     let center = writer.attr(Attribute::POSITION);
-    let speed = writer.lit(60.); //.uniform(writer.lit(80.));
-    let dir = writer.lit(Vec3::X); // writer.rand(VectorType::VEC3F);
+    let speed = writer.lit(40.).uniform(writer.lit(60.));
+    let dir = writer
+        .rand(VectorType::VEC3F)
+        .mul(writer.lit(2.0))
+        .sub(writer.lit(1.0))
+        .normalized();
     let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, (center + dir * speed).expr());
 
     let age = writer.lit(0.).expr();
@@ -216,7 +219,7 @@ fn create_trails_effect() -> EffectAsset {
             gradient: color_gradient,
         })
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec3::ONE * 0.3),
+            gradient: Gradient::constant(Vec3::ONE * 0.1),
             screen_space_size: false,
         })
 }
