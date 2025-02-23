@@ -441,7 +441,8 @@ impl SortBindGroups {
                                 size: None,
                             }),
                         },
-                        // @group(0) @binding(2) var<storage, read> indirect_index_buffer : array<u32>;
+                        // @group(0) @binding(2) var<storage, read> indirect_index_buffer :
+                        // array<u32>;
                         BindGroupEntry {
                             binding: 2,
                             resource: BindingResource::Buffer(BufferBinding {

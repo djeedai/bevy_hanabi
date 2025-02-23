@@ -6769,6 +6769,7 @@ impl Node for VfxSimulateNode {
                     let indirect_offset =
                         sort_bind_groups.get_sort_indirect_dispatch_byte_offset() as u64;
                     compute_pass.dispatch_workgroups_indirect(indirect_buffer, indirect_offset);
+                    trace!("Dispatched sort with indirect offset +{indirect_offset}");
 
                     compute_pass.pop_debug_group();
                 }
@@ -6814,6 +6815,7 @@ impl Node for VfxSimulateNode {
                         sort_bind_groups.get_indirect_dispatch_byte_offset(indirect_dispatch_index);
                     compute_pass
                         .dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
+                    trace!("Dispatched sort-copy with indirect offset +{indirect_offset}");
 
                     compute_pass.pop_debug_group();
                 }

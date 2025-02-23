@@ -152,6 +152,25 @@ fn vertex(
 
     var out: VertexOutput;
 
+#ifdef RIBBONS
+    // Discard first instance; we draw from second one, and link to previous one
+    if (instance_index == 0) {
+        out.position = vec4(0.0);
+        return out;
+    }
+
+    // Fetch previous particle
+    let prev_index = indirect_buffer.indices[3u * (instance_index - 1u) + pong];
+    let prev_particle = particle_buffer.particles[prev_index];
+
+    // Discard this instance if previous one is from a different ribbon. Again,
+    // we draw from second one of each ribbon.
+    if (prev_particle.ribbon_id != particle.ribbon_id) {
+        out.position = vec4(0.0);
+        return out;
+    }
+#endif  // RIBBONS
+
 #ifdef NEEDS_UV
     // Compute UVs
     var uv = vertex_uv;
@@ -167,23 +186,16 @@ fn vertex(
 
 {{VERTEX_MODIFIERS}}
 
-// #ifdef RIBBONS
-//     let next_index = particle.next;
-//     if (next_index >= arrayLength(&particle_buffer.particles)) {
-//         out.position = vec4(0.0);
-//         return out;
-//     }
+#ifdef RIBBONS
+    var delta = particle.position - prev_particle.position;
 
-//     let next_particle = particle_buffer.particles[next_index];
-//     var delta = next_particle.position - particle.position;
+    axis_x = normalize(delta);
+    axis_y = normalize(cross(axis_x, axis_z));
+    axis_z = cross(axis_x, axis_y);
 
-//     axis_x = normalize(delta);
-//     axis_y = normalize(cross(axis_x, axis_z));
-//     axis_z = cross(axis_x, axis_y);
-
-//     position = mix(next_particle.position, particle.position, 0.5);
-//     size = vec3(length(delta), size.y, 1.0);
-// #endif  // RIBBONS
+    position = mix(particle.position, prev_particle.position, 0.5);
+    size = vec3(length(delta), size.y, 1.0);
+#endif  // RIBBONS
 
     // Expand particle mesh vertex based on particle position ("origin"), and local
     // orientation and size of the particle mesh.
