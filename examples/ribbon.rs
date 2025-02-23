@@ -20,8 +20,15 @@ const L: f32 = 0.384;
 
 const TIME_SCALE: f32 = 6.5;
 const SHAPE_SCALE: f32 = 25.0;
-const LIFETIME: f32 = 1.5;
-const TRAIL_SPAWN_RATE: f32 = 256.0;
+// Note: because Hanabi doesn't currently support position interpolation between
+// frames, spawning more than 1 particle per frame in a ribbon is a pure waste;
+// all particles spawned in a same frame spawn at the same position. So we
+// assume up to 60 FPS here.
+const RIBBON_SPAWN_RATE: f32 = 60.0;
+const RIBBON_LIFETIME: f32 = 1.5;
+// 60 particles / second * 1.5 seconds = up to 90 particles alive at once.
+// Allocate a tiny bit more just to have some wiggle room.
+const PARTICLE_CAPACITY: u32 = 100;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_exit = utils::make_test_app("ribbon")
@@ -51,19 +58,18 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         value: writer.lit(Vec3::ZERO).expr(),
     };
 
-    let init_velocity_attr = SetAttributeModifier {
-        attribute: Attribute::VELOCITY,
-        value: writer.lit(Vec3::ZERO).expr(),
-    };
-
     let init_age_attr = SetAttributeModifier {
         attribute: Attribute::AGE,
         value: writer.lit(0.0).expr(),
     };
 
+    // For ribbons we generally want the lifetime to be a constant, so that
+    // particles dying are at the end of the ribbon and particles spawning at
+    // the beginning. Otherwise if a particle dies in the middle of the ribbon this
+    // will generate some reordering and visually will look odd.
     let init_lifetime_attr = SetAttributeModifier {
         attribute: Attribute::LIFETIME,
-        value: writer.lit(999999.0).expr(),
+        value: writer.lit(RIBBON_LIFETIME).expr(),
     };
 
     let init_size_attr = SetAttributeModifier {
@@ -71,32 +77,39 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         value: writer.lit(0.5).expr(),
     };
 
-    let pos = writer.add_property("head_pos", Vec3::ZERO.into());
-    let pos = writer.prop(pos);
-
-    let move_modifier = SetAttributeModifier {
-        attribute: Attribute::POSITION,
-        value: pos.expr(),
+    // In this example the entire effect is a single ribbon/trail, so all its
+    // particle are connected. This means they all share the same RIBBON_ID, which
+    // can be any value.
+    let init_ribbon_id = SetAttributeModifier {
+        attribute: Attribute::RIBBON_ID,
+        value: writer.lit(0u32).expr(),
     };
 
     let render_color = ColorOverLifetimeModifier {
         gradient: Gradient::linear(vec4(3.0, 0.0, 0.0, 1.0), vec4(3.0, 0.0, 0.0, 0.0)),
     };
 
-    let effect = EffectAsset::new(256, Spawner::once(1.0.into(), true), writer.finish())
-        .with_ribbons(32768, 1.0 / TRAIL_SPAWN_RATE, LIFETIME, 0)
+    let spawner = Spawner::rate(RIBBON_SPAWN_RATE.into());
+
+    let effect = EffectAsset::new(PARTICLE_CAPACITY, spawner, writer.finish())
+        .with_name("ribbon")
+        // Disable motion integration; particles stay where spawned, the illusion of movement is
+        // created by the ribbon and the particles spawning and dying, as well as the fact the
+        // emitter itself moves (we set its Transform in move_head() below).
+        .with_motion_integration(MotionIntegration::None)
+        // Detach particles from the emitter, they should keep a fixed position in global space even
+        // when we move the emitter.
         .with_simulation_space(SimulationSpace::Global)
-        .init_groups(init_position_attr, ParticleGroupSet::single(0))
-        .init_groups(init_velocity_attr, ParticleGroupSet::single(0))
-        .init_groups(init_age_attr, ParticleGroupSet::single(0))
-        .init_groups(init_lifetime_attr, ParticleGroupSet::single(0))
-        .init_groups(init_size_attr, ParticleGroupSet::single(0))
-        .update_groups(move_modifier, ParticleGroupSet::single(0))
+        .init(init_position_attr)
+        .init(init_age_attr)
+        .init(init_lifetime_attr)
+        .init(init_size_attr)
+        .init(init_ribbon_id)
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::linear(Vec3::ONE, Vec3::ZERO),
             ..default()
         })
-        .render_groups(render_color, ParticleGroupSet::single(1));
+        .render(render_color);
 
     let effect = effects.add(effect);
 
@@ -109,14 +122,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         .insert(Name::new("ribbon"));
 }
 
-fn move_head(
-    mut query: Query<&mut Transform, With<ParticleEffect>>,
-    mut effect: Query<&mut EffectProperties>,
-    timer: Res<Time>,
-) {
-    let Ok(mut properties) = effect.get_single_mut() else {
-        return;
-    };
+fn move_head(mut query: Query<&mut Transform, With<ParticleEffect>>, timer: Res<Time>) {
     for mut transform in query.iter_mut() {
         let time = timer.elapsed_secs() * TIME_SCALE;
         let pos = vec3(
@@ -124,8 +130,6 @@ fn move_head(
             (1.0 - K) * (time.clone().sin()) - (L * K) * (((1.0 - K) / K) * time.clone()).sin(),
             0.0,
         ) * SHAPE_SCALE;
-
-        properties.set("head_pos", (pos).into());
         transform.translation = pos;
     }
 }

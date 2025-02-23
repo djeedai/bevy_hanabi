@@ -611,10 +611,10 @@ pub(crate) use impl_mod_render;
 /// [`EffectParent`]: crate::EffectParent
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub enum EventEmitCondition {
-    /// Always emit an event each time the particle is updated, each simulation
+    /// Always emit events each time the particle is updated, each simulation
     /// frame.
     Always,
-    /// Only emit an event if the particle died during this frame update.
+    /// Only emit events if the particle died during this frame update.
     OnDie,
 }
 

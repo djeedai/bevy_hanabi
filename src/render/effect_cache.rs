@@ -135,7 +135,7 @@ pub struct EffectBuffer {
     /// - the ping-pong alive particles and render indirect indices at offsets 0
     ///   and 1
     /// - the dead particle indices at offset 2
-    indirect_buffer: Buffer,
+    indirect_index_buffer: Buffer,
     /// Layout of particles.
     particle_layout: ParticleLayout,
     /// Flags
@@ -228,7 +228,7 @@ impl EffectBuffer {
         let capacity_bytes: BufferAddress = capacity as u64 * 4 * 3;
 
         let indirect_label = format!("hanabi:buffer:vfx{buffer_index}_indirect");
-        let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
+        let indirect_index_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
             size: capacity_bytes,
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
@@ -238,7 +238,7 @@ impl EffectBuffer {
         {
             // Scope get_mapped_range_mut() to force a drop before unmap()
             {
-                let slice: &mut [u8] = &mut indirect_buffer
+                let slice: &mut [u8] = &mut indirect_index_buffer
                     .slice(..capacity_bytes)
                     .get_mapped_range_mut();
                 let slice: &mut [u32] = cast_slice_mut(slice);
@@ -246,7 +246,7 @@ impl EffectBuffer {
                     slice[3 * index as usize + 2] = capacity - 1 - index;
                 }
             }
-            indirect_buffer.unmap();
+            indirect_index_buffer.unmap();
         }
 
         // Create the render layout.
@@ -300,7 +300,7 @@ impl EffectBuffer {
 
         Self {
             particle_buffer,
-            indirect_buffer,
+            indirect_index_buffer,
             particle_layout,
             layout_flags,
             render_particles_buffer_layout,
@@ -323,6 +323,16 @@ impl EffectBuffer {
 
     pub fn render_particles_buffer_layout(&self) -> &BindGroupLayout {
         &self.render_particles_buffer_layout
+    }
+
+    #[inline]
+    pub fn particle_buffer(&self) -> &Buffer {
+        &self.particle_buffer
+    }
+
+    #[inline]
+    pub fn indirect_index_buffer(&self) -> &Buffer {
+        &self.indirect_index_buffer
     }
 
     /// Return a binding for the entire particle buffer.
@@ -350,7 +360,7 @@ impl EffectBuffer {
     pub fn indirect_max_binding(&self) -> BindingResource {
         let capacity_bytes = self.capacity as u64 * 12;
         BindingResource::Buffer(BufferBinding {
-            buffer: &self.indirect_buffer,
+            buffer: &self.indirect_index_buffer,
             offset: 0,
             size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
         })
@@ -606,6 +616,7 @@ pub(crate) struct DispatchBufferIndices {
     ///
     /// [`EffectsMeta::update_dispatch_indirect_buffer`]: super::EffectsMeta::update_dispatch_indirect_buffer
     pub(crate) update_dispatch_indirect_buffer_table_id: BufferTableId,
+
     /// The index of the [`GpuEffectMetadata`] in
     /// [`EffectsMeta::effect_metadata_buffer`].
     ///

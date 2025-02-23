@@ -968,10 +968,9 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
             AlphaMode::Opaque => layout_flags.insert(LayoutFlags::OPAQUE),
             _ => layout_flags.remove(LayoutFlags::USE_ALPHA_MASK | LayoutFlags::OPAQUE),
         }
-        // FIXME
-        // if asset.ribbon_group.is_some() {
-        //     layout_flags |= LayoutFlags::RIBBONS;
-        // }
+        if particle_layout.contains(Attribute::RIBBON_ID) {
+            layout_flags |= LayoutFlags::RIBBONS;
+        }
         if parent_layout.is_some() {
             layout_flags |= LayoutFlags::READ_PARENT_PARTICLE;
         }

@@ -479,6 +479,12 @@ impl EffectAsset {
         self
     }
 
+    /// Set the effect's motion integration.
+    pub fn with_motion_integration(mut self, motion_integration: MotionIntegration) -> Self {
+        self.motion_integration = motion_integration;
+        self
+    }
+
     // /// Adds a new particle group that clones particles at an interval to
     // /// produce a trail.
     // ///

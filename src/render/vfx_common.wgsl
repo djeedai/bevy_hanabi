@@ -167,6 +167,13 @@ struct EffectMetadata {
     /// For parents, base index of the their first ChildInfo into the shared array.
     base_child_index: u32,
 
+    /// Particle stride, in number of u32.
+    particle_stride: u32,
+    /// Offset from the particle start to the first sort key, in number of u32.
+    sort_key_offset: u32,
+    /// Offset from the particle start to the second sort key, in number of u32.
+    sort_key2_offset: u32,
+
     /// Padding for storage buffer alignment. This struct is sometimes bound as part
     /// of an array, or sometimes individually as a single unit. In the later case,
     /// we need it to be aligned to the GPU limits of the device. That limit is only

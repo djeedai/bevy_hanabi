@@ -108,6 +108,7 @@ pub(crate) struct EffectBatch {
     /// [`ParticleEffect`]: crate::ParticleEffect
     pub entities: Vec<u32>,
     pub cached_effect_events: Option<CachedEffectEvents>,
+    pub sort_fill_indirect_dispatch_index: Option<u32>,
 }
 
 /// Single effect batch to drive rendering.
@@ -119,7 +120,7 @@ pub(crate) struct EffectBatch {
 #[derive(Debug, Component)]
 pub(crate) struct EffectDrawBatch {
     /// Entity holding the [`EffectBatch`] this batch is part of.
-    pub batches_entity: Entity,
+    pub batch_entity: Entity,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
     #[cfg(feature = "2d")]
@@ -185,6 +186,7 @@ impl EffectBatch {
             alpha_mode: input.alpha_mode,
             entities: vec![input.main_entity.id().index()],
             cached_effect_events: cached_effect_events.cloned(),
+            sort_fill_indirect_dispatch_index: None, // set later as needed
         }
     }
 }

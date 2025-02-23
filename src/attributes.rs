@@ -647,6 +647,11 @@ impl AttributeInner {
     declare_custom_attr_inner!(F32X4_2, Vec4, "f32x4_2", new_vec4);
     declare_custom_attr_inner!(F32X4_3, Vec4, "f32x4_3", new_vec4);
 
+    pub const RIBBON_ID: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("ribbon_id"),
+        Value::Scalar(ScalarValue::Uint(0u32)),
+    );
+
     #[inline]
     pub(crate) const fn new(name: Cow<'static, str>, default_value: Value) -> Self {
         Self {
@@ -1245,8 +1250,21 @@ impl Attribute {
     declare_custom_attr_pub!(F32X4_2, "f32x4_2", 4, VEC4F);
     declare_custom_attr_pub!(F32X4_3, "f32x4_3", 4, VEC4F);
 
+    /// ID of the ribbon a particle is part of.
+    ///
+    /// This attribute is used to group particles together by ribbon.
+    ///
+    /// # Name
+    ///
+    /// `ribbon_id`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Uint`]
+    pub const RIBBON_ID: Attribute = Attribute(AttributeInner::RIBBON_ID);
+
     /// Collection of all the existing particle attributes.
-    const ALL: [Attribute; 32] = [
+    const ALL: [Attribute; 33] = [
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,
@@ -1279,6 +1297,7 @@ impl Attribute {
         Attribute::F32X4_1,
         Attribute::F32X4_2,
         Attribute::F32X4_3,
+        Attribute::RIBBON_ID,
     ];
 
     /// Retrieve an attribute by its name.
@@ -1708,6 +1727,29 @@ impl ParticleLayout {
         self.layout
             .iter()
             .any(|&entry| entry.attribute.name() == attribute.name())
+    }
+
+    /// Get the offset in bytes of the specified [`Attribute`], if it exists.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let layout = ParticleLayout::new()
+    ///     .append(Attribute::POSITION)
+    ///     .append(Attribute::SIZE)
+    ///     .build();
+    /// let size_offset = layout.offset(Attribute::SIZE);
+    /// assert_eq!(size_offset, 12);
+    /// ```
+    pub fn offset(&self, attribute: Attribute) -> Option<u32> {
+        self.layout.iter().find_map(|&entry| {
+            if entry.attribute.name() == attribute.name() {
+                Some(entry.offset)
+            } else {
+                None
+            }
+        })
     }
 
     /// Generate the WGSL attribute code corresponding to the layout.

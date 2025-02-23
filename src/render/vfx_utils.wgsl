@@ -6,6 +6,8 @@ struct BufferOperationArgs {
     src_stride: u32,
     /// Offset, as u32 count, where the operation starts in the destination buffer.
     dst_offset: u32,
+    /// Stride, as u32 count, between elements in the destination buffer.
+    dst_stride: u32,
     /// Number of u32 elements to process for this operation.
     count: u32,
 }
@@ -33,7 +35,7 @@ fn copy_buffer(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
     let src = args.src_offset + thread_index * args.src_stride;
-    let dst = args.dst_offset + thread_index;
+    let dst = args.dst_offset + thread_index * args.dst_stride;
     let value = src_buffer[src];
     dst_buffer[dst] = value;
 }
@@ -50,6 +52,26 @@ fn calc_workground_count(thread_count: u32) -> u32 {
 /// and rounding it up to the number of thread per workgroup. Each thread copies a single u32.
 @compute @workgroup_size(64)
 fn fill_dispatch_args(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
+    let thread_index = global_invocation_id.x;
+    if (thread_index >= args.count) {
+        return;
+    }
+
+    let src = args.src_offset + thread_index * args.src_stride;
+    let dst = args.dst_offset + thread_index * args.dst_stride;
+    let thread_count = src_buffer[src];
+    let workgroup_count = calc_workground_count(thread_count);
+    dst_buffer[dst] = workgroup_count;
+    dst_buffer[dst + 1u] = 1u;
+    dst_buffer[dst + 2u] = 1u;
+}
+
+/// Fill indirect dispatch arguments from a raw element count, by copying the element count
+/// and rounding it up to the number of thread per workgroup. Each thread copies a single u32.
+/// Specialized variant for the indirect init pass, where the destination offset is computed
+/// via an indirection read from the source buffer.
+@compute @workgroup_size(64)
+fn init_fill_dispatch_args(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let thread_index = global_invocation_id.x;
     if (thread_index >= args.count) {
         return;

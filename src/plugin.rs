@@ -32,8 +32,8 @@ use crate::{
         EffectCache, EffectsMeta, EventCache, ExtractedEffects, GpuBufferOperationQueue,
         GpuEffectMetadata, GpuSpawnerParams, ParticlesInitPipeline, ParticlesRenderPipeline,
         ParticlesUpdatePipeline, PropertyBindGroups, PropertyCache, RenderDebugSettings,
-        ShaderCache, SimParams, StorageType as _, UtilsPipeline, VfxSimulateDriverNode,
-        VfxSimulateNode,
+        ShaderCache, SimParams, SortBindGroups, StorageType as _, UtilsPipeline,
+        VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,
@@ -284,16 +284,55 @@ impl Plugin for HanabiPlugin {
 
         // Insert the two variants of the properly aligned `vfx_indirect.wgsl` shaders
         // into Assets<Shader>.
-        let (indirect_shader_noevent, indirect_shader_events) = {
+        let (
+            indirect_shader_noevent,
+            indirect_shader_events,
+            sort_fill_shader,
+            sort_shader,
+            sort_copy_shader,
+        ) = {
             let align = render_device.limits().min_storage_buffer_offset_alignment;
             let indirect_shader_noevent = HanabiPlugin::make_indirect_shader(align, false);
             let indirect_shader_events = HanabiPlugin::make_indirect_shader(align, true);
+            let sort_fill_shader = Shader::from_wgsl(
+                include_str!("render/vfx_sort_fill.wgsl"),
+                std::path::Path::new(file!())
+                    .parent()
+                    .unwrap()
+                    .join("render/vfx_sort_fill.wgsl")
+                    .to_string_lossy(),
+            );
+            let sort_shader = Shader::from_wgsl(
+                include_str!("render/vfx_sort.wgsl"),
+                std::path::Path::new(file!())
+                    .parent()
+                    .unwrap()
+                    .join("render/vfx_sort.wgsl")
+                    .to_string_lossy(),
+            );
+            let sort_copy_shader = Shader::from_wgsl(
+                include_str!("render/vfx_sort_copy.wgsl"),
+                std::path::Path::new(file!())
+                    .parent()
+                    .unwrap()
+                    .join("render/vfx_sort_copy.wgsl")
+                    .to_string_lossy(),
+            );
 
             let mut assets = app.world_mut().resource_mut::<Assets<Shader>>();
             let indirect_shader_noevent = assets.add(indirect_shader_noevent);
             let indirect_shader_events = assets.add(indirect_shader_events);
+            let sort_fill_shader = assets.add(sort_fill_shader);
+            let sort_shader = assets.add(sort_shader);
+            let sort_copy_shader = assets.add(sort_copy_shader);
 
-            (indirect_shader_noevent, indirect_shader_events)
+            (
+                indirect_shader_noevent,
+                indirect_shader_events,
+                sort_fill_shader,
+                sort_shader,
+                sort_copy_shader,
+            )
         };
 
         let effects_meta = EffectsMeta::new(
@@ -306,8 +345,15 @@ impl Plugin for HanabiPlugin {
         let property_cache = PropertyCache::new(render_device.clone());
         let event_cache = EventCache::new(render_device);
 
-        // Register the custom render pipeline
         let render_app = app.sub_app_mut(RenderApp);
+        let sort_bind_groups = SortBindGroups::new(
+            render_app.world_mut(),
+            sort_fill_shader,
+            sort_shader,
+            sort_copy_shader,
+        );
+
+        // Register the custom render pipeline
         render_app
             .insert_resource(effects_meta)
             .insert_resource(effect_cache)
@@ -316,8 +362,9 @@ impl Plugin for HanabiPlugin {
             .init_resource::<RenderDebugSettings>()
             .init_resource::<EffectBindGroups>()
             .init_resource::<PropertyBindGroups>()
-            .init_resource::<GpuBufferOperationQueue>()
+            .insert_resource(sort_bind_groups)
             .init_resource::<UtilsPipeline>()
+            .init_resource::<GpuBufferOperationQueue>()
             .init_resource::<DispatchIndirectPipeline>()
             .init_resource::<SpecializedComputePipelines<DispatchIndirectPipeline>>()
             .init_resource::<ParticlesInitPipeline>()

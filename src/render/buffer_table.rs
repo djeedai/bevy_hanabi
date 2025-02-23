@@ -399,6 +399,23 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         BufferTableId(index)
     }
 
+    /// Calculate a dynamic byte offset for a bind group from a table entry.
+    ///
+    /// This returns the product of `id` by the internal [`aligned_size()`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the `index` is too large, producing a byte offset larger than
+    /// `u32::MAX`.
+    ///
+    /// [`aligned_size()`]: Self::aligned_size
+    #[inline]
+    pub fn dynamic_offset(&self, id: BufferTableId) -> u32 {
+        let offset = self.aligned_size * id.0 as usize;
+        assert!(offset <= u32::MAX as usize);
+        u32::try_from(offset).expect("BufferTable index out of bounds")
+    }
+
     /// Update an existing row in the table.
     ///
     /// For performance reasons, this buffers the row content on the CPU until
