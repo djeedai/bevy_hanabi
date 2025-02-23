@@ -335,6 +335,16 @@ impl EffectBuffer {
         &self.indirect_index_buffer
     }
 
+    #[inline]
+    pub fn particle_offset(&self, row: u32) -> u32 {
+        self.particle_layout.min_binding_size().get() as u32 * row
+    }
+
+    #[inline]
+    pub fn indirect_index_offset(&self, row: u32) -> u32 {
+        row * 12
+    }
+
     /// Return a binding for the entire particle buffer.
     pub fn max_binding(&self) -> BindingResource {
         let capacity_bytes = self.capacity as u64 * self.particle_layout.min_binding_size().get();
@@ -357,7 +367,7 @@ impl EffectBuffer {
 
     /// Return a binding for the entire indirect buffer associated with the
     /// current effect buffer.
-    pub fn indirect_max_binding(&self) -> BindingResource {
+    pub fn indirect_index_max_binding(&self) -> BindingResource {
         let capacity_bytes = self.capacity as u64 * 12;
         BindingResource::Buffer(BufferBinding {
             buffer: &self.indirect_index_buffer,
@@ -393,7 +403,7 @@ impl EffectBuffer {
                     },
                     BindGroupEntry {
                         binding: 1,
-                        resource: self.indirect_max_binding(),
+                        resource: self.indirect_index_max_binding(),
                     },
                     BindGroupEntry {
                         binding: 2,
@@ -408,7 +418,7 @@ impl EffectBuffer {
                     },
                     BindGroupEntry {
                         binding: 1,
-                        resource: self.indirect_max_binding(),
+                        resource: self.indirect_index_max_binding(),
                     },
                 ]
             };

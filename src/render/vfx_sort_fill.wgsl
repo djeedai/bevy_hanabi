@@ -24,16 +24,20 @@ struct RawParticleBuffer {
 
 @group(0) @binding(0) var<storage, read_write> sort_buffer : SortBuffer;
 @group(0) @binding(1) var<storage, read> particle_buffer : RawParticleBuffer;
-@group(0) @binding(2) var<storage, read> effect_metadata : EffectMetadata;
+@group(0) @binding(2) var<storage, read> indirect_index_buffer : array<u32>;
+@group(0) @binding(3) var<storage, read> effect_metadata : EffectMetadata;
 
 /// Fill the sorting key-value pair buffer with data to prepare for actual sorting.
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    let particle_index = global_invocation_id.x;
+    let thread_index = global_invocation_id.x;
     let count = atomicLoad(&effect_metadata.instance_count); // TODO - atomic not needed
-    if (particle_index >= count) {
+    if (thread_index >= count) {
         return;
     }
+
+    let read_index = effect_metadata.ping;
+    let particle_index = indirect_index_buffer[thread_index * 3u + read_index];
 
     let particle_offset = particle_index * effect_metadata.particle_stride;
     let key_offset = particle_offset + effect_metadata.sort_key_offset;

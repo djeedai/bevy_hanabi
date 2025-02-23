@@ -5597,7 +5597,7 @@ pub(crate) fn prepare_bind_groups(
                     // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
                     BindGroupEntry {
                         binding: 1,
-                        resource: effect_buffer.indirect_max_binding(),
+                        resource: effect_buffer.indirect_index_max_binding(),
                     },
                     // @group(1) @binding(2) var<storage, read> spawner : Spawner;
                     BindGroupEntry {
@@ -5817,10 +5817,12 @@ pub(crate) fn prepare_bind_groups(
 
             // Bind group @0 of sort-fill pass
             let particle_buffer = effect_buffer.particle_buffer();
+            let indirect_index_buffer = effect_buffer.indirect_index_buffer();
             let effect_metadata_buffer = effects_meta.effect_metadata_buffer.buffer().unwrap();
             if let Err(err) = sort_bind_groups.ensure_sort_fill_bind_group(
                 &effect_batch.particle_layout,
                 particle_buffer,
+                indirect_index_buffer,
                 effect_metadata_buffer,
             ) {
                 error!(
@@ -6716,13 +6718,18 @@ impl Node for VfxSimulateNode {
 
                     // Bind group sort_fill@0
                     let particle_buffer = effect_buffer.particle_buffer();
-                    let Some(bind_group) = sort_bind_groups
-                        .sort_fill_bind_group(particle_buffer.id(), effect_metadata_buffer.id())
-                    else {
+                    let indirect_index_buffer = effect_buffer.indirect_index_buffer();
+                    let Some(bind_group) = sort_bind_groups.sort_fill_bind_group(
+                        particle_buffer.id(),
+                        indirect_index_buffer.id(),
+                        effect_metadata_buffer.id(),
+                    ) else {
                         warn!("Missing sort-fill bind group.");
                         continue;
                     };
-                    let particle_offset = effect_batch.slice.start;
+                    let particle_offset = effect_buffer.particle_offset(effect_batch.slice.start);
+                    let indirect_index_offset =
+                        effect_buffer.indirect_index_offset(effect_batch.slice.start);
                     let effect_metadata_offset = effects_meta.gpu_limits.effect_metadata_offset(
                         effect_batch
                             .dispatch_buffer_indices
@@ -6732,7 +6739,11 @@ impl Node for VfxSimulateNode {
                     compute_pass.set_bind_group(
                         0,
                         bind_group,
-                        &[particle_offset, effect_metadata_offset],
+                        &[
+                            particle_offset,
+                            indirect_index_offset,
+                            effect_metadata_offset,
+                        ],
                     );
 
                     let indirect_dispatch_index = *effect_batch

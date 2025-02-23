@@ -51,6 +51,7 @@ impl SortFillBindGroupLayoutKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct SortFillBindGroupKey {
     particle: BufferId,
+    indirect_index: BufferId,
     effect_metadata: BufferId,
 }
 
@@ -331,9 +332,20 @@ impl SortBindGroups {
                             },
                             count: None,
                         },
-                        // @group(0) @binding(2) var<storage, read> effect_metadata : EffectMetadata;
+                        // @group(0) @binding(2) var<storage, read> indirect_index_buffer : array<u32>;
                         BindGroupLayoutEntry {
                             binding: 2,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: true,
+                                min_binding_size: Some(NonZeroU64::new(12).unwrap()), // ping/pong+dead
+                            },
+                            count: None,
+                        },
+                        // @group(0) @binding(3) var<storage, read> effect_metadata : EffectMetadata;
+                        BindGroupLayoutEntry {
+                            binding: 3,
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Buffer {
                                 ty: BufferBindingType::Storage { read_only: true },
@@ -359,7 +371,7 @@ impl SortBindGroups {
         Ok(layout)
     }
 
-    pub fn get_bind_group_layout(
+    pub fn get_sort_fill_bind_group_layout(
         &self,
         particle_layout: &ParticleLayout,
     ) -> Option<&BindGroupLayout> {
@@ -387,10 +399,12 @@ impl SortBindGroups {
         &mut self,
         particle_layout: &ParticleLayout,
         particle: &Buffer,
+        indirect_index: &Buffer,
         effect_metadata: &Buffer,
     ) -> Result<&BindGroup, ()> {
         let key = SortFillBindGroupKey {
             particle: particle.id(),
+            indirect_index: indirect_index.id(),
             effect_metadata: effect_metadata.id(),
         };
         let entry = self.sort_fill_bind_groups.entry(key);
@@ -427,10 +441,19 @@ impl SortBindGroups {
                                 size: None,
                             }),
                         },
-                        // @group(0) @binding(2) var<storage, read> effect_metadata :
-                        // EffectMetadata;
+                        // @group(0) @binding(2) var<storage, read> indirect_index_buffer : array<u32>;
                         BindGroupEntry {
                             binding: 2,
+                            resource: BindingResource::Buffer(BufferBinding {
+                                buffer: indirect_index,
+                                offset: 0,
+                                size: None,
+                            }),
+                        },
+                        // @group(0) @binding(3) var<storage, read> effect_metadata :
+                        // EffectMetadata;
+                        BindGroupEntry {
+                            binding: 3,
                             resource: BindingResource::Buffer(BufferBinding {
                                 buffer: effect_metadata,
                                 offset: 0,
@@ -447,11 +470,13 @@ impl SortBindGroups {
     pub fn sort_fill_bind_group(
         &self,
         particle: BufferId,
+        indirect_index: BufferId,
         effect_metadata: BufferId,
     ) -> Option<&BindGroup> {
         let key = SortFillBindGroupKey {
-            particle: particle.into(),
-            effect_metadata: effect_metadata.into(),
+            particle,
+            indirect_index,
+            effect_metadata,
         };
         self.sort_fill_bind_groups.get(&key)
     }
