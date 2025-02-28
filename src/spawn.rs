@@ -662,7 +662,7 @@ impl EffectSpawner {
 /// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
 pub fn tick_spawners(
     mut commands: Commands,
-    time: Res<Time<EffectSimulation>>,
+    _time: Res<Time<EffectSimulation>>,
     effects: Res<Assets<EffectAsset>>,
     mut rng: ResMut<Random>,
     mut query: Query<(
@@ -674,7 +674,7 @@ pub fn tick_spawners(
 ) {
     trace!("tick_spawners()");
 
-    let dt = time.delta_secs();
+    let dt = 0.02; //time.delta_secs();
 
     for (entity, effect, maybe_inherited_visibility, maybe_spawner) in query.iter_mut() {
         let Some(asset) = effects.get(&effect.handle) else {

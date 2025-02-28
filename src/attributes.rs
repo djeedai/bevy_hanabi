@@ -538,6 +538,9 @@ macro_rules! declare_custom_attr_inner {
 }
 
 impl AttributeInner {
+    pub const ID: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("id"), Value::Scalar(ScalarValue::Uint(0)));
+
     pub const POSITION: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("position"),
         Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
@@ -917,6 +920,23 @@ macro_rules! declare_custom_attr_pub {
 }
 
 impl Attribute {
+    /// The particle unique ID.
+    ///
+    /// This is a pseudo-attribute, which doesn't require any storage in the
+    /// particle layout, and is always available. It can be read but cannot be
+    /// set. The particle ID is guaranteed to be unique within a single
+    /// effect instance only; particles from different instances may have
+    /// the same ID.
+    ///
+    /// # Name
+    ///
+    /// `id`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Uint`]
+    pub const ID: Attribute = Attribute(AttributeInner::ID);
+
     /// The particle position in [simulation space].
     ///
     /// # Name
@@ -1264,7 +1284,8 @@ impl Attribute {
     pub const RIBBON_ID: Attribute = Attribute(AttributeInner::RIBBON_ID);
 
     /// Collection of all the existing particle attributes.
-    const ALL: [Attribute; 33] = [
+    const ALL: [Attribute; 34] = [
+        Attribute::ID,
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,

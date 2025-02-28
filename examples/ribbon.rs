@@ -1,6 +1,16 @@
-//! Uses with_ribbons to draw a "tracer" or a "trail" following an Entity.
-//! The movement of the head particle is achieved by linking the particle
-//! position to a CPU position using a [Property] in [move_head].
+//! Draw a "tracer" or a "trail" following an Entity.
+//!
+//! The emitter associated with the Entity is moved by the [move_head] system,
+//! which simply assigns its [`Transform`]. Each frame some particle is spawned
+//! at that new position, in global space. By decreasing the particle size over
+//! its lifetime, and using a constant lifetime for all particles, the particles
+//! appear to create a trail following the emitter's Transform. This is just an
+//! illusion though; the particles don't move.
+//!
+//! To complete the illusion, all particles are assigned a same
+//! [`Attribute::RIBBON_ID`], which causes them to be rendered as a single
+//! continuous ribbon of quads, each linking the current particle to the
+//! previous one (the first particle is skipped in ribbon mode).
 
 use bevy::math::vec4;
 use bevy::prelude::*;

@@ -37,6 +37,8 @@ struct Spawner {
     /// as an indirect draw source so cannot also be bound as regular storage
     /// buffer for reading.
     render_pong: u32,
+    /// Index of the [`GpuEffectMetadata`] for this effect.
+    effect_metadata_index: u32,
 #ifdef SPAWNER_PADDING
     {{SPAWNER_PADDING}}
 #endif

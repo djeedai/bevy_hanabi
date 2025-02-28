@@ -656,11 +656,11 @@ impl EmitSpawnEventModifier {
         // TODO - validate GPU spawn events are in use in the eval context...
         let cond = match self.condition {
             EventEmitCondition::Always => format!(
-                "if (is_alive) {{ append_spawn_events_{channel_index}(index, {}); }}",
+                "if (is_alive) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
                 self.count.to_wgsl_string()
             ),
             EventEmitCondition::OnDie => format!(
-                "if (was_alive && !is_alive) {{ append_spawn_events_{channel_index}(index, {}); }}",
+                "if (was_alive && !is_alive) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
                 self.count.to_wgsl_string()
             ),
         };

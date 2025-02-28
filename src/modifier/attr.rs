@@ -78,6 +78,10 @@ impl SetAttributeModifier {
     /// let init_pos = SetAttributeModifier::new(Attribute::POSITION, pos);
     /// ```
     pub fn new(attribute: Attribute, value: ExprHandle) -> Self {
+        assert!(
+            attribute != Attribute::ID,
+            "The particle's ID is a read-only pseudo-attribute, cannot be assigned."
+        );
         Self { attribute, value }
     }
 

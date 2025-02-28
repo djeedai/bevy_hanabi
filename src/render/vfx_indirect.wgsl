@@ -37,7 +37,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
-    let em_base = EFFECT_METADATA_STRIDE * effect_index;
+    let effect_metadata_index = spawner_buffer[effect_index].effect_metadata_index;
+    let em_base = EFFECT_METADATA_STRIDE * effect_metadata_index;
 
     // Clear the rendering instance count, which will be upgraded by the update pass
     // with the particles actually alive at the end of their update (after aged).

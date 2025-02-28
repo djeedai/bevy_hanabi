@@ -66,12 +66,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let write_index = effect_metadata.ping;
     let read_index = 1u - write_index;
 
-    let index = indirect_buffer.indices[3u * thread_index + read_index];
+    let particle_index = indirect_buffer.indices[3u * thread_index + read_index];
 
     // Initialize the PRNG seed
-    seed = pcg_hash(index ^ spawner.seed);
+    seed = pcg_hash(particle_index ^ spawner.seed);
 
-    var particle: Particle = particle_buffer.particles[index];
+    var particle: Particle = particle_buffer.particles[particle_index];
     {{AGE_CODE}}
     {{REAP_CODE}}
     {{UPDATE_CODE}}
@@ -87,14 +87,14 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 //         // We know that no particles behind us (including our previous) are going to be
 //         // alive after this, due to the strict LIFO lifetime of trail particles.
 //         // So we can just set the next particle's prev pointer to null.
-//         let next = particle_buffer.particles[index].next;
+//         let next = particle_buffer.particles[particle_index].next;
 //         if (next != 0xffffffffu) {
 //             particle_buffer.particles[next].prev = 0xffffffffu;
 //         }
 // #else   // TRAIL
 //         // Head particle; there's no worry about races here, because the trail particles
 //         // are all in a different group, which is simulated in a different dispatch.
-//         let prev = particle_buffer.particles[index].prev;
+//         let prev = particle_buffer.particles[particle_index].prev;
 //         if (prev != 0xffffffffu) {
 //             particle_buffer.particles[prev].next = 0xffffffffu;
 //         }
@@ -104,7 +104,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
         // Save dead index
         let dead_index = atomicAdd(&effect_metadata.dead_count, 1u);
-        indirect_buffer.indices[3u * dead_index + 2u] = index;
+        indirect_buffer.indices[3u * dead_index + 2u] = particle_index;
 
         // Also increment copy of dead count, which was updated in dispatch indirect
         // pass just before, and need to remain correct after this pass
@@ -113,6 +113,6 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     } else {
         // Increment alive particle count and write indirection index for later rendering
         let indirect_index = atomicAdd(&effect_metadata.instance_count, 1u);
-        indirect_buffer.indices[3u * indirect_index + write_index] = index;
+        indirect_buffer.indices[3u * indirect_index + write_index] = particle_index;
     }
 }

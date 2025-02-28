@@ -86,10 +86,10 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Recycle a dead particle from the destination group
     let dead_index = atomicSub(&effect_metadata.dead_count, 1u) - 1u;
-    let index = indirect_buffer.indices[3u * dead_index + 2u];
+    let particle_index = indirect_buffer.indices[3u * dead_index + 2u];
 
     // Initialize the PRNG seed
-    seed = pcg_hash(index ^ spawner.seed);
+    seed = pcg_hash(particle_index ^ spawner.seed);
 
     // Spawner transform
     let transform = transpose(
@@ -103,8 +103,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
 #ifdef READ_PARENT_PARTICLE
     // Fetch parent particle which triggered this spawn
-    let parent_index = event_buffer.spawn_events[event_index].particle_index;
-    let parent_particle = parent_particle_buffer.particles[parent_index];
+    let parent_particle_index = event_buffer.spawn_events[event_index].particle_index;
+    let parent_particle = parent_particle_buffer.particles[parent_particle_index];
 #endif
 
     // Initialize new particle
@@ -129,8 +129,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Add to alive list
     let instance_index = atomicAdd(&effect_metadata.instance_count, 1u);
-    indirect_buffer.indices[3u * instance_index + write_index] = index;
+    indirect_buffer.indices[3u * instance_index + write_index] = particle_index;
 
     // Write back new particle
-    particle_buffer.particles[index] = particle;
+    particle_buffer.particles[particle_index] = particle;
 }

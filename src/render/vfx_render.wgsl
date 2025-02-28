@@ -147,8 +147,8 @@ fn vertex(
 ) -> VertexOutput {
     // Fetch particle
     let pong = spawner.render_pong;
-    let index = indirect_buffer.indices[3u * instance_index + pong];
-    var particle = particle_buffer.particles[index];
+    let particle_index = indirect_buffer.indices[3u * instance_index + pong];
+    var particle = particle_buffer.particles[particle_index];
 
     var out: VertexOutput;
 

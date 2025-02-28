@@ -26,7 +26,7 @@ pub fn get_log_filters(example_name: &str) -> String {
         // The example app itself is at trace level so we can see everything
         &format!("{}=trace", example_name),
         // Default Hanabi to warn, probably don't need more
-        "bevy_hanabi=trace",
+        "bevy_hanabi=warn",
         // Prevent HAL from dumping all naga-generated shader code in logs
         "wgpu_hal::dx12::device=warn",
         // Tune down the verbose Vulkan driver output

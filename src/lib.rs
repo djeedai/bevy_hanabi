@@ -809,8 +809,19 @@ impl EffectShaderSource {
         // render shader.
         if !particle_layout.contains(Attribute::POSITION) {
             return Err(ShaderGenerateError::Validate(format!(
-                "The particle layout of asset {} is missing the {} attribute. Add a modifier using that attribute, for example the SetAttributeModifier.",
-                asset.name, Attribute::POSITION.name()
+                "The particle layout of asset '{}' is missing the '{}' attribute. Add a modifier using that attribute, for example the SetAttributeModifier.",
+                asset.name, Attribute::POSITION.name().to_ascii_uppercase()
+            )));
+        }
+
+        // Currently ribbon rendering requires AGE, so warn if it's missing because
+        // everything will break with some weird error aboud bind groups or whatnot.
+        if particle_layout.contains(Attribute::RIBBON_ID)
+            && !particle_layout.contains(Attribute::AGE)
+        {
+            return Err(ShaderGenerateError::Validate(format!(
+                "The particle layout of asset '{}' uses ribbons (has the '{}' attribute), but is missing the '{}' attribute, which is mandatory for ribbons. Add a modifier using that attribute, for example the SetAttributeModifier.",
+                asset.name, Attribute::RIBBON_ID.name().to_ascii_uppercase(), Attribute::AGE.name().to_ascii_uppercase()
             )));
         }
 
@@ -1220,7 +1231,7 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
         {
             writeln!(
                 &mut writeback_code,
-                "    particle_buffer.particles[index].{0} = particle.{0};",
+                "    particle_buffer.particles[particle_index].{0} = particle.{0};",
                 attribute.name()
             )
             .unwrap();

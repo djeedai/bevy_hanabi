@@ -79,7 +79,7 @@ mod shader_cache;
 mod sort;
 
 use aligned_buffer_vec::AlignedBufferVec;
-use buffer_table::BufferTable;
+use buffer_table::{BufferTable, BufferTableId};
 pub(crate) use effect_cache::EffectCache;
 pub(crate) use event::EventCache;
 pub(crate) use property::{
@@ -350,8 +350,13 @@ pub(crate) struct GpuSpawnerParams {
     /// Spawn seed, for randomized modifiers.
     seed: u32,
     /// Index of the pong (read) buffer for indirect indices, used by the render
-    /// shader to fetch particles and render them.
+    /// shader to fetch particles and render them. Only temporarily stored
+    /// between indirect and render passes, and overwritten each frame by CPU
+    /// upload. This is mostly a hack to transfer a value between those 2
+    /// compute passes.
     render_pong: u32,
+    /// Index of the [`GpuEffectMetadata`] for this effect.
+    effect_metadata_index: u32,
 }
 
 /// GPU representation of an indirect compute dispatch input.
@@ -691,7 +696,9 @@ pub(super) struct GpuBufferOperationArgs {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct QueuedOperationBindGroupKey {
     src_buffer: BufferId,
+    src_binding_size: Option<NonZeroU32>,
     dst_buffer: BufferId,
+    dst_binding_size: Option<NonZeroU32>,
 }
 
 #[derive(Debug, Clone)]
@@ -700,15 +707,19 @@ struct QueuedOperation {
     args_index: u32,
     src_buffer: Buffer,
     src_binding_offset: u32,
+    src_binding_size: Option<NonZeroU32>,
     dst_buffer: Buffer,
     dst_binding_offset: u32,
+    dst_binding_size: Option<NonZeroU32>,
 }
 
 impl From<&QueuedOperation> for QueuedOperationBindGroupKey {
     fn from(value: &QueuedOperation) -> Self {
         Self {
             src_buffer: value.src_buffer.id(),
+            src_binding_size: value.src_binding_size,
             dst_buffer: value.dst_buffer.id(),
+            dst_binding_size: value.dst_binding_size,
         }
     }
 }
@@ -887,8 +898,10 @@ impl GpuBufferOperationQueue {
         args: GpuBufferOperationArgs,
         src_buffer: Buffer,
         src_binding_offset: u32,
+        src_binding_size: Option<NonZeroU32>,
         dst_buffer: Buffer,
         dst_binding_offset: u32,
+        dst_binding_size: Option<NonZeroU32>,
     ) -> u32 {
         assert_ne!(
             op,
@@ -896,13 +909,15 @@ impl GpuBufferOperationQueue {
             "FIXME - InitFillDispatchArgs needs enqueue_init_fill() instead"
         );
         trace!(
-            "Queue {:?} op: args={:?} src_buffer={:?} src_binding_offset={} dst_buffer={:?} dst_binding_offset={}",
+            "Queue {:?} op: args={:?} src_buffer={:?} src_binding_offset={} src_binding_size={:?} dst_buffer={:?} dst_binding_offset={} dst_binding_size={:?}",
             op,
             args,
             src_buffer,
             src_binding_offset,
+            src_binding_size,
             dst_buffer,
             dst_binding_offset,
+            dst_binding_size,
         );
         let args_index = self.args_buffer_unsorted.len() as u32;
         self.args_buffer_unsorted.push(args);
@@ -911,8 +926,10 @@ impl GpuBufferOperationQueue {
             args_index,
             src_buffer,
             src_binding_offset,
+            src_binding_size,
             dst_buffer,
             dst_binding_offset,
+            dst_binding_size,
         });
         args_index
     }
@@ -1063,7 +1080,14 @@ impl GpuBufferOperationQueue {
                     }
                     _ => utils_pipeline.bind_group_layout(qop.op, false),
                 };
-                trace!("-> Creating new bind group '{label}': src#{src_id} dst#{dst_id}");
+                trace!(
+                    "-> Creating new bind group '{}': src#{} ({:?}B) dst#{} ({:?}B)",
+                    label,
+                    src_id,
+                    qop.src_binding_size,
+                    dst_id,
+                    qop.dst_binding_size,
+                );
                 render_device.create_bind_group(
                     Some(&label[..]),
                     bind_group_layout,
@@ -1073,7 +1097,10 @@ impl GpuBufferOperationQueue {
                             resource: BindingResource::Buffer(BufferBinding {
                                 buffer: self.args_buffer.buffer().unwrap(),
                                 offset: 0,
-                                size: None,
+                                size: Some(
+                                    NonZeroU64::new(self.args_buffer.aligned_size() as u64)
+                                        .unwrap(),
+                                ),
                             }),
                         },
                         BindGroupEntry {
@@ -1081,7 +1108,7 @@ impl GpuBufferOperationQueue {
                             resource: BindingResource::Buffer(BufferBinding {
                                 buffer: &qop.src_buffer,
                                 offset: 0,
-                                size: None,
+                                size: qop.src_binding_size.map(Into::into),
                             }),
                         },
                         BindGroupEntry {
@@ -1089,7 +1116,7 @@ impl GpuBufferOperationQueue {
                             resource: BindingResource::Buffer(BufferBinding {
                                 buffer: &qop.dst_buffer,
                                 offset: 0,
-                                size: None,
+                                size: qop.dst_binding_size.map(Into::into),
                             }),
                         },
                     ],
@@ -1184,7 +1211,7 @@ impl GpuBufferOperationQueue {
         compute_pass.set_pipeline(pipeline);
 
         assert_eq!(
-            self.init_fill_dispatch_args.len(),
+            self.init_fill_dispatch_args.len() + self.operation_queue.len(),
             self.args_buffer.content().len()
         );
 
@@ -3036,6 +3063,7 @@ impl EffectsMeta {
         &mut self,
         global_transform: &GlobalTransform,
         spawn_count: u32,
+        effect_metadata_buffer_table_id: BufferTableId,
     ) -> u32 {
         let spawner_base = self.spawner_buffer.len() as u32;
         let transform = global_transform.compute_matrix().into();
@@ -3045,13 +3073,15 @@ impl EffectsMeta {
             global_transform.affine().inverse(),
         )
         .into();
-        // FIXME - Probably bad to re-seed each time there's a change
-        let seed = rand::random::<u32>();
+        // FIXME - Probably bad to re-seed each time there's a change (actually, each
+        // frame even!)
+        let seed = 0; //rand::random::<u32>();
         let spawner_params = GpuSpawnerParams {
             transform,
             inverse_transform,
             spawn: spawn_count as i32,
             seed,
+            effect_metadata_index: effect_metadata_buffer_table_id.0,
             ..default()
         };
         trace!("spawner params = {:?}", spawner_params);
@@ -3935,6 +3965,7 @@ pub(crate) fn prepare_effects(
         let spawner_index = effects_meta.allocate_spawner(
             &extracted_effect.transform,
             extracted_effect.effect_spawner.spawn_count,
+            dispatch_buffer_indices.effect_metadata_buffer_table_id,
         );
 
         trace!(
@@ -4134,6 +4165,10 @@ pub(crate) fn prepare_effects(
     }
 
     // Write the entire spawner buffer for this frame, for all effects combined
+    assert_eq!(
+        prepared_effect_count,
+        effects_meta.spawner_buffer.len() as u32
+    );
     if effects_meta
         .spawner_buffer
         .write_buffer(render_device, render_queue)
@@ -4281,6 +4316,7 @@ pub(crate) fn batch_effects(
                         .dispatch_buffer_indices
                         .effect_metadata_buffer_table_id,
                 );
+                let src_binding_size = effects_meta.gpu_limits.effect_metadata_aligned_size;
                 let Some(dst_buffer) = sort_bind_groups.indirect_buffer() else {
                     error!("Missing indirect dispatch buffer for sorting, cannot schedule particle sort for ribbon. This is a bug.");
                     continue;
@@ -4288,12 +4324,15 @@ pub(crate) fn batch_effects(
                 let dst_buffer = dst_buffer.clone();
                 let dst_binding_offset = sort_bind_groups
                     .get_indirect_dispatch_byte_offset(sort_fill_indirect_dispatch_index);
+                let dst_binding_size = NonZeroU32::new(12).unwrap();
                 trace!(
-                    "queue_fill_dispatch(): src#{:?}@+{}B -> dst#{:?}@+{}B",
+                    "queue_fill_dispatch(): src#{:?}@+{}B ({}B) -> dst#{:?}@+{}B ({}B)",
                     src_buffer.id(),
                     src_binding_offset,
+                    src_binding_size.get(),
                     dst_buffer.id(),
                     dst_binding_offset,
+                    dst_binding_size.get(),
                 );
                 let src_offset = std::mem::offset_of!(GpuEffectMetadata, alive_count) as u32 / 4;
                 debug_assert_eq!(
@@ -4311,8 +4350,10 @@ pub(crate) fn batch_effects(
                     },
                     src_buffer,
                     src_binding_offset,
+                    Some(src_binding_size),
                     dst_buffer,
                     dst_binding_offset,
+                    Some(dst_binding_size),
                 );
             }
         }
@@ -6534,9 +6575,11 @@ impl Node for VfxSimulateNode {
 
             compute_pass.set_cached_compute_pipeline(effects_meta.active_indirect_pipeline_id)?;
 
-            error!("FIXME - effect_metadata_buffer has gaps!!!! this won't work. len() is the size exluding gaps!");
+            //error!("FIXME - effect_metadata_buffer has gaps!!!! this won't work. len() is
+            // the size exluding gaps!");
             const WORKGROUP_SIZE: u32 = 64;
-            let total_effect_count = effects_meta.effect_metadata_buffer.len();
+            //let total_effect_count = effects_meta.effect_metadata_buffer.len();
+            let total_effect_count = effects_meta.spawner_buffer.len() as u32;
             let workgroup_count = total_effect_count.div_ceil(WORKGROUP_SIZE);
 
             // Setup vfx_indirect pass

@@ -264,7 +264,6 @@ fn create_effect(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>
             Name::new("rocket"),
             ParticleEffectBundle {
                 effect: ParticleEffect::new(rocket_effect),
-                transform: Transform::IDENTITY,
                 ..Default::default()
             },
         ))
