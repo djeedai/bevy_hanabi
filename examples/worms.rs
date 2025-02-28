@@ -99,7 +99,7 @@ fn create_head_effect() -> EffectAsset {
     module.add_texture_slot("shape");
 
     // Allocate room for 100 "head" particles (100 worms)
-    EffectAsset::new(100, Spawner::rate(5.0.into()), module)
+    EffectAsset::new(100, Spawner::rate(2.0.into()), module)
         .with_name("worms_heads")
         .init(init_position_modifier)
         .init(init_angle_modifier)
@@ -124,10 +124,17 @@ fn create_body_effect() -> EffectAsset {
     // Particles use their parent's ID as ribbon ID. This "attaches" each trail
     // particle of this effect to the head particle of the other effect which
     // spawned it.
-    let init_ribbon_id = SetAttributeModifier::new(
+    let init_ribbon_id_modifier = SetAttributeModifier::new(
         Attribute::RIBBON_ID,
         writer.parent_attr(Attribute::ID).expr(),
     );
+
+    // When using ribbons, particles need the AGE attribute.
+    let init_age_modifier = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
+
+    // Set a lifetime for the trail
+    let init_lifetime_modifier =
+        SetAttributeModifier::new(Attribute::LIFETIME, writer.lit(1.5).expr());
 
     // Render modifiers
 
@@ -137,21 +144,23 @@ fn create_body_effect() -> EffectAsset {
     };
 
     // Make each particle round.
-    let particle_texture_modifier = ParticleTextureModifier {
-        texture_slot: writer.lit(0u32).expr(),
-        sample_mapping: ImageSampleMapping::Modulate,
-    };
+    // let particle_texture_modifier = ParticleTextureModifier {
+    //     texture_slot: writer.lit(0u32).expr(),
+    //     sample_mapping: ImageSampleMapping::Modulate,
+    // };
 
     let mut module = writer.finish();
-    module.add_texture_slot("shape");
+    // module.add_texture_slot("shape");
 
     // Allocate room for 500 trail particles
-    EffectAsset::new(500, Spawner::rate(8.0.into()), module)
+    EffectAsset::new(5000, Spawner::rate(0.5.into()), module)
         .with_name("worms_bodies")
         .init(inherit_position_modifier)
-        .init(init_ribbon_id)
+        .init(init_ribbon_id_modifier)
+        .init(init_age_modifier)
+        .init(init_lifetime_modifier)
         .render(set_size_modifier)
-        .render(particle_texture_modifier)
+    //.render(particle_texture_modifier)
 }
 
 fn setup(
@@ -199,8 +208,8 @@ fn setup(
             ..default()
         },
         EffectParent::new(head_entity),
-        EffectMaterial {
-            images: vec![circle],
-        },
+        // EffectMaterial {
+        //     images: vec![circle],
+        // },
     ));
 }
