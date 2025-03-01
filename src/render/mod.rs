@@ -3319,8 +3319,8 @@ pub(crate) fn resolve_parents(
         With<CachedEffect>,
     >,
     q_cached_effects: Query<&CachedEffect>,
-    mut q_parent_effects: Query<(Entity, &mut CachedParentInfo), With<CachedEffect>>,
     effect_cache: Res<EffectCache>,
+    mut q_parent_effects: Query<(Entity, &mut CachedParentInfo), With<CachedEffect>>,
     mut event_cache: ResMut<EventCache>,
     mut children_from_parent: Local<
         HashMap<Entity, (Vec<(Entity, BufferBindingSource)>, Vec<GpuChildInfo>)>,
@@ -3483,7 +3483,6 @@ pub(crate) fn resolve_parents(
 pub fn fixup_parents(
     q_changed_parents: Query<(Entity, &CachedParentInfo), Changed<CachedParentInfo>>,
     mut q_children: Query<&mut CachedChildInfo>,
-    mut _effect_cache: ResMut<EffectCache>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::utils::tracing::info_span!("fixup_parents").entered();
@@ -3515,6 +3514,20 @@ pub fn fixup_parents(
                 cached_child_info.local_child_index,
                 cached_child_info.global_child_index
             );
+        }
+    }
+}
+
+// TEMP - Mark all cached effects as invalid for this frame until another system
+// explicitly marks them as valid. Otherwise we early out in some parts, and
+// reuse by mistake the previous frame's extraction.
+pub fn clear_all_effects(
+    mut commands: Commands,
+    mut q_cached_effects: Query<Entity, With<BatchInput>>,
+) {
+    for entity in &mut q_cached_effects {
+        if let Some(mut cmd) = commands.get_entity(entity) {
+            cmd.remove::<BatchInput>();
         }
     }
 }
