@@ -2292,7 +2292,7 @@ pub(crate) struct ExtractedEffect {
 }
 
 pub struct AddedEffectParent {
-    pub entity: Entity,
+    pub entity: MainEntity,
     pub layout: ParticleLayout,
     /// GPU spawn event count to allocate for this effect.
     pub event_count: u32,
@@ -2548,7 +2548,7 @@ pub(crate) fn extract_effects(
             // FIXME - fixed 256 events per child (per frame) for now... this neatly avoids any issue with alignment 32/256 byte storage buffer align for bind groups
             const FIXME_HARD_CODED_EVENT_COUNT: u32 = 256;
             let parent = compiled_effect.parent.map(|entity| AddedEffectParent {
-                entity,
+                entity: entity.into(),
                 layout: compiled_effect.parent_particle_layout.as_ref().unwrap().clone(),
                 event_count: FIXME_HARD_CODED_EVENT_COUNT,
             });
@@ -3004,8 +3004,10 @@ impl EffectsMeta {
                     entity: parent.entity,
                 };
                 cmd.insert(cached_parent);
+                trace!("+ new effect declares parent entity {:?}", parent.entity);
             } else {
                 cmd.remove::<CachedParentRef>();
+                trace!("+ new effect declares no parent");
             }
 
             // Allocate storage for GPU spawn events if needed
@@ -3318,7 +3320,7 @@ pub(crate) fn resolve_parents(
         ),
         With<CachedEffect>,
     >,
-    q_cached_effects: Query<&CachedEffect>,
+    q_cached_effects: Query<(Entity, MainEntity, &CachedEffect)>,
     effect_cache: Res<EffectCache>,
     mut q_parent_effects: Query<(Entity, &mut CachedParentInfo), With<CachedEffect>>,
     mut event_cache: ResMut<EventCache>,
@@ -3328,12 +3330,18 @@ pub(crate) fn resolve_parents(
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::utils::tracing::info_span!("resolve_parents").entered();
-    trace!("resolve_parents");
+    let num_parent_effects = q_parent_effects.iter().len();
+    trace!("resolve_parents: num_parents={num_parent_effects}");
+
+    // Build map of render entity from main entity for all cached effects.
+    let render_from_main_entity = q_cached_effects
+        .iter()
+        .map(|(render_entity, main_entity, _)| (main_entity, render_entity))
+        .collect::<HashMap<_, _>>();
 
     // Group child effects by parent, building a list of children for each parent,
     // solely based on the declaration each child makes of its parent. This doesn't
     // mean yet that the parent exists.
-    let num_parent_effects = q_parent_effects.iter().len();
     if children_from_parent.capacity() < num_parent_effects {
         let extra = num_parent_effects - children_from_parent.capacity();
         children_from_parent.reserve(extra);
@@ -3341,14 +3349,24 @@ pub(crate) fn resolve_parents(
     for (child_entity, cached_parent_ref, cached_effect_events, cached_child_info) in
         q_child_effects.iter()
     {
-        let parent_entity = cached_parent_ref.entity;
+        // Resolve the parent reference into the render world
+        let parent_main_entity = cached_parent_ref.entity;
+        let Some(parent_entity) = render_from_main_entity.get(&parent_main_entity.id()) else {
+            warn!(
+                "Cannot resolve parent render entity for parent main entity {:?}, removing CachedChildInfo from child entity {:?}.",
+                parent_main_entity, child_entity
+            );
+            commands.entity(child_entity).remove::<CachedChildInfo>();
+            continue;
+        };
+        let parent_entity = *parent_entity;
 
         // Resolve the parent
-        let Ok(parent_cached_effect) = q_cached_effects.get(parent_entity) else {
+        let Ok((_, _, parent_cached_effect)) = q_cached_effects.get(parent_entity) else {
             // Since we failed to resolve, remove this component so the next systems ignore
             // this effect.
             warn!(
-                "Unknown parent entity {:?}, removing CachedChildInfo from child entity {:?}.",
+                "Unknown parent render entity {:?}, removing CachedChildInfo from child entity {:?}.",
                 parent_entity, child_entity
             );
             commands.entity(child_entity).remove::<CachedChildInfo>();
@@ -3823,6 +3841,7 @@ pub(crate) fn prepare_effects(
         );
 
         // Fetch the bind group layouts from the cache
+        trace!("cached_child_info={:?}", cached_child_info);
         let (parent_particle_layout_min_binding_size, parent_buffer_index) =
             if let Some(cached_child) = cached_child_info.as_ref() {
                 let Ok((_, parent_cached_effect, _, _, _, _, _, _)) =

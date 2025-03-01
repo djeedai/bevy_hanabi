@@ -8,6 +8,7 @@ use bevy::{
             BindGroup, BindGroupLayout, Buffer, BufferVec, ShaderSize as _, ShaderType,
         },
         renderer::{RenderDevice, RenderQueue},
+        sync_world::MainEntity,
     },
 };
 use bytemuck::{Pod, Zeroable};
@@ -176,8 +177,9 @@ impl CachedParentInfo {
 /// [`CachedChildInfo`] is also spawned.
 #[derive(Debug, Component)]
 pub(crate) struct CachedParentRef {
-    /// The render entity of the parent of this effect instance.
-    pub entity: Entity,
+    /// The main entity of the parent of this effect instance, as declared by
+    /// the effect.
+    pub entity: MainEntity,
 }
 
 /// Data about this effect as a child of another effect.
@@ -188,8 +190,8 @@ pub(crate) struct CachedParentRef {
 /// this component is absent.
 #[derive(Debug, Component)]
 pub(crate) struct CachedChildInfo {
-    /// Render entity of the parent effect.
-    // FIXME - consider removing here, since it duplicates CachedParentRef::entity?
+    /// Render entity of the parent effect. This entity is resolved and always
+    /// valid, otherwise this component is removed.
     pub parent: Entity,
     /// Parent's particle layout.
     pub parent_particle_layout: ParticleLayout,
