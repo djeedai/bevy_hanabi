@@ -958,6 +958,7 @@ impl EffectCache {
         self.particle_bind_group_layouts
             .entry(key)
             .or_insert_with(|| {
+                trace!("Creating new particle sim bind group @1 for min_binding_size={} parent_min_binding_size={:?}", min_binding_size, parent_min_binding_size);
                 create_particle_sim_bind_group_layout(
                     &self.render_device,
                     min_binding_size,

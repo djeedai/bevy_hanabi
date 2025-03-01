@@ -364,12 +364,11 @@ impl PropertyBindGroups {
         spawner_buffer: &Buffer,
         spawner_buffer_binding_size: NonZeroU64,
         render_device: &RenderDevice,
-        debug_entity: Entity,
     ) -> Result<(), ()> {
         let Some(property_buffer) = property_cache.get_buffer(property_key.buffer_index) else {
             error!(
-                "Missing property buffer #{}, referenced by effect batch on render entity {:?}.",
-                property_key.buffer_index, debug_entity
+                "Missing property buffer #{}, referenced by effect batch.",
+                property_key.buffer_index,
             );
             return Err(());
         };
@@ -378,8 +377,8 @@ impl PropertyBindGroups {
         let property_binding_size = NonZeroU64::new(property_key.binding_size as u64).unwrap();
         let Some(layout) = property_cache.bind_group_layout(Some(property_binding_size)) else {
             error!(
-                "Missing property bind group layout for binding size {}, referenced by effect batch on render entity {:?}.",
-                property_binding_size.get(), debug_entity
+                "Missing property bind group layout for binding size {}, referenced by effect batch.",
+                property_binding_size.get(),
             );
             return Err(());
         };
@@ -430,12 +429,10 @@ impl PropertyBindGroups {
         spawner_buffer: &Buffer,
         spawner_buffer_binding_size: NonZeroU64,
         render_device: &RenderDevice,
-        debug_entity: Entity,
     ) -> Result<(), ()> {
         let Some(layout) = property_cache.bind_group_layout(None) else {
             error!(
-                "Missing property bind group layout for no-property variant, referenced by effect batch on render entity {:?}.",
-                debug_entity
+                "Missing property bind group layout for no-property variant, referenced by effect batch.",
             );
             return Err(());
         };

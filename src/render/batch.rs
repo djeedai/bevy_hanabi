@@ -1,4 +1,4 @@
-use std::{fmt::Debug, num::NonZeroU32, ops::Range};
+use std::{collections::VecDeque, fmt::Debug, num::NonZeroU32, ops::Range};
 
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
@@ -8,6 +8,7 @@ use bevy::{
         render_resource::{Buffer, CachedComputePipelineId},
         sync_world::MainEntity,
     },
+    utils::HashMap,
 };
 
 use super::{
@@ -17,7 +18,7 @@ use super::{
 };
 use crate::{AlphaMode, EffectAsset, EffectShader, ParticleLayout, TextureLayout};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum BatchSpawnInfo {
     /// Spawn a number of particles uploaded from CPU each frame.
     CpuSpawner {
@@ -43,7 +44,7 @@ pub(crate) enum BatchSpawnInfo {
 }
 
 /// Batch of effects dispatched and rendered together.
-#[derive(Debug, Component)]
+#[derive(Debug, Clone)]
 pub(crate) struct EffectBatch {
     /// Handle of the underlying effect asset describing the effect.
     pub handle: Handle<EffectAsset>,
@@ -111,6 +112,184 @@ pub(crate) struct EffectBatch {
     pub sort_fill_indirect_dispatch_index: Option<u32>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct EffectBatchIndex(pub u32);
+
+pub(crate) struct SortedEffectBatchesIter<'a> {
+    batches: &'a [EffectBatch],
+    sorted_indices: &'a [u32],
+    next: u32,
+}
+
+impl<'a> SortedEffectBatchesIter<'a> {
+    pub fn new(source: &'a SortedEffectBatches) -> Self {
+        assert_eq!(source.batches.len(), source.sorted_indices.len());
+        Self {
+            batches: &source.batches[..],
+            sorted_indices: &source.sorted_indices[..],
+            next: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for SortedEffectBatchesIter<'a> {
+    type Item = &'a EffectBatch;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.next < self.sorted_indices.len() as u32 {
+            let index = self.sorted_indices[self.next as usize];
+            let batch = &self.batches[index as usize];
+            self.next += 1;
+            Some(batch)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> ExactSizeIterator for SortedEffectBatchesIter<'a> {
+    fn len(&self) -> usize {
+        self.sorted_indices.len()
+    }
+}
+
+#[derive(Debug, Default, Resource)]
+pub(crate) struct SortedEffectBatches {
+    /// Effect batches in the order they were inserted by [`push()`], indexed by
+    /// the returned [`EffectBatchIndex`].
+    ///
+    /// [`push()`]: Self::push
+    batches: Vec<EffectBatch>,
+    /// Indices into [`batches`] defining the sorted order batches need to be
+    /// processed in. Calcualted by [`sort()`].
+    ///
+    /// [`batches`]: Self::batches
+    /// [`sort()`]: Self::sort
+    sorted_indices: Vec<u32>,
+}
+
+impl SortedEffectBatches {
+    pub fn clear(&mut self) {
+        self.batches.clear();
+        self.sorted_indices.clear();
+    }
+
+    pub fn push(&mut self, effect_batch: EffectBatch) -> EffectBatchIndex {
+        let index = self.batches.len() as u32;
+        self.batches.push(effect_batch);
+        EffectBatchIndex(index)
+    }
+
+    pub fn len(&self) -> usize {
+        self.sorted_indices.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sorted_indices.is_empty()
+    }
+
+    /// Get an iterator over the sorted sequence of effect batches.
+    #[inline]
+    pub fn iter(&self) -> SortedEffectBatchesIter {
+        SortedEffectBatchesIter::new(self)
+    }
+
+    pub fn get(&self, index: EffectBatchIndex) -> Option<&EffectBatch> {
+        if index.0 < self.batches.len() as u32 {
+            Some(&self.batches[index.0 as usize])
+        } else {
+            None
+        }
+    }
+
+    /// Sort the effect batches.
+    pub fn sort(&mut self) {
+        self.sorted_indices.clear();
+        self.sorted_indices.reserve_exact(self.batches.len());
+
+        // Kahn’s algorithm for topological sorting.
+
+        // Note: we sort by particle buffer index. In theory with batching this is
+        // incorrect, because a parent and child could be batched together in the same
+        // buffer, in the wrong order. However currently batching is broken and we
+        // allocate one effect instance per buffer, so this works. Ideally we'd take
+        // care of sorting earlier during batching.
+
+        // Build a map from buffer index to batch index.
+        let batch_index_from_buffer_index = self
+            .batches
+            .iter()
+            .enumerate()
+            .map(|(index, effect_batch)| (effect_batch.buffer_index, index))
+            .collect::<HashMap<_, _>>();
+        // In theory with batching we could have multiple batches referencing the same
+        // buffer if we failed to batch some effect instances together which
+        // otherwise share a same particle buffer. In practice this currently doesn't
+        // happen because batching is disabled, so we always create one buffer
+        // per effect instance. But this will need to be fixed later.
+        assert_eq!(
+            batch_index_from_buffer_index.len(),
+            self.batches.len(),
+            "FIXME: Duplicate buffer index in batches. This is not implemented yet."
+        );
+
+        // Build a map from the batch index of a child to the batch index of its
+        // parent.
+        let mut parent_batch_index_from_batch_index = HashMap::with_capacity(self.batches.len());
+        for (batch_index, effect_batch) in self.batches.iter().enumerate() {
+            if let Some(parent_buffer_index) = effect_batch.parent_buffer_index {
+                let parent_batch_index = batch_index_from_buffer_index
+                    .get(&parent_buffer_index)
+                    .unwrap();
+                parent_batch_index_from_batch_index.insert(batch_index as u32, *parent_batch_index);
+            }
+        }
+
+        // Store the number of children per batch; we need to decrement it below
+        let mut child_count = self
+            .batches
+            .iter()
+            .map(|effect_batch| effect_batch.child_effects.len() as u32)
+            .collect::<Vec<_>>();
+
+        // Insert in queue all effects without any child
+        let mut queue = VecDeque::new();
+        for (batch_index, count) in child_count.iter().enumerate() {
+            if *count == 0 {
+                queue.push_back(batch_index as u32);
+            }
+        }
+
+        // Process queue
+        while let Some(batch_index) = queue.pop_front() {
+            // The batch has no unprocessed child, so it can be inserted in the final result
+            assert!(child_count[batch_index as usize] == 0);
+            self.sorted_indices.push(batch_index);
+
+            // If it has a parent, that parent has one less child to be processed, so is one
+            // step closer to being inserted itself in the final result.
+            let Some(parent_batch_index) = parent_batch_index_from_batch_index.get(&batch_index)
+            else {
+                continue;
+            };
+            assert!(child_count[*parent_batch_index] > 0);
+            child_count[*parent_batch_index] -= 1;
+
+            // If this was the last child effect of that parent, then the parent is ready
+            // and can be inserted itself.
+            if child_count[*parent_batch_index] == 0 {
+                queue.push_back(*parent_batch_index as u32);
+            }
+        }
+
+        assert_eq!(
+            self.sorted_indices.len(),
+            self.batches.len(),
+            "Cycle detected in effects"
+        );
+    }
+}
+
 /// Single effect batch to drive rendering.
 ///
 /// This component is spawned into the render world during the prepare phase
@@ -119,8 +298,12 @@ pub(crate) struct EffectBatch {
 /// all the groups of the effect.
 #[derive(Debug, Component)]
 pub(crate) struct EffectDrawBatch {
-    /// Entity holding the [`EffectBatch`] this batch is part of.
-    pub batch_entity: Entity,
+    /// Index of the [`EffectBatch`] in the [`SortedEffectBatches`] this draw
+    /// batch is part of.
+    ///
+    /// Note: currently there's a 1:1 mapping between effect batch and draw
+    /// batch.
+    pub effect_batch_index: EffectBatchIndex,
     /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
     /// rendering.
     #[cfg(feature = "2d")]
