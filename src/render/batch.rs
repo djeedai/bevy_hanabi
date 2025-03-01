@@ -5,7 +5,7 @@ use bevy::math::FloatOrd;
 use bevy::{
     prelude::*,
     render::{
-        render_resource::{Buffer, CachedComputePipelineId},
+        render_resource::{BufferId, CachedComputePipelineId},
         sync_world::MainEntity,
     },
     utils::HashMap,
@@ -69,8 +69,8 @@ pub(crate) struct EffectBatch {
     pub parent_buffer_index: Option<u32>,
     pub parent_min_binding_size: Option<NonZeroU32>,
     pub parent_binding_source: Option<BufferBindingSource>,
-    /// Child effects, if any.
-    pub child_effects: Vec<(Entity, BufferBindingSource)>,
+    /// Event buffers of child effects, if any.
+    pub child_event_buffers: Vec<(Entity, BufferBindingSource)>,
     /// Index of the property buffer, if any.
     pub property_key: Option<PropertyBindGroupKey>,
     /// Offset in bytes into the property buffer where the Property struct is
@@ -94,7 +94,7 @@ pub(crate) struct EffectBatch {
     /// GPU buffer storing the [`mesh`] of the effect.
     ///
     /// [`mesh`]: Self::mesh
-    pub mesh_buffer: Buffer,
+    pub mesh_buffer_id: BufferId,
     /// Slice inside the GPU buffer for the effect mesh.
     pub mesh_slice: Range<u32>,
     /// Texture layout.
@@ -181,16 +181,21 @@ impl SortedEffectBatches {
     }
 
     pub fn len(&self) -> usize {
-        self.sorted_indices.len()
+        self.batches.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.sorted_indices.is_empty()
+        self.batches.is_empty()
     }
 
     /// Get an iterator over the sorted sequence of effect batches.
     #[inline]
     pub fn iter(&self) -> SortedEffectBatchesIter {
+        assert_eq!(
+            self.batches.len(),
+            self.sorted_indices.len(),
+            "Invalid sorted size. Did you call sort() beforehand?"
+        );
         SortedEffectBatchesIter::new(self)
     }
 
@@ -246,10 +251,21 @@ impl SortedEffectBatches {
         }
 
         // Store the number of children per batch; we need to decrement it below
+        // HACK - during tests we don't want to create Buffers so grab the count another (slower) way
+        #[cfg(test)]
+        let mut child_count = {
+            let mut counts = Vec::with_capacity(self.batches.len());
+            counts.resize(self.batches.len(), 0);
+            for (_, parent_batch_index) in &parent_batch_index_from_batch_index {
+                counts[*parent_batch_index] += 1;
+            }
+            counts
+        };
+        #[cfg(not(test))]
         let mut child_count = self
             .batches
             .iter()
-            .map(|effect_batch| effect_batch.child_effects.len() as u32)
+            .map(|effect_batch| effect_batch.child_event_buffers.len() as u32)
             .collect::<Vec<_>>();
 
         // Insert in queue all effects without any child
@@ -354,7 +370,7 @@ impl EffectBatch {
                 .map(|cci| cci.parent_particle_layout.min_binding_size32()),
             parent_binding_source: cached_child_info
                 .map(|cci| cci.parent_buffer_binding_source.clone()),
-            child_effects: input.child_effects.clone(),
+            child_event_buffers: input.child_effects.clone(),
             property_key,
             property_offset,
             spawner_base: input.spawner_base,
@@ -362,7 +378,7 @@ impl EffectBatch {
             dispatch_buffer_indices,
             layout_flags: input.layout_flags,
             mesh: cached_mesh.mesh,
-            mesh_buffer: cached_mesh.buffer.clone(),
+            mesh_buffer_id: cached_mesh.buffer.id(),
             mesh_slice: cached_mesh.range.clone(),
             texture_layout: input.texture_layout.clone(),
             textures: input.textures.clone(),
@@ -428,4 +444,94 @@ pub(crate) struct BatchInput {
 pub(crate) struct InitAndUpdatePipelineIds {
     pub init: CachedComputePipelineId,
     pub update: CachedComputePipelineId,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_batch(buffer_index: u32, parent_buffer_index: Option<u32>) -> EffectBatch {
+        EffectBatch {
+            handle: default(),
+            buffer_index,
+            slice: 0..0,
+            spawn_info: BatchSpawnInfo::CpuSpawner {
+                total_spawn_count: 0,
+            },
+            init_and_update_pipeline_ids: InitAndUpdatePipelineIds {
+                init: CachedComputePipelineId::INVALID,
+                update: CachedComputePipelineId::INVALID,
+            },
+            render_shader: default(),
+            parent_buffer_index,
+            parent_min_binding_size: default(),
+            parent_binding_source: default(),
+            child_event_buffers: default(),
+            property_key: default(),
+            property_offset: default(),
+            spawner_base: default(),
+            dispatch_buffer_indices: default(),
+            particle_layout: ParticleLayout::empty(),
+            layout_flags: LayoutFlags::NONE,
+            mesh: default(),
+            mesh_buffer_id: NonZeroU32::new(1).unwrap().into(),
+            mesh_slice: 0..0,
+            texture_layout: default(),
+            textures: default(),
+            alpha_mode: default(),
+            entities: default(),
+            cached_effect_events: default(),
+            sort_fill_indirect_dispatch_index: default(),
+        }
+    }
+
+    #[test]
+    fn toposort_batches() {
+        let mut seb = SortedEffectBatches::default();
+        assert!(seb.is_empty());
+        assert_eq!(seb.len(), 0);
+
+        seb.push(make_batch(42, None));
+        assert!(!seb.is_empty());
+        assert_eq!(seb.len(), 1);
+
+        seb.push(make_batch(5, Some(42)));
+        assert!(!seb.is_empty());
+        assert_eq!(seb.len(), 2);
+
+        seb.sort();
+        assert!(!seb.is_empty());
+        assert_eq!(seb.len(), 2);
+        let sorted_batches = seb.iter().collect::<Vec<_>>();
+        assert_eq!(sorted_batches.len(), 2);
+        assert_eq!(sorted_batches[0].buffer_index, 5);
+        assert_eq!(sorted_batches[1].buffer_index, 42);
+
+        seb.push(make_batch(6, Some(42)));
+        assert!(!seb.is_empty());
+        assert_eq!(seb.len(), 3);
+
+        seb.sort();
+        assert!(!seb.is_empty());
+        assert_eq!(seb.len(), 3);
+        let sorted_batches = seb.iter().collect::<Vec<_>>();
+        assert_eq!(sorted_batches.len(), 3);
+        assert_eq!(sorted_batches[0].buffer_index, 5);
+        assert_eq!(sorted_batches[1].buffer_index, 6);
+        assert_eq!(sorted_batches[2].buffer_index, 42);
+
+        seb.push(make_batch(55, Some(5)));
+        assert!(!seb.is_empty());
+        assert_eq!(seb.len(), 4);
+
+        seb.sort();
+        assert!(!seb.is_empty());
+        assert_eq!(seb.len(), 4);
+        let sorted_batches = seb.iter().collect::<Vec<_>>();
+        assert_eq!(sorted_batches.len(), 4);
+        assert_eq!(sorted_batches[0].buffer_index, 6);
+        assert_eq!(sorted_batches[1].buffer_index, 55);
+        assert_eq!(sorted_batches[2].buffer_index, 5);
+        assert_eq!(sorted_batches[3].buffer_index, 42);
+    }
 }

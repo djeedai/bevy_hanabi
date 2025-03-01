@@ -4754,7 +4754,7 @@ impl EffectBindGroups {
         } = &effect_batch.dispatch_buffer_indices;
 
         // Check arguments consistency
-        assert_eq!(effect_batch.child_effects.len(), event_buffers.len());
+        assert_eq!(effect_batch.child_event_buffers.len(), event_buffers.len());
         let emits_gpu_spawn_events = event_buffers.len() > 0;
         let child_info_buffer_id = if emits_gpu_spawn_events {
             child_info_buffer.as_ref().map(|buffer| buffer.id())
@@ -5846,7 +5846,7 @@ pub(crate) fn prepare_bind_groups(
         // Bind group @3 of update pass
         // FIXME - this is instance-dependent, not buffer-dependent#
         {
-            let num_event_buffers = effect_batch.child_effects.len() as u32;
+            let num_event_buffers = effect_batch.child_event_buffers.len() as u32;
 
             let Some(update_metadata_layout) =
                 effect_cache.metadata_update_bind_group_layout(num_event_buffers)
@@ -5861,7 +5861,7 @@ pub(crate) fn prepare_bind_groups(
                     &update_metadata_layout,
                     effects_meta.effect_metadata_buffer.buffer().unwrap(),
                     event_cache.child_infos_buffer(),
-                    &effect_batch.child_effects[..],
+                    &effect_batch.child_event_buffers[..],
                 )
                 .is_err()
             {
@@ -6030,10 +6030,7 @@ fn draw<'w>(
     // Vertex buffer containing the particle model to draw. Generally a quad.
     // FIXME - need to upload "vertex_buffer_slice.range.start as i32" into
     // "base_vertex" in the indirect struct...
-    assert_eq!(
-        effect_batch.mesh_buffer.id(),
-        vertex_buffer_slice.buffer.id()
-    );
+    assert_eq!(effect_batch.mesh_buffer_id, vertex_buffer_slice.buffer.id());
     assert_eq!(effect_batch.mesh_slice, vertex_buffer_slice.range);
     pass.set_vertex_buffer(0, vertex_buffer_slice.buffer.slice(..));
 
