@@ -88,6 +88,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let dead_index = atomicSub(&effect_metadata.dead_count, 1u) - 1u;
     let particle_index = indirect_buffer.indices[3u * dead_index + 2u];
 
+    let particle_counter = atomicAdd(&effect_metadata.particle_counter, 1u);
+
     // Initialize the PRNG seed
     seed = pcg_hash(particle_index ^ spawner.seed);
 

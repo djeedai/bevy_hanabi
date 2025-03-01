@@ -59,6 +59,13 @@ fn create_head_effect() -> EffectAsset {
     let init_lifetime_modifier =
         SetAttributeModifier::new(Attribute::LIFETIME, writer.lit(3.0).expr());
 
+    // Store a unique value per head particle. This will be used as the ribbon ID of
+    // the trail.
+    let init_ribbon_id = SetAttributeModifier::new(
+        Attribute::U32_0,
+        writer.attr(Attribute::PARTICLE_COUNTER).expr(),
+    );
+
     // Update modifiers
 
     // Make the particle wiggle, following a sine wave.
@@ -106,6 +113,7 @@ fn create_head_effect() -> EffectAsset {
         .init(init_age_modifier)
         .init(init_lifetime_modifier)
         .init(init_color_modifier)
+        .init(init_ribbon_id)
         .update(set_velocity_modifier)
         .update(update_spawn_trail)
         .render(set_size_modifier)
@@ -121,12 +129,16 @@ fn create_body_effect() -> EffectAsset {
     // worm, from the other effect)
     let inherit_position_modifier = InheritAttributeModifier::new(Attribute::POSITION);
 
-    // Particles use their parent's ID as ribbon ID. This "attaches" each trail
-    // particle of this effect to the head particle of the other effect which
-    // spawned it.
+    // We need to figure out a shared RIBBON_ID for all body particles "attached" to
+    // a given head one from the other effect. The obvious choice is the parent's
+    // ID, which is a pseudo-attribute unique to each parent particle. This almost
+    // works, but breaks when the parent particle dies and gets recycled in the same
+    // frame (with the same ID). So instead of that ID we use the same kind of idea,
+    // reading a unique value from the parent, but we use one which is truely
+    // unique, stored per parent particle in U32_0.
     let init_ribbon_id_modifier = SetAttributeModifier::new(
         Attribute::RIBBON_ID,
-        writer.parent_attr(Attribute::ID).expr(),
+        writer.parent_attr(Attribute::U32_0).expr(),
     );
 
     // When using ribbons, particles need the AGE attribute.

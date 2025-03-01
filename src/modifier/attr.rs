@@ -82,6 +82,10 @@ impl SetAttributeModifier {
             attribute != Attribute::ID,
             "The particle's ID is a read-only pseudo-attribute, cannot be assigned."
         );
+        assert!(
+            attribute != Attribute::PARTICLE_COUNTER,
+            "The PARTICLE_COUNTER attribute is a read-only pseudo-attribute, cannot be assigned."
+        );
         Self { attribute, value }
     }
 

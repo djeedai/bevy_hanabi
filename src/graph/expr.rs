@@ -1241,6 +1241,9 @@ impl AttributeExpr {
                 "particle_index"
             }
             .to_string())
+        } else if self.attr == Attribute::PARTICLE_COUNTER {
+            // Pseudo-attribute, not stored in the particle buffer
+            Ok("particle_counter".to_string())
         } else {
             let owner = if parent {
                 "parent_particle"

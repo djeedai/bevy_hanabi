@@ -176,6 +176,12 @@ struct EffectMetadata {
     /// Offset from the particle start to the second sort key, in number of u32.
     sort_key2_offset: u32,
 
+    /// Atomic counter incremented each time a particle spawns. Useful for
+    /// things like RIBBON_ID or any other use where a unique value is needed.
+    /// The value loops back after some time, but unless some particle lives
+    /// forever there's little chance of repetition.
+    particle_counter: atomic<u32>,
+
     /// Padding for storage buffer alignment. This struct is sometimes bound as part
     /// of an array, or sometimes individually as a single unit. In the later case,
     /// we need it to be aligned to the GPU limits of the device. That limit is only

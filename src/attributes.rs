@@ -537,9 +537,23 @@ macro_rules! declare_custom_attr_inner {
     };
 }
 
+macro_rules! declare_custom_attr_u32_inner {
+    ($t:ident, $name:literal, $scalar_type:ident) => {
+        pub const $t: &'static AttributeInner = &AttributeInner::new(
+            Cow::Borrowed($name),
+            Value::Scalar(ScalarValue::$scalar_type(0)),
+        );
+    };
+}
+
 impl AttributeInner {
     pub const ID: &'static AttributeInner =
         &AttributeInner::new(Cow::Borrowed("id"), Value::Scalar(ScalarValue::Uint(0)));
+
+    pub const PARTICLE_COUNTER: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("particle_counter"),
+        Value::Scalar(ScalarValue::Uint(0)),
+    );
 
     pub const POSITION: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("position"),
@@ -649,6 +663,11 @@ impl AttributeInner {
     declare_custom_attr_inner!(F32X4_1, Vec4, "f32x4_1", new_vec4);
     declare_custom_attr_inner!(F32X4_2, Vec4, "f32x4_2", new_vec4);
     declare_custom_attr_inner!(F32X4_3, Vec4, "f32x4_3", new_vec4);
+
+    declare_custom_attr_u32_inner!(U32_0, "u32_0", Uint);
+    declare_custom_attr_u32_inner!(U32_1, "u32_1", Uint);
+    declare_custom_attr_u32_inner!(U32_2, "u32_2", Uint);
+    declare_custom_attr_u32_inner!(U32_3, "u32_3", Uint);
 
     pub const RIBBON_ID: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("ribbon_id"),
@@ -919,6 +938,13 @@ macro_rules! declare_custom_attr_pub {
     };
 }
 
+macro_rules! declare_custom_attr_u32_pub  {
+    ($t: ident, $name: literal, $scalar_type: ident) => {
+        #[doc = concat!("A generic scalar uint attribute.\n\n This attribute can be used for anything. It has no specific meaning. You can store whatever per-particle value you want in it (for example, at spawn time) and read it back later.\n\n# Name\n\n`", $name, "`\n\n# Type\n\n[`ScalarType::", stringify!($scalar_type), "`]")]
+        pub const $t: Attribute = Attribute(AttributeInner::$t);
+    };
+}
+
 impl Attribute {
     /// The particle unique ID.
     ///
@@ -936,6 +962,23 @@ impl Attribute {
     ///
     /// [`ScalarType::Uint`]
     pub const ID: Attribute = Attribute(AttributeInner::ID);
+
+    /// A monotonically increasing counter.
+    ///
+    /// This is a pseudo-attribute, which doesn't require any storage in the
+    /// particle layout, and is always available. It can be read but cannot be
+    /// set. The counter is guaranteed to be unique each time a new particle
+    /// spawns. It may loop after 2^32 values, but unless you store that value
+    /// for a very long time you can consider the value unique.
+    ///
+    /// # Name
+    ///
+    /// `particle_counter`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Uint`]
+    pub const PARTICLE_COUNTER: Attribute = Attribute(AttributeInner::PARTICLE_COUNTER);
 
     /// The particle position in [simulation space].
     ///
@@ -1270,6 +1313,11 @@ impl Attribute {
     declare_custom_attr_pub!(F32X4_2, "f32x4_2", 4, VEC4F);
     declare_custom_attr_pub!(F32X4_3, "f32x4_3", 4, VEC4F);
 
+    declare_custom_attr_u32_pub!(U32_0, "u32_0", Uint);
+    declare_custom_attr_u32_pub!(U32_1, "u32_1", Uint);
+    declare_custom_attr_u32_pub!(U32_2, "u32_2", Uint);
+    declare_custom_attr_u32_pub!(U32_3, "u32_3", Uint);
+
     /// ID of the ribbon a particle is part of.
     ///
     /// This attribute is used to group particles together by ribbon.
@@ -1284,8 +1332,9 @@ impl Attribute {
     pub const RIBBON_ID: Attribute = Attribute(AttributeInner::RIBBON_ID);
 
     /// Collection of all the existing particle attributes.
-    const ALL: [Attribute; 34] = [
+    const ALL: [Attribute; 39] = [
         Attribute::ID,
+        Attribute::PARTICLE_COUNTER,
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,
@@ -1318,6 +1367,10 @@ impl Attribute {
         Attribute::F32X4_1,
         Attribute::F32X4_2,
         Attribute::F32X4_3,
+        Attribute::U32_0,
+        Attribute::U32_1,
+        Attribute::U32_2,
+        Attribute::U32_3,
         Attribute::RIBBON_ID,
     ];
 

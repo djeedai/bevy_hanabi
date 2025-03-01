@@ -251,7 +251,8 @@ impl SortedEffectBatches {
         }
 
         // Store the number of children per batch; we need to decrement it below
-        // HACK - during tests we don't want to create Buffers so grab the count another (slower) way
+        // HACK - during tests we don't want to create Buffers so grab the count another
+        // (slower) way
         #[cfg(test)]
         let mut child_count = {
             let mut counts = Vec::with_capacity(self.batches.len());

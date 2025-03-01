@@ -446,6 +446,12 @@ pub struct GpuEffectMetadata {
     pub sort_key_offset: u32,
     /// Offset from the particle start to the second sort key, in number of u32.
     pub sort_key2_offset: u32,
+
+    /// Atomic counter incremented each time a particle spawns. Useful for
+    /// things like RIBBON_ID or any other use where a unique value is needed.
+    /// The value loops back after some time, but unless some particle lives
+    /// forever there's little chance of repetition.
+    pub particle_counter: u32,
 }
 
 /// Compute pipeline to run the `vfx_indirect` dispatch workgroup calculation
