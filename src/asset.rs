@@ -263,43 +263,9 @@ impl FromWorld for DefaultMesh {
 /// component, or a [`ParticleEffectBundle`], which references the
 /// [`EffectAsset`].
 ///
-/// # Groups, trails, and ribbons
-///
-/// Typically, an effect asset describes a single type of particles. At this
-/// time, 🎆 Hanabi doesn't yet support complex effects involving multiple
-/// sub-effects (sometimes called _systems_ in some other engines). This means
-/// most parameters relating to an effect asset affect all particles.
-///
-/// However, for technical reasons, the implementation of trails and ribbons
-/// requires treating different groups of particles in a different way.
-/// - Trails refer to the visual effect of a group of particles appearing to
-///   follow each other, leaving a visual trail. The implementation in fact
-///   doesn't update the position of those particles; instead, it spawns at
-///   regular interval a new particle, while older particles die after reaching
-///   their lifetime. To give the appearance of a trail, the newly spawned
-///   particles are _cloned_ from an existing "head" particle. Because those two
-///   kinds of particles need to be treated differently by the implementation,
-///   they are split into separate groups inside the same effect.
-/// - Ribbons refer to a similar visual effect as trails, but in addition
-///   particles are rendered by stitching consecutive trail particles together
-///   to form a continuous visual trail called a ribbon. To achieve this, the
-///   implementation needs to chain particles together and keep track of the
-///   previous and/or next particle of each particle. This is achieved via the
-///   [`Attribute::PREV`] and [`Attribute::NEXT`] attributes, stored per
-///   particle. Because each particle can only store one set of attributes, this
-///   means there can only be one ribbon per effect.
-///
-/// In general, groups are largely a technical implementation detail for trails
-/// and ribbons, and you should simply rely on helper functions like
-/// [`with_trails()`] or [`with_ribbons()`]. Groups were first introduced with a
-/// powerful but complex API, which has been since then greatly simplified, with
-/// the intent to completely hide/eliminate them in the future.
-///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
 /// [`EffectAsset`]: crate::EffectAsset
-/// [`with_trails()`]: crate::EffectAsset::with_trails
-/// [`with_ribbons()`]: crate::EffectAsset::with_ribbons
 #[derive(Asset, Default, Clone, Reflect)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[reflect(from_reflect = false)]
@@ -485,83 +451,6 @@ impl EffectAsset {
         self
     }
 
-    // /// Adds a new particle group that clones particles at an interval to
-    // /// produce a trail.
-    // ///
-    // /// Trails allow your particles to emit copies of themselves at fixed
-    // /// intervals, creating the effect of particles that follow one another.
-    // /// Trails consist of particles that are disconnected from one another; to
-    // /// visually connect the trail particles together, use a
-    // /// [ribbon](Self::with_ribbons) instead.
-    // ///
-    // /// You may have as many trails as you wish per particle effect, up to the
-    // /// limit on the number of groups.
-    // ///
-    // /// Particle group indices are assigned sequentially. The first group,
-    // /// automatically created when you create an effect, has ID 0. Additional
-    // /// groups, which functions like this one create, are assigned ID 1, 2, 3,
-    // /// etc.
-    // ///
-    // /// `capacity` represents the maximum number of particles in the group.
-    // /// `period` represents the fixed interval between clone operations.
-    // /// `lifetime` represents how long each particle in the trail lives;
-    // /// currently, it must be a fixed number of seconds. `src_group_index` is
-    // /// the group from which the particles are to be cloned; most of the time,
-    // /// you will want to pass 0 here to target the first group.
-    // pub fn with_trails(
-    //     mut self,
-    //     capacity: u32,
-    //     period: impl Into<CpuValue<f32>>,
-    //     lifetime: f32,
-    //     src_group_index: u32,
-    // ) -> Self {
-    //     self.capacity.push(capacity);
-    //     self.spawner.push(Initializer::Cloner(Cloner {
-    //         src_group_index,
-    //         period: period.into(),
-    //         lifetime,
-    //         starts_active: true,
-    //     }));
-    //     self
-    // }
-
-    // /// Adds a new particle group that creates a ribbon following particles from
-    // /// another group.
-    // ///
-    // /// A ribbon is a connected string of quads that trail behind particles
-    // /// from the source group. Hanabi emits new quads on a fixed interval given
-    // /// by `period`. Ribbons are similar to [trails](Self::with_trails), but
-    // /// while trail particles are disconnected, ribbon particles are connected.
-    // ///
-    // /// Because ribbons internally use a doubly-linked list, of which there's at
-    // /// most one per effect, you may have at most one ribbon per particle
-    // /// effect.
-    // ///
-    // /// Particle group indices are assigned sequentially. The first group,
-    // /// automatically created when you create an effect, has ID 0. Additional
-    // /// groups, which functions like this one create, are assigned ID 1, 2, 3,
-    // /// etc.
-    // ///
-    // /// `capacity` represents the maximum number of ribbon segments in the
-    // /// group. `period` represents the amount of time that Hanabi will wait
-    // /// before spawning a new ribbon segment. `lifetime` represents the number
-    // /// of seconds that each ribbon segment will persist for.
-    // /// `src_group_index` is the group containing the particles that the ribbon
-    // /// segments will follow; most of the time, you will want to pass 0 here to
-    // /// target the first group.
-    // pub fn with_ribbons(
-    //     mut self,
-    //     capacity: u32,
-    //     period: impl Into<CpuValue<f32>>,
-    //     lifetime: f32,
-    //     src_group_index: u32,
-    // ) -> Self {
-    //     debug_assert!(self.ribbon_group.is_none());
-    //     self.ribbon_group = Some(self.capacity.len());
-    //     let period: CpuValue<f32> = period.into();
-    //     self.with_trails(capacity, period, lifetime, src_group_index)
-    // }
-
     /// Get the list of existing properties.
     ///
     /// This is a shortcut for `self.module().properties()`.
@@ -715,12 +604,6 @@ impl EffectAsset {
                 set.insert(attr);
             }
         }
-
-        // If we're using ribbons, we need a linked list.
-        // if self.ribbon_group.is_some() {
-        //     set.insert(Attribute::PREV);
-        //     set.insert(Attribute::NEXT);
-        // }
 
         // Build the layout
         let mut layout = ParticleLayout::new();

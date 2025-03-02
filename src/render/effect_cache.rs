@@ -138,8 +138,6 @@ pub struct EffectBuffer {
     indirect_index_buffer: Buffer,
     /// Layout of particles.
     particle_layout: ParticleLayout,
-    /// Flags
-    layout_flags: LayoutFlags,
     /// Layout of the particle@1 bind group for the render pass.
     render_particles_buffer_layout: BindGroupLayout,
     /// Total buffer capacity, in number of particles.
@@ -302,7 +300,6 @@ impl EffectBuffer {
             particle_buffer,
             indirect_index_buffer,
             particle_layout,
-            layout_flags,
             render_particles_buffer_layout,
             capacity,
             used_size: 0,
@@ -311,14 +308,6 @@ impl EffectBuffer {
             sim_bind_group: None,
             sim_bind_group_key: SimBindGroupKey::INVALID,
         }
-    }
-
-    pub fn particle_layout(&self) -> &ParticleLayout {
-        &self.particle_layout
-    }
-
-    pub fn layout_flags(&self) -> LayoutFlags {
-        self.layout_flags
     }
 
     pub fn render_particles_buffer_layout(&self) -> &BindGroupLayout {
@@ -442,6 +431,7 @@ impl EffectBuffer {
     /// next time [`create_particle_sim_bind_group()`] is called.
     ///
     /// [`create_particle_sim_bind_group()`]: self::EffectBuffer::create_particle_sim_bind_group
+    #[allow(dead_code)] // FIXME - review this...
     fn invalidate_particle_sim_bind_group(&mut self) {
         self.sim_bind_group = None;
         self.sim_bind_group_key = SimBindGroupKey::INVALID;
@@ -707,6 +697,7 @@ impl EffectCache {
     ///
     /// This iterates over all valid buffers and calls
     /// [`EffectBuffer::invalidate_particle_sim_bind_group()`] on each one.
+    #[allow(dead_code)] // FIXME - review this...
     pub fn invalidate_particle_sim_bind_groups(&mut self) {
         for buffer in self.buffers.iter_mut().flatten() {
             buffer.invalidate_particle_sim_bind_group();
@@ -812,130 +803,6 @@ impl EffectCache {
 
         Ok(BufferState::Used)
     }
-
-    // pub fn get_slices(&self, id: EffectCacheId) -> EffectSlices {
-    //     self.effects
-    //         .get(&id)
-    //         .map(|indices| EffectSlices {
-    //             slices: indices.slices.ranges.clone(),
-    //             buffer_index: indices.buffer_index,
-    //             // parent_buffer_index: indices.parent_buffer_index,
-    //             particle_layout: indices.slices.particle_layout.clone(),
-    //             // parent_particle_layout:
-    // indices.slices.parent_particle_layout.clone(),         })
-    //         .unwrap()
-    // }
-
-    // pub fn get_child_info_max_binding(&self, child_id: EffectCacheId) ->
-    // Option<BufferBinding> {     // Find the parent effect; it's the one
-    // storing the list of children and their     // ChildInfo
-    //     let parent_cache_id = self
-    //         .effects
-    //         .get(&child_id)?
-    //         .cached_child_info
-    //         .as_ref()?
-    //         .parent_cache_id;
-    //     let children_effect_entry =
-    // self.effects.get(&parent_cache_id)?.children.as_ref()?;
-    //     Some(children_effect_entry.max_binding(self.child_infos_buffer.buffer()?
-    // )) }
-
-    // pub fn get_event_buffer_binding(&self, id: EffectCacheId) ->
-    // Option<EventBufferBinding> {     let cached_effect =
-    // self.effects.get(&id)?;     let cached_parent =
-    // cached_effect.cached_child_info.as_ref()?;     let event_buffer_ref =
-    // &cached_parent.init_indirect.event_buffer_ref;     let event_buffer =
-    // self.event_buffers[event_buffer_ref.buffer_index as usize].as_ref()?;
-    //     Some(EventBufferBinding {
-    //         buffer: event_buffer.buffer.clone(),
-    //         offset: event_buffer_ref.slice.start,
-    //         size: event_buffer_ref.slice.end - event_buffer_ref.slice.start,
-    //     })
-    // }
-
-    // /// Get an iterator over all the valid event buffers and their index.
-    // ///
-    // /// This skips all deallocated / empty buffers in the underlying linear
-    // /// storage, and only returns buffers with at least one allocated slice.
-    // pub fn event_buffers(&self) -> impl Iterator<Item = (u32, &EventBuffer)> {
-    //     self.event_buffers
-    //         .iter()
-    //         .enumerate()
-    //         .filter_map(|(idx, buf)| buf.as_ref().map(|buf| (idx as u32, buf)))
-    // }
-
-    // pub fn get_event_slice(&self, effect_cache_id: EffectCacheId) ->
-    // Option<&EventBufferRef> {     Some(
-    //         &self
-    //             .effects
-    //             .get(&effect_cache_id)?
-    //             .cached_child_info
-    //             .as_ref()?
-    //             .init_indirect
-    //             .event_buffer_ref,
-    //     )
-    // }
-
-    // pub fn child_infos_buffer(&self) -> Option<&Buffer> {
-    //     self.child_infos_buffer.buffer()
-    // }
-
-    // pub fn invalidate_child_infos_bind_group(&mut self) {
-    //     self.child_infos_bind_group = None;
-    // }
-
-    // pub fn child_infos_bind_group(&self) -> Option<&BindGroup> {
-    //     self.child_infos_bind_group.as_ref()
-    // }
-
-    // pub fn get_local_child_index(&self, effect_cache_id: EffectCacheId) ->
-    // Option<u32> {     let cached_effect =
-    // self.effects.get(&effect_cache_id)?;     let cached_child_info =
-    // cached_effect.cached_child_info.as_ref()?;     Some(cached_child_info.
-    // local_child_index) }
-
-    // pub fn get_global_child_index(&self, effect_cache_id: EffectCacheId) ->
-    // Option<u32> {     let cached_effect =
-    // self.effects.get(&effect_cache_id)?;     let cached_child_info =
-    // cached_effect.cached_child_info.as_ref()?;     Some(cached_child_info.
-    // global_child_index) }
-
-    // pub fn get_first_child_index(&self, effect_cache_id: EffectCacheId) ->
-    // Option<u32> {     let cached_effect =
-    // self.effects.get(&effect_cache_id)?;     let children =
-    // cached_effect.children.as_ref()?;     Some(children.first_child_index())
-    // }
-
-    // pub fn get_event_dispatch_index(&self, effect_cache_id: EffectCacheId) ->
-    // Option<u32> {     Some(
-    //         self.effects
-    //             .get(&effect_cache_id)?
-    //             .cached_child_info
-    //             .as_ref()?
-    //             .init_indirect
-    //             .dispatch_index,
-    //     )
-    // }
-
-    // pub(crate) fn get_dispatch_buffer_indices(&self, id: EffectCacheId) ->
-    // &DispatchBufferIndices {     &self.effects[&id].slices.
-    // dispatch_buffer_indices }
-
-    // pub(crate) fn get_dispatch_buffer_indices_mut(
-    //     &mut self,
-    //     id: EffectCacheId,
-    // ) -> &mut DispatchBufferIndices {
-    //     &mut self
-    //         .effects
-    //         .get_mut(&id)
-    //         .unwrap()
-    //         .slices
-    //         .dispatch_buffer_indices
-    // }
-
-    // pub(crate) fn get_group_order(&self, id: EffectCacheId) -> &[u32] {
-    //     &self.effects[&id].group_order
-    // }
 
     //
     // Bind group layouts

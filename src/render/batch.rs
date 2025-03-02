@@ -39,6 +39,7 @@ pub(crate) enum BatchSpawnInfo {
         /// this batch are stored.
         ///
         /// [`EventBuffer`]: super::event::EventBuffer
+        #[allow(dead_code)]
         event_buffer_index: u32,
     },
 }
@@ -180,6 +181,7 @@ impl SortedEffectBatches {
         EffectBatchIndex(index)
     }
 
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.batches.len()
     }
@@ -405,8 +407,6 @@ pub(crate) struct BatchInput {
     pub effect_slice: EffectSlice,
     /// Compute pipeline IDs of the specialized and cached pipelines.
     pub init_and_update_pipeline_ids: InitAndUpdatePipelineIds,
-    /// Particle layout of the parent effect, if any.
-    pub parent_particle_layout: Option<ParticleLayout>,
     /// Index of the buffer of the parent effect, if any.
     pub parent_buffer_index: Option<u32>,
     /// Index of the event buffer, if this effect consumes GPU spawn events.

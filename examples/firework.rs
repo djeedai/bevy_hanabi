@@ -31,7 +31,6 @@ use utils::*;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_exit = utils::make_test_app("firework")
         .add_systems(Startup, setup)
-        .add_systems(Update, update)
         .run();
     app_exit.into_result()
 }
@@ -224,7 +223,7 @@ fn create_trails_effect() -> EffectAsset {
         })
 }
 
-fn setup(mut commands: Commands, mut debug_settings: ResMut<DebugSettings>) {
+fn setup(mut commands: Commands, effects: ResMut<Assets<EffectAsset>>) {
     // Camera
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 20., 50.)),
@@ -241,19 +240,7 @@ fn setup(mut commands: Commands, mut debug_settings: ResMut<DebugSettings>) {
         },
     ));
 
-    debug_settings.start_capture_on_new_effect = true;
-    debug_settings.capture_frame_count = 5;
-}
-
-fn update(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    commands: Commands,
-    effects: ResMut<Assets<EffectAsset>>,
-) {
-    if keyboard_input.just_pressed(KeyCode::Space) {
-        warn!("Spawning effect now!");
-        create_effect(commands, effects);
-    }
+    create_effect(commands, effects);
 }
 
 fn create_effect(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {

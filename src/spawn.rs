@@ -460,7 +460,7 @@ impl Spawner {
 #[reflect(Component)]
 pub struct EffectSpawner {
     /// The spawner configuration extracted from the [`EffectAsset`], or
-    /// direclty overriden by the user.
+    /// directly overriden by the user.
     spawner: Spawner,
 
     /// Accumulated time since last spawn, in seconds.
@@ -662,7 +662,7 @@ impl EffectSpawner {
 /// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
 pub fn tick_spawners(
     mut commands: Commands,
-    _time: Res<Time<EffectSimulation>>,
+    time: Res<Time<EffectSimulation>>,
     effects: Res<Assets<EffectAsset>>,
     mut rng: ResMut<Random>,
     mut query: Query<(
@@ -674,7 +674,7 @@ pub fn tick_spawners(
 ) {
     trace!("tick_spawners()");
 
-    let dt = 0.02; //time.delta_secs();
+    let dt = time.delta_secs();
 
     for (entity, effect, maybe_inherited_visibility, maybe_spawner) in query.iter_mut() {
         let Some(asset) = effects.get(&effect.handle) else {

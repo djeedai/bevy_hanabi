@@ -23,11 +23,6 @@ use wgpu::{
 use super::{gpu_buffer::GpuBuffer, GpuDispatchIndirect, GpuEffectMetadata, StorageType};
 use crate::{Attribute, ParticleLayout};
 
-pub struct SortBuffer {
-    buffer: Buffer,
-    capacity: usize,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct SortFillBindGroupLayoutKey {
     particle_min_binding_size: NonZeroU32,
@@ -259,6 +254,7 @@ impl SortBindGroups {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn sort_buffer(&self) -> &Buffer {
         &self.sort_buffer
     }
@@ -371,6 +367,9 @@ impl SortBindGroups {
         Ok(layout)
     }
 
+    // We currently only use the bind group layout internally in
+    // ensure_sort_fill_bind_group()
+    #[allow(dead_code)]
     pub fn get_sort_fill_bind_group_layout(
         &self,
         particle_layout: &ParticleLayout,

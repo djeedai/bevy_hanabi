@@ -12,6 +12,7 @@ use bevy::{
     },
 };
 use bytemuck::{Pod, Zeroable};
+use thiserror::Error;
 use wgpu::{
     util::BufferInitDescriptor, BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType,
     BufferBinding, BufferBindingType, BufferUsages, ShaderStages,
@@ -143,6 +144,7 @@ pub(crate) struct CachedParentInfo {
 impl CachedParentInfo {
     /// Get a binding of the given underlying child info buffer spanning over
     /// the range of this child effect entry.
+    #[allow(dead_code)]
     pub fn binding<'a>(&self, buffer: &'a Buffer) -> BufferBinding<'a> {
         BufferBinding {
             buffer,
@@ -153,16 +155,9 @@ impl CachedParentInfo {
         }
     }
 
-    pub fn max_binding<'a>(&self, buffer: &'a Buffer) -> BufferBinding<'a> {
-        BufferBinding {
-            buffer,
-            offset: 0,
-            size: None,
-        }
-    }
-
     /// Base offset of the first child into the global
     /// [`EventCache::child_infos_buffer`], in number of element.
+    #[allow(dead_code)]
     pub fn first_child_index(&self) -> u32 {
         self.byte_range.start / size_of::<GpuChildInfo>() as u32
     }
@@ -248,19 +243,22 @@ pub struct CachedEffectEvents {
 impl CachedEffectEvents {
     /// Capacity of this allocation, in number of GPU events. The number of used
     /// events is stored on the GPU in [`GpuChildInfo::event_count`].
+    #[allow(dead_code)]
     pub fn capacity(&self) -> u32 {
         self.range.len() as u32
     }
 }
 
 /// Error code for [`EventCache::free()`].
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum CachedEventsError {
     /// The given buffer index is invalid. The [`EventCache`] doesn't contain
     /// any buffer with such index.
+    #[error("Invalid buffer index #{0}.")]
     InvalidBufferIndex(u32),
     /// The given buffer index corresponds to a [`EventCache`] buffer which
     /// was already deallocated.
+    #[error("Buffer at index #{0} was deallocated.")]
     BufferDeallocated(u32),
 }
 

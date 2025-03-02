@@ -54,6 +54,7 @@ impl BufferTableId {
     /// Compute a new buffer table ID by offseting an existing one by `count`
     /// rows.
     #[inline]
+    #[allow(dead_code)]
     pub fn offset(&self, count: u32) -> BufferTableId {
         debug_assert!(self.is_valid());
         BufferTableId(self.0 + count)
@@ -469,6 +470,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     ///
     /// Returns the index of the first entry. Other entries follow right after
     /// it.
+    #[allow(dead_code)] // unused but annoying to write, so keep if we need in the future
     pub fn insert_contiguous(&mut self, values: impl ExactSizeIterator<Item = T>) -> BufferTableId {
         let count = values.len() as u32;
         trace!(

@@ -81,6 +81,7 @@ impl<T: Pod + ShaderType + ShaderSize> GpuBuffer<T> {
     /// [`ShaderType::assert_uniform_compat()`].
     ///
     /// [`BufferUsages::UNIFORM`]: bevy::render::render_resource::BufferUsages::UNIFORM
+    #[allow(dead_code)]
     pub fn new(buffer_usage: BufferUsages, label: Option<String>) -> Self {
         // GPU-aligned item size, compatible with WGSL rules
         let item_size = <T as ShaderSize>::SHADER_SIZE.get() as usize;
@@ -172,6 +173,8 @@ impl<T: Pod + ShaderType + ShaderSize> GpuBuffer<T> {
     ///
     /// In debug only, panics if the entry is not allocated (double-free). In
     /// non-debug, the behavior is undefined and will generally lead to bugs.
+    // Currently we use GpuBuffer in sorting, and re-allocate everything each frame.
+    #[allow(dead_code)]
     pub fn free(&mut self, index: u32) {
         if index < self.used_size {
             debug_assert!(
@@ -191,6 +194,7 @@ impl<T: Pod + ShaderType + ShaderSize> GpuBuffer<T> {
 
     /// Get a binding for the entire GPU buffer, if allocated.
     #[inline]
+    #[allow(dead_code)]
     pub fn binding(&self) -> Option<BindingResource> {
         let buffer = self.buffer()?;
         Some(BindingResource::Buffer(BufferBinding {
@@ -208,6 +212,7 @@ impl<T: Pod + ShaderType + ShaderSize> GpuBuffer<T> {
     /// [`allocate()`]: Self::allocate
     /// [`free()`]: Self::allocate_gpu
     #[inline]
+    #[allow(dead_code)]
     pub fn capacity(&self) -> u32 {
         debug_assert!(self.used_size >= self.free_list.len() as u32);
         self.used_size - self.free_list.len() as u32
@@ -246,6 +251,7 @@ impl<T: Pod + ShaderType + ShaderSize> GpuBuffer<T> {
     /// [`allocate()`]: Self::allocate
     /// [`free()`]: Self::free
     #[inline]
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.used_size == 0
     }

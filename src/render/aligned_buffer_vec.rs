@@ -131,6 +131,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
 
     /// Get a binding for the entire buffer.
     #[inline]
+    #[allow(dead_code)]
     pub fn binding(&self) -> Option<BindingResource> {
         // FIXME - Return a Buffer wrapper first, which can be unwrapped, then from that
         // wrapper implement all the xxx_binding() helpers. That avoids a bunch of "if
@@ -171,6 +172,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     ///
     /// Panics if `count` is zero.
     #[inline]
+    #[allow(dead_code)]
     pub fn range_binding(&self, offset: u32, count: u32) -> Option<BindingResource> {
         assert!(count > 0);
         let buffer = self.buffer()?;

@@ -80,28 +80,6 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Check if alive
     if (!is_alive) {
-        // Unlink dead particle from trail linked list
-// #ifdef ATTRIBUTE_PREV
-// #ifdef ATTRIBUTE_NEXT
-// #ifdef TRAIL
-//         // We know that no particles behind us (including our previous) are going to be
-//         // alive after this, due to the strict LIFO lifetime of trail particles.
-//         // So we can just set the next particle's prev pointer to null.
-//         let next = particle_buffer.particles[particle_index].next;
-//         if (next != 0xffffffffu) {
-//             particle_buffer.particles[next].prev = 0xffffffffu;
-//         }
-// #else   // TRAIL
-//         // Head particle; there's no worry about races here, because the trail particles
-//         // are all in a different group, which is simulated in a different dispatch.
-//         let prev = particle_buffer.particles[particle_index].prev;
-//         if (prev != 0xffffffffu) {
-//             particle_buffer.particles[prev].next = 0xffffffffu;
-//         }
-// #endif  // TRAIL
-// #endif  // ATTRIBUTE_NEXT
-// #endif  // ATTRIBUTE_PREV
-
         // Save dead index
         let dead_index = atomicAdd(&effect_metadata.dead_count, 1u);
         indirect_buffer.indices[3u * dead_index + 2u] = particle_index;

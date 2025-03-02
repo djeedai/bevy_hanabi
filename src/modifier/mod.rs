@@ -636,12 +636,12 @@ pub struct EmitSpawnEventModifier {
     pub condition: EventEmitCondition,
     /// Number of particles to spawn if the emit condition is met.
     pub count: u32,
-    /// Index of the event channel the events are emitted into.
+    /// Index of the event channel / child the events are emitted into.
     ///
     /// GPU spawn events emitted by this parent event are associated with a
-    /// single event channel. When a child effect consumes those event, it
-    /// specified which channel to read form. This allows multiple child effects
-    /// to read from a same channel and consume the same events.
+    /// single event channel. When the N-th child effect of a parent effect
+    /// consumes those event, it implicitly reads events from channel #N. In
+    /// general if a parent has a single child, use `0` here.
     pub child_index: u32,
 }
 

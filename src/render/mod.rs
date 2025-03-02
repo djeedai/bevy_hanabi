@@ -119,15 +119,6 @@ impl BufferBindingSource {
             size: Some(self.size.into()),
         })
     }
-
-    /// Get a binding over the entire buffer, which includes the source data.
-    pub fn max_binding(&self) -> BindingResource {
-        BindingResource::Buffer(BufferBinding {
-            buffer: &self.buffer,
-            offset: 0,
-            size: None,
-        })
-    }
 }
 
 impl PartialEq for BufferBindingSource {
@@ -738,77 +729,6 @@ struct InitFillDispatchArgs {
     event_slice: std::ops::Range<u32>,
 }
 
-struct InitFillDispatchArgsSlice {
-    event_buffer_index: u32,
-    args_offset: u32,
-    args_count: u32,
-}
-
-struct InitFillDispatchArgsSliceIter<'a> {
-    args: &'a [InitFillDispatchArgs],
-    event_buffer_index: u32,
-    args_start: u32,
-}
-
-impl<'a> InitFillDispatchArgsSliceIter<'a> {
-    pub fn new(args: &'a [InitFillDispatchArgs]) -> Self {
-        Self {
-            args,
-            event_buffer_index: 0,
-            args_start: 0,
-        }
-    }
-}
-
-impl<'a> Iterator for InitFillDispatchArgsSliceIter<'a> {
-    type Item = InitFillDispatchArgsSlice;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let len = self.args.len() as u32;
-        let mut idx = self.args_start;
-        while idx < len {
-            let cur_args = &self.args[idx as usize];
-            let cur_buffer_index = cur_args.event_buffer_index;
-
-            // Check if next item is for a slice of a different buffer
-            if idx == 0 {
-                self.event_buffer_index = cur_buffer_index;
-            } else if cur_buffer_index != self.event_buffer_index {
-                let item = Self::Item {
-                    event_buffer_index: self.event_buffer_index,
-                    args_offset: self.args_start,
-                    args_count: idx - self.args_start,
-                };
-
-                // Update the iterator for the next slice
-                self.event_buffer_index = cur_buffer_index;
-                self.args_start = idx;
-
-                return Some(item);
-            }
-
-            // Move to next args item
-            idx += 1;
-        }
-
-        // Last slice, if not empty
-        if self.args_start < idx {
-            let item = Self::Item {
-                event_buffer_index: self.event_buffer_index,
-                args_offset: self.args_start,
-                args_count: idx - self.args_start,
-            };
-
-            // Update the iterator for the next slice
-            self.args_start = idx;
-
-            return Some(item);
-        }
-
-        None
-    }
-}
-
 /// Queue of GPU buffer operations for this frame.
 #[derive(Resource)]
 pub(super) struct GpuBufferOperationQueue {
@@ -1053,16 +973,6 @@ impl GpuBufferOperationQueue {
 
         // Upload to GPU buffer
         self.args_buffer.write_buffer(device, render_queue);
-    }
-
-    #[inline]
-    pub fn args_buffer(&self) -> Option<&Buffer> {
-        self.args_buffer.buffer()
-    }
-
-    #[inline]
-    pub fn args_buffer_offset(&self, args_index: u32) -> u32 {
-        self.args_buffer.dynamic_offset(args_index as usize)
     }
 
     /// Create all necessary bind groups for all queued operations.
@@ -1531,7 +1441,6 @@ impl UtilsPipeline {
 
 #[derive(Resource)]
 pub(crate) struct ParticlesInitPipeline {
-    render_device: RenderDevice,
     sim_params_layout: BindGroupLayout,
 
     // Temporary values passed to specialize()
@@ -1564,7 +1473,6 @@ impl FromWorld for ParticlesInitPipeline {
         );
 
         Self {
-            render_device: render_device.clone(),
             sim_params_layout,
             temp_particle_bind_group_layout: None,
             temp_spawner_bind_group_layout: None,
@@ -1689,7 +1597,6 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
 
 #[derive(Resource)]
 pub(crate) struct ParticlesUpdatePipeline {
-    render_device: RenderDevice,
     sim_params_layout: BindGroupLayout,
 
     // Temporary values passed to specialize()
@@ -1722,7 +1629,6 @@ impl FromWorld for ParticlesUpdatePipeline {
         );
 
         Self {
-            render_device: render_device.clone(),
             sim_params_layout,
             temp_particle_bind_group_layout: None,
             temp_spawner_bind_group_layout: None,
@@ -2247,15 +2153,11 @@ pub(crate) struct ExtractedEffect {
     /// The handle is weak to prevent refcount cycles and gracefully handle
     /// assets unloaded or destroyed after a draw call has been submitted.
     pub handle: Handle<EffectAsset>,
-    /// Parent effect, if any.
-    pub parent: Option<RenderEntity>,
     /// Particle layout for the effect.
     #[allow(dead_code)]
     pub particle_layout: ParticleLayout,
     /// Property layout for the effect.
     pub property_layout: PropertyLayout,
-    /// Particle layout of the parent effect, if any.
-    pub parent_particle_layout: Option<ParticleLayout>,
     /// Values of properties written in a binary blob according to
     /// [`property_layout`].
     ///
@@ -2276,7 +2178,6 @@ pub(crate) struct ExtractedEffect {
     pub transform: GlobalTransform,
     /// Layout flags.
     pub layout_flags: LayoutFlags,
-    pub mesh: Handle<Mesh>,
     /// Texture layout.
     pub texture_layout: TextureLayout,
     /// Textures.
@@ -2530,9 +2431,9 @@ pub(crate) fn extract_effects(
             );
             let property_layout = asset.property_layout();
             let mesh = compiled_effect
-        .mesh
-        .clone()
-        .unwrap_or(default_mesh.0.clone());
+                .mesh
+                .clone()
+                .unwrap_or(default_mesh.0.clone());
 
             trace!(
                 "Found new effect: entity {:?} | render entity {:?} | capacity {:?} | particle_layout {:?} | \
@@ -2606,7 +2507,7 @@ pub(crate) fn extract_effects(
         };
 
         // Resolve the render entity of the parent, if any
-        let parent = if let Some(main_entity) = compiled_effect.parent {
+        let _parent = if let Some(main_entity) = compiled_effect.parent {
             let Ok((_, render_entity, _, _, _, _, _, _)) = q_effects.get(main_entity) else {
                 error!(
                     "Failed to resolve render entity of parent with main entity {:?}.",
@@ -2640,10 +2541,10 @@ pub(crate) fn extract_effects(
 
         let texture_layout = asset.module().texture_layout();
         let layout_flags = compiled_effect.layout_flags;
-        let mesh = compiled_effect
-            .mesh
-            .clone()
-            .unwrap_or(default_mesh.0.clone());
+        // let mesh = compiled_effect
+        //     .mesh
+        //     .clone()
+        //     .unwrap_or(default_mesh.0.clone());
         let alpha_mode = compiled_effect.alpha_mode;
 
         trace!(
@@ -2660,15 +2561,12 @@ pub(crate) fn extract_effects(
             render_entity: *render_entity,
             main_entity: main_entity.into(),
             handle: compiled_effect.asset.clone_weak(),
-            parent,
             particle_layout: asset.particle_layout().clone(),
             property_layout,
-            parent_particle_layout: compiled_effect.parent_particle_layout.clone(),
             property_data,
             effect_spawner: *effect_spawner,
             transform: *transform,
             layout_flags,
-            mesh,
             texture_layout,
             textures: compiled_effect.textures.clone(),
             alpha_mode,
@@ -3151,10 +3049,12 @@ pub(crate) fn on_remove_cached_effect(
         &DispatchBufferIndices,
         Option<&CachedEffectProperties>,
         Option<&CachedParentInfo>,
+        Option<&CachedEffectEvents>,
     )>,
     mut effect_cache: ResMut<EffectCache>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
     mut effects_meta: ResMut<EffectsMeta>,
+    mut event_cache: ResMut<EventCache>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::utils::tracing::info_span!("on_remove_cached_effect").entered();
@@ -3171,10 +3071,27 @@ pub(crate) fn on_remove_cached_effect(
         dispatch_buffer_indices,
         _opt_props,
         _opt_parent,
+        opt_cached_effect_events,
     )) = query.get(trigger.entity())
     else {
         return;
     };
+
+    // Dealllocate the effect slice in the event buffer, if any.
+    if let Some(cached_effect_events) = opt_cached_effect_events {
+        match event_cache.free(cached_effect_events) {
+            Err(err) => {
+                error!("Error while freeing effect event slice: {err:?}");
+            }
+            Ok(buffer_state) => {
+                if buffer_state != BufferState::Used {
+                    // Clear bind groups associated with the old buffer
+                    effect_bind_groups.init_metadata_bind_groups.clear();
+                    effect_bind_groups.update_metadata_bind_groups.clear();
+                }
+            }
+        }
+    }
 
     // Deallocate the effect slice in the GPU effect buffer, and if this was the
     // last slice, also deallocate the GPU buffer itself.
@@ -4033,7 +3950,6 @@ pub(crate) fn prepare_effects(
             main_entity: extracted_effect.main_entity,
             effect_slice,
             init_and_update_pipeline_ids,
-            parent_particle_layout: extracted_effect.parent_particle_layout.clone(),
             parent_buffer_index,
             event_buffer_index: cached_effect_events.map(|cee| cee.buffer_index),
             child_effects: cached_parent_info
@@ -6272,7 +6188,6 @@ impl Node for VfxSimulateDriverNode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum HanabiPipelineId {
     Invalid,
-    Raw(ComputePipelineId),
     Cached(CachedComputePipelineId),
 }
 
@@ -6331,14 +6246,6 @@ impl<'a> HanabiComputePass<'a> {
         self.compute_pass.set_pipeline(pipeline);
         self.pipeline_id = HanabiPipelineId::Cached(pipeline_id);
         Ok(())
-    }
-
-    pub fn set_compute_pipeline(&mut self, pipeline: &ComputePipeline) {
-        if HanabiPipelineId::Raw(pipeline.id()) == self.pipeline_id {
-            return;
-        }
-        self.compute_pass.set_pipeline(pipeline);
-        self.pipeline_id = HanabiPipelineId::Raw(pipeline.id());
     }
 }
 

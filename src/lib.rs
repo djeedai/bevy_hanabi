@@ -14,7 +14,6 @@
     clippy::useless_let_if_seq
 )]
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
-#![allow(dead_code)] // TEMP
 
 //! 🎆 Hanabi -- a GPU particle system plugin for the Bevy game engine.
 //!
