@@ -1524,6 +1524,8 @@ impl ParticleLayoutBuilder {
         // Sort by size
         self.layout.sort_unstable_by_key(|la| la.attribute.size());
 
+        let unpadded_len = self.layout.len() as u32;
+
         let mut layout = vec![];
         let mut offset = 0;
         let mut align = 4; // min valid align
@@ -1538,7 +1540,8 @@ impl ParticleLayoutBuilder {
             offset += 16;
             layout.push(attr);
         }
-        if index4 < self.layout.len() {
+        let num4 = self.layout.len() - index4;
+        if num4 > 0 {
             align = 16;
         }
 
@@ -1620,7 +1623,7 @@ impl ParticleLayoutBuilder {
 
         // Enqueue the Float2 if any
         if num2 > 0 {
-            debug_assert_eq!(num2, 0);
+            debug_assert_eq!(num2, 1);
 
             let mut attr = self.layout[index2];
             attr.offset = offset;
@@ -1653,7 +1656,11 @@ impl ParticleLayoutBuilder {
             }
         }
 
-        ParticleLayout { layout }
+        ParticleLayout {
+            layout,
+            align,
+            unpadded_len,
+        }
     }
 }
 
@@ -1693,6 +1700,8 @@ impl From<&ParticleLayout> for ParticleLayoutBuilder {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ParticleLayout {
     layout: Vec<AttributeLayout>,
+    align: u32,
+    unpadded_len: u32,
 }
 
 impl std::fmt::Debug for ParticleLayout {
@@ -1721,7 +1730,11 @@ impl ParticleLayout {
     /// valid layout is not available yet. To create a new non-finalized layout
     /// which can be mutated, use [`ParticleLayout::new()`] instead.
     pub const fn empty() -> ParticleLayout {
-        Self { layout: vec![] }
+        Self {
+            layout: vec![],
+            align: 4,
+            unpadded_len: 0,
+        }
     }
 
     /// Create a new empty layout.
@@ -1760,6 +1773,15 @@ impl ParticleLayout {
         builder.build()
     }
 
+    /// Get the number of fields in the layout.
+    ///
+    /// Note: if internal padding field need to be added to the final WGSL
+    /// struct, they're not counted here. This returns the number of unique
+    /// attributes added to the layout.
+    pub fn len(&self) -> u32 {
+        self.unpadded_len
+    }
+
     /// Get the size of the layout in bytes.
     ///
     /// # Example
@@ -1782,6 +1804,8 @@ impl ParticleLayout {
 
     /// Get the alignment of the layout in bytes.
     ///
+    /// The alignment follows the rules of WGSL.
+    ///
     /// # Example
     ///
     /// ```
@@ -1791,12 +1815,8 @@ impl ParticleLayout {
     ///     .build();
     /// assert_eq!(layout.align(), 16);
     /// ```
-    pub fn align(&self) -> usize {
-        self.layout
-            .iter()
-            .map(|attr| attr.attribute.value_type().align())
-            .max()
-            .unwrap()
+    pub fn align(&self) -> u32 {
+        self.align
     }
 
     /// Minimum binding size in bytes.
@@ -1804,9 +1824,8 @@ impl ParticleLayout {
     /// This corresponds to the stride of the attribute struct in WGSL when
     /// contained inside an array.
     pub fn min_binding_size(&self) -> NonZeroU64 {
-        let size = self.size() as usize;
-        let align = self.align();
-        NonZeroU64::new(size.next_multiple_of(align) as u64).unwrap()
+        let size = self.size();
+        NonZeroU64::new(size.next_multiple_of(self.align) as u64).unwrap()
     }
 
     /// Minimum binding size in bytes.
@@ -1815,8 +1834,7 @@ impl ParticleLayout {
     /// contained inside an array.
     pub fn min_binding_size32(&self) -> NonZeroU32 {
         let size = self.size();
-        let align = self.align() as u32;
-        NonZeroU32::new(size.next_multiple_of(align)).unwrap()
+        NonZeroU32::new(size.next_multiple_of(self.align)).unwrap()
     }
 
     pub(crate) fn attributes(&self) -> &[AttributeLayout] {
@@ -2316,6 +2334,22 @@ mod tests {
     const F4: Attribute = Attribute(F4_INNER);
     const F4B: Attribute = Attribute(F4B_INNER);
 
+    /// Calculate the raw alignment based on the actual attributes in the layout
+    /// vec, ignoring the value the layout stored. This is for fact-checking
+    /// purpose.
+    fn calc_raw_align(layout: &ParticleLayout) -> u32 {
+        if layout.layout.is_empty() {
+            0
+        } else {
+            layout
+                .layout
+                .iter()
+                .map(|attr| attr.attribute.value_type().align())
+                .max()
+                .unwrap() as u32
+        }
+    }
+
     #[test]
     fn test_layout_build() {
         // empty
@@ -2326,17 +2360,38 @@ mod tests {
         // single
         for attr in Attribute::ALL {
             let layout = ParticleLayout::new().append(attr).build();
-            assert_eq!(layout.layout.len(), 1);
+
+            // This is the un-padded length, so exactly equal
+            assert_eq!(layout.len(), 1);
+
+            // There may be padding field(s)...
+            assert!(layout.layout.len() >= 1);
+            let size = layout.size();
+            let aligned_size = size.next_multiple_of(layout.align());
+            assert_eq!(aligned_size % attr.align() as u32, 0);
+            let attr_size = attr.size() as u32;
+            if aligned_size != attr_size {
+                // Padding
+                assert!(aligned_size > attr_size);
+                let pad_size = aligned_size - attr_size;
+                assert_eq!(pad_size % 4, 0);
+                let num_pad = pad_size / 4;
+                assert_eq!(layout.layout.len() as u32, 1 + num_pad);
+            } else {
+                // No padding
+                assert_eq!(layout.layout.len(), 1);
+            }
+
             let attr0 = &layout.layout[0];
             assert_eq!(attr0.offset, 0);
-            assert_eq!(
-                layout.generate_code(),
-                format!(
-                    "    {}: {},\n",
-                    attr0.attribute.name(),
-                    attr0.attribute.value_type().to_wgsl_string()
-                )
-            );
+            assert!(layout.generate_code().starts_with(&format!(
+                "    {}: {},\n",
+                attr0.attribute.name(),
+                attr0.attribute.value_type().to_wgsl_string()
+            )));
+
+            // Align
+            assert_eq!(layout.align(), calc_raw_align(&layout));
         }
 
         // dedup
@@ -2346,7 +2401,7 @@ mod tests {
                 layout = layout.append(attr);
             }
             let layout = layout.build();
-            assert_eq!(layout.layout.len(), 1); // unique
+            assert_eq!(layout.len(), 1); // unique
             let attr = &layout.layout[0];
             assert_eq!(attr.offset, 0);
         }
@@ -2358,41 +2413,80 @@ mod tests {
                 layout = layout.append(attr);
             }
             let layout = layout.build();
-            assert_eq!(layout.layout.len(), 2);
+            assert_eq!(layout.len(), 2);
             let attr_0 = &layout.layout[0];
             let size = attr_0.attribute.size();
             assert_eq!(attr_0.offset as usize, 0);
-            let attr_1 = &layout.layout[1];
-            assert_eq!(attr_1.offset as usize, size);
-            assert_eq!(attr_1.attribute.size(), size);
+            if attr_0.attribute.size() != attr_0.attribute.align() {
+                // Padding
+                let attr_1 = &layout.layout[2]; // skip padding attr
+                assert_eq!(
+                    attr_1.offset as usize,
+                    size.next_multiple_of(attr_0.attribute.align())
+                );
+                assert_eq!(attr_1.attribute.size(), size);
+            } else {
+                // No padding
+                let attr_1 = &layout.layout[1];
+                assert_eq!(
+                    attr_1.offset as usize,
+                    size.next_multiple_of(attr_0.attribute.align())
+                );
+                assert_eq!(attr_1.attribute.size(), size);
+            }
         }
 
-        // [3, 1, 3, 2] -> [3 1 3 2]
+        // [3, 1, 3, 2] -> [3 1 3 - 2 - -]
         {
             let mut layout = ParticleLayout::new();
             for &attr in &[F1, F3, F2, F3B] {
                 layout = layout.append(attr);
             }
             let layout = layout.build();
-            assert_eq!(layout.layout.len(), 4);
-            for (i, (off, a)) in [(0, F3), (12, F1), (16, F3B), (28, F2)].iter().enumerate() {
+            assert_eq!(layout.len(), 4);
+            assert_eq!(layout.layout.len(), 7);
+            assert_eq!(layout.size(), 48);
+            assert_eq!(layout.align(), 16);
+            for (i, (off, a)) in [
+                (0, F3),
+                (12, F1),
+                (16, F3B),
+                (28, Attribute::PAD0),
+                (32, F2),
+                (40, Attribute::PAD1),
+                (44, Attribute::PAD2),
+            ]
+            .iter()
+            .enumerate()
+            {
                 let attr_i = layout.layout[i];
                 assert_eq!(attr_i.offset, *off);
                 assert_eq!(attr_i.attribute, *a);
             }
         }
 
-        // [1, 4, 3, 2, 2, 3] -> [4 3 1 2 2 3]
+        // [1, 4, 3, 2, 2, 3] -> [4 3 1 2 2 3 -]
         {
             let mut layout = ParticleLayout::new();
             for &attr in &[F1, F4, F3, F2, F2B, F3B] {
                 layout = layout.append(attr);
             }
             let layout = layout.build();
-            assert_eq!(layout.layout.len(), 6);
-            for (i, (off, a)) in [(0, F4), (16, F3), (28, F1), (32, F2), (40, F2B), (48, F3B)]
-                .iter()
-                .enumerate()
+            assert_eq!(layout.len(), 6);
+            assert_eq!(layout.layout.len(), 7);
+            assert_eq!(layout.size(), 64);
+            assert_eq!(layout.align(), 16);
+            for (i, (off, a)) in [
+                (0, F4),
+                (16, F3),
+                (28, F1),
+                (32, F2),
+                (40, F2B),
+                (48, F3B),
+                (60, Attribute::PAD0),
+            ]
+            .iter()
+            .enumerate()
             {
                 let attr_i = layout.layout[i];
                 assert_eq!(attr_i.offset, *off);
