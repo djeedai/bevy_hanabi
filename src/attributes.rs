@@ -674,6 +674,13 @@ impl AttributeInner {
         Value::Scalar(ScalarValue::Uint(0u32)),
     );
 
+    pub(crate) const PAD0: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("pad0"), Value::Scalar(ScalarValue::Uint(0)));
+    pub(crate) const PAD1: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("pad1"), Value::Scalar(ScalarValue::Uint(0)));
+    pub(crate) const PAD2: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("pad2"), Value::Scalar(ScalarValue::Uint(0)));
+
     #[inline]
     pub(crate) const fn new(name: Cow<'static, str>, default_value: Value) -> Self {
         Self {
@@ -1374,6 +1381,11 @@ impl Attribute {
         Attribute::RIBBON_ID,
     ];
 
+    // Internal fake attributes used for padding structs.
+    pub(crate) const PAD0: Attribute = Attribute(AttributeInner::PAD0);
+    pub(crate) const PAD1: Attribute = Attribute(AttributeInner::PAD1);
+    pub(crate) const PAD2: Attribute = Attribute(AttributeInner::PAD2);
+
     /// Retrieve an attribute by its name.
     ///
     /// See [`Attribute::all()`] for the list of attributes, and the
@@ -1502,6 +1514,9 @@ impl ParticleLayoutBuilder {
     /// let layout = ParticleLayout::new().append(Attribute::POSITION).build();
     /// ```
     pub fn build(mut self) -> ParticleLayout {
+        let pads = [Attribute::PAD0, Attribute::PAD1, Attribute::PAD2];
+        let mut next_pad = 0;
+
         // Remove duplicates
         self.layout.sort_unstable_by_key(|la| la.attribute.name());
         self.layout.dedup_by_key(|la| la.attribute.name());
@@ -1511,6 +1526,7 @@ impl ParticleLayoutBuilder {
 
         let mut layout = vec![];
         let mut offset = 0;
+        let mut align = 4; // min valid align
 
         // Enqueue all Float4, which are already aligned
         let index4 = self
@@ -1522,8 +1538,10 @@ impl ParticleLayoutBuilder {
             offset += 16;
             layout.push(attr);
         }
+        if index4 < self.layout.len() {
+            align = 16;
+        }
 
-        // Enqueue paired { Float3 + Float1 }
         let index2 = self
             .layout
             .partition_point(|attr| attr.attribute.size() < 8);
@@ -1533,6 +1551,13 @@ impl ParticleLayoutBuilder {
             .partition_point(|attr| attr.attribute.size() < 12);
         let num2 = (index2..index3).len();
         let num3 = (index3..index4).len();
+        if num3 > 0 {
+            align = 16;
+        } else if num2 > 0 {
+            align = align.max(8);
+        }
+
+        // Enqueue paired { Float3 + Float1 }
         let num_pairs = num1.min(num3);
         for i in 0..num_pairs {
             // Float3
@@ -1564,56 +1589,67 @@ impl ParticleLayoutBuilder {
         let index2 = index2 + (num2 / 2) * 2;
         let num2 = num2 % 2;
 
-        // Enqueue { Float3, Float2 } or { Float2, Float1 }
-        if num3 > num1 {
-            // Float1 is done, some Float3 left, and at most one Float2
+        // Here we're aligned at 16 byte boundary. We have no more Float4, at most one
+        // Float2, and either some Float3 or some Float1 left (but never both).
+
+        // Enqueue all the Float3 if any, since it requires the largest align.
+        if num3 > 0 {
             debug_assert_eq!(num1, 0);
 
-            // Try 3/3/2, fallback to 3/2
-            let num3head = if num2 > 0 {
-                debug_assert_eq!(num2, 1);
-                let num3head = num3.min(2);
-                for i in 0..num3head {
-                    let mut attr = self.layout[index3 + i];
-                    attr.offset = offset;
-                    offset += 12;
-                    layout.push(attr);
-                }
-                let mut attr = self.layout[index2];
-                attr.offset = offset;
-                offset += 8;
-                layout.push(attr);
-                num3head
-            } else {
-                0
-            };
-
-            // End with remaining Float3
-            for i in num3head..num3 {
+            for i in 0..num3 {
+                // The attribute itself
                 let mut attr = self.layout[index3 + i];
                 attr.offset = offset;
-                offset += 12;
                 layout.push(attr);
-            }
-        } else {
-            // Float3 is done, some Float1 left, and at most one Float2
-            debug_assert_eq!(num3, 0);
 
-            // Emit the single Float2 now if any
-            if num2 > 0 {
-                debug_assert_eq!(num2, 1);
-                let mut attr = self.layout[index2];
-                attr.offset = offset;
-                offset += 8;
-                layout.push(attr);
-            }
+                // The 32-bit padding after it. We know we don't have any Float1 to pad so we
+                // need a dummy padding field.
+                let pad = AttributeLayout {
+                    attribute: pads[next_pad],
+                    offset: offset + 12,
+                };
+                next_pad += 1;
+                layout.push(pad);
 
-            // End with remaining Float1
-            for i in 0..num1 {
-                let mut attr = self.layout[index1 + i];
-                attr.offset = offset;
+                offset += 16;
+            }
+        }
+
+        // Here we're aligned at 16 byte boundary. We have no more Float4, at most one
+        // Float2, and possibly some Float1 left.
+
+        // Enqueue the Float2 if any
+        if num2 > 0 {
+            debug_assert_eq!(num2, 0);
+
+            let mut attr = self.layout[index2];
+            attr.offset = offset;
+            offset += 8;
+            layout.push(attr);
+        }
+
+        // Enqueue all remaining Float1
+        for i in 0..num1 {
+            let mut attr = self.layout[index1 + i];
+            attr.offset = offset;
+            layout.push(attr);
+            offset += 4;
+        }
+
+        // Pad the struct to its align. This is mandatory to work around https://github.com/gfx-rs/wgpu/issues/5262.
+        let rem = offset.next_multiple_of(align) - offset;
+        if rem > 0 {
+            debug_assert_eq!(rem % 4, 0);
+            let num = rem / 4;
+            for _ in 0..num {
+                debug_assert!(next_pad < 3);
+                let pad = AttributeLayout {
+                    attribute: pads[next_pad],
+                    offset,
+                };
+                layout.push(pad);
+                next_pad += 1;
                 offset += 4;
-                layout.push(attr);
             }
         }
 
