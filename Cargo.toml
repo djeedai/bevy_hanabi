@@ -105,6 +105,7 @@ bevy_sprite = "0.15"
 bevy_text = "0.15"
 bevy_ui = "0.15"
 bevy_window = "0.15"
+bevy_picking = "0.15"
 
 # For glTF animations (Fox.glb)
 bevy_gltf = { version = "0.15", features = [ "bevy_animation" ] }

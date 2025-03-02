@@ -17,8 +17,6 @@
 //! The particles also have a trail. The trail particles are stitched together
 //! to form an arc using [`EffectAsset::with_ribbons`].
 
-use std::time::Duration;
-
 use bevy::{
     core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
     prelude::*,
