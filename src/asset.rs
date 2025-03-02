@@ -863,31 +863,24 @@ mod tests {
             s,
             r#"(
     name: "Effect",
-    capacities: [
-        4096,
-    ],
-    init: [
-        Spawner((
-            count: Single(30.0),
-            spawn_duration: Single(1.0),
-            period: Single(1.0),
-            starts_active: true,
-            starts_immediately: true,
-        )),
-    ],
+    capacity: 4096,
+    spawner: (
+        count: Single(30.0),
+        spawn_duration: Single(1.0),
+        period: Single(1.0),
+        starts_active: true,
+        starts_immediately: true,
+    ),
     z_layer_2d: 0.0,
     simulation_space: Global,
     simulation_condition: WhenVisible,
     init_modifiers: [
-        (
-            modifier: {
-                "SetAttributeModifier": (
-                    attribute: "position",
-                    value: 1,
-                ),
-            },
-            groups: (4294967295),
-        ),
+        {
+            "SetAttributeModifier": (
+                attribute: "position",
+                value: 1,
+            ),
+        },
     ],
     update_modifiers: [],
     render_modifiers: [],
@@ -918,7 +911,6 @@ mod tests {
         ),
     ),
     alpha_mode: Blend,
-    ribbon_group: None,
 )"#
         );
         let effect_serde: EffectAsset = ron::from_str(&s).unwrap();

@@ -1791,7 +1791,7 @@ impl ParticleLayout {
     /// let layout = ParticleLayout::new()
     ///     .append(Attribute::POSITION) // vec3<f32>
     ///     .build();
-    /// assert_eq!(layout.size(), 12);
+    /// assert_eq!(layout.size(), 16);
     /// ```
     pub fn size(&self) -> u32 {
         if self.layout.is_empty() {
@@ -1868,7 +1868,7 @@ impl ParticleLayout {
     ///     .append(Attribute::SIZE)
     ///     .build();
     /// let size_offset = layout.offset(Attribute::SIZE);
-    /// assert_eq!(size_offset, 12);
+    /// assert_eq!(size_offset, Some(12));
     /// ```
     pub fn offset(&self, attribute: Attribute) -> Option<u32> {
         self.layout.iter().find_map(|&entry| {
