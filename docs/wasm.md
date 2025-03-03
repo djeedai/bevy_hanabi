@@ -20,6 +20,12 @@ In particular, as of 2024:
 Mozilla has a [Browser compatibility](https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API#browser_compatibility) table
 to understand where and how WebGPU is available on web browsers.
 
+**In addition, you need to enable the `bevy/webgpu` feature.** Otherwise you will get some error:
+
+```txt
+No wgpu backend feature that is implemented for the target platform was enabled. See `wgpu::Instance::enabled_backend_features()` for more information.
+```
+
 For more information about WebAssembly support, see also:
 
 - Bevy's own explanations on how to run its examples
@@ -39,7 +45,7 @@ To disable the `serde` feature,
 simply disable default features and explicitly list the features you need:
 
 ```sh
-cargo b --target wasm32-unknown-unknown --no-default-features --features="2d 3d"
+cargo b --target wasm32-unknown-unknown --no-default-features --features="2d 3d bevy/webgpu"
 ```
 
 ## Running the examples
