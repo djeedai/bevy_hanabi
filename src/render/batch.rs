@@ -148,7 +148,7 @@ impl<'a> Iterator for SortedEffectBatchesIter<'a> {
     }
 }
 
-impl<'a> ExactSizeIterator for SortedEffectBatchesIter<'a> {
+impl ExactSizeIterator for SortedEffectBatchesIter<'_> {
     fn len(&self) -> usize {
         self.sorted_indices.len()
     }
@@ -257,8 +257,7 @@ impl SortedEffectBatches {
         // (slower) way
         #[cfg(test)]
         let mut child_count = {
-            let mut counts = Vec::with_capacity(self.batches.len());
-            counts.resize(self.batches.len(), 0);
+            let mut counts = vec![0; self.batches.len()];
             for (_, parent_batch_index) in &parent_batch_index_from_batch_index {
                 counts[*parent_batch_index] += 1;
             }

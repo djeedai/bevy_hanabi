@@ -282,7 +282,7 @@ impl<'a> ShaderWriter<'a> {
     ///
     /// [`set_emits_gpu_spawn_events()`]: crate::ShaderWriter::set_emits_gpu_spawn_events
     pub fn emits_gpu_spawn_events(&self) -> Option<bool> {
-        self.emits_gpu_spawn_events.clone()
+        self.emits_gpu_spawn_events
     }
 }
 

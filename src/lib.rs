@@ -1701,7 +1701,7 @@ fn compile_effects(
     {
         let child_entities = children
             .get_mut(&entity)
-            .map(|vec| std::mem::take(vec))
+            .map(std::mem::take)
             .unwrap_or_default();
 
         // If the ParticleEffect didn't change, and the compiled one is for the correct

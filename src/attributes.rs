@@ -1773,6 +1773,11 @@ impl ParticleLayout {
         builder.build()
     }
 
+    /// Check if this layout is empty.
+    pub fn is_empty(&self) -> bool {
+        self.unpadded_len == 0
+    }
+
     /// Get the number of fields in the layout.
     ///
     /// Note: if internal padding field need to be added to the final WGSL
@@ -2365,7 +2370,7 @@ mod tests {
             assert_eq!(layout.len(), 1);
 
             // There may be padding field(s)...
-            assert!(layout.layout.len() >= 1);
+            assert!(!layout.layout.is_empty());
             let size = layout.size();
             let aligned_size = size.next_multiple_of(layout.align());
             assert_eq!(aligned_size % attr.align() as u32, 0);

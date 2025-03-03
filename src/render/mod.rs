@@ -1314,7 +1314,7 @@ impl FromWorld for UtilsPipeline {
             let shader_defs = default();
 
             match composer.make_naga_module(NagaModuleDescriptor {
-                source: &shader_code,
+                source: shader_code,
                 file_path: "vfx_utils.wgsl",
                 shader_defs,
                 ..Default::default()
@@ -3580,14 +3580,14 @@ pub(crate) fn prepare_effects(
     // Ensure the indirect pipelines are created
     if effects_meta.indirect_pipeline_ids[0] == CachedComputePipelineId::INVALID {
         effects_meta.indirect_pipeline_ids[0] = specialized_indirect_pipelines.specialize(
-            &pipeline_cache,
+            pipeline_cache,
             &pipelines.indirect_pipeline,
             DispatchIndirectPipelineKey { has_events: false },
         );
     }
     if effects_meta.indirect_pipeline_ids[1] == CachedComputePipelineId::INVALID {
         effects_meta.indirect_pipeline_ids[1] = specialized_indirect_pipelines.specialize(
-            &pipeline_cache,
+            pipeline_cache,
             &pipelines.indirect_pipeline,
             DispatchIndirectPipelineKey { has_events: true },
         );
@@ -4253,7 +4253,7 @@ pub(crate) fn batch_effects(
             cached_effect_events,
             cached_child_info,
             &mut input,
-            dispatch_buffer_indices.clone(),
+            *dispatch_buffer_indices.as_ref(),
             cached_properties.map(|cp| PropertyBindGroupKey {
                 buffer_index: cp.buffer_index,
                 binding_size: cp.binding_size,
@@ -4481,7 +4481,7 @@ struct ConsumeEventKey {
     events: BindingKey,
 }
 
-impl<'a> From<&ConsumeEventBuffers<'a>> for ConsumeEventKey {
+impl From<&ConsumeEventBuffers<'_>> for ConsumeEventKey {
     fn from(value: &ConsumeEventBuffers) -> Self {
         Self {
             child_infos_buffer_id: value.child_infos_buffer.id(),
@@ -4676,14 +4676,14 @@ impl EffectBindGroups {
                         cbg.key,
                         key
                     );
-                    cbg.key = key.clone();
+                    cbg.key = key;
                     cbg.bind_group = make_entry();
                 }
             })
             .or_insert_with(|| {
                 trace!("Inserting new bind group for init metadata@3 with key={:?}", key);
                 CachedBindGroup {
-                    key: key.clone(),
+                    key,
                     bind_group: make_entry(),
                 }
             })
@@ -4692,7 +4692,7 @@ impl EffectBindGroups {
 
     /// Retrieve the metadata@3 bind group for the update pass, creating it if
     /// needed.
-    pub(self) fn get_or_create_update_metadata<'a>(
+    pub(self) fn get_or_create_update_metadata(
         &mut self,
         effect_batch: &EffectBatch,
         gpu_limits: &GpuLimits,
@@ -4709,7 +4709,7 @@ impl EffectBindGroups {
 
         // Check arguments consistency
         assert_eq!(effect_batch.child_event_buffers.len(), event_buffers.len());
-        let emits_gpu_spawn_events = event_buffers.len() > 0;
+        let emits_gpu_spawn_events = !event_buffers.is_empty();
         let child_info_buffer_id = if emits_gpu_spawn_events {
             child_info_buffer.as_ref().map(|buffer| buffer.id())
         } else {
@@ -5487,7 +5487,7 @@ pub(crate) fn prepare_bind_groups(
     // Ensure child_infos@3 bind group for the indirect pass is available if needed.
     // This returns `None` if the buffer is not ready, either because it's not
     // created yet or because it's not needed (no child effect).
-    event_cache.ensure_indirect_child_info_buffer_bind_group(&*render_device);
+    event_cache.ensure_indirect_child_info_buffer_bind_group(&render_device);
 
     {
         #[cfg(feature = "trace")]
@@ -5723,16 +5723,14 @@ pub(crate) fn prepare_bind_groups(
                 error!("Failed to create property bind group for effect batch: {err:?}");
                 continue;
             }
-        } else {
-            if let Err(err) = property_bind_groups.ensure_exists_no_property(
-                &property_cache,
-                &spawner_buffer,
-                spawner_buffer_binding_size,
-                &render_device,
-            ) {
-                error!("Failed to create property bind group for effect batch: {err:?}");
-                continue;
-            }
+        } else if let Err(err) = property_bind_groups.ensure_exists_no_property(
+            &property_cache,
+            &spawner_buffer,
+            spawner_buffer_binding_size,
+            &render_device,
+        ) {
+            error!("Failed to create property bind group for effect batch: {err:?}");
+            continue;
         }
 
         // Bind group particle@1 for the simulate compute shaders (init and udpate) to
@@ -5787,7 +5785,7 @@ pub(crate) fn prepare_bind_groups(
                     effect_batch,
                     &effects_meta.gpu_limits,
                     &render_device,
-                    &init_metadata_layout,
+                    init_metadata_layout,
                     effects_meta.effect_metadata_buffer.buffer().unwrap(),
                     consume_event_buffers,
                 )
@@ -5812,7 +5810,7 @@ pub(crate) fn prepare_bind_groups(
                     effect_batch,
                     &effects_meta.gpu_limits,
                     &render_device,
-                    &update_metadata_layout,
+                    update_metadata_layout,
                     effects_meta.effect_metadata_buffer.buffer().unwrap(),
                     event_cache.child_infos_buffer(),
                     &effect_batch.child_event_buffers[..],
@@ -6208,7 +6206,7 @@ impl<'a> Deref for HanabiComputePass<'a> {
     }
 }
 
-impl<'a> DerefMut for HanabiComputePass<'a> {
+impl DerefMut for HanabiComputePass<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.compute_pass
     }

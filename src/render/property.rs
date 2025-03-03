@@ -403,7 +403,7 @@ impl PropertyBindGroups {
                         BindGroupEntry {
                             binding: 0,
                             resource: BindingResource::Buffer(BufferBinding {
-                                buffer: &spawner_buffer,
+                                buffer: spawner_buffer,
                                 offset: 0,
                                 size: Some(spawner_buffer_binding_size),
                             }),
@@ -445,7 +445,7 @@ impl PropertyBindGroups {
                 &[BindGroupEntry {
                     binding: 0,
                     resource: BindingResource::Buffer(BufferBinding {
-                        buffer: &spawner_buffer,
+                        buffer: spawner_buffer,
                         offset: 0,
                         size: Some(spawner_buffer_binding_size),
                     }),

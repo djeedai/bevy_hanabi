@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which is `None` if the layout is empty (as opposed to an empty string previously).
 - Removed effects are now deallocated from the render world before the extract schedule, instead of during it.
   This should have no consequence, unless you were using a system inserted explicitly before Hanabi's extraction.
-- `EffectAsset::capacities` is reverted to a singel `capacity: u32` value per effect.
+- `EffectAsset::capacities` is reverted to a single `capacity: u32` value per effect.
   See the migration guide about hierarchical parent/child effects replacing groups.
 - Renamed the `tick_initializers()` system back into `tick_spawners()` for clarity.
 - `Attribute::PREV` and `Attribute::NEXT` are soft-deprecated.

@@ -198,7 +198,7 @@ impl SortBindGroups {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: true,
-                        min_binding_size: Some(effect_metadata_min_binding_size.into()),
+                        min_binding_size: Some(effect_metadata_min_binding_size),
                     },
                     count: None,
                 },
@@ -419,7 +419,7 @@ impl SortBindGroups {
                 entry.insert(
                     self.render_device.create_bind_group(
                         "hanabi:bind_group:sort_fill",
-                        &layout,
+                        layout,
                         &[
                             // @group(0) @binding(0) var<storage, read_write> pairs:
                             // array<KeyValuePair>;
@@ -511,7 +511,7 @@ impl SortBindGroups {
                             BindGroupEntry {
                                 binding: 0,
                                 resource: BindingResource::Buffer(BufferBinding {
-                                    buffer: &indirect_index_buffer,
+                                    buffer: indirect_index_buffer,
                                     offset: 0,
                                     size: None,
                                 }),
@@ -530,7 +530,7 @@ impl SortBindGroups {
                             BindGroupEntry {
                                 binding: 2,
                                 resource: BindingResource::Buffer(BufferBinding {
-                                    buffer: &effect_metadata_buffer,
+                                    buffer: effect_metadata_buffer,
                                     offset: 0,
                                     size: Some(GpuEffectMetadata::aligned_size(
                                         self.render_device

@@ -437,11 +437,11 @@ impl EventCache {
             self.buffers[buffer_index] = Some(buffer);
         }
 
-        return CachedEffectEvents {
+        CachedEffectEvents {
             buffer_index: buffer_index as u32,
             init_indirect_dispatch_index,
             range: event_slice.slice,
-        };
+        }
     }
 
     /// Deallocated and remove an event block allocation from the cache.
@@ -609,9 +609,7 @@ impl EventCache {
         &mut self,
         device: &RenderDevice,
     ) -> Option<&BindGroup> {
-        let Some(buffer) = self.child_infos_buffer() else {
-            return None;
-        };
+        let buffer = self.child_infos_buffer()?;
         // TODO - stop re-creating each frame...
         self.indirect_child_info_buffer_bind_group = Some(device.create_bind_group(
             "hanabi:bind_group:indirect:child_infos@3",

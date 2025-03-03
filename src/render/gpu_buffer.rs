@@ -178,7 +178,7 @@ impl<T: Pod + ShaderType + ShaderSize> GpuBuffer<T> {
     pub fn free(&mut self, index: u32) {
         if index < self.used_size {
             debug_assert!(
-                self.free_list.iter().find(|&i| *i == index).is_none(),
+                !self.free_list.iter().any(|i| *i == index),
                 "Double-free in GpuBuffer at index #{}",
                 index
             );

@@ -418,7 +418,7 @@ impl EffectBuffer {
             entries.len(),
             parent_binding_source.is_some(),
         );
-        let bind_group = render_device.create_bind_group(Some(&label[..]), layout, &entries);
+        let bind_group = render_device.create_bind_group(Some(&label[..]), layout, entries);
         self.sim_bind_group = Some(bind_group);
         self.sim_bind_group_key = key;
     }
