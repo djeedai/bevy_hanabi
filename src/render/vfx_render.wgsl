@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import bevy_hanabi::vfx_common::{
-    DispatchIndirect, IndirectBuffer, SimParams, Spawner,
+    IndirectBuffer, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
     rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
@@ -27,12 +27,11 @@ struct VertexOutput {
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<uniform> sim_params : SimParams;
+
 @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
-@group(1) @binding(2) var<storage, read> dispatch_indirect : DispatchIndirect;
-#ifdef RENDER_NEEDS_SPAWNER
-@group(1) @binding(3) var<storage, read> spawner : Spawner;
-#endif
+@group(1) @binding(2) var<storage, read> spawner : Spawner;
+
 {{MATERIAL_BINDINGS}}
 
 fn get_camera_position_effect_space() -> vec3<f32> {
@@ -146,11 +145,34 @@ fn vertex(
     // @location(1) vertex_color: u32,
     // @location(1) vertex_velocity: vec3<f32>,
 ) -> VertexOutput {
-    let pong = dispatch_indirect.pong;
-    let index = indirect_buffer.indices[3u * instance_index + pong];
-    var particle = particle_buffer.particles[index];
+    // Fetch particle
+    let pong = spawner.render_pong;
+    let particle_index = indirect_buffer.indices[3u * instance_index + pong];
+    var particle = particle_buffer.particles[particle_index];
+
     var out: VertexOutput;
+
+#ifdef RIBBONS
+    // Discard first instance; we draw from second one, and link to previous one
+    if (instance_index == 0) {
+        out.position = vec4(0.0);
+        return out;
+    }
+
+    // Fetch previous particle
+    let prev_index = indirect_buffer.indices[3u * (instance_index - 1u) + pong];
+    let prev_particle = particle_buffer.particles[prev_index];
+
+    // Discard this instance if previous one is from a different ribbon. Again,
+    // we draw from second one of each ribbon.
+    if (prev_particle.ribbon_id != particle.ribbon_id) {
+        out.position = vec4(0.0);
+        return out;
+    }
+#endif  // RIBBONS
+
 #ifdef NEEDS_UV
+    // Compute UVs
     var uv = vertex_uv;
 #ifdef FLIPBOOK
     let row_count = {{FLIPBOOK_ROW_COUNT}};
@@ -165,25 +187,18 @@ fn vertex(
 {{VERTEX_MODIFIERS}}
 
 #ifdef RIBBONS
-    let next_index = particle.next;
-    if (next_index >= arrayLength(&particle_buffer.particles)) {
-        out.position = vec4(0.0);
-        return out;
-    }
-
-    let next_particle = particle_buffer.particles[next_index];
-    var delta = next_particle.position - particle.position;
+    var delta = particle.position - prev_particle.position;
 
     axis_x = normalize(delta);
     axis_y = normalize(cross(axis_x, axis_z));
     axis_z = cross(axis_x, axis_y);
 
-    position = mix(next_particle.position, particle.position, 0.5);
+    position = mix(particle.position, prev_particle.position, 0.5);
     size = vec3(length(delta), size.y, 1.0);
 #endif  // RIBBONS
 
     // Expand particle mesh vertex based on particle position ("origin"), and local
-    // orientation and size of the particle mesh (currently: only quad).
+    // orientation and size of the particle mesh.
     let vpos = vertex_position * size;
     let sim_position = position + axis_x * vpos.x + axis_y * vpos.y + axis_z * vpos.z;
     out.position = transform_position_simulation_to_clip(sim_position);
@@ -200,7 +215,7 @@ fn vertex(
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-
+    // Read fragment inputs
 #ifdef USE_ALPHA_MASK
     var alpha_cutoff: f32 = {{ALPHA_CUTOFF}};
 #endif

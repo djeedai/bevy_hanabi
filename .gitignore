@@ -1,6 +1,7 @@
 # Rust
 target/
 Cargo.lock
+.cargo/config.toml
 
 # IDEs
 .vs*
@@ -9,6 +10,7 @@ Cargo.lock
 .DS_Store
 
 # Perf
+profiling/
 *.cap
 perf.data
 perf.data.old

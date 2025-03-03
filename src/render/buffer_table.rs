@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     num::{NonZeroU32, NonZeroU64},
+    ops::Range,
 };
 
 use bevy::{
@@ -15,6 +16,23 @@ use bevy::{
 };
 use bytemuck::{cast_slice, Pod};
 use copyless::VecHelper;
+
+/// Round a range start down to a given alignment, and return the new range and
+/// the start offset inside the new range of the old range.
+fn round_range_start_down(range: Range<u64>, align: u64) -> (Range<u64>, u64) {
+    assert!(align > 0);
+    let delta = align - 1;
+    if range.start >= delta {
+        // Snap range start to previous multiple of align
+        let old_start = range.start;
+        let new_start = (range.start - delta).next_multiple_of(align);
+        let offset = old_start - new_start;
+        (new_start..range.end, offset)
+    } else {
+        // Snap range start to 0
+        (0..range.end, range.start)
+    }
+}
 
 /// Index of a row in a [`BufferTable`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,9 +54,16 @@ impl BufferTableId {
     /// Compute a new buffer table ID by offseting an existing one by `count`
     /// rows.
     #[inline]
+    #[allow(dead_code)]
     pub fn offset(&self, count: u32) -> BufferTableId {
         debug_assert!(self.is_valid());
         BufferTableId(self.0 + count)
+    }
+}
+
+impl Default for BufferTableId {
+    fn default() -> Self {
+        Self::INVALID
     }
 }
 
@@ -375,6 +400,67 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         BufferTableId(index)
     }
 
+    /// Calculate a dynamic byte offset for a bind group from a table entry.
+    ///
+    /// This returns the product of `id` by the internal [`aligned_size()`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the `index` is too large, producing a byte offset larger than
+    /// `u32::MAX`.
+    ///
+    /// [`aligned_size()`]: Self::aligned_size
+    #[inline]
+    pub fn dynamic_offset(&self, id: BufferTableId) -> u32 {
+        let offset = self.aligned_size * id.0 as usize;
+        assert!(offset <= u32::MAX as usize);
+        u32::try_from(offset).expect("BufferTable index out of bounds")
+    }
+
+    /// Update an existing row in the table.
+    ///
+    /// For performance reasons, this buffers the row content on the CPU until
+    /// the next GPU update, to minimize the number of CPU to GPU transfers.
+    ///
+    /// Calling this function multiple times overwrites the previous value. Only
+    /// the last value recorded each frame will be uploaded to GPU.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `id` is invalid.
+    pub fn update(&mut self, id: BufferTableId, value: T) {
+        assert!(id.is_valid());
+        trace!(
+            "Updating row {} of table buffer '{}'",
+            id.0,
+            self.safe_name(),
+        );
+        let allocated_count = self
+            .buffer
+            .as_ref()
+            .map(|ab| ab.allocated_count())
+            .unwrap_or(0);
+        if id.0 < allocated_count {
+            if let Some(idx) = self
+                .pending_values
+                .iter()
+                .position(|&(index, _)| index == id.0)
+            {
+                // Overwrite a previous update. This ensures we never upload more than one
+                // update per row, which would waste GPU bandwidth.
+                self.pending_values[idx] = (id.0, value);
+            } else {
+                self.pending_values.alloc().init((id.0, value));
+            }
+        } else {
+            let extra_index = (id.0 - allocated_count) as usize;
+            assert!(extra_index < self.extra_pending_values.len());
+            // Overwrite a previous update. This ensures we never upload more than one
+            // update per row, which would waste GPU bandwidth.
+            self.extra_pending_values[extra_index] = value;
+        }
+    }
+
     /// Insert several new contiguous rows into the table.
     ///
     /// For performance reasons, this buffers the row content on the CPU until
@@ -384,6 +470,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     ///
     /// Returns the index of the first entry. Other entries follow right after
     /// it.
+    #[allow(dead_code)] // unused but annoying to write, so keep if we need in the future
     pub fn insert_contiguous(&mut self, values: impl ExactSizeIterator<Item = T>) -> BufferTableId {
         let count = values.len() as u32;
         trace!(
@@ -584,23 +671,27 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             if has_init_data {
                 // Leave some space to copy the old buffer if any
                 let base_size = self.to_byte_size(allocated_count) as u64;
-                let extra_size = self.to_byte_size(self.extra_pending_values.len() as u32) as u64;
+                let extra_count = self.extra_pending_values.len() as u32;
+                let extra_size = self.to_byte_size(extra_count) as u64;
 
                 // Scope get_mapped_range_mut() to force a drop before unmap()
                 {
-                    let dst_slice = &mut new_buffer
-                        .slice(base_size..base_size + extra_size)
-                        .get_mapped_range_mut();
+                    // Note: get_mapped_range_mut() requires 8-byte alignment of the start offset.
+                    let unaligned_range = base_size..(base_size + extra_size);
+                    let (range, byte_offset) = round_range_start_down(unaligned_range, 8);
 
+                    let dst_slice = &mut new_buffer.slice(range).get_mapped_range_mut();
+
+                    let base_offset = byte_offset as usize;
+                    let byte_size = self.aligned_size; // single row
                     for (index, content) in self.extra_pending_values.drain(..).enumerate() {
-                        let byte_size = self.aligned_size; // single row
-                        let byte_offset = byte_size * index;
+                        let byte_offset = base_offset + byte_size * index;
 
                         // Copy Rust value into a GPU-ready format, including GPU padding.
                         let src: &[u8] = cast_slice(std::slice::from_ref(&content));
-                        let dst_range = byte_offset..byte_offset + self.item_size;
+                        let dst_range = byte_offset..(byte_offset + self.item_size);
                         trace!(
-                            "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
+                            "+ init_copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
                             index,
                             src.as_ptr(),
                             dst_range,
@@ -683,7 +774,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 let src: &[u8] = cast_slice(std::slice::from_ref(&content));
                 let dst_range = ..self.item_size;
                 trace!(
-                    "+ copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
+                    "+ old_copy: index={} src={:?} dst={:?} byte_offset={} byte_size={}",
                     index,
                     src.as_ptr(),
                     dst_range,
@@ -753,6 +844,37 @@ mod tests {
     use bytemuck::{Pod, Zeroable};
 
     use super::*;
+
+    #[test]
+    fn test_round_range_start_down() {
+        // r8(0..7) : no-op
+        {
+            let (r, o) = round_range_start_down(0..7, 8);
+            assert_eq!(r, 0..7);
+            assert_eq!(o, 0);
+        }
+
+        // r8(2..7) = 0..7, +2
+        {
+            let (r, o) = round_range_start_down(2..7, 8);
+            assert_eq!(r, 0..7);
+            assert_eq!(o, 2);
+        }
+
+        // r8(7..32) = 0..32, +7
+        {
+            let (r, o) = round_range_start_down(7..32, 8);
+            assert_eq!(r, 0..32);
+            assert_eq!(o, 7);
+        }
+
+        // r8(8..32) = no-op
+        {
+            let (r, o) = round_range_start_down(8..32, 8);
+            assert_eq!(r, 8..32);
+            assert_eq!(o, 0);
+        }
+    }
 
     #[repr(C)]
     #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]

@@ -416,6 +416,12 @@ impl Module {
         self.push(Expr::Attribute(AttributeExpr::new(attr)))
     }
 
+    /// Build a parent attribute expression and append it to the module.
+    #[inline]
+    pub fn parent_attr(&mut self, attr: Attribute) -> ExprHandle {
+        self.push(Expr::ParentAttribute(AttributeExpr::new(attr)))
+    }
+
     /// Build a property expression and append it to the module.
     ///
     /// A property expression retrieves the value of the given property.
@@ -812,6 +818,19 @@ pub enum Expr {
     /// particle, like its position or velocity.
     Attribute(AttributeExpr),
 
+    /// Attribute expression ([`AttributeExpr`]) from a parent effect.
+    ///
+    /// An attribute expression represents the value of an attribute for a
+    /// particle, like its position or velocity. This attribute however refers
+    /// to the parent particle which spawned this one, via GPU events.
+    ///
+    /// This attribute is only valid when used in init modifiers, from an effect
+    /// with a parent effect (an effect which has an [`EffectParent`]
+    /// component).
+    ///
+    /// [`EffectParent`]: crate::EffectParent
+    ParentAttribute(AttributeExpr),
+
     /// Unary operation expression.
     ///
     /// A unary operation transforms an expression into another expression.
@@ -893,6 +912,7 @@ impl Expr {
             Expr::Literal(expr) => expr.is_const(),
             Expr::Property(expr) => expr.is_const(),
             Expr::Attribute(expr) => expr.is_const(),
+            Expr::ParentAttribute(expr) => expr.is_const(),
             Expr::Unary { expr, .. } => module.is_const(*expr),
             Expr::Binary { left, right, .. } => module.is_const(*left) && module.is_const(*right),
             Expr::Ternary {
@@ -917,6 +937,7 @@ impl Expr {
             Expr::Literal(_) => false,
             Expr::Property(_) => false,
             Expr::Attribute(_) => false,
+            Expr::ParentAttribute(_) => false,
             Expr::Unary { expr, .. } => module.has_side_effect(*expr),
             Expr::Binary { left, right, op } => {
                 (*op == BinaryOperator::UniformRand || *op == BinaryOperator::NormalRand)
@@ -963,6 +984,7 @@ impl Expr {
             Expr::Literal(expr) => Some(expr.value_type()),
             Expr::Property(_) => None,
             Expr::Attribute(expr) => Some(expr.value_type()),
+            Expr::ParentAttribute(expr) => Some(expr.value_type()),
             Expr::Unary { .. } => None,
             Expr::Binary { .. } => None,
             Expr::Ternary { .. } => None,
@@ -1001,7 +1023,8 @@ impl Expr {
             Expr::BuiltIn(expr) => expr.eval(context),
             Expr::Literal(expr) => expr.eval(context),
             Expr::Property(expr) => expr.eval(module, context),
-            Expr::Attribute(expr) => expr.eval(context),
+            Expr::Attribute(expr) => expr.eval(context, false),
+            Expr::ParentAttribute(expr) => expr.eval(context, true),
             Expr::Unary { op, expr } => {
                 // Recursively evaluate child expressions throught the context to ensure caching
                 let expr = context.eval(module, *expr)?;
@@ -1209,11 +1232,29 @@ impl AttributeExpr {
     }
 
     /// Evaluate the expression in the given context.
-    pub fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
-        if context.is_attribute_pointer() {
-            Ok(format!("(*particle).{}", self.attr.name()))
+    pub fn eval(&self, context: &dyn EvalContext, parent: bool) -> Result<String, ExprError> {
+        if self.attr == Attribute::ID {
+            // Pseudo-attribute, not stored in the particle buffer
+            Ok(if parent {
+                "parent_particle_index"
+            } else {
+                "particle_index"
+            }
+            .to_string())
+        } else if self.attr == Attribute::PARTICLE_COUNTER {
+            // Pseudo-attribute, not stored in the particle buffer
+            Ok("particle_counter".to_string())
         } else {
-            Ok(format!("particle.{}", self.attr.name()))
+            let owner = if parent {
+                "parent_particle"
+            } else {
+                "particle"
+            };
+            if context.is_attribute_pointer() {
+                Ok(format!("(*{}).{}", owner, self.attr.name()))
+            } else {
+                Ok(format!("{}.{}", owner, self.attr.name()))
+            }
         }
     }
 }
@@ -2223,6 +2264,19 @@ impl ExprWriter {
     /// ```
     pub fn attr(&self, attr: Attribute) -> WriterExpr {
         self.push(Expr::Attribute(AttributeExpr::new(attr)))
+    }
+
+    /// Create a new writer expression from an attribute on a parent effect.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let mut w = ExprWriter::new();
+    /// let x = w.parent_attr(Attribute::POSITION); // x = parent_particle.position;
+    /// ```
+    pub fn parent_attr(&self, attr: Attribute) -> WriterExpr {
+        self.push(Expr::ParentAttribute(AttributeExpr::new(attr)))
     }
 
     /// Create a new writer expression from a property.

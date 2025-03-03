@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added new `DebugSettings` resource, allowing to instruct a GPU debugger to start capturing API commands,
   either right away or each time a new effect is spawned.
+- Added new `EffectParent` component to declare that an effect is parented to another effect.
+  Parenting allows the child effect to consume GPU spawn events and read the parent's particle attributes.
+  See the migration guide about hierarchical parent/child effects.
+- Added new `DefaultMesh` resource storing the default mesh used for particles when `EffectAsset::mesh` is `None`.
+  The default mesh remains a Z-facing unit quad.
+- Added the `EmitSpawnEventModifier` to configure GPU spawn event spawning from an effect.
+  See the migration guide about GPU spawn events.
+- Added `ShaderWriter::set_emits_gpu_spawn_events()` to declare that an effect emits GPU spawn events.
+  This is generally used automatically by `EmitSpawnEventModifier`.
+- Added `EventEmitCondition` to determine when to emit GPU spawn events.
+- Added `EffectAsset::with_motion_integration()` to assign the `MotionIntegration` of an effect.
+- Added new `Attribute::RIBBON_ID` determining which ribbon a particle is part of.
+  See the migration guide about the new trail and ribbon implementation.
+- Added new custom `Attribute::U32_0` to `U32_3`, similar to their float counterparts.
+- Added new pseudo-attributes `ID` and `PARTICLE_COUNTER`. Those attributes can be read but not written.
+  They do not consume any storage space in the particle's layout.
+  The `ID` is the unique ID of the particle in the effect instance, which may be recycled when the particle dies.
+  The `PARTICLE_COUNTER` is a monotonically increasing counter which can be considered unique for the duration
+  of an effect's lifetime (it will wrap at 2^32).
+- Added new `Expr::ParentAttribute` expression, which reads a particle attribute like `Expr::Attribute`,
+  but does so on the parent effect of this effect instead.
+  This attribute is only valid if the effect has a parent (uses `EffectParent`), and only to read the attribute.
+  Also added `ExprWriter::parent_attr()` to create that expression with a writer.
+- Added new `InheritAttributeModifier` to set the value of a particle attribute by copying the value of its parent.
+  This modifier is only valid for the `ModifierContext::Init` pass,
+  when an effect has a parent (uses `EffectParent`).
 
 ### Changed
 
@@ -19,16 +45,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which is `None` if the layout is empty (as opposed to an empty string previously).
 - Removed effects are now deallocated from the render world before the extract schedule, instead of during it.
   This should have no consequence, unless you were using a system inserted explicitly before Hanabi's extraction.
+- `EffectAsset::capacities` is reverted to a single `capacity: u32` value per effect.
+  See the migration guide about hierarchical parent/child effects replacing groups.
+- Renamed the `tick_initializers()` system back into `tick_spawners()` for clarity.
+- `Attribute::PREV` and `Attribute::NEXT` are soft-deprecated.
+  You can continue to use them, but they do not have any influence anymore on ribbons and trails,
+  nor any other built-in functionality of Hanabi.
 
 ### Fixed
 
 - Fixed a bug with opaque effects not rendering.
+- Fixed a bug in `ParticleLayout` where some fields may not have been aligned according to the WGSL rules.
+- Added a workaround for a `wgpu` bug on macOS/Metal backend related to `ParticleLayout` alignment.
 
 ### Removed
 
 - Removed the `EffectSystems::GatherRemovedEffects` system set.
   Removed effects are now processed via observers, which execute during the render world sync just before extraction.
   Removed the `RemovedEffectsEvent` type too.
+- Removed the `EffectInitializers` component. For CPU spawning, use `EffectSpawner` instead.
+  For GPU spawning, see the migration guide about the removal of groups and use of `EffectParent` and GPU spawn events.
+- Similarly, removed `Initializer` and `Cloner`.
+- Removed `GroupedModifier` and related `EffectAsset` fields, following the removal of groups.
+  See the migration guide about hierarchical parent/child effects replacing groups.
+- Similarly, removed grouped variant of all `EffectAsset` functions.
+- Similarly, removed `ParticleGroupSet`.
+- Removed `EffectAsset::ribbon_group` as well as `with_trails()` and `with_ribbons()`.
+  Use the `Attribute::RIBBON_ID` instead to assign a per-particle ribbon ID.
 
 ## [0.14.0] 2024-12-09
 

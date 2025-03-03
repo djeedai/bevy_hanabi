@@ -105,6 +105,7 @@ bevy_sprite = "0.15"
 bevy_text = "0.15"
 bevy_ui = "0.15"
 bevy_window = "0.15"
+bevy_picking = "0.15"
 
 # For glTF animations (Fox.glb)
 bevy_gltf = { version = "0.15", features = [ "bevy_animation" ] }
@@ -210,6 +211,15 @@ required-features = [
 [[test]]
 name = "empty_effect"
 path = "gpu_tests/empty_effect.rs"
+harness = false
+required-features = [
+    "bevy/bevy_winit",
+    "bevy/bevy_window",
+]
+
+[[test]]
+name = "single_particle"
+path = "gpu_tests/single_particle.rs"
 harness = false
 required-features = [
     "bevy/bevy_winit",

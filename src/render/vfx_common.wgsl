@@ -13,8 +13,10 @@ struct SimParams {
     real_delta_time: f32,
     /// Real time in seconds since the start of simulation.
     real_time: f32,
-    /// Number of groups batched together.
-    num_groups: u32,
+    /// Total number of effects to update this frame. Used by the indirect
+    /// compute pipeline to cap the compute thread to the actual number of
+    /// effects to process.
+    num_effects: u32,
 }
 
 struct Spawner {
@@ -29,104 +31,90 @@ struct Spawner {
     /// PRNG seed for this effect instance. Currently this can change each time the
     /// effect is recompiled, and cannot be set deterministically (TODO).
     seed: u32,
-    // The lifetime to initialize particles with. This is only used for cloners
-    // (i.e. trails or ribbons).
-    lifetime: f32,
-#ifdef SPAWNER_PADDING
-    {{SPAWNER_PADDING}}
-#endif
-}
-
-// Per-group data for a single particle effect group inside an effect.
-struct ParticleGroup {
-    /// The absolute index of this particle group in the global particle group
-    /// buffer, which includes all effects.
-    group_index: u32,
-    /// The global index of the particle effect.
-    effect_index: u32,
-    /// The relative index of this particle group in the effect.
-    ///
-    /// For example, the first group in an effect has index 0, the second has
-    /// index 1, etc. This is always 0 when not using groups.
-    index_in_effect: u32,
-    /// The index of the first particle in this group in the indirect index
-    /// buffer.
-    indirect_index: u32,
-    /// The capacity of this group, in number of particles.
-    capacity: u32,
-    /// The index of the first particle in the particle and indirect buffers of
-    /// this effect.
-    effect_particle_offset: u32,
-    /// Index of the [`GpuDispatchIndirect`] struct inside the global
-    /// [`EffectsMeta::dispatch_indirect_buffer`].
-    indirect_dispatch_index: u32,
-    /// Index of the [`GpuRenderGroupIndirect`] struct inside the global
-    /// [`EffectsMeta::render_group_dispatch_buffer`].
-    indirect_render_index: u32,
-    {{PARTICLE_GROUP_PADDING}}
-}
-
-struct IndirectBuffer {
-    indices: array<u32>,
-}
-
-// Dispatch indirect array offsets. Used when accessing an array of DispatchIndirect
-// as a raw array<u32>, so that we can avoid WGSL struct padding and keep data
-// more compact in the render indirect buffer. Each offset corresponds to a field
-// in the DispatchIndirect struct.
-const DI_OFFSET_X: u32 = 0u;
-const DI_OFFSET_Y: u32 = 1u;
-const DI_OFFSET_Z: u32 = 2u;
-const DI_OFFSET_PONG: u32 = 3u;
-
-/// Dispatch indirect parameters for GPU driven update compute.
-struct DispatchIndirect {
-    /// Number of workgroups. This is derived from the number of particles to update.
-    x: u32,
-    /// Unused; always 1.
-    y: u32,
-    /// Unused; always 1.
-    z: u32,
     /// Index of the ping-pong buffer of particle indices to read particles from
     /// during rendering. Cached from RenderIndirect::ping after it's swapped
     /// in the indirect dispatch, because the RenderIndirect struct is used by GPU
     /// as an indirect draw source so cannot also be bound as regular storage
     /// buffer for reading.
-    pong: u32,
-    /// Padding for storage buffer alignment. This struct is sometimes bound as part
-    /// of an array, or sometimes individually as a single unit. In the later case,
-    /// we need it to be aligned to the GPU limits of the device. That limit is only
-    /// known at runtime when initializing the WebGPU device.
-    {{DISPATCH_INDIRECT_PADDING}}
+    render_pong: u32,
+    /// Index of the [`GpuEffectMetadata`] for this effect.
+    effect_metadata_index: u32,
+#ifdef SPAWNER_PADDING
+    {{SPAWNER_PADDING}}
+#endif
 }
 
-// Render indirect array offsets. Used when accessing an array of RenderIndirect
-// as a raw array<u32>, so that we can avoid WGSL struct padding and keep data
-// more compact in the render indirect buffer. Each offset corresponds to a field
-// in the RenderIndirect struct.
-const REM_OFFSET_PING: u32 = 0u;
+const SPAWNER_OFFSET_PONG: u32 = 27u;
 
-const RGI_OFFSET_VERTEX_COUNT: u32 = 0u;
-const RGI_OFFSET_INSTANCE_COUNT: u32 = 1u;
-const RGI_OFFSET_FIRST_INDEX_OR_VERTEX_OFFSET: u32 = 2u;
-const RGI_OFFSET_VERTEX_OFFSET_OR_BASE_INSTANCE: u32 = 3u;
-const RGI_OFFSET_BASE_INSTANCE: u32 = 4u;
-const RGI_OFFSET_ALIVE_COUNT: u32 = 5u;
-const RGI_OFFSET_MAX_UPDATE: u32 = 6u;
-const RGI_OFFSET_DEAD_COUNT: u32 = 7u;
-const RGI_OFFSET_MAX_SPAWN: u32 = 8u;
-
-struct RenderEffectMetadata {
-    /// Index of the ping buffer for particle indices. Init and update compute passes
-    /// always write into the ping buffer and read from the pong buffer. The buffers
-    /// are swapped during the indirect dispatch.
-    ping: u32,
-    {{RENDER_EFFECT_INDIRECT_PADDING}}
+struct IndirectBuffer {
+    indices: array<u32>,
 }
 
-/// Render indirect parameters for GPU driven rendering.
-struct RenderGroupIndirect {
-    /// Number of vertices in the particle mesh. Currently always 4 (quad mesh).
+/// A event emitted by another effect during its update pass, to trigger the spawning
+/// of one or more particle in this effect.
+struct SpawnEvent {
+    /// The particle index in the parent effect buffer of the source particle which
+    /// triggered the event. This is used to inherit attributes like position or velocity.
+    particle_index: u32,
+}
+
+/// Append buffer populated during the Update pass of the previous frame by a parent effect,
+/// and read back by its child effect(s) during the Init pass of the next frame.
+struct EventBuffer {
+    /// The spawn events themselves.
+    spawn_events: array<SpawnEvent>,
+}
+
+/// Info about a single child of a parent effect.
+struct ChildInfo {
+    /// Index of the effect's IndirectDispatch entry in the global init indirect dispatch array.
+    init_indirect_dispatch_index: u32,
+    /// Number of events in the associated event buffer.
+#ifdef CHILD_INFO_IS_ATOMIC
+    event_count: atomic<i32>,
+#else
+    event_count: i32,
+#endif
+}
+
+/// Buffer storing all the ChildInfo structs for several effects.
+struct ChildInfoBuffer {
+    /// The child info structs themselves.
+    rows: array<ChildInfo>,
+}
+
+/// Indirect compute dispatch struct for GPU-driven passes. The layout of this struct is dictated by WGSL.
+struct IndirectDispatch {
+    /// Number of workgroups. Each workgroup has exactly 64 threads.
+    x: u32,
+    /// Unused; always 1.
+    y: u32,
+    /// Unused; always 1.
+    z: u32,
+}
+
+/// Stride in u32 count (4 bytes) of the IndirectDispatch struct.
+const DISPATCH_INDIRECT_STRIDE: u32 = 3u;
+
+// Effect metadata offsets. Used when accessing a tightly packed array of EffectMetadata
+// as a raw array<u32>, so that we can avoid WGSL struct padding and keep data more compact
+// in the GPU buffer. Each offset corresponds to a field in the EffectMetadata struct.
+const EM_OFFSET_VERTEX_COUNT: u32 = 0u;
+const EM_OFFSET_INSTANCE_COUNT: u32 = 1u;
+const EM_OFFSET_FIRST_INDEX_OR_VERTEX_OFFSET: u32 = 2u;
+const EM_OFFSET_VERTEX_OFFSET_OR_BASE_INSTANCE: u32 = 3u;
+const EM_OFFSET_BASE_INSTANCE: u32 = 4u;
+const EM_OFFSET_ALIVE_COUNT: u32 = 5u;
+const EM_OFFSET_MAX_UPDATE: u32 = 6u;
+const EM_OFFSET_DEAD_COUNT: u32 = 7u;
+const EM_OFFSET_MAX_SPAWN: u32 = 8u;
+const EM_OFFSET_PING: u32 = 9u;
+const EM_OFFSET_SPAWNER_INDEX: u32 = 10u;
+const EM_OFFSET_INDIRECT_DISPATCH_INDEX: u32 = 11u;
+
+/// Draw indirect parameters for GPU-driven rendering, and additional effect data.
+struct EffectMetadata {
+    /// Number of vertices in the particle mesh.
     vertex_count: u32,
     /// Number of mesh instances, equal to the number of particles.
     instance_count: atomic<u32>,
@@ -136,6 +124,7 @@ struct RenderGroupIndirect {
     vertex_offset_or_base_instance: i32,
     /// Base instance (if indexed).
     base_instance: u32,
+
     /// Number of particles alive after the init pass, used to calculate the number
     /// of compute threads to spawn for the update pass and to cap those threads
     /// via `max_update`.
@@ -153,12 +142,56 @@ struct RenderGroupIndirect {
     /// init compute pass can cap its thread count while also decrementing the actual
     /// `dead_count` as particles are spawned.
     max_spawn: atomic<u32>,
+    /// Index of the ping buffer for particle indices. Init and update compute passes
+    /// always write into the ping buffer and read from the pong buffer. The buffers
+    /// are swapped (ping = 1 - ping) during the indirect dispatch.
+    ping: u32,
+    /// Index of the [`GpuSpawnerParams] struct.
+    spawner_index: u32,
+    /// Index of the [`GpuDispatchIndirect`] struct inside the global
+    /// [`EffectsMeta::dispatch_indirect_buffer`].
+    indirect_dispatch_index: u32,
+    /// Index of the [`GpuRenderIndirect`] struct inside the global
+    /// [`EffectsMeta::render_group_dispatch_buffer`].
+    indirect_render_index: u32,
+    /// Offset (in u32 count) of the init indirect dispatch struct inside its
+    /// buffer. This avoids having to align those 16-byte structs to the GPU
+    /// alignment (at least 32 bytes, even 256 bytes on some).
+    init_indirect_dispatch_index: u32,
+    /// Index of this effect into its parent's ChildInfo array
+    /// ([`EffectChildren::effect_cache_ids`] and its associated GPU
+    /// array). This starts at zero for the first child of each effect, and is
+    /// only unique per parent, not globally. Only available if this effect is a
+    /// child of another effect (i.e. if it has a parent).
+    local_child_index: u32,
+    /// For children, global index of the ChildInfo into the shared array.
+    global_child_index: u32,
+    /// For parents, base index of the their first ChildInfo into the shared array.
+    base_child_index: u32,
+
+    /// Particle stride, in number of u32.
+    particle_stride: u32,
+    /// Offset from the particle start to the first sort key, in number of u32.
+    sort_key_offset: u32,
+    /// Offset from the particle start to the second sort key, in number of u32.
+    sort_key2_offset: u32,
+
+    /// Atomic counter incremented each time a particle spawns. Useful for
+    /// things like RIBBON_ID or any other use where a unique value is needed.
+    /// The value loops back after some time, but unless some particle lives
+    /// forever there's little chance of repetition.
+    particle_counter: atomic<u32>,
+
     /// Padding for storage buffer alignment. This struct is sometimes bound as part
     /// of an array, or sometimes individually as a single unit. In the later case,
     /// we need it to be aligned to the GPU limits of the device. That limit is only
     /// known at runtime when initializing the WebGPU device.
-    {{RENDER_GROUP_INDIRECT_PADDING}}
+    // FIXME - not anymore, but would be again with proper batching, so keep for now
+    {{EFFECT_METADATA_PADDING}}
 }
+
+/// Stride, in u32 count, between elements of an array<EffectMetadata>.
+const EFFECT_METADATA_STRIDE: u32 = {{EFFECT_METADATA_STRIDE}} / 4u;
 
 var<private> seed : u32 = 0u;
 

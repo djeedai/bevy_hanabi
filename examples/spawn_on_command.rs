@@ -150,21 +150,14 @@ fn setup(
 
 fn update(
     mut balls: Query<(&mut Ball, &mut Transform)>,
-    mut effect: Query<
-        (
-            &mut EffectProperties,
-            &mut EffectInitializers,
-            &mut Transform,
-        ),
-        Without<Ball>,
-    >,
+    mut effect: Query<(&mut EffectProperties, &mut EffectSpawner, &mut Transform), Without<Ball>>,
     time: Res<Time>,
 ) {
     const HALF_SIZE: f32 = BOX_SIZE / 2.0 - BALL_RADIUS;
 
     // Note: On first frame where the effect spawns, EffectSpawner is spawned during
     // PostUpdate, so will not be available yet. Ignore for a frame if so.
-    let Ok((mut properties, mut initializers, mut effect_transform)) = effect.get_single_mut()
+    let Ok((mut properties, mut effect_spawner, mut effect_transform)) = effect.get_single_mut()
     else {
         return;
     };
@@ -213,7 +206,7 @@ fn update(
             properties.set("normal", normal.extend(0.).into());
 
             // Spawn the particles
-            initializers.reset();
+            effect_spawner.reset();
         }
     }
 }

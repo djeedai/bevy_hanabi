@@ -122,7 +122,12 @@
 //! [modifiers]: crate::modifier
 //! [`SetAttributeModifier`]: crate::modifier::SetAttributeModifier
 
-use std::{any::Any, borrow::Cow, fmt::Display, num::NonZeroU64};
+use std::{
+    any::Any,
+    borrow::Cow,
+    fmt::Display,
+    num::{NonZeroU32, NonZeroU64},
+};
 
 use bevy::{
     math::{Vec2, Vec3, Vec4},
@@ -532,7 +537,24 @@ macro_rules! declare_custom_attr_inner {
     };
 }
 
+macro_rules! declare_custom_attr_u32_inner {
+    ($t:ident, $name:literal, $scalar_type:ident) => {
+        pub const $t: &'static AttributeInner = &AttributeInner::new(
+            Cow::Borrowed($name),
+            Value::Scalar(ScalarValue::$scalar_type(0)),
+        );
+    };
+}
+
 impl AttributeInner {
+    pub const ID: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("id"), Value::Scalar(ScalarValue::Uint(0)));
+
+    pub const PARTICLE_COUNTER: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("particle_counter"),
+        Value::Scalar(ScalarValue::Uint(0)),
+    );
+
     pub const POSITION: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("position"),
         Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
@@ -641,6 +663,23 @@ impl AttributeInner {
     declare_custom_attr_inner!(F32X4_1, Vec4, "f32x4_1", new_vec4);
     declare_custom_attr_inner!(F32X4_2, Vec4, "f32x4_2", new_vec4);
     declare_custom_attr_inner!(F32X4_3, Vec4, "f32x4_3", new_vec4);
+
+    declare_custom_attr_u32_inner!(U32_0, "u32_0", Uint);
+    declare_custom_attr_u32_inner!(U32_1, "u32_1", Uint);
+    declare_custom_attr_u32_inner!(U32_2, "u32_2", Uint);
+    declare_custom_attr_u32_inner!(U32_3, "u32_3", Uint);
+
+    pub const RIBBON_ID: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("ribbon_id"),
+        Value::Scalar(ScalarValue::Uint(0u32)),
+    );
+
+    pub(crate) const PAD0: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("pad0"), Value::Scalar(ScalarValue::Uint(0)));
+    pub(crate) const PAD1: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("pad1"), Value::Scalar(ScalarValue::Uint(0)));
+    pub(crate) const PAD2: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("pad2"), Value::Scalar(ScalarValue::Uint(0)));
 
     #[inline]
     pub(crate) const fn new(name: Cow<'static, str>, default_value: Value) -> Self {
@@ -906,7 +945,48 @@ macro_rules! declare_custom_attr_pub {
     };
 }
 
+macro_rules! declare_custom_attr_u32_pub  {
+    ($t: ident, $name: literal, $scalar_type: ident) => {
+        #[doc = concat!("A generic scalar uint attribute.\n\n This attribute can be used for anything. It has no specific meaning. You can store whatever per-particle value you want in it (for example, at spawn time) and read it back later.\n\n# Name\n\n`", $name, "`\n\n# Type\n\n[`ScalarType::", stringify!($scalar_type), "`]")]
+        pub const $t: Attribute = Attribute(AttributeInner::$t);
+    };
+}
+
 impl Attribute {
+    /// The particle unique ID.
+    ///
+    /// This is a pseudo-attribute, which doesn't require any storage in the
+    /// particle layout, and is always available. It can be read but cannot be
+    /// set. The particle ID is guaranteed to be unique within a single
+    /// effect instance only; particles from different instances may have
+    /// the same ID.
+    ///
+    /// # Name
+    ///
+    /// `id`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Uint`]
+    pub const ID: Attribute = Attribute(AttributeInner::ID);
+
+    /// A monotonically increasing counter.
+    ///
+    /// This is a pseudo-attribute, which doesn't require any storage in the
+    /// particle layout, and is always available. It can be read but cannot be
+    /// set. The counter is guaranteed to be unique each time a new particle
+    /// spawns. It may loop after 2^32 values, but unless you store that value
+    /// for a very long time you can consider the value unique.
+    ///
+    /// # Name
+    ///
+    /// `particle_counter`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Uint`]
+    pub const PARTICLE_COUNTER: Attribute = Attribute(AttributeInner::PARTICLE_COUNTER);
+
     /// The particle position in [simulation space].
     ///
     /// # Name
@@ -1240,8 +1320,28 @@ impl Attribute {
     declare_custom_attr_pub!(F32X4_2, "f32x4_2", 4, VEC4F);
     declare_custom_attr_pub!(F32X4_3, "f32x4_3", 4, VEC4F);
 
+    declare_custom_attr_u32_pub!(U32_0, "u32_0", Uint);
+    declare_custom_attr_u32_pub!(U32_1, "u32_1", Uint);
+    declare_custom_attr_u32_pub!(U32_2, "u32_2", Uint);
+    declare_custom_attr_u32_pub!(U32_3, "u32_3", Uint);
+
+    /// ID of the ribbon a particle is part of.
+    ///
+    /// This attribute is used to group particles together by ribbon.
+    ///
+    /// # Name
+    ///
+    /// `ribbon_id`
+    ///
+    /// # Type
+    ///
+    /// [`ScalarType::Uint`]
+    pub const RIBBON_ID: Attribute = Attribute(AttributeInner::RIBBON_ID);
+
     /// Collection of all the existing particle attributes.
-    const ALL: [Attribute; 32] = [
+    const ALL: [Attribute; 39] = [
+        Attribute::ID,
+        Attribute::PARTICLE_COUNTER,
         Attribute::POSITION,
         Attribute::VELOCITY,
         Attribute::AGE,
@@ -1274,7 +1374,17 @@ impl Attribute {
         Attribute::F32X4_1,
         Attribute::F32X4_2,
         Attribute::F32X4_3,
+        Attribute::U32_0,
+        Attribute::U32_1,
+        Attribute::U32_2,
+        Attribute::U32_3,
+        Attribute::RIBBON_ID,
     ];
+
+    // Internal fake attributes used for padding structs.
+    pub(crate) const PAD0: Attribute = Attribute(AttributeInner::PAD0);
+    pub(crate) const PAD1: Attribute = Attribute(AttributeInner::PAD1);
+    pub(crate) const PAD2: Attribute = Attribute(AttributeInner::PAD2);
 
     /// Retrieve an attribute by its name.
     ///
@@ -1404,6 +1514,9 @@ impl ParticleLayoutBuilder {
     /// let layout = ParticleLayout::new().append(Attribute::POSITION).build();
     /// ```
     pub fn build(mut self) -> ParticleLayout {
+        let pads = [Attribute::PAD0, Attribute::PAD1, Attribute::PAD2];
+        let mut next_pad = 0;
+
         // Remove duplicates
         self.layout.sort_unstable_by_key(|la| la.attribute.name());
         self.layout.dedup_by_key(|la| la.attribute.name());
@@ -1411,8 +1524,11 @@ impl ParticleLayoutBuilder {
         // Sort by size
         self.layout.sort_unstable_by_key(|la| la.attribute.size());
 
+        let unpadded_len = self.layout.len() as u32;
+
         let mut layout = vec![];
         let mut offset = 0;
+        let mut align = 4; // min valid align
 
         // Enqueue all Float4, which are already aligned
         let index4 = self
@@ -1424,8 +1540,11 @@ impl ParticleLayoutBuilder {
             offset += 16;
             layout.push(attr);
         }
+        let num4 = self.layout.len() - index4;
+        if num4 > 0 {
+            align = 16;
+        }
 
-        // Enqueue paired { Float3 + Float1 }
         let index2 = self
             .layout
             .partition_point(|attr| attr.attribute.size() < 8);
@@ -1435,6 +1554,13 @@ impl ParticleLayoutBuilder {
             .partition_point(|attr| attr.attribute.size() < 12);
         let num2 = (index2..index3).len();
         let num3 = (index3..index4).len();
+        if num3 > 0 {
+            align = 16;
+        } else if num2 > 0 {
+            align = align.max(8);
+        }
+
+        // Enqueue paired { Float3 + Float1 }
         let num_pairs = num1.min(num3);
         for i in 0..num_pairs {
             // Float3
@@ -1466,60 +1592,75 @@ impl ParticleLayoutBuilder {
         let index2 = index2 + (num2 / 2) * 2;
         let num2 = num2 % 2;
 
-        // Enqueue { Float3, Float2 } or { Float2, Float1 }
-        if num3 > num1 {
-            // Float1 is done, some Float3 left, and at most one Float2
+        // Here we're aligned at 16 byte boundary. We have no more Float4, at most one
+        // Float2, and either some Float3 or some Float1 left (but never both).
+
+        // Enqueue all the Float3 if any, since it requires the largest align.
+        if num3 > 0 {
             debug_assert_eq!(num1, 0);
 
-            // Try 3/3/2, fallback to 3/2
-            let num3head = if num2 > 0 {
-                debug_assert_eq!(num2, 1);
-                let num3head = num3.min(2);
-                for i in 0..num3head {
-                    let mut attr = self.layout[index3 + i];
-                    attr.offset = offset;
-                    offset += 12;
-                    layout.push(attr);
-                }
-                let mut attr = self.layout[index2];
-                attr.offset = offset;
-                offset += 8;
-                layout.push(attr);
-                num3head
-            } else {
-                0
-            };
-
-            // End with remaining Float3
-            for i in num3head..num3 {
+            for i in 0..num3 {
+                // The attribute itself
                 let mut attr = self.layout[index3 + i];
                 attr.offset = offset;
-                offset += 12;
                 layout.push(attr);
-            }
-        } else {
-            // Float3 is done, some Float1 left, and at most one Float2
-            debug_assert_eq!(num3, 0);
 
-            // Emit the single Float2 now if any
-            if num2 > 0 {
-                debug_assert_eq!(num2, 1);
-                let mut attr = self.layout[index2];
-                attr.offset = offset;
-                offset += 8;
-                layout.push(attr);
-            }
+                // The 32-bit padding after it. We know we don't have any Float1 to pad so we
+                // need a dummy padding field.
+                let pad = AttributeLayout {
+                    attribute: pads[next_pad],
+                    offset: offset + 12,
+                };
+                next_pad += 1;
+                layout.push(pad);
 
-            // End with remaining Float1
-            for i in 0..num1 {
-                let mut attr = self.layout[index1 + i];
-                attr.offset = offset;
-                offset += 4;
-                layout.push(attr);
+                offset += 16;
             }
         }
 
-        ParticleLayout { layout }
+        // Here we're aligned at 16 byte boundary. We have no more Float4, at most one
+        // Float2, and possibly some Float1 left.
+
+        // Enqueue the Float2 if any
+        if num2 > 0 {
+            debug_assert_eq!(num2, 1);
+
+            let mut attr = self.layout[index2];
+            attr.offset = offset;
+            offset += 8;
+            layout.push(attr);
+        }
+
+        // Enqueue all remaining Float1
+        for i in 0..num1 {
+            let mut attr = self.layout[index1 + i];
+            attr.offset = offset;
+            layout.push(attr);
+            offset += 4;
+        }
+
+        // Pad the struct to its align. This is mandatory to work around https://github.com/gfx-rs/wgpu/issues/5262.
+        let rem = offset.next_multiple_of(align) - offset;
+        if rem > 0 {
+            debug_assert_eq!(rem % 4, 0);
+            let num = rem / 4;
+            for _ in 0..num {
+                debug_assert!(next_pad < 3);
+                let pad = AttributeLayout {
+                    attribute: pads[next_pad],
+                    offset,
+                };
+                layout.push(pad);
+                next_pad += 1;
+                offset += 4;
+            }
+        }
+
+        ParticleLayout {
+            layout,
+            align,
+            unpadded_len,
+        }
     }
 }
 
@@ -1559,6 +1700,8 @@ impl From<&ParticleLayout> for ParticleLayoutBuilder {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ParticleLayout {
     layout: Vec<AttributeLayout>,
+    align: u32,
+    unpadded_len: u32,
 }
 
 impl std::fmt::Debug for ParticleLayout {
@@ -1587,7 +1730,11 @@ impl ParticleLayout {
     /// valid layout is not available yet. To create a new non-finalized layout
     /// which can be mutated, use [`ParticleLayout::new()`] instead.
     pub const fn empty() -> ParticleLayout {
-        Self { layout: vec![] }
+        Self {
+            layout: vec![],
+            align: 4,
+            unpadded_len: 0,
+        }
     }
 
     /// Create a new empty layout.
@@ -1626,6 +1773,20 @@ impl ParticleLayout {
         builder.build()
     }
 
+    /// Check if this layout is empty.
+    pub fn is_empty(&self) -> bool {
+        self.unpadded_len == 0
+    }
+
+    /// Get the number of fields in the layout.
+    ///
+    /// Note: if internal padding field need to be added to the final WGSL
+    /// struct, they're not counted here. This returns the number of unique
+    /// attributes added to the layout.
+    pub fn len(&self) -> u32 {
+        self.unpadded_len
+    }
+
     /// Get the size of the layout in bytes.
     ///
     /// # Example
@@ -1635,7 +1796,7 @@ impl ParticleLayout {
     /// let layout = ParticleLayout::new()
     ///     .append(Attribute::POSITION) // vec3<f32>
     ///     .build();
-    /// assert_eq!(layout.size(), 12);
+    /// assert_eq!(layout.size(), 16);
     /// ```
     pub fn size(&self) -> u32 {
         if self.layout.is_empty() {
@@ -1648,6 +1809,8 @@ impl ParticleLayout {
 
     /// Get the alignment of the layout in bytes.
     ///
+    /// The alignment follows the rules of WGSL.
+    ///
     /// # Example
     ///
     /// ```
@@ -1657,12 +1820,8 @@ impl ParticleLayout {
     ///     .build();
     /// assert_eq!(layout.align(), 16);
     /// ```
-    pub fn align(&self) -> usize {
-        self.layout
-            .iter()
-            .map(|attr| attr.attribute.value_type().align())
-            .max()
-            .unwrap()
+    pub fn align(&self) -> u32 {
+        self.align
     }
 
     /// Minimum binding size in bytes.
@@ -1670,9 +1829,17 @@ impl ParticleLayout {
     /// This corresponds to the stride of the attribute struct in WGSL when
     /// contained inside an array.
     pub fn min_binding_size(&self) -> NonZeroU64 {
-        let size = self.size() as usize;
-        let align = self.align();
-        NonZeroU64::new(size.next_multiple_of(align) as u64).unwrap()
+        let size = self.size();
+        NonZeroU64::new(size.next_multiple_of(self.align) as u64).unwrap()
+    }
+
+    /// Minimum binding size in bytes.
+    ///
+    /// This corresponds to the stride of the attribute struct in WGSL when
+    /// contained inside an array.
+    pub fn min_binding_size32(&self) -> NonZeroU32 {
+        let size = self.size();
+        NonZeroU32::new(size.next_multiple_of(self.align)).unwrap()
     }
 
     pub(crate) fn attributes(&self) -> &[AttributeLayout] {
@@ -1693,6 +1860,29 @@ impl ParticleLayout {
         self.layout
             .iter()
             .any(|&entry| entry.attribute.name() == attribute.name())
+    }
+
+    /// Get the offset in bytes of the specified [`Attribute`], if it exists.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// let layout = ParticleLayout::new()
+    ///     .append(Attribute::POSITION)
+    ///     .append(Attribute::SIZE)
+    ///     .build();
+    /// let size_offset = layout.offset(Attribute::SIZE);
+    /// assert_eq!(size_offset, Some(12));
+    /// ```
+    pub fn offset(&self, attribute: Attribute) -> Option<u32> {
+        self.layout.iter().find_map(|&entry| {
+            if entry.attribute.name() == attribute.name() {
+                Some(entry.offset)
+            } else {
+                None
+            }
+        })
     }
 
     /// Generate the WGSL attribute code corresponding to the layout.
@@ -2149,6 +2339,22 @@ mod tests {
     const F4: Attribute = Attribute(F4_INNER);
     const F4B: Attribute = Attribute(F4B_INNER);
 
+    /// Calculate the raw alignment based on the actual attributes in the layout
+    /// vec, ignoring the value the layout stored. This is for fact-checking
+    /// purpose.
+    fn calc_raw_align(layout: &ParticleLayout) -> u32 {
+        if layout.layout.is_empty() {
+            0
+        } else {
+            layout
+                .layout
+                .iter()
+                .map(|attr| attr.attribute.value_type().align())
+                .max()
+                .unwrap() as u32
+        }
+    }
+
     #[test]
     fn test_layout_build() {
         // empty
@@ -2159,17 +2365,38 @@ mod tests {
         // single
         for attr in Attribute::ALL {
             let layout = ParticleLayout::new().append(attr).build();
-            assert_eq!(layout.layout.len(), 1);
+
+            // This is the un-padded length, so exactly equal
+            assert_eq!(layout.len(), 1);
+
+            // There may be padding field(s)...
+            assert!(!layout.layout.is_empty());
+            let size = layout.size();
+            let aligned_size = size.next_multiple_of(layout.align());
+            assert_eq!(aligned_size % attr.align() as u32, 0);
+            let attr_size = attr.size() as u32;
+            if aligned_size != attr_size {
+                // Padding
+                assert!(aligned_size > attr_size);
+                let pad_size = aligned_size - attr_size;
+                assert_eq!(pad_size % 4, 0);
+                let num_pad = pad_size / 4;
+                assert_eq!(layout.layout.len() as u32, 1 + num_pad);
+            } else {
+                // No padding
+                assert_eq!(layout.layout.len(), 1);
+            }
+
             let attr0 = &layout.layout[0];
             assert_eq!(attr0.offset, 0);
-            assert_eq!(
-                layout.generate_code(),
-                format!(
-                    "    {}: {},\n",
-                    attr0.attribute.name(),
-                    attr0.attribute.value_type().to_wgsl_string()
-                )
-            );
+            assert!(layout.generate_code().starts_with(&format!(
+                "    {}: {},\n",
+                attr0.attribute.name(),
+                attr0.attribute.value_type().to_wgsl_string()
+            )));
+
+            // Align
+            assert_eq!(layout.align(), calc_raw_align(&layout));
         }
 
         // dedup
@@ -2179,7 +2406,7 @@ mod tests {
                 layout = layout.append(attr);
             }
             let layout = layout.build();
-            assert_eq!(layout.layout.len(), 1); // unique
+            assert_eq!(layout.len(), 1); // unique
             let attr = &layout.layout[0];
             assert_eq!(attr.offset, 0);
         }
@@ -2191,41 +2418,80 @@ mod tests {
                 layout = layout.append(attr);
             }
             let layout = layout.build();
-            assert_eq!(layout.layout.len(), 2);
+            assert_eq!(layout.len(), 2);
             let attr_0 = &layout.layout[0];
             let size = attr_0.attribute.size();
             assert_eq!(attr_0.offset as usize, 0);
-            let attr_1 = &layout.layout[1];
-            assert_eq!(attr_1.offset as usize, size);
-            assert_eq!(attr_1.attribute.size(), size);
+            if attr_0.attribute.size() != attr_0.attribute.align() {
+                // Padding
+                let attr_1 = &layout.layout[2]; // skip padding attr
+                assert_eq!(
+                    attr_1.offset as usize,
+                    size.next_multiple_of(attr_0.attribute.align())
+                );
+                assert_eq!(attr_1.attribute.size(), size);
+            } else {
+                // No padding
+                let attr_1 = &layout.layout[1];
+                assert_eq!(
+                    attr_1.offset as usize,
+                    size.next_multiple_of(attr_0.attribute.align())
+                );
+                assert_eq!(attr_1.attribute.size(), size);
+            }
         }
 
-        // [3, 1, 3, 2] -> [3 1 3 2]
+        // [3, 1, 3, 2] -> [3 1 3 - 2 - -]
         {
             let mut layout = ParticleLayout::new();
             for &attr in &[F1, F3, F2, F3B] {
                 layout = layout.append(attr);
             }
             let layout = layout.build();
-            assert_eq!(layout.layout.len(), 4);
-            for (i, (off, a)) in [(0, F3), (12, F1), (16, F3B), (28, F2)].iter().enumerate() {
+            assert_eq!(layout.len(), 4);
+            assert_eq!(layout.layout.len(), 7);
+            assert_eq!(layout.size(), 48);
+            assert_eq!(layout.align(), 16);
+            for (i, (off, a)) in [
+                (0, F3),
+                (12, F1),
+                (16, F3B),
+                (28, Attribute::PAD0),
+                (32, F2),
+                (40, Attribute::PAD1),
+                (44, Attribute::PAD2),
+            ]
+            .iter()
+            .enumerate()
+            {
                 let attr_i = layout.layout[i];
                 assert_eq!(attr_i.offset, *off);
                 assert_eq!(attr_i.attribute, *a);
             }
         }
 
-        // [1, 4, 3, 2, 2, 3] -> [4 3 1 2 2 3]
+        // [1, 4, 3, 2, 2, 3] -> [4 3 1 2 2 3 -]
         {
             let mut layout = ParticleLayout::new();
             for &attr in &[F1, F4, F3, F2, F2B, F3B] {
                 layout = layout.append(attr);
             }
             let layout = layout.build();
-            assert_eq!(layout.layout.len(), 6);
-            for (i, (off, a)) in [(0, F4), (16, F3), (28, F1), (32, F2), (40, F2B), (48, F3B)]
-                .iter()
-                .enumerate()
+            assert_eq!(layout.len(), 6);
+            assert_eq!(layout.layout.len(), 7);
+            assert_eq!(layout.size(), 64);
+            assert_eq!(layout.align(), 16);
+            for (i, (off, a)) in [
+                (0, F4),
+                (16, F3),
+                (28, F1),
+                (32, F2),
+                (40, F2B),
+                (48, F3B),
+                (60, Attribute::PAD0),
+            ]
+            .iter()
+            .enumerate()
             {
                 let attr_i = layout.layout[i];
                 assert_eq!(attr_i.offset, *off);

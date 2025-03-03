@@ -74,7 +74,7 @@ pub use velocity::*;
 
 use crate::{
     Attribute, EvalContext, ExprError, ExprHandle, Gradient, Module, ParticleLayout,
-    PropertyLayout, TextureLayout,
+    PropertyLayout, TextureLayout, ToWgslString,
 };
 
 /// The dimension of a shape to consider.
@@ -182,72 +182,6 @@ impl Clone for BoxedModifier {
     }
 }
 
-/// A bitfield that describes which particle [groups] a modifier affects.
-///
-/// Bit N will be set if the modifier in question affects particle group N.
-///
-/// [groups]: crate::EffectAsset::with_group
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[repr(transparent)]
-pub struct ParticleGroupSet(pub u32);
-
-impl ParticleGroupSet {
-    /// Returns a new [`ParticleGroupSet`] that affects all particle groups.
-    #[inline]
-    pub fn all() -> ParticleGroupSet {
-        ParticleGroupSet(!0)
-    }
-
-    /// Returns a new [`ParticleGroupSet`] that affects no particle groups.
-    ///
-    /// Typically you'll want to add some groups to the resulting set with the
-    /// [`ParticleGroupSet::with_group`] method.
-    #[inline]
-    pub fn none() -> ParticleGroupSet {
-        ParticleGroupSet(0)
-    }
-
-    /// Returns a new set with the given particle group added.
-    #[inline]
-    pub fn with_group(mut self, group_index: u32) -> ParticleGroupSet {
-        self.0 |= 1 << group_index;
-        self
-    }
-
-    /// Returns a new [`ParticleGroupSet`] affecting a single group.
-    #[inline]
-    pub fn single(group_index: u32) -> ParticleGroupSet {
-        ParticleGroupSet::none().with_group(group_index)
-    }
-
-    /// Returns true if this set contains the group with the given index.
-    #[inline]
-    pub fn contains(&self, group_index: u32) -> bool {
-        (self.0 & (1 << group_index)) != 0
-    }
-}
-
-/// A [`Modifier`] that affects to one or more [groups].
-///
-/// [groups]: crate::EffectAsset::with_group
-#[derive(Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct GroupedModifier {
-    /// The modifier.
-    pub modifier: BoxedModifier,
-    /// The set of groups that this modifier affects.
-    pub groups: ParticleGroupSet,
-}
-
-impl GroupedModifier {
-    /// If this modifier describes a [`RenderModifier`], returns an immutable
-    /// reference to it.
-    #[inline]
-    pub fn as_render(&self) -> Option<&dyn RenderModifier> {
-        self.modifier.as_render()
-    }
-}
-
 /// Shader code writer.
 ///
 /// Writer utility to generate shader code. The writer works in a defined
@@ -279,6 +213,8 @@ pub struct ShaderWriter<'a> {
     expr_cache: HashMap<ExprHandle, String>,
     /// Is the attribute struct a pointer?
     is_attribute_pointer: bool,
+    /// Is the shader using GPU spawn events?
+    emits_gpu_spawn_events: Option<bool>,
 }
 
 impl<'a> ShaderWriter<'a> {
@@ -297,6 +233,7 @@ impl<'a> ShaderWriter<'a> {
             var_counter: 0,
             expr_cache: Default::default(),
             is_attribute_pointer: false,
+            emits_gpu_spawn_events: None,
         }
     }
 
@@ -304,6 +241,48 @@ impl<'a> ShaderWriter<'a> {
     pub fn with_attribute_pointer(mut self) -> Self {
         self.is_attribute_pointer = true;
         self
+    }
+
+    /// Mark the shader as emitting GPU spawn events.
+    ///
+    /// This is used by the [`EmitSpawnEventModifier`] to declare that the
+    /// current effect emits GPU spawn events, and therefore needs an event
+    /// buffer to be allocated and the appropriate compute work to be executed
+    /// to fill that buffer with events.
+    ///
+    /// # Returns
+    ///
+    /// Returns an error if another modifier previously called this function
+    /// with a different value of `use_events`. Calling this function with the
+    /// same value is a no-op, and doesn't generate any error.
+    pub fn set_emits_gpu_spawn_events(&mut self, use_events: bool) -> Result<(), ExprError> {
+        if let Some(was_using_events) = self.emits_gpu_spawn_events {
+            if was_using_events == use_events {
+                Ok(())
+            } else {
+                Err(ExprError::GraphEvalError(
+                    "Conflicting use of GPU spawn events.".to_string(),
+                ))
+                // FIXME - Should probably be a validation error instead...
+                // Err(ShaderGenerateError::Validate(
+                //     "Conflicting use of GPU spawn events.".to_string(),
+                // ))
+            }
+        } else {
+            self.emits_gpu_spawn_events = Some(use_events);
+            Ok(())
+        }
+    }
+
+    /// Check whether this shader emits GPU spawn events.
+    ///
+    /// If no modifier called [`set_emits_gpu_spawn_events()`], this returns
+    /// `None`. Otherwise this returns `Some(value)` where `value` was the value
+    /// passed to [`set_emits_gpu_spawn_events()`].
+    ///
+    /// [`set_emits_gpu_spawn_events()`]: crate::ShaderWriter::set_emits_gpu_spawn_events
+    pub fn emits_gpu_spawn_events(&self) -> Option<bool> {
+        self.emits_gpu_spawn_events
     }
 }
 
@@ -622,6 +601,94 @@ macro_rules! impl_mod_render {
 }
 
 pub(crate) use impl_mod_render;
+
+/// Condition to emit a GPU spawn event.
+///
+/// Determines when a GPU spawn event is emitted by a parent effect. See
+/// the [`EffectParent`] component for details about the parent-child effect
+/// relationship and its use.
+///
+/// [`EffectParent`]: crate::EffectParent
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub enum EventEmitCondition {
+    /// Always emit events each time the particle is updated, each simulation
+    /// frame.
+    Always,
+    /// Only emit events if the particle died during this frame update.
+    OnDie,
+}
+
+/// Emit GPU spawn events to spawn new particle(s) in a child effect.
+///
+/// This update modifier is used to spawn new particles into a child effect
+/// instance based on a condition applied to particles of the current effect
+/// instance. The most common use case is to spawn one or more child particles
+/// when a particle dies; this is achieved with [`EventEmitCondition::OnDie`].
+///
+/// An effect instance with this modifier will emit GPU spawn events. Those
+/// events are read by all child effects (those effects with an [`EffectParent`]
+/// component pointing at the current effect instance).
+///
+/// [`EffectParent`]: crate::EffectParent
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct EmitSpawnEventModifier {
+    /// Emit condition for the GPU spawn events.
+    pub condition: EventEmitCondition,
+    /// Number of particles to spawn if the emit condition is met.
+    pub count: u32,
+    /// Index of the event channel / child the events are emitted into.
+    ///
+    /// GPU spawn events emitted by this parent event are associated with a
+    /// single event channel. When the N-th child effect of a parent effect
+    /// consumes those event, it implicitly reads events from channel #N. In
+    /// general if a parent has a single child, use `0` here.
+    pub child_index: u32,
+}
+
+impl EmitSpawnEventModifier {
+    fn eval(
+        &self,
+        _module: &mut Module,
+        _context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
+        // FIXME - mixing (ex-)channel and event buffer index; this should be automated
+        let channel_index = self.child_index;
+        // TODO - validate GPU spawn events are in use in the eval context...
+        let cond = match self.condition {
+            EventEmitCondition::Always => format!(
+                "if (is_alive) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
+                self.count.to_wgsl_string()
+            ),
+            EventEmitCondition::OnDie => format!(
+                "if (was_alive && !is_alive) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
+                self.count.to_wgsl_string()
+            ),
+        };
+        Ok(cond)
+    }
+}
+
+#[cfg_attr(feature = "serde", typetag::serde)]
+impl Modifier for EmitSpawnEventModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        &[]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
+        let code = self.eval(module, context)?;
+        context.main_code += &code;
+        context.set_emits_gpu_spawn_events(true)?;
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {

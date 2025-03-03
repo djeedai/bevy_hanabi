@@ -4,14 +4,14 @@ use bevy::{
     log::trace,
     render::{
         render_resource::{
-            Buffer, BufferAddress, BufferDescriptor, BufferUsages, ShaderSize, ShaderType,
+            BindingResource, Buffer, BufferAddress, BufferBinding, BufferDescriptor, BufferUsages,
+            ShaderSize, ShaderType,
         },
         renderer::{RenderDevice, RenderQueue},
     },
 };
 use bytemuck::{cast_slice, Pod};
 use copyless::VecHelper;
-use wgpu::{BindingResource, BufferBinding};
 
 /// Like Bevy's [`BufferVec`], but with extra per-item alignment.
 ///
@@ -108,7 +108,8 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
             item_size
         };
         trace!(
-            "AlignedBufferVec: item_size={} aligned_size={}",
+            "AlignedBufferVec['{}']: item_size={} aligned_size={}",
+            label.as_ref().map(|s| &s[..]).unwrap_or(""),
             item_size,
             aligned_size
         );
@@ -126,6 +127,62 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     #[inline]
     pub fn buffer(&self) -> Option<&Buffer> {
         self.buffer.as_ref()
+    }
+
+    /// Get a binding for the entire buffer.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn binding(&self) -> Option<BindingResource> {
+        // FIXME - Return a Buffer wrapper first, which can be unwrapped, then from that
+        // wrapper implement all the xxx_binding() helpers. That avoids a bunch of "if
+        // let Some()" everywhere when we know the buffer is valid. The only reason the
+        // buffer might not be valid is if it was not created, and in that case
+        // we wouldn't be calling the xxx_bindings() helpers, we'd have earlied out
+        // before.
+        let buffer = self.buffer()?;
+        Some(BindingResource::Buffer(BufferBinding {
+            buffer,
+            offset: 0,
+            size: None, // entire buffer
+        }))
+    }
+
+    /// Get a binding for the first `count` elements of the buffer.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `count` is zero.
+    #[inline]
+    pub fn lead_binding(&self, count: u32) -> Option<BindingResource> {
+        assert!(count > 0);
+        let buffer = self.buffer()?;
+        let size = NonZeroU64::new(T::SHADER_SIZE.get() * count as u64).unwrap();
+        Some(BindingResource::Buffer(BufferBinding {
+            buffer,
+            offset: 0,
+            size: Some(size),
+        }))
+    }
+
+    /// Get a binding for a subset of the elements of the buffer.
+    ///
+    /// Returns a binding for the elements in the range `offset..offset+count`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `count` is zero.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn range_binding(&self, offset: u32, count: u32) -> Option<BindingResource> {
+        assert!(count > 0);
+        let buffer = self.buffer()?;
+        let offset = T::SHADER_SIZE.get() * offset as u64;
+        let size = NonZeroU64::new(T::SHADER_SIZE.get() * count as u64).unwrap();
+        Some(BindingResource::Buffer(BufferBinding {
+            buffer,
+            offset,
+            size: Some(size),
+        }))
     }
 
     #[inline]
@@ -146,6 +203,24 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
         self.aligned_size
     }
 
+    /// Calculate a dynamic byte offset for a bind group from an array element
+    /// index.
+    ///
+    /// This returns the product of `index` by the internal [`aligned_size()`].
+    ///
+    /// # Panic
+    ///
+    /// Panics if the `index` is too large, producing a byte offset larger than
+    /// `u32::MAX`.
+    ///
+    /// [`aligned_size()`]: crate::AlignedBufferVec::aligned_size
+    #[inline]
+    pub fn dynamic_offset(&self, index: usize) -> u32 {
+        let offset = self.aligned_size * index;
+        assert!(offset <= u32::MAX as usize);
+        u32::try_from(offset).expect("AlignedBufferVec index out of bounds")
+    }
+
     #[inline]
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
@@ -153,10 +228,34 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     }
 
     /// Append a value to the buffer.
+    ///
+    /// As with [`set_content()`], the content is stored on the CPU and uploaded
+    /// on the GPU once [`write_buffer()`] is called.
+    ///
+    /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
     pub fn push(&mut self, value: T) -> usize {
         let index = self.values.len();
         self.values.alloc().init(value);
         index
+    }
+
+    /// Set the content of the CPU buffer, overwritting any previous data.
+    ///
+    /// As with [`push()`], the content is stored on the CPU and uploaded on the
+    /// GPU once [`write_buffer()`] is called.
+    ///
+    /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
+    pub fn set_content(&mut self, data: Vec<T>) {
+        self.values = data;
+    }
+
+    /// Get the content of the CPU buffer.
+    ///
+    /// The data may or may not be representative of the GPU content, depending
+    /// on whether the buffer was already uploaded and/or has been modified by
+    /// the GPU itself.
+    pub fn content(&self) -> &[T] {
+        &self.values
     }
 
     /// Reserve some capacity into the buffer.
@@ -170,7 +269,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     /// `true` if the buffer was (re)allocated, or `false` if an existing buffer
     /// was reused which already had enough capacity.
     ///
-    /// [`write_buffer()`]: AlignedBufferVec::write_buffer
+    /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
     pub fn reserve(&mut self, capacity: usize, device: &RenderDevice) -> bool {
         if capacity > self.capacity {
             let size = self.aligned_size * capacity;
@@ -686,6 +785,27 @@ impl HybridAlignedBufferVec {
         }
         self.is_stale = true;
         true
+    }
+
+    /// Update an allocated entry with new data
+    pub fn update(&mut self, offset: u32, data: &[u8]) {
+        // Can only update entire blocks starting at an aligned size
+        let align = self.item_align as u32;
+        if offset % align != 0 {
+            return;
+        }
+
+        // Check for out of bounds argument
+        let end = self.values.len() as u32;
+        let data_end = offset + data.len() as u32;
+        if offset >= end || data_end > end {
+            return;
+        }
+
+        let dst: &mut [u8] = &mut self.values[offset as usize..data_end as usize];
+        dst.copy_from_slice(data);
+
+        self.is_stale = true;
     }
 
     /// Reserve some capacity into the buffer.

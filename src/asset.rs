@@ -1,10 +1,10 @@
-use std::ops::Deref;
-
 #[cfg(feature = "serde")]
 use bevy::asset::{io::Reader, AssetLoader, LoadContext};
 use bevy::{
-    asset::{Asset, Handle},
-    prelude::Mesh,
+    asset::{Asset, Assets, Handle},
+    log::trace,
+    math::{Vec2, Vec3},
+    prelude::{Component, Entity, FromWorld, Mesh, Plane3d, Resource, World},
     reflect::Reflect,
     utils::{default, HashSet},
 };
@@ -15,9 +15,8 @@ use wgpu::{BlendComponent, BlendFactor, BlendOperation, BlendState};
 
 use crate::{
     modifier::{Modifier, RenderModifier},
-    spawn::{Cloner, Initializer},
-    Attribute, CpuValue, ExprHandle, GroupedModifier, ModifierContext, Module, ParticleGroupSet,
-    ParticleLayout, Property, PropertyLayout, SimulationSpace, Spawner, TextureLayout,
+    BoxedModifier, ExprHandle, ModifierContext, Module, ParticleLayout, Property, PropertyLayout,
+    SimulationSpace, Spawner, TextureLayout,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -237,6 +236,23 @@ impl From<AlphaMode> for BlendState {
     }
 }
 
+/// Default particle mesh, if not otherwise specified in [`EffectAsset::mesh`].
+///
+/// This defaults to a unit quad facing the Z axis.
+///
+/// [`EffectAsset`]: crate::EffectAsset
+#[derive(Debug, Clone, Resource)]
+pub struct DefaultMesh(pub Handle<Mesh>);
+
+impl FromWorld for DefaultMesh {
+    fn from_world(world: &mut World) -> Self {
+        let mut meshes = world.resource_mut::<Assets<Mesh>>();
+        let handle = meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)));
+        trace!("Created DefaultMesh(Plane3d/Z): handle={handle:?}");
+        Self(handle)
+    }
+}
+
 /// Asset describing a visual effect.
 ///
 /// An effect asset represents the description of an effect, intended to be
@@ -247,43 +263,9 @@ impl From<AlphaMode> for BlendState {
 /// component, or a [`ParticleEffectBundle`], which references the
 /// [`EffectAsset`].
 ///
-/// # Groups, trails, and ribbons
-///
-/// Typically, an effect asset describes a single type of particles. At this
-/// time, 🎆 Hanabi doesn't yet support complex effects involving multiple
-/// sub-effects (sometimes called _systems_ in some other engines). This means
-/// most parameters relating to an effect asset affect all particles.
-///
-/// However, for technical reasons, the implementation of trails and ribbons
-/// requires treating different groups of particles in a different way.
-/// - Trails refer to the visual effect of a group of particles appearing to
-///   follow each other, leaving a visual trail. The implementation in fact
-///   doesn't update the position of those particles; instead, it spawns at
-///   regular interval a new particle, while older particles die after reaching
-///   their lifetime. To give the appearance of a trail, the newly spawned
-///   particles are _cloned_ from an existing "head" particle. Because those two
-///   kinds of particles need to be treated differently by the implementation,
-///   they are split into separate groups inside the same effect.
-/// - Ribbons refer to a similar visual effect as trails, but in addition
-///   particles are rendered by stitching consecutive trail particles together
-///   to form a continuous visual trail called a ribbon. To achieve this, the
-///   implementation needs to chain particles together and keep track of the
-///   previous and/or next particle of each particle. This is achieved via the
-///   [`Attribute::PREV`] and [`Attribute::NEXT`] attributes, stored per
-///   particle. Because each particle can only store one set of attributes, this
-///   means there can only be one ribbon per effect.
-///
-/// In general, groups are largely a technical implementation detail for trails
-/// and ribbons, and you should simply rely on helper functions like
-/// [`with_trails()`] or [`with_ribbons()`]. Groups were first introduced with a
-/// powerful but complex API, which has been since then greatly simplified, with
-/// the intent to completely hide/eliminate them in the future.
-///
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
 /// [`EffectAsset`]: crate::EffectAsset
-/// [`with_trails()`]: crate::EffectAsset::with_trails
-/// [`with_ribbons()`]: crate::EffectAsset::with_ribbons
 #[derive(Asset, Default, Clone, Reflect)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[reflect(from_reflect = false)]
@@ -301,11 +283,9 @@ pub struct EffectAsset {
     /// the particle buffer itself. To prevent wasting GPU resources, users
     /// should keep this quantity as close as possible to the maximum number of
     /// particles they expect to render.
-    capacities: Vec<u32>,
-    /// The initializer for each group.
-    ///
-    /// Each initializer contains either a spawner or a cloner.
-    pub init: Vec<Initializer>,
+    capacity: u32,
+    /// The CPU spawner for this effect.
+    pub spawner: Spawner,
     /// For 2D rendering, the Z coordinate used as the sort key.
     ///
     /// This value is passed to the render pipeline and used when sorting
@@ -322,15 +302,15 @@ pub struct EffectAsset {
     /// Init modifier defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    init_modifiers: Vec<GroupedModifier>,
+    init_modifiers: Vec<BoxedModifier>,
     /// update modifiers defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    update_modifiers: Vec<GroupedModifier>,
+    update_modifiers: Vec<BoxedModifier>,
     /// Render modifiers defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    render_modifiers: Vec<GroupedModifier>,
+    render_modifiers: Vec<BoxedModifier>,
     /// Type of motion integration applied to the particles of a system.
     pub motion_integration: MotionIntegration,
     /// Expression module for this effect.
@@ -339,14 +319,9 @@ pub struct EffectAsset {
     pub alpha_mode: AlphaMode,
     /// The mesh that each particle renders.
     ///
-    /// This defaults to a quad facing the Z axis.
+    /// If `None`, the effect uses the [`DefaultMesh`].
     #[cfg_attr(feature = "serde", serde(skip))]
     pub mesh: Option<Handle<Mesh>>,
-    /// Which group is to render as ribbons.
-    ///
-    /// There can be only one such group, because there's only one set of
-    /// next/previous pointers.
-    pub ribbon_group: Option<usize>,
 }
 
 impl EffectAsset {
@@ -406,31 +381,11 @@ impl EffectAsset {
     /// [`Expr`]: crate::graph::expr::Expr
     pub fn new(capacity: u32, spawner: Spawner, module: Module) -> Self {
         Self {
-            capacities: vec![capacity],
-            init: vec![spawner.into()],
+            capacity,
+            spawner,
             module,
             ..default()
         }
-    }
-
-    /// Creates a new particle group with the given capacity and initializer.
-    ///
-    /// Initializers can be spawners or cloners. Particle group indices are
-    /// assigned sequentially; thus, the first time you call this function (or
-    /// one of the convenience functions like [`with_trails()`] or
-    /// [`with_ribbons()`]), the ID of the resulting group will be 1, the
-    /// second time will create a group with ID 2, and so forth. Any asset
-    /// always have a group 0 implicitly created by [`EffectAsset::new()`].
-    ///
-    /// For a less verbose way to create trails and ribbons, see
-    /// [`with_trails()`] and [`with_ribbons()`] respectively.
-    ///
-    /// [`with_trails()`]: Self::with_trails
-    /// [`with_ribbons()`]: Self::with_ribbons
-    pub fn with_group(mut self, capacity: u32, initializer: impl Into<Initializer>) -> Self {
-        self.capacities.push(capacity);
-        self.init.push(initializer.into());
-        self
     }
 
     /// Get the capacities of the effect, in number of particles per group.
@@ -454,8 +409,8 @@ impl EffectAsset {
     /// particles, however the performance will largely depend on the actual GPU
     /// hardware and available memory, so authors are encouraged not to go too
     /// crazy with the capacities.
-    pub fn capacities(&self) -> &[u32] {
-        &self.capacities
+    pub fn capacity(&self) -> u32 {
+        self.capacity
     }
 
     /// Get the expression module storing all expressions in use by modifiers of
@@ -490,81 +445,10 @@ impl EffectAsset {
         self
     }
 
-    /// Adds a new particle group that clones particles at an interval to
-    /// produce a trail.
-    ///
-    /// Trails allow your particles to emit copies of themselves at fixed
-    /// intervals, creating the effect of particles that follow one another.
-    /// Trails consist of particles that are disconnected from one another; to
-    /// visually connect the trail particles together, use a
-    /// [ribbon](Self::with_ribbons) instead.
-    ///
-    /// You may have as many trails as you wish per particle effect, up to the
-    /// limit on the number of groups.
-    ///
-    /// Particle group indices are assigned sequentially. The first group,
-    /// automatically created when you create an effect, has ID 0. Additional
-    /// groups, which functions like this one create, are assigned ID 1, 2, 3,
-    /// etc.
-    ///
-    /// `capacity` represents the maximum number of particles in the group.
-    /// `period` represents the fixed interval between clone operations.
-    /// `lifetime` represents how long each particle in the trail lives;
-    /// currently, it must be a fixed number of seconds. `src_group_index` is
-    /// the group from which the particles are to be cloned; most of the time,
-    /// you will want to pass 0 here to target the first group.
-    pub fn with_trails(
-        mut self,
-        capacity: u32,
-        period: impl Into<CpuValue<f32>>,
-        lifetime: f32,
-        src_group_index: u32,
-    ) -> Self {
-        self.capacities.push(capacity);
-        self.init.push(Initializer::Cloner(Cloner {
-            src_group_index,
-            period: period.into(),
-            lifetime,
-            starts_active: true,
-        }));
+    /// Set the effect's motion integration.
+    pub fn with_motion_integration(mut self, motion_integration: MotionIntegration) -> Self {
+        self.motion_integration = motion_integration;
         self
-    }
-
-    /// Adds a new particle group that creates a ribbon following particles from
-    /// another group.
-    ///
-    /// A ribbon is a connected string of quads that trail behind particles
-    /// from the source group. Hanabi emits new quads on a fixed interval given
-    /// by `period`. Ribbons are similar to [trails](Self::with_trails), but
-    /// while trail particles are disconnected, ribbon particles are connected.
-    ///
-    /// Because ribbons internally use a doubly-linked list, of which there's at
-    /// most one per effect, you may have at most one ribbon per particle
-    /// effect.
-    ///
-    /// Particle group indices are assigned sequentially. The first group,
-    /// automatically created when you create an effect, has ID 0. Additional
-    /// groups, which functions like this one create, are assigned ID 1, 2, 3,
-    /// etc.
-    ///
-    /// `capacity` represents the maximum number of ribbon segments in the
-    /// group. `period` represents the amount of time that Hanabi will wait
-    /// before spawning a new ribbon segment. `lifetime` represents the number
-    /// of seconds that each ribbon segment will persist for.
-    /// `src_group_index` is the group containing the particles that the ribbon
-    /// segments will follow; most of the time, you will want to pass 0 here to
-    /// target the first group.
-    pub fn with_ribbons(
-        mut self,
-        capacity: u32,
-        period: impl Into<CpuValue<f32>>,
-        lifetime: f32,
-        src_group_index: u32,
-    ) -> Self {
-        debug_assert!(self.ribbon_group.is_none());
-        self.ribbon_group = Some(self.capacities.len());
-        let period: CpuValue<f32> = period.into();
-        self.with_trails(capacity, period, lifetime, src_group_index)
     }
 
     /// Get the list of existing properties.
@@ -590,31 +474,7 @@ impl EffectAsset {
         M: Modifier + Send + Sync,
     {
         assert!(modifier.context().contains(ModifierContext::Init));
-        self.init_modifiers.push(GroupedModifier {
-            modifier: Box::new(modifier),
-            groups: ParticleGroupSet::all(),
-        });
-        self
-    }
-
-    /// Add an initialization modifier to a specific set of groups.
-    ///
-    /// Initialization modifiers apply to all particles within those groups that
-    /// are spawned or cloned.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the modifier doesn't support the init context (that is,
-    /// `modifier.context()` returns a flag which doesn't include
-    /// [`ModifierContext::Init`]).
-    pub fn init_groups<M>(mut self, modifier: M, groups: ParticleGroupSet) -> Self
-    where
-        M: Modifier + Send + Sync,
-    {
-        self.init_modifiers.push(GroupedModifier {
-            modifier: Box::new(modifier),
-            groups,
-        });
+        self.init_modifiers.push(Box::new(modifier));
         self
     }
 
@@ -631,26 +491,7 @@ impl EffectAsset {
         M: Modifier + Send + Sync,
     {
         assert!(modifier.context().contains(ModifierContext::Update));
-        self.update_modifiers.push(GroupedModifier {
-            modifier: Box::new(modifier),
-            groups: ParticleGroupSet::all(),
-        });
-        self
-    }
-
-    /// Add an update modifier to the effect targeting only a subset of groups.
-    ///
-    /// [`with_property()`]: crate::EffectAsset::with_property
-    /// [`add_property()`]: crate::EffectAsset::add_property
-    #[inline]
-    pub fn update_groups<M>(mut self, modifier: M, groups: ParticleGroupSet) -> Self
-    where
-        M: Modifier + Send + Sync,
-    {
-        self.update_modifiers.push(GroupedModifier {
-            modifier: Box::new(modifier),
-            groups,
-        });
+        self.update_modifiers.push(Box::new(modifier));
         self
     }
 
@@ -670,40 +511,13 @@ impl EffectAsset {
     ///
     /// [`BoxedModifier`]: crate::BoxedModifier
     /// [`add_render_modifier()`]: crate::EffectAsset::add_render_modifier
-    pub fn add_modifier(self, context: ModifierContext, modifier: Box<dyn Modifier>) -> Self {
-        self.add_modifier_to_groups(context, modifier, ParticleGroupSet::all())
-    }
-
-    /// Add a [`BoxedModifier`] to the specific context, in a specific set of
-    /// groups.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the context is [`ModifierContext::Render`]; use
-    /// [`add_render_modifier()`] instead.
-    ///
-    /// Panics if the input `context` contains more than one context (the
-    /// bitfield contains more than 1 bit set) or no context at all (zero bit
-    /// set).
-    ///
-    /// Panics if the modifier doesn't support the context specified (that is,
-    /// `modifier.context()` returns a flag which doesn't include `context`).
-    ///
-    /// [`BoxedModifier`]: crate::BoxedModifier
-    /// [`add_render_modifier()`]: crate::EffectAsset::add_render_modifier
-    pub fn add_modifier_to_groups(
-        mut self,
-        context: ModifierContext,
-        modifier: Box<dyn Modifier>,
-        groups: ParticleGroupSet,
-    ) -> Self {
+    pub fn add_modifier(mut self, context: ModifierContext, modifier: Box<dyn Modifier>) -> Self {
         assert!(context == ModifierContext::Init || context == ModifierContext::Update);
         assert!(modifier.context().contains(context));
-        let grouped_modifier = GroupedModifier { modifier, groups };
         if context == ModifierContext::Init {
-            self.init_modifiers.push(grouped_modifier);
+            self.init_modifiers.push(modifier);
         } else {
-            self.update_modifiers.push(grouped_modifier);
+            self.update_modifiers.push(modifier);
         }
         self
     }
@@ -721,30 +535,7 @@ impl EffectAsset {
         M: RenderModifier + Send + Sync,
     {
         assert!(modifier.context().contains(ModifierContext::Render));
-        self.render_modifiers.push(GroupedModifier {
-            modifier: Box::new(modifier),
-            groups: ParticleGroupSet::all(),
-        });
-        self
-    }
-
-    /// Add a render modifier to specific groups of this effect.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the modifier doesn't support the render context (that is,
-    /// `modifier.context()` returns a flag which doesn't include
-    /// [`ModifierContext::Render`]).
-    #[inline]
-    pub fn render_groups<M>(mut self, modifier: M, groups: ParticleGroupSet) -> Self
-    where
-        M: RenderModifier + Send + Sync,
-    {
-        assert!(modifier.context().contains(ModifierContext::Render));
-        self.render_modifiers.push(GroupedModifier {
-            modifier: Box::new(modifier),
-            groups,
-        });
+        self.render_modifiers.push(Box::new(modifier));
         self
     }
 
@@ -757,31 +548,7 @@ impl EffectAsset {
     /// [`ModifierContext::Render`]).
     pub fn add_render_modifier(mut self, modifier: Box<dyn RenderModifier>) -> Self {
         assert!(modifier.context().contains(ModifierContext::Render));
-        self.render_modifiers.push(GroupedModifier {
-            modifier: modifier.boxed_clone(),
-            groups: ParticleGroupSet::all(),
-        });
-        self
-    }
-
-    /// Add a [`RenderModifier`] to the render context targeting a specific set
-    /// of groups.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the modifier doesn't support the render context (that is,
-    /// `modifier.context()` returns a flag which doesn't include
-    /// [`ModifierContext::Render`]).
-    pub fn add_render_modifier_to_groups(
-        mut self,
-        modifier: Box<dyn RenderModifier>,
-        groups: ParticleGroupSet,
-    ) -> Self {
-        assert!(modifier.context().contains(ModifierContext::Render));
-        self.render_modifiers.push(GroupedModifier {
-            modifier: modifier.boxed_clone(),
-            groups,
-        });
+        self.render_modifiers.push(modifier.boxed_clone());
         self
     }
 
@@ -789,17 +556,9 @@ impl EffectAsset {
     pub fn modifiers(&self) -> impl Iterator<Item = &dyn Modifier> {
         self.init_modifiers
             .iter()
-            .map(|grouped_modifier| &*grouped_modifier.modifier)
-            .chain(
-                self.update_modifiers
-                    .iter()
-                    .map(|grouped_modifier| &*grouped_modifier.modifier),
-            )
-            .chain(
-                self.render_modifiers
-                    .iter()
-                    .map(|grouped_modifier| &*grouped_modifier.modifier),
-            )
+            .map(|bm| &**bm)
+            .chain(self.update_modifiers.iter().map(|bm| &**bm))
+            .chain(self.render_modifiers.iter().map(|bm| &**bm))
     }
 
     /// Get a list of all the init modifiers of this effect.
@@ -809,35 +568,7 @@ impl EffectAsset {
     ///
     /// [`ModifierContext::Init`]: crate::ModifierContext::Init
     pub fn init_modifiers(&self) -> impl Iterator<Item = &dyn Modifier> {
-        self.init_modifiers.iter().filter_map(|gm| {
-            if gm.modifier.context().contains(ModifierContext::Init) {
-                Some(gm.modifier.deref())
-            } else {
-                None
-            }
-        })
-    }
-
-    /// Get a list of all the init modifiers in a single group.
-    ///
-    /// This is a filtered list of all modifiers, retaining only modifiers
-    /// executing in the [`ModifierContext::Init`] context and affecting the
-    /// specified group.
-    ///
-    /// [`ModifierContext::Init`]: crate::ModifierContext::Init
-    pub fn init_modifiers_for_group(
-        &self,
-        group_index: u32,
-    ) -> impl Iterator<Item = &dyn Modifier> {
-        self.init_modifiers.iter().filter_map(move |gm| {
-            if gm.groups.contains(group_index)
-                && gm.modifier.context().contains(ModifierContext::Init)
-            {
-                Some(gm.modifier.deref())
-            } else {
-                None
-            }
-        })
+        self.init_modifiers.iter().map(|bm| &**bm)
     }
 
     /// Get a list of all the update modifiers of this effect.
@@ -847,35 +578,7 @@ impl EffectAsset {
     ///
     /// [`ModifierContext::Update`]: crate::ModifierContext::Update
     pub fn update_modifiers(&self) -> impl Iterator<Item = &dyn Modifier> {
-        self.update_modifiers.iter().filter_map(|gm| {
-            if gm.modifier.context().contains(ModifierContext::Update) {
-                Some(gm.modifier.deref())
-            } else {
-                None
-            }
-        })
-    }
-
-    /// Get a list of all the update modifiers in a single group.
-    ///
-    /// This is a filtered list of all modifiers, retaining only modifiers
-    /// executing in the [`ModifierContext::Update`] context and affecting the
-    /// specified group.
-    ///
-    /// [`ModifierContext::Update`]: crate::ModifierContext::Update
-    pub fn update_modifiers_for_group(
-        &self,
-        group_index: u32,
-    ) -> impl Iterator<Item = &dyn Modifier> {
-        self.update_modifiers.iter().filter_map(move |gm| {
-            if gm.groups.contains(group_index)
-                && gm.modifier.context().contains(ModifierContext::Update)
-            {
-                Some(gm.modifier.deref())
-            } else {
-                None
-            }
-        })
+        self.update_modifiers.iter().map(|bm| &**bm)
     }
 
     /// Get a list of all the render modifiers of this effect.
@@ -886,27 +589,6 @@ impl EffectAsset {
     /// [`ModifierContext::Render`]: crate::ModifierContext::Render
     pub fn render_modifiers(&self) -> impl Iterator<Item = &dyn RenderModifier> {
         self.render_modifiers.iter().filter_map(|m| m.as_render())
-    }
-
-    /// Get a list of all the render modifiers of this effect that affect a
-    /// specific group.
-    ///
-    /// This is a filtered list of all modifiers, retaining only modifiers
-    /// executing in the [`ModifierContext::Render`] context and that affect the
-    /// given group.
-    ///
-    /// [`ModifierContext::Render`]: crate::ModifierContext::Render
-    pub fn render_modifiers_for_group(
-        &self,
-        group_index: u32,
-    ) -> impl Iterator<Item = &dyn RenderModifier> {
-        self.render_modifiers.iter().filter_map(move |m| {
-            if m.groups.contains(group_index) {
-                m.modifier.as_render()
-            } else {
-                None
-            }
-        })
     }
 
     /// Build the particle layout of the asset based on its modifiers.
@@ -921,12 +603,6 @@ impl EffectAsset {
             for &attr in modifier.attributes() {
                 set.insert(attr);
             }
-        }
-
-        // If we're using ribbons, we need a linked list.
-        if self.ribbon_group.is_some() {
-            set.insert(Attribute::PREV);
-            set.insert(Attribute::NEXT);
         }
 
         // Build the layout
@@ -955,26 +631,6 @@ impl EffectAsset {
     pub fn mesh(mut self, mesh: Handle<Mesh>) -> Self {
         self.mesh = Some(mesh);
         self
-    }
-
-    /// Computes the group evaluation order, which ensures that cloners run
-    /// before spawners.
-    ///
-    /// This makes sure that we don't spawn a particle and immediately clone it,
-    /// which looks bad.
-    pub(crate) fn calculate_group_order(&self) -> Vec<u32> {
-        let mut group_order = Vec::with_capacity(self.init.len());
-        for (group_index, init) in self.init.iter().enumerate() {
-            if let Initializer::Cloner(_) = init {
-                group_order.push(group_index as u32);
-            }
-        }
-        for (group_index, init) in self.init.iter().enumerate() {
-            if let Initializer::Spawner(_) = init {
-                group_order.push(group_index as u32);
-            }
-        }
-        group_order
     }
 }
 
@@ -1020,6 +676,37 @@ impl AssetLoader for EffectAssetLoader {
 
     fn extensions(&self) -> &[&str] {
         &["effect"]
+    }
+}
+
+/// Component defining the parent effect of the current effect.
+///
+/// This component is optional. When present, on the same entity as the
+/// [`ParticleEffect`], it defines the "parent effect" of that effect. The
+/// particles of the parent effect are accessible from the init pass of this
+/// effect, to allow the particles from the current effect to inherit some
+/// attributes (position, velocity, ...) from the parent particle which
+/// triggered its spawning via GPU spawn events.
+///
+/// Adding this component automatically makes the current particle effect
+/// instance use GPU spawn events emitted by its parent, and automatically makes
+/// the parent effect instance emits such events.
+///
+/// An effect has at most one parent, defined by this component, but a parent
+/// effect can have multiple children. For example, a parent effect can emit GPU
+/// spawn events continuously ([`EventEmitCondition::Always`]) to generate some
+/// kind of trail, and also emit GPU spawn events when its particles die
+/// ([`EventEmitCondition::OnDie`]) for any explosion-like effect.
+#[derive(Debug, Clone, Copy, Component, Reflect)]
+pub struct EffectParent {
+    /// Entity of the parent effect.
+    pub entity: Entity,
+}
+
+impl EffectParent {
+    /// Create a new component with the given entity as parent.
+    pub fn new(parent: Entity) -> Self {
+        Self { entity: parent }
     }
 }
 
@@ -1093,7 +780,7 @@ mod tests {
             .render(OrientModifier::new(OrientMode::FaceCameraPosition))
             .render(OrientModifier::new(OrientMode::AlongVelocity));
 
-        assert_eq!(&effect.capacities, &[4096]);
+        assert_eq!(effect.capacity, 4096);
 
         let module = &mut effect.module;
         let property_layout = PropertyLayout::default();
@@ -1162,8 +849,8 @@ mod tests {
 
         let effect = EffectAsset {
             name: "Effect".into(),
-            capacities: vec![4096],
-            init: vec![Spawner::rate(30.0.into()).into()],
+            capacity: 4096,
+            spawner: Spawner::rate(30.0.into()),
             module,
             ..Default::default()
         }
@@ -1176,31 +863,24 @@ mod tests {
             s,
             r#"(
     name: "Effect",
-    capacities: [
-        4096,
-    ],
-    init: [
-        Spawner((
-            count: Single(30.0),
-            spawn_duration: Single(1.0),
-            period: Single(1.0),
-            starts_active: true,
-            starts_immediately: true,
-        )),
-    ],
+    capacity: 4096,
+    spawner: (
+        count: Single(30.0),
+        spawn_duration: Single(1.0),
+        period: Single(1.0),
+        starts_active: true,
+        starts_immediately: true,
+    ),
     z_layer_2d: 0.0,
     simulation_space: Global,
     simulation_condition: WhenVisible,
     init_modifiers: [
-        (
-            modifier: {
-                "SetAttributeModifier": (
-                    attribute: "position",
-                    value: 1,
-                ),
-            },
-            groups: (4294967295),
-        ),
+        {
+            "SetAttributeModifier": (
+                attribute: "position",
+                value: 1,
+            ),
+        },
     ],
     update_modifiers: [],
     render_modifiers: [],
@@ -1231,13 +911,12 @@ mod tests {
         ),
     ),
     alpha_mode: Blend,
-    ribbon_group: None,
 )"#
         );
         let effect_serde: EffectAsset = ron::from_str(&s).unwrap();
         assert_eq!(effect.name, effect_serde.name);
-        assert_eq!(effect.capacities, effect_serde.capacities);
-        assert_eq!(effect.init, effect_serde.init);
+        assert_eq!(effect.capacity, effect_serde.capacity);
+        assert_eq!(effect.spawner, effect_serde.spawner);
         assert_eq!(effect.z_layer_2d, effect_serde.z_layer_2d);
         assert_eq!(effect.simulation_space, effect_serde.simulation_space);
         assert_eq!(
