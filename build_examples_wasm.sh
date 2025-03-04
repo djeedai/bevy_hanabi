@@ -1,33 +1,33 @@
-echo Check that wasm-bindgen -V returns 0.2.95, otherwise cargo install wasm-bindgen-cli --version 0.2.95
+echo Check that wasm-bindgen -V returns 0.2.100, otherwise cargo install wasm-bindgen-cli --version 0.2.100
 
 echo Setting RUSTFLAGS to enable unstable web_sys APIs...
 export RUSTFLAGS=--cfg=web_sys_unstable_apis
 
 echo Build all examples for WASM...
 # 3D
-cargo b --release --example firework --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example portal --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example expr --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example spawn --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example multicam --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example visibility --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example random --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example spawn_on_command --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example activate --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_ui bevy/default_font 3d"
-cargo b --release --example force_field --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example init --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example lifetime --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example ordering --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
-cargo b --release --example ribbon --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d"
+cargo b --release --example firework --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example portal --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example expr --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example spawn --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example multicam --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example visibility --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example random --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example spawn_on_command --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example activate --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_ui bevy/default_font 3d bevy/webgpu"
+cargo b --release --example force_field --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example init --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example lifetime --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example ordering --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
+cargo b --release --example ribbon --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d bevy/webgpu"
 # 3D + PNG
-cargo b --release --example gradient --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
-cargo b --release --example circle --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
-cargo b --release --example billboard --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
-cargo b --release --example worms --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
-cargo b --release --example instancing --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d"
-cargo b --release --example puffs --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_scene bevy/bevy_gltf bevy/bevy_animation bevy/png 3d"
+cargo b --release --example gradient --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d bevy/webgpu"
+cargo b --release --example circle --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d bevy/webgpu"
+cargo b --release --example billboard --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d bevy/webgpu"
+cargo b --release --example worms --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d bevy/webgpu"
+cargo b --release --example instancing --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d bevy/webgpu"
+cargo b --release --example puffs --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_scene bevy/bevy_gltf bevy/bevy_animation bevy/png 3d bevy/webgpu"
 # 2D
-cargo b --release --example 2d --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite 2d"
+cargo b --release --example 2d --target wasm32-unknown-unknown --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite 2d bevy/webgpu"
 
 echo Bindgen all examples...
 wasm-bindgen --out-name wasm_firework --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/firework.wasm
