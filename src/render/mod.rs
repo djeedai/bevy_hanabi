@@ -2139,7 +2139,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
 /// render world item.
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
-#[derive(Debug, Component)]
+#[derive(Debug)]
 pub(crate) struct ExtractedEffect {
     /// Main world entity owning the [`CompiledParticleEffect`] this effect was
     /// extracted from. Mainly used for visibility.
@@ -2166,14 +2166,13 @@ pub(crate) struct ExtractedEffect {
     ///
     /// [`property_layout`]: crate::render::ExtractedEffect::property_layout
     pub property_data: Option<Vec<u8>>,
-    /// Effect spawner.
+    /// Number of particles to spawn this frame.
     ///
-    /// Obtained from calling [`EffectSpawner::tick()`] on the source effect
-    /// instance.
-    ///
-    /// [`EffectSpawner::tick()`]: crate::EffectSpawner::tick
-    pub effect_spawner: EffectSpawner, /* TODO - move to separate component instead of
-                                        * extracting into this struct? */
+    /// This is ignored if the effect is a child effect consuming GPU spawn
+    /// events.
+    pub spawn_count: u32,
+    /// PRNG seed.
+    pub prng_seed: u32,
     /// Global transform of the effect origin.
     pub transform: GlobalTransform,
     /// Layout flags.
@@ -2564,7 +2563,8 @@ pub(crate) fn extract_effects(
             particle_layout: asset.particle_layout().clone(),
             property_layout,
             property_data,
-            effect_spawner: *effect_spawner,
+            spawn_count: effect_spawner.spawn_count,
+            prng_seed: compiled_effect.prng_seed,
             transform: *transform,
             layout_flags,
             texture_layout,
@@ -2970,6 +2970,7 @@ impl EffectsMeta {
         &mut self,
         global_transform: &GlobalTransform,
         spawn_count: u32,
+        prng_seed: u32,
         effect_metadata_buffer_table_id: BufferTableId,
     ) -> u32 {
         let spawner_base = self.spawner_buffer.len() as u32;
@@ -2980,14 +2981,11 @@ impl EffectsMeta {
             global_transform.affine().inverse(),
         )
         .into();
-        // FIXME - Probably bad to re-seed each time there's a change (actually, each
-        // frame even!)
-        let seed = 0; //rand::random::<u32>();
         let spawner_params = GpuSpawnerParams {
             transform,
             inverse_transform,
             spawn: spawn_count as i32,
-            seed,
+            seed: prng_seed,
             effect_metadata_index: effect_metadata_buffer_table_id.0,
             ..default()
         };
@@ -3935,7 +3933,8 @@ pub(crate) fn prepare_effects(
 
         let spawner_index = effects_meta.allocate_spawner(
             &extracted_effect.transform,
-            extracted_effect.effect_spawner.spawn_count,
+            extracted_effect.spawn_count,
+            extracted_effect.prng_seed,
             dispatch_buffer_indices.effect_metadata_buffer_table_id,
         );
 
@@ -3962,7 +3961,7 @@ pub(crate) fn prepare_effects(
             particle_layout: extracted_effect.particle_layout.clone(),
             shaders: extracted_effect.effect_shaders,
             spawner_base: spawner_index,
-            spawn_count: extracted_effect.effect_spawner.spawn_count,
+            spawn_count: extracted_effect.spawn_count,
             #[cfg(feature = "3d")]
             position: extracted_effect.transform.translation(),
             init_indirect_dispatch_index: cached_child_info

@@ -295,6 +295,10 @@ pub struct EffectAsset {
     pub simulation_space: SimulationSpace,
     /// Condition under which the effect is simulated.
     pub simulation_condition: SimulationCondition,
+    /// Seed for the pseudo-random number generator.
+    ///
+    /// This is uploaded to GPU and used for the various random expressions and quantities computed in shaders.
+    pub prng_seed: u32,
     /// Init modifier defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
@@ -870,6 +874,7 @@ mod tests {
     z_layer_2d: 0.0,
     simulation_space: Global,
     simulation_condition: WhenVisible,
+    prng_seed: 0,
     init_modifiers: [
         {
             "SetAttributeModifier": (
