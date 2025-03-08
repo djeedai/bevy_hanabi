@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added new `InheritAttributeModifier` to set the value of a particle attribute by copying the value of its parent.
   This modifier is only valid for the `ModifierContext::Init` pass,
   when an effect has a parent (uses `EffectParent`).
+- Added `EffectAsset::prng_seed` used as the PRNG seed for random expressions on GPU.
+  Previously the PRNG seed was implicitly set to a random value.
+  To restore the former behavior, just set `prng_seed = rand::random::<u32>()`.
 
 ### Changed
 

@@ -155,3 +155,21 @@ and use multiple ribbons in the same effect.
 Following Bevy's own deprecation of the bundle mechanism, `ParticleEffectBundle` has been removed.
 Use `ParticleEffect` directly instead, which now supports the ECS `#[require()]` mechanism,
 and will automatically add the mandatory components `CompiledParticleEffect`, `Visibility`, and `Transform`.
+
+## Deterministic randomness
+
+Effects using GPU expressions with randomness, like the built-in expression obtained from `ExprWriter::rand()`,
+now use an explicit PRNG seed set stored in `EffectAsset::prng_seed`.
+This value is `0` by default, meaning the effect will produce the same result each application run.
+This ensures the effect authored is played back deterministically, which gives artistic control,
+and is also useful to generate deterministic repro examples of bugs for debugging.
+
+If you want true randomness (old behavior), simply assign this new field to a random value yourself,
+for example:
+
+```rust
+EffectAsset { 
+    prng_seed: rand::random::<u32>(),
+    // [...]
+}
+```

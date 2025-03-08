@@ -295,6 +295,8 @@ pub struct EffectAsset {
     pub simulation_space: SimulationSpace,
     /// Condition under which the effect is simulated.
     pub simulation_condition: SimulationCondition,
+    ///
+    pub prng_seed: u32,
     /// Init modifier defining the effect.
     #[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet

@@ -593,8 +593,7 @@ impl From<&PropertyInstance> for PropertyValue {
 ///   make use of the Bevy visibility system and optimize rendering of the
 ///   effects. This influences simulation when using
 ///   [`SimulationCondition::WhenVisible`].
-/// - A [`Transform`] component to define the position of the particle
-///   emitter.
+/// - A [`Transform`] component to define the position of the particle emitter.
 ///
 /// ## Optional components
 ///
@@ -1331,7 +1330,10 @@ pub struct CompiledParticleEffect {
     layout_flags: LayoutFlags,
     /// Alpha mode.
     alpha_mode: AlphaMode,
+    /// Particle layout of the parent effect, if any.
     parent_particle_layout: Option<ParticleLayout>,
+    /// PRNG seed.
+    prng_seed: u32,
 }
 
 impl Default for CompiledParticleEffect {
@@ -1349,6 +1351,7 @@ impl Default for CompiledParticleEffect {
             layout_flags: LayoutFlags::NONE,
             alpha_mode: default(),
             parent_particle_layout: None,
+            prng_seed: 0,
         }
     }
 }
@@ -1395,6 +1398,7 @@ impl CompiledParticleEffect {
         // diff what may or may not have changed.
         self.asset = instance.handle.clone();
         self.simulation_condition = asset.simulation_condition;
+        self.prng_seed = asset.prng_seed;
 
         // Check if the instance changed. If so, rebuild some data from this compiled
         // effect based on the new data of the effect instance.
