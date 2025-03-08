@@ -874,6 +874,7 @@ mod tests {
     z_layer_2d: 0.0,
     simulation_space: Global,
     simulation_condition: WhenVisible,
+    prng_seed: 0,
     init_modifiers: [
         {
             "SetAttributeModifier": (
