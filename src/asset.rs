@@ -295,7 +295,9 @@ pub struct EffectAsset {
     pub simulation_space: SimulationSpace,
     /// Condition under which the effect is simulated.
     pub simulation_condition: SimulationCondition,
+    /// Seed for the pseudo-random number generator.
     ///
+    /// This is uploaded to GPU and used for the various random expressions and quantities computed in shaders.
     pub prng_seed: u32,
     /// Init modifier defining the effect.
     #[reflect(ignore)]
