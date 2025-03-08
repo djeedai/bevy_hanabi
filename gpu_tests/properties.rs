@@ -41,10 +41,7 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<EffectAsset>>) {
     let handle = assets.add(asset);
 
     commands.spawn((Camera3d::default(), Tonemapping::None));
-    commands.spawn(ParticleEffectBundle {
-        effect: ParticleEffect::new(handle),
-        ..default()
-    });
+    commands.spawn(ParticleEffect::new(handle));
 }
 
 fn timeout(

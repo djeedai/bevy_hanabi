@@ -51,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Attribute::PREV` and `Attribute::NEXT` are soft-deprecated.
   You can continue to use them, but they do not have any influence anymore on ribbons and trails,
   nor any other built-in functionality of Hanabi.
+- `ParticleEffect` now requires (in the ECS sense) the `CompiledParticleEffect`, `Visibility`, and `Transform` components.
+  This means those components are automatically added by Bevy each time a `ParticleEffect` is spawned.
 
 ### Fixed
 
@@ -72,6 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Similarly, removed `ParticleGroupSet`.
 - Removed `EffectAsset::ribbon_group` as well as `with_trails()` and `with_ribbons()`.
   Use the `Attribute::RIBBON_ID` instead to assign a per-particle ribbon ID.
+- Removed `ParticleEffectBundle`. Use `ParticleEffect` directly instead.
 
 ## [0.14.0] 2024-12-09
 

@@ -123,13 +123,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     let effect = effects.add(effect);
 
-    commands
-        .spawn(ParticleEffectBundle {
-            effect: ParticleEffect::new(effect),
-            transform: Transform::IDENTITY,
-            ..default()
-        })
-        .insert(Name::new("ribbon"));
+    commands.spawn((ParticleEffect::new(effect), Name::new("ribbon")));
 }
 
 fn move_head(mut query: Query<&mut Transform, With<ParticleEffect>>, timer: Res<Time>) {

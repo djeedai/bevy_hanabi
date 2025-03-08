@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn setup(mut commands: Commands) {
     commands.spawn((Camera3d::default(), Tonemapping::None));
-    commands.spawn(ParticleEffectBundle::default());
+    commands.spawn(ParticleEffect::default());
 }
 
 fn timeout(mut frame: ResMut<Frame>, mut ev_app_exit: EventWriter<AppExit>) {

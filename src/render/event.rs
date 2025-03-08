@@ -13,15 +13,14 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 use thiserror::Error;
-use wgpu::{
-    BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BufferBinding,
-    BufferBindingType, BufferUsages, ShaderStages,
-};
-
 #[cfg(debug_assertions)]
 use wgpu::util::BufferInitDescriptor;
 #[cfg(not(debug_assertions))]
 use wgpu::BufferDescriptor;
+use wgpu::{
+    BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BufferBinding,
+    BufferBindingType, BufferUsages, ShaderStages,
+};
 
 use super::{
     aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState, BufferBindingSource,

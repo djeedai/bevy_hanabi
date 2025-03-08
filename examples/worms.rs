@@ -195,10 +195,7 @@ fn setup(
     let head_entity = commands
         .spawn((
             Name::new("worms_heads"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(head_effect),
-                ..default()
-            },
+            ParticleEffect::new(head_effect),
             EffectMaterial {
                 images: vec![circle.clone()],
             },
@@ -210,10 +207,7 @@ fn setup(
 
     commands.spawn((
         Name::new("worms_bodies"),
-        ParticleEffectBundle {
-            effect: ParticleEffect::new(body_effect),
-            ..default()
-        },
+        ParticleEffect::new(body_effect),
         EffectParent::new(head_entity),
         // EffectMaterial {
         //     images: vec![circle],

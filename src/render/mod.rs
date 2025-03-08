@@ -330,12 +330,12 @@ impl<T: ShaderType> StorageType for T {
 pub(crate) struct GpuSpawnerParams {
     /// Transform of the effect (origin of the emitter). This is either added to
     /// emitted particles at spawn time, if the effect simulated in world
-    /// space, or to all simulated particles if the effect is simulated in
-    /// local space.
+    /// space, or to all simulated particles during rendering if the effect is
+    /// simulated in local space.
     transform: GpuCompressedTransform,
     /// Inverse of [`transform`], stored with the same convention.
     ///
-    /// [`transform`]: crate::render::GpuSpawnerParams::transform
+    /// [`transform`]: Self::transform
     inverse_transform: GpuCompressedTransform,
     /// Number of particles to spawn this frame.
     spawn: i32,

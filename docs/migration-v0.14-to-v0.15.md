@@ -149,3 +149,9 @@ See the updated `ribbon.rs` example for a full-featured demo of a single ribbon,
 and the `worms.rs` and `firework.rs` examples
 for an example of combining hierarchical effects and ribbons,
 and use multiple ribbons in the same effect.
+
+## Bundle removal
+
+Following Bevy's own deprecation of the bundle mechanism, `ParticleEffectBundle` has been removed.
+Use `ParticleEffect` directly instead, which now supports the ECS `#[require()]` mechanism,
+and will automatically add the mandatory components `CompiledParticleEffect`, `Visibility`, and `Transform`.
