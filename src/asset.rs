@@ -49,8 +49,9 @@ pub enum MotionIntegration {
 pub enum SimulationCondition {
     /// Simulate the effect only when visible.
     ///
-    /// The visibility is determined by the [`Visibility`], the
-    /// [`InheritedVisibility`], and the [`ViewVisibility`] components.
+    /// The visibility is determined by the [`InheritedVisibility`] and the
+    /// [`ViewVisibility`] components, if present. The effect is assumed to be
+    /// visible if those components are absent.
     ///
     /// This is the default for all assets, and is the most performant option,
     /// allowing to have many effects in the scene without the need to simulate
@@ -58,7 +59,8 @@ pub enum SimulationCondition {
     ///
     /// Note that any [`ParticleEffect`] spawned is always compiled into a
     /// [`CompiledParticleEffect`], even when it's not visible and even when
-    /// that variant is selected.
+    /// that variant is selected. That means it consumes GPU resources (memory,
+    /// in particular).
     ///
     /// Note also that AABB culling is not currently available. Only boolean
     /// ON/OFF visibility is used.
@@ -81,15 +83,11 @@ pub enum SimulationCondition {
     /// should be aware of the performance implications of using this
     /// condition, and only use it when strictly necessary.
     ///
-    /// Any [`Visibility`], [`InheritedVisibility`], or [`ViewVisibility`]
-    /// component is ignored. You may want to spawn the particle effect
-    /// components manually instead of using the [`ParticleEffectBundle`] to
-    /// avoid adding those components.
+    /// Any [`InheritedVisibility`] or [`ViewVisibility`] component is ignored.
     ///
     /// [`Visibility`]: bevy::render::view::Visibility
     /// [`InheritedVisibility`]: bevy::render::view::InheritedVisibility
     /// [`ViewVisibility`]: bevy::render::view::ViewVisibility
-    /// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
     Always,
 }
 
@@ -260,11 +258,9 @@ impl FromWorld for DefaultMesh {
 /// application execution.
 ///
 /// An actual effect instance can be spanwed with a [`ParticleEffect`]
-/// component, or a [`ParticleEffectBundle`], which references the
-/// [`EffectAsset`].
+/// component which references the [`EffectAsset`].
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
-/// [`ParticleEffectBundle`]: crate::ParticleEffectBundle
 /// [`EffectAsset`]: crate::EffectAsset
 #[derive(Asset, Default, Clone, Reflect)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

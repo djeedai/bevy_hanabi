@@ -150,7 +150,7 @@ fn setup(
     ));
 
     commands.spawn((
-        ParticleEffectBundle::new(effect),
+        ParticleEffect::new(effect),
         EffectMaterial {
             images: vec![texture_handle],
         },

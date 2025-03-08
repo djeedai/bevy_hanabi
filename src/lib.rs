@@ -121,20 +121,17 @@
 //! ```
 //!
 //! Then add an instance of that effect to an entity by spawning a
-//! [`ParticleEffect`] component referencing the asset. The simplest way is
-//! to use the [`ParticleEffectBundle`] to ensure all required components are
-//! spawned together.
+//! [`ParticleEffect`] component referencing the asset.
 //!
 //! ```
 //! # use bevy::prelude::*;
 //! # use bevy_hanabi::prelude::*;
 //! # fn spawn_effect(mut commands: Commands) {
 //! #   let effect_asset = Handle::<EffectAsset>::default();
-//! commands.spawn(ParticleEffectBundle {
-//!     effect: ParticleEffect::new(effect_asset),
-//!     transform: Transform::from_translation(Vec3::Y),
-//!     ..Default::default()
-//! });
+//! commands.spawn((
+//!     ParticleEffect::new(effect_asset),
+//!     Transform::from_translation(Vec3::Y),
+//! ));
 //! # }
 //! ```
 //!
@@ -149,13 +146,12 @@
 //!    supported, though. In any case however, the asset doesn't do anything by
 //!    itself.
 //! 2. At runtime, when the application is running, create an actual particle
-//!    effect instance by spawning a [`ParticleEffect`] component (or use the
-//!    [`ParticleEffectBundle`] for simplicity). The component references the
-//!    [`EffectAsset`] via its `handle` field. Multiple instances can reference
-//!    the same asset at the same time, and some changes to the asset are
-//!    reflected to its instances, although not all changes are supported. In
-//!    general, avoid changing an [`EffectAsset`] while it's in use by one or
-//!    more [`ParticleEffect`].
+//!    effect instance by spawning a [`ParticleEffect`] component. The component
+//!    references the [`EffectAsset`] via its `handle` field. Multiple instances
+//!    can reference the same asset at the same time, and some changes to the
+//!    asset are reflected to its instances, although not all changes are
+//!    supported. In general, avoid changing an [`EffectAsset`] while it's in
+//!    use by one or more [`ParticleEffect`].
 //! 3. If using properties, spawn an [`EffectProperties`] component on the same
 //!    entity. Then update properties through that component at any time while
 //!    the effect is active. This allows some moderate CPU-side control over the
@@ -182,7 +178,6 @@ use thiserror::Error;
 
 mod asset;
 pub mod attributes;
-mod bundle;
 mod gradient;
 pub mod graph;
 pub mod modifier;
@@ -197,7 +192,6 @@ mod test_utils;
 
 pub use asset::{AlphaMode, EffectAsset, EffectParent, MotionIntegration, SimulationCondition};
 pub use attributes::*;
-pub use bundle::ParticleEffectBundle;
 pub use gradient::{Gradient, GradientKey};
 pub use graph::*;
 pub use modifier::*;
@@ -477,9 +471,9 @@ pub enum SimulationSpace {
     ///
     /// The global space is the Bevy world space. Particles simulated in global
     /// space are "detached" from the emitter when they spawn, and not
-    /// influenced anymore by the emitter's [`Transform`] after spawning. The
-    /// particle's [`Attribute::POSITION`] is the world space position of the
-    /// particle.
+    /// influenced anymore by the emitter's [`GlobalTransform`] after spawning.
+    /// The particle's [`Attribute::POSITION`] is the world space position
+    /// of the particle.
     ///
     /// This is the default.
     #[default]
@@ -487,11 +481,12 @@ pub enum SimulationSpace {
 
     /// Particles are simulated in local effect space.
     ///
-    /// The local space is the space associated with the [`Transform`] of the
-    /// [`ParticleEffect`] component being simulated. Particles simulated in
-    /// local effect space are "attached" to the effect, and will be affected by
-    /// its [`Transform`]. The particle's [`Attribute::POSITION`] is the
-    /// position of the particle relative to the effect's [`Transform`].
+    /// The local space is the space associated with the [`GlobalTransform`] of
+    /// the [`ParticleEffect`] component being simulated. Particles
+    /// simulated in local effect space are "attached" to the effect, and
+    /// will be affected by its [`GlobalTransform`]. The particle's
+    /// [`Attribute::POSITION`] is the position of the particle relative to
+    /// the effect's [`GlobalTransform`].
     Local,
 }
 
@@ -571,7 +566,7 @@ impl From<&PropertyInstance> for PropertyValue {
 /// [`EffectAsset`].
 ///
 /// This instance is associated to an [`Entity`], inheriting
-/// its [`Transform`] as the origin frame for its particle spawning.
+/// its [`GlobalTransform`] as the origin frame for its particle spawning.
 ///
 /// # Content
 ///
@@ -588,20 +583,30 @@ impl From<&PropertyInstance> for PropertyValue {
 ///
 /// ## Mandatory components
 ///
-/// This component must always be paired with a [`CompiledParticleEffect`]
-/// component. Failure to do so will prevent the effect instance from working.
-/// Note however that the [`ParticleEffect`] component _requires_ (in the sense
-/// of Bevy ECS) the [`CompiledParticleEffect`] component, so you can simply
-/// insert the former, and Bevy will insert the latter automatically.
+/// The [`ParticleEffect`] component requires, in the sense of ECS, some other
+/// components for the particle effect to work. Those mandatory components are
+/// automatically added by Bevy if not otherwise provided during spawning.
 ///
-/// Currently a [`Transform`] and [`GlobalTransform`] components are also
-/// mandatory.
+/// - A [`CompiledParticleEffect`] component, which contains some precomputed
+///   data and allocated resources, in particular GPU resources.
+/// - A [`Visibility`] component (and the components it requires in turn) to
+///   make use of the Bevy visibility system and optimize rendering of the
+///   effects. This influences simulation when using
+///   [`SimulationCondition::WhenVisible`].
+/// - A [`Transform`] component to define the position of the particle
+///   emitter.
 ///
 /// ## Optional components
 ///
-/// If a [`Visibility`] component is present, it determines whether the effect
-/// is visible. This influences simulation when using
-/// [`SimulationCondition::WhenVisible`].
+/// - The [`EffectMaterial`] defines the "material" of the particle effect,
+///   which contains for example the textures used by the particle system. This
+///   component is optional, because not all effects make use of a material.
+/// - The [`EffectParent`] defines the parent effect of this effect. This is
+///   used for hierarchical effect construction, and to use GPU spawn events to
+///   make the parent effect trigger spawning particles in this effect.
+/// - The [`EffectProperties`] defines the runtime values of the properties of
+///   the effect. If the effect doesn't use properties, this component is not
+///   used.
 ///
 /// # Change detection
 ///
@@ -617,7 +622,7 @@ impl From<&PropertyInstance> for PropertyValue {
 /// for example.
 #[derive(Debug, Default, Clone, Component, Reflect)]
 #[reflect(Component)]
-#[require(CompiledParticleEffect, SyncToRenderWorld)]
+#[require(CompiledParticleEffect, Transform, Visibility, SyncToRenderWorld)]
 pub struct ParticleEffect {
     /// Handle of the effect to instantiate.
     pub handle: Handle<EffectAsset>,
@@ -2188,7 +2193,7 @@ else { return c1; }
             let world = app.world_mut();
 
             // Spawn particle effect
-            let entity = world.spawn(ParticleEffectBundle::default()).id();
+            let entity = world.spawn(ParticleEffect::default()).id();
 
             // Spawn a camera, otherwise ComputedVisibility stays at HIDDEN
             world.spawn(Camera3d::default());

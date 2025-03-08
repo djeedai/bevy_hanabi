@@ -121,12 +121,9 @@ fn setup(
     commands
         .spawn((
             Name::new("emit:rate"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect1),
-                transform: Transform::from_translation(Vec3::new(-30., 0., 0.))
-                    .with_rotation(Quat::from_rotation_z(1.)),
-                ..Default::default()
-            },
+            ParticleEffect::new(effect1),
+            Transform::from_translation(Vec3::new(-30., 0., 0.))
+                .with_rotation(Quat::from_rotation_z(1.)),
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin
@@ -170,11 +167,8 @@ fn setup(
     commands
         .spawn((
             Name::new("emit:once"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect2),
-                transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
-                ..Default::default()
-            },
+            ParticleEffect::new(effect2),
+            Transform::from_translation(Vec3::new(0., 0., 0.)),
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin
@@ -241,11 +235,9 @@ fn setup(
     commands
         .spawn((
             Name::new("emit:burst"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect3),
-                transform: Transform::from_translation(Vec3::new(30., 0., 0.)),
-                ..Default::default()
-            },
+            ParticleEffect::new(effect3),
+            EffectProperties::default(),
+            Transform::from_translation(Vec3::new(30., 0., 0.)),
             DynamicRuntimeAccel,
         ))
         .with_children(|p| {

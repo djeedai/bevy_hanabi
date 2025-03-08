@@ -98,13 +98,7 @@ fn setup(
     let effect = create_effect(mesh, &mut effects);
 
     // Spawn the effect.
-    commands.spawn((
-        Name::new("cartoon explosion"),
-        ParticleEffectBundle {
-            effect: ParticleEffect::new(effect),
-            ..default()
-        },
-    ));
+    commands.spawn((Name::new("cartoon explosion"), ParticleEffect::new(effect)));
 }
 
 // Builds the smoke puffs.

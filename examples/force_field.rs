@@ -314,7 +314,7 @@ fn setup(
             .render(ColorOverLifetimeModifier { gradient }),
     );
 
-    commands.spawn(ParticleEffectBundle::new(effect));
+    commands.spawn((ParticleEffect::new(effect), EffectProperties::default()));
 }
 
 fn spawn_on_click(

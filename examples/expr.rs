@@ -96,12 +96,5 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             .render(OrientModifier::new(OrientMode::AlongVelocity)),
     );
 
-    commands.spawn((
-        Name::new("whirlwind"),
-        ParticleEffectBundle {
-            effect: ParticleEffect::new(effect),
-            transform: Transform::IDENTITY,
-            ..Default::default()
-        },
-    ));
+    commands.spawn((Name::new("whirlwind"), ParticleEffect::new(effect)));
 }

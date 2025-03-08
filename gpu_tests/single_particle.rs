@@ -43,10 +43,7 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<EffectAsset>>) {
         .init(SetAttributeModifier::new(Attribute::SIZE3, size));
     asset.name = "test_asset".to_string();
     let handle = assets.add(asset);
-    commands.spawn(ParticleEffectBundle {
-        effect: ParticleEffect::new(handle),
-        ..default()
-    });
+    commands.spawn(ParticleEffect::new(handle));
 }
 
 fn timeout(mut frame: ResMut<Frame>, mut ev_app_exit: EventWriter<AppExit>) {

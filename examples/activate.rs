@@ -130,8 +130,7 @@ fn setup(
     );
 
     ball.with_children(|node| {
-        node.spawn(ParticleEffectBundle::new(effect))
-            .insert(Name::new("effect"));
+        node.spawn((ParticleEffect::new(effect), Name::new("effect")));
     });
 
     commands.spawn((

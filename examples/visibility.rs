@@ -100,13 +100,7 @@ fn setup(
             MeshMaterial3d(mat.clone()),
         ))
         .with_children(|p| {
-            p.spawn((
-                Name::new("WhenVisible"),
-                ParticleEffectBundle {
-                    effect: ParticleEffect::new(effect1),
-                    ..Default::default()
-                },
-            ));
+            p.spawn((Name::new("WhenVisible"), ParticleEffect::new(effect1)));
         });
 
     asset.simulation_condition = SimulationCondition::Always;
@@ -120,13 +114,7 @@ fn setup(
             MeshMaterial3d(mat.clone()),
         ))
         .with_children(|p| {
-            p.spawn((
-                Name::new("Always"),
-                ParticleEffectBundle {
-                    effect: ParticleEffect::new(effect2),
-                    ..Default::default()
-                },
-            ));
+            p.spawn((Name::new("Always"), ParticleEffect::new(effect2)));
         });
 }
 

@@ -94,11 +94,8 @@ fn setup(
     commands
         .spawn((
             Name::new("burst 12s"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect1),
-                transform: Transform::from_translation(Vec3::new(-50., 0., 0.)),
-                ..Default::default()
-            },
+            ParticleEffect::new(effect1),
+            Transform::from_translation(Vec3::new(-50., 0., 0.)),
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin
@@ -146,11 +143,8 @@ fn setup(
     commands
         .spawn((
             Name::new("burst 3s"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect2),
-                transform: Transform::from_translation(Vec3::new(0., 0., 0.)),
-                ..Default::default()
-            },
+            ParticleEffect::new(effect2),
+            Transform::from_translation(Vec3::new(0., 0., 0.)),
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin
@@ -198,11 +192,8 @@ fn setup(
     commands
         .spawn((
             Name::new("burst 0.75s"),
-            ParticleEffectBundle {
-                effect: ParticleEffect::new(effect3),
-                transform: Transform::from_translation(Vec3::new(50., 0., 0.)),
-                ..Default::default()
-            },
+            ParticleEffect::new(effect3),
+            Transform::from_translation(Vec3::new(50., 0., 0.)),
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin

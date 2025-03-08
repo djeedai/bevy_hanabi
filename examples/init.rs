@@ -65,10 +65,7 @@ fn spawn_effect(
         .with_children(|p| {
             p.spawn((
                 Name::new(name),
-                ParticleEffectBundle {
-                    effect: ParticleEffect::new(effect),
-                    ..Default::default()
-                },
+                ParticleEffect::new(effect),
                 RotateSpeed(speed),
             ))
             .with_children(|p| {
