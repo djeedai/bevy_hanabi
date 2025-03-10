@@ -971,8 +971,6 @@ mod test {
                             InheritedVisibility::default(),
                             ParticleEffect {
                                 handle: handle.clone(),
-                                #[cfg(feature = "2d")]
-                                z_layer_2d: None,
                             },
                         ))
                         .id()
@@ -980,8 +978,6 @@ mod test {
                     world
                         .spawn((ParticleEffect {
                             handle: handle.clone(),
-                            #[cfg(feature = "2d")]
-                            z_layer_2d: None,
                         },))
                         .id()
                 };

@@ -78,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `EffectAsset::ribbon_group` as well as `with_trails()` and `with_ribbons()`.
   Use the `Attribute::RIBBON_ID` instead to assign a per-particle ribbon ID.
 - Removed `ParticleEffectBundle`. Use `ParticleEffect` directly instead.
+- Removed `ParticleEffect::z_layer_2d`. Use the Z coordinate of the effect's `Tranform` to order effects.
 
 ## [0.14.0] 2024-12-09
 

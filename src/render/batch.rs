@@ -1,7 +1,5 @@
 use std::{collections::VecDeque, fmt::Debug, num::NonZeroU32, ops::Range};
 
-#[cfg(feature = "2d")]
-use bevy::math::FloatOrd;
 use bevy::{
     prelude::*,
     render::{
@@ -322,14 +320,8 @@ pub(crate) struct EffectDrawBatch {
     /// Note: currently there's a 1:1 mapping between effect batch and draw
     /// batch.
     pub effect_batch_index: EffectBatchIndex,
-    /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
-    /// rendering.
-    #[cfg(feature = "2d")]
-    pub z_sort_key_2d: FloatOrd,
-    /// For 3d rendering, the position of the emitter so we can compute distance
-    /// to camera. Ignored for 2D rendering.
-    #[cfg(feature = "3d")]
-    pub translation_3d: Vec3,
+    /// Position of the emitter so we can compute distance to camera.
+    pub translation: Vec3,
 }
 
 impl EffectBatch {
@@ -429,15 +421,11 @@ pub(crate) struct BatchInput {
     pub spawner_base: u32,
     /// Number of particles to spawn for this effect.
     pub spawn_count: u32,
-    /// Emitter position, for 3D sorting.
-    #[cfg(feature = "3d")]
+    /// Emitter position.
     pub position: Vec3,
     /// Index of the init indirect dispatch struct, if any.
     // FIXME - Contains a single effect's data; should handle multiple ones.
     pub init_indirect_dispatch_index: Option<u32>,
-    /// Sort key, for 2D only.
-    #[cfg(feature = "2d")]
-    pub z_sort_key_2d: FloatOrd,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

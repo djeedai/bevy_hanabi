@@ -1,8 +1,4 @@
 //! A particle system with a 2D camera.
-//!
-//! The particle effect instance override its `z_layer_2d` field, which can be
-//! tweaked at runtime via the egui inspector to move the 2D rendering layer of
-//! particle above or below the reference square.
 
 use bevy::{prelude::*, render::camera::ScalingMode};
 use bevy_hanabi::prelude::*;
@@ -95,15 +91,11 @@ fn setup(
 
     // Spawn an instance of the particle effect, and override its Z layer to
     // be above the reference white square previously spawned.
-    commands.spawn((
-        // Assign the Z layer so it appears in the egui inspector and can be modified at runtime
-        ParticleEffect::new(effect).with_z_layer_2d(Some(0.1)),
-        Name::new("effect:2d"),
-    ));
+    commands.spawn((ParticleEffect::new(effect), Name::new("effect:2d")));
 }
 
 fn update_plane(time: Res<Time>, mut query: Query<&mut Transform, With<Mesh2d>>) {
     let mut transform = query.single_mut();
     // Move the plane back and forth to show particles ordering relative to it
-    transform.translation.z = (time.elapsed_secs() * 2.5).sin() * 0.045 + 0.1;
+    transform.translation.z = (time.elapsed_secs() * 2.5).sin() * 0.045;
 }
