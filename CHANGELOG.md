@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   You can continue to use them, but they do not have any influence anymore on ribbons and trails,
   nor any other built-in functionality of Hanabi.
 - `ParticleEffect` now requires (in the ECS sense) the `CompiledParticleEffect`, `Visibility`, and `Transform` components.
-  This means those components are automatically added by Bevy each time a `ParticleEffect` is spawned.
+  This means those components are automatically added by Bevy each time a `ParticleEffect` is spawned. (#418)
 
 ### Fixed
 
