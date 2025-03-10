@@ -62,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a bug with opaque effects not rendering.
 - Fixed a bug in `ParticleLayout` where some fields may not have been aligned according to the WGSL rules.
 - Added a workaround for a `wgpu` bug on macOS/Metal backend related to `ParticleLayout` alignment.
+- Fixed a bug where only 1 texture could be used due to incorrectly generated shader code. (#421)
 
 ### Removed
 
@@ -78,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `EffectAsset::ribbon_group` as well as `with_trails()` and `with_ribbons()`.
   Use the `Attribute::RIBBON_ID` instead to assign a per-particle ribbon ID.
 - Removed `ParticleEffectBundle`. Use `ParticleEffect` directly instead.
-- Removed `ParticleEffect::z_layer_2d`. Use the Z coordinate of the effect's `Tranform` to order effects.
+- Removed `ParticleEffect::z_layer_2d`. Use the Z coordinate of the effect's `Tranform` to order effects. (#423)
 
 ## [0.14.0] 2024-12-09
 
