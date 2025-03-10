@@ -2185,10 +2185,6 @@ pub(crate) struct ExtractedEffect {
     pub alpha_mode: AlphaMode,
     /// Effect shaders.
     pub effect_shaders: EffectShader,
-    /// For 2D rendering, the Z coordinate used as the sort key. Ignored for 3D
-    /// rendering.
-    #[cfg(feature = "2d")]
-    pub z_sort_key_2d: FloatOrd,
 }
 
 pub struct AddedEffectParent {
@@ -2519,9 +2515,6 @@ pub(crate) fn extract_effects(
             None
         };
 
-        #[cfg(feature = "2d")]
-        let z_sort_key_2d = compiled_effect.z_layer_2d;
-
         let property_layout = asset.property_layout();
         let property_data = if let Some(properties) = maybe_properties {
             // Note: must check that property layout is not empty, because the
@@ -2571,8 +2564,6 @@ pub(crate) fn extract_effects(
             textures: compiled_effect.textures.clone(),
             alpha_mode,
             effect_shaders: effect_shaders.clone(),
-            #[cfg(feature = "2d")]
-            z_sort_key_2d,
         });
     }
 }
@@ -3926,10 +3917,6 @@ pub(crate) fn prepare_effects(
         );
         trace!("layout_flags = {:?}", extracted_effect.layout_flags);
         trace!("particle_layout = {:?}", effect_slice.particle_layout);
-        #[cfg(feature = "2d")]
-        {
-            trace!("z_sort_key_2d = {:?}", extracted_effect.z_sort_key_2d);
-        }
 
         let spawner_index = effects_meta.allocate_spawner(
             &extracted_effect.transform,
@@ -3962,12 +3949,9 @@ pub(crate) fn prepare_effects(
             shaders: extracted_effect.effect_shaders,
             spawner_base: spawner_index,
             spawn_count: extracted_effect.spawn_count,
-            #[cfg(feature = "3d")]
             position: extracted_effect.transform.translation(),
             init_indirect_dispatch_index: cached_child_info
                 .map(|cc| cc.init_indirect_dispatch_index),
-            #[cfg(feature = "2d")]
-            z_sort_key_2d: extracted_effect.z_sort_key_2d,
         });
 
         // Update properties
@@ -4238,11 +4222,7 @@ pub(crate) fn batch_effects(
         //     continue;
         // }
 
-        #[cfg(feature = "2d")]
-        let z_sort_key_2d = input.z_sort_key_2d;
-
-        #[cfg(feature = "3d")]
-        let translation_3d = input.position;
+        let translation = input.position;
 
         // Spawn one EffectBatch per instance (no batching; TODO). This contains
         // most of the data needed to drive rendering. However this doesn't drive
@@ -4340,10 +4320,7 @@ pub(crate) fn batch_effects(
         commands
             .spawn(EffectDrawBatch {
                 effect_batch_index,
-                #[cfg(feature = "2d")]
-                z_sort_key_2d,
-                #[cfg(feature = "3d")]
-                translation_3d,
+                translation,
             })
             .insert(TemporaryRenderEntity);
     }
@@ -5273,7 +5250,7 @@ pub(crate) fn queue_effects(
                 &render_meshes,
                 &pipeline_cache,
                 |id, entity, draw_batch, _view| Transparent2d {
-                    sort_key: draw_batch.z_sort_key_2d,
+                    sort_key: FloatOrd(draw_batch.translation.z),
                     entity,
                     pipeline: id,
                     draw_function: draw_effects_function_2d,
@@ -5318,7 +5295,7 @@ pub(crate) fn queue_effects(
                     entity,
                     distance: view
                         .rangefinder3d()
-                        .distance_translation(&batch.translation_3d),
+                        .distance_translation(&batch.translation),
                     batch_range: 0..1,
                     extra_index: PhaseItemExtraIndex::NONE,
                 },

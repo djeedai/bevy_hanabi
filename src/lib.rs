@@ -166,8 +166,6 @@
 
 use std::fmt::Write as _;
 
-#[cfg(feature = "2d")]
-use bevy::math::FloatOrd;
 use bevy::{
     prelude::*,
     render::sync_world::SyncToRenderWorld,
@@ -625,55 +623,12 @@ impl From<&PropertyInstance> for PropertyValue {
 pub struct ParticleEffect {
     /// Handle of the effect to instantiate.
     pub handle: Handle<EffectAsset>,
-    /// For 2D rendering, override the value of the Z coordinate of the layer at
-    /// which the particles are rendered.
-    ///
-    /// This value is passed to the render pipeline and used when sorting
-    /// transparent items to render, to order them. As a result, effects
-    /// with different Z values cannot be batched together, which may
-    /// negatively affect performance.
-    ///
-    /// Note that this value is shared by all particles of the effect instance.
-    ///
-    /// This is only available with the `2d` feature.
-    #[cfg(feature = "2d")]
-    pub z_layer_2d: Option<f32>,
 }
 
 impl ParticleEffect {
     /// Create a new particle effect without a spawner or any modifier.
     pub fn new(handle: Handle<EffectAsset>) -> Self {
-        Self {
-            handle,
-            #[cfg(feature = "2d")]
-            z_layer_2d: None,
-        }
-    }
-
-    /// Set the value of the Z layer used when rendering in 2D mode.
-    ///
-    /// In 2D mode, the Bevy renderer sorts all render items according to their
-    /// Z layer value, from back (negative) to front (positive). This
-    /// function sets the value assigned to the current particle effect, to
-    /// order it relative to any other 2D render item (including non-effects).
-    /// Setting the value to `None` reverts to the default sorting and put the
-    /// effect back into the default layer.
-    ///
-    /// This function has no effect when rendering in 3D mode.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use bevy_hanabi::*;
-    /// # use bevy::asset::Handle;
-    /// # let asset = Handle::<EffectAsset>::default();
-    /// // Always render the effect in front of the default layer (z=0)
-    /// let effect = ParticleEffect::new(asset).with_z_layer_2d(Some(0.1));
-    /// ```
-    #[cfg(feature = "2d")]
-    pub fn with_z_layer_2d(mut self, z_layer_2d: Option<f32>) -> Self {
-        self.z_layer_2d = z_layer_2d;
-        self
+        Self { handle }
     }
 }
 
@@ -1323,9 +1278,6 @@ pub struct CompiledParticleEffect {
     effect_shader: Option<EffectShader>,
     /// Textures used by the effect, if any.
     textures: Vec<Handle<Image>>,
-    /// 2D layer for the effect instance.
-    #[cfg(feature = "2d")]
-    z_layer_2d: FloatOrd,
     /// Layout flags.
     layout_flags: LayoutFlags,
     /// Alpha mode.
@@ -1346,8 +1298,6 @@ impl Default for CompiledParticleEffect {
             mesh: None,
             effect_shader: None,
             textures: vec![],
-            #[cfg(feature = "2d")]
-            z_layer_2d: FloatOrd(0.0),
             layout_flags: LayoutFlags::NONE,
             alpha_mode: default(),
             parent_particle_layout: None,
@@ -1368,7 +1318,6 @@ impl CompiledParticleEffect {
     pub(crate) fn update(
         &mut self,
         rebuild: bool,
-        #[cfg(feature = "2d")] z_layer_2d: FloatOrd,
         instance: &ParticleEffect,
         material: Option<&EffectMaterial>,
         asset: &EffectAsset,
@@ -1407,12 +1356,6 @@ impl CompiledParticleEffect {
             // smarter here, only invalidate what changed, but for now just wipe everything
             // and rebuild from scratch all three shaders together.
             self.effect_shader = None;
-
-            // Update the 2D layer
-            #[cfg(feature = "2d")]
-            {
-                self.z_layer_2d = z_layer_2d;
-            }
         }
 
         // If the shaders are already compiled, there's nothing more to do
@@ -1726,17 +1669,8 @@ fn compile_effects(
             debug!("Invalidating the compiled cache for effect on entity {:?} due to changes in the ParticleEffect component. If you see this message too much, then performance might be affected. Find why the change detection of the ParticleEffect is triggered.", entity);
         }
 
-        #[cfg(feature = "2d")]
-        let z_layer_2d = effect
-            .z_layer_2d
-            .map_or(FloatOrd(asset.z_layer_2d), |z_layer_2d| {
-                FloatOrd(z_layer_2d)
-            });
-
         compiled_effect.update(
             need_rebuild,
-            #[cfg(feature = "2d")]
-            z_layer_2d,
             &effect,
             material.map(|r| r.into_inner()),
             asset,
