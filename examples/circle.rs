@@ -22,6 +22,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn setup(
+    asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut effects: ResMut<Assets<EffectAsset>>,
@@ -39,6 +40,9 @@ fn setup(
     let sprite_grid_size = UVec2::new(8, 8);
     let anim_img = make_anim_img(sprite_size, sprite_grid_size, Vec3::new(0.1, 0.1, 0.1));
     let texture_handle = images.add(anim_img);
+
+    // Also use a serialized asset
+    let texture_handle2 = asset_server.load("ramp.png");
 
     // The sprites form a grid, with a total animation frame count equal to the
     // number of sprites.
@@ -105,9 +109,11 @@ fn setup(
     let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
 
     let texture_slot = writer.lit(0u32).expr();
+    let texture_slot2 = writer.lit(1u32).expr();
 
     let mut module = writer.finish();
     module.add_texture_slot("color");
+    module.add_texture_slot("shape");
 
     let effect = effects.add(
         EffectAsset::new(32768, Spawner::burst(32.0.into(), 8.0.into()), module)
@@ -120,6 +126,10 @@ fn setup(
             .render(ParticleTextureModifier {
                 texture_slot: texture_slot,
                 sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
+            })
+            .render(ParticleTextureModifier {
+                texture_slot: texture_slot2,
+                sample_mapping: ImageSampleMapping::ModulateRGB,
             })
             .render(FlipbookModifier { sprite_grid_size })
             .render(ColorOverLifetimeModifier { gradient })
@@ -150,7 +160,7 @@ fn setup(
     commands.spawn((
         ParticleEffect::new(effect),
         EffectMaterial {
-            images: vec![texture_handle],
+            images: vec![texture_handle, texture_handle2],
         },
         Name::new("effect"),
     ));

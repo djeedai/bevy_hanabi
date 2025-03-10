@@ -44,16 +44,18 @@ pub enum ImageSampleMapping {
     ModulateOpacityFromR,
 }
 
-impl ToWgslString for ImageSampleMapping {
-    fn to_wgsl_string(&self) -> String {
+impl ImageSampleMapping {
+    /// Convert this mapping to shader code for the given texture slot.
+    pub fn to_shader_code(&self, texture_slot: &str) -> String {
         match *self {
-            ImageSampleMapping::Modulate => "color = color * texColor;",
+            ImageSampleMapping::Modulate => format!("color = color * texColor{texture_slot};"),
             ImageSampleMapping::ModulateRGB => {
-                "color = vec4<f32>(color.rgb * texColor.rgb, color.a);"
+                format!("color = vec4<f32>(color.rgb * texColor{texture_slot}.rgb, color.a);")
             }
-            ImageSampleMapping::ModulateOpacityFromR => "color.a = color.a * texColor.r;",
+            ImageSampleMapping::ModulateOpacityFromR => {
+                format!("color.a = color.a * texColor{texture_slot}.r;")
+            }
         }
-        .to_string()
     }
 }
 
@@ -118,7 +120,7 @@ impl ParticleTextureModifier {
     ) -> Result<String, ExprError> {
         let texture_slot = module.try_get(self.texture_slot)?;
         let texture_slot = texture_slot.eval(module, context)?;
-        let sample_mapping = self.sample_mapping.to_wgsl_string();
+        let sample_mapping = self.sample_mapping.to_shader_code(&texture_slot[..]);
 
         let sample_mapping_name = format!("{:?}", self.sample_mapping);
 
@@ -129,15 +131,15 @@ impl ParticleTextureModifier {
         let mut code = String::with_capacity(1024);
         code += &format!(
             "    // ParticleTextureModifier
-    var texColor: vec4<f32>;
+    var texColor{texture_slot}: vec4<f32>;
     switch ({texture_slot}) {{\n"
         );
         let count = module.texture_layout().layout.len() as u32;
         for index in 0..count {
             let wgsl_index = index.to_wgsl_string();
-            code += &format!("      case {wgsl_index}: {{ texColor = textureSample(material_texture_{index}, material_sampler_{index}, uv); }}\n");
+            code += &format!("      case {wgsl_index}: {{ texColor{texture_slot} = textureSample(material_texture_{index}, material_sampler_{index}, uv); }}\n");
         }
-        code += "      default: {{ texColor = vec4<f32>(0.0); }}\n";
+        code += &format!("      default: {{ texColor{texture_slot} = vec4<f32>(0.0); }}\n");
         code += &format!(
             "    }}
     // Sample mapping: {sample_mapping_name}

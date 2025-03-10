@@ -1992,13 +1992,6 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
 
         if let Some(material_bind_group_layout) = self.get_material(&key.texture_layout) {
             layout.push(material_bind_group_layout.clone());
-            // //  @location(1) vertex_uv: vec2<f32>
-            // vertex_buffer_layout.attributes.push(VertexAttribute {
-            //     format: VertexFormat::Float32x2,
-            //     offset: 12,
-            //     shader_location: 1,
-            // });
-            // vertex_buffer_layout.array_stride += 8;
         }
 
         // Key: LOCAL_SPACE_SIMULATION
