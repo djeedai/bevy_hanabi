@@ -182,7 +182,7 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
 - Render
   - [x] Quad
     - [x] Textured
-  - [ ] Generic 3D mesh
+  - [x] Generic 3D mesh
   - [x] Deformation
     - [x] Stretch alongside velocity
     - [x] Trails / Ribbons
