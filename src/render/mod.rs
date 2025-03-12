@@ -6158,6 +6158,23 @@ enum HanabiPipelineId {
     Cached(CachedComputePipelineId),
 }
 
+pub(crate) enum ComputePipelineError {
+    Queued,
+    Creating,
+    Error,
+}
+
+impl From<&CachedPipelineState> for ComputePipelineError {
+    fn from(value: &CachedPipelineState) -> Self {
+        match value {
+            CachedPipelineState::Queued => Self::Queued,
+            CachedPipelineState::Creating(_) => Self::Creating,
+            CachedPipelineState::Err(_) => Self::Error,
+            _ => panic!("Trying to convert Ok state to error."),
+        }
+    }
+}
+
 pub(crate) struct HanabiComputePass<'a> {
     /// Pipeline cache to fetch cached compute pipelines by ID.
     pipeline_cache: &'a PipelineCache,
@@ -6193,22 +6210,24 @@ impl<'a> HanabiComputePass<'a> {
     pub fn set_cached_compute_pipeline(
         &mut self,
         pipeline_id: CachedComputePipelineId,
-    ) -> Result<(), NodeRunError> {
+    ) -> Result<(), ComputePipelineError> {
+        trace!("set_cached_compute_pipeline() id={pipeline_id:?}");
         if HanabiPipelineId::Cached(pipeline_id) == self.pipeline_id {
+            trace!("-> already set; skipped");
             return Ok(());
         }
         let Some(pipeline) = self.pipeline_cache.get_compute_pipeline(pipeline_id) else {
-            if let CachedPipelineState::Err(err) =
-                self.pipeline_cache.get_compute_pipeline_state(pipeline_id)
-            {
+            let state = self.pipeline_cache.get_compute_pipeline_state(pipeline_id);
+            if let CachedPipelineState::Err(err) = state {
                 error!(
                     "Failed to find compute pipeline #{}: {:?}",
                     pipeline_id.id(),
                     err
                 );
+            } else {
+                debug!("Compute pipeline not ready #{}", pipeline_id.id());
             }
-            // FIXME - Bevy doesn't allow returning custom errors here...
-            return Ok(());
+            return Err(state.into());
         };
         self.compute_pass.set_pipeline(pipeline);
         self.pipeline_id = HanabiPipelineId::Cached(pipeline_id);
@@ -6493,7 +6512,13 @@ impl Node for VfxSimulateNode {
                 }
             }
 
-            compute_pass.set_cached_compute_pipeline(effects_meta.active_indirect_pipeline_id)?;
+            if compute_pass
+                .set_cached_compute_pipeline(effects_meta.active_indirect_pipeline_id)
+                .is_err()
+            {
+                // FIXME - Bevy doesn't allow returning custom errors here...
+                return Ok(());
+            }
 
             //error!("FIXME - effect_metadata_buffer has gaps!!!! this won't work. len() is
             // the size exluding gaps!");
@@ -6677,7 +6702,14 @@ impl Node for VfxSimulateNode {
                         warn!("Missing sort-fill pipeline.");
                         continue;
                     };
-                    compute_pass.set_cached_compute_pipeline(pipeline_id)?;
+                    if compute_pass
+                        .set_cached_compute_pipeline(pipeline_id)
+                        .is_err()
+                    {
+                        compute_pass.pop_debug_group();
+                        // FIXME - Bevy doesn't allow returning custom errors here...
+                        return Ok(());
+                    }
 
                     // Bind group sort_fill@0
                     let particle_buffer = effect_buffer.particle_buffer();
@@ -6726,8 +6758,15 @@ impl Node for VfxSimulateNode {
                 {
                     compute_pass.push_debug_group("hanabi:sort");
 
-                    compute_pass
-                        .set_cached_compute_pipeline(sort_bind_groups.sort_pipeline_id())?;
+                    if compute_pass
+                        .set_cached_compute_pipeline(sort_bind_groups.sort_pipeline_id())
+                        .is_err()
+                    {
+                        compute_pass.pop_debug_group();
+                        // FIXME - Bevy doesn't allow returning custom errors here...
+                        return Ok(());
+                    }
+
                     compute_pass.set_bind_group(0, sort_bind_groups.sort_bind_group(), &[]);
                     let indirect_offset =
                         sort_bind_groups.get_sort_indirect_dispatch_byte_offset() as u64;
@@ -6744,7 +6783,14 @@ impl Node for VfxSimulateNode {
 
                     // Fetch compute pipeline
                     let pipeline_id = sort_bind_groups.get_sort_copy_pipeline_id();
-                    compute_pass.set_cached_compute_pipeline(pipeline_id)?;
+                    if compute_pass
+                        .set_cached_compute_pipeline(pipeline_id)
+                        .is_err()
+                    {
+                        compute_pass.pop_debug_group();
+                        // FIXME - Bevy doesn't allow returning custom errors here...
+                        return Ok(());
+                    }
 
                     // Bind group sort_copy@0
                     let indirect_index_buffer = effect_buffer.indirect_index_buffer();
