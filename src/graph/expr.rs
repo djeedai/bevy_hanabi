@@ -458,6 +458,9 @@ impl Module {
     }
 
     impl_module_unary!(abs, Abs);
+    impl_module_unary!(acos, Acos);
+    impl_module_unary!(asin, Asin);
+    impl_module_unary!(atan, Atan);
     impl_module_unary!(all, All);
     impl_module_unary!(any, Any);
     impl_module_unary!(ceil, Ceil);
@@ -473,6 +476,7 @@ impl Module {
     impl_module_unary!(normalize, Normalize);
     impl_module_unary!(pack4x8snorm, Pack4x8snorm);
     impl_module_unary!(pack4x8unorm, Pack4x8unorm);
+    impl_module_unary!(round, Round);
     impl_module_unary!(saturate, Saturate);
     impl_module_unary!(sign, Sign);
     impl_module_unary!(sin, Sin);
@@ -513,6 +517,7 @@ impl Module {
     }
 
     impl_module_binary!(add, Add);
+    impl_module_binary!(atan2, Atan2);
     impl_module_binary!(cross, Cross);
     impl_module_binary!(distance, Distance);
     impl_module_binary!(div, Div);
@@ -1679,6 +1684,24 @@ pub enum UnaryOperator {
     /// Only valid for numeric operands.
     Abs,
 
+    /// Inverse cosine operator.
+    ///
+    /// Return the inverse cosine of the operand, component-wise for vectors.
+    /// Only valid for floating-point operands.
+    Acos,
+
+    /// Inverse sine operator.
+    ///
+    /// Return the inverse sine of the operand, component-wise for vectors.
+    /// Only valid for floating-point operands.
+    Asin,
+
+    /// Inverse tangent operator.
+    ///
+    /// Return the inverse tangent of the operand, component-wise for vectors.
+    /// Only valid for floating-point operands.
+    Atan,
+
     /// Logical ALL operator for bool vectors.
     ///
     /// Return `true` if all the components of the bool vector operand are
@@ -1774,6 +1797,12 @@ pub enum UnaryOperator {
     /// be in `[0:1]` before packing; values outside this range are clamped.
     Pack4x8unorm,
 
+    /// Rounding operator.
+    ///
+    /// Round the given scalar of vector float to the nearest integer, returned
+    /// as a float value.
+    Round,
+
     /// Saturate operator.
     ///
     /// Clamp the value of the operand to the \[0:1\] range, component-wise for
@@ -1855,6 +1884,9 @@ impl ToWgslString for UnaryOperator {
     fn to_wgsl_string(&self) -> String {
         match *self {
             UnaryOperator::Abs => "abs".to_string(),
+            UnaryOperator::Acos => "acos".to_string(),
+            UnaryOperator::Asin => "asin".to_string(),
+            UnaryOperator::Atan => "atan".to_string(),
             UnaryOperator::All => "all".to_string(),
             UnaryOperator::Any => "any".to_string(),
             UnaryOperator::Ceil => "ceil".to_string(),
@@ -1870,6 +1902,7 @@ impl ToWgslString for UnaryOperator {
             UnaryOperator::Normalize => "normalize".to_string(),
             UnaryOperator::Pack4x8snorm => "pack4x8snorm".to_string(),
             UnaryOperator::Pack4x8unorm => "pack4x8unorm".to_string(),
+            UnaryOperator::Round => "round".to_string(),
             UnaryOperator::Saturate => "saturate".to_string(),
             UnaryOperator::Sign => "sign".to_string(),
             UnaryOperator::Sin => "sin".to_string(),
@@ -1896,6 +1929,12 @@ pub enum BinaryOperator {
     ///
     /// Returns the sum of its operands. Only valid for numeric operands.
     Add,
+
+    /// Inverse tangent operator with 2 arguments.
+    ///
+    /// Returns the arctangent (inverse tangent) of the ratio of the first
+    /// argument divided by the second argument.
+    Atan2,
 
     /// Cross product operator.
     ///
@@ -2043,7 +2082,8 @@ impl BinaryOperator {
             | BinaryOperator::Mul
             | BinaryOperator::Remainder
             | BinaryOperator::Sub => false,
-            BinaryOperator::Cross
+            BinaryOperator::Atan2
+            | BinaryOperator::Cross
             | BinaryOperator::Distance
             | BinaryOperator::Dot
             | BinaryOperator::Max
@@ -2074,6 +2114,7 @@ impl ToWgslString for BinaryOperator {
     fn to_wgsl_string(&self) -> String {
         match *self {
             BinaryOperator::Add => "+".to_string(),
+            BinaryOperator::Atan2 => "atan2".to_string(),
             BinaryOperator::Cross => "cross".to_string(),
             BinaryOperator::Distance => "distance".to_string(),
             BinaryOperator::Div => "/".to_string(),
@@ -2509,6 +2550,81 @@ impl WriterExpr {
         self.unary_op(UnaryOperator::Any)
     }
 
+    /// Apply the "acos" (inverse cosine) operator to the current float scalar
+    /// or vector expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions. The return value lies in
+    /// the 0 ≤ x ≤ π range.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Acos: `y = acos(x);`
+    /// let y = x.acos();
+    /// ```
+    #[inline]
+    pub fn acos(self) -> Self {
+        self.unary_op(UnaryOperator::Acos)
+    }
+
+    /// Apply the "asin" (inverse sine) operator to the current float scalar or
+    /// vector expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions. The return value lies in
+    /// the -π/2 ≤ x ≤ π/2 range.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Asin: `y = asin(x);`
+    /// let y = x.asin();
+    /// ```
+    #[inline]
+    pub fn asin(self) -> Self {
+        self.unary_op(UnaryOperator::Asin)
+    }
+
+    /// Apply the "atan" (inverse tangent) operator to the current float scalar
+    /// or vector expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions. The return value lies in
+    /// the -π/2 ≤ x ≤ π/2 range.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1., 1., 1.);`.
+    /// let x = w.lit(Vec3::ONE);
+    ///
+    /// // Atan: `y = atan(x);`
+    /// let y = x.atan();
+    /// ```
+    #[inline]
+    pub fn atan(self) -> Self {
+        self.unary_op(UnaryOperator::Atan)
+    }
+
     /// Apply the "ceil" operator to the current float scalar or vector
     /// expression.
     ///
@@ -2818,6 +2934,30 @@ impl WriterExpr {
         self.unary_op(UnaryOperator::Pack4x8unorm)
     }
 
+    /// Apply the "round" operator to the current float scalar or vector
+    /// expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(1.5, -3.2, 0.75);`.
+    /// let x = w.lit(Vec3::new(1.5, -3.2, 0.75));
+    ///
+    /// // Sign: `y = round(x);`
+    /// let y = x.round();
+    /// ```
+    #[inline]
+    pub fn round(self) -> Self {
+        self.unary_op(UnaryOperator::Round)
+    }
+
     /// Apply the "sign" operator to the current float scalar or vector
     /// expression.
     ///
@@ -3105,6 +3245,33 @@ impl WriterExpr {
     #[inline]
     pub fn add(self, other: Self) -> Self {
         self.binary_op(other, BinaryOperator::Add)
+    }
+
+    /// Apply the "atan2" (inverse tangent with 2 arguments) operator to the
+    /// current float scalar or vector expression.
+    ///
+    /// This is a unary operator, which applies to float scalar or vector
+    /// operand expressions to produce a float scalar or vector. It applies
+    /// component-wise to vector operand expressions. The return value lies in
+    /// the -π ≤ x ≤ π range, and represents a value whose tangent is equal to
+    /// y over x (`z = atan2(y, x)` <=> `tan(z) = y / x`).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // Two literal expressions `x` and `y`.
+    /// let x = w.lit(Vec3::new(1., 0., -1.));
+    /// let y = w.lit(Vec3::ONE);
+    ///
+    /// // Atan: `z = atan2(y, x);`
+    /// let z = y.atan2(x);
+    /// ```
+    #[inline]
+    pub fn atan2(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::Atan2)
     }
 
     /// Calculate the cross product of the current expression by another
@@ -4015,8 +4182,11 @@ mod tests {
         let uu = m.lit(0x0u32);
 
         let abs = m.abs(x);
+        let acos = m.acos(w);
         let all = m.all(z);
         let any = m.any(z);
+        let asin = m.asin(w);
+        let atan = m.atan(w);
         let ceil = m.ceil(y);
         let cos = m.cos(y);
         let exp = m.exp(y);
@@ -4030,6 +4200,7 @@ mod tests {
         let norm = m.normalize(y);
         let pack4x8snorm = m.pack4x8snorm(v);
         let pack4x8unorm = m.pack4x8unorm(v);
+        let round = m.round(y);
         let saturate = m.saturate(y);
         let sign = m.sign(y);
         let sin = m.sin(y);
@@ -4053,8 +4224,11 @@ mod tests {
                 "abs",
                 &format!("particle.{}", Attribute::POSITION.name())[..],
             ),
+            (acos, "acos", "vec4<f32>(0.,0.,0.,1.)"),
             (all, "all", "vec3<bool>(false,true,false)"),
             (any, "any", "vec3<bool>(false,true,false)"),
+            (asin, "asin", "vec4<f32>(0.,0.,0.,1.)"),
+            (atan, "atan", "vec4<f32>(0.,0.,0.,1.)"),
             (ceil, "ceil", "vec3<f32>(1.,-3.1,6.99)"),
             (cos, "cos", "vec3<f32>(1.,-3.1,6.99)"),
             (exp, "exp", "vec3<f32>(1.,-3.1,6.99)"),
@@ -4068,6 +4242,7 @@ mod tests {
             (norm, "normalize", "vec3<f32>(1.,-3.1,6.99)"),
             (pack4x8snorm, "pack4x8snorm", "vec4<f32>(-1.,1.,0.,7.2)"),
             (pack4x8unorm, "pack4x8unorm", "vec4<f32>(-1.,1.,0.,7.2)"),
+            (round, "round", "vec3<f32>(1.,-3.1,6.99)"),
             (saturate, "saturate", "vec3<f32>(1.,-3.1,6.99)"),
             (sign, "sign", "vec3<f32>(1.,-3.1,6.99)"),
             (sin, "sin", "vec3<f32>(1.,-3.1,6.99)"),
@@ -4102,6 +4277,7 @@ mod tests {
         let x = m.attr(Attribute::POSITION);
         let y = m.lit(Vec3::ONE);
 
+        let atan2 = m.atan2(x, y);
         let cross = m.cross(x, y);
         let dist = m.distance(x, y);
         let dot = m.dot(x, y);
@@ -4115,6 +4291,7 @@ mod tests {
             ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
 
         for (expr, op) in [
+            (atan2, "atan2"),
             (cross, "cross"),
             (dist, "distance"),
             (dot, "dot"),
