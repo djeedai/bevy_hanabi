@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `EffectAsset::prng_seed` used as the PRNG seed for random expressions on GPU.
   Previously the PRNG seed was implicitly set to a random value.
   To restore the former behavior, just set `prng_seed = rand::random::<u32>()`.
+- Added a loop count to `Spawner`, which allows repeating a spawn pattern exactly N times.
+  Once the loop count is reached, the spawner deactivates itself at the beginning of the next `tick()` call.
 
 ### Changed
 
@@ -56,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nor any other built-in functionality of Hanabi.
 - `ParticleEffect` now requires (in the ECS sense) the `CompiledParticleEffect`, `Visibility`, and `Transform` components.
   This means those components are automatically added by Bevy each time a `ParticleEffect` is spawned. (#418)
+- The `EffectSpawner::spawner` field is now public.
+- `Spawner::once()` will now deactivate the spawner after the one (and only) burst.
+  This makes the behavior consistent with the new loop count,
+  and also enforces the semantic that an active spawner always has more particles to spawn.
 
 ### Fixed
 
@@ -80,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Use the `Attribute::RIBBON_ID` instead to assign a per-particle ribbon ID.
 - Removed `ParticleEffectBundle`. Use `ParticleEffect` directly instead.
 - Removed `ParticleEffect::z_layer_2d`. Use the Z coordinate of the effect's `Tranform` to order effects. (#423)
+- Removed `EffectSpawner::spawner()` as the `spawner` field is now public.
 
 ## [0.14.0] 2024-12-09
 
