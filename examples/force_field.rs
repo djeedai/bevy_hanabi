@@ -222,11 +222,11 @@ fn setup(
     gradient.add_key(0.0, Vec4::new(0.0, 1.0, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.0, 1.0, 1.0, 0.0));
 
-    // Prevent the spawner from immediately emitting particles on component
-    // spawning. This allows controling emitting with a mouse button.
-    let spawn_immediately = false;
     // Each mouse click spawns a burst of 30 particles, once.
-    let spawner = Spawner::once(30.0.into()).with_starts_active(false);
+    let spawner = SpawnerSettings::once(30.0.into())
+        // Prevent the spawner from immediately emitting particles on component
+        // spawning. This allows controling emitting with a mouse button.
+        .with_emit_on_start(false);
 
     let writer = ExprWriter::new();
 
@@ -343,7 +343,6 @@ fn spawn_on_click(
 
                 // Spawn a single burst of particles
                 effect_spawner.reset();
-                effect_spawner.set_active(true);
             }
         }
     }

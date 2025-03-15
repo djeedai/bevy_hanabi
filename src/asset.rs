@@ -16,7 +16,7 @@ use wgpu::{BlendComponent, BlendFactor, BlendOperation, BlendState};
 use crate::{
     modifier::{Modifier, RenderModifier},
     BoxedModifier, ExprHandle, ModifierContext, Module, ParticleLayout, Property, PropertyLayout,
-    SimulationSpace, Spawner, TextureLayout,
+    SimulationSpace, SpawnerSettings, TextureLayout,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -281,7 +281,7 @@ pub struct EffectAsset {
     /// particles they expect to render.
     capacity: u32,
     /// The CPU spawner for this effect.
-    pub spawner: Spawner,
+    pub spawner: SpawnerSettings,
     /// For 2D rendering, the Z coordinate used as the sort key.
     ///
     /// This value is passed to the render pipeline and used when sorting
@@ -354,7 +354,7 @@ impl EffectAsset {
     ///
     /// ```
     /// # use bevy_hanabi::*;
-    /// let spawner = Spawner::rate(5_f32.into()); // 5 particles per second
+    /// let spawner = SpawnerSettings::rate(5_f32.into()); // 5 particles per second
     /// let module = Module::default();
     /// let capacity = 1024; // max 1024 particles alive at any time
     /// let effect = EffectAsset::new(capacity, spawner, module);
@@ -366,7 +366,7 @@ impl EffectAsset {
     ///
     /// ```
     /// # use bevy_hanabi::*;
-    /// let spawner = Spawner::rate(5_f32.into()); // 5 particles per second
+    /// let spawner = SpawnerSettings::rate(5_f32.into()); // 5 particles per second
     ///
     /// let mut module = Module::default();
     ///
@@ -380,7 +380,7 @@ impl EffectAsset {
     ///
     /// [`capacities()`]: crate::EffectAsset::capacities
     /// [`Expr`]: crate::graph::expr::Expr
-    pub fn new(capacity: u32, spawner: Spawner, module: Module) -> Self {
+    pub fn new(capacity: u32, spawner: SpawnerSettings, module: Module) -> Self {
         Self {
             capacity,
             spawner,
@@ -389,27 +389,24 @@ impl EffectAsset {
         }
     }
 
-    /// Get the capacities of the effect, in number of particles per group.
+    /// Get the capacity of the effect, in number of particles.
     ///
-    /// For example, if this function returns `&[256, 512]`, then this effect
-    /// has two groups, the first of which has a maximum of 256 particles and
-    /// the second of which has a maximum of 512 particles.
-    ///
-    /// Each value in the array represents the number of particles stored in GPU
-    /// memory at all time for the group with the corresponding index, even if
-    /// unused, so you should try to minimize this value. However, the
-    /// [`Spawner`] cannot emit more particles than the capacity of group 0.
-    /// Whatever the spawner settings, if the number of particles reaches the
-    /// capacity, no new particle can be emitted. Setting an appropriate
-    /// capacity for an effect is therefore a compromise between more particles
-    /// available for visuals and more GPU memory usage.
+    /// This value represents the number of particles stored in GPU memory at
+    /// all times, even if unused, so you should try to minimize it.
+    /// However, the library cannot emit more particles than the effect
+    /// capacity. Whatever the spawner settings, if the number of particles
+    /// reaches the capacity, no new particle can be emitted. Choosing an
+    /// appropriate capacity for an effect is therefore a compromise between
+    /// more particles available for visuals and more GPU memory usage.
     ///
     /// Common values range from 256 or less for smaller effects, to several
     /// hundreds of thousands for unique effects consuming a large portion of
     /// the GPU memory budget. Hanabi has been tested with over a million
     /// particles, however the performance will largely depend on the actual GPU
     /// hardware and available memory, so authors are encouraged not to go too
-    /// crazy with the capacities.
+    /// crazy with the capacity.
+    ///
+    /// [`EffectSpawner`]: crate::EffectSpawner
     pub fn capacity(&self) -> u32 {
         self.capacity
     }
@@ -768,7 +765,7 @@ mod tests {
             speed: module.lit(1.),
         };
 
-        let mut effect = EffectAsset::new(4096, Spawner::rate(30.0.into()), module)
+        let mut effect = EffectAsset::new(4096, SpawnerSettings::rate(30.0.into()), module)
             .init(init_pos_sphere)
             .init(init_vel_sphere)
             //.update(AccelModifier::default())
@@ -851,7 +848,7 @@ mod tests {
         let effect = EffectAsset {
             name: "Effect".into(),
             capacity: 4096,
-            spawner: Spawner::rate(30.0.into()),
+            spawner: SpawnerSettings::rate(30.0.into()),
             module,
             ..Default::default()
         }

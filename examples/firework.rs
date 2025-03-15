@@ -87,7 +87,7 @@ fn create_rocket_effect() -> EffectAsset {
         child_index: 1,
     };
 
-    let spawner = Spawner::rate(1.0.into());
+    let spawner = SpawnerSettings::rate(1.0.into());
 
     EffectAsset::new(32, spawner, writer.finish())
         .with_name("rocket")
@@ -138,7 +138,7 @@ fn create_sparkle_trail_effect() -> EffectAsset {
     let update_drag = LinearDragModifier::new(drag);
 
     // The (CPU) spawner is unused
-    let spawner = Spawner::default();
+    let spawner = SpawnerSettings::default();
 
     let mut color_gradient = Gradient::new();
     color_gradient.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
@@ -196,7 +196,7 @@ fn create_trails_effect() -> EffectAsset {
     let update_drag = LinearDragModifier::new(drag);
 
     // The (CPU) spawner is unused
-    let spawner = Spawner::default();
+    let spawner = SpawnerSettings::default();
 
     let mut color_gradient = Gradient::new();
     color_gradient.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));

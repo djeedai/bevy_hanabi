@@ -73,7 +73,7 @@ fn setup(
     // Create a new effect asset spawning 30 particles per second from a circle
     // and slowly fading from blue-ish to transparent over their lifetime.
     // By default the asset spawns the particles at Z=0.
-    let spawner = Spawner::rate(30.0.into());
+    let spawner = SpawnerSettings::rate(30.0.into());
     let effect = effects.add(
         EffectAsset::new(4096, spawner, module)
             .with_name("2d")

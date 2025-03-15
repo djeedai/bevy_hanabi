@@ -161,17 +161,21 @@ fn create_effect(mesh: Handle<Mesh>, effects: &mut Assets<EffectAsset>) -> Handl
 
     // Add the effect.
     effects.add(
-        EffectAsset::new(256, Spawner::burst(16.0.into(), 0.45.into()), module)
-            .with_name("cartoon explosion")
-            .init(init_xz_pos)
-            .init(init_y_pos)
-            .init(init_age)
-            .init(init_lifetime)
-            .init(init_size)
-            .init(init_velocity)
-            .update(update_size)
-            .render(render_lambertian)
-            .mesh(mesh),
+        EffectAsset::new(
+            256,
+            SpawnerSettings::burst(16.0.into(), 0.45.into()),
+            module,
+        )
+        .with_name("cartoon explosion")
+        .init(init_xz_pos)
+        .init(init_y_pos)
+        .init(init_age)
+        .init(init_lifetime)
+        .init(init_size)
+        .init(init_velocity)
+        .update(update_size)
+        .render(render_lambertian)
+        .mesh(mesh),
     )
 }
 

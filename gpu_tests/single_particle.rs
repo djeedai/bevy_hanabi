@@ -38,7 +38,7 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<EffectAsset>>) {
     let mut module = Module::default();
     let pos = module.lit(Vec3::new(0.1, 0.2, 0.3));
     let size = module.lit(Vec3::ONE * 10.);
-    let mut asset = EffectAsset::new(16, Spawner::rate(1000.0.into()), module)
+    let mut asset = EffectAsset::new(16, SpawnerSettings::rate(1000.0.into()), module)
         .init(SetAttributeModifier::new(Attribute::POSITION, pos))
         .init(SetAttributeModifier::new(Attribute::SIZE3, size));
     asset.name = "test_asset".to_string();

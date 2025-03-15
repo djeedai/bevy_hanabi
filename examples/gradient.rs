@@ -71,7 +71,7 @@ fn setup(
     module.add_texture_slot("color");
 
     let effect = effects.add(
-        EffectAsset::new(32768, Spawner::rate(1000.0.into()), module)
+        EffectAsset::new(32768, SpawnerSettings::rate(1000.0.into()), module)
             .with_name("gradient")
             .init(init_pos)
             .init(init_vel)

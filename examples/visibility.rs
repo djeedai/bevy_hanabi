@@ -80,7 +80,7 @@ fn setup(
 
     let mut asset = EffectAsset::new(
         4096,
-        Spawner::burst(50.0.into(), 15.0.into()),
+        SpawnerSettings::burst(50.0.into(), 15.0.into()),
         writer.finish(),
     )
     .with_simulation_condition(SimulationCondition::WhenVisible)

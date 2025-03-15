@@ -39,9 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Previously the PRNG seed was implicitly set to a random value.
   To restore the former behavior, just set `prng_seed = rand::random::<u32>()`.
 - Added some new expressions: `acos`, `asin`, `atan`, `atan2`, `round`.
-- Added `Spawner::cycle_count`, which allows repeating a spawn pattern exactly N times (or forever if N=0).
-  Once the cycle count is reached, the spawner deactivates itself at the beginning of the next `tick()` call.
+- Added `SpawnerSettings::cycle_count`, which allows repeating a spawn pattern exactly N times (or forever if N=0).
 - Added several utility functions on `EffectSpawner` to determine its current state.
+- Added `SpawnerSettings::with_emit_on_start()` to enable or disable starting the particle emitting
+  when the `EffectSpawner` component is spawned into the ECS world.
+  This allows spawning the component but only emitting particles under control of the application.
 
 ### Changed
 
@@ -60,10 +62,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nor any other built-in functionality of Hanabi.
 - `ParticleEffect` now requires (in the ECS sense) the `CompiledParticleEffect`, `Visibility`, and `Transform` components.
   This means those components are automatically added by Bevy each time a `ParticleEffect` is spawned. (#418)
-- The `EffectSpawner::spawner` field is now public.
-- `Spawner::once()` will now deactivate the spawner after the one (and only) burst.
-  This makes the behavior consistent with the new loop count,
-  and also enforces the semantic that an active spawner always has more particles to spawn.
+- Renamed `Spawner` to `SpawnerSettings` to clarify this object doesn't spawn anything in itself.
+- Renamed `EffectSpawner::spawner` into `settings` for consistency.
+- The `EffectSpawner::settings` and `EffectSpawner::active` fields are now public.
 
 ### Fixed
 
@@ -89,7 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `ParticleEffectBundle`. Use `ParticleEffect` directly instead.
 - Removed `ParticleEffect::z_layer_2d`. Use the Z coordinate of the effect's `Tranform` to order effects. (#423)
 - Removed `EffectSpawner::spawner()` as the `spawner` field is now public.
-- Removed `Spawner::starts_immediately` which was not working and was duplicating semantic with `active`. (#420)
+- Removed `Spawner::starts_immediately` which was not working.
+  This is replaced by `SpawnerSettings::with_emit_on_start()`. (#420)
 
 ## [0.14.0] 2024-12-09
 

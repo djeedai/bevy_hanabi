@@ -115,7 +115,7 @@ fn setup(
     module.add_texture_slot("color");
 
     let effect = effects.add(
-        EffectAsset::new(32768, Spawner::rate(64.0.into()), module)
+        EffectAsset::new(32768, SpawnerSettings::rate(64.0.into()), module)
             .with_name("billboard")
             .with_alpha_mode(bevy_hanabi::AlphaMode::Mask(alpha_cutoff))
             .init(init_pos)

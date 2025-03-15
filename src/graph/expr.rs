@@ -1487,12 +1487,12 @@ pub enum BuiltInOperator {
     ///
     /// The random number generator is from [the PCG family] of PRNGs, and is
     /// implemented directly inside the shader, and running on the GPU
-    /// exclusively. It's seeded by the [`Spawner`].
+    /// exclusively. It's seeded by the [`SpawnerSettings`].
     ///
     /// Type: Same as its [`ValueType`].
     ///
     /// [the PCG family]: https://www.pcg-random.org/
-    /// [`Spawner`]: crate::Spawner
+    /// [`SpawnerSettings`]: crate::SpawnerSettings
     Rand(ValueType),
     /// Value of the alpha cutoff for alpha masking.
     ///
@@ -2216,8 +2216,8 @@ impl ToWgslString for TernaryOperator {
 /// let init_modifier = SetAttributeModifier::new(Attribute::LIFETIME, expr);
 ///
 /// // Create an EffectAsset with the modifier and the Module from the writer
-/// let effect =
-///     EffectAsset::new(1024, Spawner::rate(32_f32.into()), w.finish()).init(init_modifier);
+/// let effect = EffectAsset::new(1024, SpawnerSettings::rate(32_f32.into()), w.finish())
+///     .init(init_modifier);
 /// ```
 ///
 /// [`finish()`]: ExprWriter::finish
@@ -2415,7 +2415,7 @@ impl ExprWriter {
     ///
     /// ```
     /// # use bevy_hanabi::*;
-    /// # let spawner = Spawner::default();
+    /// # let spawner = SpawnerSettings::default();
     /// let mut w = ExprWriter::new();
     /// // [...]
     /// let module = w.finish();

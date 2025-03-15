@@ -2,8 +2,8 @@
 //!
 //! This example demonstrates the use of effect properties to control some
 //! particle properties like the spawn velocity direction and initial particle
-//! color. Particles are spawned "manually" with [`Spawner::reset()`], providing
-//! total control to the application.
+//! color. Particles are spawned "manually" with [`EffectSpawner::reset()`],
+//! providing total control to the application.
 
 use bevy::{
     core_pipeline::tonemapping::Tonemapping, math::Vec3Swizzles, prelude::*,
@@ -75,7 +75,10 @@ fn setup(
         Name::new("ball"),
     ));
 
-    let spawner = Spawner::once(100.0.into()).with_starts_active(false);
+    let spawner = SpawnerSettings::once(100.0.into())
+        // Disable starting emitting particles when the EffectSpawner is instantiated. We want
+        // complete control, and only emit when reset() is called.
+        .with_emit_on_start(false);
 
     let writer = ExprWriter::new();
 
@@ -208,7 +211,6 @@ fn update(
 
             // Spawn the particles
             effect_spawner.reset();
-            effect_spawner.set_active(true);
         }
     }
 }
