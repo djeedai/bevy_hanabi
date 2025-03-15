@@ -2171,7 +2171,7 @@ else { return c1; }
     // Regression test for #228
     #[test]
     fn test_compile_effect_changed() {
-        let spawner = Spawner::once(32.0.into(), true);
+        let spawner = Spawner::once(32.0.into());
 
         let mut app = make_test_app();
 
@@ -2260,7 +2260,7 @@ else { return c1; }
 
     #[test]
     fn test_compile_effect_visibility() {
-        let spawner = Spawner::once(32.0.into(), true);
+        let spawner = Spawner::once(32.0.into());
 
         for test_case in &[
             TestCase::new(None),

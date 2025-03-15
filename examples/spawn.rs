@@ -153,7 +153,7 @@ fn setup(
         speed: writer2.lit(2.).expr(),
     };
     let effect2 = effects.add(
-        EffectAsset::new(32768, Spawner::once(1000.0.into(), true), writer2.finish())
+        EffectAsset::new(32768, Spawner::once(1000.0.into()), writer2.finish())
             .with_name("emit:once")
             .init(init_pos2)
             .init(init_vel2)
