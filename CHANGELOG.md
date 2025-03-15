@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `EffectAsset::prng_seed` used as the PRNG seed for random expressions on GPU.
   Previously the PRNG seed was implicitly set to a random value.
   To restore the former behavior, just set `prng_seed = rand::random::<u32>()`.
+- Added some new expressions: `acos`, `asin`, `atan`, `atan2`, `round`.
 - Added a loop count to `Spawner`, which allows repeating a spawn pattern exactly N times.
   Once the loop count is reached, the spawner deactivates itself at the beginning of the next `tick()` call.
 
