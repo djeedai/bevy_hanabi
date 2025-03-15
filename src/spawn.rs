@@ -173,17 +173,17 @@ pub struct Spawner {
 
     /// Time between bursts of the particle system, in seconds.
     ///
-    /// If this is infinity, there's only one burst.
     /// If this is [`spawn_duration`] or less, the system spawns a steady stream
     /// of particles.
     ///
     /// [`spawn_duration`]: Spawner::spawn_duration
     period: CpuValue<f32>,
 
-    /// Number of loops the spawner is active before completing.
+    /// Number of cycles the spawner is active before completing.
     ///
-    /// Each loop lasts for `period`. A value of `0` means "infinite".
-    loop_count: u32,
+    /// Each cycle lasts for `period`. A value of `0` means "infinite", that is
+    /// the spanwe emits particle forever as long as it's active.
+    cycle_count: u32,
 
     /// Whether the spawner is active at startup.
     ///
@@ -191,18 +191,11 @@ pub struct Spawner {
     ///
     /// [`EffectSpawner::active`]: crate::EffectSpawner::active
     starts_active: bool,
-
-    /// Whether the burst of a once-style spawner triggers immediately when the
-    /// spawner becomes active.
-    ///
-    /// If `false`, the spawner doesn't do anything until
-    /// [`EffectSpawner::reset()`] is called.
-    starts_immediately: bool,
 }
 
 impl Default for Spawner {
     fn default() -> Self {
-        Self::once(1.0f32.into(), true)
+        Self::once(1.0f32.into())
     }
 }
 
@@ -223,8 +216,8 @@ impl Spawner {
     ///   then the particles spawn all at once exactly at the same instant.
     /// - `period` is the amount of time between bursts of particles. If this is
     ///   <= `spawn_duration`, then the spawner spawns a steady stream of
-    ///   particles. If this is infinity, then there is a single burst.
-    /// - `loop_count` is the number of times this pattern occurs. Set this to
+    ///   particles. This is ignored if `cycle_count == 1`.
+    /// - `cycle_count` is the number of times this pattern occurs. Set this to
     ///   `0` to repeat forever while the spawner is active.
     ///
     /// ```txt
@@ -241,22 +234,17 @@ impl Spawner {
     /// single-frame burst, simply set the `spawn_duration` to zero; this is
     /// what [`once()`] does.
     ///
-    /// The `period` can be (positive) infinity; in that case, the spawner only
-    /// spawns a single time. This is equivalent to using [`once()`].
-    ///
-    /// Note that you should avoid setting the `period` to infinite and the loop
-    /// count to zero at the same time. This will produce a burst-like effect
-    /// similar to the one [`once()`] creates, but the spawner will remain
-    /// active forever (since there's conceptually and infinity of loops, each
-    /// of infinite duration) without spawning any more particle. This
-    /// breaks the semantic of "active" meaning "has more particles to
-    /// spawn".
-    ///
     /// # Panics
     ///
     /// Panics if `period` can produce a negative number (the sample range lower
-    /// bound is negative), or can only produce 0 (the sample range upper bound
-    /// is not strictly positive).
+    /// bound is negative), unless the cycle count is exactly 1, in which case
+    /// the period is irrelevant.
+    ///
+    /// Panics if `period` can only produce 0 (the sample range upper bound
+    /// is not strictly positive), unless the cycle count is exactly 1, in which
+    /// case the period is irrelevant.
+    ///
+    /// Panics any value is infinite.
     ///
     /// # Example
     ///
@@ -274,45 +262,46 @@ impl Spawner {
         count: CpuValue<f32>,
         spawn_duration: CpuValue<f32>,
         period: CpuValue<f32>,
-        loop_count: u32,
+        cycle_count: u32,
     ) -> Self {
         assert!(
-            period.range()[0] >= 0.,
+            cycle_count == 1 || period.range()[0] >= 0.,
             "`period` must not generate negative numbers (period.min was {}, expected >= 0).",
             period.range()[0]
         );
         assert!(
-            period.range()[1] > 0.,
+            cycle_count == 1 || period.range()[1] > 0.,
             "`period` must be able to generate a positive number (period.max was {}, expected > 0).",
             period.range()[1]
+        );
+        assert!(
+            period.range()[0].is_finite() && period.range()[1].is_finite(),
+            "`period` {:?} has an infinite bound. If upgrading from a previous version, use `cycle_count = 1` instead for a single-cycle burst.",
+            period
         );
 
         Self {
             count,
             spawn_duration,
             period,
-            loop_count,
+            cycle_count,
             starts_active: true,
-            starts_immediately: true,
         }
     }
 
     /// Create a spawner that spawns a burst of particles once.
     ///
     /// The burst of particles is spawned all at once in the same frame. After
-    /// that, the spawner idles, waiting to be manually reset via
-    /// [`EffectSpawner::reset()`].
+    /// that, the spawner deactivates, waiting to be manually reset via
+    /// [`EffectSpawner::reset()`] and re-activated with
+    /// [`EffectSpawner::set_active(true)`].
     ///
-    /// If `spawn_immediately` is `false`, this waits until
-    /// [`EffectSpawner::reset()`] before spawning a burst of particles.
-    ///
-    /// When `spawn_immediately == true`, this spawns a burst immediately on
-    /// activation. In that case, this is a convenience for:
+    /// This is a convenience for:
     ///
     /// ```
     /// # use bevy_hanabi::{Spawner, CpuValue};
     /// # let count = CpuValue::Single(1.);
-    /// Spawner::new(count, 0.0.into(), f32::INFINITY.into(), 1);
+    /// Spawner::new(count, 0.0.into(), 0.0.into(), 1);
     /// ```
     ///
     /// # Example
@@ -323,40 +312,23 @@ impl Spawner {
     /// let spawner = Spawner::once(32.0.into(), true);
     /// ```
     ///
-    /// [`reset()`]: crate::Spawner::reset
-    pub fn once(count: CpuValue<f32>, spawn_immediately: bool) -> Self {
-        let mut spawner = Self::new(count, 0.0.into(), f32::INFINITY.into(), 1);
-        spawner.starts_immediately = spawn_immediately;
-        spawner
+    /// [`EffectSpawner::set_active(true)`]: crate::EffectSpawner::set_active
+    pub fn once(count: CpuValue<f32>) -> Self {
+        Self::new(count, 0.0.into(), 0.0.into(), 1)
     }
 
     /// Get whether this spawner emits a single burst.
     ///
-    /// This is true either if the period is infinite, or if the loop count is
-    /// exactly equal to 1.
-    ///
-    /// Note that a spawner can be both [`is_once()`] and [`is_forever()`] at
-    /// the same time, if both the period and the loop count are infinite.
-    ///
-    /// [`is_once()`]: Self::is_once
-    /// [`is_forever()`]: Self::is_forever
+    /// This is true if the cycle count is exactly equal to 1.
     pub fn is_once(&self) -> bool {
-        if let CpuValue::Single(f) = self.period {
-            f.is_infinite()
-        } else {
-            self.loop_count == 1
-        }
+        self.cycle_count == 1
     }
 
     /// Get whether this spawner emits particles forever while active.
     ///
-    /// Note that a spawner can be both [`is_once()`] and [`is_forever()`] at
-    /// the same time, if both the period and the loop count are infinite.
-    ///
-    /// [`is_once()`]: Self::is_once
-    /// [`is_forever()`]: Self::is_forever
+    /// This is true if the cycle count is exactly equal to 0.
     pub fn is_forever(&self) -> bool {
-        self.loop_count == 0
+        self.cycle_count == 0
     }
 
     /// Create a spawner that spawns particles at `rate`, accumulated each
@@ -438,28 +410,46 @@ impl Spawner {
 
     /// Set the duration of a spawn cycle, in seconds.
     ///
-    /// A spawn cycles includes the [`spawn_duration()`] value, and any extra
+    /// A spawn cycle includes the [`spawn_duration()`] value, and any extra
     /// wait time (if larger than spawn time).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the period is infinite.
     ///
     /// [`spawn_duration()`]: Self::spawn_duration
     pub fn with_period(mut self, period: CpuValue<f32>) -> Self {
+        assert!(
+            period.range()[0].is_finite() && period.range()[1].is_finite(),
+            "`period` {:?} has an infinite bound. If upgrading from a previous version, use `cycle_count = 1` instead for a single-cycle burst.",
+            period
+        );
         self.period = period;
         self
     }
 
     /// Set the duration of the spawn cycle, in seconds.
     ///
-    /// A spawn cycles includes the [`spawn_duration()`] value, and any extra
+    /// A spawn cycle includes the [`spawn_duration()`] value, and any extra
     /// wait time (if larger than spawn time).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the period is infinite.
     ///
     /// [`spawn_duration()`]: Self::spawn_duration
     pub fn set_period(&mut self, period: CpuValue<f32>) {
+        assert!(
+            period.range()[0].is_finite() && period.range()[1].is_finite(),
+            "`period` {:?} has an infinite bound. If upgrading from a previous version, use `cycle_count = 1` instead for a single-cycle burst.",
+            period
+        );
         self.period = period;
     }
 
     /// Get the duration of the spawn cycle, in seconds.
     ///
-    /// A spawn cycles includes the [`spawn_duration()`] value, and any extra
+    /// A spawn cycle includes the [`spawn_duration()`] value, and any extra
     /// wait time (if larger than spawn time).
     ///
     /// [`spawn_duration()`]: Self::spawn_duration
@@ -467,41 +457,38 @@ impl Spawner {
         self.period
     }
 
-    /// Set the number of loops to spawn for.
+    /// Set the number of cycles to spawn for.
     ///
-    /// A spawn cycle (loop) includes the [`spawn_duration()`] value, and any
-    /// extra wait time (if larger than spawn time). It lasts for
-    /// [`period()`].
+    /// A spawn cycle includes the [`spawn_duration()`] value, and any extra
+    /// wait time (if larger than spawn time). It lasts for [`period()`].
     ///
     /// [`spawn_duration()`]: Self::spawn_duration
     /// [`period()`]: Self::period
-    pub fn with_loop_count(mut self, loop_count: u32) -> Self {
-        self.loop_count = loop_count;
+    pub fn with_cycle_count(mut self, cycle_count: u32) -> Self {
+        self.cycle_count = cycle_count;
         self
     }
 
-    /// Set the number of loops to spawn for.
+    /// Set the number of cycles to spawn for.
     ///
-    /// A spawn cycle (loop) includes the [`spawn_duration()`] value, and any
-    /// extra wait time (if larger than spawn time). It lasts for
-    /// [`period()`].
+    /// A spawn cycle includes the [`spawn_duration()`] value, and any extra
+    /// wait time (if larger than spawn time). It lasts for [`period()`].
     ///
     /// [`spawn_duration()`]: Self::spawn_duration
     /// [`period()`]: Self::period
-    pub fn set_loop_count(&mut self, loop_count: u32) {
-        self.loop_count = loop_count;
+    pub fn set_cycle_count(&mut self, cycle_count: u32) {
+        self.cycle_count = cycle_count;
     }
 
-    /// Get the number of loops to spawn for.
+    /// Get the number of cycles to spawn for.
     ///
-    /// A spawn cycle (loop) includes the [`spawn_duration()`] value, and any
-    /// extra wait time (if larger than spawn time). It lasts for
-    /// [`period()`].
+    /// A spawn cycle includes the [`spawn_duration()`] value, and any extra
+    /// wait time (if larger than spawn time). It lasts for [`period()`].
     ///
     /// [`spawn_duration()`]: Self::spawn_duration
     /// [`period()`]: Self::period
-    pub fn loop_count(&self) -> u32 {
-        self.loop_count
+    pub fn cycle_count(&self) -> u32 {
+        self.cycle_count
     }
 
     /// Sets whether the spawner starts active when the effect is instantiated.
@@ -541,21 +528,24 @@ pub struct EffectSpawner {
     /// directly overriden by the user.
     pub spawner: Spawner,
 
-    /// Accumulated time since last spawn, in seconds.
-    time: f32,
+    /// Accumulated time for the current (partial) cycle, in seconds.
+    cycle_time: f32,
 
-    /// Number of loops already completed.
-    loop_count: u32,
+    /// Number of cycles already completed.
+    completed_cycle_count: u32,
 
     /// Sampled value of `spawn_duration` until `period` is reached. This is the
     /// duration of the "active" period during which we spawn particles, as
     /// opposed to the "wait" period during which we do nothing until the next
     /// spawn cycle.
-    spawn_duration: f32,
+    sampled_spawn_duration: f32,
 
     /// Sampled value of the time period, in seconds, until the next spawn
     /// cycle.
-    period: f32,
+    sampled_period: f32,
+
+    /// Sampled value of the number of particles to spawn per `spawn_duration`.
+    sampled_count: f32,
 
     /// Number of particles to spawn this frame.
     ///
@@ -588,14 +578,11 @@ impl EffectSpawner {
     pub fn new(spawner: &Spawner) -> Self {
         Self {
             spawner: *spawner,
-            time: if spawner.is_once() && !spawner.starts_immediately {
-                1. // anything > 0
-            } else {
-                0.
-            },
-            loop_count: 0,
-            spawn_duration: 0.,
-            period: 0.,
+            cycle_time: 0.,
+            completed_cycle_count: 0,
+            sampled_spawn_duration: 0.,
+            sampled_period: 0.,
+            sampled_count: 0.,
             spawn_count: 0,
             spawn_remainder: 0.,
             active: spawner.starts_active(),
@@ -624,6 +611,16 @@ impl EffectSpawner {
         self.active
     }
 
+    /// Get the number of completed cycles since last [`reset()`].
+    ///
+    /// The value loops back if the pattern repeats forever
+    /// ([`Spawner::is_forever()`] is `true`).
+    ///
+    /// [`reset()`]: Self::reset
+    pub fn completed_cycle_count(&self) -> u32 {
+        self.completed_cycle_count
+    }
+
     /// Reset the spawner state.
     ///
     /// This resets the internal spawner time to zero, and restarts any internal
@@ -634,9 +631,11 @@ impl EffectSpawner {
     ///
     /// [`Spawner::once`]: crate::Spawner::once
     pub fn reset(&mut self) {
-        self.time = 0.;
-        self.loop_count = 0;
-        self.period = 0.;
+        self.cycle_time = 0.;
+        self.completed_cycle_count = 0;
+        self.sampled_spawn_duration = 0.;
+        self.sampled_period = 0.;
+        self.sampled_count = 0.;
         self.spawn_count = 0;
         self.spawn_remainder = 0.;
     }
@@ -656,9 +655,10 @@ impl EffectSpawner {
     /// The integral number of particles to spawn this frame. Any fractional
     /// remainder is saved for the next call.
     pub fn tick(&mut self, mut dt: f32, rng: &mut Pcg32) -> u32 {
-        // Handle max loop count here, which might have been reached last frame, but we
+        // Handle max cycle count here, which might have been reached last frame, but we
         // couldn't deactivate before the end of the frame.
-        if !self.spawner.is_forever() && (self.loop_count >= self.spawner.loop_count()) {
+        if !self.spawner.is_forever() && (self.completed_cycle_count >= self.spawner.cycle_count())
+        {
             self.active = false;
         }
 
@@ -667,59 +667,78 @@ impl EffectSpawner {
             return 0;
         }
 
-        // The limit can be reached multiple times, so use a loop
+        // Use a loop in case the timestep dt spans multiple cycles
         loop {
-            if self.period == 0.0 {
-                self.resample(rng);
-                continue;
+            // Check if this is a new cycle which needs resampling
+            if self.sampled_period == 0.0 {
+                if self.spawner.is_once() {
+                    self.sampled_spawn_duration = self.spawner.spawn_duration.sample(rng);
+                    // Period is unchecked, should be ignored (could sample to <= 0). Use the spawn
+                    // duration, but ensure we have something > 0 as a marker that we've resampled.
+                    self.sampled_period = self.sampled_spawn_duration.max(1e-12);
+                } else {
+                    self.sampled_period = self.spawner.period.sample(rng);
+                    assert!(self.sampled_period > 0.);
+                    self.sampled_spawn_duration = self
+                        .spawner
+                        .spawn_duration
+                        .sample(rng)
+                        .clamp(0., self.sampled_period);
+                }
+                self.sampled_spawn_duration = self.spawner.spawn_duration.sample(rng);
+                self.sampled_count = self.spawner.count.sample(rng).max(0.);
             }
 
-            let new_time = self.time + dt;
-            if self.time <= self.spawn_duration {
+            let new_time = self.cycle_time + dt;
+
+            // If inside the spawn period, accumulate some particle spawn count
+            if self.cycle_time <= self.sampled_spawn_duration {
                 // If the spawn time is very small, close to zero, spawn all particles
                 // immediately in one burst over a single frame.
-                self.spawn_remainder += if self.spawn_duration < 1e-5f32.max(dt / 100.0) {
-                    self.spawner.count.sample(rng)
+                self.spawn_remainder += if self.sampled_spawn_duration < 1e-5f32.max(dt / 100.0) {
+                    self.sampled_count
                 } else {
                     // Spawn an amount of particles equal to the fraction of time the current frame
                     // spans compared to the total burst duration.
-                    self.spawner.count.sample(rng) * (new_time.min(self.spawn_duration) - self.time)
-                        / self.spawn_duration
+                    let ratio = ((new_time.min(self.sampled_spawn_duration) - self.cycle_time)
+                        / self.sampled_spawn_duration)
+                        .clamp(0., 1.);
+                    self.sampled_count * ratio
                 };
             }
 
-            let old_time = self.time;
-            self.time = new_time;
+            // Increment current time
+            self.cycle_time = new_time;
 
-            if self.time >= self.period {
-                dt -= self.period - old_time;
-                self.time = 0.0; // dt will be added on in the next iteration
-                self.loop_count += 1;
-                if !self.spawner.is_forever() && (self.loop_count >= self.spawner.loop_count()) {
+            // Check for cycle completion
+            if self.cycle_time >= self.sampled_period {
+                dt = self.cycle_time - self.sampled_period;
+                self.cycle_time = 0.0;
+                self.completed_cycle_count += 1;
+
+                // Mark as "need resampling"
+                self.sampled_period = 0.0;
+
+                // If this was the last cycle, we're done
+                if !self.spawner.is_forever()
+                    && (self.completed_cycle_count >= self.spawner.cycle_count())
+                {
                     // Don't deactivate quite yet, otherwise we'll miss the spawns for this frame
                     break;
                 }
-                self.resample(rng);
             } else {
+                // We're done for this frame
                 break;
             }
         }
 
+        // Extract integral number of particles to spawn this frame, keep remainder for
+        // next one
         let count = self.spawn_remainder.floor();
         self.spawn_remainder -= count;
         self.spawn_count = count as u32;
 
         self.spawn_count
-    }
-
-    /// Resamples the spawn time and period.
-    fn resample(&mut self, rng: &mut Pcg32) {
-        self.period = self.spawner.period.sample(rng);
-        self.spawn_duration = self
-            .spawner
-            .spawn_duration
-            .sample(rng)
-            .clamp(0.0, self.period);
     }
 }
 
@@ -834,24 +853,30 @@ mod test {
     #[test]
     fn test_new() {
         let rng = &mut new_rng();
-        // 3 particles over 3 seconds, pause 7 seconds (total 10 seconds period).
+        // 3 particles over 3 seconds, pause 7 seconds (total 10 seconds period). 2
+        // cycles.
         let spawner = Spawner::new(3.0.into(), 3.0.into(), 10.0.into(), 2);
         let mut spawner = EffectSpawner::new(&spawner);
         let count = spawner.tick(2.0, rng); // t = 2s
         assert_eq!(count, 2);
         assert!(spawner.is_active());
+        assert_eq!(spawner.completed_cycle_count(), 0);
         let count = spawner.tick(5.0, rng); // t = 7s
         assert_eq!(count, 1);
         assert!(spawner.is_active());
+        assert_eq!(spawner.completed_cycle_count(), 0);
         let count = spawner.tick(8.0, rng); // t = 15s
         assert_eq!(count, 3);
         assert!(spawner.is_active());
+        assert_eq!(spawner.completed_cycle_count(), 1);
         let count = spawner.tick(10.0, rng); // t = 25s
         assert_eq!(count, 0);
         assert!(spawner.is_active()); // still active for one frame
+        assert_eq!(spawner.completed_cycle_count(), 2);
         let count = spawner.tick(0.1, rng); // t = 25.1s
         assert_eq!(count, 0);
         assert!(!spawner.is_active());
+        assert_eq!(spawner.completed_cycle_count(), 2);
     }
 
     #[test]
@@ -869,9 +894,10 @@ mod test {
     #[test]
     fn test_once() {
         let rng = &mut new_rng();
-        let spawner = Spawner::once(5.0.into(), true);
+        let spawner = Spawner::once(5.0.into());
         assert!(spawner.is_once());
         let mut spawner = EffectSpawner::new(&spawner);
+        assert!(spawner.is_active());
         let count = spawner.tick(0.001, rng);
         assert_eq!(count, 5);
         let count = spawner.tick(100.0, rng);
@@ -881,8 +907,9 @@ mod test {
     #[test]
     fn test_once_reset() {
         let rng = &mut new_rng();
-        let spawner = Spawner::once(5.0.into(), true);
+        let spawner = Spawner::once(5.0.into());
         assert!(spawner.is_once());
+        assert!(spawner.starts_active());
         let mut spawner = EffectSpawner::new(&spawner);
         spawner.tick(1.0, rng);
         spawner.reset();
@@ -891,16 +918,41 @@ mod test {
     }
 
     #[test]
-    fn test_once_not_immediate() {
+    fn test_once_start_inactive() {
         let rng = &mut new_rng();
-        let spawner = Spawner::once(5.0.into(), false);
+
+        let spawner = Spawner::once(5.0.into()).with_starts_active(false);
         assert!(spawner.is_once());
+        assert!(!spawner.starts_active());
         let mut spawner = EffectSpawner::new(&spawner);
+
+        // Inactive; no-op
         let count = spawner.tick(1.0, rng);
         assert_eq!(count, 0);
-        spawner.reset();
+
+        spawner.set_active(true);
+
+        // Active; spawns
         let count = spawner.tick(1.0, rng);
         assert_eq!(count, 5);
+        assert!(spawner.is_active());
+
+        // Completed; deactivated itself
+        let count = spawner.tick(1.0, rng);
+        assert_eq!(count, 0);
+        assert!(!spawner.is_active());
+
+        // Reset internal state, but doesn't activate
+        spawner.reset();
+        let count = spawner.tick(1.0, rng);
+        assert_eq!(count, 0);
+        assert!(!spawner.is_active());
+
+        // Now activate again
+        spawner.set_active(true);
+        let count = spawner.tick(1.0, rng);
+        assert_eq!(count, 5);
+        assert!(spawner.is_active());
     }
 
     #[test]
@@ -1035,7 +1087,7 @@ mod test {
 
     #[test]
     fn test_tick_spawners() {
-        let asset_spawner = Spawner::once(32.0.into(), true);
+        let asset_spawner = Spawner::once(32.0.into());
 
         for test_case in &[
             TestCase::new(None, asset_spawner),
@@ -1083,7 +1135,7 @@ mod test {
             };
 
             // Tick once
-            let cur_time = {
+            let _cur_time = {
                 // Make sure to increment the current time so that the spawners spawn something.
                 // Note that `Time` has this weird behavior where the common quantities like
                 // `Time::delta_secs()` only update after the *second* update. So we tick the
@@ -1126,12 +1178,13 @@ mod test {
                     let actual_spawner = effect_spawner.spawner;
 
                     // Check the spawner ticked
-                    assert!(effect_spawner.active);
+                    assert!(effect_spawner.active); // will get deactivated next tick()
                     assert_eq!(effect_spawner.spawn_remainder, 0.);
-                    assert_eq!(effect_spawner.time, cur_time.as_secs_f32());
+                    assert_eq!(effect_spawner.cycle_time, 0.);
+                    assert_eq!(effect_spawner.completed_cycle_count, 1);
+                    assert_eq!(effect_spawner.spawn_count, 32);
 
                     assert_eq!(actual_spawner, test_case.asset_spawner);
-                    assert_eq!(effect_spawner.spawn_count, 32);
                 } else {
                     // If not visible, `tick_initializers()` skips the effect entirely so won't
                     // spawn an `EffectSpawner` for it
@@ -1153,12 +1206,13 @@ mod test {
                 let actual_spawner = effect_spawner.spawner;
 
                 // Check the spawner ticked
-                assert!(effect_spawner.active);
+                assert!(effect_spawner.active); // will get deactivated next tick()
                 assert_eq!(effect_spawner.spawn_remainder, 0.);
-                assert_eq!(effect_spawner.time, cur_time.as_secs_f32());
+                assert_eq!(effect_spawner.cycle_time, 0.);
+                assert_eq!(effect_spawner.completed_cycle_count, 1);
+                assert_eq!(effect_spawner.spawn_count, 32);
 
                 assert_eq!(actual_spawner, test_case.asset_spawner);
-                assert_eq!(effect_spawner.spawn_count, 32);
             }
         }
     }

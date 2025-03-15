@@ -39,8 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Previously the PRNG seed was implicitly set to a random value.
   To restore the former behavior, just set `prng_seed = rand::random::<u32>()`.
 - Added some new expressions: `acos`, `asin`, `atan`, `atan2`, `round`.
-- Added a loop count to `Spawner`, which allows repeating a spawn pattern exactly N times.
-  Once the loop count is reached, the spawner deactivates itself at the beginning of the next `tick()` call.
+- Added `Spawner::cycle_count`, which allows repeating a spawn pattern exactly N times (or forever if N=0).
+  Once the cycle count is reached, the spawner deactivates itself at the beginning of the next `tick()` call.
 
 ### Changed
 
@@ -88,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed `ParticleEffectBundle`. Use `ParticleEffect` directly instead.
 - Removed `ParticleEffect::z_layer_2d`. Use the Z coordinate of the effect's `Tranform` to order effects. (#423)
 - Removed `EffectSpawner::spawner()` as the `spawner` field is now public.
+- Removed `Spawner::starts_immediately` which was not working and was duplicating semantic with `active`. (#420)
 
 ## [0.14.0] 2024-12-09
 
