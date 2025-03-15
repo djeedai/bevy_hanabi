@@ -75,8 +75,7 @@ fn setup(
         Name::new("ball"),
     ));
 
-    // Set `spawn_immediately` to false to spawn on command with Spawner::reset()
-    let spawner = Spawner::once(100.0.into(), false);
+    let spawner = Spawner::once(100.0.into()).with_starts_active(false);
 
     let writer = ExprWriter::new();
 
@@ -209,6 +208,7 @@ fn update(
 
             // Spawn the particles
             effect_spawner.reset();
+            effect_spawner.set_active(true);
         }
     }
 }
