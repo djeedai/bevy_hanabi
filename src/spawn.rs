@@ -309,7 +309,7 @@ impl Spawner {
     /// ```
     /// # use bevy_hanabi::Spawner;
     /// // Spawn 32 particles in a burst once immediately on creation.
-    /// let spawner = Spawner::once(32.0.into(), true);
+    /// let spawner = Spawner::once(32.0.into());
     /// ```
     ///
     /// [`EffectSpawner::set_active(true)`]: crate::EffectSpawner::set_active
@@ -600,6 +600,7 @@ impl EffectSpawner {
     /// Set whether the spawner is active.
     ///
     /// Inactive spawners do not tick, and therefore do not spawn any particle.
+    #[inline]
     pub fn set_active(&mut self, active: bool) {
         self.active = active;
     }
@@ -607,8 +608,64 @@ impl EffectSpawner {
     /// Get whether the spawner is active.
     ///
     /// Inactive spawners do not tick, and therefore do not spawn any particle.
+    #[inline]
     pub fn is_active(&self) -> bool {
         self.active
+    }
+
+    /// Get the time relative to the beginning of the current cycle.
+    #[inline]
+    pub fn cycle_time(&self) -> f32 {
+        self.cycle_time
+    }
+
+    /// Get the spawn duration for the current cycle.
+    ///
+    /// This value can change every cycle if [`Spawner::spawn_duration`] is a
+    /// randomly distributed value.
+    #[inline]
+    pub fn cycle_spawn_duration(&self) -> f32 {
+        self.sampled_spawn_duration
+    }
+
+    /// Get the period of the current cycle.
+    ///
+    /// This value can change every cycle if [`Spawner::period`] is a randomly
+    /// distributed value. If the effect spawns only once, and therefore its
+    /// cycle period is ignored, this returns `0`.
+    #[inline]
+    pub fn cycle_period(&self) -> f32 {
+        if self.spawner.is_once() {
+            0.
+        } else {
+            self.sampled_period
+        }
+    }
+
+    /// Get the progress ratio in 0..1 of the current cycle.
+    ///
+    /// This is the ratio of the [`cycle_time()`] over [`cycle_period()`]. If
+    /// the effect spawns only once, and therefore its cycle period is
+    /// ignored, this returns `0`.
+    ///
+    /// [`cycle_time()`]: Self::cycle_time
+    /// [`cycle_period()`]: Self::cycle_period
+    #[inline]
+    pub fn cycle_ratio(&self) -> f32 {
+        if self.spawner.is_once() {
+            0.
+        } else {
+            self.cycle_time / self.sampled_period
+        }
+    }
+
+    /// Get the number of particles to spawn during the current cycle
+    ///
+    /// This value can change every cycle if [`Spawner::count`] is a randomly
+    /// distributed value.
+    #[inline]
+    pub fn cycle_spawn_count(&self) -> f32 {
+        self.sampled_count
     }
 
     /// Get the number of completed cycles since last [`reset()`].
@@ -617,6 +674,7 @@ impl EffectSpawner {
     /// ([`Spawner::is_forever()`] is `true`).
     ///
     /// [`reset()`]: Self::reset
+    #[inline]
     pub fn completed_cycle_count(&self) -> u32 {
         self.completed_cycle_count
     }
@@ -857,19 +915,34 @@ mod test {
         // cycles.
         let spawner = Spawner::new(3.0.into(), 3.0.into(), 10.0.into(), 2);
         let mut spawner = EffectSpawner::new(&spawner);
-        let count = spawner.tick(2.0, rng); // t = 2s
+        let count = spawner.tick(2., rng); // t = 2s
         assert_eq!(count, 2);
         assert!(spawner.is_active());
+        assert_eq!(spawner.cycle_time(), 2.);
+        assert_eq!(spawner.cycle_spawn_duration(), 3.);
+        assert_eq!(spawner.cycle_period(), 10.);
+        assert_eq!(spawner.cycle_ratio(), 0.2); // 2s / 10s
+        assert_eq!(spawner.cycle_spawn_count(), 3.);
         assert_eq!(spawner.completed_cycle_count(), 0);
-        let count = spawner.tick(5.0, rng); // t = 7s
+        let count = spawner.tick(5., rng); // t = 7s
         assert_eq!(count, 1);
         assert!(spawner.is_active());
+        assert_eq!(spawner.cycle_time(), 7.);
+        assert_eq!(spawner.cycle_spawn_duration(), 3.);
+        assert_eq!(spawner.cycle_period(), 10.);
+        assert_eq!(spawner.cycle_ratio(), 0.7); // 7s / 10s
+        assert_eq!(spawner.cycle_spawn_count(), 3.);
         assert_eq!(spawner.completed_cycle_count(), 0);
-        let count = spawner.tick(8.0, rng); // t = 15s
+        let count = spawner.tick(8., rng); // t = 15s
         assert_eq!(count, 3);
         assert!(spawner.is_active());
+        assert_eq!(spawner.cycle_time(), 5.); // 15. mod 10.
+        assert_eq!(spawner.cycle_spawn_duration(), 3.);
+        assert_eq!(spawner.cycle_period(), 10.);
+        assert_eq!(spawner.cycle_ratio(), 0.5); // 5s / 10s
+        assert_eq!(spawner.cycle_spawn_count(), 3.);
         assert_eq!(spawner.completed_cycle_count(), 1);
-        let count = spawner.tick(10.0, rng); // t = 25s
+        let count = spawner.tick(10., rng); // t = 25s
         assert_eq!(count, 0);
         assert!(spawner.is_active()); // still active for one frame
         assert_eq!(spawner.completed_cycle_count(), 2);

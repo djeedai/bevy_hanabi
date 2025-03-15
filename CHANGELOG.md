@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added some new expressions: `acos`, `asin`, `atan`, `atan2`, `round`.
 - Added `Spawner::cycle_count`, which allows repeating a spawn pattern exactly N times (or forever if N=0).
   Once the cycle count is reached, the spawner deactivates itself at the beginning of the next `tick()` call.
+- Added several utility functions on `EffectSpawner` to determine its current state.
 
 ### Changed
 
