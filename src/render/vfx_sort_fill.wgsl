@@ -25,7 +25,8 @@ struct RawParticleBuffer {
 @group(0) @binding(0) var<storage, read_write> sort_buffer : SortBuffer;
 @group(0) @binding(1) var<storage, read> particle_buffer : RawParticleBuffer;
 @group(0) @binding(2) var<storage, read> indirect_index_buffer : array<u32>;
-@group(0) @binding(3) var<storage, read> effect_metadata : EffectMetadata;
+// Technically read-only, but the type contains atomic<> fields and wasm is strict about it
+@group(0) @binding(3) var<storage, read_write> effect_metadata : EffectMetadata;
 
 /// Fill the sorting key-value pair buffer with data to prepare for actual sorting.
 @compute @workgroup_size(64)
