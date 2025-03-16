@@ -191,12 +191,12 @@ impl SortBindGroups {
                     },
                     count: None,
                 },
-                // @group(0) @binding(2) var<storage, read> effect_metadata : EffectMetadata;
+                // @group(0) @binding(2) var<storage, read_write> effect_metadata : EffectMetadata;
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
+                        ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: true,
                         min_binding_size: Some(effect_metadata_min_binding_size),
                     },
@@ -339,12 +339,12 @@ impl SortBindGroups {
                             },
                             count: None,
                         },
-                        // @group(0) @binding(3) var<storage, read> effect_metadata : EffectMetadata;
+                        // @group(0) @binding(3) var<storage, read_write> effect_metadata : EffectMetadata;
                         BindGroupLayoutEntry {
                             binding: 3,
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Buffer {
-                                ty: BufferBindingType::Storage { read_only: true },
+                                ty: BufferBindingType::Storage { read_only: false },
                                 has_dynamic_offset: true,
                                 min_binding_size: Some(GpuEffectMetadata::aligned_size(alignment)),
                             },

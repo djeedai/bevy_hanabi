@@ -28,7 +28,7 @@ fn compare_greater(kv1: KeyValuePair, kv2: KeyValuePair) -> bool {
     return false;
 }
 
-@group(0) @binding(0) var<storage, read_write> sort_buffer: SortBuffer;
+@group(0) @binding(0) var<storage, read_write> sort_buffer : SortBuffer;
 
 /// Naive insertion sort. TODO: replace with something faster.
 @compute @workgroup_size(64)
