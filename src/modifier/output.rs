@@ -943,6 +943,8 @@ mod tests {
         gradient.add_key(0.8, blue);
         let modifier = ColorOverLifetimeModifier {
             gradient: gradient.clone(),
+            blend: ColorBlendMode::Overwrite,
+            mask: ColorBlendMask::RGBA,
         };
 
         let mut module = Module::default();
