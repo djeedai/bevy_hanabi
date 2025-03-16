@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `SpawnerSettings::with_emit_on_start()` to enable or disable starting the particle emitting
   when the `EffectSpawner` component is spawned into the ECS world.
   This allows spawning the component but only emitting particles under control of the application.
+- Added `ColorBlendMode` and `ColorBlendMask` to customize how color-related modifiers blend their value.
+  This allows overlaying _e.g._ a `SetAttributeModifier(Attribute::COLOR)` and a `ColorOverLifetimeModifier`
+  without the latter overwriting the value of the former.
+  See the `firework.rs` example for an example of using color blending.
+- Added `WriterExpr::vec4_xyz_w()` to recombine a 3D vector and a scalar together into a 4D vector.
+  This is particularly useful to combine some RGB value and Alpha value together.
 
 ### Changed
 

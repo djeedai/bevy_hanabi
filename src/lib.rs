@@ -171,6 +171,7 @@ use bevy::{
     render::sync_world::SyncToRenderWorld,
     utils::{HashMap, HashSet},
 };
+use rand::{Rng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -1665,25 +1666,31 @@ fn compile_effects(
         let material_changed = material.as_ref().is_some_and(|r| r.is_changed());
         let need_rebuild =
             effect.is_changed() || material_changed || compiled_effect.children != child_entities;
-        if !need_rebuild && (compiled_effect.asset == effect.handle) {
-            continue;
-        }
+        if need_rebuild || (compiled_effect.asset != effect.handle) {
+            if need_rebuild {
+                debug!("Invalidating the compiled cache for effect on entity {:?} due to changes in the ParticleEffect component. If you see this message too much, then performance might be affected. Find why the change detection of the ParticleEffect is triggered.", entity);
+            }
 
-        if need_rebuild {
-            debug!("Invalidating the compiled cache for effect on entity {:?} due to changes in the ParticleEffect component. If you see this message too much, then performance might be affected. Find why the change detection of the ParticleEffect is triggered.", entity);
+            compiled_effect.update(
+                need_rebuild,
+                &effect,
+                material.map(|r| r.into_inner()),
+                asset,
+                parent_entity,
+                child_entities,
+                parent_layout,
+                &mut shaders,
+                &mut shader_cache,
+            );
+        } else {
+            // Update the PRNG seed. Unfortunately at the minute the "seed" (which
+            // really is the internal PRNG state rather) is not cached on GPU, and
+            // is re-uploaded each frame, so if it's not changed every frame then
+            // there's no randomness anymore, because the uses of the previous frame
+            // are "forgotten".
+            let mut rng = rand::rngs::StdRng::seed_from_u64(compiled_effect.prng_seed as u64);
+            compiled_effect.prng_seed = rng.gen();
         }
-
-        compiled_effect.update(
-            need_rebuild,
-            &effect,
-            material.map(|r| r.into_inner()),
-            asset,
-            parent_entity,
-            child_entities,
-            parent_layout,
-            &mut shaders,
-            &mut shader_cache,
-        );
     }
 
     // Clear removed effects, to allow them to be released by the asset server

@@ -2062,6 +2062,12 @@ pub enum BinaryOperator {
     /// Given two scalar elements `x` and `y`, returns the vector consisting of
     /// those two elements `(x, y)`.
     Vec2,
+
+    /// Constructor for a 4-element vector.
+    ///
+    /// Given a 3-element vector `xyz` and a scalar value `w`, returns the
+    /// vector `vec4(xyz, w)`.
+    Vec4XyzW,
 }
 
 impl BinaryOperator {
@@ -2091,7 +2097,8 @@ impl BinaryOperator {
             | BinaryOperator::Step
             | BinaryOperator::UniformRand
             | BinaryOperator::NormalRand
-            | BinaryOperator::Vec2 => true,
+            | BinaryOperator::Vec2
+            | BinaryOperator::Vec4XyzW => true,
         }
     }
 
@@ -2132,6 +2139,7 @@ impl ToWgslString for BinaryOperator {
             BinaryOperator::UniformRand => "rand_uniform".to_string(),
             BinaryOperator::NormalRand => "rand_normal".to_string(),
             BinaryOperator::Vec2 => "vec2".to_string(),
+            BinaryOperator::Vec4XyzW => "vec4".to_string(),
         }
     }
 }
@@ -3817,6 +3825,23 @@ impl WriterExpr {
     #[inline]
     pub fn vec3(self, y: Self, z: Self) -> Self {
         self.ternary_op(y, z, TernaryOperator::Vec3)
+    }
+
+    /// Construct a `Vec4` from a vector XYZ and a scalar W.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # let mut w = ExprWriter::new();
+    /// let rgb = w.rand(VectorType::VEC3F);
+    /// let a = w.lit(1.);
+    /// // Build vec4<f32>(R, G, B, A) and convert to 0xAABBGGRR
+    /// let col = rgb.vec4_xyz_w(a).Pack4x8unorm();
+    /// ```
+    #[inline]
+    pub fn vec4_xyz_w(self, w: Self) -> Self {
+        self.binary_op(w, BinaryOperator::Vec4XyzW)
     }
 
     /// Cast an expression to a different type.
