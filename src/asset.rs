@@ -740,6 +740,8 @@ mod tests {
         {
             let effect = EffectAsset::default().add_render_modifier(Box::new(SetColorModifier {
                 color: CpuValue::Single(Vec4::ONE),
+                blend: ColorBlendMode::Overwrite,
+                mask: ColorBlendMask::RGBA,
             }));
             assert_eq!(effect.modifiers().count(), 1);
             let m = effect.modifiers().next().unwrap();

@@ -125,6 +125,18 @@ impl<T: Copy + FromReflect> From<T> for CpuValue<T> {
     }
 }
 
+impl<T: Copy + FromReflect> From<[T; 2]> for CpuValue<T> {
+    fn from(t: [T; 2]) -> Self {
+        Self::Uniform((t[0], t[1]))
+    }
+}
+
+impl<T: Copy + FromReflect> From<(T, T)> for CpuValue<T> {
+    fn from(t: (T, T)) -> Self {
+        Self::Uniform(t)
+    }
+}
+
 impl<T: Copy + FromReflect + FloatHash> Eq for CpuValue<T> {}
 
 impl<T: Copy + FromReflect + FloatHash> Hash for CpuValue<T> {
