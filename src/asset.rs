@@ -868,6 +868,7 @@ mod tests {
         period: Single(1.0),
         cycle_count: 0,
         starts_active: true,
+        emit_on_start: true,
     ),
     z_layer_2d: 0.0,
     simulation_space: Global,
