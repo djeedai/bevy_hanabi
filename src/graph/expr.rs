@@ -3837,7 +3837,7 @@ impl WriterExpr {
     /// let rgb = w.rand(VectorType::VEC3F);
     /// let a = w.lit(1.);
     /// // Build vec4<f32>(R, G, B, A) and convert to 0xAABBGGRR
-    /// let col = rgb.vec4_xyz_w(a).Pack4x8unorm();
+    /// let col = rgb.vec4_xyz_w(a).pack4x8unorm();
     /// ```
     #[inline]
     pub fn vec4_xyz_w(self, w: Self) -> Self {

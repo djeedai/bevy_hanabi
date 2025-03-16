@@ -113,7 +113,11 @@
 //!     // Render the particles with a color gradient over their
 //!     // lifetime. This maps the gradient key 0 to the particle spawn
 //!     // time, and the gradient key 1 to the particle death (10s).
-//!     .render(ColorOverLifetimeModifier { gradient });
+//!     .render(ColorOverLifetimeModifier {
+//!         gradient,
+//!         blend: ColorBlendMode::Overwrite,
+//!         mask: ColorBlendMask::RGBA,
+//!     });
 //!
 //!     // Insert into the asset system
 //!     let effect_asset = effects.add(effect);
