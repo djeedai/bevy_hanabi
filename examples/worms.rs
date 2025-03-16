@@ -106,7 +106,7 @@ fn create_head_effect() -> EffectAsset {
     module.add_texture_slot("shape");
 
     // Allocate room for 100 "head" particles (100 worms)
-    EffectAsset::new(100, Spawner::rate(2.0.into()), module)
+    EffectAsset::new(100, SpawnerSettings::rate(2.0.into()), module)
         .with_name("worms_heads")
         .init(init_position_modifier)
         .init(init_angle_modifier)
@@ -158,7 +158,7 @@ fn create_body_effect() -> EffectAsset {
     let module = writer.finish();
 
     // Allocate room for 500 trail particles
-    EffectAsset::new(5000, Spawner::rate(0.5.into()), module)
+    EffectAsset::new(5000, SpawnerSettings::rate(0.5.into()), module)
         .with_name("worms_bodies")
         // Body particles don't move. No need to integrate anything (particles don't have any
         // VELOCITY attribute anyway, so that would generate a warning).

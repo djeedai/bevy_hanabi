@@ -1,9 +1,12 @@
 //! A circle bobs up and down in the water, spawning bubbles when in the water.
 //!
-//! This example demonstrates the use of [`Spawner::set_active()`] to enable or
-//! disable particle spawning, under the control of the application. This is
-//! similar to the `spawn_on_command.rs` example, where [`Spawner::reset()`] is
-//! used instead to spawn a single burst of particles.
+//! This example demonstrates the use of [`EffectSpawner::active`] to enable or
+//! disable particle spawning, under the control of the application.
+//! This is similar to the `spawn_on_command.rs` example, where
+//! [`EffectSpawner::reset()`] is used instead to spawn a single burst of
+//! particles. However `reset()` doesn't produce the intended result with
+//! effects infinitely repeating, like [`SpawnerSettings::rate()`], because they
+//! continuously spawn particles.
 //!
 //! A small vertical acceleration simulate a pseudo-buoyancy making the bubbles
 //! slowly move upward toward the surface. The example uses a
@@ -80,7 +83,7 @@ fn setup(
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.5, 0.5, 1.0, 0.0));
 
-    let spawner = Spawner::rate(30.0.into()).with_starts_active(false);
+    let spawner = SpawnerSettings::rate(30.0.into()).with_starts_active(false);
 
     let writer = ExprWriter::new();
 
@@ -171,7 +174,7 @@ fn update(
         // if so.
         let is_active = transform.translation.y < 0.0;
         if let Ok(mut effect_spawner) = q_spawner.get_mut(children[0]) {
-            effect_spawner.set_active(is_active);
+            effect_spawner.active = is_active;
         }
 
         let mut text = q_text.single_mut();

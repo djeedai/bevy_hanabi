@@ -99,7 +99,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         gradient: Gradient::linear(vec4(3.0, 0.0, 0.0, 1.0), vec4(3.0, 0.0, 0.0, 0.0)),
     };
 
-    let spawner = Spawner::rate(RIBBON_SPAWN_RATE.into());
+    let spawner = SpawnerSettings::rate(RIBBON_SPAWN_RATE.into());
 
     let effect = EffectAsset::new(PARTICLE_CAPACITY, spawner, writer.finish())
         .with_name("ribbon")

@@ -39,7 +39,7 @@ use crate::{
     tick_spawners,
     time::effect_simulation_time_system,
     update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
-    Spawner, ToWgslString,
+    SpawnerSettings, ToWgslString,
 };
 
 /// Labels for the Hanabi systems.
@@ -245,7 +245,7 @@ impl Plugin for HanabiPlugin {
         app.register_type::<EffectAsset>()
             .register_type::<ParticleEffect>()
             .register_type::<EffectProperties>()
-            .register_type::<Spawner>()
+            .register_type::<SpawnerSettings>()
             .register_type::<Time<EffectSimulation>>();
     }
 

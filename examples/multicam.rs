@@ -68,7 +68,7 @@ fn make_effect(color: Color) -> EffectAsset {
         speed: writer.lit(6.).expr(),
     };
 
-    EffectAsset::new(32768, Spawner::rate(5.0.into()), writer.finish())
+    EffectAsset::new(32768, SpawnerSettings::rate(5.0.into()), writer.finish())
         .with_name("effect")
         .init(init_pos)
         .init(init_vel)

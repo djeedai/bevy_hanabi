@@ -35,7 +35,7 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<EffectAsset>>) {
     let mut module = Module::default();
     module.add_property("my_property", VectorValue::new_vec3(Vec3::ZERO).into());
     let pos = module.lit(Vec3::ZERO);
-    let mut asset = EffectAsset::new(128, Spawner::rate(1.0.into()), module)
+    let mut asset = EffectAsset::new(128, SpawnerSettings::rate(1.0.into()), module)
         .init(SetAttributeModifier::new(Attribute::POSITION, pos));
     asset.name = "test_asset".to_string();
     let handle = assets.add(asset);
@@ -59,7 +59,7 @@ fn timeout(
         // New effect without any property
         let mut module = Module::default();
         let pos = module.lit(Vec3::ZERO);
-        let asset = EffectAsset::new(128, Spawner::rate(1.0.into()), module)
+        let asset = EffectAsset::new(128, SpawnerSettings::rate(1.0.into()), module)
             .init(SetAttributeModifier::new(Attribute::POSITION, pos));
         let handle = assets.add(asset);
 

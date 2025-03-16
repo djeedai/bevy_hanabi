@@ -72,7 +72,7 @@ fn make_firework() -> EffectAsset {
         speed: (writer.rand(ScalarType::Float) * writer.lit(20.) + writer.lit(60.)).expr(),
     };
 
-    EffectAsset::new(2048, Spawner::rate(128.0.into()), writer.finish())
+    EffectAsset::new(2048, SpawnerSettings::rate(128.0.into()), writer.finish())
         .with_name("firework")
         .init(init_pos)
         .init(init_vel)

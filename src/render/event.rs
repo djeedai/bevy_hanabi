@@ -44,7 +44,7 @@ pub struct EventSlice {
 /// accumulated over frames; if a source emits too many events and the target
 /// effect cannot spawn that many particles, for example because it reached its
 /// capacity, then the extra events are discarded. This is consistent with the
-/// CPU behavior of [`Spawner::spawn_count`].
+/// CPU behavior of [`EffectSpawner::spawn_count`].
 pub struct EventBuffer {
     /// GPU buffer storing the spawn events.
     buffer: Buffer,

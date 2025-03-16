@@ -101,7 +101,7 @@
 //!         // Maximum number of particles alive at a time
 //!         32768,
 //!         // Spawn at a rate of 5 particles per second
-//!         Spawner::rate(5.0.into()),
+//!         SpawnerSettings::rate(5.0.into()),
 //!         // Move the expression module into the asset
 //!         module,
 //!     )
@@ -196,7 +196,7 @@ pub use modifier::*;
 pub use plugin::{EffectSystems, HanabiPlugin};
 pub use properties::*;
 pub use render::{DebugSettings, LayoutFlags, ShaderCache};
-pub use spawn::{tick_spawners, CpuValue, EffectSpawner, Random, Spawner};
+pub use spawn::{tick_spawners, CpuValue, EffectSpawner, Random, SpawnerSettings};
 pub use time::{EffectSimulation, EffectSimulationTime};
 
 #[allow(missing_docs)]
@@ -1996,7 +1996,7 @@ else { return c1; }
         app
     }
 
-    /// Test case for `tick_initializers()`.
+    /// Test case for `tick_spawners()`.
     struct TestCase {
         /// Initial entity visibility on spawn. If `None`, do not add a
         /// [`Visibility`] component.
@@ -2013,7 +2013,7 @@ else { return c1; }
     fn test_effect_shader_source() {
         // Empty particle layout
         let module = Module::default();
-        let asset = EffectAsset::new(256, Spawner::rate(32.0.into()), module)
+        let asset = EffectAsset::new(256, SpawnerSettings::rate(32.0.into()), module)
             .with_simulation_space(SimulationSpace::Local);
         assert_eq!(asset.simulation_space, SimulationSpace::Local);
         let res = EffectShaderSource::generate(&asset, None, 0);
@@ -2024,7 +2024,7 @@ else { return c1; }
         // Missing Attribute::POSITION, currently mandatory for all effects
         let mut module = Module::default();
         let zero = module.lit(Vec3::ZERO);
-        let asset = EffectAsset::new(256, Spawner::rate(32.0.into()), module)
+        let asset = EffectAsset::new(256, SpawnerSettings::rate(32.0.into()), module)
             .init(SetAttributeModifier::new(Attribute::VELOCITY, zero));
         assert!(asset.particle_layout().size() > 0);
         let res = EffectShaderSource::generate(&asset, None, 0);
@@ -2035,7 +2035,7 @@ else { return c1; }
         // Valid
         let mut module = Module::default();
         let zero = module.lit(Vec3::ZERO);
-        let asset = EffectAsset::new(256, Spawner::rate(32.0.into()), module)
+        let asset = EffectAsset::new(256, SpawnerSettings::rate(32.0.into()), module)
             .with_simulation_space(SimulationSpace::Local)
             .init(SetAttributeModifier::new(Attribute::POSITION, zero));
         assert_eq!(asset.simulation_space, SimulationSpace::Local);
@@ -2171,7 +2171,7 @@ else { return c1; }
     // Regression test for #228
     #[test]
     fn test_compile_effect_changed() {
-        let spawner = Spawner::once(32.0.into(), true);
+        let spawner = SpawnerSettings::once(32.0.into());
 
         let mut app = make_test_app();
 
@@ -2260,7 +2260,7 @@ else { return c1; }
 
     #[test]
     fn test_compile_effect_visibility() {
-        let spawner = Spawner::once(32.0.into(), true);
+        let spawner = SpawnerSettings::once(32.0.into());
 
         for test_case in &[
             TestCase::new(None),
@@ -2318,7 +2318,7 @@ else { return c1; }
 
             let world = app.world_mut();
 
-            // Check the state of the components after `tick_initializers()` ran
+            // Check the state of the components after `tick_spawners()` ran
             if let Some(test_visibility) = test_case.visibility {
                 // Simulated-when-visible effect (SimulationCondition::WhenVisible)
 

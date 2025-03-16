@@ -92,7 +92,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
     // Maximum number of particles alive at a time
     32768,
     // Spawn at a rate of 5 particles per second
-    Spawner::rate(5.0.into()),
+    SpawnerSettings::rate(5.0.into()),
     // Move the expression module into the asset
     module
   )

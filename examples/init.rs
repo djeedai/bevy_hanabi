@@ -36,7 +36,7 @@ where
 
     let init = make_modifier(&writer);
 
-    EffectAsset::new(32768, Spawner::once(COUNT.into(), true), writer.finish())
+    EffectAsset::new(32768, SpawnerSettings::once(COUNT.into()), writer.finish())
         .with_name(name)
         .with_simulation_space(SimulationSpace::Local)
         .init(init)
