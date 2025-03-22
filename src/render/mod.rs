@@ -407,7 +407,7 @@ pub struct GpuEffectMetadata {
     /// passes always write into the ping buffer and read from the pong buffer.
     /// The buffers are swapped (ping = 1 - ping) during the indirect dispatch.
     pub ping: u32,
-    /// Index of the [`GpuSpawnerParams] struct.
+    /// Unused. TODO remove.
     pub spawner_index: u32,
     /// Index of the [`GpuDispatchIndirect`] struct inside the global
     /// [`EffectsMeta::dispatch_indirect_buffer`].
@@ -4054,7 +4054,7 @@ pub(crate) fn prepare_effects(
                 dead_count: capacity,
                 max_spawn: capacity,
                 ping: 0,
-                spawner_index,
+                spawner_index: 0xDEADBEEF, // unused
                 indirect_dispatch_index: dispatch_buffer_indices
                     .update_dispatch_indirect_buffer_table_id
                     .0,

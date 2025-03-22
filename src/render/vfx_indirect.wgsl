@@ -2,7 +2,7 @@
     ChildInfo, ChildInfoBuffer, SimParams, Spawner,
     EM_OFFSET_ALIVE_COUNT, EM_OFFSET_MAX_UPDATE, EM_OFFSET_DEAD_COUNT,
     EM_OFFSET_MAX_SPAWN, EM_OFFSET_INSTANCE_COUNT, EM_OFFSET_INDIRECT_DISPATCH_INDEX,
-    EM_OFFSET_PING, DISPATCH_INDIRECT_STRIDE, EFFECT_METADATA_STRIDE, EM_OFFSET_SPAWNER_INDEX
+    EM_OFFSET_PING, DISPATCH_INDIRECT_STRIDE, EFFECT_METADATA_STRIDE
 }
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
@@ -73,6 +73,5 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Copy the new pong into the spawner buffer, which will be used during rendering
     // to determine where to read particle indices.
-    let spawner_index = effect_metadata_buffer[em_base + EM_OFFSET_SPAWNER_INDEX];
-    spawner_buffer[spawner_index].render_pong = pong;
+    spawner_buffer[effect_index].render_pong = pong;
 }
