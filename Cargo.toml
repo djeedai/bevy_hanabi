@@ -3,6 +3,7 @@ name = "bevy_hanabi"
 version = "0.15.0-dev"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
+rust-version = "1.85.0"
 description = "Hanabi GPU particle system for the Bevy game engine"
 repository = "https://github.com/djeedai/bevy_hanabi"
 homepage = "https://github.com/djeedai/bevy_hanabi"
