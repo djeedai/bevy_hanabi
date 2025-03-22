@@ -28,6 +28,33 @@ use utils::*;
 const K: f32 = 0.64;
 const L: f32 = 0.384;
 
+enum ShapeConfig {
+    Spirograph { k: f32, l: f32 },
+    Lissajou { a: f32, b: f32 },
+}
+
+#[derive(Component)]
+struct Shape {
+    pub config: ShapeConfig,
+    pub time_scale: f32,
+    pub shape_scale: Vec3,
+}
+
+impl Shape {
+    pub fn tick(&mut self, time: f32) -> Vec3 {
+        let time = time * self.time_scale;
+        let pos = match self.config {
+            ShapeConfig::Spirograph { k, l } => vec3(
+                (1.0 - k) * (time.cos()) + (l * k) * (((1.0 - k) / k) * time).cos(),
+                (1.0 - k) * (time.sin()) - (l * k) * (((1.0 - k) / k) * time).sin(),
+                0.0,
+            ),
+            ShapeConfig::Lissajou { a, b } => vec3((a * time).cos(), (b * time).sin(), 0.0),
+        };
+        pos * self.shape_scale
+    }
+}
+
 const TIME_SCALE: f32 = 6.5;
 const SHAPE_SCALE: f32 = 25.0;
 // Note: because Hanabi doesn't currently support position interpolation between
@@ -123,17 +150,34 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     let effect = effects.add(effect);
 
-    commands.spawn((ParticleEffect::new(effect), Name::new("ribbon")));
+    commands.spawn((
+        ParticleEffect::new(effect.clone()),
+        Name::new("spirograph"),
+        Shape {
+            config: ShapeConfig::Spirograph { k: K, l: L },
+            time_scale: TIME_SCALE,
+            shape_scale: Vec3::ONE * SHAPE_SCALE,
+        },
+    ));
+
+    commands.spawn((
+        ParticleEffect::new(effect),
+        Name::new("lissajou"),
+        Shape {
+            config: ShapeConfig::Lissajou { a: 3., b: 4. },
+            time_scale: 2.,
+            shape_scale: Vec3::ONE * 18.,
+        },
+    ));
 }
 
-fn move_head(mut query: Query<&mut Transform, With<ParticleEffect>>, timer: Res<Time>) {
-    for mut transform in query.iter_mut() {
-        let time = timer.elapsed_secs() * TIME_SCALE;
-        let pos = vec3(
-            (1.0 - K) * (time.clone().cos()) + (L * K) * (((1.0 - K) / K) * time.clone()).cos(),
-            (1.0 - K) * (time.clone().sin()) - (L * K) * (((1.0 - K) / K) * time.clone()).sin(),
-            0.0,
-        ) * SHAPE_SCALE;
+fn move_head(
+    mut query: Query<(&mut Shape, &mut Transform), With<ParticleEffect>>,
+    timer: Res<Time>,
+) {
+    for (mut shape, mut transform) in query.iter_mut() {
+        let time = timer.elapsed_secs();
+        let pos = shape.tick(time);
         transform.translation = pos;
     }
 }

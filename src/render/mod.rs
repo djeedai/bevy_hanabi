@@ -4266,9 +4266,8 @@ pub(crate) fn batch_effects(
                     continue;
                 };
                 let dst_buffer = dst_buffer.clone();
-                let dst_binding_offset = sort_bind_groups
-                    .get_indirect_dispatch_byte_offset(sort_fill_indirect_dispatch_index);
-                let dst_binding_size = NonZeroU32::new(12).unwrap();
+                let dst_binding_offset = 0; // see dst_offset below
+                                            //let dst_binding_size = NonZeroU32::new(12).unwrap();
                 trace!(
                     "queue_fill_dispatch(): src#{:?}@+{}B ({}B) -> dst#{:?}@+{}B ({}B)",
                     src_buffer.id(),
@@ -4276,19 +4275,31 @@ pub(crate) fn batch_effects(
                     src_binding_size.get(),
                     dst_buffer.id(),
                     dst_binding_offset,
-                    dst_binding_size.get(),
+                    -1, //dst_binding_size.get(),
                 );
                 let src_offset = std::mem::offset_of!(GpuEffectMetadata, alive_count) as u32 / 4;
                 debug_assert_eq!(
                     src_offset, 5,
                     "GpuEffectMetadata changed, update this assert."
                 );
+                // FIXME - This is a quick fix to get 0.15 out. The previous code used the
+                // dynamic binding offset, but the indirect dispatch structs are only 12 bytes,
+                // os are not aligned to min_storage_buffer_offset_alignment. The fix uses a
+                // binding offset of 0 and binds the entire destination buffer,
+                // then use the dst_offset value embedded inside the GpuBufferOperationArgs to
+                // index the proper offset in the buffer. This requires of
+                // course binding the entire buffer, or at least enough to index all operations
+                // (hence the None below). This is not really a general solution, so should be
+                // reviewed.
+                let dst_offset = sort_bind_groups
+                    .get_indirect_dispatch_byte_offset(sort_fill_indirect_dispatch_index)
+                    / 4;
                 gpu_buffer_operation_queue.enqueue(
                     GpuBufferOperationType::FillDispatchArgs,
                     GpuBufferOperationArgs {
                         src_offset,
                         src_stride: effects_meta.gpu_limits.effect_metadata_aligned_size.get() / 4,
-                        dst_offset: 0,
+                        dst_offset,
                         dst_stride: GpuDispatchIndirect::SHADER_SIZE.get() as u32 / 4,
                         count: 1,
                     },
@@ -4297,7 +4308,7 @@ pub(crate) fn batch_effects(
                     Some(src_binding_size),
                     dst_buffer,
                     dst_binding_offset,
-                    Some(dst_binding_size),
+                    None, //Some(dst_binding_size),
                 );
             }
         }
@@ -6680,6 +6691,7 @@ impl Node for VfxSimulateNode {
 
             // Loop on batches and find those which need sorting
             for effect_batch in sorted_effect_batches.iter() {
+                trace!("Processing effect batch for sorting...");
                 if !effect_batch.layout_flags.contains(LayoutFlags::RIBBONS) {
                     continue;
                 }
@@ -6690,6 +6702,13 @@ impl Node for VfxSimulateNode {
                     warn!("Missing sort-fill effect buffer.");
                     continue;
                 };
+
+                let indirect_dispatch_index = *effect_batch
+                    .sort_fill_indirect_dispatch_index
+                    .as_ref()
+                    .unwrap();
+                let indirect_offset =
+                    sort_bind_groups.get_indirect_dispatch_byte_offset(indirect_dispatch_index);
 
                 // Fill the sort buffer with the key-value pairs to sort
                 {
@@ -6741,12 +6760,6 @@ impl Node for VfxSimulateNode {
                         ],
                     );
 
-                    let indirect_dispatch_index = *effect_batch
-                        .sort_fill_indirect_dispatch_index
-                        .as_ref()
-                        .unwrap();
-                    let indirect_offset =
-                        sort_bind_groups.get_indirect_dispatch_byte_offset(indirect_dispatch_index);
                     compute_pass
                         .dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
                     trace!("Dispatched sort-fill with indirect offset +{indirect_offset}");
@@ -6768,9 +6781,8 @@ impl Node for VfxSimulateNode {
                     }
 
                     compute_pass.set_bind_group(0, sort_bind_groups.sort_bind_group(), &[]);
-                    let indirect_offset =
-                        sort_bind_groups.get_sort_indirect_dispatch_byte_offset() as u64;
-                    compute_pass.dispatch_workgroups_indirect(indirect_buffer, indirect_offset);
+                    compute_pass
+                        .dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
                     trace!("Dispatched sort with indirect offset +{indirect_offset}");
 
                     compute_pass.pop_debug_group();
@@ -6814,14 +6826,6 @@ impl Node for VfxSimulateNode {
                         &[indirect_index_offset, effect_metadata_offset],
                     );
 
-                    // Note: we can reuse the same indirect buffer as for copying key-value pairs,
-                    // since we're copying the same number of particles indices than we sorted.
-                    let indirect_dispatch_index = *effect_batch
-                        .sort_fill_indirect_dispatch_index
-                        .as_ref()
-                        .unwrap();
-                    let indirect_offset =
-                        sort_bind_groups.get_indirect_dispatch_byte_offset(indirect_dispatch_index);
                     compute_pass
                         .dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
                     trace!("Dispatched sort-copy with indirect offset +{indirect_offset}");

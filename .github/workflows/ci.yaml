@@ -134,7 +134,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-msrv-stable-${{ hashFiles('**/Cargo.toml') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.82
+          toolchain: 1.85
           components: rustfmt, clippy
       - name: Check
         run: cargo check --lib --all-features

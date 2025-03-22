@@ -111,15 +111,11 @@ impl SortBindGroups {
                 | BufferUsages::INDIRECT,
             mapped_at_creation: false,
         });
-        let mut indirect_buffer = GpuBuffer::new_allocated(
+        let indirect_buffer = GpuBuffer::new_allocated(
             indirect_buffer,
             indirect_buffer_size as u32,
             Some("hanabi:buffer:sort:indirect".to_string()),
         );
-
-        // Always allocate entry #0 for the sort pass itself. We don't store the index,
-        // it's always zero.
-        indirect_buffer.allocate();
 
         let sort_bind_group_layout = render_device.create_bind_group_layout(
             "hanabi:bind_group_layout:sort",
@@ -244,13 +240,6 @@ impl SortBindGroups {
     #[inline]
     pub fn get_indirect_dispatch_byte_offset(&self, index: u32) -> u32 {
         self.indirect_buffer.item_size() as u32 * index
-    }
-
-    #[inline]
-    pub fn get_sort_indirect_dispatch_byte_offset(&self) -> u32 {
-        // See new(); we always allocate entry #0 in the indirect buffer for the sort
-        // pass itself
-        0
     }
 
     #[inline]
