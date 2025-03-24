@@ -55,6 +55,13 @@ fn create_rocket_effect() -> EffectAsset {
     let age = writer.lit(0.).expr();
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
 
+    // Store a random color per particle, which will be inherited by the spark ones
+    // on explosion. We don't store it in Attribute::COLOR otherwise it's going to
+    // affect the color of the rocket particle itself.
+    let rgb = writer.rand(VectorType::VEC3F) * writer.lit(0.9) + writer.lit(0.1);
+    let color = rgb.vec4_xyz_w(writer.lit(1.)).pack4x8unorm();
+    let init_trails_color = SetAttributeModifier::new(Attribute::U32_0, color.expr());
+
     // Give a bit of variation by randomizing the lifetime per particle
     let lifetime = writer.lit(0.8).uniform(writer.lit(1.2)).expr();
     let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
@@ -87,7 +94,7 @@ fn create_rocket_effect() -> EffectAsset {
         child_index: 1,
     };
 
-    let spawner = SpawnerSettings::rate(1.0.into());
+    let spawner = SpawnerSettings::rate((1., 3.).into());
 
     EffectAsset::new(32, spawner, writer.finish())
         .with_name("rocket")
@@ -95,12 +102,15 @@ fn create_rocket_effect() -> EffectAsset {
         .init(init_vel)
         .init(init_age)
         .init(init_lifetime)
+        .init(init_trails_color)
         .update(update_drag)
         .update(update_accel)
         .update(update_spawn_trail)
         .update(update_spawn_on_die)
         .render(ColorOverLifetimeModifier {
             gradient: Gradient::constant(Vec4::ONE),
+            blend: ColorBlendMode::Overwrite,
+            mask: ColorBlendMask::RGBA,
         })
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::constant(Vec3::ONE * 0.1),
@@ -142,8 +152,8 @@ fn create_sparkle_trail_effect() -> EffectAsset {
 
     let mut color_gradient = Gradient::new();
     color_gradient.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
-    color_gradient.add_key(0.8, Vec4::new(4.0, 4.0, 0.0, 1.0));
-    color_gradient.add_key(1.0, Vec4::new(4.0, 0.0, 0.0, 0.0));
+    color_gradient.add_key(0.8, Vec4::new(4.0, 4.0, 4.0, 1.0));
+    color_gradient.add_key(1.0, Vec4::new(4.0, 4.0, 4.0, 0.0));
 
     EffectAsset::new(1000, spawner, writer.finish())
         .with_name("sparkle_trail")
@@ -155,6 +165,8 @@ fn create_sparkle_trail_effect() -> EffectAsset {
         .update(update_accel)
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient,
+            blend: ColorBlendMode::Modulate,
+            mask: ColorBlendMask::RGBA,
         })
         .render(SizeOverLifetimeModifier {
             gradient: Gradient::constant(Vec3::ONE * 0.02),
@@ -169,6 +181,12 @@ fn create_trails_effect() -> EffectAsset {
 
     // Inherit the start position from the parent effect (the rocket particle)
     let init_pos = InheritAttributeModifier::new(Attribute::POSITION);
+
+    // Pull the color from the parent's Attribute::U32_0.
+    let init_color = SetAttributeModifier::new(
+        Attribute::COLOR,
+        writer.parent_attr(Attribute::U32_0).expr(),
+    );
 
     // The velocity is random in any direction
     let center = writer.attr(Attribute::POSITION);
@@ -195,14 +213,16 @@ fn create_trails_effect() -> EffectAsset {
     let drag = writer.lit(4.).expr();
     let update_drag = LinearDragModifier::new(drag);
 
+    // Orient particle toward its velocity to create a cheap 1-particle trail
+    let orient = OrientModifier::new(OrientMode::AlongVelocity);
+
     // The (CPU) spawner is unused
     let spawner = SpawnerSettings::default();
 
     let mut color_gradient = Gradient::new();
     color_gradient.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
-    color_gradient.add_key(0.1, Vec4::new(0.0, 4.0, 4.0, 1.0));
-    color_gradient.add_key(0.6, Vec4::new(0.0, 0.0, 4.0, 1.0));
-    color_gradient.add_key(1.0, Vec4::new(0.0, 0.0, 4.0, 0.0));
+    color_gradient.add_key(0.6, Vec4::new(4.0, 4.0, 4.0, 1.0));
+    color_gradient.add_key(1.0, Vec4::new(4.0, 4.0, 4.0, 0.0));
 
     EffectAsset::new(10000, spawner, writer.finish())
         .with_name("trail")
@@ -210,15 +230,19 @@ fn create_trails_effect() -> EffectAsset {
         .init(init_vel)
         .init(init_age)
         .init(init_lifetime)
+        .init(init_color)
         .update(update_drag)
         .update(update_accel)
         .render(ColorOverLifetimeModifier {
             gradient: color_gradient,
+            blend: ColorBlendMode::Modulate,
+            mask: ColorBlendMask::RGBA,
         })
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec3::ONE * 0.1),
+            gradient: Gradient::constant(Vec3::new(0.2, 0.05, 0.05)),
             screen_space_size: false,
         })
+        .render(orient)
 }
 
 fn setup(mut commands: Commands, effects: ResMut<Assets<EffectAsset>>) {
@@ -233,7 +257,7 @@ fn setup(mut commands: Commands, effects: ResMut<Assets<EffectAsset>>) {
         },
         Tonemapping::None,
         Bloom {
-            intensity: 0.2,
+            intensity: 0.5,
             ..default()
         },
     ));
@@ -254,8 +278,7 @@ fn create_effect(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>
         Name::new("sparkle_trail"),
         ParticleEffect::new(sparkle_trail_effect),
         // Set the rocket effect as parent. This gives access to the rocket effect's particles,
-        // which in turns allows inheriting their position (and other attributes if
-        // needed).
+        // which in turns allows inheriting their position (and other attributes if needed).
         EffectParent::new(rocket_entity),
     ));
 
@@ -265,7 +288,7 @@ fn create_effect(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>
         Name::new("trails"),
         ParticleEffect::new(trails_effect),
         // Set the rocket effect as parent. This gives access to the rocket effect's particles,
-        // which in turns allows inheriting their    position (and other attributes if needed).
+        // which in turns allows inheriting their position (and other attributes if needed).
         EffectParent::new(rocket_entity),
     ));
 }
