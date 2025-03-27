@@ -1146,7 +1146,7 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
         if has_age {
             if has_lifetime {
                 age_code += &format!(
-                    "\n    let was_alive = particle.{0} < particle.{1};",
+                    "\n    let was_alive = particle.{0} < particle.{1};\n    let is_new = particle.{0} == 0.0;",
                     Attribute::AGE.name(),
                     Attribute::LIFETIME.name()
                 );
@@ -1168,7 +1168,9 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
             // Since we're using a dead index buffer, all particles that make it to the
             // update compute shader are guaranteed to be alive (we never
             // simulate dead particles).
-            age_code = "\n    let was_alive = true;\n    var is_alive = true;".to_string();
+            age_code =
+                "\n    let was_alive = true;\n    var is_alive = true;\n    let is_new = false;"
+                    .to_string();
         }
 
         // Configure reaping code

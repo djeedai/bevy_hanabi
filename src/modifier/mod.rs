@@ -616,6 +616,8 @@ pub enum EventEmitCondition {
     Always,
     /// Only emit events if the particle died during this frame update.
     OnDie,
+    /// Only emit events if the particle spawned during this frame update.
+    OnSpawn,
 }
 
 /// Emit GPU spawn events to spawn new particle(s) in a child effect.
@@ -661,6 +663,10 @@ impl EmitSpawnEventModifier {
             ),
             EventEmitCondition::OnDie => format!(
                 "if (was_alive && !is_alive) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
+                self.count.to_wgsl_string()
+            ),
+            EventEmitCondition::OnSpawn => format!(
+                "if (is_alive && is_new) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
                 self.count.to_wgsl_string()
             ),
         };
