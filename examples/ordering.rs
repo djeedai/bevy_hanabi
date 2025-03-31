@@ -82,9 +82,7 @@ fn make_firework() -> EffectAsset {
         .update(update_accel)
         // Note: we (ab)use the ColorOverLifetimeModifier to set a fixed color hard-coded in the
         // render shader, without having to store a per-particle color. This is an optimization.
-        .render(ColorOverLifetimeModifier {
-            gradient: color_gradient1,
-        })
+        .render(ColorOverLifetimeModifier::new(color_gradient1))
         .render(SizeOverLifetimeModifier {
             gradient: size_gradient1,
             screen_space_size: false,

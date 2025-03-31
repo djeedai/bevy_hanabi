@@ -81,7 +81,7 @@ fn setup(
                 texture_slot,
                 sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
-            .render(ColorOverLifetimeModifier { gradient }),
+            .render(ColorOverLifetimeModifier::new(gradient)),
     );
 
     commands

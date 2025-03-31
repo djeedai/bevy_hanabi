@@ -41,9 +41,7 @@ where
         .with_simulation_space(SimulationSpace::Local)
         .init(init)
         .render(OrientModifier::new(OrientMode::FaceCameraPosition))
-        .render(SetColorModifier {
-            color: COLOR.into(),
-        })
+        .render(SetColorModifier::new(COLOR))
         .render(SetSizeModifier { size: SIZE.into() })
 }
 

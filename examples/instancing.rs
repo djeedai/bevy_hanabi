@@ -244,7 +244,7 @@ fn setup(
             .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
-            .render(ColorOverLifetimeModifier { gradient }),
+            .render(ColorOverLifetimeModifier::new(gradient)),
     );
 
     let mut gradient = Gradient::new();
@@ -289,7 +289,7 @@ fn setup(
                 texture_slot,
                 sample_mapping: ImageSampleMapping::Modulate,
             })
-            .render(ColorOverLifetimeModifier { gradient }),
+            .render(ColorOverLifetimeModifier::new(gradient)),
     );
 
     // Store the effects for later reference

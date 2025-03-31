@@ -128,7 +128,7 @@ fn setup(
             .render(SetSizeModifier {
                 size: Vec3::splat(0.02).into(),
             })
-            .render(ColorOverLifetimeModifier { gradient })
+            .render(ColorOverLifetimeModifier::new(gradient))
             .render(round),
     );
 

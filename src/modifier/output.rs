@@ -3,6 +3,7 @@
 use std::hash::Hash;
 
 use bevy::prelude::*;
+use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -149,6 +150,73 @@ impl ParticleTextureModifier {
     }
 }
 
+/// Color blending modes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub enum ColorBlendMode {
+    /// Overwrite the destination color with the source one.
+    #[default]
+    Overwrite,
+    /// Add the source color to the destination one.
+    Add,
+    /// Multiply the source color by the destination one.
+    Modulate,
+}
+
+impl ColorBlendMode {
+    /// Convert the blend mode to the string representation of its operator.
+    pub fn to_assign_operator(&self) -> String {
+        match *self {
+            ColorBlendMode::Overwrite => "=",
+            ColorBlendMode::Add => "+=",
+            ColorBlendMode::Modulate => "*=",
+        }
+        .to_string()
+    }
+}
+
+/// Color component write mask for blending colors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct ColorBlendMask(u8);
+
+bitflags! {
+    impl ColorBlendMask: u8 {
+        /// First component (red).
+        const R = 0b0001;
+        /// Second component (green).
+        const G = 0b0010;
+        /// Third component (blue).
+        const B = 0b0100;
+        /// Last component (alpha).
+        const A = 0b1000;
+
+        /// RGB mask (skip alpha).
+        const RGB = 0b0111;
+
+        /// RGBA mask (all components).
+        const RGBA = 0b1111;
+    }
+}
+
+impl Default for ColorBlendMask {
+    fn default() -> Self {
+        Self::RGBA
+    }
+}
+
+impl ColorBlendMask {
+    /// Convert the mask to a string of components, e.g. "rgb" or "ra".
+    pub fn to_components(&self) -> String {
+        let cmp = ['r', 'g', 'b', 'a'];
+        (0..3).fold(String::new(), |mut acc, i| {
+            let mask = ColorBlendMask::from_bits_truncate(1u8 << i);
+            if self.contains(mask) {
+                acc.push(cmp[i]);
+            }
+            acc
+        })
+    }
+}
+
 /// A modifier to set the rendering color of all particles.
 ///
 /// This modifier assigns a _single_ color to all particles. That color can be
@@ -162,6 +230,24 @@ impl ParticleTextureModifier {
 pub struct SetColorModifier {
     /// The particle color.
     pub color: CpuValue<Vec4>,
+    /// The color blend mode.
+    pub blend: ColorBlendMode,
+    /// The blend mask.
+    pub mask: ColorBlendMask,
+}
+
+impl SetColorModifier {
+    /// Create a new modifier with the default color blend and mask.
+    pub fn new<C>(color: C) -> Self
+    where
+        C: Into<CpuValue<Vec4>>,
+    {
+        Self {
+            color: color.into(),
+            blend: default(),
+            mask: default(),
+        }
+    }
 }
 
 impl_mod_render!(SetColorModifier, &[]);
@@ -173,7 +259,15 @@ impl RenderModifier for SetColorModifier {
         _module: &mut Module,
         context: &mut RenderContext,
     ) -> Result<(), ExprError> {
-        context.vertex_code += &format!("color = {0};\n", self.color.to_wgsl_string());
+        let op = self.blend.to_assign_operator();
+        let col = self.color.to_wgsl_string();
+        let s = if self.mask == ColorBlendMask::RGBA {
+            format!("color {op} {col};\n")
+        } else {
+            let mask = self.mask.to_components();
+            format!("color.{mask} {op} ({col}).{mask};\n")
+        };
+        context.vertex_code += &s;
         Ok(())
     }
 
@@ -198,6 +292,21 @@ impl RenderModifier for SetColorModifier {
 pub struct ColorOverLifetimeModifier {
     /// The color gradient defining the particle color based on its lifetime.
     pub gradient: Gradient<Vec4>,
+    /// The color blend mode.
+    pub blend: ColorBlendMode,
+    /// The blend mask.
+    pub mask: ColorBlendMask,
+}
+
+impl ColorOverLifetimeModifier {
+    /// Create a new modifier from a given gradient.
+    pub fn new(gradient: Gradient<Vec4>) -> Self {
+        Self {
+            gradient,
+            blend: default(),
+            mask: default(),
+        }
+    }
 }
 
 impl_mod_render!(
@@ -223,13 +332,21 @@ impl RenderModifier for ColorOverLifetimeModifier {
             self.gradient.to_shader_code("key")
         );
 
-        context.vertex_code += &format!(
-            "color = {0}(particle.{1} / particle.{2});\n",
+        let op = self.blend.to_assign_operator();
+        let col = format!(
+            "{0}(particle.{1} / particle.{2});\n",
             func_name,
             Attribute::AGE.name(),
             Attribute::LIFETIME.name()
         );
+        let s = if self.mask == ColorBlendMask::RGBA {
+            format!("color {op} {col};\n")
+        } else {
+            let mask = self.mask.to_components();
+            format!("color.{mask} {op} ({col}).{mask};\n")
+        };
 
+        context.vertex_code += &s;
         Ok(())
     }
 
@@ -851,6 +968,8 @@ mod tests {
         gradient.add_key(0.8, blue);
         let modifier = ColorOverLifetimeModifier {
             gradient: gradient.clone(),
+            blend: ColorBlendMode::Overwrite,
+            mask: ColorBlendMask::RGBA,
         };
 
         let mut module = Module::default();

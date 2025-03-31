@@ -86,9 +86,7 @@ fn setup(
         .init(init_vel1)
         .init(init_age1)
         .init(init_lifetime1)
-        .render(ColorOverLifetimeModifier {
-            gradient: gradient1,
-        }),
+        .render(ColorOverLifetimeModifier::new(gradient1)),
     );
 
     commands
@@ -135,9 +133,7 @@ fn setup(
         .init(init_vel2)
         .init(init_age2)
         .init(init_lifetime2)
-        .render(ColorOverLifetimeModifier {
-            gradient: gradient2,
-        }),
+        .render(ColorOverLifetimeModifier::new(gradient2)),
     );
 
     commands
@@ -184,9 +180,7 @@ fn setup(
         .init(init_vel3)
         .init(init_age3)
         .init(init_lifetime3)
-        .render(ColorOverLifetimeModifier {
-            gradient: gradient3,
-        }),
+        .render(ColorOverLifetimeModifier::new(gradient3)),
     );
 
     commands

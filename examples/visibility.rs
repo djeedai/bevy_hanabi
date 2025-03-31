@@ -89,7 +89,7 @@ fn setup(
     .init(init_age)
     .init(init_lifetime)
     //.update(AccelModifier::constant(Vec3::new(0., 2., 0.)))
-    .render(ColorOverLifetimeModifier { gradient });
+    .render(ColorOverLifetimeModifier::new(gradient));
     let effect1 = effects.add(asset.clone());
 
     // Reference cube to visualize the emit origin

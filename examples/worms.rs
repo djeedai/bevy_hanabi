@@ -148,6 +148,12 @@ fn create_body_effect() -> EffectAsset {
     let init_lifetime_modifier =
         SetAttributeModifier::new(Attribute::LIFETIME, writer.lit(1.5).expr());
 
+    // The trail inherits the color of its parent head
+    let init_color_modifier = SetAttributeModifier::new(
+        Attribute::COLOR,
+        writer.parent_attr(Attribute::COLOR).expr(),
+    );
+
     // Render modifiers
 
     // Set the particle size.
@@ -167,6 +173,7 @@ fn create_body_effect() -> EffectAsset {
         .init(init_ribbon_id_modifier)
         .init(init_age_modifier)
         .init(init_lifetime_modifier)
+        .init(init_color_modifier)
         .render(set_size_modifier)
 }
 

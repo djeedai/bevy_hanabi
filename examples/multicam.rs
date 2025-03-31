@@ -75,9 +75,7 @@ fn make_effect(color: Color) -> EffectAsset {
         .init(init_age)
         .init(init_lifetime)
         .update(update_accel)
-        .render(ColorOverLifetimeModifier {
-            gradient: color_gradient,
-        })
+        .render(ColorOverLifetimeModifier::new(color_gradient))
         .render(SizeOverLifetimeModifier {
             gradient: size_gradient.clone(),
             screen_space_size: false,
