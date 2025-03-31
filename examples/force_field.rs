@@ -310,7 +310,7 @@ fn setup(
                 gradient: Gradient::constant(Vec3::splat(0.05)),
                 screen_space_size: false,
             })
-            .render(ColorOverLifetimeModifier { gradient }),
+            .render(ColorOverLifetimeModifier::new(gradient)),
     );
 
     commands.spawn((ParticleEffect::new(effect), EffectProperties::default()));

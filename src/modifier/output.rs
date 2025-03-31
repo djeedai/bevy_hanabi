@@ -236,6 +236,20 @@ pub struct SetColorModifier {
     pub mask: ColorBlendMask,
 }
 
+impl SetColorModifier {
+    /// Create a new modifier with the default color blend and mask.
+    pub fn new<C>(color: C) -> Self
+    where
+        C: Into<CpuValue<Vec4>>,
+    {
+        Self {
+            color: color.into(),
+            blend: default(),
+            mask: default(),
+        }
+    }
+}
+
 impl_mod_render!(SetColorModifier, &[]);
 
 #[cfg_attr(feature = "serde", typetag::serde)]
@@ -282,6 +296,17 @@ pub struct ColorOverLifetimeModifier {
     pub blend: ColorBlendMode,
     /// The blend mask.
     pub mask: ColorBlendMask,
+}
+
+impl ColorOverLifetimeModifier {
+    /// Create a new modifier from a given gradient.
+    pub fn new(gradient: Gradient<Vec4>) -> Self {
+        Self {
+            gradient,
+            blend: default(),
+            mask: default(),
+        }
+    }
 }
 
 impl_mod_render!(

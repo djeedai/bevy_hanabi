@@ -122,9 +122,10 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         value: writer.lit(0u32).expr(),
     };
 
-    let render_color = ColorOverLifetimeModifier {
-        gradient: Gradient::linear(vec4(3.0, 0.0, 0.0, 1.0), vec4(3.0, 0.0, 0.0, 0.0)),
-    };
+    let render_color = ColorOverLifetimeModifier::new(Gradient::linear(
+        vec4(3.0, 0.0, 0.0, 1.0),
+        vec4(3.0, 0.0, 0.0, 0.0),
+    ));
 
     let spawner = SpawnerSettings::rate(RIBBON_SPAWN_RATE.into());
 

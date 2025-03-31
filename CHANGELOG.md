@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See the `firework.rs` example for an example of using color blending.
 - Added `WriterExpr::vec4_xyz_w()` to recombine a 3D vector and a scalar together into a 4D vector.
   This is particularly useful to combine some RGB value and Alpha value together.
+- Added new `SetColorModifier::new(Into<CpuValue<Vec4>>)` and `ColorOverLifetimeModifier::new(Gradient<Vec4>)` helpers
+  for the common case where color blend and mask are the defaults.
 
 ### Changed
 

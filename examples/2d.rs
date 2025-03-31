@@ -85,7 +85,7 @@ fn setup(
                 gradient: Gradient::constant(Vec3::splat(0.02)),
                 screen_space_size: false,
             })
-            .render(ColorOverLifetimeModifier { gradient })
+            .render(ColorOverLifetimeModifier::new(gradient))
             .render(round),
     );
 

@@ -77,7 +77,7 @@ fn setup(
         .init(init_age)
         .init(init_lifetime)
         .update(update_accel)
-        .render(ColorOverLifetimeModifier { gradient }),
+        .render(ColorOverLifetimeModifier::new(gradient)),
     );
 
     commands

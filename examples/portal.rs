@@ -82,9 +82,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             .init(init_lifetime)
             .update(update_drag)
             .update(tangent_accel)
-            .render(ColorOverLifetimeModifier {
-                gradient: color_gradient1,
-            })
+            .render(ColorOverLifetimeModifier::new(color_gradient1))
             .render(SizeOverLifetimeModifier {
                 gradient: size_gradient1,
                 screen_space_size: false,
