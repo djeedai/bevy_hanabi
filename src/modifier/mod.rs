@@ -623,11 +623,13 @@ pub enum EventEmitCondition {
 /// This update modifier is used to spawn new particles into a child effect
 /// instance based on a condition applied to particles of the current effect
 /// instance. The most common use case is to spawn one or more child particles
-/// when a particle dies; this is achieved with [`EventEmitCondition::OnDie`].
+/// into a child effect when a particle in this effect dies; this is achieved
+/// with [`EventEmitCondition::OnDie`].
 ///
 /// An effect instance with this modifier will emit GPU spawn events. Those
 /// events are read by all child effects (those effects with an [`EffectParent`]
-/// component pointing at the current effect instance).
+/// component pointing at the current effect instance). GPU spawn events are
+/// stored internally in a GPU buffer; they're **unrelated** to Bevy ECS events.
 ///
 /// [`EffectParent`]: crate::EffectParent
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
