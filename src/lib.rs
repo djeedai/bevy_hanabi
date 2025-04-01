@@ -40,7 +40,7 @@
 //!
 //! ```toml
 //! # Example: enable only 3D integration
-//! bevy_hanabi = { version = "0.14", default-features = false, features = ["3d"] }
+//! bevy_hanabi = { version = "0.15", default-features = false, features = ["3d"] }
 //! ```
 //!
 //! # Example

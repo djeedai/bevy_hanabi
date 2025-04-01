@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.15.0-dev"
+version = "0.15.0"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 rust-version = "1.85.0"
@@ -19,9 +19,12 @@ exclude = [
   "examples/wasm/*",
   ".github",
   "release.md",
+  "build_examples_wasm.bat",
+  "build_examples_wasm.sh",
   "run_examples.bat",
   "run_examples.sh",
-  "deny.toml"
+  "deny.toml",
+  "rustfmt.toml.nightly"
 ]
 autoexamples = false
 
