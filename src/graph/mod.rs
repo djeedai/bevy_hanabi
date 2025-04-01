@@ -1,4 +1,4 @@
-//! Effect graph and language definition.
+//! Effect graph and language definition, including *expressions*.
 //!
 //! This module contains the elements used to build an _effect graph_, a fully
 //! customizable description of a visual effect.

@@ -2269,7 +2269,7 @@ pub struct DebugSettings {
     /// frame starts rendering (extract phase).
     ///
     /// Enable this feature to automatically capture one or more GPU frames when
-    /// the [`extract_effects`] system runs next. This instructs any attached
+    /// the `extract_effects()` system runs next. This instructs any attached
     /// GPU debugger to start a capture; this has no effect if no debugger
     /// is attached.
     ///

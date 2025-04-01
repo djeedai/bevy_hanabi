@@ -35,7 +35,8 @@
 //! 2D pipeline integration is controlled by the `2d` cargo feature, while the
 //! 3D pipeline integration is controlled by the `3d` cargo feature. Both
 //! features are enabled by default for convenience. As an optimization, users
-//! can disable default features and re-enable only one of the two modes.
+//! can disable default features and re-enable only one of the two modes. At
+//! least one of the `2d` or `3d` features must be enabled.
 //!
 //! ```toml
 //! # Example: enable only 3D integration
@@ -161,12 +162,21 @@
 //!    the effect is active. This allows some moderate CPU-side control over the
 //!    simulation and rendering of the effect, without having to destroy the
 //!    effect and re-create a new one.
+//! 4. If using textures, spawn an [`EffectMaterial`] component to define which
+//!    texture is bound to which slot in the effect. An [`EffectAsset`] only
+//!    defines "slots" of textures, not the actual assets bound to those slots.
+//!    This way, you can reuse the same effect asset multiple times with
+//!    different textures, like you'd do with a regular rendering mesh.
+//! 5. For advanced VFX composed of multiple hierarchical effects, where two or
+//!    more effects are connected to each other in a parent-child relationship,
+//!    spawn an [`EffectParent`] on any child effect instance to specify its
+//!    parent instance. See also the [`EmitSpawnEventModifier`].
 //!
 //! The [`EffectAsset`] is intended to be the serialized effect format, which
 //! authors can save to disk and ship with their application. At this time
 //! however serialization and deserialization is still a work in progress. In
 //! particular, serialization and deserialization of all
-//! [modifiers](crate::modifier) is currently not supported on Wasm.
+//! [modifiers](crate::modifier) is currently not supported on `wasm` target.
 
 use std::fmt::Write as _;
 
@@ -193,7 +203,9 @@ mod time;
 #[cfg(test)]
 mod test_utils;
 
-pub use asset::{AlphaMode, EffectAsset, EffectParent, MotionIntegration, SimulationCondition};
+pub use asset::{
+    AlphaMode, DefaultMesh, EffectAsset, EffectParent, MotionIntegration, SimulationCondition,
+};
 pub use attributes::*;
 pub use gradient::{Gradient, GradientKey};
 pub use graph::*;

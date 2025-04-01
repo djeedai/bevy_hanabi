@@ -336,11 +336,9 @@ impl EffectAsset {
     ///   which allow you to author the effect. These values directly impact the
     ///   GPU memory consumption of the effect, which will allocate some buffers
     ///   to store that many particles for as long as the effect exists. The
-    ///   capacities of an effect are immutable. See also [`capacities()`] for
+    ///   capacities of an effect are immutable. See also [`capacity()`] for
     ///   more details.
-    /// - The [`Initializer`], which defines when particles are emitted.
-    ///   Initializers can be either spawners, to spawn new particles, or
-    ///   cloners, to clone particles from one group into another.
+    /// - The [`SpawnerSettings`], which defines when particles are emitted.
     ///
     /// Additionally, if any modifier added to this effect uses some [`Expr`] to
     /// customize its behavior, then those [`Expr`] are stored into a [`Module`]
@@ -378,7 +376,7 @@ impl EffectAsset {
     /// let effect = EffectAsset::new(capacity, spawner, module);
     /// ```
     ///
-    /// [`capacities()`]: crate::EffectAsset::capacities
+    /// [`capacity()`]: self::EffectAsset::capacity
     /// [`Expr`]: crate::graph::expr::Expr
     pub fn new(capacity: u32, spawner: SpawnerSettings, module: Module) -> Self {
         Self {
@@ -695,6 +693,10 @@ impl AssetLoader for EffectAssetLoader {
 /// spawn events continuously ([`EventEmitCondition::Always`]) to generate some
 /// kind of trail, and also emit GPU spawn events when its particles die
 /// ([`EventEmitCondition::OnDie`]) for any explosion-like effect.
+///
+/// [`ParticleEffect`]: crate::ParticleEffect
+/// [`EventEmitCondition::Always`]: crate::EventEmitCondition::Always
+/// [`EventEmitCondition::OnDie`]: crate::EventEmitCondition::OnDie
 #[derive(Debug, Clone, Copy, Component, Reflect)]
 pub struct EffectParent {
     /// Entity of the parent effect.
