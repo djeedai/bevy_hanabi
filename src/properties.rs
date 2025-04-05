@@ -97,8 +97,8 @@ use std::num::NonZeroU64;
 use bevy::{
     ecs::{component::Component, reflect::ReflectComponent, world::Mut},
     log::trace,
+    platform_support::collections::HashSet,
     reflect::Reflect,
-    utils::HashSet,
 };
 use serde::{Deserialize, Serialize};
 
@@ -888,7 +888,7 @@ mod tests {
     };
 
     use bevy::{
-        ecs::component::Tick,
+        ecs::{change_detection::MaybeLocation, component::Tick},
         math::{Vec2, Vec3, Vec4},
     };
 
@@ -1227,7 +1227,15 @@ mod tests {
         let this_run = added;
         let asset_properties = vec![];
         {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
+            let mut caller = MaybeLocation::caller();
+            let this = Mut::new(
+                &mut ep,
+                &mut added,
+                &mut last_changed,
+                last_run,
+                this_run,
+                caller.as_mut(),
+            );
             let is_added = true;
             EffectProperties::update(this, &asset_properties, is_added);
         }
@@ -1246,7 +1254,15 @@ mod tests {
         let this_run = added;
         let asset_properties = vec![Property::new("prop1", 32.)];
         {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
+            let mut caller = MaybeLocation::caller();
+            let this = Mut::new(
+                &mut ep,
+                &mut added,
+                &mut last_changed,
+                last_run,
+                this_run,
+                caller.as_mut(),
+            );
             let is_added = true;
             EffectProperties::update(this, &asset_properties, is_added);
         }
@@ -1267,7 +1283,15 @@ mod tests {
         let this_run = added;
         let asset_properties = vec![];
         {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
+            let mut caller = MaybeLocation::caller();
+            let this = Mut::new(
+                &mut ep,
+                &mut added,
+                &mut last_changed,
+                last_run,
+                this_run,
+                caller.as_mut(),
+            );
             let is_added = true;
             EffectProperties::update(this, &asset_properties, is_added);
         }
@@ -1288,7 +1312,15 @@ mod tests {
         let this_run = added;
         let asset_properties = vec![Property::new("prop1", 32.)];
         {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
+            let mut caller = MaybeLocation::caller();
+            let this = Mut::new(
+                &mut ep,
+                &mut added,
+                &mut last_changed,
+                last_run,
+                this_run,
+                caller.as_mut(),
+            );
             let is_added = true;
             EffectProperties::update(this, &asset_properties, is_added);
         }
@@ -1310,7 +1342,15 @@ mod tests {
         let this_run = added;
         let asset_properties = vec![Property::new("prop1", 32.), Property::new("prop2", false)];
         {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
+            let mut caller = MaybeLocation::caller();
+            let this = Mut::new(
+                &mut ep,
+                &mut added,
+                &mut last_changed,
+                last_run,
+                this_run,
+                caller.as_mut(),
+            );
             let is_added = true;
             EffectProperties::update(this, &asset_properties, is_added);
         }

@@ -46,7 +46,7 @@ struct RepulsorMarker(pub bool);
 
 #[cfg(feature = "examples_world_inspector")]
 mod inspector {
-    use bevy::{ecs::system::Resource, prelude::*, reflect::Reflect, window::PrimaryWindow};
+    use bevy::{ecs::resource::Resource, prelude::*, reflect::Reflect, window::PrimaryWindow};
     use bevy_egui::EguiContext;
     use bevy_hanabi::EffectProperties;
     use bevy_inspector_egui::{inspector_options::std_options::NumberDisplay, prelude::*};

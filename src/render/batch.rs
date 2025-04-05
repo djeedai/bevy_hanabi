@@ -1,12 +1,12 @@
 use std::{collections::VecDeque, fmt::Debug, num::NonZeroU32, ops::Range};
 
 use bevy::{
+    platform_support::collections::HashMap,
     prelude::*,
     render::{
         render_resource::{BufferId, CachedComputePipelineId},
         sync_world::MainEntity,
     },
-    utils::HashMap,
 };
 
 use super::{

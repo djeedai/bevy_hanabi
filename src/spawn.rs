@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use bevy::{ecs::system::Resource, math::FloatOrd, prelude::*, reflect::Reflect};
+use bevy::{ecs::resource::Resource, log::trace, math::FloatOrd, prelude::*, reflect::Reflect};
 use rand::{
     distributions::{uniform::SampleUniform, Distribution, Uniform},
     SeedableRng,
@@ -942,7 +942,7 @@ mod test {
                 memory::{Dir, MemoryAssetReader},
                 AssetSourceBuilder, AssetSourceBuilders, AssetSourceId,
             },
-            AssetServerMode,
+            AssetServerMode, UnapprovedPathMode,
         },
         render::view::{VisibilityPlugin, VisibilitySystems},
         tasks::{IoTaskPool, TaskPoolBuilder},
@@ -1184,8 +1184,12 @@ mod test {
             .with_reader(move || Box::new(MemoryAssetReader { root: dir.clone() }));
         builders.insert(AssetSourceId::Default, dummy_builder);
         let sources = builders.build_sources(watch_for_changes, false);
-        let asset_server =
-            AssetServer::new(sources, AssetServerMode::Unprocessed, watch_for_changes);
+        let asset_server = AssetServer::new(
+            sources,
+            AssetServerMode::Unprocessed,
+            watch_for_changes,
+            UnapprovedPathMode::Forbid,
+        );
 
         app.insert_resource(asset_server);
         // app.add_plugins(DefaultPlugins);

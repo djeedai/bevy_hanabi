@@ -181,9 +181,9 @@
 use std::fmt::Write as _;
 
 use bevy::{
+    platform_support::collections::{HashMap, HashSet},
     prelude::*,
-    render::sync_world::SyncToRenderWorld,
-    utils::{HashMap, HashSet},
+    render::{sync_world::SyncToRenderWorld, view::VisibilityClass},
 };
 use rand::{Rng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
@@ -574,6 +574,9 @@ impl From<&PropertyInstance> for PropertyValue {
     }
 }
 
+/// The [`VisibilityClass`] used for all particle effects.
+pub struct EffectVisibilityClass;
+
 /// Particle-based visual effect instance.
 ///
 /// The particle effect component represents a single instance of a visual
@@ -636,7 +639,14 @@ impl From<&PropertyInstance> for PropertyValue {
 /// for example.
 #[derive(Debug, Default, Clone, Component, Reflect)]
 #[reflect(Component)]
-#[require(CompiledParticleEffect, Transform, Visibility, SyncToRenderWorld)]
+#[require(
+    CompiledParticleEffect,
+    Transform,
+    Visibility,
+    VisibilityClass,
+    SyncToRenderWorld
+)]
+#[component(on_add = bevy::render::view::add_visibility_class::<EffectVisibilityClass>)]
 pub struct ParticleEffect {
     /// Handle of the effect to instantiate.
     pub handle: Handle<EffectAsset>,
@@ -1630,7 +1640,7 @@ fn compile_effects(
 
     // Count children
     let mut children: HashMap<Entity, Vec<Entity>> =
-        HashMap::with_capacity(particle_layouts_and_parents.len());
+        HashMap::with_capacity_and_hasher(particle_layouts_and_parents.len(), Default::default());
     for (child, (_, parent)) in particle_layouts_and_parents.iter() {
         if let Some(parent) = parent.as_ref() {
             children.entry(*parent).or_default().push(*child);
@@ -1768,7 +1778,7 @@ mod tests {
                 memory::{Dir, MemoryAssetReader},
                 AssetSourceBuilder, AssetSourceBuilders, AssetSourceId,
             },
-            AssetServerMode,
+            AssetServerMode, UnapprovedPathMode,
         },
         render::view::{VisibilityPlugin, VisibilitySystems},
         tasks::{IoTaskPool, TaskPoolBuilder},
@@ -2000,8 +2010,12 @@ else { return c1; }
             .with_reader(move || Box::new(MemoryAssetReader { root: dir.clone() }));
         builders.insert(AssetSourceId::Default, dummy_builder);
         let sources = builders.build_sources(watch_for_changes, false);
-        let asset_server =
-            AssetServer::new(sources, AssetServerMode::Unprocessed, watch_for_changes);
+        let asset_server = AssetServer::new(
+            sources,
+            AssetServerMode::Unprocessed,
+            watch_for_changes,
+            UnapprovedPathMode::Forbid,
+        );
 
         app.insert_resource(asset_server);
         // app.add_plugins(DefaultPlugins);

@@ -25,6 +25,7 @@ use bevy::{
         system::{lifetimeless::*, SystemParam, SystemState},
     },
     log::trace,
+    platform_support::collections::{hash_map::Entry, HashMap, HashSet},
     prelude::*,
     render::{
         mesh::{
@@ -46,7 +47,6 @@ use bevy::{
         },
         Extract,
     },
-    utils::{Entry, HashMap, HashSet},
 };
 use bitflags::bitflags;
 use bytemuck::{Pod, Zeroable};
@@ -58,7 +58,6 @@ use naga_oil::compose::{Composer, NagaModuleDescriptor};
 use crate::{
     asset::{DefaultMesh, EffectAsset},
     calc_func_id,
-    plugin::WithCompiledParticleEffect,
     render::{
         batch::{BatchInput, EffectDrawBatch, InitAndUpdatePipelineIds},
         effect_cache::DispatchBufferIndices,
@@ -1328,10 +1327,13 @@ impl FromWorld for UtilsPipeline {
         };
 
         debug!("Create utils shader module:\n{}", shader_code);
-        let shader_module = render_device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("hanabi:shader:utils"),
-            source: shader_source,
-        });
+        #[allow(unsafe_code)]
+        let shader_module = unsafe {
+            render_device.create_shader_module(ShaderModuleDescriptor {
+                label: Some("hanabi:shader:utils"),
+                source: shader_source,
+            })
+        };
 
         trace!("Create vfx_utils pipelines...");
         let dummy = std::collections::HashMap::<String, f64>::new();
@@ -3054,7 +3056,7 @@ pub(crate) fn on_remove_cached_effect(
         _opt_props,
         _opt_parent,
         opt_cached_effect_events,
-    )) = query.get(trigger.entity())
+    )) = query.get(trigger.target())
     else {
         return;
     };
@@ -3178,8 +3180,8 @@ fn is_child_list_changed(
     // TODO - this value is arbitrary
     if old.len() >= 16 {
         // For large-ish lists, use a hash set.
-        let old = HashSet::from_iter(old);
-        let new = HashSet::from_iter(new);
+        let old = HashSet::<Entity, bevy::platform_support::hash::FixedHasher>::from_iter(old);
+        let new = HashSet::<Entity, bevy::platform_support::hash::FixedHasher>::from_iter(new);
         if old != new {
             trace!(
                 "Child list changed for effect {parent_entity:?}: old [{old:?}] != new [{new:?}]"
@@ -3443,7 +3445,7 @@ pub fn clear_all_effects(
     mut q_cached_effects: Query<Entity, With<BatchInput>>,
 ) {
     for entity in &mut q_cached_effects {
-        if let Some(mut cmd) = commands.get_entity(entity) {
+        if let Ok(mut cmd) = commands.get_entity(entity) {
             cmd.remove::<BatchInput>();
         }
     }
@@ -4820,7 +4822,7 @@ pub struct QueueEffectsReadOnlyParams<'w, 's> {
 }
 
 fn emit_sorted_draw<T, F>(
-    views: &Query<(Entity, &RenderVisibleEntities, &ExtractedView, &Msaa)>,
+    views: &Query<(&RenderVisibleEntities, &ExtractedView, &Msaa)>,
     render_phases: &mut ResMut<ViewSortedRenderPhases<T>>,
     view_entities: &mut FixedBitSet,
     sorted_effect_batches: &SortedEffectBatches,
@@ -4837,13 +4839,13 @@ fn emit_sorted_draw<T, F>(
 {
     trace!("emit_sorted_draw() {} views", views.iter().len());
 
-    for (view_entity, visible_entities, view, msaa) in views.iter() {
+    for (visible_entities, view, msaa) in views.iter() {
         trace!(
             "Process new sorted view with {} visible particle effect entities",
-            visible_entities.len::<WithCompiledParticleEffect>()
+            visible_entities.len::<CompiledParticleEffect>()
         );
 
-        let Some(render_phase) = render_phases.get_mut(&view_entity) else {
+        let Some(render_phase) = render_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
 
@@ -4854,7 +4856,7 @@ fn emit_sorted_draw<T, F>(
             view_entities.clear();
             view_entities.extend(
                 visible_entities
-                    .iter::<WithCompiledParticleEffect>()
+                    .iter::<CompiledParticleEffect>()
                     .map(|e| e.1.index() as usize),
             );
         }
@@ -5001,7 +5003,7 @@ fn emit_sorted_draw<T, F>(
 
 #[cfg(feature = "3d")]
 fn emit_binned_draw<T, F>(
-    views: &Query<(Entity, &RenderVisibleEntities, &ExtractedView, &Msaa)>,
+    views: &Query<(&RenderVisibleEntities, &ExtractedView, &Msaa)>,
     render_phases: &mut ResMut<ViewBinnedRenderPhases<T>>,
     view_entities: &mut FixedBitSet,
     sorted_effect_batches: &SortedEffectBatches,
@@ -5021,10 +5023,10 @@ fn emit_binned_draw<T, F>(
 
     trace!("emit_binned_draw() {} views", views.iter().len());
 
-    for (view_entity, visible_entities, view, msaa) in views.iter() {
+    for (visible_entities, view, msaa) in views.iter() {
         trace!("Process new binned view (alpha_mask={:?})", alpha_mask);
 
-        let Some(render_phase) = render_phases.get_mut(&view_entity) else {
+        let Some(render_phase) = render_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
 
@@ -5035,7 +5037,7 @@ fn emit_binned_draw<T, F>(
             view_entities.clear();
             view_entities.extend(
                 visible_entities
-                    .iter::<WithCompiledParticleEffect>()
+                    .iter::<CompiledParticleEffect>()
                     .map(|e| e.1.index() as usize),
             );
         }
@@ -5171,6 +5173,7 @@ fn emit_binned_draw<T, F>(
             render_phase.add(
                 make_bin_key(render_pipeline_id, draw_batch, view),
                 (draw_entity, MainEntity::from(Entity::PLACEHOLDER)),
+                InputUniformIndex::default(),
                 BinnedRenderPhaseType::NonMesh,
             );
         }
@@ -5179,7 +5182,7 @@ fn emit_binned_draw<T, F>(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn queue_effects(
-    views: Query<(Entity, &RenderVisibleEntities, &ExtractedView, &Msaa)>,
+    views: Query<(&RenderVisibleEntities, &ExtractedView, &Msaa)>,
     effects_meta: Res<EffectsMeta>,
     mut render_pipeline: ResMut<ParticlesRenderPipeline>,
     mut specialized_render_pipelines: ResMut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
@@ -5259,7 +5262,9 @@ pub(crate) fn queue_effects(
                     pipeline: id,
                     draw_function: draw_effects_function_2d,
                     batch_range: 0..1,
-                    extra_index: PhaseItemExtraIndex::NONE,
+                    extracted_index: 0, // ???
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: true, // ???
                 },
                 #[cfg(feature = "3d")]
                 PipelineMode::Camera2d,
@@ -5294,14 +5299,15 @@ pub(crate) fn queue_effects(
                 &render_meshes,
                 &pipeline_cache,
                 |id, entity, batch, view| Transparent3d {
-                    draw_function: draw_effects_function_3d,
-                    pipeline: id,
-                    entity,
                     distance: view
                         .rangefinder3d()
                         .distance_translation(&batch.translation),
+                    pipeline: id,
+                    entity,
+                    draw_function: draw_effects_function_3d,
                     batch_range: 0..1,
-                    extra_index: PhaseItemExtraIndex::NONE,
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: true, // ???
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
@@ -6105,7 +6111,7 @@ impl Draw<AlphaMask3d> for DrawEffects {
             pass,
             view,
             item.representative_entity,
-            item.key.pipeline,
+            item.batch_set_key.pipeline,
             &mut self.params,
         );
         Ok(())
@@ -6127,7 +6133,7 @@ impl Draw<Opaque3d> for DrawEffects {
             pass,
             view,
             item.representative_entity,
-            item.key.pipeline,
+            item.batch_set_key.pipeline,
             &mut self.params,
         );
         Ok(())
@@ -6515,9 +6521,9 @@ impl Node for VfxSimulateNode {
                     compute_pass.set_bind_group(3, indirect_child_info_buffer_bind_group, &[]);
                 } else {
                     error!("Missing child_info_buffer@3 bind group for the vfx_indirect pass.");
-                    render_context
-                        .command_encoder()
-                        .insert_debug_marker("ERROR:MissingIndirectBindGroup3");
+                    // render_context
+                    //     .command_encoder()
+                    //     .insert_debug_marker("ERROR:MissingIndirectBindGroup3");
                     // FIXME - Bevy doesn't allow returning custom errors here...
                     return Ok(());
                 }

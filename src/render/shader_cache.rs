@@ -1,11 +1,11 @@
-use std::hash::{Hash, Hasher};
+use std::hash::{BuildHasher, Hash, Hasher};
 
 use bevy::{
     asset::{Assets, Handle},
-    ecs::{change_detection::ResMut, system::Resource},
+    ecs::{change_detection::ResMut, resource::Resource},
     log::{debug, trace},
+    platform_support::collections::HashMap,
     render::render_resource::Shader,
-    utils::HashMap,
 };
 
 /// Cache of baked shaders variants.
@@ -38,7 +38,7 @@ impl ShaderCache {
         if let Some(handle) = self.cache.get(source) {
             handle.clone()
         } else {
-            let mut hasher = bevy::utils::AHasher::default();
+            let mut hasher = bevy::platform_support::hash::FixedHasher.build_hasher();
             source.hash(&mut hasher);
             let hash = hasher.finish();
             let shader = Shader::from_wgsl(

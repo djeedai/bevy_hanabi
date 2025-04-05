@@ -133,10 +133,10 @@ use bevy::{
     math::{Vec2, Vec3, Vec4},
     reflect::{
         utility::{GenericTypePathCell, NonGenericTypeInfoCell},
-        ApplyError, DynamicStruct, FieldIter, FromReflect, FromType, GetTypeRegistration,
-        NamedField, PartialReflect, Reflect, ReflectDeserialize, ReflectFromReflect, ReflectMut,
-        ReflectOwned, ReflectRef, ReflectSerialize, Struct, StructInfo, TypeInfo, TypePath,
-        TypeRegistration, Typed,
+        ApplyError, FieldIter, FromReflect, FromType, GetTypeRegistration, NamedField,
+        PartialReflect, Reflect, ReflectDeserialize, ReflectFromReflect, ReflectMut, ReflectOwned,
+        ReflectRef, ReflectSerialize, Struct, StructInfo, TypeInfo, TypePath, TypeRegistration,
+        Typed,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -797,17 +797,6 @@ impl Struct for Attribute {
 
     fn iter_fields(&self) -> FieldIter {
         FieldIter::new(self)
-    }
-
-    fn clone_dynamic(&self) -> DynamicStruct {
-        let mut dynamic = DynamicStruct::default();
-        dynamic.set_represented_type(self.get_represented_type_info());
-        dynamic.insert_boxed("name", <dyn Reflect>::clone_value(&self.0.name));
-        dynamic.insert_boxed(
-            "default_value",
-            <dyn Reflect>::clone_value(&self.0.default_value),
-        );
-        dynamic
     }
 }
 
@@ -2236,7 +2225,7 @@ mod tests {
                     );
                 }
 
-                let d = s.clone_dynamic();
+                let d = s.to_dynamic_struct();
                 assert_eq!(
                     TypeRegistration::of::<Attribute>().type_id(),
                     d.get_represented_type_info().unwrap().type_id()

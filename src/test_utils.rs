@@ -154,11 +154,10 @@ impl MockRenderer {
         // Create the WGPU adapter. Use PRIMARY backends (Vulkan, Metal, DX12,
         // Browser+WebGPU) to ensure we get a backend that supports compute and other
         // modern features we might need.
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             flags,
-            dx12_shader_compiler: wgpu::Dx12Compiler::default(),
-            gles_minor_version: wgpu::Gles3MinorVersion::default(),
+            backend_options: wgpu::BackendOptions::default(),
         });
         let adapter =
             futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

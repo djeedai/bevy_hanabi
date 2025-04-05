@@ -2,7 +2,8 @@ use std::num::{NonZeroU32, NonZeroU64};
 
 use bevy::{
     asset::Handle,
-    ecs::{system::Resource, world::World},
+    ecs::{resource::Resource, world::World},
+    platform_support::collections::{hash_map::Entry, HashMap},
     render::{
         render_resource::{
             BindGroup, BindGroupLayout, Buffer, BufferId, CachedComputePipelineId,
@@ -10,10 +11,7 @@ use bevy::{
         },
         renderer::RenderDevice,
     },
-    utils::{
-        default,
-        hashbrown::{hash_map::Entry, HashMap},
-    },
+    utils::default,
 };
 use wgpu::{
     BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BufferBinding,
