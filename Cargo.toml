@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.15.0"
+version = "0.16.0-dev"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 rust-version = "1.85.0"
@@ -60,7 +60,7 @@ gpu_tests = []
 examples_world_inspector = []
 
 [dependencies]
-bytemuck = { version = "1", features = ["derive"] }
+bytemuck = { version = "1.5", features = ["derive", "must_cast"] }
 fixedbitset = "0.5"
 copyless = "0.1"
 rand = "0.8"
@@ -70,28 +70,29 @@ anyhow = "1.0"
 ron = "0.8"
 bitflags = "2.3"
 typetag = { version = "0.2", optional = true }
-thiserror = "1.0"
+thiserror = "2"
 # Same versions as Bevy 0.15 (bevy_render)
-wgpu = { version = "23.0.1", default-features = false, features = [
+wgpu = { version = "24", default-features = false, features = [
   "wgsl",
   "dx12",
   "metal",
   "naga-ir",
   "fragile-send-sync-non-atomic-wasm",
 ] }
-naga = { version = "23", features = ["wgsl-in"] }
-naga_oil = { version = "0.16", default-features = false, features = ["test_shader"] }
+naga = { version = "24", features = ["wgsl-in"] }
+naga_oil = { version = "0.17", default-features = false, features = ["test_shader"] }
 
 [dependencies.bevy]
-version = "0.15"
+version = "0.16.0-rc.3"
 default-features = false
 features = [
   "bevy_core_pipeline",
   "bevy_render",
   "bevy_asset",
+  "bevy_log",
   "x11",
   # Bug in Bevy 0.15.0 [bevy#16563]
-  "png"
+  #"png"
 ]
 
 [package.metadata.docs.rs]
@@ -105,14 +106,14 @@ bevy_egui = { version = "0.31", default-features = false, features = [
 ] }
 egui = "0.29"
 
-bevy_sprite = "0.15"
-bevy_text = "0.15"
-bevy_ui = "0.15"
-bevy_window = "0.15"
-bevy_picking = "0.15"
+bevy_sprite = "0.16.0-rc.3"
+bevy_text = "0.16.0-rc.3"
+bevy_ui = "0.16.0-rc.3"
+bevy_window = "0.16.0-rc.3"
+bevy_picking = "0.16.0-rc.3"
 
 # For glTF animations (Fox.glb)
-bevy_gltf = { version = "0.15", features = [ "bevy_animation" ] }
+bevy_gltf = { version = "0.16.0-rc.3", features = [ "bevy_animation" ] }
 
 # For procedural texture generation in examples
 noise = "0.9"

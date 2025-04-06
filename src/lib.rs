@@ -575,6 +575,7 @@ impl From<&PropertyInstance> for PropertyValue {
 }
 
 /// The [`VisibilityClass`] used for all particle effects.
+#[derive(Default, Clone, Copy)]
 pub struct EffectVisibilityClass;
 
 /// Particle-based visual effect instance.

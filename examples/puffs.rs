@@ -37,6 +37,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .insert_resource(AmbientLight {
             color: Color::WHITE,
             brightness: 500.0,
+            ..default()
         })
         .add_systems(Startup, setup)
         .add_systems(Update, setup_scene_once_loaded)

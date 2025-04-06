@@ -177,7 +177,8 @@ fn update(
             effect_spawner.active = is_active;
         }
 
-        let mut text = q_text.single_mut();
-        text.0 = (if is_active { "Active" } else { "Inactive" }).to_string();
+        if let Ok(mut text) = q_text.single_mut() {
+            text.0 = (if is_active { "Active" } else { "Inactive" }).to_string();
+        }
     }
 }

@@ -15,12 +15,13 @@ use bevy::math::FloatOrd;
 use bevy::{
     core_pipeline::{
         core_3d::{AlphaMask3d, Opaque3d, Transparent3d, CORE_3D_DEPTH_FORMAT},
-        prepass::OpaqueNoLightmap3dBinKey,
+        prepass::{OpaqueNoLightmap3dBatchSetKey, OpaqueNoLightmap3dBinKey},
     },
     render::render_phase::{BinnedPhaseItem, ViewBinnedRenderPhases},
 };
 use bevy::{
     ecs::{
+        component::Tick,
         prelude::*,
         system::{lifetimeless::*, SystemParam, SystemState},
     },
@@ -5002,7 +5003,7 @@ fn emit_sorted_draw<T, F>(
 }
 
 #[cfg(feature = "3d")]
-fn emit_binned_draw<T, F>(
+fn emit_binned_draw<T, F, G>(
     views: &Query<(&RenderVisibleEntities, &ExtractedView, &Msaa)>,
     render_phases: &mut ResMut<ViewBinnedRenderPhases<T>>,
     view_entities: &mut FixedBitSet,
@@ -5012,14 +5013,17 @@ fn emit_binned_draw<T, F>(
     mut specialized_render_pipelines: Mut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
     pipeline_cache: &PipelineCache,
     render_meshes: &RenderAssets<RenderMesh>,
-    make_bin_key: F,
+    make_batch_set_key: F,
+    make_bin_key: G,
     #[cfg(all(feature = "2d", feature = "3d"))] pipeline_mode: PipelineMode,
     alpha_mask: ParticleRenderAlphaMaskPipelineKey,
+    change_tick: &mut Tick,
 ) where
     T: BinnedPhaseItem,
-    F: Fn(CachedRenderPipelineId, &EffectDrawBatch, &ExtractedView) -> T::BinKey,
+    F: Fn(CachedRenderPipelineId, &EffectDrawBatch, &ExtractedView) -> T::BatchSetKey,
+    G: Fn() -> T::BinKey,
 {
-    use bevy::render::render_phase::BinnedRenderPhaseType;
+    use bevy::render::render_phase::{BinnedRenderPhaseType, InputUniformIndex};
 
     trace!("emit_binned_draw() {} views", views.iter().len());
 
@@ -5171,10 +5175,12 @@ fn emit_binned_draw<T, F>(
                 effect_batch.handle
             );
             render_phase.add(
-                make_bin_key(render_pipeline_id, draw_batch, view),
+                make_batch_set_key(render_pipeline_id, draw_batch, view),
+                make_bin_key(),
                 (draw_entity, MainEntity::from(Entity::PLACEHOLDER)),
                 InputUniformIndex::default(),
                 BinnedRenderPhaseType::NonMesh,
+                *change_tick,
             );
         }
     }
@@ -5203,11 +5209,18 @@ pub(crate) fn queue_effects(
     #[cfg(feature = "3d")] mut alpha_mask_3d_render_phases: ResMut<
         ViewBinnedRenderPhases<AlphaMask3d>,
     >,
+    mut change_tick: Local<Tick>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::utils::tracing::info_span!("hanabi:queue_effects").entered();
 
     trace!("queue_effects");
+
+    // Bump the change tick so that Bevy is forced to rebuild the binned render
+    // phase bins. We don't use the built-in caching so we don't want Bevy to
+    // reuse stale data.
+    let next_change_tick = change_tick.get() + 1;
+    change_tick.set(next_change_tick);
 
     // If an image has changed, the GpuImage has (probably) changed
     for event in &events.images {
@@ -5337,21 +5350,21 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 &render_meshes,
-                |id, _batch, _view| OpaqueNoLightmap3dBinKey {
+                |id, _batch, _view| OpaqueNoLightmap3dBatchSetKey {
                     pipeline: id,
                     draw_function: draw_effects_function_alpha_mask,
-                    asset_id: AssetId::<Image>::default().untyped(),
-                    material_bind_group_id: None,
-                    // },
-                    // distance: view
-                    //     .rangefinder3d()
-                    //     .distance_translation(&batch.translation_3d),
-                    // batch_range: 0..1,
-                    // extra_index: PhaseItemExtraIndex::NONE,
+                    material_bind_group_index: None,
+                    vertex_slab: default(),
+                    index_slab: None,
+                },
+                // Unused for now
+                || OpaqueNoLightmap3dBinKey {
+                    asset_id: AssetId::<Mesh>::invalid().untyped(),
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
                 ParticleRenderAlphaMaskPipelineKey::AlphaMask,
+                &mut change_tick,
             );
         }
 
@@ -5378,21 +5391,21 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 &render_meshes,
-                |id, _batch, _view| OpaqueNoLightmap3dBinKey {
+                |id, _batch, _view| OpaqueNoLightmap3dBatchSetKey {
                     pipeline: id,
                     draw_function: draw_effects_function_opaque,
-                    asset_id: AssetId::<Image>::default().untyped(),
-                    material_bind_group_id: None,
-                    // },
-                    // distance: view
-                    //     .rangefinder3d()
-                    //     .distance_translation(&batch.translation_3d),
-                    // batch_range: 0..1,
-                    // extra_index: PhaseItemExtraIndex::NONE,
+                    material_bind_group_index: None,
+                    vertex_slab: default(),
+                    index_slab: None,
+                },
+                // Unused for now
+                || OpaqueNoLightmap3dBinKey {
+                    asset_id: AssetId::<Mesh>::invalid().untyped(),
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
                 ParticleRenderAlphaMaskPipelineKey::Opaque,
+                &mut change_tick,
             );
         }
     }
