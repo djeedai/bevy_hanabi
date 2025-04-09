@@ -79,7 +79,7 @@ fn create_rocket_effect() -> EffectAsset {
     // effect.
     let update_spawn_trail = EmitSpawnEventModifier {
         condition: EventEmitCondition::Always,
-        count: 5,
+        count: writer.lit(5u32).expr(),
         // We use channel #0 for those sparkle trail events; see EffectParent
         child_index: 0,
     };
@@ -89,7 +89,7 @@ fn create_rocket_effect() -> EffectAsset {
     // events for its child(ren) effects.
     let update_spawn_on_die = EmitSpawnEventModifier {
         condition: EventEmitCondition::OnDie,
-        count: 1000,
+        count: writer.lit(1000u32).expr(),
         // We use channel #1 for the explosion itself; see EffectParent
         child_index: 1,
     };
