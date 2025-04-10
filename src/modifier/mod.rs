@@ -658,15 +658,19 @@ impl EmitSpawnEventModifier {
         // FIXME - mixing (ex-)channel and event buffer index; this should be automated
         let channel_index = self.child_index;
         // TODO - validate GPU spawn events are in use in the eval context...
-        let count = context.eval(module, self.count)?;
+
+        let count_val = context.eval(module, self.count)?;
+        let count_var = context.make_local_var();
+        context.push_stmt(&format!("let {} = {};", count_var, count_val));
+
         let cond = match self.condition {
             EventEmitCondition::Always => format!(
                 "if (is_alive) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
-                count
+                count_var
             ),
             EventEmitCondition::OnDie => format!(
                 "if (was_alive && !is_alive) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
-                count
+                count_var
             ),
         };
         Ok(cond)
