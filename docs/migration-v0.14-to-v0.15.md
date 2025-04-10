@@ -46,7 +46,7 @@ To declare a parent effect emitting GPU spawn events, use:
 let parent_effect = EffectAsset::new(32, spawner, module)
     .update(EmitSpawnEventModifier {
         condition: EventEmitCondition::OnDie,
-        count: writer.lit(45u32).expr(),
+        count: 45,
         child_index: 0,
     });
 let parent_handle = effects.add(parent_effect);
