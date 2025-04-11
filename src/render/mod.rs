@@ -3497,7 +3497,6 @@ pub struct PrepareEffectsReadOnlyParams<'w, 's> {
     sim_params: Res<'w, SimParams>,
     render_device: Res<'w, RenderDevice>,
     render_queue: Res<'w, RenderQueue>,
-    #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
 
@@ -3511,7 +3510,6 @@ pub struct PipelineSystemParams<'w, 's> {
     specialized_update_pipelines: ResMut<'w, SpecializedComputePipelines<ParticlesUpdatePipeline>>,
     specialized_indirect_pipelines:
         ResMut<'w, SpecializedComputePipelines<DispatchIndirectPipeline>>,
-    #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
 
@@ -4818,7 +4816,6 @@ pub struct QueueEffectsReadOnlyParams<'w, 's> {
     draw_functions_alpha_mask: Res<'w, DrawFunctions<AlphaMask3d>>,
     #[cfg(feature = "3d")]
     draw_functions_opaque: Res<'w, DrawFunctions<Opaque3d>>,
-    #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
 

@@ -100,11 +100,11 @@ all-features = true
 
 [dev-dependencies]
 # For world inspector; required if "examples_world_inspector" is used.
-bevy-inspector-egui = "0.28"
-bevy_egui = { version = "0.31", default-features = false, features = [
+bevy-inspector-egui = "0.29.1"
+bevy_egui = { version = "0.32", default-features = false, features = [
     "manage_clipboard", "open_url"
 ] }
-egui = "0.29"
+egui = "0.30"
 
 bevy_sprite = "0.16.0-rc.3"
 bevy_text = "0.16.0-rc.3"
