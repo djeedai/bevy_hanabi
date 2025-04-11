@@ -64,7 +64,8 @@ use crate::{
         effect_cache::DispatchBufferIndices,
     },
     AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
-    EffectSpawner, ParticleLayout, PropertyLayout, SimulationCondition, TextureLayout,
+    EffectSpawner, EffectVisibilityClass, ParticleLayout, PropertyLayout, SimulationCondition,
+    TextureLayout,
 };
 
 mod aligned_buffer_vec;
@@ -4854,7 +4855,7 @@ fn emit_sorted_draw<T, F>(
             view_entities.clear();
             view_entities.extend(
                 visible_entities
-                    .iter::<CompiledParticleEffect>()
+                    .iter::<EffectVisibilityClass>()
                     .map(|e| e.1.index() as usize),
             );
         }
@@ -5038,7 +5039,7 @@ fn emit_binned_draw<T, F, G>(
             view_entities.clear();
             view_entities.extend(
                 visible_entities
-                    .iter::<CompiledParticleEffect>()
+                    .iter::<EffectVisibilityClass>()
                     .map(|e| e.1.index() as usize),
             );
         }

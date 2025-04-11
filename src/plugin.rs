@@ -6,6 +6,7 @@ use bevy::{
     asset::weak_handle,
     prelude::*,
     render::{
+        extract_component::ExtractComponentPlugin,
         mesh::allocator::allocate_and_free_meshes,
         render_asset::prepare_assets,
         render_graph::RenderGraph,
@@ -39,7 +40,8 @@ use crate::{
     spawn::{self, Random},
     tick_spawners,
     time::effect_simulation_time_system,
-    update_properties_from_asset, EffectSimulation, ParticleEffect, SpawnerSettings, ToWgslString,
+    update_properties_from_asset, EffectSimulation, EffectVisibilityClass, ParticleEffect,
+    SpawnerSettings, ToWgslString,
 };
 
 /// Labels for the Hanabi systems.
@@ -198,6 +200,7 @@ impl Plugin for HanabiPlugin {
         // Register asset
         app.init_asset::<EffectAsset>()
             .insert_resource(Random(spawn::new_rng()))
+            .add_plugins(ExtractComponentPlugin::<EffectVisibilityClass>::default())
             .init_resource::<DefaultMesh>()
             .init_resource::<ShaderCache>()
             .init_resource::<DebugSettings>()
