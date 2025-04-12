@@ -64,7 +64,8 @@ use crate::{
         effect_cache::DispatchBufferIndices,
     },
     AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
-    EffectSpawner, ParticleLayout, PropertyLayout, SimulationCondition, TextureLayout,
+    EffectSpawner, EffectVisibilityClass, ParticleLayout, PropertyLayout, SimulationCondition,
+    TextureLayout,
 };
 
 mod aligned_buffer_vec;
@@ -3497,7 +3498,6 @@ pub struct PrepareEffectsReadOnlyParams<'w, 's> {
     sim_params: Res<'w, SimParams>,
     render_device: Res<'w, RenderDevice>,
     render_queue: Res<'w, RenderQueue>,
-    #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
 
@@ -3511,7 +3511,6 @@ pub struct PipelineSystemParams<'w, 's> {
     specialized_update_pipelines: ResMut<'w, SpecializedComputePipelines<ParticlesUpdatePipeline>>,
     specialized_indirect_pipelines:
         ResMut<'w, SpecializedComputePipelines<DispatchIndirectPipeline>>,
-    #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
 
@@ -4818,7 +4817,6 @@ pub struct QueueEffectsReadOnlyParams<'w, 's> {
     draw_functions_alpha_mask: Res<'w, DrawFunctions<AlphaMask3d>>,
     #[cfg(feature = "3d")]
     draw_functions_opaque: Res<'w, DrawFunctions<Opaque3d>>,
-    #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
 
@@ -4857,7 +4855,7 @@ fn emit_sorted_draw<T, F>(
             view_entities.clear();
             view_entities.extend(
                 visible_entities
-                    .iter::<CompiledParticleEffect>()
+                    .iter::<EffectVisibilityClass>()
                     .map(|e| e.1.index() as usize),
             );
         }
@@ -5041,7 +5039,7 @@ fn emit_binned_draw<T, F, G>(
             view_entities.clear();
             view_entities.extend(
                 visible_entities
-                    .iter::<CompiledParticleEffect>()
+                    .iter::<EffectVisibilityClass>()
                     .map(|e| e.1.index() as usize),
             );
         }

@@ -183,7 +183,9 @@ use std::fmt::Write as _;
 use bevy::{
     platform_support::collections::{HashMap, HashSet},
     prelude::*,
-    render::{sync_world::SyncToRenderWorld, view::VisibilityClass},
+    render::{
+        extract_component::ExtractComponent, sync_world::SyncToRenderWorld, view::VisibilityClass,
+    },
 };
 use rand::{Rng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
@@ -575,7 +577,7 @@ impl From<&PropertyInstance> for PropertyValue {
 }
 
 /// The [`VisibilityClass`] used for all particle effects.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Component, ExtractComponent)]
 pub struct EffectVisibilityClass;
 
 /// Particle-based visual effect instance.
