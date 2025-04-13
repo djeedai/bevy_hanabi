@@ -805,7 +805,7 @@ impl GpuBufferOperationQueue {
         trace!("Event buffer #{event_buffer_index} has {count} allocated operation(s).");
 
         self.args_buffer
-            .lead_binding(count)
+            .lead_binding(1)
             .map(|binding| (binding, count))
     }
 
@@ -1145,7 +1145,9 @@ impl GpuBufferOperationQueue {
             );
             if let Some(bind_group) = bind_groups.init_fill_dispatch(event_buffer_index) {
                 let dst_offset = self.args_buffer.dynamic_offset(args_index as usize);
-                compute_pass.set_bind_group(0, bind_group, &[]);
+                // The three dynamic offsets below are for the args buffer, the
+                // source buffer, and the destination buffer respectively.
+                compute_pass.set_bind_group(0, bind_group, &[dst_offset, 0, 0]);
                 trace!(
                     "found bind group for event buffer index #{} with dst_offset +{}B",
                     event_buffer_index,
@@ -1372,7 +1374,7 @@ impl FromWorld for UtilsPipeline {
         let init_fill_dispatch_args_pipeline =
             render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
                 label: Some("hanabi:compute_pipeline:init_fill_dispatch_args"),
-                layout: Some(&pipeline_layout),
+                layout: Some(&pipeline_layout_dyn),
                 module: &shader_module,
                 entry_point: Some("init_fill_dispatch_args"),
                 compilation_options: PipelineCompilationOptions {
@@ -5657,7 +5659,7 @@ pub(crate) fn prepare_bind_groups(
             // Actually create the new bind group entry
             entry.insert(render_device.create_bind_group(
                 &format!("hanabi:bind_group:init_fill_dispatch@0:event{event_buffer_index}")[..],
-                &utils_pipeline.bind_group_layout,
+                &utils_pipeline.bind_group_layout_dyn,
                 &[
                     // @group(0) @binding(0) var<uniform> args : BufferOperationArgs
                     BindGroupEntry {
