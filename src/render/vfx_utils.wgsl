@@ -82,7 +82,7 @@ fn init_fill_dispatch_args(@builtin(global_invocation_id) global_invocation_id: 
     // - bind the entire init indirect dispatch buffer (dst) and retrieve its offset here in the shader
     
     // Retrieve the source ChildInfo array buffer
-    let src = thread_index * args.src_stride;
+    let src = (args.src_offset + thread_index) * args.src_stride;
     let dispatch_indirect_index = src_buffer[src];
     let event_count = src_buffer[src + 1u];
 
