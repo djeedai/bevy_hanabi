@@ -4487,6 +4487,11 @@ struct UpdateMetadataBindGroupKey {
     pub event_buffers_keys: Vec<BindingKey>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct InitFillDispatchBindGroupKey {
+    pub child_info_buffer_id: Option<BufferId>,
+}
+
 struct CachedBindGroup<K: Eq> {
     /// Key the bind group was created from. Each time the key changes, the bind
     /// group should be re-created.
@@ -4561,7 +4566,7 @@ pub struct EffectBindGroups {
     material_bind_groups: HashMap<Material, BindGroup>,
     /// Map from an event buffer index to the bind group @0 for the init fill
     /// pass in charge of filling all its init dispatches.
-    init_fill_dispatch: HashMap<u32, BindGroup>,
+    init_fill_dispatch: HashMap<u32, CachedBindGroup<InitFillDispatchBindGroupKey>>,
 }
 
 impl EffectBindGroups {
@@ -4801,7 +4806,9 @@ impl EffectBindGroups {
     }
 
     pub fn init_fill_dispatch(&self, event_buffer_index: u32) -> Option<&BindGroup> {
-        self.init_fill_dispatch.get(&event_buffer_index)
+        self.init_fill_dispatch
+            .get(&event_buffer_index)
+            .map(|cached_bind_group| &cached_bind_group.bind_group)
     }
 }
 
@@ -5626,10 +5633,17 @@ pub(crate) fn prepare_bind_groups(
         let event_buffer_index = event_buffer_index as u32;
 
         // Check if the entry is missing
+        let key = InitFillDispatchBindGroupKey {
+            child_info_buffer_id: event_cache.child_infos().buffer().map(|buffer| buffer.id()),
+        };
         let entry = effect_bind_groups
             .init_fill_dispatch
             .entry(event_buffer_index);
-        if matches!(entry, Entry::Vacant(_)) {
+        let entry_dirty = match entry {
+            Entry::Vacant(_) => true,
+            Entry::Occupied(ref entry) => entry.get().key != key,
+        };
+        if entry_dirty {
             trace!(
                 "Event buffer #{} missing a bind group @0 for init fill args. Trying to create now...",
                 event_buffer_index
@@ -5655,28 +5669,34 @@ pub(crate) fn prepare_bind_groups(
             };
 
             // Actually create the new bind group entry
-            entry.insert(render_device.create_bind_group(
-                &format!("hanabi:bind_group:init_fill_dispatch@0:event{event_buffer_index}")[..],
-                &utils_pipeline.bind_group_layout,
-                &[
-                    // @group(0) @binding(0) var<uniform> args : BufferOperationArgs
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: args_binding,
-                    },
-                    // @group(0) @binding(1) var<storage, read> src_buffer : array<u32>
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: source_binding_resource,
-                    },
-                    // @group(0) @binding(2) var<storage, read_write> dst_buffer :
-                    // array<u32>
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: target_binding_resource,
-                    },
-                ],
-            ));
+            entry.insert(CachedBindGroup {
+                key,
+                bind_group:
+                    render_device.create_bind_group(
+                        &format!(
+                            "hanabi:bind_group:init_fill_dispatch@0:event{event_buffer_index}"
+                        )[..],
+                        &utils_pipeline.bind_group_layout,
+                        &[
+                            // @group(0) @binding(0) var<uniform> args : BufferOperationArgs
+                            BindGroupEntry {
+                                binding: 0,
+                                resource: args_binding,
+                            },
+                            // @group(0) @binding(1) var<storage, read> src_buffer : array<u32>
+                            BindGroupEntry {
+                                binding: 1,
+                                resource: source_binding_resource,
+                            },
+                            // @group(0) @binding(2) var<storage, read_write> dst_buffer :
+                            // array<u32>
+                            BindGroupEntry {
+                                binding: 2,
+                                resource: target_binding_resource,
+                            },
+                        ],
+                    ),
+            });
             trace!(
                 "Created new bind group for init fill args of event buffer #{}",
                 event_buffer_index
