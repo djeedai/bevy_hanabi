@@ -680,6 +680,8 @@ impl AttributeInner {
         &AttributeInner::new(Cow::Borrowed("pad1"), Value::Scalar(ScalarValue::Uint(0)));
     pub(crate) const PAD2: &'static AttributeInner =
         &AttributeInner::new(Cow::Borrowed("pad2"), Value::Scalar(ScalarValue::Uint(0)));
+    pub(crate) const PAD3: &'static AttributeInner =
+        &AttributeInner::new(Cow::Borrowed("pad3"), Value::Scalar(ScalarValue::Uint(0)));
 
     #[inline]
     pub(crate) const fn new(name: Cow<'static, str>, default_value: Value) -> Self {
@@ -1385,6 +1387,7 @@ impl Attribute {
     pub(crate) const PAD0: Attribute = Attribute(AttributeInner::PAD0);
     pub(crate) const PAD1: Attribute = Attribute(AttributeInner::PAD1);
     pub(crate) const PAD2: Attribute = Attribute(AttributeInner::PAD2);
+    pub(crate) const PAD3: Attribute = Attribute(AttributeInner::PAD3);
 
     /// Retrieve an attribute by its name.
     ///
@@ -1514,7 +1517,12 @@ impl ParticleLayoutBuilder {
     /// let layout = ParticleLayout::new().append(Attribute::POSITION).build();
     /// ```
     pub fn build(mut self) -> ParticleLayout {
-        let pads = [Attribute::PAD0, Attribute::PAD1, Attribute::PAD2];
+        let pads = [
+            Attribute::PAD0,
+            Attribute::PAD1,
+            Attribute::PAD2,
+            Attribute::PAD3,
+        ];
         let mut next_pad = 0;
 
         // Remove duplicates
