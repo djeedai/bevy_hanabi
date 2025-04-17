@@ -14,7 +14,10 @@ use bevy::math::FloatOrd;
 #[cfg(feature = "3d")]
 use bevy::{
     core_pipeline::{
-        core_3d::{AlphaMask3d, Opaque3d, Transparent3d, CORE_3D_DEPTH_FORMAT},
+        core_3d::{
+            AlphaMask3d, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey, Transparent3d,
+            CORE_3D_DEPTH_FORMAT,
+        },
         prepass::{OpaqueNoLightmap3dBatchSetKey, OpaqueNoLightmap3dBinKey},
     },
     render::render_phase::{BinnedPhaseItem, ViewBinnedRenderPhases},
@@ -4162,6 +4165,7 @@ pub(crate) fn batch_effects(
     mut sort_bind_groups: ResMut<SortBindGroups>,
     mut q_cached_effects: Query<(
         Entity,
+        &MainEntity,
         &CachedMesh,
         Option<&CachedEffectEvents>,
         Option<&CachedChildInfo>,
@@ -4195,6 +4199,7 @@ pub(crate) fn batch_effects(
     sorted_effect_batches.clear();
     for (
         entity,
+        main_entity,
         cached_mesh,
         cached_effect_events,
         cached_child_info,
@@ -4327,6 +4332,7 @@ pub(crate) fn batch_effects(
             .spawn(EffectDrawBatch {
                 effect_batch_index,
                 translation,
+                main_entity: *main_entity,
             })
             .insert(TemporaryRenderEntity);
     }
@@ -5175,7 +5181,7 @@ fn emit_binned_draw<T, F, G>(
             render_phase.add(
                 make_batch_set_key(render_pipeline_id, draw_batch, view),
                 make_bin_key(),
-                (draw_entity, MainEntity::from(Entity::PLACEHOLDER)),
+                (draw_entity, draw_batch.main_entity),
                 InputUniformIndex::default(),
                 BinnedRenderPhaseType::NonMesh,
                 *change_tick,
@@ -5204,9 +5210,10 @@ pub(crate) fn queue_effects(
     #[cfg(feature = "3d")] mut transparent_3d_render_phases: ResMut<
         ViewSortedRenderPhases<Transparent3d>,
     >,
-    #[cfg(feature = "3d")] mut alpha_mask_3d_render_phases: ResMut<
-        ViewBinnedRenderPhases<AlphaMask3d>,
-    >,
+    #[cfg(feature = "3d")] (mut opaque_3d_render_phases, mut alpha_mask_3d_render_phases): (
+        ResMut<ViewBinnedRenderPhases<Opaque3d>>,
+        ResMut<ViewBinnedRenderPhases<AlphaMask3d>>,
+    ),
     mut change_tick: Local<Tick>,
 ) {
     #[cfg(feature = "trace")]
@@ -5381,7 +5388,7 @@ pub(crate) fn queue_effects(
 
             emit_binned_draw(
                 &views,
-                &mut alpha_mask_3d_render_phases,
+                &mut opaque_3d_render_phases,
                 &mut view_entities,
                 &sorted_effect_batches,
                 &effect_draw_batches,
@@ -5389,15 +5396,16 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 &render_meshes,
-                |id, _batch, _view| OpaqueNoLightmap3dBatchSetKey {
+                |id, _batch, _view| Opaque3dBatchSetKey {
                     pipeline: id,
                     draw_function: draw_effects_function_opaque,
                     material_bind_group_index: None,
                     vertex_slab: default(),
                     index_slab: None,
+                    lightmap_slab: None,
                 },
                 // Unused for now
-                || OpaqueNoLightmap3dBinKey {
+                || Opaque3dBinKey {
                     asset_id: AssetId::<Mesh>::invalid().untyped(),
                 },
                 #[cfg(feature = "2d")]
