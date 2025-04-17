@@ -555,32 +555,8 @@ impl EventCache {
         self.init_indirect_dispatch_buffer
             .reserve(self.init_indirect_dispatch_buffer.len(), render_device);
 
-        let old_buffer = self.child_infos_buffer.buffer().map(|b| b.id());
         self.child_infos_buffer
             .write_buffer(render_device, render_queue);
-        let new_buffer = self.child_infos_buffer.buffer().map(|b| b.id());
-        if old_buffer != new_buffer && old_buffer.is_some() {
-            // If the child infos buffer changed, all init bind groups of children and all
-            // update bind groups of parents are invalid because they all use that globally
-            // shared buffer.
-
-            todo!("Invalidate ChildInfo bind groups");
-
-            // Init pass
-            // FIXME group@3 if CONSUME_GPU_SPAWN_EVENTS
-
-            // Indirect pass
-            // FIXME group@3 if HAS_GPU_SPAWN_EVENTS
-
-            // FIXME - it's quite hard to tell for now; just invalidate
-            // everything for buffer in &mut self.buffers {
-            //     if let Some(buffer) = buffer {
-            //         buffer.invalidate_all_bind_groups();
-            //     }
-            // }
-
-            //effect_bind_groups.init_fill_dispatch.clear();
-        }
     }
 
     #[inline]
