@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::mem;
 use std::{
     borrow::Cow,
     hash::{DefaultHasher, Hash, Hasher},
@@ -2353,6 +2354,8 @@ pub(crate) fn extract_effects(
             &GlobalTransform,
         )>,
     >,
+    q_all_effects: Extract<Query<(&RenderEntity, &CompiledParticleEffect), With<GlobalTransform>>>,
+    mut pending_effects: Local<Vec<MainEntity>>,
     render_device: Res<RenderDevice>,
     debug_settings: Extract<Res<DebugSettings>>,
     default_mesh: Extract<Res<DefaultMesh>>,
@@ -2406,9 +2409,22 @@ pub(crate) fn extract_effects(
     // Collect added effects for later GPU data allocation
     extracted_effects.added_effects = q_added_effects
         .iter()
+        .chain(mem::take(&mut *pending_effects).into_iter().filter_map(|main_entity| {
+            q_all_effects.get(main_entity.id()).ok().map(|(render_entity, compiled_particle_effect)| {
+                (main_entity.id(), render_entity, compiled_particle_effect)
+            })
+        }))
         .filter_map(|(entity, render_entity, compiled_effect)| {
             let handle = compiled_effect.asset.clone_weak();
-            let asset = effects.get(&compiled_effect.asset)?;
+            let asset = match effects.get(&compiled_effect.asset) {
+                None => {
+                    // The effect wasn't ready yet. Retry on subsequent frames.
+                    trace!("Failed to find asset for {:?}/{:?}, deferring to next frame", entity, render_entity);
+                    pending_effects.push(entity.into());
+                    return None;
+                }
+                Some(asset) => asset,
+            };
             let particle_layout = asset.particle_layout();
             assert!(
                 particle_layout.size() > 0,
