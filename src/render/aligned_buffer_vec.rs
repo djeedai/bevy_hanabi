@@ -147,23 +147,6 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
         }))
     }
 
-    /// Get a binding for the first `count` elements of the buffer.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `count` is zero.
-    #[inline]
-    pub fn lead_binding(&self, count: u32) -> Option<BindingResource> {
-        assert!(count > 0);
-        let buffer = self.buffer()?;
-        let size = NonZeroU64::new(T::SHADER_SIZE.get() * count as u64).unwrap();
-        Some(BindingResource::Buffer(BufferBinding {
-            buffer,
-            offset: 0,
-            size: Some(size),
-        }))
-    }
-
     /// Get a binding for a subset of the elements of the buffer.
     ///
     /// Returns a binding for the elements in the range `offset..offset+count`.
@@ -176,8 +159,8 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     pub fn range_binding(&self, offset: u32, count: u32) -> Option<BindingResource> {
         assert!(count > 0);
         let buffer = self.buffer()?;
-        let offset = T::SHADER_SIZE.get() * offset as u64;
-        let size = NonZeroU64::new(T::SHADER_SIZE.get() * count as u64).unwrap();
+        let offset = self.aligned_size as u64 * offset as u64;
+        let size = NonZeroU64::new(self.aligned_size as u64 * count as u64).unwrap();
         Some(BindingResource::Buffer(BufferBinding {
             buffer,
             offset,
@@ -229,33 +212,14 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
 
     /// Append a value to the buffer.
     ///
-    /// As with [`set_content()`], the content is stored on the CPU and uploaded
-    /// on the GPU once [`write_buffer()`] is called.
+    /// The content is stored on the CPU and uploaded on the GPU once
+    /// [`write_buffer()`] is called.
     ///
     /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
     pub fn push(&mut self, value: T) -> usize {
         let index = self.values.len();
         self.values.alloc().init(value);
         index
-    }
-
-    /// Set the content of the CPU buffer, overwritting any previous data.
-    ///
-    /// As with [`push()`], the content is stored on the CPU and uploaded on the
-    /// GPU once [`write_buffer()`] is called.
-    ///
-    /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
-    pub fn set_content(&mut self, data: Vec<T>) {
-        self.values = data;
-    }
-
-    /// Get the content of the CPU buffer.
-    ///
-    /// The data may or may not be representative of the GPU content, depending
-    /// on whether the buffer was already uploaded and/or has been modified by
-    /// the GPU itself.
-    pub fn content(&self) -> &[T] {
-        &self.values
     }
 
     /// Reserve some capacity into the buffer.
