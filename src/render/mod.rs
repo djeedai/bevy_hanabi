@@ -4067,8 +4067,7 @@ pub(crate) fn prepare_effects(
                     ..default()
                 };
 
-                let current_index_slice_opt = mesh_allocator.mesh_index_slice(&mesh_id);
-                if let Some(index_slice) = current_index_slice_opt {
+                if let Some(index_slice) = mesh_allocator.mesh_index_slice(&mesh_id) {
                     gpu_effect_metadata.vertex_or_index_count = index_slice.range.len() as u32;
                     gpu_effect_metadata.first_index_or_vertex_offset = index_slice.range.start;
                     gpu_effect_metadata.vertex_offset_or_base_instance =
@@ -4098,7 +4097,6 @@ pub(crate) fn prepare_effects(
                     dispatch_buffer_indices.effect_metadata_buffer_table_id.0, main_entity
                 );
             } else {
-                // Handle error: vertex slice not found for this mesh ID now
                 error!(
                     "Vertex slice not found for mesh {:?} in prepare_effects",
                     mesh_id
