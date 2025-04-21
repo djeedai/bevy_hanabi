@@ -5996,14 +5996,10 @@ fn draw<'w>(
     let Some(vertex_buffer_slice) = mesh_allocator.mesh_vertex_slice(&effect_batch.mesh) else {
         return;
     };
-    /*
 
     // Vertex buffer containing the particle model to draw. Generally a quad.
     // FIXME - need to upload "vertex_buffer_slice.range.start as i32" into
     // "base_vertex" in the indirect struct...
-    assert_eq!(effect_batch.mesh_buffer_id, vertex_buffer_slice.buffer.id());
-    assert_eq!(effect_batch.mesh_slice, vertex_buffer_slice.range);
-    */
     pass.set_vertex_buffer(0, vertex_buffer_slice.buffer.slice(..));
 
     // View properties (camera matrix, etc.)
