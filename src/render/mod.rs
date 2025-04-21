@@ -1018,10 +1018,7 @@ impl GpuBufferOperations {
                     let src_id: NonZeroU32 = qop.src_buffer.id().into();
                     let dst_id: NonZeroU32 = qop.dst_buffer.id().into();
                     let label = format!("hanabi:bind_group:util_{}_{}", src_id.get(), dst_id.get());
-                    let use_dynamic_offset = match qop.op {
-                        GpuBufferOperationType::FillDispatchArgs => true,
-                        _ => false,
-                    };
+                    let use_dynamic_offset = matches!(qop.op, GpuBufferOperationType::FillDispatchArgs);
                     let bind_group_layout =
                         utils_pipeline.bind_group_layout(qop.op, use_dynamic_offset);
                     let (src_offset, dst_offset) = if use_dynamic_offset {
@@ -1118,17 +1115,14 @@ impl GpuBufferOperations {
             trace!("qop={:?}", qop);
 
             if Some(qop.op) != prev_op {
-                compute_pass.set_pipeline(&utils_pipeline.get_pipeline(qop.op));
+                compute_pass.set_pipeline(utils_pipeline.get_pipeline(qop.op));
                 prev_op = Some(qop.op);
             }
 
             let key: QueuedOperationBindGroupKey = qop.into();
             if let Some(bind_group) = self.bind_groups.get(&key) {
                 let args_offset = self.args_buffer.dynamic_offset(qop.args_index as usize);
-                let use_dynamic_offset = match qop.op {
-                    GpuBufferOperationType::FillDispatchArgs => true,
-                    _ => false,
-                };
+                let use_dynamic_offset = matches!(qop.op, GpuBufferOperationType::FillDispatchArgs);
                 let (src_offset, dst_offset) = if use_dynamic_offset {
                     (qop.src_binding_offset, qop.dst_binding_offset)
                 } else {
@@ -5429,7 +5423,7 @@ pub(crate) fn queue_init_fill_dispatch_ops(
         let src_buffer = event_cache.child_infos().buffer();
         let dst_buffer = event_cache.init_indirect_dispatch_buffer();
         if let (Some(src_buffer), Some(dst_buffer)) = (src_buffer, dst_buffer) {
-            init_fill_dispatch_queue.submit(src_buffer, dst_buffer, &mut *gpu_buffer_operations);
+            init_fill_dispatch_queue.submit(src_buffer, dst_buffer, &mut gpu_buffer_operations);
         } else {
             if src_buffer.is_none() {
                 warn!("Event cache has no allocated GpuChildInfo buffer, but there's {} init fill dispatch operation(s) queued. Ignoring those operations. This will prevent child particles from spawning.", init_fill_dispatch_queue.queue.len());
