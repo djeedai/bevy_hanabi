@@ -2775,13 +2775,14 @@ impl EffectsMeta {
                 // already exist... maybe should only do the bare minimum here
                 // (insert into caches) and not update components eagerly? not sure...
 
-                let Some(render_mesh) = render_meshes.get(added_effect.mesh.id()) else {
+                if render_meshes.get(added_effect.mesh.id()).is_none() {
                     warn!(
                         "Cannot find render mesh of particle effect instance on entity {:?}, despite applying default mesh. Invalid asset handle: {:?}",
                         added_effect.entity, added_effect.mesh
                     );
                     continue;
                 };
+
                 let Some(mesh_vertex_buffer_slice) =
                     mesh_allocator.mesh_vertex_slice(&added_effect.mesh.id())
                 else {
@@ -2794,26 +2795,6 @@ impl EffectsMeta {
                 };
                 let mesh_index_buffer_slice =
                     mesh_allocator.mesh_index_slice(&added_effect.mesh.id());
-                let indexed = if let RenderMeshBufferInfo::Indexed { index_format, .. } =
-                    render_mesh.buffer_info
-                {
-                    if let Some(ref slice) = mesh_index_buffer_slice {
-                        Some(MeshIndexSlice {
-                            format: index_format,
-                            buffer: slice.buffer.clone(),
-                            range: slice.range.clone(),
-                        })
-                    } else {
-                        trace!(
-                            "Effect main_entity {:?}: cannot find index slice of render mesh {:?}",
-                            added_effect.entity,
-                            added_effect.mesh
-                        );
-                        continue;
-                    }
-                } else {
-                    None
-                };
 
                 (
                     match &mesh_index_buffer_slice {
@@ -2855,9 +2836,6 @@ impl EffectsMeta {
                     },
                     CachedMesh {
                         mesh: added_effect.mesh.id(),
-                        buffer: mesh_vertex_buffer_slice.buffer.clone(),
-                        range: mesh_vertex_buffer_slice.range.clone(),
-                        indexed,
                     },
                 )
             };
@@ -3482,13 +3460,6 @@ pub(crate) struct MeshIndexSlice {
 pub(crate) struct CachedMesh {
     /// Asset of the effect mesh to draw.
     pub mesh: AssetId<Mesh>,
-    /// GPU buffer storing the [`mesh`] of the effect.
-    pub buffer: Buffer,
-    /// Range slice inside the GPU buffer for the effect mesh.
-    pub range: Range<u32>,
-    /// Indexed rendering metadata.
-    #[allow(unused)]
-    pub indexed: Option<MeshIndexSlice>,
 }
 
 /// Render world cached properties info for a single effect instance.
@@ -3552,6 +3523,7 @@ pub(crate) fn prepare_effects(
     q_debug_all_entities: Query<MainEntity>,
     mut gpu_buffer_operation_queue: ResMut<GpuBufferOperationQueue>,
     mut sort_bind_groups: ResMut<SortBindGroups>,
+    mesh_allocator: Res<MeshAllocator>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::utils::tracing::info_span!("prepare_effects").entered();
@@ -4032,82 +4004,112 @@ pub(crate) fn prepare_effects(
         // FIXME - should do this only when the below changes (not only the mesh), via
         // some invalidation mechanism and ECS change detection.
         if cached_mesh.is_changed() {
-            let capacity = cached_effect.slice.len();
+            let mesh_id = cached_mesh.mesh;
 
-            // Global and local indices of this effect as a child of another (parent) effect
-            let (global_child_index, local_child_index) = cached_child_info
-                .map(|cci| (cci.global_child_index, cci.local_child_index))
-                .unwrap_or_default();
+            let current_vertex_slice_opt = mesh_allocator.mesh_vertex_slice(&mesh_id);
+            let current_index_slice_opt = mesh_allocator.mesh_index_slice(&mesh_id);
 
-            // Base index of all children of this (parent) effect
-            let base_child_index = cached_parent_info
-                .map(|cpi| {
-                    debug_assert_eq!(
-                        cpi.byte_range.start % GpuChildInfo::SHADER_SIZE.get() as u32,
-                        0
-                    );
-                    cpi.byte_range.start / GpuChildInfo::SHADER_SIZE.get() as u32
-                })
-                .unwrap_or_default();
+            if let Some(vertex_slice) = current_vertex_slice_opt {
+                let capacity = cached_effect.slice.len();
 
-            let particle_stride = extracted_effect.particle_layout.min_binding_size32().get() / 4;
-            let sort_key_offset = extracted_effect
-                .particle_layout
-                .offset(Attribute::RIBBON_ID)
-                .unwrap_or(0)
-                / 4;
-            let sort_key2_offset = extracted_effect
-                .particle_layout
-                .offset(Attribute::AGE)
-                .unwrap_or(0)
-                / 4;
+                // Global and local indices of this effect as a child of another (parent) effect
+                let (global_child_index, local_child_index) = cached_child_info
+                    .map(|cci| (cci.global_child_index, cci.local_child_index))
+                    .unwrap_or_default();
 
-            let mut gpu_effect_metadata = GpuEffectMetadata {
-                instance_count: 0,
-                base_instance: 0,
-                alive_count: 0,
-                max_update: 0,
-                dead_count: capacity,
-                max_spawn: capacity,
-                ping: 0,
-                spawner_index: 0xDEADBEEF, // unused
-                indirect_dispatch_index: dispatch_buffer_indices
-                    .update_dispatch_indirect_buffer_table_id
-                    .0,
-                // Note: the indirect draw args are at the start of the GpuEffectMetadata struct
-                indirect_render_index: dispatch_buffer_indices.effect_metadata_buffer_table_id.0,
-                init_indirect_dispatch_index: cached_effect_events
-                    .map(|cee| cee.init_indirect_dispatch_index)
-                    .unwrap_or_default(),
-                local_child_index,
-                global_child_index,
-                base_child_index,
-                particle_stride,
-                sort_key_offset,
-                sort_key2_offset,
-                ..default()
-            };
-            if let Some(indexed) = &cached_mesh.indexed {
-                gpu_effect_metadata.vertex_or_index_count = indexed.range.len() as u32;
-                gpu_effect_metadata.first_index_or_vertex_offset = indexed.range.start;
-                gpu_effect_metadata.vertex_offset_or_base_instance = cached_mesh.range.start as i32;
+                // Base index of all children of this (parent) effect
+                let base_child_index = cached_parent_info
+                    .map(|cpi| {
+                        debug_assert_eq!(
+                            cpi.byte_range.start % GpuChildInfo::SHADER_SIZE.get() as u32,
+                            0
+                        );
+                        cpi.byte_range.start / GpuChildInfo::SHADER_SIZE.get() as u32
+                    })
+                    .unwrap_or_default();
+
+                let particle_stride =
+                    extracted_effect.particle_layout.min_binding_size32().get() / 4;
+                let sort_key_offset = extracted_effect
+                    .particle_layout
+                    .offset(Attribute::RIBBON_ID)
+                    .unwrap_or(0)
+                    / 4;
+                let sort_key2_offset = extracted_effect
+                    .particle_layout
+                    .offset(Attribute::AGE)
+                    .unwrap_or(0)
+                    / 4;
+
+                let mut gpu_effect_metadata = GpuEffectMetadata {
+                    instance_count: 0,
+                    base_instance: 0,
+                    alive_count: 0,
+                    max_update: 0,
+                    dead_count: capacity,
+                    max_spawn: capacity,
+                    ping: 0,
+                    spawner_index: 0xDEADBEEF, // unused
+                    indirect_dispatch_index: dispatch_buffer_indices
+                        .update_dispatch_indirect_buffer_table_id
+                        .0,
+                    // Note: the indirect draw args are at the start of the GpuEffectMetadata struct
+                    indirect_render_index: dispatch_buffer_indices
+                        .effect_metadata_buffer_table_id
+                        .0,
+                    init_indirect_dispatch_index: cached_effect_events
+                        .map(|cee| cee.init_indirect_dispatch_index)
+                        .unwrap_or_default(),
+                    local_child_index,
+                    global_child_index,
+                    base_child_index,
+                    particle_stride,
+                    sort_key_offset,
+                    sort_key2_offset,
+                    ..default()
+                };
+                if let Some(index_slice) = current_index_slice_opt {
+                    // --- Indexed Mesh ---
+                    // Use fresh index range for count and start offset
+                    gpu_effect_metadata.vertex_or_index_count = index_slice.range.len() as u32;
+                    gpu_effect_metadata.first_index_or_vertex_offset = index_slice.range.start;
+                    // Use fresh vertex range for base vertex offset
+                    gpu_effect_metadata.vertex_offset_or_base_instance =
+                        vertex_slice.range.start as i32;
+                } else {
+                    // --- Non-Indexed Mesh ---
+                    // Use fresh vertex range for count and start offset
+                    gpu_effect_metadata.vertex_or_index_count = vertex_slice.range.len() as u32;
+                    gpu_effect_metadata.first_index_or_vertex_offset = vertex_slice.range.start;
+                    gpu_effect_metadata.vertex_offset_or_base_instance = 0;
+                }
+
+                // Update the metadata buffer
+                effects_meta.effect_metadata_buffer.update(
+                    dispatch_buffer_indices.effect_metadata_buffer_table_id, // Make sure this is accessible
+                    gpu_effect_metadata,
+                );
+                // Consider if the WARN message is still needed here or should be moved/removed
+
+                assert!(dispatch_buffer_indices
+                    .effect_metadata_buffer_table_id
+                    .is_valid());
+                effects_meta.effect_metadata_buffer.update(
+                    dispatch_buffer_indices.effect_metadata_buffer_table_id,
+                    gpu_effect_metadata,
+                );
+
+                warn!(
+                    "Updated metadata entry {} for effect {:?}, this will reset it.",
+                    dispatch_buffer_indices.effect_metadata_buffer_table_id.0, main_entity
+                );
             } else {
-                gpu_effect_metadata.vertex_or_index_count = cached_mesh.range.len() as u32;
-                gpu_effect_metadata.first_index_or_vertex_offset = cached_mesh.range.start;
-                gpu_effect_metadata.vertex_offset_or_base_instance = 0;
-            };
-            assert!(dispatch_buffer_indices
-                .effect_metadata_buffer_table_id
-                .is_valid());
-            effects_meta.effect_metadata_buffer.update(
-                dispatch_buffer_indices.effect_metadata_buffer_table_id,
-                gpu_effect_metadata,
-            );
-
-            warn!(
-                "Updated metadata entry {} for effect {:?}, this will reset it.",
-                dispatch_buffer_indices.effect_metadata_buffer_table_id.0, main_entity
-            );
+                // Handle error: vertex slice not found for this mesh ID now
+                error!(
+                    "Vertex slice not found for mesh {:?} in prepare_effects",
+                    mesh_id
+                );
+            }
         }
 
         prepared_effect_count += 1;
@@ -5994,12 +5996,14 @@ fn draw<'w>(
     let Some(vertex_buffer_slice) = mesh_allocator.mesh_vertex_slice(&effect_batch.mesh) else {
         return;
     };
+    /*
 
     // Vertex buffer containing the particle model to draw. Generally a quad.
     // FIXME - need to upload "vertex_buffer_slice.range.start as i32" into
     // "base_vertex" in the indirect struct...
     assert_eq!(effect_batch.mesh_buffer_id, vertex_buffer_slice.buffer.id());
     assert_eq!(effect_batch.mesh_slice, vertex_buffer_slice.range);
+    */
     pass.set_vertex_buffer(0, vertex_buffer_slice.buffer.slice(..));
 
     // View properties (camera matrix, etc.)
