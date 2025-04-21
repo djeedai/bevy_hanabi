@@ -4078,15 +4078,10 @@ pub(crate) fn prepare_effects(
                     gpu_effect_metadata.vertex_offset_or_base_instance = 0;
                 }
 
-                // Update the metadata buffer
-                effects_meta.effect_metadata_buffer.update(
-                    dispatch_buffer_indices.effect_metadata_buffer_table_id, // Make sure this is accessible
-                    gpu_effect_metadata,
-                );
-
                 assert!(dispatch_buffer_indices
                     .effect_metadata_buffer_table_id
                     .is_valid());
+
                 effects_meta.effect_metadata_buffer.update(
                     dispatch_buffer_indices.effect_metadata_buffer_table_id,
                     gpu_effect_metadata,
