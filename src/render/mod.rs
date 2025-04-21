@@ -4101,6 +4101,7 @@ pub(crate) fn prepare_effects(
 
         prepared_effect_count += 1;
     }
+
     trace!("Prepared {prepared_effect_count}/{extracted_effect_count} extracted effect(s)");
 
     // Once all EffectMetadata values are written, schedule a GPU upload
