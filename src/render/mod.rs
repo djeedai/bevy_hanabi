@@ -10,6 +10,7 @@ use std::{
 
 #[cfg(feature = "2d")]
 use bevy::core_pipeline::core_2d::{Transparent2d, CORE_2D_DEPTH_FORMAT};
+use bevy::ecs::entity::EntityHashSet;
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
 #[cfg(feature = "3d")]
@@ -3232,6 +3233,11 @@ pub(crate) fn resolve_parents(
         .map(|(render_entity, main_entity, _)| (main_entity, render_entity))
         .collect::<HashMap<_, _>>();
 
+    // Record all parents with children that changed so that we can mark those
+    // parents' `CachedParentInfo` as changed. See the comment in the
+    // `q_parent_effects` loop for more information.
+    let mut parents_with_dirty_children = EntityHashSet::default();
+
     // Group child effects by parent, building a list of children for each parent,
     // solely based on the declaration each child makes of its parent. This doesn't
     // mean yet that the parent exists.
@@ -3337,6 +3343,10 @@ pub(crate) fn resolve_parents(
         };
         commands.entity(child_entity).insert(cached_child_info);
         trace!("Spawned CachedChildInfo on child entity {:?}", child_entity);
+
+        // Make a note of the parent entity so that we remember to mark its
+        // `CachedParentInfo` as changed below.
+        parents_with_dirty_children.insert(parent_entity);
     }
 
     // Once all parents are resolved, diff all children of already-cached parents,
@@ -3349,6 +3359,16 @@ pub(crate) fn resolve_parents(
             commands.entity(parent_entity).remove::<CachedParentInfo>();
             continue;
         };
+
+        // If we updated `CachedChildInfo` for any of this entity's children,
+        // then even if the check below passes, we must still set the change
+        // flag on this entity's `CachedParentInfo`. That's because the
+        // `fixup_parents` system looks at the change flag for the parent in
+        // order to determine which `CachedChildInfo` it needs to update, and
+        // that system must process all newly-added `CachedChildInfo`s.
+        if parents_with_dirty_children.contains(&parent_entity) {
+            cached_parent_info.set_changed();
+        }
 
         // Check if any child changed compared to the existing CachedChildren component
         if !is_child_list_changed(
