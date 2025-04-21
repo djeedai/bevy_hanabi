@@ -4003,101 +4003,103 @@ pub(crate) fn prepare_effects(
         // update its GpuEffectMetadata with all those infos.
         // FIXME - should do this only when the below changes (not only the mesh), via
         // some invalidation mechanism and ECS change detection.
-        if cached_mesh.is_changed() {
-            let mesh_id = cached_mesh.mesh;
-            let current_vertex_slice_opt = mesh_allocator.mesh_vertex_slice(&mesh_id);
-
-            if let Some(vertex_slice) = current_vertex_slice_opt {
-                let capacity = cached_effect.slice.len();
-
-                // Global and local indices of this effect as a child of another (parent) effect
-                let (global_child_index, local_child_index) = cached_child_info
-                    .map(|cci| (cci.global_child_index, cci.local_child_index))
-                    .unwrap_or_default();
-
-                // Base index of all children of this (parent) effect
-                let base_child_index = cached_parent_info
-                    .map(|cpi| {
-                        debug_assert_eq!(
-                            cpi.byte_range.start % GpuChildInfo::SHADER_SIZE.get() as u32,
-                            0
-                        );
-                        cpi.byte_range.start / GpuChildInfo::SHADER_SIZE.get() as u32
-                    })
-                    .unwrap_or_default();
-
-                let particle_stride =
-                    extracted_effect.particle_layout.min_binding_size32().get() / 4;
-                let sort_key_offset = extracted_effect
-                    .particle_layout
-                    .offset(Attribute::RIBBON_ID)
-                    .unwrap_or(0)
-                    / 4;
-                let sort_key2_offset = extracted_effect
-                    .particle_layout
-                    .offset(Attribute::AGE)
-                    .unwrap_or(0)
-                    / 4;
-
-                let mut gpu_effect_metadata = GpuEffectMetadata {
-                    instance_count: 0,
-                    base_instance: 0,
-                    alive_count: 0,
-                    max_update: 0,
-                    dead_count: capacity,
-                    max_spawn: capacity,
-                    ping: 0,
-                    spawner_index: 0xDEADBEEF, // unused
-                    indirect_dispatch_index: dispatch_buffer_indices
-                        .update_dispatch_indirect_buffer_table_id
-                        .0,
-                    // Note: the indirect draw args are at the start of the GpuEffectMetadata struct
-                    indirect_render_index: dispatch_buffer_indices
-                        .effect_metadata_buffer_table_id
-                        .0,
-                    init_indirect_dispatch_index: cached_effect_events
-                        .map(|cee| cee.init_indirect_dispatch_index)
-                        .unwrap_or_default(),
-                    local_child_index,
-                    global_child_index,
-                    base_child_index,
-                    particle_stride,
-                    sort_key_offset,
-                    sort_key2_offset,
-                    ..default()
-                };
-
-                if let Some(index_slice) = mesh_allocator.mesh_index_slice(&mesh_id) {
-                    gpu_effect_metadata.vertex_or_index_count = index_slice.range.len() as u32;
-                    gpu_effect_metadata.first_index_or_vertex_offset = index_slice.range.start;
-                    gpu_effect_metadata.vertex_offset_or_base_instance =
-                        vertex_slice.range.start as i32;
-                } else {
-                    gpu_effect_metadata.vertex_or_index_count = vertex_slice.range.len() as u32;
-                    gpu_effect_metadata.first_index_or_vertex_offset = vertex_slice.range.start;
-                    gpu_effect_metadata.vertex_offset_or_base_instance = 0;
-                }
-
-                assert!(dispatch_buffer_indices
-                    .effect_metadata_buffer_table_id
-                    .is_valid());
-
-                effects_meta.effect_metadata_buffer.update(
-                    dispatch_buffer_indices.effect_metadata_buffer_table_id,
-                    gpu_effect_metadata,
-                );
-
-                warn!(
-                    "Updated metadata entry {} for effect {:?}, this will reset it.",
-                    dispatch_buffer_indices.effect_metadata_buffer_table_id.0, main_entity
-                );
-            } else {
-                error!(
-                    "Vertex slice not found for mesh {:?} in prepare_effects",
-                    mesh_id
-                );
-            }
+        if !cached_mesh.is_changed() {
+            prepared_effect_count += 1;
+            continue;
         }
+
+        let mesh_id = cached_mesh.mesh;
+        let current_vertex_slice_opt = mesh_allocator.mesh_vertex_slice(&mesh_id);
+
+        let Some(vertex_slice) = current_vertex_slice_opt else {
+            error!(
+                "Vertex slice not found for mesh {:?} in prepare_effects",
+                mesh_id
+            );
+
+            prepared_effect_count += 1;
+            continue;
+        };
+
+        let capacity = cached_effect.slice.len();
+
+        // Global and local indices of this effect as a child of another (parent) effect
+        let (global_child_index, local_child_index) = cached_child_info
+            .map(|cci| (cci.global_child_index, cci.local_child_index))
+            .unwrap_or_default();
+
+        // Base index of all children of this (parent) effect
+        let base_child_index = cached_parent_info
+            .map(|cpi| {
+                debug_assert_eq!(
+                    cpi.byte_range.start % GpuChildInfo::SHADER_SIZE.get() as u32,
+                    0
+                );
+                cpi.byte_range.start / GpuChildInfo::SHADER_SIZE.get() as u32
+            })
+            .unwrap_or_default();
+
+        let particle_stride = extracted_effect.particle_layout.min_binding_size32().get() / 4;
+        let sort_key_offset = extracted_effect
+            .particle_layout
+            .offset(Attribute::RIBBON_ID)
+            .unwrap_or(0)
+            / 4;
+        let sort_key2_offset = extracted_effect
+            .particle_layout
+            .offset(Attribute::AGE)
+            .unwrap_or(0)
+            / 4;
+
+        let mut gpu_effect_metadata = GpuEffectMetadata {
+            instance_count: 0,
+            base_instance: 0,
+            alive_count: 0,
+            max_update: 0,
+            dead_count: capacity,
+            max_spawn: capacity,
+            ping: 0,
+            spawner_index: 0xDEADBEEF, // unused
+            indirect_dispatch_index: dispatch_buffer_indices
+                .update_dispatch_indirect_buffer_table_id
+                .0,
+            // Note: the indirect draw args are at the start of the GpuEffectMetadata struct
+            indirect_render_index: dispatch_buffer_indices.effect_metadata_buffer_table_id.0,
+            init_indirect_dispatch_index: cached_effect_events
+                .map(|cee| cee.init_indirect_dispatch_index)
+                .unwrap_or_default(),
+            local_child_index,
+            global_child_index,
+            base_child_index,
+            particle_stride,
+            sort_key_offset,
+            sort_key2_offset,
+            ..default()
+        };
+
+        if let Some(index_slice) = mesh_allocator.mesh_index_slice(&mesh_id) {
+            gpu_effect_metadata.vertex_or_index_count = index_slice.range.len() as u32;
+            gpu_effect_metadata.first_index_or_vertex_offset = index_slice.range.start;
+            gpu_effect_metadata.vertex_offset_or_base_instance = vertex_slice.range.start as i32;
+        } else {
+            gpu_effect_metadata.vertex_or_index_count = vertex_slice.range.len() as u32;
+            gpu_effect_metadata.first_index_or_vertex_offset = vertex_slice.range.start;
+            gpu_effect_metadata.vertex_offset_or_base_instance = 0;
+        }
+
+        assert!(dispatch_buffer_indices
+            .effect_metadata_buffer_table_id
+            .is_valid());
+
+        effects_meta.effect_metadata_buffer.update(
+            dispatch_buffer_indices.effect_metadata_buffer_table_id,
+            gpu_effect_metadata,
+        );
+
+        warn!(
+            "Updated metadata entry {} for effect {:?}, this will reset it.",
+            dispatch_buffer_indices.effect_metadata_buffer_table_id.0, main_entity
+        );
 
         prepared_effect_count += 1;
     }
