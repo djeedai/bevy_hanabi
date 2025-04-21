@@ -4005,9 +4005,7 @@ pub(crate) fn prepare_effects(
         // some invalidation mechanism and ECS change detection.
         if cached_mesh.is_changed() {
             let mesh_id = cached_mesh.mesh;
-
             let current_vertex_slice_opt = mesh_allocator.mesh_vertex_slice(&mesh_id);
-            let current_index_slice_opt = mesh_allocator.mesh_index_slice(&mesh_id);
 
             if let Some(vertex_slice) = current_vertex_slice_opt {
                 let capacity = cached_effect.slice.len();
@@ -4068,17 +4066,14 @@ pub(crate) fn prepare_effects(
                     sort_key2_offset,
                     ..default()
                 };
+
+                let current_index_slice_opt = mesh_allocator.mesh_index_slice(&mesh_id);
                 if let Some(index_slice) = current_index_slice_opt {
-                    // --- Indexed Mesh ---
-                    // Use fresh index range for count and start offset
                     gpu_effect_metadata.vertex_or_index_count = index_slice.range.len() as u32;
                     gpu_effect_metadata.first_index_or_vertex_offset = index_slice.range.start;
-                    // Use fresh vertex range for base vertex offset
                     gpu_effect_metadata.vertex_offset_or_base_instance =
                         vertex_slice.range.start as i32;
                 } else {
-                    // --- Non-Indexed Mesh ---
-                    // Use fresh vertex range for count and start offset
                     gpu_effect_metadata.vertex_or_index_count = vertex_slice.range.len() as u32;
                     gpu_effect_metadata.first_index_or_vertex_offset = vertex_slice.range.start;
                     gpu_effect_metadata.vertex_offset_or_base_instance = 0;
@@ -4089,7 +4084,6 @@ pub(crate) fn prepare_effects(
                     dispatch_buffer_indices.effect_metadata_buffer_table_id, // Make sure this is accessible
                     gpu_effect_metadata,
                 );
-                // Consider if the WARN message is still needed here or should be moved/removed
 
                 assert!(dispatch_buffer_indices
                     .effect_metadata_buffer_table_id
