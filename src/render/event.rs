@@ -1,12 +1,10 @@
 use std::{num::NonZeroU64, ops::Range};
 
 use bevy::{
-    log::{trace, warn},
+    log::trace,
     prelude::{Component, Entity, ResMut, Resource},
     render::{
-        render_resource::{
-            BindGroup, BindGroupLayout, Buffer, BufferVec, ShaderSize as _, ShaderType,
-        },
+        render_resource::{BindGroup, BindGroupLayout, Buffer, ShaderSize as _, ShaderType},
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
     },
@@ -19,12 +17,12 @@ use wgpu::util::BufferInitDescriptor;
 use wgpu::BufferDescriptor;
 use wgpu::{
     BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BufferBinding,
-    BufferBindingType, BufferUsages, ShaderStages,
+    BufferBindingType, BufferUsages, CommandEncoder, ShaderStages,
 };
 
 use super::{
-    aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState, BufferBindingSource,
-    EffectBindGroups, GpuDispatchIndirect,
+    aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState, gpu_buffer::GpuBuffer,
+    BufferBindingSource, EffectBindGroups, GpuDispatchIndirect,
 };
 use crate::ParticleLayout;
 
@@ -152,28 +150,6 @@ pub(crate) struct CachedParentInfo {
     pub byte_range: Range<u32>,
 }
 
-impl CachedParentInfo {
-    /// Get a binding of the given underlying child info buffer spanning over
-    /// the range of this child effect entry.
-    #[allow(dead_code)]
-    pub fn binding<'a>(&self, buffer: &'a Buffer) -> BufferBinding<'a> {
-        BufferBinding {
-            buffer,
-            offset: self.byte_range.start as u64,
-            size: Some(
-                NonZeroU64::new((self.byte_range.end - self.byte_range.start) as u64).unwrap(),
-            ),
-        }
-    }
-
-    /// Base offset of the first child into the global
-    /// [`EventCache::child_infos_buffer`], in number of element.
-    #[allow(dead_code)]
-    pub fn first_child_index(&self) -> u32 {
-        self.byte_range.start / size_of::<GpuChildInfo>() as u32
-    }
-}
-
 /// Reference to the parent of an effect instance.
 ///
 /// This is a weak reference to the parent while pending resolving. This
@@ -210,13 +186,9 @@ pub(crate) struct CachedChildInfo {
     /// Global index of this child effect into the shared global
     /// [`EventCache::child_infos_buffer`] array. This is a unique index across
     /// all effects.
-    ///
-    /// [`EventCache::child_infos_buffer`]: super::EventCache::child_infos_buffer
     pub global_child_index: u32,
     /// Index of the [`GpuDispatchIndirect`] entry into the
-    /// [`init_indirect_dispatch_buffer`] array.
-    ///
-    /// [`init_indirect_dispatch_buffer`]: super::EventCache::init_indirect_dispatch_buffer
+    /// [`EventCache::init_indirect_dispatch_buffer`] array.
     pub init_indirect_dispatch_index: u32,
 }
 
@@ -289,9 +261,10 @@ pub struct EventCache {
     /// structs for all the indirect init passes. Any effect allocating storage
     /// for GPU events also get an entry into this buffer, to allow consuming
     /// the events from an init pass indirectly dispatched (GPU-driven).
-    // Note: we abuse BufferVec but never copy anything from CPU
-    // FIXME - merge with the update pass one, we don't need 2 buffers storing the same type
-    init_indirect_dispatch_buffer: BufferVec<GpuDispatchIndirect>,
+    // FIXME - merge with the update pass one, we don't need 2 buffers storing the same type; on
+    // the other hand if we sync the allocations with GpuChildInfo we can guarantee a perfect
+    // batching for the init fill dispatch pass (single dispatch for all instances at once).
+    init_indirect_dispatch_buffer: GpuBuffer<GpuDispatchIndirect>,
     /// Bind group layout for the indirect dispatch pass, which clears the GPU
     /// event counts ([`GpuChildInfo::event_count`]).
     indirect_child_info_buffer_bind_group_layout: BindGroupLayout,
@@ -303,9 +276,10 @@ pub struct EventCache {
 impl EventCache {
     /// Create a new event cache.
     pub fn new(device: RenderDevice) -> Self {
-        let mut init_indirect_dispatch_buffer =
-            BufferVec::new(BufferUsages::STORAGE | BufferUsages::INDIRECT);
-        init_indirect_dispatch_buffer.set_label(Some("hanabi:buffer:init_indirect_dispatch"));
+        let init_indirect_dispatch_buffer = GpuBuffer::new(
+            BufferUsages::STORAGE | BufferUsages::INDIRECT,
+            Some("hanabi:buffer:init_indirect_dispatch".to_string()),
+        );
 
         let child_infos_bind_group_layout = device.create_bind_group_layout(
             "hanabi:bind_group_layout:indirect:child_infos@3",
@@ -377,9 +351,7 @@ impl EventCache {
 
         // Allocate an entry into the indirect dispatch buffer
         // The value pushed is a dummy; see allocate_frame_buffers().
-        let init_indirect_dispatch_index = self
-            .init_indirect_dispatch_buffer
-            .push(GpuDispatchIndirect::default()) as u32;
+        let init_indirect_dispatch_index = self.init_indirect_dispatch_buffer.allocate();
 
         // Try to find an allocated GPU buffer with enough capacity
         let mut empty_index = None;
@@ -465,10 +437,8 @@ impl EventCache {
             cached_effect_events
         );
 
-        // FIXME - free() not implemented in BufferVec!
-        warn!("free() not implemented in BufferVec, cannot free GpuInitDispatchInfo entry");
-        // self.init_indirect_dispatch_buffer
-        //     .free(cached_effect_events.init_indirect_dispatch_index);
+        self.init_indirect_dispatch_buffer
+            .free(cached_effect_events.init_indirect_dispatch_index);
 
         let entry = self
             .buffers
@@ -556,14 +526,39 @@ impl EventCache {
         // FIXME
         _effect_bind_groups: &mut ResMut<EffectBindGroups>,
     ) {
-        // Note: we abuse BufferVec for its ability to manage the GPU buffer, but
-        // we don't use its CPU side capabilities. So we only need the GPU buffer to be
-        // correctly allocated, using reserve(). No data is copied from CPU.
+        // This buffer is only ever used in the bind groups of a `GpuBufferOperations`,
+        // which manages its bind groups automatically each frame. So there's no
+        // invalidation to do here on re-allocation.
         self.init_indirect_dispatch_buffer
-            .reserve(self.init_indirect_dispatch_buffer.len(), render_device);
+            .prepare_buffers(render_device);
 
         self.child_infos_buffer
             .write_buffer(render_device, render_queue);
+    }
+
+    /// Schedule any pending buffer copy.
+    ///
+    /// This is necessary when a buffer is reallocated, to copy the old content.
+    /// This must be called once per frame after the buffers have been
+    /// reallocated with `prepare_buffers()`.
+    #[inline]
+    pub fn write_buffers(&self, command_encoder: &mut CommandEncoder) {
+        self.init_indirect_dispatch_buffer
+            .write_buffers(command_encoder);
+    }
+
+    /// Destroy old copies of buffers reallocated last frame and copied to a new
+    /// buffer.
+    ///
+    /// This must be called once per frame after any content was effectively
+    /// copied from an old to a new buffer. This means that, due to Bevy's
+    /// limitations, this must be called on the next frame, as we don't have
+    /// write access to anything nor any hint as to when copies are done until
+    /// the next frame rendering actually starts.
+    #[inline]
+    pub fn clear_previous_frame_resizes(&mut self) {
+        self.init_indirect_dispatch_buffer
+            .clear_previous_frame_resizes();
     }
 
     #[inline]

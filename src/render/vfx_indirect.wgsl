@@ -64,6 +64,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let indirect_dispatch_index = effect_metadata_buffer[em_base + EM_OFFSET_INDIRECT_DISPATCH_INDEX];
     let di_base = DISPATCH_INDIRECT_STRIDE * indirect_dispatch_index;
     dispatch_indirect_buffer[di_base] = (alive_count + 63u) >> 6u;
+    dispatch_indirect_buffer[di_base + 1u] = 1u;
+    dispatch_indirect_buffer[di_base + 2u] = 1u;
 
     // Swap ping/pong buffers. The update pass always writes into ping, and both the update
     // pass and the render pass always read from pong.
