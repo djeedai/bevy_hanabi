@@ -56,6 +56,7 @@ use bytemuck::{Pod, Zeroable};
 use effect_cache::{BufferState, CachedEffect, EffectSlice};
 use event::{CachedChildInfo, CachedEffectEvents, CachedParentInfo, CachedParentRef, GpuChildInfo};
 use fixedbitset::FixedBitSet;
+use gpu_buffer::GpuBuffer;
 use naga_oil::compose::{Composer, NagaModuleDescriptor};
 
 use crate::{
@@ -2625,7 +2626,7 @@ pub struct EffectsMeta {
     spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
     /// Global shared GPU buffer storing the various indirect dispatch structs
     /// for the indirect dispatch of the Update pass.
-    update_dispatch_indirect_buffer: BufferTable<GpuDispatchIndirect>,
+    update_dispatch_indirect_buffer: GpuBuffer<GpuDispatchIndirect>,
     /// Global shared GPU buffer storing the various `EffectMetadata`
     /// structs for the active effect instances.
     effect_metadata_buffer: BufferTable<GpuEffectMetadata>,
@@ -2670,10 +2671,8 @@ impl EffectsMeta {
                 NonZeroU64::new(item_align),
                 Some("hanabi:buffer:spawner".to_string()),
             ),
-            update_dispatch_indirect_buffer: BufferTable::new(
+            update_dispatch_indirect_buffer: GpuBuffer::new(
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
-                // Indirect dispatch args don't need to be aligned
-                None,
                 Some("hanabi:buffer:update_dispatch_indirect".to_string()),
             ),
             effect_metadata_buffer: BufferTable::new(
@@ -2704,11 +2703,8 @@ impl EffectsMeta {
         &mut self,
         mut commands: Commands,
         mut added_effects: Vec<AddedEffect>,
-        render_device: &RenderDevice,
-        render_queue: &RenderQueue,
         mesh_allocator: &MeshAllocator,
         render_meshes: &RenderAssets<RenderMesh>,
-        effect_bind_groups: &mut ResMut<EffectBindGroups>,
         effect_cache: &mut ResMut<EffectCache>,
         property_cache: &mut ResMut<PropertyCache>,
         event_cache: &mut ResMut<EventCache>,
@@ -2724,9 +2720,8 @@ impl EffectsMeta {
             trace!("+ added effect: capacity={}", added_effect.capacity);
 
             // Allocate an indirect dispatch arguments struct for this instance
-            let update_dispatch_indirect_buffer_table_id = self
-                .update_dispatch_indirect_buffer
-                .insert(GpuDispatchIndirect::default());
+            let update_dispatch_indirect_buffer_row_index =
+                self.update_dispatch_indirect_buffer.allocate();
 
             // Allocate per-effect metadata. Note that we run after Bevy has allocated
             // meshes, so we already know the buffer and position of the particle mesh, and
@@ -2829,7 +2824,7 @@ impl EffectsMeta {
             let effect_metadata_buffer_table_id =
                 self.effect_metadata_buffer.insert(gpu_effect_metadata);
             let dispatch_buffer_indices = DispatchBufferIndices {
-                update_dispatch_indirect_buffer_table_id,
+                update_dispatch_indirect_buffer_row_index,
                 effect_metadata_buffer_table_id,
             };
 
@@ -2913,21 +2908,9 @@ impl EffectsMeta {
                 render_effect_dispatch_buffer_id={}",
                 added_effect.render_entity,
                 added_effect.entity,
-                update_dispatch_indirect_buffer_table_id.0,
+                update_dispatch_indirect_buffer_row_index,
                 effect_metadata_buffer_table_id.0
             );
-        }
-
-        // Once all changes are applied, immediately schedule any GPU buffer
-        // (re)allocation based on the new buffer size. The actual GPU buffer content
-        // will be written later.
-        if self
-            .update_dispatch_indirect_buffer
-            .allocate_gpu(render_device, render_queue)
-        {
-            // All those bind groups use the buffer so need to be re-created
-            trace!("*** Dispatch indirect buffer for update pass re-allocated; clearing all bind groups using it.");
-            effect_bind_groups.particle_buffers.clear();
         }
     }
 
@@ -3079,7 +3062,7 @@ pub(crate) fn on_remove_cached_effect(
         .remove(&cached_effect.buffer_index);
     effects_meta
         .update_dispatch_indirect_buffer
-        .remove(dispatch_buffer_indices.update_dispatch_indirect_buffer_table_id);
+        .free(dispatch_buffer_indices.update_dispatch_indirect_buffer_row_index);
     effects_meta
         .effect_metadata_buffer
         .remove(dispatch_buffer_indices.effect_metadata_buffer_table_id);
@@ -3091,8 +3074,6 @@ pub(crate) fn on_remove_cached_effect(
 /// effects have a corresponding entity in the render world, with a
 /// [`CachedEffect`] component. From there, we operate on those exclusively.
 pub(crate) fn add_effects(
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
     mesh_allocator: Res<MeshAllocator>,
     render_meshes: Res<RenderAssets<RenderMesh>>,
     commands: Commands,
@@ -3101,7 +3082,6 @@ pub(crate) fn add_effects(
     mut property_cache: ResMut<PropertyCache>,
     mut event_cache: ResMut<EventCache>,
     mut extracted_effects: ResMut<ExtractedEffects>,
-    mut effect_bind_groups: ResMut<EffectBindGroups>,
     mut sort_bind_groups: ResMut<SortBindGroups>,
 ) {
     #[cfg(feature = "trace")]
@@ -3119,16 +3099,14 @@ pub(crate) fn add_effects(
         .effect_metadata_buffer
         .clear_previous_frame_resizes();
     sort_bind_groups.clear_previous_frame_resizes();
+    event_cache.clear_previous_frame_resizes();
 
     // Allocate new effects
     effects_meta.add_effects(
         commands,
         std::mem::take(&mut extracted_effects.added_effects),
-        &render_device,
-        &render_queue,
         &mesh_allocator,
         &render_meshes,
-        &mut effect_bind_groups,
         &mut effect_cache,
         &mut property_cache,
         &mut event_cache,
@@ -4043,8 +4021,7 @@ pub(crate) fn prepare_effects(
                 max_spawn: capacity,
                 ping: 0,
                 indirect_dispatch_index: dispatch_buffer_indices
-                    .update_dispatch_indirect_buffer_table_id
-                    .0,
+                    .update_dispatch_indirect_buffer_row_index,
                 // Note: the indirect draw args are at the start of the GpuEffectMetadata struct
                 indirect_render_index: dispatch_buffer_indices.effect_metadata_buffer_table_id.0,
                 init_indirect_dispatch_index: cached_effect_events
@@ -4107,6 +4084,7 @@ pub(crate) fn prepare_effects(
         .write_buffer(render_device, render_queue)
     {
         // All property bind groups use the spawner buffer, which was reallocate
+        effect_bind_groups.particle_buffers.clear();
         property_bind_groups.clear(true);
         effects_meta.indirect_spawner_bind_group = None;
     }
@@ -5419,6 +5397,14 @@ pub(crate) fn prepare_gpu_resources(
     // effect_bind_groups);
     event_cache.prepare_buffers(&render_device, &render_queue, &mut effect_bind_groups);
     sort_bind_groups.prepare_buffers(&render_device);
+    if effects_meta
+        .update_dispatch_indirect_buffer
+        .prepare_buffers(&render_device)
+    {
+        // All those bind groups use the buffer so need to be re-created
+        trace!("*** Dispatch indirect buffer for update pass re-allocated; clearing all bind groups using it.");
+        effect_bind_groups.particle_buffers.clear();
+    }
 }
 
 /// Read the queued init fill dispatch operations, batch them together by
@@ -6257,10 +6243,11 @@ impl Node for VfxSimulateNode {
             let command_encoder = render_context.command_encoder();
             effects_meta
                 .update_dispatch_indirect_buffer
-                .write_buffer(command_encoder);
+                .write_buffers(command_encoder);
             effects_meta
                 .effect_metadata_buffer
                 .write_buffer(command_encoder);
+            event_cache.write_buffers(command_encoder);
             sort_bind_groups.write_buffers(command_encoder);
         }
 
@@ -6606,10 +6593,10 @@ impl Node for VfxSimulateNode {
                 compute_pass.set_bind_group(3, &metadata_bind_group.bind_group, &[]);
 
                 // Dispatch update job
-                let dispatch_indirect_buffer_table_id = effect_batch
+                let dispatch_indirect_offset = effect_batch
                     .dispatch_buffer_indices
-                    .update_dispatch_indirect_buffer_table_id;
-                let dispatch_indirect_offset = dispatch_indirect_buffer_table_id.0 * 12;
+                    .update_dispatch_indirect_buffer_row_index
+                    * 12;
                 trace!(
                     "dispatch_workgroups_indirect: buffer={:?} offset={}B",
                     indirect_buffer,
