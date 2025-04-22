@@ -40,11 +40,18 @@ pub struct EventSlice {
 /// this frame. That number is incremented by another effect when it
 /// emits a spawn event, and reset to zero on next frame after the indirect init
 /// pass spawned new particles, and before the new update pass of the
-/// source effect optionally emits more spawn events. GPU spawn events are never
-/// accumulated over frames; if a source emits too many events and the target
-/// effect cannot spawn that many particles, for example because it reached its
-/// capacity, then the extra events are discarded. This is consistent with the
-/// CPU behavior of [`EffectSpawner::spawn_count`].
+/// source effect optionally emits more spawn events.
+///
+/// GPU spawn events are never accumulated over frames; if a source emits too
+/// many events and the target effect cannot spawn that many particles, for
+/// example because it reached its capacity, then the extra events are
+/// discarded. This is consistent with the CPU behavior of
+/// [`EffectSpawner::spawn_count`].
+///
+/// Note that the number of allocated events in the buffer slice associated with
+/// a child effect instance is not recorded here; instead it's stored in
+/// [`GpuChildInfo::event_count`]. This buffer only stores the events
+/// themselves.
 pub struct EventBuffer {
     /// GPU buffer storing the spawn events.
     buffer: Buffer,
@@ -568,22 +575,6 @@ impl EventCache {
     pub fn child_infos(&self) -> &HybridAlignedBufferVec {
         &self.child_infos_buffer
     }
-
-    #[inline]
-    pub fn init_indirect_dispatch_binding_resource(&self) -> Option<BindingResource> {
-        self.init_indirect_dispatch_buffer.binding()
-    }
-
-    // pub fn get_init_indirect_dispatch_index(&self, id: EffectCacheId) ->
-    // Option<u32> {     Some(
-    //         self.effects
-    //             .get(&id)?
-    //             .cached_child_info
-    //             .as_ref()?
-    //             .init_indirect
-    //             .dispatch_index,
-    //     )
-    // }
 
     pub fn ensure_indirect_child_info_buffer_bind_group(
         &mut self,
