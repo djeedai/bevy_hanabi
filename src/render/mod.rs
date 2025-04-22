@@ -4025,28 +4025,6 @@ pub(crate) fn prepare_effects(
             ..default()
         };
 
-        if let Some(indexed) = &cached_mesh.indexed {
-            gpu_effect_metadata.vertex_or_index_count = indexed.range.len() as u32;
-            gpu_effect_metadata.first_index_or_vertex_offset = indexed.range.start;
-            gpu_effect_metadata.vertex_offset_or_base_instance = cached_mesh.range.start as i32;
-        } else {
-            gpu_effect_metadata.vertex_or_index_count = cached_mesh.range.len() as u32;
-            gpu_effect_metadata.first_index_or_vertex_offset = cached_mesh.range.start;
-            gpu_effect_metadata.vertex_offset_or_base_instance = 0;
-        };
-        assert!(dispatch_buffer_indices
-            .effect_metadata_buffer_table_id
-            .is_valid());
-        effects_meta.effect_metadata_buffer.update(
-            dispatch_buffer_indices.effect_metadata_buffer_table_id,
-            gpu_effect_metadata,
-        );
-
-        warn!(
-            "Updated metadata entry {} for effect {:?}, this will reset it.",
-            dispatch_buffer_indices.effect_metadata_buffer_table_id.0, main_entity
-        );
-
         if let Some(index_slice) = mesh_allocator.mesh_index_slice(&mesh_id) {
             gpu_effect_metadata.vertex_or_index_count = index_slice.range.len() as u32;
             gpu_effect_metadata.first_index_or_vertex_offset = index_slice.range.start;
