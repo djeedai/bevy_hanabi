@@ -124,6 +124,10 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
         }
     }
 
+    fn safe_label(&self) -> &str {
+        self.label.as_ref().map(|s| &s[..]).unwrap_or("")
+    }
+
     #[inline]
     pub fn buffer(&self) -> Option<&Buffer> {
         self.buffer.as_ref()
@@ -147,23 +151,6 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
         }))
     }
 
-    /// Get a binding for the first `count` elements of the buffer.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `count` is zero.
-    #[inline]
-    pub fn lead_binding(&self, count: u32) -> Option<BindingResource> {
-        assert!(count > 0);
-        let buffer = self.buffer()?;
-        let size = NonZeroU64::new(T::SHADER_SIZE.get() * count as u64).unwrap();
-        Some(BindingResource::Buffer(BufferBinding {
-            buffer,
-            offset: 0,
-            size: Some(size),
-        }))
-    }
-
     /// Get a binding for a subset of the elements of the buffer.
     ///
     /// Returns a binding for the elements in the range `offset..offset+count`.
@@ -176,8 +163,8 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     pub fn range_binding(&self, offset: u32, count: u32) -> Option<BindingResource> {
         assert!(count > 0);
         let buffer = self.buffer()?;
-        let offset = T::SHADER_SIZE.get() * offset as u64;
-        let size = NonZeroU64::new(T::SHADER_SIZE.get() * count as u64).unwrap();
+        let offset = self.aligned_size as u64 * offset as u64;
+        let size = NonZeroU64::new(self.aligned_size as u64 * count as u64).unwrap();
         Some(BindingResource::Buffer(BufferBinding {
             buffer,
             offset,
@@ -229,33 +216,14 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
 
     /// Append a value to the buffer.
     ///
-    /// As with [`set_content()`], the content is stored on the CPU and uploaded
-    /// on the GPU once [`write_buffer()`] is called.
+    /// The content is stored on the CPU and uploaded on the GPU once
+    /// [`write_buffer()`] is called.
     ///
     /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
     pub fn push(&mut self, value: T) -> usize {
         let index = self.values.len();
         self.values.alloc().init(value);
         index
-    }
-
-    /// Set the content of the CPU buffer, overwritting any previous data.
-    ///
-    /// As with [`push()`], the content is stored on the CPU and uploaded on the
-    /// GPU once [`write_buffer()`] is called.
-    ///
-    /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
-    pub fn set_content(&mut self, data: Vec<T>) {
-        self.values = data;
-    }
-
-    /// Get the content of the CPU buffer.
-    ///
-    /// The data may or may not be representative of the GPU content, depending
-    /// on whether the buffer was already uploaded and/or has been modified by
-    /// the GPU itself.
-    pub fn content(&self) -> &[T] {
-        &self.values
     }
 
     /// Reserve some capacity into the buffer.
@@ -274,21 +242,33 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
         if capacity > self.capacity {
             let size = self.aligned_size * capacity;
             trace!(
-                "reserve: increase capacity from {} to {} elements, new size {} bytes",
+                "reserve['{}']: increase capacity from {} to {} elements, new size {} bytes",
+                self.safe_label(),
                 self.capacity,
                 capacity,
                 size
             );
             self.capacity = capacity;
-            if let Some(buffer) = self.buffer.take() {
-                buffer.destroy();
+            if let Some(old_buffer) = self.buffer.take() {
+                trace!(
+                    "reserve['{}']: destroying old buffer #{:?}",
+                    self.safe_label(),
+                    old_buffer.id()
+                );
+                old_buffer.destroy();
             }
-            self.buffer = Some(device.create_buffer(&BufferDescriptor {
+            let new_buffer = device.create_buffer(&BufferDescriptor {
                 label: self.label.as_ref().map(|s| &s[..]),
                 size: size as BufferAddress,
                 usage: BufferUsages::COPY_DST | self.buffer_usage,
                 mapped_at_creation: false,
-            }));
+            });
+            trace!(
+                "reserve['{}']: created new buffer #{:?}",
+                self.safe_label(),
+                new_buffer.id(),
+            );
+            self.buffer = Some(new_buffer);
             // FIXME - this discards the old content if any!!!
             true
         } else {
@@ -306,7 +286,8 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
             return false;
         }
         trace!(
-            "write_buffer: values.len={} item_size={} aligned_size={}",
+            "write_buffer['{}']: values.len={} item_size={} aligned_size={}",
+            self.safe_label(),
             self.values.len(),
             self.item_size,
             self.aligned_size
@@ -314,7 +295,12 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
         let buffer_changed = self.reserve(self.values.len(), device);
         if let Some(buffer) = &self.buffer {
             let aligned_size = self.aligned_size * self.values.len();
-            trace!("aligned_buffer: size={}", aligned_size);
+            trace!(
+                "aligned_buffer['{}']: size={} buffer={:?}",
+                self.safe_label(),
+                aligned_size,
+                buffer.id(),
+            );
             let mut aligned_buffer: Vec<u8> = vec![0; aligned_size];
             for i in 0..self.values.len() {
                 let src: &[u8] = cast_slice(std::slice::from_ref(&self.values[i]));

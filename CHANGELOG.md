@@ -3,6 +3,20 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `EmitSpawnEventModifier::count` is now an expression,
+  which allows dynamically controlling the number of particles emitted.
+
+### Fixed
+
+- Fixed several bugs related to buffer reallocation and bind group invalidation.
+  Those bugs generally occur when new effects are spawned, triggering GPU buffer reallocations.
+  Using stale bind groups referencing the old buffer produces issues ranging from rendering artifacts,
+  to complete loss of all rendering, or even panics in `wgpu` (where validation catches the misuse).
+
 ## [0.15.0] 2025-04-01
 
 ### Added

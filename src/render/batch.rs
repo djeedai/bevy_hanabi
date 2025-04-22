@@ -151,17 +151,21 @@ pub(crate) struct SortedEffectBatches {
     /// [`push()`]: Self::push
     batches: Vec<EffectBatch>,
     /// Indices into [`batches`] defining the sorted order batches need to be
-    /// processed in. Calcualted by [`sort()`].
+    /// processed in. Calculated by [`sort()`].
     ///
     /// [`batches`]: Self::batches
     /// [`sort()`]: Self::sort
     sorted_indices: Vec<u32>,
+    /// Index of the dispatch queue used for indirect fill dispatch and
+    /// submitted to [`GpuBufferOperations`].
+    pub(super) dispatch_queue_index: Option<u32>,
 }
 
 impl SortedEffectBatches {
     pub fn clear(&mut self) {
         self.batches.clear();
         self.sorted_indices.clear();
+        self.dispatch_queue_index = None;
     }
 
     pub fn push(&mut self, effect_batch: EffectBatch) -> EffectBatchIndex {
@@ -216,7 +220,7 @@ impl SortedEffectBatches {
             .batches
             .iter()
             .enumerate()
-            .map(|(index, effect_batch)| (effect_batch.buffer_index, index))
+            .map(|(batch_index, effect_batch)| (effect_batch.buffer_index, batch_index))
             .collect::<HashMap<_, _>>();
         // In theory with batching we could have multiple batches referencing the same
         // buffer if we failed to batch some effect instances together which
@@ -358,7 +362,7 @@ impl EffectBatch {
             child_event_buffers: input.child_effects.clone(),
             property_key,
             property_offset,
-            spawner_base: input.spawner_base,
+            spawner_base: input.spawner_index,
             particle_layout: input.effect_slice.particle_layout.clone(),
             dispatch_buffer_indices,
             layout_flags: input.layout_flags,
@@ -407,7 +411,7 @@ pub(crate) struct BatchInput {
     pub shaders: EffectShader,
     /// Index of the [`GpuSpawnerParams`] in the
     /// [`EffectsCache::spawner_buffer`].
-    pub spawner_base: u32,
+    pub spawner_index: u32,
     /// Number of particles to spawn for this effect.
     pub spawn_count: u32,
     /// Emitter position.
