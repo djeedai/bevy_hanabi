@@ -70,7 +70,7 @@ struct ChildInfo {
     /// Index of the effect's IndirectDispatch entry in the global init indirect dispatch array.
     init_indirect_dispatch_index: u32,
     /// Number of events in the associated event buffer.
-#ifdef CHILD_INFO_IS_ATOMIC
+#ifdef CHILD_INFO_EVENT_COUNT_IS_ATOMIC
     event_count: atomic<i32>,
 #else
     event_count: i32,
@@ -109,8 +109,7 @@ const EM_OFFSET_MAX_UPDATE: u32 = 6u;
 const EM_OFFSET_DEAD_COUNT: u32 = 7u;
 const EM_OFFSET_MAX_SPAWN: u32 = 8u;
 const EM_OFFSET_PING: u32 = 9u;
-//const EM_OFFSET_SPAWNER_INDEX: u32 = 10u;
-const EM_OFFSET_INDIRECT_DISPATCH_INDEX: u32 = 11u;
+const EM_OFFSET_INDIRECT_DISPATCH_INDEX: u32 = 10u;
 
 /// Draw indirect parameters for GPU-driven rendering, and additional effect data.
 struct EffectMetadata {
@@ -146,8 +145,6 @@ struct EffectMetadata {
     /// always write into the ping buffer and read from the pong buffer. The buffers
     /// are swapped (ping = 1 - ping) during the indirect dispatch.
     ping: u32,
-    /// Unused. TODO remove.
-    spawner_index: u32,
     /// Index of the [`GpuDispatchIndirect`] struct inside the global
     /// [`EffectsMeta::dispatch_indirect_buffer`].
     indirect_dispatch_index: u32,

@@ -411,8 +411,6 @@ pub struct GpuEffectMetadata {
     /// passes always write into the ping buffer and read from the pong buffer.
     /// The buffers are swapped (ping = 1 - ping) during the indirect dispatch.
     pub ping: u32,
-    /// Unused. TODO remove.
-    pub spawner_index: u32,
     /// Index of the [`GpuDispatchIndirect`] struct inside the global
     /// [`EffectsMeta::dispatch_indirect_buffer`].
     pub indirect_dispatch_index: u32,
@@ -1640,7 +1638,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
         shader_defs.push("EM_MAX_SPAWN_ATOMIC".into());
         // ChildInfo needs atomic event_count because all threads append to the event
         // buffer(s) in parallel.
-        shader_defs.push("CHILD_INFO_IS_ATOMIC".into());
+        shader_defs.push("CHILD_INFO_EVENT_COUNT_IS_ATOMIC".into());
         if key.particle_layout.contains(Attribute::PREV) {
             shader_defs.push("ATTRIBUTE_PREV".into());
         }
@@ -3930,7 +3928,7 @@ pub(crate) fn prepare_effects(
             alpha_mode: extracted_effect.alpha_mode,
             particle_layout: extracted_effect.particle_layout.clone(),
             shaders: extracted_effect.effect_shaders,
-            spawner_base: spawner_index,
+            spawner_index,
             spawn_count: extracted_effect.spawn_count,
             position: extracted_effect.transform.translation(),
             init_indirect_dispatch_index: cached_child_info
@@ -4044,7 +4042,6 @@ pub(crate) fn prepare_effects(
                 dead_count: capacity,
                 max_spawn: capacity,
                 ping: 0,
-                spawner_index: 0xDEADBEEF, // unused
                 indirect_dispatch_index: dispatch_buffer_indices
                     .update_dispatch_indirect_buffer_table_id
                     .0,
@@ -6355,10 +6352,10 @@ impl Node for VfxSimulateNode {
                 }
 
                 // Compute dynamic offsets
-                let spawner_index = effect_batch.spawner_base;
+                let spawner_base = effect_batch.spawner_base;
                 let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
-                assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
-                let spawner_offset = spawner_index * spawner_aligned_size as u32;
+                debug_assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
+                let spawner_offset = spawner_base * spawner_aligned_size as u32;
                 let property_offset = effect_batch.property_offset;
 
                 // Setup init pass
@@ -6403,7 +6400,7 @@ impl Node for VfxSimulateNode {
                             effect_batch.handle,
                             init_indirect_dispatch_index,
                             indirect_offset,
-                            spawner_index,
+                            spawner_base,
                             spawner_offset,
                             effect_batch.property_key,
                         );
@@ -6433,7 +6430,7 @@ impl Node for VfxSimulateNode {
                             effect_batch.handle,
                             spawn_count,
                             workgroup_count,
-                            spawner_index,
+                            spawner_base,
                             spawner_offset,
                             effect_batch.property_key,
                         );
