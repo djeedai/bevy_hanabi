@@ -2735,7 +2735,7 @@ impl EffectsMeta {
                 // already exist... maybe should only do the bare minimum here
                 // (insert into caches) and not update components eagerly? not sure...
 
-                if render_meshes.get(added_effect.mesh.id()).is_none() {
+                let Some(render_mesh) = render_meshes.get(added_effect.mesh.id()) else {
                     warn!(
                         "Cannot find render mesh of particle effect instance on entity {:?}, despite applying default mesh. Invalid asset handle: {:?}",
                         added_effect.entity, added_effect.mesh
@@ -2753,9 +2753,30 @@ impl EffectsMeta {
                     );
                     continue;
                 };
+
                 let mesh_index_buffer_slice =
                     mesh_allocator.mesh_index_slice(&added_effect.mesh.id());
 
+                let indexed = if let RenderMeshBufferInfo::Indexed { index_format, .. } =
+                    render_mesh.buffer_info
+                {
+                    if let Some(ref slice) = mesh_index_buffer_slice {
+                        Some(MeshIndexSlice {
+                            format: index_format,
+                            buffer: slice.buffer.clone(),
+                            range: slice.range.clone(),
+                        })
+                    } else {
+                        trace!(
+                            "Effect main_entity {:?}: cannot find index slice of render mesh {:?}",
+                            added_effect.entity,
+                            added_effect.mesh
+                        );
+                        continue;
+                    }
+                } else {
+                    None
+                };
                 (
                     match &mesh_index_buffer_slice {
                         // Indexed mesh rendering
@@ -2796,6 +2817,7 @@ impl EffectsMeta {
                     },
                     CachedMesh {
                         mesh: added_effect.mesh.id(),
+                        indexed,
                     },
                 )
             };
@@ -3422,6 +3444,9 @@ pub(crate) struct MeshIndexSlice {
 pub(crate) struct CachedMesh {
     /// Asset of the effect mesh to draw.
     pub mesh: AssetId<Mesh>,
+    /// Indexed rendering metadata.
+    #[allow(unused)]
+    pub indexed: Option<MeshIndexSlice>,
 }
 
 /// Render world cached properties info for a single effect instance.
@@ -4025,15 +4050,15 @@ pub(crate) fn prepare_effects(
             ..default()
         };
 
-        if let Some(index_slice) = mesh_allocator.mesh_index_slice(&mesh_id) {
-            gpu_effect_metadata.vertex_or_index_count = index_slice.range.len() as u32;
-            gpu_effect_metadata.first_index_or_vertex_offset = index_slice.range.start;
+        if let Some(indexed) = &cached_mesh.indexed {
+            gpu_effect_metadata.vertex_or_index_count = indexed.range.len() as u32;
+            gpu_effect_metadata.first_index_or_vertex_offset = indexed.range.start;
             gpu_effect_metadata.vertex_offset_or_base_instance = vertex_slice.range.start as i32;
         } else {
             gpu_effect_metadata.vertex_or_index_count = vertex_slice.range.len() as u32;
             gpu_effect_metadata.first_index_or_vertex_offset = vertex_slice.range.start;
             gpu_effect_metadata.vertex_offset_or_base_instance = 0;
-        }
+        };
 
         assert!(dispatch_buffer_indices
             .effect_metadata_buffer_table_id
