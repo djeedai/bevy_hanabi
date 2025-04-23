@@ -181,7 +181,7 @@
 use std::fmt::Write as _;
 
 use bevy::{
-    platform_support::collections::{HashMap, HashSet},
+    platform::collections::{HashMap, HashSet},
     prelude::*,
     render::{
         extract_component::ExtractComponent, sync_world::SyncToRenderWorld, view::VisibilityClass,

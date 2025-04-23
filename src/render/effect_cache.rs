@@ -8,7 +8,7 @@ use bevy::{
     asset::Handle,
     ecs::{component::Component, resource::Resource},
     log::{trace, warn},
-    platform_support::collections::HashMap,
+    platform::collections::HashMap,
     render::{render_resource::*, renderer::RenderDevice},
     utils::default,
 };
@@ -612,11 +612,11 @@ pub(crate) struct CachedEffect {
 /// that of the metadata buffer.
 #[derive(Debug, Default, Clone, Copy, Component)]
 pub(crate) struct DispatchBufferIndices {
-    /// The index of the [`GpuDispatchIndirect`] in
+    /// The index of the [`GpuDispatchIndirect`] row in the GPU buffer
     /// [`EffectsMeta::update_dispatch_indirect_buffer`].
     ///
     /// [`EffectsMeta::update_dispatch_indirect_buffer`]: super::EffectsMeta::update_dispatch_indirect_buffer
-    pub(crate) update_dispatch_indirect_buffer_table_id: BufferTableId,
+    pub(crate) update_dispatch_indirect_buffer_row_index: u32,
 
     /// The index of the [`GpuEffectMetadata`] in
     /// [`EffectsMeta::effect_metadata_buffer`].

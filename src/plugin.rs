@@ -7,7 +7,6 @@ use bevy::{
     prelude::*,
     render::{
         extract_component::ExtractComponentPlugin,
-        mesh::allocator::allocate_and_free_meshes,
         render_asset::prepare_assets,
         render_graph::RenderGraph,
         render_phase::DrawFunctions,
@@ -27,12 +26,13 @@ use crate::{
     compile_effects,
     properties::EffectProperties,
     render::{
-        add_effects, batch_effects, clear_all_effects, extract_effect_events, extract_effects,
-        fixup_parents, on_remove_cached_effect, on_remove_cached_properties, prepare_bind_groups,
-        prepare_effects, prepare_gpu_resources, prepare_property_buffers, queue_effects,
-        resolve_parents, DebugSettings, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents,
-        EffectBindGroups, EffectCache, EffectsMeta, EventCache, ExtractedEffects,
-        GpuBufferOperationQueue, GpuEffectMetadata, GpuSpawnerParams, ParticlesInitPipeline,
+        add_effects, batch_effects, clear_transient_batch_inputs, extract_effect_events,
+        extract_effects, fixup_parents, on_remove_cached_effect, on_remove_cached_properties,
+        prepare_bind_groups, prepare_effects, prepare_gpu_resources, prepare_property_buffers,
+        queue_effects, queue_init_fill_dispatch_ops, resolve_parents, update_mesh_locations,
+        DebugSettings, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups,
+        EffectCache, EffectsMeta, EventCache, ExtractedEffects, GpuBufferOperations,
+        GpuEffectMetadata, GpuSpawnerParams, InitFillDispatchQueue, ParticlesInitPipeline,
         ParticlesRenderPipeline, ParticlesUpdatePipeline, PropertyBindGroups, PropertyCache,
         RenderDebugSettings, ShaderCache, SimParams, SortBindGroups, SortedEffectBatches,
         StorageType as _, UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
@@ -358,9 +358,10 @@ impl Plugin for HanabiPlugin {
             .init_resource::<RenderDebugSettings>()
             .init_resource::<EffectBindGroups>()
             .init_resource::<PropertyBindGroups>()
+            .init_resource::<InitFillDispatchQueue>()
             .insert_resource(sort_bind_groups)
             .init_resource::<UtilsPipeline>()
-            .init_resource::<GpuBufferOperationQueue>()
+            .init_resource::<GpuBufferOperations>()
             .init_resource::<DispatchIndirectPipeline>()
             .init_resource::<SpecializedComputePipelines<DispatchIndirectPipeline>>()
             .init_resource::<ParticlesInitPipeline>()
@@ -391,18 +392,18 @@ impl Plugin for HanabiPlugin {
                 Render,
                 (
                     (
-                        clear_all_effects,
+                        clear_transient_batch_inputs,
                         add_effects,
                         resolve_parents,
                         fixup_parents,
+                        update_mesh_locations
+                            .after(bevy::render::mesh::allocator::allocate_and_free_meshes),
                         prepare_effects,
                         batch_effects,
                     )
                         .chain()
                         .after(prepare_assets::<bevy::render::mesh::RenderMesh>)
-                        .in_set(EffectSystems::PrepareEffectAssets)
-                        // Ensure we run after Bevy prepared the render Mesh
-                        .after(allocate_and_free_meshes),
+                        .in_set(EffectSystems::PrepareEffectAssets),
                     queue_effects
                         .in_set(EffectSystems::QueueEffects)
                         .after(batch_effects),
@@ -413,6 +414,10 @@ impl Plugin for HanabiPlugin {
                     prepare_property_buffers
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         .after(add_effects)
+                        .before(prepare_bind_groups),
+                    queue_init_fill_dispatch_ops
+                        .in_set(EffectSystems::PrepareEffectGpuResources)
+                        .after(prepare_gpu_resources)
                         .before(prepare_bind_groups),
                     prepare_bind_groups
                         .in_set(EffectSystems::PrepareBindGroups)

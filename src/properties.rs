@@ -97,7 +97,7 @@ use std::num::NonZeroU64;
 use bevy::{
     ecs::{component::Component, reflect::ReflectComponent, world::Mut},
     log::trace,
-    platform_support::collections::HashSet,
+    platform::collections::HashSet,
     reflect::Reflect,
 };
 use serde::{Deserialize, Serialize};

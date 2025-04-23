@@ -83,7 +83,7 @@ naga = { version = "24", features = ["wgsl-in"] }
 naga_oil = { version = "0.17", default-features = false, features = ["test_shader"] }
 
 [dependencies.bevy]
-version = "0.16.0-rc.3"
+version = "=0.16.0-rc.5"
 default-features = false
 features = [
   "bevy_core_pipeline",

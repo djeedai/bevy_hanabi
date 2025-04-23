@@ -3936,7 +3936,7 @@ impl std::ops::Rem<WriterExpr> for WriterExpr {
 
 #[cfg(test)]
 mod tests {
-    use bevy::{platform_support::collections::HashSet, prelude::*};
+    use bevy::{platform::collections::HashSet, prelude::*};
 
     use super::*;
     use crate::{MatrixType, ScalarValue, ShaderWriter, VectorType};

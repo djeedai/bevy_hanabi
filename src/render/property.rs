@@ -5,7 +5,7 @@ use std::{
 
 use bevy::{
     log::{error, trace},
-    platform_support::collections::HashMap,
+    platform::collections::HashMap,
     prelude::{Component, Entity, OnRemove, Query, Res, ResMut, Resource, Trigger},
     render::{
         render_resource::{BindGroup, BindGroupLayout, Buffer},
