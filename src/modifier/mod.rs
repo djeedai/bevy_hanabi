@@ -74,7 +74,7 @@ pub use velocity::*;
 
 use crate::{
     Attribute, EvalContext, ExprError, ExprHandle, Gradient, Module, ParticleLayout,
-    PropertyLayout, TextureLayout, ToWgslString,
+    PropertyLayout, TextureLayout,
 };
 
 /// The dimension of a shape to consider.
@@ -636,8 +636,10 @@ pub enum EventEmitCondition {
 pub struct EmitSpawnEventModifier {
     /// Emit condition for the GPU spawn events.
     pub condition: EventEmitCondition,
-    /// Number of particles to spawn if the emit condition is met.
-    pub count: u32,
+    /// The number of particles to spawn if the emit condition is met.
+    ///
+    /// Expression type: `Uint`
+    pub count: ExprHandle,
     /// Index of the event channel / child the events are emitted into.
     ///
     /// GPU spawn events emitted by this parent event are associated with a
@@ -650,20 +652,25 @@ pub struct EmitSpawnEventModifier {
 impl EmitSpawnEventModifier {
     fn eval(
         &self,
-        _module: &mut Module,
-        _context: &mut dyn EvalContext,
+        module: &mut Module,
+        context: &mut dyn EvalContext,
     ) -> Result<String, ExprError> {
         // FIXME - mixing (ex-)channel and event buffer index; this should be automated
         let channel_index = self.child_index;
         // TODO - validate GPU spawn events are in use in the eval context...
+
+        let count_val = context.eval(module, self.count)?;
+        let count_var = context.make_local_var();
+        context.push_stmt(&format!("let {} = {};", count_var, count_val));
+
         let cond = match self.condition {
             EventEmitCondition::Always => format!(
                 "if (is_alive) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
-                self.count.to_wgsl_string()
+                count_var
             ),
             EventEmitCondition::OnDie => format!(
                 "if (was_alive && !is_alive) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
-                self.count.to_wgsl_string()
+                count_var
             ),
         };
         Ok(cond)
