@@ -3403,9 +3403,7 @@ pub fn update_mesh_locations(
             if *old_mesh_location.deref() != new_mesh_location {
                 debug!(
                     "Mesh location changed for asset {:?}\nold:{:?}\nnew:{:?}",
-                    entity,
-                    old_mesh_location,
-                    new_mesh_location
+                    entity, old_mesh_location, new_mesh_location
                 );
             }
 
