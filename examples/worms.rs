@@ -84,7 +84,7 @@ fn create_head_effect() -> EffectAsset {
     // Spawn a trail of child body particles into the other effect
     let update_spawn_trail = EmitSpawnEventModifier {
         condition: EventEmitCondition::Always,
-        count: writer.lit(5u32).expr(),
+        count: 5,
         // We use channel #0; see EffectParent
         child_index: 0,
     };
