@@ -2,10 +2,7 @@ use std::{collections::VecDeque, fmt::Debug, num::NonZeroU32, ops::Range};
 
 use bevy::{
     prelude::*,
-    render::{
-        render_resource::{BufferId, CachedComputePipelineId},
-        sync_world::MainEntity,
-    },
+    render::{render_resource::CachedComputePipelineId, sync_world::MainEntity},
     utils::HashMap,
 };
 
@@ -90,12 +87,6 @@ pub(crate) struct EffectBatch {
     pub layout_flags: LayoutFlags,
     /// Asset ID of the effect mesh to draw.
     pub mesh: AssetId<Mesh>,
-    /// GPU buffer storing the [`mesh`] of the effect.
-    ///
-    /// [`mesh`]: Self::mesh
-    pub mesh_buffer_id: BufferId,
-    /// Slice inside the GPU buffer for the effect mesh.
-    pub mesh_slice: Range<u32>,
     /// Texture layout.
     pub texture_layout: TextureLayout,
     /// Textures.
@@ -376,8 +367,6 @@ impl EffectBatch {
             dispatch_buffer_indices,
             layout_flags: input.layout_flags,
             mesh: cached_mesh.mesh,
-            mesh_buffer_id: cached_mesh.buffer.id(),
-            mesh_slice: cached_mesh.range.clone(),
             texture_layout: input.texture_layout.clone(),
             textures: input.textures.clone(),
             alpha_mode: input.alpha_mode,
@@ -466,8 +455,6 @@ mod tests {
             particle_layout: ParticleLayout::empty(),
             layout_flags: LayoutFlags::NONE,
             mesh: default(),
-            mesh_buffer_id: NonZeroU32::new(1).unwrap().into(),
-            mesh_slice: 0..0,
             texture_layout: default(),
             textures: default(),
             alpha_mode: default(),

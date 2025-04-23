@@ -5,7 +5,6 @@ use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Transparent3d};
 use bevy::{
     prelude::*,
     render::{
-        mesh::allocator::allocate_and_free_meshes,
         render_asset::prepare_assets,
         render_graph::RenderGraph,
         render_phase::DrawFunctions,
@@ -25,16 +24,16 @@ use crate::{
     compile_effects,
     properties::EffectProperties,
     render::{
-        add_effects, batch_effects, clear_all_effects, extract_effect_events, extract_effects,
-        fixup_parents, on_remove_cached_effect, on_remove_cached_properties, prepare_bind_groups,
-        prepare_effects, prepare_gpu_resources, prepare_property_buffers, queue_effects,
-        queue_init_fill_dispatch_ops, resolve_parents, DebugSettings, DispatchIndirectPipeline,
-        DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, EventCache,
-        ExtractedEffects, GpuBufferOperations, GpuEffectMetadata, GpuSpawnerParams,
-        InitFillDispatchQueue, ParticlesInitPipeline, ParticlesRenderPipeline,
-        ParticlesUpdatePipeline, PropertyBindGroups, PropertyCache, RenderDebugSettings,
-        ShaderCache, SimParams, SortBindGroups, SortedEffectBatches, StorageType as _,
-        UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
+        add_effects, batch_effects, clear_transient_batch_inputs, extract_effect_events,
+        extract_effects, fixup_parents, on_remove_cached_effect, on_remove_cached_properties,
+        prepare_bind_groups, prepare_effects, prepare_gpu_resources, prepare_property_buffers,
+        queue_effects, queue_init_fill_dispatch_ops, resolve_parents, update_mesh_locations,
+        DebugSettings, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups,
+        EffectCache, EffectsMeta, EventCache, ExtractedEffects, GpuBufferOperations,
+        GpuEffectMetadata, GpuSpawnerParams, InitFillDispatchQueue, ParticlesInitPipeline,
+        ParticlesRenderPipeline, ParticlesUpdatePipeline, PropertyBindGroups, PropertyCache,
+        RenderDebugSettings, ShaderCache, SimParams, SortBindGroups, SortedEffectBatches,
+        StorageType as _, UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,
@@ -397,18 +396,18 @@ impl Plugin for HanabiPlugin {
                 Render,
                 (
                     (
-                        clear_all_effects,
+                        clear_transient_batch_inputs,
                         add_effects,
                         resolve_parents,
                         fixup_parents,
+                        update_mesh_locations
+                            .after(bevy::render::mesh::allocator::allocate_and_free_meshes),
                         prepare_effects,
                         batch_effects,
                     )
                         .chain()
                         .after(prepare_assets::<bevy::render::mesh::RenderMesh>)
-                        .in_set(EffectSystems::PrepareEffectAssets)
-                        // Ensure we run after Bevy prepared the render Mesh
-                        .after(allocate_and_free_meshes),
+                        .in_set(EffectSystems::PrepareEffectAssets),
                     queue_effects
                         .in_set(EffectSystems::QueueEffects)
                         .after(batch_effects),
