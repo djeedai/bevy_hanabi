@@ -318,6 +318,7 @@ pub(crate) struct EffectDrawBatch {
     /// Position of the emitter so we can compute distance to camera.
     pub translation: Vec3,
     /// The main-world entity that contains this effect.
+    #[allow(dead_code)]
     pub main_entity: MainEntity,
 }
 
