@@ -50,7 +50,7 @@ use bevy::{
     asset::Handle,
     image::Image,
     math::{UVec2, Vec3, Vec4},
-    platform_support::collections::HashMap,
+    platform::collections::HashMap,
     reflect::Reflect,
 };
 use bitflags::bitflags;

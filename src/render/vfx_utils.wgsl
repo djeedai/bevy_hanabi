@@ -67,35 +67,6 @@ fn fill_dispatch_args(@builtin(global_invocation_id) global_invocation_id: vec3<
 }
 
 /// Fill indirect dispatch arguments from a raw element count, by copying the element count
-/// and rounding it up to the number of thread per workgroup. Each thread copies a single u32.
-/// Specialized variant for the indirect init pass, where the destination offset is computed
-/// via an indirection read from the source buffer.
-@compute @workgroup_size(64)
-fn init_fill_dispatch_args(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    let thread_index = global_invocation_id.x;
-    if (thread_index >= args.count) {
-        return;
-    }
-
-    // Note: we ignore both src_offset and dst_offset, as we:
-    // - bind the proper view of the ChildInfo array (src), which otherwise doesn't have a constant stride
-    // - bind the entire init indirect dispatch buffer (dst) and retrieve its offset here in the shader
-    
-    // Retrieve the source ChildInfo array buffer
-    let src = thread_index * args.src_stride;
-    let dispatch_indirect_index = src_buffer[src];
-    let event_count = src_buffer[src + 1u];
-
-    // Note: we always assume 12-byte dispatch indirect structs, which is the canonical struct
-    // with its x/y/z values, without any extra field or padding.
-    let dst = dispatch_indirect_index * 3u;
-    let workgroup_count = calc_workground_count(event_count);
-    dst_buffer[dst] = workgroup_count;
-    dst_buffer[dst + 1u] = 1u;
-    dst_buffer[dst + 2u] = 1u;
-}
-
-/// Fill indirect dispatch arguments from a raw element count, by copying the element count
 /// and rounding it up to the number of thread per workgroup. Each thread copies a single
 /// single u32. Same as fill_dispatch_args(), but both read and write are from the destination
 /// buffer. The source buffer is ignored (no binding).

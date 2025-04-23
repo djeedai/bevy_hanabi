@@ -1,12 +1,9 @@
 use std::{collections::VecDeque, fmt::Debug, num::NonZeroU32, ops::Range};
 
 use bevy::{
-    platform_support::collections::HashMap,
+    platform::collections::HashMap,
     prelude::*,
-    render::{
-        render_resource::{BufferId, CachedComputePipelineId},
-        sync_world::MainEntity,
-    },
+    render::{render_resource::CachedComputePipelineId, sync_world::MainEntity},
 };
 
 use super::{
@@ -90,12 +87,6 @@ pub(crate) struct EffectBatch {
     pub layout_flags: LayoutFlags,
     /// Asset ID of the effect mesh to draw.
     pub mesh: AssetId<Mesh>,
-    /// GPU buffer storing the [`mesh`] of the effect.
-    ///
-    /// [`mesh`]: Self::mesh
-    pub mesh_buffer_id: BufferId,
-    /// Slice inside the GPU buffer for the effect mesh.
-    pub mesh_slice: Range<u32>,
     /// Texture layout.
     pub texture_layout: TextureLayout,
     /// Textures.
@@ -160,17 +151,21 @@ pub(crate) struct SortedEffectBatches {
     /// [`push()`]: Self::push
     batches: Vec<EffectBatch>,
     /// Indices into [`batches`] defining the sorted order batches need to be
-    /// processed in. Calcualted by [`sort()`].
+    /// processed in. Calculated by [`sort()`].
     ///
     /// [`batches`]: Self::batches
     /// [`sort()`]: Self::sort
     sorted_indices: Vec<u32>,
+    /// Index of the dispatch queue used for indirect fill dispatch and
+    /// submitted to [`GpuBufferOperations`].
+    pub(super) dispatch_queue_index: Option<u32>,
 }
 
 impl SortedEffectBatches {
     pub fn clear(&mut self) {
         self.batches.clear();
         self.sorted_indices.clear();
+        self.dispatch_queue_index = None;
     }
 
     pub fn push(&mut self, effect_batch: EffectBatch) -> EffectBatchIndex {
@@ -225,7 +220,7 @@ impl SortedEffectBatches {
             .batches
             .iter()
             .enumerate()
-            .map(|(index, effect_batch)| (effect_batch.buffer_index, index))
+            .map(|(batch_index, effect_batch)| (effect_batch.buffer_index, batch_index))
             .collect::<HashMap<_, _>>();
         // In theory with batching we could have multiple batches referencing the same
         // buffer if we failed to batch some effect instances together which
@@ -369,13 +364,11 @@ impl EffectBatch {
             child_event_buffers: input.child_effects.clone(),
             property_key,
             property_offset,
-            spawner_base: input.spawner_base,
+            spawner_base: input.spawner_index,
             particle_layout: input.effect_slice.particle_layout.clone(),
             dispatch_buffer_indices,
             layout_flags: input.layout_flags,
             mesh: cached_mesh.mesh,
-            mesh_buffer_id: cached_mesh.buffer.id(),
-            mesh_slice: cached_mesh.range.clone(),
             texture_layout: input.texture_layout.clone(),
             textures: input.textures.clone(),
             alpha_mode: input.alpha_mode,
@@ -420,7 +413,7 @@ pub(crate) struct BatchInput {
     pub shaders: EffectShader,
     /// Index of the [`GpuSpawnerParams`] in the
     /// [`EffectsCache::spawner_buffer`].
-    pub spawner_base: u32,
+    pub spawner_index: u32,
     /// Number of particles to spawn for this effect.
     pub spawn_count: u32,
     /// Emitter position.
@@ -464,8 +457,6 @@ mod tests {
             particle_layout: ParticleLayout::empty(),
             layout_flags: LayoutFlags::NONE,
             mesh: default(),
-            mesh_buffer_id: NonZeroU32::new(1).unwrap().into(),
-            mesh_slice: 0..0,
             texture_layout: default(),
             textures: default(),
             alpha_mode: default(),

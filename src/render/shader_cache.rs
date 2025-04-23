@@ -4,7 +4,7 @@ use bevy::{
     asset::{Assets, Handle},
     ecs::{change_detection::ResMut, resource::Resource},
     log::{debug, trace},
-    platform_support::collections::HashMap,
+    platform::collections::HashMap,
     render::render_resource::Shader,
 };
 
@@ -38,7 +38,7 @@ impl ShaderCache {
         if let Some(handle) = self.cache.get(source) {
             handle.clone()
         } else {
-            let mut hasher = bevy::platform_support::hash::FixedHasher.build_hasher();
+            let mut hasher = bevy::platform::hash::FixedHasher.build_hasher();
             source.hash(&mut hasher);
             let hash = hasher.finish();
             let shader = Shader::from_wgsl(

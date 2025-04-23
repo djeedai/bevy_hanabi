@@ -4,7 +4,7 @@ use bevy::{
     asset::{Asset, Assets, Handle},
     log::trace,
     math::{Vec2, Vec3},
-    platform_support::collections::HashSet,
+    platform::collections::HashSet,
     prelude::{Component, Entity, FromWorld, Mesh, Plane3d, Resource, World},
     reflect::Reflect,
     utils::default,

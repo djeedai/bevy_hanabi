@@ -9,7 +9,7 @@
 
 🎆 Hanabi — a GPU particle system for the Bevy game engine.
 
-![firework](examples/firework.gif)
+![firework](https://raw.githubusercontent.com/djeedai/bevy_hanabi/d65cd725f25b20122c926b585d374ad91a404319/examples/firework.gif)
 
 ## Overview
 
@@ -17,7 +17,7 @@ The Hanabi particle system is a modern GPU-based particle system for the Bevy ga
 
 🚧 _This project is under heavy development, and is currently lacking both features and performance / usability polish. However, for moderate-size effects, it can already be used in your project. Feedback and contributions on both design and features are very much welcome._
 
-🎆 Hanabi makes heavy use of compute shaders to offload work to the GPU in a performant way. Support for compute shaders on the `wasm` target (WebAssembly) is available as of v0.13 (Bevy 0.14), and only through WebGPU. See the [WebAssembly support](./docs/wasm.md) documentation for details.
+🎆 Hanabi makes heavy use of compute shaders to offload work to the GPU in a performant way. Support for compute shaders on the `wasm` target (WebAssembly) is available as of v0.13 (Bevy 0.14), and only through WebGPU. See the [WebAssembly support](https://github.com/djeedai/bevy_hanabi/blob/d65cd725f25b20122c926b585d374ad91a404319/docs/wasm.md) documentation for details.
 
 ## Usage
 
@@ -124,15 +124,15 @@ commands.spawn((
 
 ## Examples
 
-See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/db436d22fbb7c52ac360be3b9206e3646c605612/examples) folder.
+See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/d65cd725f25b20122c926b585d374ad91a404319/examples) folder.
 
-A web demo (using the WebAssembly target) showing all examples is availabe in the [`examples/wasm/`](./examples/wasm/) folder. You can open `index.html` in any browser to see a GIF of all the examples. Running the actual WebAssembly example however requires serving the files with an HTTP server. If you have NodeJS installed, you can do that for example by running `npx http-server examples/wasm`.
+A web demo (using the WebAssembly target) showing all examples is availabe in the [`examples/wasm/`](https://github.com/djeedai/bevy_hanabi/tree/d65cd725f25b20122c926b585d374ad91a404319/examples/wasm) folder. You can open `index.html` in any browser to see a GIF of all the examples. Running the actual WebAssembly example however requires serving the files with an HTTP server. If you have NodeJS installed, you can do that for example by running `npx http-server examples/wasm`.
 
 Note for Linux users: The examples build with the `bevy/x11` feature by default to enable support for the X11 display server. If you want to use the Wayland display server instead, add the `bevy/wayland` feature.
 
 ## Feature List
 
-This list contains the major fixed features provided by 🎆 Hanabi. Beyond that, with the power of the [Expressions API](https://docs.rs/bevy_hanabi/0.15.0/bevy_hanabi/graph/expr/index.html), visual effect authors can further customize their effects by assigning individual particle attributes (position, color, _etc._).
+This list contains the major fixed features provided by 🎆 Hanabi. Beyond that, with the power of the [Expressions API](https://docs.rs/bevy_hanabi/0.15.1/bevy_hanabi/graph/expr/index.html), visual effect authors can further customize their effects by assigning individual particle attributes (position, color, _etc._).
 
 - Spawn
   - [x] Constant rate
