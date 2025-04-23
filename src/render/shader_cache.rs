@@ -1,4 +1,4 @@
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::BuildHasher;
 
 use bevy::{
     asset::{Assets, Handle},
@@ -38,9 +38,7 @@ impl ShaderCache {
         if let Some(handle) = self.cache.get(source) {
             handle.clone()
         } else {
-            let mut hasher = bevy::platform::hash::FixedHasher.build_hasher();
-            source.hash(&mut hasher);
-            let hash = hasher.finish();
+            let hash = bevy::platform::hash::FixedHasher.hash_one(source);
             let shader = Shader::from_wgsl(
                 source.to_string(),
                 format!("hanabi/{}_{}_{}.wgsl", filename, suffix, hash),
