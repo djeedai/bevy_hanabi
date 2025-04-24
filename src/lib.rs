@@ -181,6 +181,7 @@
 use std::fmt::Write as _;
 
 use bevy::{
+    asset::AsAssetId,
     platform::collections::{HashMap, HashSet},
     prelude::*,
     render::{
@@ -656,27 +657,36 @@ pub struct ParticleEffect {
 }
 
 impl ParticleEffect {
-    /// Create a new particle effect without a spawner or any modifier.
+    /// Create a new particle effect instance from an existing asset.
     pub fn new(handle: Handle<EffectAsset>) -> Self {
         Self { handle }
+    }
+}
+
+impl AsAssetId for ParticleEffect {
+    type Asset = EffectAsset;
+
+    fn as_asset_id(&self) -> AssetId<Self::Asset> {
+        self.handle.id()
     }
 }
 
 /// Material for an effect instance.
 ///
 /// A material component contains the render resources (textures) for a single
-/// effect instance, which actually bound to the slots defined with
-/// [`Module::add_texture_slot()`]. That way, a same effect asset can be
-/// instantiated multiple times and rendered with different sets of textures,
-/// without changing the asset.
+/// effect instance. Those textures are automatically bound during rendering to
+/// the slots defined with [`Module::add_texture_slot()`]. Using this, multiple
+/// effect instances sharing a same source [`EffectAsset`] can be instantiated
+/// and rendered with different sets of textures, without changing the asset.
 ///
 /// The [`EffectMaterial`] component needs to be spawned on the same entity as
-/// the [`ParticleEffect`].
+/// the [`ParticleEffect`] component representing the effect instance.
 #[derive(Debug, Default, Clone, Component)]
 pub struct EffectMaterial {
-    /// List of textures to use to render the effect instance.
+    /// List of texture images to use to render the effect instance.
     ///
-    /// The images are ordered by [slot index].
+    /// The images are ordered by [slot index] into the corresponding
+    /// [`TextureLayout`].
     ///
     /// [slot index]: crate::TextureLayout::get_slot_by_name
     pub images: Vec<Handle<Image>>,
@@ -718,7 +728,7 @@ impl TextureLayout {
     }
 }
 
-/// Effect shader.
+/// Effect shaders.
 ///
 /// Contains the configured shaders for the init, update, and render passes.
 #[derive(Debug, Default, Clone)]
@@ -731,9 +741,9 @@ pub(crate) struct EffectShader {
 /// Source code (WGSL) of an effect.
 ///
 /// The source code is generated from an [`EffectAsset`] by applying all
-/// modifiers. The resulting source code is configured (the Hanabi variables
-/// `{{VARIABLE}}` are replaced by the relevant WGSL code) but is not
-/// specialized (the conditional directives like `#if` are still present).
+/// modifiers. The resulting source code is _configured_ (the Hanabi variables
+/// `{{VARIABLE}}` are replaced with the relevant WGSL code) but is not
+/// _specialized_ (the conditional directives like `#if` are still present).
 #[derive(Debug)]
 struct EffectShaderSource {
     pub init_shader_source: String,
