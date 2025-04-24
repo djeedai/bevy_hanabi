@@ -83,7 +83,7 @@ naga = { version = "24", features = ["wgsl-in"] }
 naga_oil = { version = "0.17", default-features = false, features = ["test_shader"] }
 
 [dependencies.bevy]
-version = "=0.16.0-rc.5"
+version = "0.16"
 default-features = false
 features = [
   "bevy_core_pipeline",
@@ -91,8 +91,6 @@ features = [
   "bevy_asset",
   "bevy_log",
   "x11",
-  # Bug in Bevy 0.15.0 [bevy#16563]
-  #"png"
 ]
 
 [package.metadata.docs.rs]
@@ -106,14 +104,14 @@ all-features = true
 #] }
 #egui = "0.30"
 
-bevy_sprite = "=0.16.0-rc.5"
-bevy_text = "=0.16.0-rc.5"
-bevy_ui = "=0.16.0-rc.5"
-bevy_window = "=0.16.0-rc.5"
-bevy_picking = "=0.16.0-rc.5"
+bevy_sprite = "0.16"
+bevy_text = "0.16"
+bevy_ui = "0.16"
+bevy_window = "0.16"
+bevy_picking = "0.16"
 
 # For glTF animations (Fox.glb)
-bevy_gltf = { version = "=0.16.0-rc.5", features = [ "bevy_animation" ] }
+bevy_gltf = { version = "0.16", features = [ "bevy_animation" ] }
 
 # For procedural texture generation in examples
 noise = "0.9"
