@@ -26,7 +26,7 @@ fn setup(
     proj.scaling_mode = ScalingMode::FixedVertical {
         viewport_height: 1.,
     };
-    commands.spawn((Camera2d::default(), proj));
+    commands.spawn((Camera2d::default(), Projection::Orthographic(proj)));
 
     // Spawn a reference white square in the center of the screen at Z=0
     commands.spawn((
@@ -95,7 +95,8 @@ fn setup(
 }
 
 fn update_plane(time: Res<Time>, mut query: Query<&mut Transform, With<Mesh2d>>) {
-    let mut transform = query.single_mut();
-    // Move the plane back and forth to show particles ordering relative to it
-    transform.translation.z = (time.elapsed_secs() * 2.5).sin() * 0.045;
+    if let Ok(mut transform) = query.single_mut() {
+        // Move the plane back and forth to show particles ordering relative to it
+        transform.translation.z = (time.elapsed_secs() * 2.5).sin() * 0.045;
+    }
 }

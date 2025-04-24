@@ -5,12 +5,12 @@ use std::{
 
 use bevy::{
     log::{error, trace},
+    platform::collections::HashMap,
     prelude::{Component, Entity, OnRemove, Query, Res, ResMut, Resource, Trigger},
     render::{
         render_resource::{BindGroup, BindGroupLayout, Buffer},
         renderer::{RenderDevice, RenderQueue},
     },
-    utils::HashMap,
 };
 use wgpu::{
     BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BufferBinding,
@@ -171,7 +171,7 @@ impl PropertyCache {
             "-> created bind group layout #{:?} for no-property variant",
             bgl.id()
         );
-        let mut bind_group_layouts = HashMap::with_capacity(1);
+        let mut bind_group_layouts = HashMap::with_capacity_and_hasher(1, Default::default());
         bind_group_layouts.insert(0, bgl);
 
         Self {
@@ -478,7 +478,7 @@ pub(crate) fn on_remove_cached_properties(
     // FIXME - review this Observer pattern; this triggers for each event one by
     // one, which could kill performance if many effects are removed.
 
-    let Ok((render_entity, cached_effect_properties)) = query.get(trigger.entity()) else {
+    let Ok((render_entity, cached_effect_properties)) = query.get(trigger.target()) else {
         return;
     };
 

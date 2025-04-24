@@ -1,9 +1,9 @@
 use std::{collections::VecDeque, fmt::Debug, num::NonZeroU32, ops::Range};
 
 use bevy::{
+    platform::collections::HashMap,
     prelude::*,
     render::{render_resource::CachedComputePipelineId, sync_world::MainEntity},
-    utils::HashMap,
 };
 
 use super::{
@@ -317,6 +317,9 @@ pub(crate) struct EffectDrawBatch {
     pub effect_batch_index: EffectBatchIndex,
     /// Position of the emitter so we can compute distance to camera.
     pub translation: Vec3,
+    /// The main-world entity that contains this effect.
+    #[allow(dead_code)]
+    pub main_entity: MainEntity,
 }
 
 impl EffectBatch {

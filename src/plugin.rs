@@ -3,15 +3,17 @@ use bevy::core_pipeline::core_2d::Transparent2d;
 #[cfg(feature = "3d")]
 use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Transparent3d};
 use bevy::{
+    asset::weak_handle,
     prelude::*,
     render::{
+        extract_component::ExtractComponentPlugin,
         render_asset::prepare_assets,
         render_graph::RenderGraph,
         render_phase::DrawFunctions,
         render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
         renderer::{RenderAdapterInfo, RenderDevice},
         texture::GpuImage,
-        view::{check_visibility, prepare_view_uniforms, visibility::VisibilitySystems},
+        view::{prepare_view_uniforms, visibility::VisibilitySystems},
         Render, RenderApp, RenderSet,
     },
     time::{time_system, TimeSystem},
@@ -38,7 +40,7 @@ use crate::{
     spawn::{self, Random},
     tick_spawners,
     time::effect_simulation_time_system,
-    update_properties_from_asset, CompiledParticleEffect, EffectSimulation, ParticleEffect,
+    update_properties_from_asset, EffectSimulation, EffectVisibilityClass, ParticleEffect,
     SpawnerSettings, ToWgslString,
 };
 
@@ -120,9 +122,8 @@ pub mod simulate_graph {
     }
 }
 
-// {626E7AD3-4E54-487E-B796-9A90E34CC1EC}
 const HANABI_COMMON_TEMPLATE_HANDLE: Handle<Shader> =
-    Handle::weak_from_u128(0x626E7AD34E54487EB7969A90E34CC1ECu128);
+    weak_handle!("626E7AD3-4E54-487E-B796-9A90E34CC1EC");
 
 /// Plugin to add systems related to Hanabi.
 #[derive(Debug, Clone, Copy)]
@@ -194,15 +195,12 @@ impl HanabiPlugin {
     }
 }
 
-/// A convenient alias for `With<CompiledParticleEffect>`, for use with
-/// [`bevy_render::view::VisibleEntities`].
-pub type WithCompiledParticleEffect = With<CompiledParticleEffect>;
-
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
         // Register asset
         app.init_asset::<EffectAsset>()
             .insert_resource(Random(spawn::new_rng()))
+            .add_plugins(ExtractComponentPlugin::<EffectVisibilityClass>::default())
             .init_resource::<DefaultMesh>()
             .init_resource::<ShaderCache>()
             .init_resource::<DebugSettings>()
@@ -233,8 +231,6 @@ impl Plugin for HanabiPlugin {
                     tick_spawners.in_set(EffectSystems::TickSpawners),
                     compile_effects.in_set(EffectSystems::CompileEffects),
                     update_properties_from_asset.in_set(EffectSystems::UpdatePropertiesFromAsset),
-                    check_visibility::<WithCompiledParticleEffect>
-                        .in_set(VisibilitySystems::CheckVisibility),
                 ),
             );
 

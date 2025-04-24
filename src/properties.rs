@@ -78,7 +78,7 @@
 //! # use bevy_hanabi::*;
 //! # use bevy::prelude::*;
 //! fn change_property(mut query: Query<&mut EffectProperties>) {
-//!     let mut effect_properties = query.single_mut();
+//!     let mut effect_properties = query.single_mut().unwrap();
 //!     let color = LinearRgba::rgb(1., 0., 0.).as_u32();
 //!     // If the current color is not already red, it will be updated, and
 //!     // the properties will be re-uploaded to the GPU.
@@ -97,8 +97,8 @@ use std::num::NonZeroU64;
 use bevy::{
     ecs::{component::Component, reflect::ReflectComponent, world::Mut},
     log::trace,
+    platform::collections::HashSet,
     reflect::Reflect,
-    utils::HashSet,
 };
 use serde::{Deserialize, Serialize};
 
@@ -888,7 +888,7 @@ mod tests {
     };
 
     use bevy::{
-        ecs::component::Tick,
+        ecs::{change_detection::MaybeLocation, component::Tick},
         math::{Vec2, Vec3, Vec4},
     };
 
@@ -1227,7 +1227,15 @@ mod tests {
         let this_run = added;
         let asset_properties = vec![];
         {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
+            let mut caller = MaybeLocation::caller();
+            let this = Mut::new(
+                &mut ep,
+                &mut added,
+                &mut last_changed,
+                last_run,
+                this_run,
+                caller.as_mut(),
+            );
             let is_added = true;
             EffectProperties::update(this, &asset_properties, is_added);
         }
@@ -1246,7 +1254,15 @@ mod tests {
         let this_run = added;
         let asset_properties = vec![Property::new("prop1", 32.)];
         {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
+            let mut caller = MaybeLocation::caller();
+            let this = Mut::new(
+                &mut ep,
+                &mut added,
+                &mut last_changed,
+                last_run,
+                this_run,
+                caller.as_mut(),
+            );
             let is_added = true;
             EffectProperties::update(this, &asset_properties, is_added);
         }
@@ -1267,7 +1283,15 @@ mod tests {
         let this_run = added;
         let asset_properties = vec![];
         {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
+            let mut caller = MaybeLocation::caller();
+            let this = Mut::new(
+                &mut ep,
+                &mut added,
+                &mut last_changed,
+                last_run,
+                this_run,
+                caller.as_mut(),
+            );
             let is_added = true;
             EffectProperties::update(this, &asset_properties, is_added);
         }
@@ -1288,7 +1312,15 @@ mod tests {
         let this_run = added;
         let asset_properties = vec![Property::new("prop1", 32.)];
         {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
+            let mut caller = MaybeLocation::caller();
+            let this = Mut::new(
+                &mut ep,
+                &mut added,
+                &mut last_changed,
+                last_run,
+                this_run,
+                caller.as_mut(),
+            );
             let is_added = true;
             EffectProperties::update(this, &asset_properties, is_added);
         }
@@ -1310,7 +1342,15 @@ mod tests {
         let this_run = added;
         let asset_properties = vec![Property::new("prop1", 32.), Property::new("prop2", false)];
         {
-            let this = Mut::new(&mut ep, &mut added, &mut last_changed, last_run, this_run);
+            let mut caller = MaybeLocation::caller();
+            let this = Mut::new(
+                &mut ep,
+                &mut added,
+                &mut last_changed,
+                last_run,
+                this_run,
+                caller.as_mut(),
+            );
             let is_added = true;
             EffectProperties::update(this, &asset_properties, is_added);
         }

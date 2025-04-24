@@ -50,8 +50,8 @@ use bevy::{
     asset::Handle,
     image::Image,
     math::{UVec2, Vec3, Vec4},
+    platform::collections::HashMap,
     reflect::Reflect,
-    utils::HashMap,
 };
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -92,7 +92,7 @@ pub enum ShapeDimension {
 /// Calculate a function ID by hashing the given value representative of the
 /// function.
 pub(crate) fn calc_func_id<T: Hash>(value: &T) -> u64 {
-    let mut hasher = DefaultHasher::default();
+    let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
 }
@@ -411,8 +411,8 @@ impl<'a> RenderContext<'a> {
             texture_layout,
             textures: vec![],
             sprite_grid_size: None,
-            gradients: HashMap::new(),
-            size_gradients: HashMap::new(),
+            gradients: HashMap::default(),
+            size_gradients: HashMap::default(),
             needs_uv: false,
             needs_normal: false,
             var_counter: 0,

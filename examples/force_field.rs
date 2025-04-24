@@ -46,7 +46,7 @@ struct RepulsorMarker(pub bool);
 
 #[cfg(feature = "examples_world_inspector")]
 mod inspector {
-    use bevy::{ecs::system::Resource, prelude::*, reflect::Reflect, window::PrimaryWindow};
+    use bevy::{ecs::resource::Resource, prelude::*, reflect::Reflect, window::PrimaryWindow};
     use bevy_egui::EguiContext;
     use bevy_hanabi::EffectProperties;
     use bevy_inspector_egui::{inspector_options::std_options::NumberDisplay, prelude::*};
@@ -325,13 +325,15 @@ fn spawn_on_click(
     // Note: On first frame where the effect spawns, EffectSpawner is spawned during
     // CoreSet::PostUpdate, so will not be available yet. Ignore for a frame if
     // so.
-    let Ok((mut effect_spawner, mut effect_transform)) = q_effect.get_single_mut() else {
+    let Ok((mut effect_spawner, mut effect_transform)) = q_effect.single_mut() else {
         return;
     };
 
-    let (camera, camera_transform) = camera_query.single();
+    let Ok((camera, camera_transform)) = camera_query.single() else {
+        return;
+    };
 
-    if let Ok(window) = window.get_single() {
+    if let Ok(window) = window.single() {
         if let Some(mouse_pos) = window.cursor_position() {
             if mouse_button_input.just_pressed(MouseButton::Left) {
                 let ray = camera
@@ -358,15 +360,17 @@ fn move_repulsor(
     let mut pos = REPULSOR_POS + Vec3::Y * (time / 2.).sin();
 
     // Move the entity so we can visualize the change
-    let (mut transform, marker) = q_marker.single_mut();
-    if !marker.0 {
-        // "hide"/"disable" by sending so far away it has no actual effect and is
-        // invisible
-        pos.x += 1e9;
+    if let Ok((mut transform, marker)) = q_marker.single_mut() {
+        if !marker.0 {
+            // "hide"/"disable" by sending so far away it has no actual effect and is
+            // invisible
+            pos.x += 1e9;
+        }
+        transform.translation = pos;
     }
-    transform.translation = pos;
 
     // Assign new position to property
-    let mut properties = q_properties.single_mut();
-    properties.set("repulsor_position", pos.into());
+    if let Ok(mut properties) = q_properties.single_mut() {
+        properties.set("repulsor_position", pos.into());
+    }
 }

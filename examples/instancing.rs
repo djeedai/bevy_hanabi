@@ -140,8 +140,8 @@ impl InstanceManager {
             .nth(n)
             .unwrap();
         let entity = entry.take().unwrap();
-        if let Some(entity_commands) = commands.get_entity(entity) {
-            entity_commands.despawn_recursive();
+        if let Ok(mut entity_commands) = commands.get_entity(entity) {
+            entity_commands.despawn();
         }
         self.count -= 1;
     }
@@ -166,8 +166,8 @@ impl InstanceManager {
     pub fn despawn_all(&mut self, commands: &mut Commands) {
         for entity in &mut self.instances {
             if let Some(entity) = entity.take() {
-                if let Some(entity_commands) = commands.get_entity(entity) {
-                    entity_commands.despawn_recursive();
+                if let Ok(mut entity_commands) = commands.get_entity(entity) {
+                    entity_commands.despawn();
                 }
             }
         }

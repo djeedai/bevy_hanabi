@@ -5,7 +5,7 @@ use std::{fmt::Display, num::NonZeroU8};
 use bevy::{
     log::LogPlugin,
     prelude::*,
-    render::{settings::WgpuSettings, RenderPlugin},
+    render::{settings::WgpuSettings, RenderDebugFlags, RenderPlugin},
 };
 #[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -16,7 +16,7 @@ use crate::prelude::*;
 /// escape key (ESC).
 pub fn close_on_esc(mut ev_app_exit: EventWriter<AppExit>, input: Res<ButtonInput<KeyCode>>) {
     if input.just_pressed(KeyCode::Escape) {
-        ev_app_exit.send(AppExit::Success);
+        ev_app_exit.write(AppExit::Success);
     }
 }
 
@@ -54,6 +54,7 @@ pub fn make_test_app_with_settings(example_name: &str, wgpu_settings: WgpuSettin
                 .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
                     synchronous_pipeline_compilation: false,
+                    debug_flags: RenderDebugFlags::empty(),
                 })
                 .set(WindowPlugin {
                     primary_window: Some(Window {

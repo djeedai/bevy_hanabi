@@ -17,17 +17,22 @@ use bevy::math::FloatOrd;
 #[cfg(feature = "3d")]
 use bevy::{
     core_pipeline::{
-        core_3d::{AlphaMask3d, Opaque3d, Transparent3d, CORE_3D_DEPTH_FORMAT},
-        prepass::OpaqueNoLightmap3dBinKey,
+        core_3d::{
+            AlphaMask3d, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey, Transparent3d,
+            CORE_3D_DEPTH_FORMAT,
+        },
+        prepass::{OpaqueNoLightmap3dBatchSetKey, OpaqueNoLightmap3dBinKey},
     },
     render::render_phase::{BinnedPhaseItem, ViewBinnedRenderPhases},
 };
 use bevy::{
     ecs::{
+        component::Tick,
         prelude::*,
         system::{lifetimeless::*, SystemParam, SystemState},
     },
     log::trace,
+    platform::collections::{HashMap, HashSet},
     prelude::*,
     render::{
         mesh::{
@@ -49,7 +54,6 @@ use bevy::{
         },
         Extract,
     },
-    utils::{HashMap, HashSet},
 };
 use bitflags::bitflags;
 use bytemuck::{Pod, Zeroable};
@@ -62,13 +66,13 @@ use naga_oil::compose::{Composer, NagaModuleDescriptor};
 use crate::{
     asset::{DefaultMesh, EffectAsset},
     calc_func_id,
-    plugin::WithCompiledParticleEffect,
     render::{
         batch::{BatchInput, EffectDrawBatch, InitAndUpdatePipelineIds},
         effect_cache::DispatchBufferIndices,
     },
     AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
-    EffectSpawner, ParticleLayout, PropertyLayout, SimulationCondition, TextureLayout,
+    EffectSpawner, EffectVisibilityClass, ParticleLayout, PropertyLayout, SimulationCondition,
+    TextureLayout,
 };
 
 mod aligned_buffer_vec;
@@ -1309,10 +1313,13 @@ impl FromWorld for UtilsPipeline {
         };
 
         debug!("Create utils shader module:\n{}", shader_code);
-        let shader_module = render_device.create_shader_module(ShaderModuleDescriptor {
-            label: Some("hanabi:shader:utils"),
-            source: shader_source,
-        });
+        #[allow(unsafe_code)]
+        let shader_module = unsafe {
+            render_device.create_shader_module(ShaderModuleDescriptor {
+                label: Some("hanabi:shader:utils"),
+                source: shader_source,
+            })
+        };
 
         trace!("Create vfx_utils pipelines...");
         let dummy = std::collections::HashMap::<String, f64>::new();
@@ -2207,7 +2214,7 @@ pub(crate) fn extract_effect_events(
     mut image_events: Extract<EventReader<AssetEvent<Image>>>,
 ) {
     #[cfg(feature = "trace")]
-    let _span = bevy::utils::tracing::info_span!("extract_effect_events").entered();
+    let _span = bevy::log::info_span!("extract_effect_events").entered();
     trace!("extract_effect_events()");
 
     let EffectAssetEvents { ref mut images } = *events;
@@ -2330,7 +2337,7 @@ pub(crate) fn extract_effects(
     mut render_debug_settings: ResMut<RenderDebugSettings>,
 ) {
     #[cfg(feature = "trace")]
-    let _span = bevy::utils::tracing::info_span!("extract_effects").entered();
+    let _span = bevy::log::info_span!("extract_effects").entered();
     trace!("extract_effects()");
 
     // Manage GPU debug capture
@@ -2914,7 +2921,7 @@ pub(crate) fn on_remove_cached_effect(
     mut event_cache: ResMut<EventCache>,
 ) {
     #[cfg(feature = "trace")]
-    let _span = bevy::utils::tracing::info_span!("on_remove_cached_effect").entered();
+    let _span = bevy::log::info_span!("on_remove_cached_effect").entered();
 
     // FIXME - review this Observer pattern; this triggers for each event one by
     // one, which could kill performance if many effects are removed.
@@ -2929,7 +2936,7 @@ pub(crate) fn on_remove_cached_effect(
         _opt_props,
         _opt_parent,
         opt_cached_effect_events,
-    )) = query.get(trigger.entity())
+    )) = query.get(trigger.target())
     else {
         return;
     };
@@ -2994,7 +3001,7 @@ pub(crate) fn add_effects(
     mut sort_bind_groups: ResMut<SortBindGroups>,
 ) {
     #[cfg(feature = "trace")]
-    let _span = bevy::utils::tracing::info_span!("add_effects").entered();
+    let _span = bevy::log::info_span!("add_effects").entered();
     trace!("add_effects");
 
     // Clear last frame's buffer resizes which may have occured during last frame,
@@ -3044,8 +3051,8 @@ fn is_child_list_changed(
     // TODO - this value is arbitrary
     if old.len() >= 16 {
         // For large-ish lists, use a hash set.
-        let old = HashSet::from_iter(old);
-        let new = HashSet::from_iter(new);
+        let old = HashSet::<Entity, bevy::platform::hash::FixedHasher>::from_iter(old);
+        let new = HashSet::<Entity, bevy::platform::hash::FixedHasher>::from_iter(new);
         if old != new {
             trace!(
                 "Child list changed for effect {parent_entity:?}: old [{old:?}] != new [{new:?}]"
@@ -3094,7 +3101,7 @@ pub(crate) fn resolve_parents(
     >,
 ) {
     #[cfg(feature = "trace")]
-    let _span = bevy::utils::tracing::info_span!("resolve_parents").entered();
+    let _span = bevy::log::info_span!("resolve_parents").entered();
     let num_parent_effects = q_parent_effects.iter().len();
     trace!("resolve_parents: num_parents={num_parent_effects}");
 
@@ -3287,7 +3294,7 @@ pub fn fixup_parents(
     mut q_children: Query<&mut CachedChildInfo>,
 ) {
     #[cfg(feature = "trace")]
-    let _span = bevy::utils::tracing::info_span!("fixup_parents").entered();
+    let _span = bevy::log::info_span!("fixup_parents").entered();
     trace!("fixup_parents");
 
     // Once all parents are (re-)allocated, fix up the global index of all
@@ -3422,7 +3429,7 @@ pub fn clear_transient_batch_inputs(
     mut q_cached_effects: Query<Entity, With<BatchInput>>,
 ) {
     for entity in &mut q_cached_effects {
-        if let Some(mut cmd) = commands.get_entity(entity) {
+        if let Ok(mut cmd) = commands.get_entity(entity) {
             cmd.remove::<BatchInput>();
         }
     }
@@ -3494,7 +3501,6 @@ pub struct PrepareEffectsReadOnlyParams<'w, 's> {
     sim_params: Res<'w, SimParams>,
     render_device: Res<'w, RenderDevice>,
     render_queue: Res<'w, RenderQueue>,
-    #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
 
@@ -3508,7 +3514,6 @@ pub struct PipelineSystemParams<'w, 's> {
     specialized_update_pipelines: ResMut<'w, SpecializedComputePipelines<ParticlesUpdatePipeline>>,
     specialized_indirect_pipelines:
         ResMut<'w, SpecializedComputePipelines<DispatchIndirectPipeline>>,
-    #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
 
@@ -3540,7 +3545,7 @@ pub(crate) fn prepare_effects(
     mut init_fill_dispatch_queue: ResMut<InitFillDispatchQueue>,
 ) {
     #[cfg(feature = "trace")]
-    let _span = bevy::utils::tracing::info_span!("prepare_effects").entered();
+    let _span = bevy::log::info_span!("prepare_effects").entered();
     trace!("prepare_effects");
 
     init_fill_dispatch_queue.clear();
@@ -4145,6 +4150,7 @@ pub(crate) fn batch_effects(
     mut sort_bind_groups: ResMut<SortBindGroups>,
     mut q_cached_effects: Query<(
         Entity,
+        &MainEntity,
         &CachedMesh,
         Option<&CachedEffectEvents>,
         Option<&CachedChildInfo>,
@@ -4180,6 +4186,7 @@ pub(crate) fn batch_effects(
     sorted_effect_batches.clear();
     for (
         entity,
+        main_entity,
         cached_mesh,
         cached_effect_events,
         cached_child_info,
@@ -4312,6 +4319,7 @@ pub(crate) fn batch_effects(
             .spawn(EffectDrawBatch {
                 effect_batch_index,
                 translation,
+                main_entity: *main_entity,
             })
             .insert(TemporaryRenderEntity);
     }
@@ -4797,12 +4805,11 @@ pub struct QueueEffectsReadOnlyParams<'w, 's> {
     draw_functions_alpha_mask: Res<'w, DrawFunctions<AlphaMask3d>>,
     #[cfg(feature = "3d")]
     draw_functions_opaque: Res<'w, DrawFunctions<Opaque3d>>,
-    #[system_param(ignore)]
     marker: PhantomData<&'s usize>,
 }
 
 fn emit_sorted_draw<T, F>(
-    views: &Query<(Entity, &RenderVisibleEntities, &ExtractedView, &Msaa)>,
+    views: &Query<(&RenderVisibleEntities, &ExtractedView, &Msaa)>,
     render_phases: &mut ResMut<ViewSortedRenderPhases<T>>,
     view_entities: &mut FixedBitSet,
     sorted_effect_batches: &SortedEffectBatches,
@@ -4819,24 +4826,24 @@ fn emit_sorted_draw<T, F>(
 {
     trace!("emit_sorted_draw() {} views", views.iter().len());
 
-    for (view_entity, visible_entities, view, msaa) in views.iter() {
+    for (visible_entities, view, msaa) in views.iter() {
         trace!(
             "Process new sorted view with {} visible particle effect entities",
-            visible_entities.len::<WithCompiledParticleEffect>()
+            visible_entities.len::<CompiledParticleEffect>()
         );
 
-        let Some(render_phase) = render_phases.get_mut(&view_entity) else {
+        let Some(render_phase) = render_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
 
         {
             #[cfg(feature = "trace")]
-            let _span = bevy::utils::tracing::info_span!("collect_view_entities").entered();
+            let _span = bevy::log::info_span!("collect_view_entities").entered();
 
             view_entities.clear();
             view_entities.extend(
                 visible_entities
-                    .iter::<WithCompiledParticleEffect>()
+                    .iter::<EffectVisibilityClass>()
                     .map(|e| e.1.index() as usize),
             );
         }
@@ -4846,7 +4853,7 @@ fn emit_sorted_draw<T, F>(
         // batch if so.
         for (draw_entity, draw_batch) in effect_draw_batches.iter() {
             #[cfg(feature = "trace")]
-            let _span_draw = bevy::utils::tracing::info_span!("draw_batch").entered();
+            let _span_draw = bevy::log::info_span!("draw_batch").entered();
 
             trace!(
                 "Process draw batch: draw_entity={:?} effect_batch_index={:?}",
@@ -4883,7 +4890,7 @@ fn emit_sorted_draw<T, F>(
             // cost of a FixedBitSet for the sake of an arguable speed-up.
             // TODO - Profile to confirm.
             #[cfg(feature = "trace")]
-            let _span_check_vis = bevy::utils::tracing::info_span!("check_visibility").entered();
+            let _span_check_vis = bevy::log::info_span!("check_visibility").entered();
             let has_visible_entity = effect_batch
                 .entities
                 .iter()
@@ -4937,7 +4944,7 @@ fn emit_sorted_draw<T, F>(
             let alpha_mode = effect_batch.alpha_mode;
 
             #[cfg(feature = "trace")]
-            let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
+            let _span_specialize = bevy::log::info_span!("specialize").entered();
             let render_pipeline_id = specialized_render_pipelines.specialize(
                 pipeline_cache,
                 render_pipeline,
@@ -4982,8 +4989,8 @@ fn emit_sorted_draw<T, F>(
 }
 
 #[cfg(feature = "3d")]
-fn emit_binned_draw<T, F>(
-    views: &Query<(Entity, &RenderVisibleEntities, &ExtractedView, &Msaa)>,
+fn emit_binned_draw<T, F, G>(
+    views: &Query<(&RenderVisibleEntities, &ExtractedView, &Msaa)>,
     render_phases: &mut ResMut<ViewBinnedRenderPhases<T>>,
     view_entities: &mut FixedBitSet,
     sorted_effect_batches: &SortedEffectBatches,
@@ -4992,32 +4999,35 @@ fn emit_binned_draw<T, F>(
     mut specialized_render_pipelines: Mut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
     pipeline_cache: &PipelineCache,
     render_meshes: &RenderAssets<RenderMesh>,
-    make_bin_key: F,
+    make_batch_set_key: F,
+    make_bin_key: G,
     #[cfg(all(feature = "2d", feature = "3d"))] pipeline_mode: PipelineMode,
     alpha_mask: ParticleRenderAlphaMaskPipelineKey,
+    change_tick: &mut Tick,
 ) where
     T: BinnedPhaseItem,
-    F: Fn(CachedRenderPipelineId, &EffectDrawBatch, &ExtractedView) -> T::BinKey,
+    F: Fn(CachedRenderPipelineId, &EffectDrawBatch, &ExtractedView) -> T::BatchSetKey,
+    G: Fn() -> T::BinKey,
 {
-    use bevy::render::render_phase::BinnedRenderPhaseType;
+    use bevy::render::render_phase::{BinnedRenderPhaseType, InputUniformIndex};
 
     trace!("emit_binned_draw() {} views", views.iter().len());
 
-    for (view_entity, visible_entities, view, msaa) in views.iter() {
+    for (visible_entities, view, msaa) in views.iter() {
         trace!("Process new binned view (alpha_mask={:?})", alpha_mask);
 
-        let Some(render_phase) = render_phases.get_mut(&view_entity) else {
+        let Some(render_phase) = render_phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
 
         {
             #[cfg(feature = "trace")]
-            let _span = bevy::utils::tracing::info_span!("collect_view_entities").entered();
+            let _span = bevy::log::info_span!("collect_view_entities").entered();
 
             view_entities.clear();
             view_entities.extend(
                 visible_entities
-                    .iter::<WithCompiledParticleEffect>()
+                    .iter::<EffectVisibilityClass>()
                     .map(|e| e.1.index() as usize),
             );
         }
@@ -5027,7 +5037,7 @@ fn emit_binned_draw<T, F>(
         // batch if so.
         for (draw_entity, draw_batch) in effect_draw_batches.iter() {
             #[cfg(feature = "trace")]
-            let _span_draw = bevy::utils::tracing::info_span!("draw_batch").entered();
+            let _span_draw = bevy::log::info_span!("draw_batch").entered();
 
             trace!(
                 "Process draw batch: draw_entity={:?} effect_batch_index={:?}",
@@ -5064,7 +5074,7 @@ fn emit_binned_draw<T, F>(
             // cost of a FixedBitSet for the sake of an arguable speed-up.
             // TODO - Profile to confirm.
             #[cfg(feature = "trace")]
-            let _span_check_vis = bevy::utils::tracing::info_span!("check_visibility").entered();
+            let _span_check_vis = bevy::log::info_span!("check_visibility").entered();
             let has_visible_entity = effect_batch
                 .entities
                 .iter()
@@ -5116,7 +5126,7 @@ fn emit_binned_draw<T, F>(
             };
 
             #[cfg(feature = "trace")]
-            let _span_specialize = bevy::utils::tracing::info_span!("specialize").entered();
+            let _span_specialize = bevy::log::info_span!("specialize").entered();
             let render_pipeline_id = specialized_render_pipelines.specialize(
                 pipeline_cache,
                 render_pipeline,
@@ -5151,9 +5161,12 @@ fn emit_binned_draw<T, F>(
                 effect_batch.handle
             );
             render_phase.add(
-                make_bin_key(render_pipeline_id, draw_batch, view),
-                (draw_entity, MainEntity::from(Entity::PLACEHOLDER)),
+                make_batch_set_key(render_pipeline_id, draw_batch, view),
+                make_bin_key(),
+                (draw_entity, draw_batch.main_entity),
+                InputUniformIndex::default(),
                 BinnedRenderPhaseType::NonMesh,
+                *change_tick,
             );
         }
     }
@@ -5161,7 +5174,7 @@ fn emit_binned_draw<T, F>(
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn queue_effects(
-    views: Query<(Entity, &RenderVisibleEntities, &ExtractedView, &Msaa)>,
+    views: Query<(&RenderVisibleEntities, &ExtractedView, &Msaa)>,
     effects_meta: Res<EffectsMeta>,
     mut render_pipeline: ResMut<ParticlesRenderPipeline>,
     mut specialized_render_pipelines: ResMut<SpecializedRenderPipelines<ParticlesRenderPipeline>>,
@@ -5179,14 +5192,22 @@ pub(crate) fn queue_effects(
     #[cfg(feature = "3d")] mut transparent_3d_render_phases: ResMut<
         ViewSortedRenderPhases<Transparent3d>,
     >,
-    #[cfg(feature = "3d")] mut alpha_mask_3d_render_phases: ResMut<
-        ViewBinnedRenderPhases<AlphaMask3d>,
-    >,
+    #[cfg(feature = "3d")] (mut opaque_3d_render_phases, mut alpha_mask_3d_render_phases): (
+        ResMut<ViewBinnedRenderPhases<Opaque3d>>,
+        ResMut<ViewBinnedRenderPhases<AlphaMask3d>>,
+    ),
+    mut change_tick: Local<Tick>,
 ) {
     #[cfg(feature = "trace")]
-    let _span = bevy::utils::tracing::info_span!("hanabi:queue_effects").entered();
+    let _span = bevy::log::info_span!("hanabi:queue_effects").entered();
 
     trace!("queue_effects");
+
+    // Bump the change tick so that Bevy is forced to rebuild the binned render
+    // phase bins. We don't use the built-in caching so we don't want Bevy to
+    // reuse stale data.
+    let next_change_tick = change_tick.get() + 1;
+    change_tick.set(next_change_tick);
 
     // If an image has changed, the GpuImage has (probably) changed
     for event in &events.images {
@@ -5214,7 +5235,7 @@ pub(crate) fn queue_effects(
     #[cfg(feature = "2d")]
     {
         #[cfg(feature = "trace")]
-        let _span_draw = bevy::utils::tracing::info_span!("draw_2d").entered();
+        let _span_draw = bevy::log::info_span!("draw_2d").entered();
 
         let draw_effects_function_2d = read_params
             .draw_functions_2d
@@ -5241,7 +5262,9 @@ pub(crate) fn queue_effects(
                     pipeline: id,
                     draw_function: draw_effects_function_2d,
                     batch_range: 0..1,
-                    extra_index: PhaseItemExtraIndex::NONE,
+                    extracted_index: 0, // ???
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: true, // ???
                 },
                 #[cfg(feature = "3d")]
                 PipelineMode::Camera2d,
@@ -5253,7 +5276,7 @@ pub(crate) fn queue_effects(
     #[cfg(feature = "3d")]
     {
         #[cfg(feature = "trace")]
-        let _span_draw = bevy::utils::tracing::info_span!("draw_3d").entered();
+        let _span_draw = bevy::log::info_span!("draw_3d").entered();
 
         // Effects with full alpha blending
         if !views.is_empty() {
@@ -5276,14 +5299,15 @@ pub(crate) fn queue_effects(
                 &render_meshes,
                 &pipeline_cache,
                 |id, entity, batch, view| Transparent3d {
-                    draw_function: draw_effects_function_3d,
-                    pipeline: id,
-                    entity,
                     distance: view
                         .rangefinder3d()
                         .distance_translation(&batch.translation),
+                    pipeline: id,
+                    entity,
+                    draw_function: draw_effects_function_3d,
                     batch_range: 0..1,
-                    extra_index: PhaseItemExtraIndex::NONE,
+                    extra_index: PhaseItemExtraIndex::None,
+                    indexed: true, // ???
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
@@ -5293,7 +5317,7 @@ pub(crate) fn queue_effects(
         // Effects with alpha mask
         if !views.is_empty() {
             #[cfg(feature = "trace")]
-            let _span_draw = bevy::utils::tracing::info_span!("draw_alphamask").entered();
+            let _span_draw = bevy::log::info_span!("draw_alphamask").entered();
 
             trace!("Emit effect draw calls for alpha masked 3D views...");
 
@@ -5313,28 +5337,28 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 &render_meshes,
-                |id, _batch, _view| OpaqueNoLightmap3dBinKey {
+                |id, _batch, _view| OpaqueNoLightmap3dBatchSetKey {
                     pipeline: id,
                     draw_function: draw_effects_function_alpha_mask,
-                    asset_id: AssetId::<Image>::default().untyped(),
-                    material_bind_group_id: None,
-                    // },
-                    // distance: view
-                    //     .rangefinder3d()
-                    //     .distance_translation(&batch.translation_3d),
-                    // batch_range: 0..1,
-                    // extra_index: PhaseItemExtraIndex::NONE,
+                    material_bind_group_index: None,
+                    vertex_slab: default(),
+                    index_slab: None,
+                },
+                // Unused for now
+                || OpaqueNoLightmap3dBinKey {
+                    asset_id: AssetId::<Mesh>::invalid().untyped(),
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
                 ParticleRenderAlphaMaskPipelineKey::AlphaMask,
+                &mut change_tick,
             );
         }
 
         // Opaque particles
         if !views.is_empty() {
             #[cfg(feature = "trace")]
-            let _span_draw = bevy::utils::tracing::info_span!("draw_opaque").entered();
+            let _span_draw = bevy::log::info_span!("draw_opaque").entered();
 
             trace!("Emit effect draw calls for opaque 3D views...");
 
@@ -5346,7 +5370,7 @@ pub(crate) fn queue_effects(
 
             emit_binned_draw(
                 &views,
-                &mut alpha_mask_3d_render_phases,
+                &mut opaque_3d_render_phases,
                 &mut view_entities,
                 &sorted_effect_batches,
                 &effect_draw_batches,
@@ -5354,21 +5378,22 @@ pub(crate) fn queue_effects(
                 specialized_render_pipelines.reborrow(),
                 &pipeline_cache,
                 &render_meshes,
-                |id, _batch, _view| OpaqueNoLightmap3dBinKey {
+                |id, _batch, _view| Opaque3dBatchSetKey {
                     pipeline: id,
                     draw_function: draw_effects_function_opaque,
-                    asset_id: AssetId::<Image>::default().untyped(),
-                    material_bind_group_id: None,
-                    // },
-                    // distance: view
-                    //     .rangefinder3d()
-                    //     .distance_translation(&batch.translation_3d),
-                    // batch_range: 0..1,
-                    // extra_index: PhaseItemExtraIndex::NONE,
+                    material_bind_group_index: None,
+                    vertex_slab: default(),
+                    index_slab: None,
+                    lightmap_slab: None,
+                },
+                // Unused for now
+                || Opaque3dBinKey {
+                    asset_id: AssetId::<Mesh>::invalid().untyped(),
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
                 ParticleRenderAlphaMaskPipelineKey::Opaque,
+                &mut change_tick,
             );
         }
     }
@@ -5495,7 +5520,7 @@ pub(crate) fn prepare_bind_groups(
 
     {
         #[cfg(feature = "trace")]
-        let _span = bevy::utils::tracing::info_span!("shared_bind_groups").entered();
+        let _span = bevy::log::info_span!("shared_bind_groups").entered();
 
         // Make a copy of the buffer IDs before borrowing effects_meta mutably in the
         // loop below. Also allows earlying out before doing any work in case some
@@ -5582,7 +5607,7 @@ pub(crate) fn prepare_bind_groups(
     trace!("Create per-buffer bind groups...");
     for (buffer_index, effect_buffer) in effect_cache.buffers().iter().enumerate() {
         #[cfg(feature = "trace")]
-        let _span_buffer = bevy::utils::tracing::info_span!("create_buffer_bind_groups").entered();
+        let _span_buffer = bevy::log::info_span!("create_buffer_bind_groups").entered();
 
         let Some(effect_buffer) = effect_buffer else {
             trace!(
@@ -5644,7 +5669,7 @@ pub(crate) fn prepare_bind_groups(
         NonZeroU64::new(effects_meta.spawner_buffer.aligned_size() as u64).unwrap();
     for effect_batch in sorted_effect_batched.iter() {
         #[cfg(feature = "trace")]
-        let _span_buffer = bevy::utils::tracing::info_span!("create_batch_bind_groups").entered();
+        let _span_buffer = bevy::log::info_span!("create_batch_bind_groups").entered();
 
         // Create the property bind group @2 if needed
         if let Some(property_key) = &effect_batch.property_key {
@@ -6058,7 +6083,7 @@ impl Draw<AlphaMask3d> for DrawEffects {
             pass,
             view,
             item.representative_entity,
-            item.key.pipeline,
+            item.batch_set_key.pipeline,
             &mut self.params,
         );
         Ok(())
@@ -6080,7 +6105,7 @@ impl Draw<Opaque3d> for DrawEffects {
             pass,
             view,
             item.representative_entity,
-            item.key.pipeline,
+            item.batch_set_key.pipeline,
             &mut self.params,
         );
         Ok(())
@@ -6473,9 +6498,9 @@ impl Node for VfxSimulateNode {
                     compute_pass.set_bind_group(3, indirect_child_info_buffer_bind_group, &[]);
                 } else {
                     error!("Missing child_info_buffer@3 bind group for the vfx_indirect pass.");
-                    render_context
-                        .command_encoder()
-                        .insert_debug_marker("ERROR:MissingIndirectBindGroup3");
+                    // render_context
+                    //     .command_encoder()
+                    //     .insert_debug_marker("ERROR:MissingIndirectBindGroup3");
                     // FIXME - Bevy doesn't allow returning custom errors here...
                     return Ok(());
                 }

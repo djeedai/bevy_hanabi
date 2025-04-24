@@ -252,9 +252,10 @@ fn update_accel(
     time: Res<Time>,
     mut query: Query<&mut EffectProperties, With<DynamicRuntimeAccel>>,
 ) {
-    let mut properties = query.single_mut();
-    let accel0 = 10.;
-    let (s, c) = (time.elapsed_secs() * 0.3).sin_cos();
-    let accel = Vec3::new(c * accel0, s * accel0, 0.);
-    properties.set("my_accel", accel.into());
+    if let Ok(mut properties) = query.single_mut() {
+        let accel0 = 10.;
+        let (s, c) = (time.elapsed_secs() * 0.3).sin_cos();
+        let accel = Vec3::new(c * accel0, s * accel0, 0.);
+        properties.set("my_accel", accel.into());
+    }
 }

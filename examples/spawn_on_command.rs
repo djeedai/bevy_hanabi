@@ -161,8 +161,7 @@ fn update(
 
     // Note: On first frame where the effect spawns, EffectSpawner is spawned during
     // PostUpdate, so will not be available yet. Ignore for a frame if so.
-    let Ok((mut properties, mut effect_spawner, mut effect_transform)) = effect.get_single_mut()
-    else {
+    let Ok((mut properties, mut effect_spawner, mut effect_transform)) = effect.single_mut() else {
         return;
     };
 
