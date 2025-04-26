@@ -1,0 +1,8 @@
+This example demonstrates the use of various modifiers to create a firework visual effect.
+
+The overall effect is composed of 3 distinct effect instances:
+- A parent 'rocket' effect spawns a single particle raising vertically in the sky. Spawning is controlled by CPU at a rate of 1 to 3 particles per second. Those particles are mostly invisible.
+- A child 'sparkle' effect renders sparkle particles which appear to be ejected from the rocket as it rises. Those particles are spawned by GPU events from the parent effect, while the parent particle is alive.
+- A child 'trail' effect spawns trail particles when the rocket explodes. Those particles are also spawned by GPU events, this time when the parent particles die.
+
+The example uses an HDR camera and bloom to give a glow to particles.

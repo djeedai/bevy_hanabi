@@ -1,0 +1,3 @@
+This example shows the interaction of depth ordering and alpha blending.
+
+The red background is located behind the particle effect, and is always rendered behind particles. The blue and green background are both located in front of the particle effect, however the green mesh has an opaque material, while the blue mesh has a semi-transparent material. The former renders without alpha blending, and obscures the particles, while the latter renders with alpha blending, with the particles behind it partially visible.

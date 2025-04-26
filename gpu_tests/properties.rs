@@ -54,7 +54,7 @@ fn timeout(
     frame.0 += 1;
 
     if frame.0 == 10 {
-        let (_, mut effect) = query.single_mut();
+        let (_, mut effect) = query.single_mut().unwrap();
 
         // New effect without any property
         let mut module = Module::default();
@@ -67,12 +67,12 @@ fn timeout(
     }
 
     if frame.0 == 15 {
-        let (entity, _) = query.single();
-        commands.entity(entity).despawn_recursive();
+        let (entity, _) = query.single().unwrap();
+        commands.entity(entity).despawn();
     }
 
     if frame.0 >= 20 {
         info!("SUCCESS!");
-        ev_app_exit.send(AppExit::Success);
+        ev_app_exit.write(AppExit::Success);
     }
 }

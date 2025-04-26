@@ -1,6 +1,6 @@
 //! Firework
 //!
-//! This example demonstrate the use of the [`LinearDragModifier`] to slow down
+//! This example demonstrates the use of the [`LinearDragModifier`] to slow down
 //! particles over time. Combined with an HDR camera with Bloom, the example
 //! renders a firework explosion.
 //!
@@ -26,8 +26,12 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
+const DEMO_DESC: &'static str = include_str!("firework.txt");
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_exit = utils::make_test_app("firework")
+    let app_exit = utils::DemoApp::new("firework")
+        .with_desc(DEMO_DESC)
+        .build()
         .add_systems(Startup, setup)
         .run();
     app_exit.into_result()

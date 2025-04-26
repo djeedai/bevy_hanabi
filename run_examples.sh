@@ -1,25 +1,25 @@
 echo Run all examples
 # 3D
-cargo r --example firework --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example portal --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example expr --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example spawn --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example multicam --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example visibility --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example random --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example spawn_on_command --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example activate --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_ui bevy/default_font 3d "
-cargo r --example force_field --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example init --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example lifetime --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example ordering --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
-cargo r --example ribbon --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr 3d "
+cargo r --example firework
+cargo r --example portal
+cargo r --example expr
+cargo r --example spawn
+cargo r --example multicam
+cargo r --example visibility
+cargo r --example random
+cargo r --example spawn_on_command
+cargo r --example activate
+cargo r --example force_field
+cargo r --example init
+cargo r --example lifetime
+cargo r --example ordering
+cargo r --example ribbon
 # 3D + PNG
-cargo r --example gradient --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d "
-cargo r --example circle --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d "
-cargo r --example billboard --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d "
-cargo r --example worms --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d "
-cargo r --example instancing --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/png 3d "
-cargo r --example puffs --no-default-features --features="bevy/bevy_winit bevy/bevy_pbr bevy/bevy_scene bevy/bevy_gltf bevy/bevy_animation bevy/png 3d"
+cargo r --example gradient
+cargo r --example circle
+cargo r --example billboard
+cargo r --example worms
+cargo r --example instancing
+cargo r --example puffs
 # 2D
-cargo r --example 2d --no-default-features --features="bevy/bevy_winit bevy/bevy_sprite 2d "
+cargo r --example 2d

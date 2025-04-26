@@ -12,8 +12,13 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
+const DEMO_DESC: &'static str = include_str!("multicam.txt");
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_exit = utils::make_test_app("multicam")
+    let app_exit = utils::DemoApp::new("multicam")
+        .with_desc(DEMO_DESC)
+        .with_desc_position(DescPosition::BottomRow)
+        .build()
         .add_systems(Startup, setup)
         .add_systems(Update, update_camera_viewports)
         .run();

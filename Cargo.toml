@@ -29,7 +29,7 @@ exclude = [
 autoexamples = false
 
 [features]
-default = ["2d", "3d", "serde", "gpu_tests", "examples_world_inspector"]
+default = ["2d", "3d", "serde", "gpu_tests"]
 
 # Enable support for rendering through a 2D camera (Camera2d).
 # You need to activate either the 2d or 3d feature at least (or both).
@@ -50,14 +50,6 @@ trace = []
 # on a CI machine without a graphic adapter or without proper drivers.
 # This is a testing-only feature, which has no effect on the build.
 gpu_tests = []
-
-# Enable world inspector in examples, via bevy-inspector-egui.
-# This has no effect on the crate itself, only affects examples.
-# Unfortunately cargo doesn't allow example-only features.
-# We don't force a dependency on the bevy-inspector-egui crate because:
-# 1. dev-dependencies cannot be optional
-# 2. there's a bunch of duplicate deps and dodgy licenses pulled
-examples_world_inspector = []
 
 [dependencies]
 bytemuck = { version = "1.5", features = ["derive", "must_cast"] }
@@ -97,21 +89,7 @@ features = [
 all-features = true
 
 [dev-dependencies]
-# For world inspector; required if "examples_world_inspector" is used.
-#bevy-inspector-egui = "0.29.1"
-#bevy_egui = { version = "0.32", default-features = false, features = [
-#    "manage_clipboard", "open_url"
-#] }
-#egui = "0.30"
-
-bevy_sprite = "0.16"
-bevy_text = "0.16"
-bevy_ui = "0.16"
-bevy_window = "0.16"
-bevy_picking = "0.16"
-
-# For glTF animations (Fox.glb)
-bevy_gltf = { version = "0.16", features = [ "bevy_animation" ] }
+bevy = { version = "0.16", default-features = true }
 
 # For procedural texture generation in examples
 noise = "0.9"
@@ -120,96 +98,66 @@ futures = "0.3"
 
 [[example]]
 name = "firework"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "portal"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "expr"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "spawn"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "multicam"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "visibility"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "random"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "spawn_on_command"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "activate"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "bevy/bevy_ui", "bevy/default_font", "3d" ]
 
 [[example]]
 name = "force_field"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "lifetime"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "init"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "instancing"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "bevy/png", "3d" ]
 
 [[example]]
 name = "gradient"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "bevy/png", "3d" ]
 
 [[example]]
 name = "circle"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "bevy/png", "3d" ]
 
 [[example]]
 name = "billboard"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "bevy/png", "3d" ]
 
 [[example]]
 name = "2d"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_sprite", "2d" ]
 
 [[example]]
 name = "worms"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "bevy/png", "3d" ]
 
 [[example]]
 name = "ribbon"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "ordering"
-required-features = [ "bevy/bevy_winit", "bevy/bevy_window", "bevy/bevy_pbr", "3d" ]
 
 [[example]]
 name = "puffs"
-required-features = [
-    "bevy/bevy_winit",
-    "bevy/bevy_window",
-    "bevy/bevy_pbr",
-    "bevy/bevy_scene",
-    "bevy/bevy_gltf",
-    "bevy/bevy_animation",
-    "bevy/png",
-    "3d",
-]
 
 [[test]]
 name = "empty_effect"

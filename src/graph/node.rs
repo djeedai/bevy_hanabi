@@ -774,7 +774,9 @@ mod tests {
     use bevy::prelude::*;
 
     use super::*;
-    use crate::{EvalContext, ModifierContext, ParticleLayout, PropertyLayout, ShaderWriter};
+    use crate::{
+        node::Node as _, EvalContext, ModifierContext, ParticleLayout, PropertyLayout, ShaderWriter,
+    };
 
     #[test]
     fn add() {

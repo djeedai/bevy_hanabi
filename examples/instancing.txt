@@ -1,0 +1,3 @@
+This example is more of a debug and stress test.
+
+It shows a grid of effect instances from 2 different effect assets. You can spawn new effect instances with the SPACE key, and delete random existing ones with the DELETE or BACKSPACE key. This example was intended to test batching, but that feature is currently disabled. It's still useful to test the behavior on effect spawning and despawning.

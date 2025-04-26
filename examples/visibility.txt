@@ -1,0 +1,7 @@
+This example shows how visibility affects particle simulation.
+
+The bottom effect uses the default SimulationCondition::WhenVisible. When the effect is hidden, the simulation is suspended, and resumes at the last position once visible again. This is the recommended setup for most effects, as this is the most efficient.
+
+The top effect uses SimulationCondition::Always, which instructs Hanabi to always simulate the effect even when it's invisible. This is useful when the effect needs to mark a continuation, for example if the effect's timing is synchronized with other application elements, but means the application is spending time simulating an effect which is invisible.
+
+Both effects spawn all particles with the same constant velocity. After a few hide and show cycles, we can see that the particles of the top effect are further ahead, because they continued to move while invisible.

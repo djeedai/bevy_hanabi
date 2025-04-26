@@ -13,15 +13,21 @@
 //! [`KillAabbModifier`] to ensure the bubble particles never escape water, and
 //! are despawned when reaching the surface.
 
-use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*, render::camera::ScalingMode};
+use bevy::{
+    core_pipeline::tonemapping::Tonemapping, prelude::*, render::camera::ScalingMode,
+    text::TextFont,
+};
 use bevy_hanabi::prelude::*;
 
 mod utils;
-use bevy_text::TextFont;
 use utils::*;
 
+const DEMO_DESC: &'static str = include_str!("activate.txt");
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_exit = utils::make_test_app("activate")
+    let app_exit = utils::DemoApp::new("activate")
+        .with_desc(DEMO_DESC)
+        .build()
         .add_systems(Startup, setup)
         .add_systems(Update, update)
         .run();

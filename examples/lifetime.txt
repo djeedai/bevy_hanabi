@@ -1,0 +1,6 @@
+This simple example shows the effect of various particle lifetimes.
+
+All effects emit a burst of particles every 3 seconds. The only difference is the particle's lifetime for each effect:
+- Particles in the left effect have a lifetime of 12 seconds, longer than the spawn cycle period. New particles spawn as old particles are still alive.
+- Particles in the center effect have a lifetime of 3 seconds, exactly matching the spawn cycle period. New particles spawning appear to "replace" old particles, which die exactly at the same time.
+- Particles in the right effect have a lifetime of 1 second, shorter than the spawn cycle period. They die before the new particles from the next burst spawn.

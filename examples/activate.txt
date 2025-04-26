@@ -1,0 +1,5 @@
+This example demonstrates the activation and deactivation of the CPU spawner.
+
+The ball moves up and down, spawning bubble particles at a constant rate of 30 particles per second. When in the water, the spawner is set to active. When the ball gets out, the spawner is deactivated.
+
+Spawner activation and deactivation is best suited for long-lived effects toggling often. The effect instance retains all GPU resources while inactive, but skips most processing. Toggling is therefore very cheap, at the cost of consuming GPU resources even when inactive. For occasional effects, it may be better suited to despawn the effect instance entirely and re-spawn it later, in order to release GPU resources while the effect is not in use.

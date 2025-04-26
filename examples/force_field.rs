@@ -20,17 +20,13 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut app = utils::make_test_app("force_field");
+const DEMO_DESC: &'static str = include_str!("force_field.txt");
 
-    #[cfg(feature = "examples_world_inspector")]
-    app.init_resource::<inspector::Configuration>()
-        .register_type::<inspector::Configuration>()
-        .add_systems(Update, inspector::inspector_ui)
-        .add_systems(
-            PostUpdate,
-            inspector::apply_tweaks.after(EffectSystems::UpdatePropertiesFromAsset),
-        );
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut app = utils::DemoApp::new("force_field")
+        .with_desc(DEMO_DESC)
+        .with_desc_position(DescPosition::BottomRow)
+        .build();
 
     app.add_systems(Startup, setup)
         .add_systems(Update, (spawn_on_click, move_repulsor))
@@ -43,107 +39,6 @@ const BALL_RADIUS: f32 = 0.05;
 
 #[derive(Component)]
 struct RepulsorMarker(pub bool);
-
-#[cfg(feature = "examples_world_inspector")]
-mod inspector {
-    use bevy::{ecs::resource::Resource, prelude::*, reflect::Reflect, window::PrimaryWindow};
-    use bevy_egui::EguiContext;
-    use bevy_hanabi::EffectProperties;
-    use bevy_inspector_egui::{inspector_options::std_options::NumberDisplay, prelude::*};
-
-    use crate::RepulsorMarker;
-
-    #[derive(Reflect, Resource, InspectorOptions)]
-    #[reflect(Resource, InspectorOptions)]
-    pub struct Configuration {
-        #[inspector(min = 1.0, max = 50.0, display = NumberDisplay::Slider)]
-        attraction_accel: f32,
-        #[inspector(min = 1.0, max = 20.0, display = NumberDisplay::Slider)]
-        max_attraction_speed: f32,
-        #[inspector(min = 1.0, max = 10.0, display = NumberDisplay::Slider)]
-        sticky_factor: f32,
-        #[inspector(min = 0.02, max = 2.0, display = NumberDisplay::Slider)]
-        shell_half_thickness: f32,
-        repulsor_enabled: bool,
-        #[inspector(min = -30.0, max = -0.1, display = NumberDisplay::Slider)]
-        repulsor_accel: f32,
-    }
-
-    impl Default for Configuration {
-        fn default() -> Self {
-            Self {
-                attraction_accel: 20.,
-                max_attraction_speed: 5.,
-                sticky_factor: 2.,
-                shell_half_thickness: 0.1,
-                repulsor_enabled: true,
-                repulsor_accel: -15.,
-            }
-        }
-    }
-
-    pub fn inspector_ui(world: &mut World, mut disabled: Local<bool>) {
-        let space_pressed = world
-            .resource::<ButtonInput<KeyCode>>()
-            .just_pressed(KeyCode::Space);
-        if space_pressed {
-            *disabled = !*disabled;
-        }
-        if *disabled {
-            return;
-        }
-
-        let mut egui_context = world
-            .query_filtered::<&mut EguiContext, With<PrimaryWindow>>()
-            .single(world)
-            .clone();
-
-        egui::Window::new("ConformToSphereModifier").show(egui_context.get_mut(), |ui| {
-            egui::ScrollArea::both().show(ui, |ui| {
-                bevy_inspector_egui::bevy_inspector::ui_for_resource::<Configuration>(world, ui);
-
-                ui.separator();
-                ui.label("Press space to toggle");
-            });
-        });
-    }
-
-    pub fn apply_tweaks(
-        config: Res<Configuration>,
-        mut q_properties: Query<&mut EffectProperties>,
-        mut q_marker: Query<&mut RepulsorMarker>,
-    ) {
-        let mut properties = q_properties.single_mut();
-        properties = EffectProperties::set_if_changed(
-            properties,
-            "attraction_accel",
-            config.attraction_accel.into(),
-        );
-        properties = EffectProperties::set_if_changed(
-            properties,
-            "max_attraction_speed",
-            config.max_attraction_speed.into(),
-        );
-        properties = EffectProperties::set_if_changed(
-            properties,
-            "sticky_factor",
-            config.sticky_factor.into(),
-        );
-        properties = EffectProperties::set_if_changed(
-            properties,
-            "shell_half_thickness",
-            config.shell_half_thickness.into(),
-        );
-        EffectProperties::set_if_changed(
-            properties,
-            "repulsor_accel",
-            config.repulsor_accel.into(),
-        );
-
-        let mut marker = q_marker.single_mut();
-        marker.0 = config.repulsor_enabled;
-    }
-}
 
 const ATTRACTOR_POS: Vec3 = Vec3::new(0.01, 0.0, 0.0);
 const REPULSOR_POS: Vec3 = Vec3::new(0.3, 0.5, 0.0);
@@ -208,7 +103,7 @@ fn setup(
 
     // "forbid" sphere
     commands.spawn((
-        Transform::from_translation(Vec3::new(-2., -1., 0.1)),
+        Transform::from_translation(Vec3::new(-2., 1., 0.1)),
         Mesh3d(meshes.add(Sphere { radius: 0.6 })),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::linear_rgba(0.7, 0., 0., 0.2),
@@ -244,7 +139,7 @@ fn setup(
 
     // Define the sphere into which particles cannot enter. Any particle attempting
     // to enter gets killed.
-    let center = writer.lit(Vec3::new(-2., -1., 0.)).expr();
+    let center = writer.lit(Vec3::new(-2., 1., 0.)).expr();
     let radius = writer.lit(0.6);
     let sqr_radius = (radius.clone() * radius).expr();
     let deny_zone = KillSphereModifier::new(center, sqr_radius).with_kill_inside(true);
@@ -319,7 +214,7 @@ fn setup(
 fn spawn_on_click(
     mut q_effect: Query<(&mut EffectSpawner, &mut Transform), Without<Projection>>,
     mouse_button_input: Res<ButtonInput<MouseButton>>,
-    camera_query: Query<(&Camera, &GlobalTransform), With<Projection>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     window: Query<&Window, With<bevy::window::PrimaryWindow>>,
 ) {
     // Note: On first frame where the effect spawns, EffectSpawner is spawned during

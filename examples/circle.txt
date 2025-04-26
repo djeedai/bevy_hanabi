@@ -1,0 +1,3 @@
+This example shows how to blend and animate a particle texture.
+
+The texture used to render the particle is animated with the FlipbookModifier, which modifies the UV coordinates of the 2D particle quad to match a sprite index in a larger atlas texture containing a noise pattern. A second atlas texture gives the particle an animated color, using the same flipbook sprite index. Those two texture are blended together, and blended with a gradient which progressively lowers the alpha value to make the particles gradually disappear.

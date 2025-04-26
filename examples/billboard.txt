@@ -1,0 +1,5 @@
+This example shows billboarding and alpha masking.
+
+The particle effect uses the OrientModifier to ensure the 2D quad particles are always facing the camera; this is called "billboarding".
+
+The particles themselves are rendered using alpha masking, which discards all fragments below a certain cutoff threshold, to give the appearance of non-rectangular shapes and holes without using partial transparency. The cutoff threshold is animated between 0 and 1 to show its effect, using an expression executing entirely on GPU.

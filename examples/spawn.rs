@@ -8,6 +8,8 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
+const DEMO_DESC: &'static str = include_str!("spawn.txt");
+
 /// Set this to `true` to enable WGPU downlevel constraints. This is disabled by
 /// default to prevent the example from failing to start on devices with a
 /// monitor resolution larger than the maximum resolution imposed by the
@@ -26,7 +28,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         wgpu_settings.constrained_limits = Some(limits);
     }
 
-    let app_exit = utils::make_test_app_with_settings("spawn", wgpu_settings)
+    let app_exit = utils::DemoApp::new("spawn")
+        .with_desc(DEMO_DESC)
+        .with_desc_position(DescPosition::BottomRow)
+        .with_wgpu_settings(wgpu_settings)
+        .build()
         .add_systems(Startup, setup)
         .add_systems(Update, update_accel)
         .run();

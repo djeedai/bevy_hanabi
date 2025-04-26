@@ -2,9 +2,9 @@
 //! or not when the entity is invisible.
 //!
 //! This example spawns two effects:
-//! - The top one is only simulated when visible
+//! - The bottom one is only simulated when visible
 //!   ([`SimulationCondition::WhenVisible`]; default behavior).
-//! - The bottom one is always simulated, even when invisible
+//! - The top one is always simulated, even when invisible
 //!   ([`SimulationCondition::Always`]).
 //!
 //! A system updates the visibility of the effects, toggling it ON and OFF. We
@@ -18,8 +18,12 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
+const DEMO_DESC: &'static str = include_str!("visibility.txt");
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_exit = utils::make_test_app("visibility")
+    let app_exit = utils::DemoApp::new("visibility")
+        .with_desc(DEMO_DESC)
+        .build()
         .add_systems(Startup, setup)
         .add_systems(Update, update)
         .run();
