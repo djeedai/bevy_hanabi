@@ -6,13 +6,18 @@ version = 2
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 ignore = [
-   { id = "RUSTSEC-2024-0436", reason = "paste@1.0.15 - will soon upgrade with Bevy 0.16" },
+  # paste was announced as unmaintained with no explanation or replacement
+  # See: https://rustsec.org/advisories/RUSTSEC-2024-0436
+  # Bevy relies on this in multiple indirect ways, so ignoring it is the only feasible current solution
+  "RUSTSEC-2024-0436",
 ]
 
 [licenses]
+version = 2
 allow = [
     "0BSD",
     "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "CC0-1.0",
@@ -33,6 +38,9 @@ multiple-versions = "warn"
 wildcards = "deny"
 # Certain crates that we don't want multiple versions of in the dependency tree
 deny = [
+    # This one is to prevent bugs on upgrade etc. Generally using multiple Bevy versions doesn't work anyway.
+    { name = "bevy_ecs", deny-multiple-versions = true },
+
     { name = "ahash", deny-multiple-versions = true },
     { name = "android-activity", deny-multiple-versions = true },
     { name = "glam", deny-multiple-versions = true },
