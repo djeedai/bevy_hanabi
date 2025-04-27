@@ -71,7 +71,7 @@ ron = "0.8"
 bitflags = "2.3"
 typetag = { version = "0.2", optional = true }
 thiserror = "2"
-# Same versions as Bevy 0.15 (bevy_render)
+# Same versions as Bevy 0.16 (bevy_render)
 wgpu = { version = "24", default-features = false, features = [
   "wgsl",
   "dx12",
@@ -98,11 +98,11 @@ all-features = true
 
 [dev-dependencies]
 # For world inspector; required if "examples_world_inspector" is used.
-#bevy-inspector-egui = "0.29.1"
-#bevy_egui = { version = "0.32", default-features = false, features = [
-#    "manage_clipboard", "open_url"
-#] }
-#egui = "0.30"
+bevy-inspector-egui = "0.31"
+bevy_egui = { version = "0.34", default-features = false, features = [
+    "manage_clipboard", "open_url"
+] }
+egui = "0.31"
 
 bevy_sprite = "0.16"
 bevy_text = "0.16"

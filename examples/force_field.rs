@@ -15,6 +15,7 @@
 //! different depth, in front or behind the sphere.
 
 use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
+use bevy_egui::EguiContextPass;
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -26,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "examples_world_inspector")]
     app.init_resource::<inspector::Configuration>()
         .register_type::<inspector::Configuration>()
-        .add_systems(Update, inspector::inspector_ui)
+        .add_systems(EguiContextPass, inspector::inspector_ui)
         .add_systems(
             PostUpdate,
             inspector::apply_tweaks.after(EffectSystems::UpdatePropertiesFromAsset),
@@ -96,6 +97,7 @@ mod inspector {
         let mut egui_context = world
             .query_filtered::<&mut EguiContext, With<PrimaryWindow>>()
             .single(world)
+            .unwrap()
             .clone();
 
         egui::Window::new("ConformToSphereModifier").show(egui_context.get_mut(), |ui| {
@@ -112,8 +114,8 @@ mod inspector {
         config: Res<Configuration>,
         mut q_properties: Query<&mut EffectProperties>,
         mut q_marker: Query<&mut RepulsorMarker>,
-    ) {
-        let mut properties = q_properties.single_mut();
+    ) -> Result {
+        let mut properties = q_properties.single_mut()?;
         properties = EffectProperties::set_if_changed(
             properties,
             "attraction_accel",
@@ -140,8 +142,10 @@ mod inspector {
             config.repulsor_accel.into(),
         );
 
-        let mut marker = q_marker.single_mut();
+        let mut marker = q_marker.single_mut()?;
         marker.0 = config.repulsor_enabled;
+
+        Ok(())
     }
 }
 

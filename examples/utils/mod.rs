@@ -8,6 +8,8 @@ use bevy::{
     render::{settings::WgpuSettings, RenderDebugFlags, RenderPlugin},
 };
 #[cfg(feature = "examples_world_inspector")]
+use bevy_egui::EguiPlugin;
+#[cfg(feature = "examples_world_inspector")]
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 use crate::prelude::*;
@@ -68,7 +70,10 @@ pub fn make_test_app_with_settings(example_name: &str, wgpu_settings: WgpuSettin
         .add_systems(Update, close_on_esc);
 
     #[cfg(feature = "examples_world_inspector")]
-    app.add_plugins(WorldInspectorPlugin::default());
+    app.add_plugins(EguiPlugin {
+        enable_multipass_for_primary_context: true,
+    })
+    .add_plugins(WorldInspectorPlugin::default());
 
     app
 }
