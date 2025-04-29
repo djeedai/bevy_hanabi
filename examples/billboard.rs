@@ -129,7 +129,7 @@ fn setup(
             .init(init_rotation)
             .init(init_color)
             .render(ParticleTextureModifier {
-                texture_slot: texture_slot,
+                texture_slot,
                 sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
             .render(OrientModifier {
