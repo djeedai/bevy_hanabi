@@ -138,12 +138,12 @@ impl std::error::Error for ExampleFailedError {}
 /// Convert an [`AppExit`] into a `Result`, for error code propagation to the
 /// OS.
 pub trait AppExitIntoResult {
-    fn into_result(&self) -> Result<(), Box<dyn std::error::Error>>;
+    fn into_result(self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 impl AppExitIntoResult for AppExit {
-    fn into_result(&self) -> Result<(), Box<dyn std::error::Error>> {
-        match *self {
+    fn into_result(self) -> Result<(), Box<dyn std::error::Error>> {
+        match self {
             AppExit::Success => Ok(()),
             AppExit::Error(code) => Err(Box::new(ExampleFailedError(code))),
         }

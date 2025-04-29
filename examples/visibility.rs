@@ -18,7 +18,7 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
-const DEMO_DESC: &'static str = include_str!("visibility.txt");
+const DEMO_DESC: &str = include_str!("visibility.txt");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_exit = utils::DemoApp::new("visibility")

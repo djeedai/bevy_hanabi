@@ -8,7 +8,7 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
-const DEMO_DESC: &'static str = include_str!("spawn.txt");
+const DEMO_DESC: &str = include_str!("spawn.txt");
 
 /// Set this to `true` to enable WGPU downlevel constraints. This is disabled by
 /// default to prevent the example from failing to start on devices with a

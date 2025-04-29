@@ -67,7 +67,7 @@ const RIBBON_LIFETIME: f32 = 1.5;
 // Allocate a tiny bit more just to have some wiggle room.
 const PARTICLE_CAPACITY: u32 = 100;
 
-const DEMO_DESC: &'static str = include_str!("ribbon.txt");
+const DEMO_DESC: &str = include_str!("ribbon.txt");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_exit = utils::DemoApp::new("ribbon")

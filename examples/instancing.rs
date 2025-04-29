@@ -16,7 +16,7 @@ use rand::Rng;
 mod utils;
 use utils::*;
 
-const DEMO_DESC: &'static str = include_str!("instancing.txt");
+const DEMO_DESC: &str = include_str!("instancing.txt");
 
 #[derive(Default, Resource)]
 struct InstanceManager {

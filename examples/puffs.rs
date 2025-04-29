@@ -18,7 +18,7 @@ use crate::utils::*;
 
 mod utils;
 
-const DEMO_DESC: &'static str = include_str!("puffs.txt");
+const DEMO_DESC: &str = include_str!("puffs.txt");
 
 // A simple custom modifier that lights the meshes with Lambertian lighting.
 // Other lighting models are possible, up to and including PBR.

@@ -20,7 +20,7 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
-const DEMO_DESC: &'static str = include_str!("force_field.txt");
+const DEMO_DESC: &str = include_str!("force_field.txt");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = utils::DemoApp::new("force_field")

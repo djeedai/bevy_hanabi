@@ -14,7 +14,7 @@ mod utils;
 use texutils::make_anim_img;
 use utils::*;
 
-const DEMO_DESC: &'static str = include_str!("circle.txt");
+const DEMO_DESC: &str = include_str!("circle.txt");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_exit = utils::DemoApp::new("circle")

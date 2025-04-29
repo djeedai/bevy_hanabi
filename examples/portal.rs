@@ -20,7 +20,7 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
-const DEMO_DESC: &'static str = include_str!("portal.txt");
+const DEMO_DESC: &str = include_str!("portal.txt");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_exit = utils::DemoApp::new("portal")

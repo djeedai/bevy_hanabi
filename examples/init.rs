@@ -13,7 +13,7 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
-const DEMO_DESC: &'static str = include_str!("init.txt");
+const DEMO_DESC: &str = include_str!("init.txt");
 
 #[derive(Component)]
 struct RotateSpeed(pub f32);

@@ -50,6 +50,6 @@ fn timeout(mut frame: ResMut<Frame>, mut ev_app_exit: EventWriter<AppExit>) {
     frame.0 += 1;
     if frame.0 >= 1000 {
         info!("SUCCESS!");
-        ev_app_exit.send(AppExit::Success);
+        ev_app_exit.write(AppExit::Success);
     }
 }
