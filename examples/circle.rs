@@ -132,7 +132,7 @@ fn setup(
         .init(init_lifetime)
         .update(update_sprite_index)
         .render(ParticleTextureModifier {
-            texture_slot: texture_slot,
+            texture_slot,
             sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
         })
         .render(ParticleTextureModifier {

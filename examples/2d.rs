@@ -31,7 +31,7 @@ fn setup(
     proj.scaling_mode = ScalingMode::FixedVertical {
         viewport_height: 1.,
     };
-    commands.spawn((Camera2d::default(), Projection::Orthographic(proj)));
+    commands.spawn((Camera2d, Projection::Orthographic(proj)));
 
     // Spawn a reference white square in the center of the screen at Z=0
     commands.spawn((
