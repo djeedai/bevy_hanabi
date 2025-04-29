@@ -1,0 +1,5 @@
+This example shows a complex setup of ribbons and hierarchical effects.
+
+The overall VFX is composed of two effect instances. The first effect occasionally spawns a worm's "head" particle (slightly larger circle) with a random color and direction. It then simulates the motion of that particle alongside a sine curve. While alive, that particle also emits GPU spawn events to instruct the second effect to spawn "body" particles. Those body particles spawn in-place without velocity, but with a shared Attribute::RIBBON_ID (one ID per worm), making Hanabi render them as a single linked mesh.
+
+The setup is more complex than the ribbon example due to the use of several distict ribbons within a same effect, with more than one RIBBON_ID value. Because all particles for a single worm must share the same characteristics (color, ribbon ID, etc.), those attributes are derived from the parent particle.

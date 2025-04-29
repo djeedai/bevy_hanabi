@@ -67,8 +67,12 @@ const RIBBON_LIFETIME: f32 = 1.5;
 // Allocate a tiny bit more just to have some wiggle room.
 const PARTICLE_CAPACITY: u32 = 100;
 
+const DEMO_DESC: &str = include_str!("ribbon.txt");
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_exit = utils::make_test_app("ribbon")
+    let app_exit = utils::DemoApp::new("ribbon")
+        .with_desc(DEMO_DESC)
+        .build()
         .add_systems(Startup, setup)
         .add_systems(Update, move_head)
         .run();

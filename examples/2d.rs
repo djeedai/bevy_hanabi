@@ -6,8 +6,13 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
+const DEMO_DESC: &str = include_str!("2d.txt");
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_exit = utils::make_test_app("2d")
+    let app_exit = utils::DemoApp::new("2d")
+        .with_desc(DEMO_DESC)
+        .with_desc_position(DescPosition::BottomRow)
+        .build()
         .add_systems(Startup, setup)
         .add_systems(Update, update_plane)
         .run();
@@ -26,7 +31,7 @@ fn setup(
     proj.scaling_mode = ScalingMode::FixedVertical {
         viewport_height: 1.,
     };
-    commands.spawn((Camera2d::default(), Projection::Orthographic(proj)));
+    commands.spawn((Camera2d, Projection::Orthographic(proj)));
 
     // Spawn a reference white square in the center of the screen at Z=0
     commands.spawn((

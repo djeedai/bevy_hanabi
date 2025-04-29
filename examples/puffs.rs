@@ -18,6 +18,8 @@ use crate::utils::*;
 
 mod utils;
 
+const DEMO_DESC: &str = include_str!("puffs.txt");
+
 // A simple custom modifier that lights the meshes with Lambertian lighting.
 // Other lighting models are possible, up to and including PBR.
 #[derive(Clone, Copy, Reflect, Serialize, Deserialize)]
@@ -33,7 +35,9 @@ struct LambertianLightingModifier {
 static LIGHT_POSITION: Vec3 = vec3(-20.0, 40.0, 5.0);
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let app_exit = make_test_app("puffs")
+    let app_exit = DemoApp::new("puffs")
+        .with_desc(DEMO_DESC)
+        .build()
         .insert_resource(AmbientLight {
             color: Color::WHITE,
             brightness: 500.0,

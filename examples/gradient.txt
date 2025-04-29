@@ -1,0 +1,3 @@
+This example shows a basic particle effect setup.
+
+The particles are emitted at constant rate every frame, as the emitter moves around the scene (changes its Transform). The particles are rendered with a texture modulating their opacity, to give them a noise/smoke shape, and a color gradient to change their color and opacity over their lifetime, and eventually make them fade out.

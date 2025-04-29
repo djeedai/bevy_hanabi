@@ -1,0 +1,3 @@
+This example shows the use of mesh particles.
+
+The particle effect uses a 3D sphere mesh to render puffs of smoke. The particles are spawned at a random location within a small area behind the fox, and with varying sizes. The size is also animated with a modifier to make the particles fade out as they age. A custom modifier is added to light the particles.

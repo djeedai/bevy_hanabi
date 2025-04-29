@@ -1,0 +1,6 @@
+This example shows how to use RenderLayers to select which camera renders which effect.
+
+- The top left camera renders the green and blue effects.
+- The top right camera renders all effects.
+- The bottom left camera renders the red effect alone.
+- The bottom right camera renders the red and blue effects.

@@ -35,8 +35,12 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
+const DEMO_DESC: &str = include_str!("billboard.txt");
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_exit = utils::make_test_app("billboard")
+    let app_exit = utils::DemoApp::new("billboard")
+        .with_desc(DEMO_DESC)
+        .build()
         .add_systems(Startup, setup)
         .add_systems(Update, rotate_camera)
         .run();
@@ -125,7 +129,7 @@ fn setup(
             .init(init_rotation)
             .init(init_color)
             .render(ParticleTextureModifier {
-                texture_slot: texture_slot,
+                texture_slot,
                 sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
             .render(OrientModifier {

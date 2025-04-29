@@ -1,0 +1,3 @@
+This example shows CPU-side control over spawning.
+
+The ball bounces inside the cube, and a system calculates its collisions. Each time the ball collide, the particle effect is moved to the collision point, a random color is assigned by the CPU via a property, and the spawner is instructed to emit a single burst of particles.

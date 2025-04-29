@@ -1,0 +1,5 @@
+This example shows the use of attractors/repulsors and kill shapes.
+
+The ConformToSphereModifier is used to create one attractor and one repulsor spheres. Particles are attracted to the former, and pushed away from the latter, based on several parameters like the distance to the sphere center, or the attraction/repulsion acceleration (strength) and maximum speed.
+
+The particles are confined to the green box with a KillAabbModifier, which automatically kills any particle moving outside of it. They're also prevented from penetrating inside the red sphere with an inverted KillSphereModifier.

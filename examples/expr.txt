@@ -1,0 +1,3 @@
+This example demonstrates the use of expressions.
+
+Expressions are building blocks representing shader instructions, which combined together create complex shader programs used to control the particle effect. Those expressions run entirely on GPU, when the particle is update each frame, and are therefore very efficient. The downside is the limited control from CPU, since expressions can only use GPU data.

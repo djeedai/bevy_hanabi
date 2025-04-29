@@ -16,6 +16,8 @@ use rand::Rng;
 mod utils;
 use utils::*;
 
+const DEMO_DESC: &str = include_str!("instancing.txt");
+
 #[derive(Default, Resource)]
 struct InstanceManager {
     effect: Handle<EffectAsset>,
@@ -71,11 +73,7 @@ impl InstanceManager {
             return;
         }
 
-        let pos = origin
-            + IVec2::new(
-                index as i32 % self.grid_size.x,
-                index as i32 / self.grid_size.x,
-            );
+        let pos = origin + IVec2::new(index % self.grid_size.x, index / self.grid_size.x);
 
         *entry = Some(
             commands
@@ -176,7 +174,10 @@ impl InstanceManager {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_exit = utils::make_test_app("instancing")
+    let app_exit = utils::DemoApp::new("instancing")
+        .with_desc(DEMO_DESC)
+        .with_desc_position(DescPosition::BottomRow)
+        .build()
         .insert_resource(InstanceManager::new(5, 4))
         .add_systems(Startup, setup)
         .add_systems(Update, keyboard_input_system)

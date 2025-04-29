@@ -1,0 +1,1 @@
+This simple example shows how to add variations to effects by spawning a random number of particles at random times.

@@ -14,8 +14,12 @@ mod utils;
 use texutils::make_anim_img;
 use utils::*;
 
+const DEMO_DESC: &str = include_str!("circle.txt");
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_exit = utils::make_test_app("circle")
+    let app_exit = utils::DemoApp::new("circle")
+        .with_desc(DEMO_DESC)
+        .build()
         .add_systems(Startup, setup)
         .run();
     app_exit.into_result()
@@ -128,7 +132,7 @@ fn setup(
         .init(init_lifetime)
         .update(update_sprite_index)
         .render(ParticleTextureModifier {
-            texture_slot: texture_slot,
+            texture_slot,
             sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
         })
         .render(ParticleTextureModifier {

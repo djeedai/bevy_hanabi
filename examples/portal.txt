@@ -1,0 +1,3 @@
+This simple example shows the use of TangentAccelModifier to make particles rotate.
+
+The portal effect is created by spawning particles along a circle shape, and giving them a velocity at spawn which is tangent to that circle. This gives the impression that the particles are ejected from the circle. Some linear drag adds some sense of physicality by slowing down particles after they spawn.

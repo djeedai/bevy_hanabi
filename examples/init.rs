@@ -13,11 +13,16 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::*;
 
+const DEMO_DESC: &str = include_str!("init.txt");
+
 #[derive(Component)]
 struct RotateSpeed(pub f32);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let app_exit = utils::make_test_app("init")
+    let app_exit = utils::DemoApp::new("init")
+        .with_desc(DEMO_DESC)
+        .with_desc_position(DescPosition::BottomRow)
+        .build()
         .add_systems(Startup, setup)
         .add_systems(Update, rotate_effect)
         .run();

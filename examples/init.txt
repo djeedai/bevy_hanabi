@@ -1,0 +1,5 @@
+This example shows some of the built-in shape modifiers to initialize a particle's position.
+
+For each shape, the particles are spawned once, with a constant color and size, and no velocity nor motion integration. That way, they stay in place where they spawned. The effect is simulated in local space, such that the particles appear attached to it. Then the effect's Transform is used to rotate the instance, to help visualize the distribution of particles spawned.
+
+Other shape distributions can be achieved by using a custom expression and the SetAttributeModifier to assign the Attribute::POSITION of the particle directly. The modifiers demonstrated here are purely for convenience.

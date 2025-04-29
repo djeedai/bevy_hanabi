@@ -1,0 +1,5 @@
+This simple example shows the 3 types of CPU spawning.
+
+- The left effect uses SpawnerSettings::rate() to spawn a constant stream of particles.
+- The center effect uses SpawnerSettings::once() to spawn a single burst of particles once only. It then idles forever.
+- The right effect uses SpawnerSettings::burst() to spawn bursts of particles every so often. It also uses a property to control the direction of spawning from CPU.

@@ -1,0 +1,3 @@
+This example show the use of particles with a 2D camera, and how to order rendering relative to other 2D meshes.
+
+The square mesh moves back and forth perpendicular to the screen (Z axis), but doesn't appear to move because of the orthographic projection. The particle effect remains at Z=0. When the square moves in front, the particles render behind it, and vice-versa.
