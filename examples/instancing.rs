@@ -73,11 +73,7 @@ impl InstanceManager {
             return;
         }
 
-        let pos = origin
-            + IVec2::new(
-                index as i32 % self.grid_size.x,
-                index as i32 / self.grid_size.x,
-            );
+        let pos = origin + IVec2::new(index % self.grid_size.x, index / self.grid_size.x);
 
         *entry = Some(
             commands

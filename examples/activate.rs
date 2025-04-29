@@ -154,7 +154,7 @@ fn setup(
             font_size: 60.0,
             ..default()
         },
-        TextColor(Color::WHITE.into()),
+        TextColor(Color::WHITE),
         StatusText,
     ));
 }
