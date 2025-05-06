@@ -23,6 +23,9 @@ struct VertexOutput {
 #ifdef NEEDS_NORMAL
     @location(2) normal: vec3<f32>,
 #endif
+#ifdef NEEDS_PARTICLE_FRAGMENT
+    @location(3) particle_index: u32,
+#endif
 }
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -152,6 +155,10 @@ fn vertex(
 
     var out: VertexOutput;
 
+#ifdef NEEDS_PARTICLE_FRAGMENT
+    out.particle_index = particle_index;
+#endif // NEEDS_PARTICLE_FRAGMENT
+
 #ifdef RIBBONS
     // Discard first instance; we draw from second one, and link to previous one
     if (instance_index == 0) {
@@ -226,6 +233,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef NEEDS_NORMAL
     var normal = in.normal;
 #endif
+#ifdef NEEDS_PARTICLE_FRAGMENT
+    var particle = particle_buffer.particles[in.particle_index];
+#endif // NEEDS_PARTICLE_FRAGMENT
 
 {{FRAGMENT_MODIFIERS}}
 
