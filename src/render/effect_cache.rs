@@ -256,7 +256,7 @@ impl EffectBuffer {
             // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
             BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::VERTEX,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,

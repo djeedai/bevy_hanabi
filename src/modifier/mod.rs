@@ -387,6 +387,8 @@ pub struct RenderContext<'a> {
     pub needs_uv: bool,
     /// The particle needs normals for lighting effects.
     pub needs_normal: bool,
+    /// The particle needs access to its data in the fragment shader.
+    pub needs_particle_fragment: bool,
     /// Counter for unique variable names.
     var_counter: u32,
     /// Cache of evaluated expressions.
@@ -415,6 +417,7 @@ impl<'a> RenderContext<'a> {
             size_gradients: HashMap::default(),
             needs_uv: false,
             needs_normal: false,
+            needs_particle_fragment: false,
             var_counter: 0,
             expr_cache: Default::default(),
             is_attribute_pointer: false,
@@ -429,6 +432,11 @@ impl<'a> RenderContext<'a> {
     /// Mark the rendering shader as needing normals.
     pub fn set_needs_normal(&mut self) {
         self.needs_normal = true;
+    }
+
+    /// Mark the rendering shader as needing particle data in the fragment shader.
+    pub fn set_needs_particle_fragment(&mut self) {
+        self.needs_particle_fragment = true;
     }
 
     /// Add a color gradient.
