@@ -298,7 +298,10 @@ pub struct EffectAsset {
     pub simulation_condition: SimulationCondition,
     /// Seed for the pseudo-random number generator.
     ///
-    /// This is uploaded to GPU and used for the various random expressions and
+    /// This value is used as the default value for all [`ParticleEffect`]
+    /// instances based on this asset. You can override this on a per-instance
+    /// basis by setting [`ParticleEffect::prng_seed`]. The resulting value
+    /// is uploaded to GPU and used for the various random expressions and
     /// quantities computed in shaders.
     pub prng_seed: u32,
     /// Init modifier defining the effect.
