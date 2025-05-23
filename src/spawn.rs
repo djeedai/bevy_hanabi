@@ -1257,6 +1257,7 @@ mod test {
                             InheritedVisibility::default(),
                             ParticleEffect {
                                 handle: handle.clone(),
+                                ..default()
                             },
                         ))
                         .id()
@@ -1264,6 +1265,7 @@ mod test {
                     world
                         .spawn((ParticleEffect {
                             handle: handle.clone(),
+                            ..default()
                         },))
                         .id()
                 };

@@ -4090,7 +4090,10 @@ pub(crate) fn prepare_effects(
             gpu_effect_metadata,
         );
 
-        warn!(
+        // This triggers on all new spawns and annoys everyone; silence until we can at
+        // least warn only on non-first-spawn, and ideally split indirect data from that
+        // struct so we don't overwrite it and solve the issue.
+        debug!(
             "Updated metadata entry {} for effect {:?}, this will reset it.",
             dispatch_buffer_indices.effect_metadata_buffer_table_id.0, main_entity
         );

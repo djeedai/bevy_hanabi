@@ -654,12 +654,21 @@ pub struct EffectVisibilityClass;
 pub struct ParticleEffect {
     /// Handle of the effect to instantiate.
     pub handle: Handle<EffectAsset>,
+    /// Optional per-instance PRNG seed.
+    ///
+    /// Set this value to `Some(seed)` to override the default value set in
+    /// [`EffectAsset::prng_seed`] for this effect instance. By default this is
+    /// `None`, and the instance uses the same PRNG seed as its [`EffectAsset`].
+    pub prng_seed: Option<u32>,
 }
 
 impl ParticleEffect {
     /// Create a new particle effect instance from an existing asset.
     pub fn new(handle: Handle<EffectAsset>) -> Self {
-        Self { handle }
+        Self {
+            handle,
+            prng_seed: None,
+        }
     }
 }
 
@@ -1399,7 +1408,7 @@ impl CompiledParticleEffect {
         // diff what may or may not have changed.
         self.asset = instance.handle.clone();
         self.simulation_condition = asset.simulation_condition;
-        self.prng_seed = asset.prng_seed;
+        self.prng_seed = instance.prng_seed.unwrap_or(asset.prng_seed);
 
         // Check if the instance changed. If so, rebuild some data from this compiled
         // effect based on the new data of the effect instance.
