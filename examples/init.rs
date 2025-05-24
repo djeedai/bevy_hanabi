@@ -43,6 +43,9 @@ where
 
     EffectAsset::new(32768, SpawnerSettings::once(COUNT.into()), writer.finish())
         .with_name(name)
+        // Disable motion integration; in this demo particles don't move. This silences some warning
+        // about missing the VELOCITY attribute.
+        .with_motion_integration(MotionIntegration::None)
         .with_simulation_space(SimulationSpace::Local)
         .init(init)
         .render(OrientModifier::new(OrientMode::FaceCameraPosition))
