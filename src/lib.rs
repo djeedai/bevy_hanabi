@@ -1132,6 +1132,9 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
             if render_context.needs_normal {
                 layout_flags |= LayoutFlags::NEEDS_NORMAL;
             }
+            if render_context.needs_particle_fragment {
+                layout_flags |= LayoutFlags::NEEDS_PARTICLE_FRAGMENT;
+            }
 
             let alpha_cutoff_code = if let AlphaMode::Mask(cutoff) = &asset.alpha_mode {
                 render_context.eval(&module, *cutoff).unwrap_or_else(|err| {
@@ -2117,6 +2120,10 @@ else { return c1; }
             shader_defs.insert("LOCAL_SPACE_SIMULATION".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("NEEDS_UV".into(), ShaderDefValue::Bool(true));
             shader_defs.insert("NEEDS_NORMAL".into(), ShaderDefValue::Bool(false));
+            shader_defs.insert(
+                "NEEDS_PARTICLE_FRAGMENT".into(),
+                ShaderDefValue::Bool(false),
+            );
             shader_defs.insert(
                 "PARTICLE_SCREEN_SPACE_SIZE".into(),
                 ShaderDefValue::Bool(true),

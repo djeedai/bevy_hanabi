@@ -1851,6 +1851,9 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// Key: NEEDS_NORMAL
     /// The effect needs normals.
     needs_normal: bool,
+    /// Key: NEEDS_PARTICLE_IN_FRAGMENT
+    /// The effect needs access to the particle index and buffer in the fragment shader.
+    needs_particle_fragment: bool,
     /// Key: RIBBONS
     /// The effect has ribbons.
     ribbons: bool,
@@ -1890,6 +1893,7 @@ impl Default for ParticleRenderPipelineKey {
             flipbook: false,
             needs_uv: false,
             needs_normal: false,
+            needs_particle_fragment: false,
             ribbons: false,
             #[cfg(all(feature = "2d", feature = "3d"))]
             pipeline_mode: PipelineMode::Camera3d,
@@ -1915,7 +1919,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
             BindGroupLayoutEntry {
                 binding: 0,
-                visibility: ShaderStages::VERTEX,
+                visibility: ShaderStages::VERTEX_FRAGMENT,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
@@ -1998,6 +2002,10 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         // Key: NEEDS_NORMAL
         if key.needs_normal {
             shader_defs.push("NEEDS_NORMAL".into());
+        }
+
+        if key.needs_particle_fragment {
+            shader_defs.push("NEEDS_PARTICLE_FRAGMENT".into());
         }
 
         // Key: RIBBONS
@@ -2893,6 +2901,8 @@ bitflags! {
         /// a particle init or update pass to read the data of a parent particle, for
         /// example to inherit some of the attributes.
         const READ_PARENT_PARTICLE = (1 << 11);
+        /// The effect access to the particle data in the fragment shader.
+        const NEEDS_PARTICLE_FRAGMENT = (1 << 12);
     }
 }
 
@@ -4920,6 +4930,9 @@ fn emit_sorted_draw<T, F>(
             let needs_normal = effect_batch
                 .layout_flags
                 .contains(LayoutFlags::NEEDS_NORMAL);
+            let needs_particle_fragment = effect_batch
+                .layout_flags
+                .contains(LayoutFlags::NEEDS_PARTICLE_FRAGMENT);
             let ribbons = effect_batch.layout_flags.contains(LayoutFlags::RIBBONS);
             let image_count = effect_batch.texture_layout.layout.len() as u8;
 
@@ -4962,6 +4975,7 @@ fn emit_sorted_draw<T, F>(
                     flipbook,
                     needs_uv,
                     needs_normal,
+                    needs_particle_fragment,
                     ribbons,
                     #[cfg(all(feature = "2d", feature = "3d"))]
                     pipeline_mode,
@@ -5104,6 +5118,9 @@ fn emit_binned_draw<T, F, G>(
             let needs_normal = effect_batch
                 .layout_flags
                 .contains(LayoutFlags::NEEDS_NORMAL);
+            let needs_particle_fragment = effect_batch
+                .layout_flags
+                .contains(LayoutFlags::NEEDS_PARTICLE_FRAGMENT);
             let ribbons = effect_batch.layout_flags.contains(LayoutFlags::RIBBONS);
             let image_count = effect_batch.texture_layout.layout.len() as u8;
             let render_mesh = render_meshes.get(effect_batch.mesh);
@@ -5144,6 +5161,7 @@ fn emit_binned_draw<T, F, G>(
                     flipbook,
                     needs_uv,
                     needs_normal,
+                    needs_particle_fragment,
                     ribbons,
                     #[cfg(all(feature = "2d", feature = "3d"))]
                     pipeline_mode,
