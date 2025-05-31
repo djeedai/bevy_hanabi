@@ -1852,7 +1852,8 @@ pub(crate) struct ParticleRenderPipelineKey {
     /// The effect needs normals.
     needs_normal: bool,
     /// Key: NEEDS_PARTICLE_IN_FRAGMENT
-    /// The effect needs access to the particle index and buffer in the fragment shader.
+    /// The effect needs access to the particle index and buffer in the fragment
+    /// shader.
     needs_particle_fragment: bool,
     /// Key: RIBBONS
     /// The effect has ribbons.

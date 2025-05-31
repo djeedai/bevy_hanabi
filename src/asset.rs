@@ -303,6 +303,9 @@ pub struct EffectAsset {
     /// basis by setting [`ParticleEffect::prng_seed`]. The resulting value
     /// is uploaded to GPU and used for the various random expressions and
     /// quantities computed in shaders.
+    ///
+    /// [`ParticleEffect`]: crate::ParticleEffect
+    /// [`ParticleEffect::prng_seed`]: crate::ParticleEffect::prng_seed
     pub prng_seed: u32,
     /// Init modifier defining the effect.
     #[reflect(ignore)]

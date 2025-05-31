@@ -434,7 +434,8 @@ impl<'a> RenderContext<'a> {
         self.needs_normal = true;
     }
 
-    /// Mark the rendering shader as needing particle data in the fragment shader.
+    /// Mark the rendering shader as needing particle data in the fragment
+    /// shader.
     pub fn set_needs_particle_fragment(&mut self) {
         self.needs_particle_fragment = true;
     }

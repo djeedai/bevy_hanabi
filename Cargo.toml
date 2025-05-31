@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.16.0-dev"
+version = "0.16.0"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 rust-version = "1.85.0"

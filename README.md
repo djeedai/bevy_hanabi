@@ -5,7 +5,7 @@
 [![Crate](https://img.shields.io/crates/v/bevy_hanabi.svg)](https://crates.io/crates/bevy_hanabi)
 [![Build Status](https://github.com/djeedai/bevy_hanabi/actions/workflows/ci.yaml/badge.svg)](https://github.com/djeedai/bevy_hanabi/actions/workflows/ci.yaml)
 [![Coverage Status](https://coveralls.io/repos/github/djeedai/bevy_hanabi/badge.svg?branch=main)](https://coveralls.io/github/djeedai/bevy_hanabi?branch=main)
-[![Bevy tracking](https://img.shields.io/badge/Bevy%20tracking-v0.15-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
+[![Bevy tracking](https://img.shields.io/badge/Bevy%20tracking-v0.16-lightblue)](https://github.com/bevyengine/bevy/blob/main/docs/plugins_guidelines.md#main-branch-tracking)
 
 🎆 Hanabi — a GPU particle system for the Bevy game engine.
 
@@ -29,7 +29,7 @@ Add the `bevy_hanabi` dependency to `Cargo.toml`:
 
 ```toml
 [dependencies]
-bevy_hanabi = "0.15"
+bevy_hanabi = "0.16"
 ```
 
 See also [Features](#features) below for the list of supported features.
@@ -104,7 +104,7 @@ fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
   // Render the particles with a color gradient over their
   // lifetime. This maps the gradient key 0 to the particle spawn
   // time, and the gradient key 1 to the particle death (10s).
-  .render(ColorOverLifetimeModifier { gradient });
+  .render(ColorOverLifetimeModifier { gradient, ..default() });
 
   // Insert into the asset system
   let effect_handle = effects.add(effect);
@@ -188,8 +188,8 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
     - [x] Trails / Ribbons
   - [x] Camera support
     - [x] Render layers
-    - [x] 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.15.0/bevy/core_pipeline/core_2d/struct.Camera2d.html)) only
-    - [x] 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.15.0/bevy/core_pipeline/core_3d/struct.Camera3d.html)) only
+    - [x] 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.16.0/bevy/core_pipeline/core_2d/struct.Camera2d.html)) only
+    - [x] 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.16.0/bevy/core_pipeline/core_3d/struct.Camera3d.html)) only
     - [x] Simultaneous dual 2D/3D cameras
     - [x] Multiple viewports (split screen)
     - [x] HDR camera and bloom
@@ -211,16 +211,16 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
 
 | Feature | Default | Description |
 |---|:-:|---|
-| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.15.0/bevy/core_pipeline/core_2d/struct.Camera2d.html)) |
-| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.15.0/bevy/core_pipeline/core_3d/struct.Camera3d.html)) |
+| `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.16.0/bevy/core_pipeline/core_2d/struct.Camera2d.html)) |
+| `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.16.0/bevy/core_pipeline/core_3d/struct.Camera3d.html)) |
 | `serde`* | ✔ | Use `serde` to derive `Serialization` and `Deserialization` on asset-related types. |
 
-(*) `serde` is not compatible with WASM (due to the `typetag` dependency not being available on `wasm`).
+(*) `serde` is not compatible with WASM (due to the `typetag` dependency not being available on `wasm` without extra setup).
 
 For optimization purpose, users of a single type of camera can disable the other type by skipping default features in their `Cargo.toml`. For example to use only the 3D mode:
 
 ```toml
-bevy_hanabi = { version = "0.15", default-features = false, features = [ "3d", "serde" ] }
+bevy_hanabi = { version = "0.16", default-features = false, features = [ "3d", "serde" ] }
 ```
 
 ## Compatible Bevy versions
@@ -231,6 +231,7 @@ Compatibility of `bevy_hanabi` versions:
 
 | `bevy_hanabi` | `bevy` |
 | :--           | :--    |
+| `0.16`        | `0.16` |
 | `0.14`-`0.15` | `0.15` |
 | `0.12`-`0.13` | `0.14` |
 | `0.10`-`0.11` | `0.13` |
