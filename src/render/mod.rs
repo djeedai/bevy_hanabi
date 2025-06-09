@@ -67,7 +67,9 @@ use crate::{
     asset::{DefaultMesh, EffectAsset},
     calc_func_id,
     render::{
-        batch::{BatchInput, EffectDrawBatch, InitAndUpdatePipelineIds},
+        batch::{
+            BatchInput, EffectDrawBatch, EffectSorter, EffectToBeSorted, InitAndUpdatePipelineIds,
+        },
         effect_cache::DispatchBufferIndices,
     },
     AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
@@ -3747,7 +3749,7 @@ pub(crate) fn prepare_effects(
 
         // Fetch the bind group layouts from the cache
         trace!("cached_child_info={:?}", cached_child_info);
-        let (parent_particle_layout_min_binding_size, parent_buffer_index) =
+        let parent_particle_layout_min_binding_size =
             if let Some(cached_child) = cached_child_info.as_ref() {
                 let Ok((_, parent_cached_effect, _, _, _, _, _, _, _)) =
                     q_cached_effects.get(cached_child.parent)
@@ -3760,17 +3762,14 @@ pub(crate) fn prepare_effects(
                     );
                     continue;
                 };
-                (
-                    Some(
-                        parent_cached_effect
-                            .slice
-                            .particle_layout
-                            .min_binding_size32(),
-                    ),
-                    Some(parent_cached_effect.buffer_index),
+                Some(
+                    parent_cached_effect
+                        .slice
+                        .particle_layout
+                        .min_binding_size32(),
                 )
             } else {
-                (None, None)
+                None
             };
         let Some(particle_bind_group_layout) = effect_cache.particle_bind_group_layout(
             effect_slice.particle_layout.min_binding_size32(),
@@ -3933,9 +3932,8 @@ pub(crate) fn prepare_effects(
             handle: extracted_effect.handle,
             entity: extracted_effect.render_entity.id(),
             main_entity: extracted_effect.main_entity,
-            effect_slice,
+            effect_slice: effect_slice.clone(),
             init_and_update_pipeline_ids,
-            parent_buffer_index,
             event_buffer_index: cached_effect_events.map(|cee| cee.buffer_index),
             child_effects: cached_parent_info
                 .map(|cp| cp.children.clone())
@@ -4060,8 +4058,15 @@ pub(crate) fn prepare_effects(
             vertex_or_index_count: cached_mesh_location.vertex_or_index_count,
             instance_count: 0,
             first_index_or_vertex_offset: cached_mesh_location.first_index_or_vertex_offset,
-            vertex_offset_or_base_instance: cached_mesh_location.vertex_offset_or_base_instance,
-            base_instance: 0,
+            // This is the vertex offset when indexed and base instance when
+            // not. So we should fill in the base instance if this is a
+            // non-indexed mesh.
+            vertex_offset_or_base_instance: if cached_mesh_location.indexed.is_some() {
+                cached_mesh_location.vertex_offset_or_base_instance
+            } else {
+                effect_slice.slice.start as i32
+            },
+            base_instance: effect_slice.slice.start,
             alive_count: 0,
             max_update: 0,
             dead_count: capacity,
@@ -4191,24 +4196,50 @@ pub(crate) fn batch_effects(
 
     let mut sort_queue = GpuBufferOperationQueue::new();
 
-    // Loop on all extracted effects in order, and try to batch them together to
-    // reduce draw calls. -- currently does nothing, batching was broken and never
-    // fixed.
-    // FIXME - This is in ECS order, if we re-add the sorting above we need a
-    // different order here!
+    // Sort all extracted effects.
+
+    let mut effect_sorter = EffectSorter::new();
+
+    for (entity, _, _, _, cached_child_info, _, _, input) in &q_cached_effects {
+        effect_sorter.effects.push(EffectToBeSorted {
+            entity,
+            buffer_index: input.effect_slice.buffer_index,
+            base_instance: input.effect_slice.slice.start,
+        });
+        if let Some(child_info) = cached_child_info {
+            effect_sorter
+                .child_to_parent
+                .insert(entity, child_info.parent);
+        }
+    }
+
+    effect_sorter.sort();
+
+    // Loop on all extracted effects in the order we determined above, and try
+    // to batch them together to reduce draw calls. -- currently does nothing,
+    // batching was broken and never fixed.
     trace!("Batching {} effects...", q_cached_effects.iter().len());
+
     sorted_effect_batches.clear();
-    for (
-        entity,
-        main_entity,
-        cached_mesh,
-        cached_effect_events,
-        cached_child_info,
-        cached_properties,
-        dispatch_buffer_indices,
-        mut input,
-    ) in &mut q_cached_effects
+
+    for entity in effect_sorter
+        .effects
+        .into_iter()
+        .map(|effect_to_be_sorted| effect_to_be_sorted.entity)
     {
+        let Ok((
+            _,
+            main_entity,
+            cached_mesh,
+            cached_effect_events,
+            cached_child_info,
+            cached_properties,
+            dispatch_buffer_indices,
+            mut input,
+        )) = q_cached_effects.get_mut(entity)
+        else {
+            continue;
+        };
         // Detect if this cached effect was not updated this frame by a new extracted
         // effect. This happens when e.g. the effect is invisible and not simulated, or
         // some error prevented it from being extracted. We use the pipeline IDs vector
@@ -4342,8 +4373,6 @@ pub(crate) fn batch_effects(
     if !sort_queue.operation_queue.is_empty() {
         sorted_effect_batches.dispatch_queue_index = Some(gpu_buffer_operations.submit(sort_queue));
     }
-
-    sorted_effect_batches.sort();
 }
 
 /// Per-buffer bind groups for a GPU effect buffer.
@@ -4562,14 +4591,29 @@ pub struct EffectBindGroups {
     images: HashMap<AssetId<Image>, BindGroup>,
     /// Map from buffer index to its metadata bind group (group 3) for the init
     /// pass.
-    // FIXME - doesn't work with batching; this should be the instance ID
-    init_metadata_bind_groups: HashMap<u32, CachedBindGroup<InitMetadataBindGroupKey>>,
+    // FIXME - prevents batching; this should be keyed off the buffer index
+    init_metadata_bind_groups:
+        HashMap<InitOrUpdateBindGroupKey, CachedBindGroup<InitMetadataBindGroupKey>>,
     /// Map from buffer index to its metadata bind group (group 3) for the
     /// update pass.
-    // FIXME - doesn't work with batching; this should be the instance ID
-    update_metadata_bind_groups: HashMap<u32, CachedBindGroup<UpdateMetadataBindGroupKey>>,
+    // FIXME - prevents batching; this should be keyed off the buffer index
+    update_metadata_bind_groups:
+        HashMap<InitOrUpdateBindGroupKey, CachedBindGroup<UpdateMetadataBindGroupKey>>,
     /// Map from an effect material to its bind group.
     material_bind_groups: HashMap<Material, BindGroup>,
+}
+
+/// Identifies a bind group for the init or update pass.
+///
+/// FIXME: This should eventually go away once we can batch init and update.
+/// Then we'll have only one bind group per buffer.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InitOrUpdateBindGroupKey {
+    /// The index of the buffer.
+    pub buffer_index: u32,
+    /// The offset of the first particle index for this effect in the indirect
+    /// index buffer.
+    pub base_instance: u32,
 }
 
 impl EffectBindGroups {
@@ -4656,7 +4700,10 @@ impl EffectBindGroups {
 
         Ok(&self
             .init_metadata_bind_groups
-            .entry(effect_batch.buffer_index)
+            .entry(InitOrUpdateBindGroupKey {
+                buffer_index: effect_batch.buffer_index,
+                base_instance: effect_batch.slice.start,
+            })
             .and_modify(|cbg| {
                 if cbg.key != key {
                     trace!(
@@ -4783,7 +4830,10 @@ impl EffectBindGroups {
 
         Ok(&self
             .update_metadata_bind_groups
-            .entry(effect_batch.buffer_index)
+            .entry(InitOrUpdateBindGroupKey {
+                buffer_index: effect_batch.buffer_index,
+                base_instance: effect_batch.slice.start,
+            })
             .and_modify(|cbg| {
                 if cbg.key != key {
                     trace!(
@@ -6387,9 +6437,13 @@ impl Node for VfxSimulateNode {
                 };
 
                 // Fetch bind group metadata@3
-                let Some(metadata_bind_group) = effect_bind_groups
-                    .init_metadata_bind_groups
-                    .get(&effect_batch.buffer_index)
+                let Some(metadata_bind_group) =
+                    effect_bind_groups
+                        .init_metadata_bind_groups
+                        .get(&InitOrUpdateBindGroupKey {
+                            buffer_index: effect_batch.buffer_index,
+                            base_instance: effect_batch.slice.start,
+                        })
                 else {
                     error!(
                         "Failed to find init metadata@3 bind group for buffer index {}",
@@ -6611,9 +6665,13 @@ impl Node for VfxSimulateNode {
                 };
 
                 // Fetch bind group metadata@3
-                let Some(metadata_bind_group) = effect_bind_groups
-                    .update_metadata_bind_groups
-                    .get(&effect_batch.buffer_index)
+                let Some(metadata_bind_group) =
+                    effect_bind_groups
+                        .update_metadata_bind_groups
+                        .get(&InitOrUpdateBindGroupKey {
+                            buffer_index: effect_batch.buffer_index,
+                            base_instance: effect_batch.slice.start,
+                        })
                 else {
                     error!(
                         "Failed to find update metadata@3 bind group for buffer index {}",

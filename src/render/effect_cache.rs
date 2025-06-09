@@ -174,11 +174,7 @@ pub enum BufferState {
 
 impl EffectBuffer {
     /// Minimum buffer capacity to allocate, in number of particles.
-    // FIXME - Batching is broken due to binding a single GpuSpawnerParam instead of
-    // N, and inability for a particle index to tell which Spawner it should
-    // use. Setting this to 1 effectively ensures that all new buffers just fit
-    // the effect, so batching never occurs.
-    pub const MIN_CAPACITY: u32 = 1; // 65536; // at least 64k particles
+    pub const MIN_CAPACITY: u32 = 65536; // at least 64k particles
 
     /// Create a new group and a GPU buffer to back it up.
     ///
