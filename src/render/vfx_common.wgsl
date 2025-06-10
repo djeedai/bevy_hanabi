@@ -121,7 +121,7 @@ struct EffectMetadata {
     first_index_or_vertex_offset: u32,
     /// Vertex offset (if indexed) or base instance (if non-indexed).
     vertex_offset_or_base_instance: i32,
-    /// Base instance (if indexed).
+    /// Base instance.
     base_instance: u32,
 
     /// Number of particles alive after the init pass, used to calculate the number
