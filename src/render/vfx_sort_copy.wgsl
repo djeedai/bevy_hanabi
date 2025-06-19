@@ -38,5 +38,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let write_index = effect_metadata.ping;
 
     let particle_index = sort_buffer.pairs[row_index].value;
-    indirect_index_buffer.data[row_index * 3u + write_index] = particle_index;
+    indirect_index_buffer.data[
+        (row_index + effect_metadata.base_instance) * 3u + write_index
+    ] = particle_index;
 }

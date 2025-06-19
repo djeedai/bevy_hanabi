@@ -168,7 +168,7 @@ impl SortBindGroups {
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: true,
+                        has_dynamic_offset: false,
                         min_binding_size: Some(NonZeroU64::new(12).unwrap()), // ping/pong+dead
                     },
                     count: None,
@@ -310,7 +310,7 @@ impl SortBindGroups {
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Buffer {
                                 ty: BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: true,
+                                has_dynamic_offset: false,
                                 min_binding_size: Some(key.particle_min_binding_size.into()),
                             },
                             count: None,
@@ -321,7 +321,7 @@ impl SortBindGroups {
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Buffer {
                                 ty: BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: true,
+                                has_dynamic_offset: false,
                                 min_binding_size: Some(NonZeroU64::new(12).unwrap()), // ping/pong+dead
                             },
                             count: None,
