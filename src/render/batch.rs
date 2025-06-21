@@ -208,28 +208,36 @@ impl EffectSorter {
             entity_to_index.insert(effect.entity, index);
         }
 
-        // Next, create a map of parents to children.
-        let mut parent_to_children: Vec<_> = (0..self.effects.len()).map(|_| vec![]).collect();
+        // Next, create a map of children to their parents.
+        let mut children_to_parent: Vec<_> = (0..self.effects.len()).map(|_| vec![]).collect();
         for (kid, parent) in self.child_to_parent.iter() {
-            parent_to_children[entity_to_index[parent]].push(entity_to_index[kid]);
+            let (parent_index, kid_index) = (entity_to_index[parent], entity_to_index[kid]);
+            children_to_parent[kid_index].push(parent_index);
         }
 
-        // Now topologically sort the graph to determine the level of each node.
-        // This is a modification of the Tarjan algorithm that computes the
-        // depth of each node in the tree, not just the ordering.
+        // Now topologically sort the graph. Create an ordering that places
+        // children before parents.
         // https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
-        let mut levels = vec![0; self.effects.len()];
+        let mut ordering = vec![0; self.effects.len()];
         let mut visiting = FixedBitSet::with_capacity(self.effects.len());
         let mut visited = FixedBitSet::with_capacity(self.effects.len());
         while let Some(effect_index) = visited.zeroes().next() {
             visit(
-                &mut levels,
+                &mut ordering,
                 &mut visiting,
                 &mut visited,
-                &parent_to_children,
+                &children_to_parent,
                 effect_index,
-                0,
             );
+        }
+
+        // Compute levels.
+        let mut levels = vec![0; self.effects.len()];
+        for effect_index in ordering.into_iter().rev() {
+            let level = levels[effect_index];
+            for &parent in &children_to_parent[effect_index] {
+                levels[parent] = levels[parent].max(level + 1);
+            }
         }
 
         // Now sort the result.
@@ -242,12 +250,11 @@ impl EffectSorter {
         // A helper function for topologically sorting the effect dependency
         // graph.
         fn visit(
-            levels: &mut Vec<u32>,
+            ordering: &mut Vec<usize>,
             visiting: &mut FixedBitSet,
             visited: &mut FixedBitSet,
-            parent_to_children: &[Vec<usize>],
+            children_to_parent: &[Vec<usize>],
             effect_index: usize,
-            current_level: u32,
         ) {
             if visited.contains(effect_index) {
                 return;
@@ -259,19 +266,12 @@ impl EffectSorter {
 
             visiting.insert(effect_index);
 
-            for &kid in &parent_to_children[effect_index] {
-                visit(
-                    levels,
-                    visiting,
-                    visited,
-                    parent_to_children,
-                    kid,
-                    current_level + 1,
-                );
+            for &parent in &children_to_parent[effect_index] {
+                visit(ordering, visiting, visited, children_to_parent, parent);
             }
 
             visited.insert(effect_index);
-            levels[effect_index] = current_level;
+            ordering.push(effect_index);
         }
     }
 }
@@ -400,4 +400,76 @@ pub(crate) struct BatchInput {
 pub(crate) struct InitAndUpdatePipelineIds {
     pub init: CachedComputePipelineId,
     pub update: CachedComputePipelineId,
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::ecs::entity::Entity;
+
+    use super::*;
+
+    fn insert_entry(
+        sorter: &mut EffectSorter,
+        entity: Entity,
+        buffer_index: u32,
+        base_instance: u32,
+        parent: Option<Entity>,
+    ) {
+        sorter.effects.push(EffectToBeSorted {
+            entity,
+            base_instance,
+            buffer_index,
+        });
+        if let Some(parent) = parent {
+            sorter.child_to_parent.insert(entity, parent);
+        }
+    }
+
+    #[test]
+    fn toposort_batches() {
+        let mut sorter = EffectSorter::new();
+
+        // Some "parent" effect
+        let e1 = Entity::from_raw(1);
+        insert_entry(&mut sorter, e1, 42, 0, None);
+        assert_eq!(sorter.effects.len(), 1);
+        assert_eq!(sorter.effects[0].entity, e1);
+        assert!(sorter.child_to_parent.is_empty());
+
+        // Some "child" effect in a different buffer
+        let e2 = Entity::from_raw(2);
+        insert_entry(&mut sorter, e2, 5, 30, Some(e1));
+        assert_eq!(sorter.effects.len(), 2);
+        assert_eq!(sorter.effects[0].entity, e1);
+        assert_eq!(sorter.effects[1].entity, e2);
+        assert_eq!(sorter.child_to_parent.len(), 1);
+        assert_eq!(sorter.child_to_parent[&e2], e1);
+
+        sorter.sort();
+        assert_eq!(sorter.effects.len(), 2);
+        assert_eq!(sorter.effects[0].entity, e2); // child first
+        assert_eq!(sorter.effects[1].entity, e1); // parent after
+        assert_eq!(sorter.child_to_parent.len(), 1); // unchanged
+        assert_eq!(sorter.child_to_parent[&e2], e1); // unchanged
+
+        // Some "child" effect in the same buffer as its parent
+        let e3 = Entity::from_raw(3);
+        insert_entry(&mut sorter, e3, 42, 20, Some(e1));
+        assert_eq!(sorter.effects.len(), 3);
+        assert_eq!(sorter.effects[0].entity, e2); // from previous sort
+        assert_eq!(sorter.effects[1].entity, e1); // from previous sort
+        assert_eq!(sorter.effects[2].entity, e3); // simply appended
+        assert_eq!(sorter.child_to_parent.len(), 2);
+        assert_eq!(sorter.child_to_parent[&e2], e1);
+        assert_eq!(sorter.child_to_parent[&e3], e1);
+
+        sorter.sort();
+        assert_eq!(sorter.effects.len(), 3);
+        assert_eq!(sorter.effects[0].entity, e2); // child first
+        assert_eq!(sorter.effects[1].entity, e3); // other child next (in same buffer as parent)
+        assert_eq!(sorter.effects[2].entity, e1); // finally, parent
+        assert_eq!(sorter.child_to_parent.len(), 2);
+        assert_eq!(sorter.child_to_parent[&e2], e1);
+        assert_eq!(sorter.child_to_parent[&e3], e1);
+    }
 }
