@@ -207,7 +207,7 @@ impl ColorBlendMask {
     /// Convert the mask to a string of components, e.g. "rgb" or "ra".
     pub fn to_components(&self) -> String {
         let cmp = ['r', 'g', 'b', 'a'];
-        (0..3).fold(String::new(), |mut acc, i| {
+        (0..=3).fold(String::with_capacity(4), |mut acc, i| {
             let mask = ColorBlendMask::from_bits_truncate(1u8 << i);
             if self.contains(mask) {
                 acc.push(cmp[i]);
@@ -334,7 +334,7 @@ impl RenderModifier for ColorOverLifetimeModifier {
 
         let op = self.blend.to_assign_operator();
         let col = format!(
-            "{0}(particle.{1} / particle.{2});\n",
+            "{0}(particle.{1} / particle.{2})",
             func_name,
             Attribute::AGE.name(),
             Attribute::LIFETIME.name()
@@ -343,7 +343,14 @@ impl RenderModifier for ColorOverLifetimeModifier {
             format!("color {op} {col};\n")
         } else {
             let mask = self.mask.to_components();
-            format!("color.{mask} {op} ({col}).{mask};\n")
+            let non_mask = match self.blend {
+                ColorBlendMode::Overwrite => {
+                    format!("color.{}", self.mask.complement().to_components())
+                }
+                ColorBlendMode::Add => "0".to_string(),
+                ColorBlendMode::Modulate => "1".to_string(),
+            };
+            format!("color {op} vec4<f32>(({col}).{mask}, {non_mask});\n")
         };
 
         context.vertex_code += &s;
@@ -923,6 +930,17 @@ impl RoundModifier {
 mod tests {
     use super::*;
     use crate::*;
+
+    #[test]
+    fn color_blend_mask() {
+        assert_eq!(ColorBlendMask::RGB.to_components(), "rgb");
+        assert_eq!(ColorBlendMask::RGBA.to_components(), "rgba");
+
+        let m = ColorBlendMask::R | ColorBlendMask::B;
+        assert_eq!(m.to_components(), "rb");
+        assert_eq!(m.complement(), ColorBlendMask::G | ColorBlendMask::A);
+        assert_eq!(m.complement().to_components(), "ga");
+    }
 
     #[test]
     fn mod_particle_texture() {

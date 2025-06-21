@@ -3,6 +3,13 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed a bug in `ColorBlendMask::to_component()` which ignored the last (alpha) component. (#479)
+- Fixed a codegen bug in `ColorOverLifetimeModifier` when values other than `ColorBlendMask::RGBA` are used. (#479)
+
 ## [0.16.0] 2025-05-31
 
 ### Added
