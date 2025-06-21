@@ -625,44 +625,37 @@ impl PropertyLayout {
         let index2 = index2 + (num2 / 2) * 2;
         let num2 = num2 % 2;
 
-        // Enqueue { Float3, Float2 } or { Float2, Float1 }
+        // Here we're always 16-byte aligned
+
+        // Enqueue { Float3+, Float2? } or { Float2?, Float1+ }
         if num3 > num1 {
             // Float1 is done, some Float3 left, and at most one Float2
             debug_assert_eq!(num1, 0);
 
-            // Try 3/3/2, fallback to 3/2
-            let num3head = if num2 > 0 {
-                debug_assert_eq!(num2, 1);
-                let num3head = num3.min(2);
-                for i in 0..num3head {
-                    let prop = properties[index3 + i];
-                    let entry = PropertyLayoutEntry {
-                        property: prop.clone(),
-                        offset,
-                    };
-                    offset += 12;
-                    layout.push(entry);
-                }
-                let prop = properties[index2];
-                let entry = PropertyLayoutEntry {
-                    property: prop.clone(),
-                    offset,
-                };
-                offset += 8;
-                layout.push(entry);
-                num3head
-            } else {
-                0
-            };
+            // Note: WGSL doesn't support packing 3/3/2 in 32 bytes, because vec3<f32> needs
+            // to be aligned to 16 bytes always. So we just output all remaining types as is
+            // proper align.
 
-            // End with remaining Float3
-            for i in num3head..num3 {
+            for i in 0..num3 {
                 let prop = properties[index3 + i];
                 let entry = PropertyLayoutEntry {
                     property: prop.clone(),
                     offset,
                 };
-                offset += 12;
+                // WARN: vec3<f32> is 16-byte aligned, not 12! And the last vec2<f32> if any
+                // will also benefit from this since it needs 8-byte alignment.
+                offset += 16;
+                layout.push(entry);
+            }
+
+            // Emit the single Float2 now if any
+            if num2 > 0 {
+                debug_assert_eq!(num2, 1);
+                let prop = properties[index2];
+                let entry = PropertyLayoutEntry {
+                    property: prop.clone(),
+                    offset,
+                };
                 layout.push(entry);
             }
         } else {
@@ -1046,6 +1039,40 @@ mod tests {
         );
     }
 
+    // Regression test for #478
+    #[test]
+    fn layout_padding_vec3() {
+        let prop1 = Property::new("vec4a", Vec4::Y);
+        let prop2 = Property::new("vec3b", Vec3::ZERO);
+        let prop3 = Property::new("vec3c", Vec3::ONE);
+        let layout = PropertyLayout::new([&prop1, &prop2, &prop3]);
+        assert!(!layout.is_empty());
+        assert_eq!(layout.cpu_size(), 44); // 16 + 16 + 12
+        assert_eq!(layout.align(), 16);
+        assert_eq!(layout.min_binding_size(), NonZeroU64::new(48).unwrap());
+        let mut it = layout.properties();
+        // vec4 goes first as it doesn't disrupt the align
+        assert_eq!(it.next(), Some((0, &prop1)));
+        // vec3 goes next, with padding
+        assert_eq!(it.next(), Some((16, &prop2)));
+        // [padding] @24,+4
+        assert_eq!(it.next(), Some((32, &prop3)));
+        assert_eq!(it.next(), None);
+        let s = layout.generate_code();
+        assert_eq!(
+            s,
+            Some(
+                r#"struct Properties {
+    vec4a: vec4<f32>,
+    vec3b: vec3<f32>,
+    vec3c: vec3<f32>,
+}
+"#
+                .to_string()
+            )
+        );
+    }
+
     #[test]
     fn layout_tail_332() {
         let prop1 = Property::new("vec2", Vec2::NEG_Y);
@@ -1053,14 +1080,14 @@ mod tests {
         let prop3 = Property::new("vec3b", Vec3::NEG_X);
         let layout = PropertyLayout::new([&prop1, &prop2, &prop3]);
         assert!(!layout.is_empty());
-        assert_eq!(layout.cpu_size(), 32);
+        assert_eq!(layout.cpu_size(), 40);
         assert_eq!(layout.align(), 16);
-        assert_eq!(layout.min_binding_size(), NonZeroU64::new(32).unwrap());
+        assert_eq!(layout.min_binding_size(), NonZeroU64::new(48).unwrap());
         let mut it = layout.properties();
         // 3/3/2
         assert_eq!(it.next(), Some((0, &prop2)));
-        assert_eq!(it.next(), Some((12, &prop3)));
-        assert_eq!(it.next(), Some((24, &prop1)));
+        assert_eq!(it.next(), Some((16, &prop3)));
+        assert_eq!(it.next(), Some((32, &prop1)));
         assert_eq!(it.next(), None);
         let s = layout.generate_code();
         assert_eq!(
@@ -1083,13 +1110,13 @@ mod tests {
         let prop2 = Property::new("vec3", Vec3::ZERO);
         let layout = PropertyLayout::new([&prop1, &prop2]);
         assert!(!layout.is_empty());
-        assert_eq!(layout.cpu_size(), 20);
+        assert_eq!(layout.cpu_size(), 24);
         assert_eq!(layout.align(), 16);
         assert_eq!(layout.min_binding_size(), NonZeroU64::new(32).unwrap());
         let mut it = layout.properties();
         // 3/2
         assert_eq!(it.next(), Some((0, &prop2)));
-        assert_eq!(it.next(), Some((12, &prop1)));
+        assert_eq!(it.next(), Some((16, &prop1)));
         assert_eq!(it.next(), None);
         let s = layout.generate_code();
         assert_eq!(
@@ -1115,7 +1142,7 @@ mod tests {
         assert_eq!(layout.align(), 8);
         assert_eq!(layout.min_binding_size(), NonZeroU64::new(16).unwrap());
         let mut it = layout.properties();
-        // 3/2
+        // 2/1
         assert_eq!(it.next(), Some((0, &prop2)));
         assert_eq!(it.next(), Some((8, &prop1)));
         assert_eq!(it.next(), None);

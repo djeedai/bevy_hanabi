@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed a bug in `ColorBlendMask::to_component()` which ignored the last (alpha) component. (#479)
 - Fixed a codegen bug in `ColorOverLifetimeModifier` when values other than `ColorBlendMask::RGBA` are used. (#479)
+- Fixed a bug where `PropertyLayout` was misaligning `vec3` properties, leading to incorrect values on GPU. (#478)
 
 ## [0.16.0] 2025-05-31
 
