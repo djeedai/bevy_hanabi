@@ -1080,14 +1080,14 @@ mod tests {
         let prop3 = Property::new("vec3b", Vec3::NEG_X);
         let layout = PropertyLayout::new([&prop1, &prop2, &prop3]);
         assert!(!layout.is_empty());
-        assert_eq!(layout.cpu_size(), 32);
+        assert_eq!(layout.cpu_size(), 40);
         assert_eq!(layout.align(), 16);
-        assert_eq!(layout.min_binding_size(), NonZeroU64::new(32).unwrap());
+        assert_eq!(layout.min_binding_size(), NonZeroU64::new(48).unwrap());
         let mut it = layout.properties();
         // 3/3/2
         assert_eq!(it.next(), Some((0, &prop2)));
-        assert_eq!(it.next(), Some((12, &prop3)));
-        assert_eq!(it.next(), Some((24, &prop1)));
+        assert_eq!(it.next(), Some((16, &prop3)));
+        assert_eq!(it.next(), Some((32, &prop1)));
         assert_eq!(it.next(), None);
         let s = layout.generate_code();
         assert_eq!(
@@ -1110,13 +1110,13 @@ mod tests {
         let prop2 = Property::new("vec3", Vec3::ZERO);
         let layout = PropertyLayout::new([&prop1, &prop2]);
         assert!(!layout.is_empty());
-        assert_eq!(layout.cpu_size(), 20);
+        assert_eq!(layout.cpu_size(), 24);
         assert_eq!(layout.align(), 16);
         assert_eq!(layout.min_binding_size(), NonZeroU64::new(32).unwrap());
         let mut it = layout.properties();
         // 3/2
         assert_eq!(it.next(), Some((0, &prop2)));
-        assert_eq!(it.next(), Some((12, &prop1)));
+        assert_eq!(it.next(), Some((16, &prop1)));
         assert_eq!(it.next(), None);
         let s = layout.generate_code();
         assert_eq!(
@@ -1142,7 +1142,7 @@ mod tests {
         assert_eq!(layout.align(), 8);
         assert_eq!(layout.min_binding_size(), NonZeroU64::new(16).unwrap());
         let mut it = layout.properties();
-        // 3/2
+        // 2/1
         assert_eq!(it.next(), Some((0, &prop2)));
         assert_eq!(it.next(), Some((8, &prop1)));
         assert_eq!(it.next(), None);
