@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a bug in `ColorBlendMask::to_component()` which ignored the last (alpha) component. (#479)
 - Fixed a codegen bug in `ColorOverLifetimeModifier` when values other than `ColorBlendMask::RGBA` are used. (#479)
 - Fixed a bug where `PropertyLayout` was misaligning `vec3` properties, leading to incorrect values on GPU. (#478)
+- Fixed a small bug in the `firework.rs` example where the sparkle trail velocity was initialized randomly
+  in [0:1] instead of [-1:1] like the comment claimed. (#476)
 
 ## [0.16.0] 2025-05-31
 

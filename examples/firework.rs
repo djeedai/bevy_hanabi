@@ -131,7 +131,9 @@ fn create_sparkle_trail_effect() -> EffectAsset {
     let init_pos = InheritAttributeModifier::new(Attribute::POSITION);
 
     // The velocity is random in any direction
-    let vel = writer.rand(VectorType::VEC3F).normalized();
+    let vel = writer.rand(VectorType::VEC3F);
+    let vel = vel * writer.lit(2.) - writer.lit(1.); // remap [0:1] to [-1:1]
+    let vel = vel.normalized();
     let speed = writer.lit(1.); //.uniform(writer.lit(4.));
     let vel = (vel * speed).expr();
     let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, vel);
