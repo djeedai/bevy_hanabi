@@ -104,7 +104,7 @@
 
 use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
 
-use bevy::{prelude::default, reflect::Reflect};
+use bevy::{platform::collections::HashSet, prelude::default, reflect::Reflect};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -389,6 +389,16 @@ impl Module {
         #[allow(unsafe_code)]
         unsafe {
             TextureHandle::new_unchecked(self.texture_layout.layout.len())
+        }
+    }
+
+    /// Insert into the given set all attributes referenced by any
+    /// [`AttributeExpr`] present in the module.
+    pub fn gather_attributes(&self, set: &mut HashSet<Attribute>) {
+        for expr in &self.expressions {
+            if let Expr::Attribute(attr) = expr {
+                set.insert(attr.attr);
+            }
         }
     }
 

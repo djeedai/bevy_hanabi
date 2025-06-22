@@ -608,6 +608,10 @@ impl EffectAsset {
             }
         }
 
+        // Add all attributes used by expressions. Those are indirectly used by
+        // modifiers, but may not have been added directly yet.
+        self.module.gather_attributes(&mut set);
+
         // Build the layout
         let mut layout = ParticleLayout::new();
         for attr in set {
@@ -985,5 +989,17 @@ mod tests {
 
         let expr = Module::default().lit(0.5);
         assert_eq!(BlendState::ALPHA_BLENDING, AlphaMode::Mask(expr).into());
+    }
+
+    // Regression test for #440
+    #[test]
+    fn transitive_attr() {
+        let mut m = Module::default();
+        let age = m.attr(Attribute::F32_0);
+        let modifier = SetAttributeModifier::new(Attribute::AGE, age);
+        let asset = EffectAsset::new(32, SpawnerSettings::once(3.0.into()), m).init(modifier);
+        let particle_layout = asset.particle_layout();
+        assert!(particle_layout.contains(Attribute::AGE)); // direct
+        assert!(particle_layout.contains(Attribute::F32_0)); // transitive
     }
 }
