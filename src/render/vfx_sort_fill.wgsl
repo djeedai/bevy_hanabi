@@ -38,7 +38,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     }
 
     let read_index = effect_metadata.ping;
-    let particle_index = indirect_index_buffer[thread_index * 3u + read_index];
+    let particle_index = indirect_index_buffer[
+        (thread_index + effect_metadata.base_instance) * 3u + read_index
+    ];
 
     let particle_offset = particle_index * effect_metadata.particle_stride;
     let key_offset = particle_offset + effect_metadata.sort_key_offset;
