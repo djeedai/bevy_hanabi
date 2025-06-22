@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a bug where `PropertyLayout` was misaligning `vec3` properties, leading to incorrect values on GPU. (#478)
 - Fixed a small bug in the `firework.rs` example where the sparkle trail velocity was initialized randomly
   in [0:1] instead of [-1:1] like the comment claimed. (#476)
+- Fixed a bug in `EffectAsset::particle_layout()` where attributes used in expressions but not directly
+  referenced by a modifier were not added to the layout, leading to invalid shader codegen. (#440)
 
 ## [0.16.0] 2025-05-31
 
