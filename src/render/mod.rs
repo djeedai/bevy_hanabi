@@ -452,6 +452,9 @@ pub struct GpuEffectMetadata {
     /// The value loops back after some time, but unless some particle lives
     /// forever there's little chance of repetition.
     pub particle_counter: u32,
+
+    /// Index of the spawner associated with this effect in the spawner buffer.
+    pub spawner_index: u32,
 }
 
 /// Single init fill dispatch item in an [`InitFillDispatchQueue`].
@@ -752,10 +755,7 @@ impl SpecializedComputePipeline for DispatchIndirectPipeline {
             key.has_events
         );
 
-        let mut shader_defs = Vec::with_capacity(2);
-        // Spawner struct needs to be defined with padding, because it's bound as an
-        // array
-        shader_defs.push("SPAWNER_PADDING".into());
+        let mut shader_defs = Vec::with_capacity(1);
         if key.has_events {
             shader_defs.push("HAS_GPU_SPAWN_EVENTS".into());
         }
@@ -1965,13 +1965,13 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 },
                 count: None,
             },
-            // @group(1) @binding(2) var<storage, read> spawner : Spawner;
+            // @group(1) @binding(2) var<storage, read> spawners : array<Spawner>;
             BindGroupLayoutEntry {
                 binding: 2,
                 visibility: ShaderStages::VERTEX,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: true,
+                    has_dynamic_offset: false,
                     min_binding_size: Some(spawner_min_binding_size),
                 },
                 count: None,
@@ -4118,6 +4118,7 @@ pub(crate) fn prepare_effects(
             particle_stride,
             sort_key_offset,
             sort_key2_offset,
+            spawner_index,
             ..default()
         };
 
@@ -4420,7 +4421,7 @@ pub(crate) struct BufferBindGroups {
     /// ```wgsl
     /// @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
     /// @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
-    /// @binding(2) var<storage, read> spawner : Spawner;
+    /// @binding(2) var<storage, read> spawners : array<Spawner>;
     /// ```
     render: BindGroup,
     // /// Bind group for filling the indirect dispatch arguments of any child init
@@ -5824,9 +5825,6 @@ pub(crate) fn prepare_bind_groups(
             .or_insert_with(|| {
                 // Bind group particle@1 for render pass
                 trace!("Creating particle@1 bind group for buffer #{buffer_index} in render pass");
-                let spawner_min_binding_size = GpuSpawnerParams::aligned_size(
-                    render_device.limits().min_storage_buffer_offset_alignment,
-                );
                 let entries = [
                     // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
                     BindGroupEntry {
@@ -5838,13 +5836,13 @@ pub(crate) fn prepare_bind_groups(
                         binding: 1,
                         resource: effect_buffer.indirect_index_max_binding(),
                     },
-                    // @group(1) @binding(2) var<storage, read> spawner : Spawner;
+                    // @group(1) @binding(2) var<storage, read> spawners : array<Spawner>;
                     BindGroupEntry {
                         binding: 2,
                         resource: BindingResource::Buffer(BufferBinding {
                             buffer: &spawner_buffer,
                             offset: 0,
-                            size: Some(spawner_min_binding_size),
+                            size: None,
                         }),
                     },
                 ];
@@ -5862,8 +5860,6 @@ pub(crate) fn prepare_bind_groups(
     gpu_buffer_operation_queue.create_bind_groups(&render_device, &utils_pipeline);
 
     // Create the per-effect bind groups
-    let spawner_buffer_binding_size =
-        NonZeroU64::new(effects_meta.spawner_buffer.aligned_size() as u64).unwrap();
     for effect_batch in sorted_effect_batched.iter() {
         #[cfg(feature = "trace")]
         let _span_buffer = bevy::log::info_span!("create_batch_bind_groups").entered();
@@ -5874,7 +5870,6 @@ pub(crate) fn prepare_bind_groups(
                 property_key,
                 &property_cache,
                 &spawner_buffer,
-                spawner_buffer_binding_size,
                 &render_device,
             ) {
                 error!("Failed to create property bind group for effect batch: {err:?}");
@@ -5883,7 +5878,6 @@ pub(crate) fn prepare_bind_groups(
         } else if let Err(err) = property_bind_groups.ensure_exists_no_property(
             &property_cache,
             &spawner_buffer,
-            spawner_buffer_binding_size,
             &render_device,
         ) {
             error!("Failed to create property bind group for effect batch: {err:?}");
@@ -6170,16 +6164,14 @@ fn draw<'w>(
     );
 
     // Particles buffer
-    let spawner_base = effect_batch.spawner_base;
     let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
     assert!(spawner_buffer_aligned >= GpuSpawnerParams::min_size().get() as usize);
-    let spawner_offset = spawner_base * spawner_buffer_aligned as u32;
     pass.set_bind_group(
         1,
         effect_bind_groups
             .particle_render(effect_batch.buffer_index)
             .unwrap(),
-        &[spawner_offset],
+        &[],
     );
 
     // Effects metadata
@@ -6626,15 +6618,14 @@ impl Node for VfxSimulateNode {
                 let spawner_base = effect_batch.spawner_base;
                 let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
                 debug_assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
-                let spawner_offset = spawner_base * spawner_aligned_size as u32;
                 let property_offset = effect_batch.property_offset;
 
                 // Setup init pass
                 compute_pass.set_bind_group(1, particle_bind_group, &[]);
                 let offsets = if let Some(property_offset) = property_offset {
-                    vec![spawner_offset, property_offset]
+                    vec![property_offset]
                 } else {
-                    vec![spawner_offset]
+                    vec![]
                 };
                 compute_pass.set_bind_group(
                     2,
@@ -6666,13 +6657,11 @@ impl Node for VfxSimulateNode {
                                 init_indirect_dispatch_index={} \
                                 indirect_offset={} \
                                 spawner_base={} \
-                                spawner_offset={} \
                                 property_key={:?}...",
                             effect_batch.handle,
                             init_indirect_dispatch_index,
                             indirect_offset,
                             spawner_base,
-                            spawner_offset,
                             effect_batch.property_key,
                         );
 
@@ -6696,13 +6685,11 @@ impl Node for VfxSimulateNode {
                         trace!(
                             "record commands for init pipeline of effect {:?} \
                                 (spawn {} particles => {} workgroups) spawner_base={} \
-                                spawner_offset={} \
                                 property_key={:?}...",
                             effect_batch.handle,
                             spawn_count,
                             workgroup_count,
                             spawner_base,
-                            spawner_offset,
                             effect_batch.property_key,
                         );
 
@@ -6853,7 +6840,6 @@ impl Node for VfxSimulateNode {
                 let spawner_index = effect_batch.spawner_base;
                 let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
                 assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
-                let spawner_offset = spawner_index * spawner_aligned_size as u32;
                 let property_offset = effect_batch.property_offset;
 
                 trace!(
@@ -6865,9 +6851,9 @@ impl Node for VfxSimulateNode {
                 // Setup update pass
                 compute_pass.set_bind_group(1, particle_bind_group, &[]);
                 let offsets = if let Some(property_offset) = property_offset {
-                    vec![spawner_offset, property_offset]
+                    vec![property_offset]
                 } else {
-                    vec![spawner_offset]
+                    vec![]
                 };
                 compute_pass.set_bind_group(
                     2,

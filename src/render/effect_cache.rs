@@ -271,13 +271,13 @@ impl EffectBuffer {
                 },
                 count: None,
             },
-            // @group(1) @binding(2) var<storage, read> spawner : Spawner;
+            // @group(1) @binding(2) var<storage, read> spawners : array<Spawner>;
             BindGroupLayoutEntry {
                 binding: 2,
                 visibility: ShaderStages::VERTEX,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: true,
+                    has_dynamic_offset: false,
                     min_binding_size: Some(spawner_params_size),
                 },
                 count: None,

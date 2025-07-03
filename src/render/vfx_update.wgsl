@@ -38,7 +38,7 @@ struct ParentParticleBuffer {
 #endif
 
 // "spawner" group @2
-@group(2) @binding(0) var<storage, read> spawner : Spawner;
+@group(2) @binding(0) var<storage, read> spawners : array<Spawner>;
 {{PROPERTIES_BINDING}}
 
 // "metadata" group @3
@@ -71,7 +71,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     ];
 
     // Initialize the PRNG seed
-    seed = pcg_hash(particle_index ^ spawner.seed);
+    let spawner_index = effect_metadata.spawner_index;
+    seed = pcg_hash(particle_index ^ spawners[spawner_index].seed);
 
     var particle: Particle = particle_buffer.particles[particle_index];
     {{AGE_CODE}}
