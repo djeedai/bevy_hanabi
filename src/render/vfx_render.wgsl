@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import bevy_hanabi::vfx_common::{
-    IndirectBuffer, SimParams, Spawner,
+    EffectMetadata, IndirectBuffer, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
     rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
@@ -33,18 +33,21 @@ struct VertexOutput {
 
 @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
-@group(1) @binding(2) var<storage, read> spawner : Spawner;
+@group(1) @binding(2) var<storage, read> spawners : array<Spawner>;
+
+// "metadata" group @2
+@group(2) @binding(0) var<storage, read> effect_metadata : EffectMetadata;
 
 {{MATERIAL_BINDINGS}}
 
-fn get_camera_position_effect_space() -> vec3<f32> {
+fn get_camera_position_effect_space(spawner_index: u32) -> vec3<f32> {
     let view_pos = view.world_from_view[3].xyz;
 #ifdef LOCAL_SPACE_SIMULATION
     let inverse_transform = transpose(
         mat3x3(
-            spawner.inverse_transform[0].xyz,
-            spawner.inverse_transform[1].xyz,
-            spawner.inverse_transform[2].xyz,
+            spawners[spawner_index].inverse_transform[0].xyz,
+            spawners[spawner_index].inverse_transform[1].xyz,
+            spawners[spawner_index].inverse_transform[2].xyz,
         )
     );
     return inverse_transform * view_pos;
@@ -53,14 +56,14 @@ fn get_camera_position_effect_space() -> vec3<f32> {
 #endif
 }
 
-fn get_camera_rotation_effect_space() -> mat3x3<f32> {
+fn get_camera_rotation_effect_space(spawner_index: u32) -> mat3x3<f32> {
     let view_rot = mat3x3(view.world_from_view[0].xyz, view.world_from_view[1].xyz, view.world_from_view[2].xyz);
 #ifdef LOCAL_SPACE_SIMULATION
     let inverse_transform = transpose(
         mat3x3(
-            spawner.inverse_transform[0].xyz,
-            spawner.inverse_transform[1].xyz,
-            spawner.inverse_transform[2].xyz,
+            spawners[spawner_index].inverse_transform[0].xyz,
+            spawners[spawner_index].inverse_transform[1].xyz,
+            spawners[spawner_index].inverse_transform[2].xyz,
         )
     );
     return inverse_transform * view_rot;
@@ -94,21 +97,21 @@ fn unpack_compressed_transform_3x3_transpose(compressed_transform: mat3x4<f32>) 
 ///
 /// The simulation space depends on the effect's SimulationSpace value, and is either
 /// the effect space (SimulationSpace::Local) or the world space (SimulationSpace::Global).
-fn transform_position_simulation_to_world(sim_position: vec3<f32>) -> vec4<f32> {
+fn transform_position_simulation_to_world(sim_position: vec3<f32>, spawner_index: u32) -> vec4<f32> {
 #ifdef LOCAL_SPACE_SIMULATION
-    let transform = unpack_compressed_transform(spawner.transform);
+    let transform = unpack_compressed_transform(spawners[spawner_index].transform);
     return transform * vec4<f32>(sim_position, 1.0);
 #else
     return vec4<f32>(sim_position, 1.0);
 #endif
 }
 
-fn transform_normal_simulation_to_world(sim_normal: vec3<f32>) -> vec3<f32> {
+fn transform_normal_simulation_to_world(sim_normal: vec3<f32>, spawner_index: u32) -> vec3<f32> {
 #ifdef LOCAL_SPACE_SIMULATION
     // We use the inverse transpose transform to transform normals.
     // The inverse transpose is the same as the transposed inverse, so we can
     // safely use the inverse transform.
-    let transform = unpack_compressed_transform_3x3_transpose(spawner.inverse_transform);
+    let transform = unpack_compressed_transform_3x3_transpose(spawners[spawner_index].inverse_transform);
     return transform * sim_normal;
 #else
     return sim_normal;
@@ -121,8 +124,8 @@ fn transform_normal_simulation_to_world(sim_normal: vec3<f32>) -> vec3<f32> {
 /// the effect space (SimulationSpace::Local) or the world space (SimulationSpace::Global).
 /// The clip space is the final [-1:1]^3 space output from the vertex shader, before
 /// perspective divide and viewport transform are applied.
-fn transform_position_simulation_to_clip(sim_position: vec3<f32>) -> vec4<f32> {
-    return view.clip_from_world * transform_position_simulation_to_world(sim_position);
+fn transform_position_simulation_to_clip(sim_position: vec3<f32>, spawner_index: u32) -> vec4<f32> {
+    return view.clip_from_world * transform_position_simulation_to_world(sim_position, spawner_index);
 }
 
 fn inverse_transpose_mat3(m: mat3x3<f32>) -> mat3x3<f32> {
@@ -149,7 +152,8 @@ fn vertex(
     // @location(1) vertex_velocity: vec3<f32>,
 ) -> VertexOutput {
     // Fetch particle
-    let pong = spawner.render_pong;
+    let spawner_index = effect_metadata.spawner_index;
+    let pong = spawners[spawner_index].render_pong;
     let particle_index = indirect_buffer.indices[3u * instance_index + pong];
     var particle = particle_buffer.particles[particle_index];
 
@@ -161,7 +165,7 @@ fn vertex(
 
 #ifdef RIBBONS
     // Discard first instance; we draw from second one, and link to previous one
-    if (instance_index == 0) {
+    if (instance_index == effect_metadata.base_instance) {
         out.position = vec4(0.0);
         return out;
     }
@@ -208,13 +212,13 @@ fn vertex(
     // orientation and size of the particle mesh.
     let vpos = vertex_position * size;
     let sim_position = position + axis_x * vpos.x + axis_y * vpos.y + axis_z * vpos.z;
-    out.position = transform_position_simulation_to_clip(sim_position);
+    out.position = transform_position_simulation_to_clip(sim_position, spawner_index);
 
     out.color = color;
 
 #ifdef NEEDS_NORMAL
     let normal = inverse_transpose_mat3(mat3x3(axis_x, axis_y, axis_z)) * vertex_normal;
-    out.normal = transform_normal_simulation_to_world(normal);
+    out.normal = transform_normal_simulation_to_world(normal, spawner_index);
 #endif  // NEEDS_NORMAL
 
     return out;

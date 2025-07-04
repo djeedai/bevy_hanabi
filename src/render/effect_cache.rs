@@ -174,11 +174,7 @@ pub enum BufferState {
 
 impl EffectBuffer {
     /// Minimum buffer capacity to allocate, in number of particles.
-    // FIXME - Batching is broken due to binding a single GpuSpawnerParam instead of
-    // N, and inability for a particle index to tell which Spawner it should
-    // use. Setting this to 1 effectively ensures that all new buffers just fit
-    // the effect, so batching never occurs.
-    pub const MIN_CAPACITY: u32 = 1; // 65536; // at least 64k particles
+    pub const MIN_CAPACITY: u32 = 65536; // at least 64k particles
 
     /// Create a new group and a GPU buffer to back it up.
     ///
@@ -275,13 +271,13 @@ impl EffectBuffer {
                 },
                 count: None,
             },
-            // @group(1) @binding(2) var<storage, read> spawner : Spawner;
+            // @group(1) @binding(2) var<storage, read> spawners : array<Spawner>;
             BindGroupLayoutEntry {
                 binding: 2,
                 visibility: ShaderStages::VERTEX,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: true,
+                    has_dynamic_offset: false,
                     min_binding_size: Some(spawner_params_size),
                 },
                 count: None,
@@ -323,16 +319,6 @@ impl EffectBuffer {
     #[inline]
     pub fn indirect_index_buffer(&self) -> &Buffer {
         &self.indirect_index_buffer
-    }
-
-    #[inline]
-    pub fn particle_offset(&self, row: u32) -> u32 {
-        self.particle_layout.min_binding_size().get() as u32 * row
-    }
-
-    #[inline]
-    pub fn indirect_index_offset(&self, row: u32) -> u32 {
-        row * 12
     }
 
     /// Return a binding for the entire particle buffer.
@@ -649,8 +635,11 @@ pub struct EffectCache {
     /// pass.
     metadata_init_bind_group_layout: [Option<BindGroupLayout>; 2],
     /// Cache of bind group layouts for the metadata@3 bind group of the
-    /// updatepass.
+    /// update pass.
     metadata_update_bind_group_layouts: HashMap<u32, BindGroupLayout>,
+    /// Cache of bind group layout for the metadata@2 bind group of the
+    /// render pass.
+    metadata_render_bind_group_layout: Option<BindGroupLayout>,
 }
 
 impl EffectCache {
@@ -661,6 +650,7 @@ impl EffectCache {
             particle_bind_group_layouts: default(),
             metadata_init_bind_group_layout: [None, None],
             metadata_update_bind_group_layouts: default(),
+            metadata_render_bind_group_layout: None,
         }
     }
 
@@ -888,6 +878,22 @@ impl EffectCache {
     ) -> Option<&BindGroupLayout> {
         self.metadata_update_bind_group_layouts
             .get(&num_event_buffers)
+    }
+
+    /// Get the bind group layout for the metadata@2 bind group of the
+    /// render pass.
+    pub fn metadata_render_bind_group_layout(&self) -> Option<&BindGroupLayout> {
+        self.metadata_render_bind_group_layout.as_ref()
+    }
+
+    /// Ensure a bind group layout exists for the metadata@2 bind group of
+    /// the render pass.
+    pub fn ensure_metadata_render_bind_group_layout(&mut self) {
+        if self.metadata_render_bind_group_layout.is_none() {
+            self.metadata_render_bind_group_layout = Some(create_metadata_render_bind_group_layout(
+                &self.render_device,
+            ))
+        }
     }
 
     //
@@ -1122,6 +1128,33 @@ fn create_metadata_update_bind_group_layout(
         num_event_buffers,
     );
     render_device.create_bind_group_layout(&label[..], &entries)
+}
+
+/// Create the bind group layout for the metadata@2 bind group of the render
+/// pass.
+fn create_metadata_render_bind_group_layout(render_device: &RenderDevice) -> BindGroupLayout {
+    let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
+    let effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
+
+    // @group(2) @binding(0) var<storage, read> effect_metadata :
+    // EffectMetadata;
+
+    trace!("Creating particle bind group layout for render.",);
+    render_device.create_bind_group_layout(
+        "hanabi:bind_group_layout:render",
+        &[BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::VERTEX,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                // This WGSL struct is manually padded, so the Rust type GpuEffectMetadata doesn't
+                // reflect its true min size.
+                min_binding_size: Some(effect_metadata_size),
+            },
+            count: None,
+        }],
+    )
 }
 
 #[cfg(all(test, feature = "gpu_tests"))]

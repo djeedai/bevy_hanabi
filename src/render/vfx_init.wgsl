@@ -38,7 +38,7 @@ struct ParentParticleBuffer {
 #endif
 
 // "spawner" group @2
-@group(2) @binding(0) var<storage, read> spawner : Spawner;
+@group(2) @binding(0) var<storage, read> spawners : array<Spawner>;
 {{PROPERTIES_BINDING}}
 
 // "metadata" group @3
@@ -63,6 +63,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap to the actual number of spawning requested by CPU or GPU, since compute shaders run
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
+    let spawner_index = effect_metadata.spawner_index;
 #ifdef CONSUME_GPU_SPAWN_EVENTS
     let event_index = thread_index;
     let global_child_index = effect_metadata.global_child_index;
@@ -74,7 +75,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Cap to the actual number of spawning requested by CPU (in the case of
     // spawners) or the number of particles present in the source group (in the
     // case of cloners).
-    let spawn_count: u32 = u32(spawner.spawn);
+    let spawn_count: u32 = u32(spawners[spawner_index].spawn);
     if (thread_index >= spawn_count) {
         return;
     }
@@ -85,20 +86,21 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let read_index = 1u - write_index;
 
     // Recycle a dead particle from the destination group
-    let dead_index = atomicSub(&effect_metadata.dead_count, 1u) - 1u;
+    let dead_index = atomicSub(&effect_metadata.dead_count, 1u) - 1u +
+        effect_metadata.base_instance;
     let particle_index = indirect_buffer.indices[3u * dead_index + 2u];
 
     let particle_counter = atomicAdd(&effect_metadata.particle_counter, 1u);
 
     // Initialize the PRNG seed
-    seed = pcg_hash(particle_index ^ spawner.seed);
+    seed = pcg_hash(particle_index ^ spawners[spawner_index].seed);
 
     // Spawner transform
     let transform = transpose(
         mat4x4(
-            spawner.transform[0],
-            spawner.transform[1],
-            spawner.transform[2],
+            spawners[spawner_index].transform[0],
+            spawners[spawner_index].transform[1],
+            spawners[spawner_index].transform[2],
             vec4<f32>(0.0, 0.0, 0.0, 1.0)
         )
     );
@@ -130,7 +132,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     atomicAdd(&effect_metadata.alive_count, 1u);
 
     // Add to alive list
-    let instance_index = atomicAdd(&effect_metadata.instance_count, 1u);
+    let instance_index = atomicAdd(&effect_metadata.instance_count, 1u) +
+        effect_metadata.base_instance;
     indirect_buffer.indices[3u * instance_index + write_index] = particle_index;
 
     // Write back new particle

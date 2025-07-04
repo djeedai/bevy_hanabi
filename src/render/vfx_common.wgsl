@@ -39,9 +39,8 @@ struct Spawner {
     render_pong: u32,
     /// Index of the [`GpuEffectMetadata`] for this effect.
     effect_metadata_index: u32,
-#ifdef SPAWNER_PADDING
+    /// Padding. We always need this, since spawners are packed into an array.
     {{SPAWNER_PADDING}}
-#endif
 }
 
 const SPAWNER_OFFSET_PONG: u32 = 27u;
@@ -121,7 +120,7 @@ struct EffectMetadata {
     first_index_or_vertex_offset: u32,
     /// Vertex offset (if indexed) or base instance (if non-indexed).
     vertex_offset_or_base_instance: i32,
-    /// Base instance (if indexed).
+    /// Base instance.
     base_instance: u32,
 
     /// Number of particles alive after the init pass, used to calculate the number
@@ -178,6 +177,9 @@ struct EffectMetadata {
     /// The value loops back after some time, but unless some particle lives
     /// forever there's little chance of repetition.
     particle_counter: atomic<u32>,
+
+    /// Index of the spawner associated with this effect in the spawner buffer.
+    spawner_index: u32,
 
     /// Padding for storage buffer alignment. This struct is sometimes bound as part
     /// of an array, or sometimes individually as a single unit. In the later case,

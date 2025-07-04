@@ -630,7 +630,7 @@ axis_z = cam_rot[2].xyz;
                 if let Some(rotation) = self.rotation {
                     let rotation = context.eval(module, rotation)?;
                     context.vertex_code += &format!(
-                        r#"axis_z = normalize(get_camera_position_effect_space() - position);
+                        r#"axis_z = normalize(get_camera_position_effect_space(spawner_index) - position);
 let particle_rot_in_cam_space = {};
 let particle_rot_in_cam_space_cos = cos(particle_rot_in_cam_space);
 let particle_rot_in_cam_space_sin = sin(particle_rot_in_cam_space);
@@ -642,14 +642,14 @@ axis_y = axis_x0 * particle_rot_in_cam_space_sin - axis_y0 * particle_rot_in_cam
                         rotation
                     );
                 } else {
-                    context.vertex_code += r#"axis_z = normalize(get_camera_position_effect_space() - position);
+                    context.vertex_code += r#"axis_z = normalize(get_camera_position_effect_space(spawner_index) - position);
 axis_x = normalize(cross(view.world_from_view[1].xyz, axis_z));
 axis_y = cross(axis_z, axis_x);
 "#;
                 }
             }
             OrientMode::AlongVelocity => {
-                context.vertex_code += r#"let dir = normalize(position - get_camera_position_effect_space());
+                context.vertex_code += r#"let dir = normalize(position - get_camera_position_effect_space(spawner_index));
 axis_x = normalize(particle.velocity);
 axis_y = cross(dir, axis_x);
 axis_z = cross(axis_x, axis_y);
