@@ -491,8 +491,8 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC2F,
             storage: [
-                unsafe { std::mem::transmute::<f32, u32>(value.x) },
-                unsafe { std::mem::transmute::<f32, u32>(value.y) },
+                f32::to_bits(value.x),
+                f32::to_bits(value.y),
                 0u32,
                 0u32,
             ],
@@ -505,9 +505,9 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC3F,
             storage: [
-                unsafe { std::mem::transmute::<f32, u32>(value.x) },
-                unsafe { std::mem::transmute::<f32, u32>(value.y) },
-                unsafe { std::mem::transmute::<f32, u32>(value.z) },
+                f32::to_bits(value.x),
+                f32::to_bits(value.y),
+                f32::to_bits(value.z),
                 0u32,
             ],
         }
@@ -528,8 +528,8 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC2I,
             storage: [
-                unsafe { std::mem::transmute::<i32, u32>(value.x) },
-                unsafe { std::mem::transmute::<i32, u32>(value.y) },
+                f32::to_bits(value.x as f32),
+                f32::to_bits(value.y as f32),
                 0u32,
                 0u32,
             ],
@@ -542,9 +542,9 @@ impl VectorValue {
         Self {
             vector_type: VectorType::VEC3I,
             storage: [
-                unsafe { std::mem::transmute::<i32, u32>(value.x) },
-                unsafe { std::mem::transmute::<i32, u32>(value.y) },
-                unsafe { std::mem::transmute::<i32, u32>(value.z) },
+                f32::to_bits(value.x as f32),
+                f32::to_bits(value.y as f32),
+                f32::to_bits(value.z as f32),
                 0u32,
             ],
         }
