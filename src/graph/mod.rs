@@ -486,7 +486,6 @@ impl VectorValue {
     }
 
     /// Workaround for `impl const From<Vec2>`.
-    #[allow(unsafe_code, clippy::transmute_float_to_int)] // to_bits() can't be const
     pub const fn new_vec2(value: Vec2) -> Self {
         Self {
             vector_type: VectorType::VEC2F,
@@ -500,7 +499,6 @@ impl VectorValue {
     }
 
     /// Workaround for `impl const From<Vec3>`.
-    #[allow(unsafe_code, clippy::transmute_float_to_int)] // to_bits() can't be const
     pub const fn new_vec3(value: Vec3) -> Self {
         Self {
             vector_type: VectorType::VEC3F,
@@ -523,13 +521,12 @@ impl VectorValue {
     }
 
     /// Workaround for `impl const From<IVec2>`.
-    #[allow(unsafe_code)]
     pub const fn new_ivec2(value: IVec2) -> Self {
         Self {
             vector_type: VectorType::VEC2I,
             storage: [
-                f32::to_bits(value.x as f32),
-                f32::to_bits(value.y as f32),
+                value.x as u32,
+                value.y as u32,
                 0u32,
                 0u32,
             ],
@@ -537,14 +534,13 @@ impl VectorValue {
     }
 
     /// Workaround for `impl const From<IVec3>`.
-    #[allow(unsafe_code)]
     pub const fn new_ivec3(value: IVec3) -> Self {
         Self {
             vector_type: VectorType::VEC3I,
             storage: [
-                f32::to_bits(value.x as f32),
-                f32::to_bits(value.y as f32),
-                f32::to_bits(value.z as f32),
+                value.x as u32,
+                value.y as u32,
+                value.z as u32,
                 0u32,
             ],
         }
