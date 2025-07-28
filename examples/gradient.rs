@@ -102,6 +102,7 @@ fn setup(
             },
         ))
         .with_children(|p| {
+            // Reference cube to visualize the emit origin
             p.spawn((
                 Mesh3d(meshes.add(Cuboid {
                     half_size: Vec3::splat(0.5),
