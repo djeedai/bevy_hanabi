@@ -105,9 +105,9 @@ fn setup(
             // Reference cube to visualize the emit origin
             p.spawn((
                 Mesh3d(meshes.add(Cuboid {
-                    half_size: Vec3::splat(0.5),
+                    half_size: Vec3::splat(1.0),
                 })),
-                MeshMaterial3d(materials.add(utils::COLOR_RED)),
+                MeshMaterial3d(materials.add(utils::COLOR_BLUE)),
                 RenderLayers::layer(3),
             ));
         });
