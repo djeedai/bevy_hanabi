@@ -107,6 +107,7 @@ fn setup(
                     half_size: Vec3::splat(0.5),
                 })),
                 MeshMaterial3d(materials.add(utils::COLOR_RED)),
+                RenderLayers::layer(3),
             ));
         });
 }
