@@ -38,7 +38,7 @@ struct ParentParticleBuffer {
 #endif
 
 // "spawner" group @2
-@group(2) @binding(0) var<storage, read> spawner : Spawner;
+@group(2) @binding(0) var<storage, read> spawners : array<Spawner>;
 {{PROPERTIES_BINDING}}
 
 // "metadata" group @3
@@ -66,10 +66,13 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let write_index = effect_metadata.ping;
     let read_index = 1u - write_index;
 
-    let particle_index = indirect_buffer.indices[3u * thread_index + read_index];
+    let particle_index = indirect_buffer.indices[
+        3u * (thread_index + effect_metadata.base_instance) + read_index
+    ];
 
     // Initialize the PRNG seed
-    seed = pcg_hash(particle_index ^ spawner.seed);
+    let spawner_index = effect_metadata.spawner_index;
+    seed = pcg_hash(particle_index ^ spawners[spawner_index].seed);
 
     var particle: Particle = particle_buffer.particles[particle_index];
     {{AGE_CODE}}
@@ -81,7 +84,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Check if alive
     if (!is_alive) {
         // Save dead index
-        let dead_index = atomicAdd(&effect_metadata.dead_count, 1u);
+        let dead_index = atomicAdd(&effect_metadata.dead_count, 1u) +
+            effect_metadata.base_instance;
         indirect_buffer.indices[3u * dead_index + 2u] = particle_index;
 
         // Also increment copy of dead count, which was updated in dispatch indirect
@@ -90,7 +94,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         atomicSub(&effect_metadata.alive_count, 1u);
     } else {
         // Increment alive particle count and write indirection index for later rendering
-        let indirect_index = atomicAdd(&effect_metadata.instance_count, 1u);
+        let indirect_index = atomicAdd(&effect_metadata.instance_count, 1u) +
+            effect_metadata.base_instance;
         indirect_buffer.indices[3u * indirect_index + write_index] = particle_index;
     }
 }

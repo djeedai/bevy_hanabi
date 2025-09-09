@@ -155,13 +155,13 @@ impl PropertyCache {
             GpuSpawnerParams::aligned_size(device.limits().min_storage_buffer_offset_alignment);
         let bgl = device.create_bind_group_layout(
             "hanabi:bind_group_layout:no_property",
-            // @group(2) @binding(0) var<storage, read> spawner: Spawner;
+            // @group(2) @binding(0) var<storage, read> spawners: array<Spawner>;
             &[BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: true,
+                    has_dynamic_offset: false,
                     min_binding_size: Some(spawner_min_binding_size),
                 },
                 count: None,
@@ -225,13 +225,13 @@ impl PropertyCache {
                 let bgl = self.device.create_bind_group_layout(
                     Some(&label[..]),
                     &[
-                        // @group(2) @binding(0) var<storage, read> spawner: Spawner;
+                        // @group(2) @binding(0) var<storage, read> spawners: array<Spawner>;
                         BindGroupLayoutEntry {
                             binding: 0,
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Buffer {
                                 ty: BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: true,
+                                has_dynamic_offset: false,
                                 min_binding_size: Some(spawner_min_binding_size),
                             },
                             count: None,
@@ -362,7 +362,6 @@ impl PropertyBindGroups {
         property_key: &PropertyBindGroupKey,
         property_cache: &PropertyCache,
         spawner_buffer: &Buffer,
-        spawner_buffer_binding_size: NonZeroU64,
         render_device: &RenderDevice,
     ) -> Result<(), ()> {
         let Some(property_buffer) = property_cache.get_buffer(property_key.buffer_index) else {
@@ -405,7 +404,7 @@ impl PropertyBindGroups {
                             resource: BindingResource::Buffer(BufferBinding {
                                 buffer: spawner_buffer,
                                 offset: 0,
-                                size: Some(spawner_buffer_binding_size),
+                                size: None,
                             }),
                         },
                         BindGroupEntry {
@@ -427,7 +426,6 @@ impl PropertyBindGroups {
         &mut self,
         property_cache: &PropertyCache,
         spawner_buffer: &Buffer,
-        spawner_buffer_binding_size: NonZeroU64,
         render_device: &RenderDevice,
     ) -> Result<(), ()> {
         let Some(layout) = property_cache.bind_group_layout(None) else {
@@ -447,7 +445,7 @@ impl PropertyBindGroups {
                     resource: BindingResource::Buffer(BufferBinding {
                         buffer: spawner_buffer,
                         offset: 0,
-                        size: Some(spawner_buffer_binding_size),
+                        size: None,
                     }),
                 }],
             ));

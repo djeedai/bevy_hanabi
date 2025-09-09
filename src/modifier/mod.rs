@@ -987,7 +987,7 @@ fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {{
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
-@group(2) @binding(0) var<storage, read_write> spawner : Spawner; // NOTE - same group as init
+@group(2) @binding(0) var<storage, read_write> spawners : array<Spawner>; // NOTE - same group as init
 
 @compute @workgroup_size(64)
 fn main() {{
@@ -1078,7 +1078,7 @@ struct View {{
 }}
 
 fn frand() -> f32 {{ return 0.0; }}
-fn get_camera_position_effect_space() -> vec3<f32> {{ return vec3<f32>(); }}
+fn get_camera_position_effect_space(spawner_index: u32) -> vec3<f32> {{ return vec3<f32>(); }}
 fn get_camera_rotation_effect_space() -> mat3x3<f32> {{ return mat3x3<f32>(); }}
 
 const tau: f32 = 6.283185307179586476925286766559;

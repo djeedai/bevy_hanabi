@@ -1178,8 +1178,8 @@ fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
                 let tex_index = bind_index;
                 let sampler_index = bind_index + 1;
                 material_bindings_code.push_str(&format!(
-                    "@group(2) @binding({tex_index}) var material_texture_{slot}: texture_2d<f32>;
-@group(2) @binding({sampler_index}) var material_sampler_{slot}: sampler;
+                    "@group(3) @binding({tex_index}) var material_texture_{slot}: texture_2d<f32>;
+@group(3) @binding({sampler_index}) var material_sampler_{slot}: sampler;
 "
                 ));
                 bind_index += 2;
