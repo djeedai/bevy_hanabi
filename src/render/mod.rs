@@ -121,7 +121,7 @@ pub(crate) struct BufferBindingSource {
 
 impl BufferBindingSource {
     /// Get a binding over the source data.
-    pub fn binding(&self) -> BindingResource {
+    pub fn binding(&self) -> BindingResource<'_> {
         BindingResource::Buffer(BufferBinding {
             buffer: &self.buffer,
             offset: self.offset as u64 * 4,

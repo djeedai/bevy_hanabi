@@ -489,12 +489,7 @@ impl VectorValue {
     pub const fn new_vec2(value: Vec2) -> Self {
         Self {
             vector_type: VectorType::VEC2F,
-            storage: [
-                f32::to_bits(value.x),
-                f32::to_bits(value.y),
-                0u32,
-                0u32,
-            ],
+            storage: [f32::to_bits(value.x), f32::to_bits(value.y), 0u32, 0u32],
         }
     }
 
@@ -524,12 +519,7 @@ impl VectorValue {
     pub const fn new_ivec2(value: IVec2) -> Self {
         Self {
             vector_type: VectorType::VEC2I,
-            storage: [
-                value.x as u32,
-                value.y as u32,
-                0u32,
-                0u32,
-            ],
+            storage: [value.x as u32, value.y as u32, 0u32, 0u32],
         }
     }
 
@@ -537,12 +527,7 @@ impl VectorValue {
     pub const fn new_ivec3(value: IVec3) -> Self {
         Self {
             vector_type: VectorType::VEC3I,
-            storage: [
-                value.x as u32,
-                value.y as u32,
-                value.z as u32,
-                0u32,
-            ],
+            storage: [value.x as u32, value.y as u32, value.z as u32, 0u32],
         }
     }
 
@@ -625,7 +610,7 @@ impl VectorValue {
     }
 
     /// Get the scalar value of an element of the vector.
-    pub fn value_mut(&mut self, index: usize) -> ScalarValueMut {
+    pub fn value_mut(&mut self, index: usize) -> ScalarValueMut<'_> {
         match self.elem_type() {
             ScalarType::Bool => ScalarValueMut::Bool(self.get_mut::<bool>(index)),
             ScalarType::Float => ScalarValueMut::Float(self.get_mut::<f32>(index)),
@@ -2038,51 +2023,24 @@ mod tests {
         {
             let v = IVec2::new(-3, 5);
             let vv = VectorValue::new_ivec2(v);
-            assert_eq!(
-                unsafe { std::mem::transmute::<i32, u32>(v.x) },
-                vv.storage[0]
-            );
-            assert_eq!(
-                unsafe { std::mem::transmute::<i32, u32>(v.y) },
-                vv.storage[1]
-            );
+            assert_eq!(v.x as u32, vv.storage[0]);
+            assert_eq!(v.y as u32, vv.storage[1]);
             assert_eq!(0u32, vv.storage[2]);
             assert_eq!(0u32, vv.storage[3]);
 
             let v = IVec3::new(-3, 5, 64);
             let vv = VectorValue::new_ivec3(v);
-            assert_eq!(
-                unsafe { std::mem::transmute::<i32, u32>(v.x) },
-                vv.storage[0]
-            );
-            assert_eq!(
-                unsafe { std::mem::transmute::<i32, u32>(v.y) },
-                vv.storage[1]
-            );
-            assert_eq!(
-                unsafe { std::mem::transmute::<i32, u32>(v.z) },
-                vv.storage[2]
-            );
+            assert_eq!(v.x as u32, vv.storage[0]);
+            assert_eq!(v.y as u32, vv.storage[1]);
+            assert_eq!(v.z as u32, vv.storage[2]);
             assert_eq!(0u32, vv.storage[3]);
 
             let v = IVec4::new(-3, 5, 64, -42);
             let vv = VectorValue::new_ivec4(v);
-            assert_eq!(
-                unsafe { std::mem::transmute::<i32, u32>(v.x) },
-                vv.storage[0]
-            );
-            assert_eq!(
-                unsafe { std::mem::transmute::<i32, u32>(v.y) },
-                vv.storage[1]
-            );
-            assert_eq!(
-                unsafe { std::mem::transmute::<i32, u32>(v.z) },
-                vv.storage[2]
-            );
-            assert_eq!(
-                unsafe { std::mem::transmute::<i32, u32>(v.w) },
-                vv.storage[3]
-            );
+            assert_eq!(v.x as u32, vv.storage[0]);
+            assert_eq!(v.y as u32, vv.storage[1]);
+            assert_eq!(v.z as u32, vv.storage[2]);
+            assert_eq!(v.w as u32, vv.storage[3]);
         }
 
         let v = UVec2::new(3, 5);

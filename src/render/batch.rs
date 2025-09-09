@@ -185,7 +185,7 @@ impl SortedEffectBatches {
 
     /// Get an iterator over the sorted sequence of effect batches.
     #[inline]
-    pub fn iter(&self) -> SortedEffectBatchesIter {
+    pub fn iter(&self) -> SortedEffectBatchesIter<'_> {
         assert_eq!(
             self.batches.len(),
             self.sorted_indices.len(),

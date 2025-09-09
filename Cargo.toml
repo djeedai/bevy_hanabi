@@ -63,7 +63,7 @@ ron = "0.8"
 bitflags = "2.3"
 typetag = { version = "0.2", optional = true }
 thiserror = "2"
-# Same versions as Bevy 0.15 (bevy_render)
+# Same versions as Bevy 0.16 (bevy_render)
 wgpu = { version = "24", default-features = false, features = [
   "wgsl",
   "dx12",

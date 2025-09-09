@@ -336,7 +336,7 @@ impl EffectBuffer {
     }
 
     /// Return a binding for the entire particle buffer.
-    pub fn max_binding(&self) -> BindingResource {
+    pub fn max_binding(&self) -> BindingResource<'_> {
         let capacity_bytes = self.capacity as u64 * self.particle_layout.min_binding_size().get();
         BindingResource::Buffer(BufferBinding {
             buffer: &self.particle_buffer,
@@ -357,7 +357,7 @@ impl EffectBuffer {
 
     /// Return a binding for the entire indirect buffer associated with the
     /// current effect buffer.
-    pub fn indirect_index_max_binding(&self) -> BindingResource {
+    pub fn indirect_index_max_binding(&self) -> BindingResource<'_> {
         let capacity_bytes = self.capacity as u64 * 12;
         BindingResource::Buffer(BufferBinding {
             buffer: &self.indirect_index_buffer,
