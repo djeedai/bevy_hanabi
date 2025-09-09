@@ -1,10 +1,11 @@
-use std::{collections::VecDeque, fmt::Debug, num::NonZeroU32, ops::Range};
+use std::{fmt::Debug, num::NonZeroU32, ops::Range};
 
 use bevy::{
-    platform::collections::HashMap,
+    ecs::entity::EntityHashMap,
     prelude::*,
     render::{render_resource::CachedComputePipelineId, sync_world::MainEntity},
 };
+use fixedbitset::FixedBitSet;
 
 use super::{
     effect_cache::{DispatchBufferIndices, EffectSlice},
@@ -59,10 +60,6 @@ pub(crate) struct EffectBatch {
     /// Note that we don't need to keep the init/update shaders alive because
     /// their pipeline specialization is doing it via the specialization key.
     pub render_shader: Handle<Shader>,
-    /// Index of the buffer of the parent effect, if any. If a parent exists,
-    /// its particle buffer is made available (read-only) for a child effect to
-    /// read its attributes.
-    pub parent_buffer_index: Option<u32>,
     pub parent_min_binding_size: Option<NonZeroU32>,
     pub parent_binding_source: Option<BufferBindingSource>,
     /// Event buffers of child effects, if any.
@@ -105,44 +102,6 @@ pub(crate) struct EffectBatch {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct EffectBatchIndex(pub u32);
 
-pub(crate) struct SortedEffectBatchesIter<'a> {
-    batches: &'a [EffectBatch],
-    sorted_indices: &'a [u32],
-    next: u32,
-}
-
-impl<'a> SortedEffectBatchesIter<'a> {
-    pub fn new(source: &'a SortedEffectBatches) -> Self {
-        assert_eq!(source.batches.len(), source.sorted_indices.len());
-        Self {
-            batches: &source.batches[..],
-            sorted_indices: &source.sorted_indices[..],
-            next: 0,
-        }
-    }
-}
-
-impl<'a> Iterator for SortedEffectBatchesIter<'a> {
-    type Item = &'a EffectBatch;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.next < self.sorted_indices.len() as u32 {
-            let index = self.sorted_indices[self.next as usize];
-            let batch = &self.batches[index as usize];
-            self.next += 1;
-            Some(batch)
-        } else {
-            None
-        }
-    }
-}
-
-impl ExactSizeIterator for SortedEffectBatchesIter<'_> {
-    fn len(&self) -> usize {
-        self.sorted_indices.len()
-    }
-}
-
 #[derive(Debug, Default, Resource)]
 pub(crate) struct SortedEffectBatches {
     /// Effect batches in the order they were inserted by [`push()`], indexed by
@@ -150,12 +109,6 @@ pub(crate) struct SortedEffectBatches {
     ///
     /// [`push()`]: Self::push
     batches: Vec<EffectBatch>,
-    /// Indices into [`batches`] defining the sorted order batches need to be
-    /// processed in. Calculated by [`sort()`].
-    ///
-    /// [`batches`]: Self::batches
-    /// [`sort()`]: Self::sort
-    sorted_indices: Vec<u32>,
     /// Index of the dispatch queue used for indirect fill dispatch and
     /// submitted to [`GpuBufferOperations`].
     pub(super) dispatch_queue_index: Option<u32>,
@@ -164,7 +117,6 @@ pub(crate) struct SortedEffectBatches {
 impl SortedEffectBatches {
     pub fn clear(&mut self) {
         self.batches.clear();
-        self.sorted_indices.clear();
         self.dispatch_queue_index = None;
     }
 
@@ -185,13 +137,8 @@ impl SortedEffectBatches {
 
     /// Get an iterator over the sorted sequence of effect batches.
     #[inline]
-    pub fn iter(&self) -> SortedEffectBatchesIter {
-        assert_eq!(
-            self.batches.len(),
-            self.sorted_indices.len(),
-            "Invalid sorted size. Did you call sort() beforehand?"
-        );
-        SortedEffectBatchesIter::new(self)
+    pub fn iter(&self) -> impl Iterator<Item = &EffectBatch> {
+        self.batches.iter()
     }
 
     pub fn get(&self, index: EffectBatchIndex) -> Option<&EffectBatch> {
@@ -201,103 +148,131 @@ impl SortedEffectBatches {
             None
         }
     }
+}
 
-    /// Sort the effect batches.
-    pub fn sort(&mut self) {
-        self.sorted_indices.clear();
-        self.sorted_indices.reserve_exact(self.batches.len());
+/// Sorts effects into the proper order for batching.
+///
+/// This places parents before children and also tries to place effects in the
+/// same buffer together.
+pub(crate) struct EffectSorter {
+    /// Information that we keep about each effect.
+    pub(crate) effects: Vec<EffectToBeSorted>,
+    /// A mapping from a child to its parent, if it has one.
+    pub(crate) child_to_parent: EntityHashMap<Entity>,
+}
 
-        // Kahn’s algorithm for topological sorting.
+/// Information that the [`EffectSorter`] maintains in order to sort each
+/// effect into the proper order.
+pub(crate) struct EffectToBeSorted {
+    /// The render-world entity of the effect.
+    pub(crate) entity: Entity,
+    /// The index of the buffer that the indirect indices for this effect are
+    /// stored in.
+    pub(crate) buffer_index: u32,
+    /// The offset within the buffer described above at which the indirect
+    /// indices for this effect start.
+    ///
+    /// This is in elements, not bytes.
+    pub(crate) base_instance: u32,
+}
 
-        // Note: we sort by particle buffer index. In theory with batching this is
-        // incorrect, because a parent and child could be batched together in the same
-        // buffer, in the wrong order. However currently batching is broken and we
-        // allocate one effect instance per buffer, so this works. Ideally we'd take
-        // care of sorting earlier during batching.
+/// The key that we sort effects by for optimum batching.
+#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+struct EffectSortKey {
+    /// The level in the dependency graph.
+    ///
+    /// Parents always have lower levels than their children.
+    level: u32,
+    /// The index of the buffer that the indirect indices for this effect are
+    /// stored in.
+    buffer_index: u32,
+    /// The offset within the buffer described above at which the indirect
+    /// indices for this effect start.
+    base_instance: u32,
+}
 
-        // Build a map from buffer index to batch index.
-        let batch_index_from_buffer_index = self
-            .batches
-            .iter()
-            .enumerate()
-            .map(|(batch_index, effect_batch)| (effect_batch.buffer_index, batch_index))
-            .collect::<HashMap<_, _>>();
-        // In theory with batching we could have multiple batches referencing the same
-        // buffer if we failed to batch some effect instances together which
-        // otherwise share a same particle buffer. In practice this currently doesn't
-        // happen because batching is disabled, so we always create one buffer
-        // per effect instance. But this will need to be fixed later.
-        assert_eq!(
-            batch_index_from_buffer_index.len(),
-            self.batches.len(),
-            "FIXME: Duplicate buffer index in batches. This is not implemented yet."
-        );
+impl EffectSorter {
+    /// Creates a new [`EffectSorter`].
+    pub(crate) fn new() -> EffectSorter {
+        EffectSorter {
+            effects: vec![],
+            child_to_parent: EntityHashMap::default(),
+        }
+    }
 
-        // Build a map from the batch index of a child to the batch index of its
-        // parent.
-        let mut parent_batch_index_from_batch_index = HashMap::with_capacity(self.batches.len());
-        for (batch_index, effect_batch) in self.batches.iter().enumerate() {
-            if let Some(parent_buffer_index) = effect_batch.parent_buffer_index {
-                let parent_batch_index = batch_index_from_buffer_index
-                    .get(&parent_buffer_index)
-                    .unwrap();
-                parent_batch_index_from_batch_index.insert(batch_index as u32, *parent_batch_index);
+    /// Sorts all the effects into the optimal order for batching.
+    pub(crate) fn sort(&mut self) {
+        // First, create a map of entity to index.
+        let mut entity_to_index = EntityHashMap::default();
+        for (index, effect) in self.effects.iter().enumerate() {
+            entity_to_index.insert(effect.entity, index);
+        }
+
+        // Next, create a map of children to their parents.
+        let mut children_to_parent: Vec<_> = (0..self.effects.len()).map(|_| vec![]).collect();
+        for (kid, parent) in self.child_to_parent.iter() {
+            let (parent_index, kid_index) = (entity_to_index[parent], entity_to_index[kid]);
+            children_to_parent[kid_index].push(parent_index);
+        }
+
+        // Now topologically sort the graph. Create an ordering that places
+        // children before parents.
+        // https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
+        let mut ordering = vec![0; self.effects.len()];
+        let mut visiting = FixedBitSet::with_capacity(self.effects.len());
+        let mut visited = FixedBitSet::with_capacity(self.effects.len());
+        while let Some(effect_index) = visited.zeroes().next() {
+            visit(
+                &mut ordering,
+                &mut visiting,
+                &mut visited,
+                &children_to_parent,
+                effect_index,
+            );
+        }
+
+        // Compute levels.
+        let mut levels = vec![0; self.effects.len()];
+        for effect_index in ordering.into_iter().rev() {
+            let level = levels[effect_index];
+            for &parent in &children_to_parent[effect_index] {
+                levels[parent] = levels[parent].max(level + 1);
             }
         }
 
-        // Store the number of children per batch; we need to decrement it below
-        // HACK - during tests we don't want to create Buffers so grab the count another
-        // (slower) way
-        #[cfg(test)]
-        let mut child_count = {
-            let mut counts = vec![0; self.batches.len()];
-            for (_, parent_batch_index) in &parent_batch_index_from_batch_index {
-                counts[*parent_batch_index] += 1;
-            }
-            counts
-        };
-        #[cfg(not(test))]
-        let mut child_count = self
-            .batches
-            .iter()
-            .map(|effect_batch| effect_batch.child_event_buffers.len() as u32)
-            .collect::<Vec<_>>();
+        // Now sort the result.
+        self.effects.sort_unstable_by_key(|effect| EffectSortKey {
+            level: levels[entity_to_index[&effect.entity]],
+            buffer_index: effect.buffer_index,
+            base_instance: effect.base_instance,
+        });
 
-        // Insert in queue all effects without any child
-        let mut queue = VecDeque::new();
-        for (batch_index, count) in child_count.iter().enumerate() {
-            if *count == 0 {
-                queue.push_back(batch_index as u32);
+        // A helper function for topologically sorting the effect dependency
+        // graph.
+        fn visit(
+            ordering: &mut Vec<usize>,
+            visiting: &mut FixedBitSet,
+            visited: &mut FixedBitSet,
+            children_to_parent: &[Vec<usize>],
+            effect_index: usize,
+        ) {
+            if visited.contains(effect_index) {
+                return;
             }
+            debug_assert!(
+                !visiting.contains(effect_index),
+                "Parent-child effect relation contains a cycle"
+            );
+
+            visiting.insert(effect_index);
+
+            for &parent in &children_to_parent[effect_index] {
+                visit(ordering, visiting, visited, children_to_parent, parent);
+            }
+
+            visited.insert(effect_index);
+            ordering.push(effect_index);
         }
-
-        // Process queue
-        while let Some(batch_index) = queue.pop_front() {
-            // The batch has no unprocessed child, so it can be inserted in the final result
-            assert!(child_count[batch_index as usize] == 0);
-            self.sorted_indices.push(batch_index);
-
-            // If it has a parent, that parent has one less child to be processed, so is one
-            // step closer to being inserted itself in the final result.
-            let Some(parent_batch_index) = parent_batch_index_from_batch_index.get(&batch_index)
-            else {
-                continue;
-            };
-            assert!(child_count[*parent_batch_index] > 0);
-            child_count[*parent_batch_index] -= 1;
-
-            // If this was the last child effect of that parent, then the parent is ready
-            // and can be inserted itself.
-            if child_count[*parent_batch_index] == 0 {
-                queue.push_back(*parent_batch_index as u32);
-            }
-        }
-
-        assert_eq!(
-            self.sorted_indices.len(),
-            self.batches.len(),
-            "Cycle detected in effects"
-        );
     }
 }
 
@@ -357,7 +332,6 @@ impl EffectBatch {
             spawn_info,
             init_and_update_pipeline_ids: input.init_and_update_pipeline_ids,
             render_shader: input.shaders.render.clone(),
-            parent_buffer_index: input.parent_buffer_index,
             parent_min_binding_size: cached_child_info
                 .map(|cci| cci.parent_particle_layout.min_binding_size32()),
             parent_binding_source: cached_child_info
@@ -394,8 +368,6 @@ pub(crate) struct BatchInput {
     pub effect_slice: EffectSlice,
     /// Compute pipeline IDs of the specialized and cached pipelines.
     pub init_and_update_pipeline_ids: InitAndUpdatePipelineIds,
-    /// Index of the buffer of the parent effect, if any.
-    pub parent_buffer_index: Option<u32>,
     /// Index of the event buffer, if this effect consumes GPU spawn events.
     pub event_buffer_index: Option<u32>,
     /// Child effects, if any.
@@ -432,88 +404,72 @@ pub(crate) struct InitAndUpdatePipelineIds {
 
 #[cfg(test)]
 mod tests {
+    use bevy::ecs::entity::Entity;
+
     use super::*;
 
-    fn make_batch(buffer_index: u32, parent_buffer_index: Option<u32>) -> EffectBatch {
-        EffectBatch {
-            handle: default(),
+    fn insert_entry(
+        sorter: &mut EffectSorter,
+        entity: Entity,
+        buffer_index: u32,
+        base_instance: u32,
+        parent: Option<Entity>,
+    ) {
+        sorter.effects.push(EffectToBeSorted {
+            entity,
+            base_instance,
             buffer_index,
-            slice: 0..0,
-            spawn_info: BatchSpawnInfo::CpuSpawner {
-                total_spawn_count: 0,
-            },
-            init_and_update_pipeline_ids: InitAndUpdatePipelineIds {
-                init: CachedComputePipelineId::INVALID,
-                update: CachedComputePipelineId::INVALID,
-            },
-            render_shader: default(),
-            parent_buffer_index,
-            parent_min_binding_size: default(),
-            parent_binding_source: default(),
-            child_event_buffers: default(),
-            property_key: default(),
-            property_offset: default(),
-            spawner_base: default(),
-            dispatch_buffer_indices: default(),
-            particle_layout: ParticleLayout::empty(),
-            layout_flags: LayoutFlags::NONE,
-            mesh: default(),
-            texture_layout: default(),
-            textures: default(),
-            alpha_mode: default(),
-            entities: default(),
-            cached_effect_events: default(),
-            sort_fill_indirect_dispatch_index: default(),
+        });
+        if let Some(parent) = parent {
+            sorter.child_to_parent.insert(entity, parent);
         }
     }
 
     #[test]
     fn toposort_batches() {
-        let mut seb = SortedEffectBatches::default();
-        assert!(seb.is_empty());
-        assert_eq!(seb.len(), 0);
+        let mut sorter = EffectSorter::new();
 
-        seb.push(make_batch(42, None));
-        assert!(!seb.is_empty());
-        assert_eq!(seb.len(), 1);
+        // Some "parent" effect
+        let e1 = Entity::from_raw(1);
+        insert_entry(&mut sorter, e1, 42, 0, None);
+        assert_eq!(sorter.effects.len(), 1);
+        assert_eq!(sorter.effects[0].entity, e1);
+        assert!(sorter.child_to_parent.is_empty());
 
-        seb.push(make_batch(5, Some(42)));
-        assert!(!seb.is_empty());
-        assert_eq!(seb.len(), 2);
+        // Some "child" effect in a different buffer
+        let e2 = Entity::from_raw(2);
+        insert_entry(&mut sorter, e2, 5, 30, Some(e1));
+        assert_eq!(sorter.effects.len(), 2);
+        assert_eq!(sorter.effects[0].entity, e1);
+        assert_eq!(sorter.effects[1].entity, e2);
+        assert_eq!(sorter.child_to_parent.len(), 1);
+        assert_eq!(sorter.child_to_parent[&e2], e1);
 
-        seb.sort();
-        assert!(!seb.is_empty());
-        assert_eq!(seb.len(), 2);
-        let sorted_batches = seb.iter().collect::<Vec<_>>();
-        assert_eq!(sorted_batches.len(), 2);
-        assert_eq!(sorted_batches[0].buffer_index, 5);
-        assert_eq!(sorted_batches[1].buffer_index, 42);
+        sorter.sort();
+        assert_eq!(sorter.effects.len(), 2);
+        assert_eq!(sorter.effects[0].entity, e2); // child first
+        assert_eq!(sorter.effects[1].entity, e1); // parent after
+        assert_eq!(sorter.child_to_parent.len(), 1); // unchanged
+        assert_eq!(sorter.child_to_parent[&e2], e1); // unchanged
 
-        seb.push(make_batch(6, Some(42)));
-        assert!(!seb.is_empty());
-        assert_eq!(seb.len(), 3);
+        // Some "child" effect in the same buffer as its parent
+        let e3 = Entity::from_raw(3);
+        insert_entry(&mut sorter, e3, 42, 20, Some(e1));
+        assert_eq!(sorter.effects.len(), 3);
+        assert_eq!(sorter.effects[0].entity, e2); // from previous sort
+        assert_eq!(sorter.effects[1].entity, e1); // from previous sort
+        assert_eq!(sorter.effects[2].entity, e3); // simply appended
+        assert_eq!(sorter.child_to_parent.len(), 2);
+        assert_eq!(sorter.child_to_parent[&e2], e1);
+        assert_eq!(sorter.child_to_parent[&e3], e1);
 
-        seb.sort();
-        assert!(!seb.is_empty());
-        assert_eq!(seb.len(), 3);
-        let sorted_batches = seb.iter().collect::<Vec<_>>();
-        assert_eq!(sorted_batches.len(), 3);
-        assert_eq!(sorted_batches[0].buffer_index, 5);
-        assert_eq!(sorted_batches[1].buffer_index, 6);
-        assert_eq!(sorted_batches[2].buffer_index, 42);
-
-        seb.push(make_batch(55, Some(5)));
-        assert!(!seb.is_empty());
-        assert_eq!(seb.len(), 4);
-
-        seb.sort();
-        assert!(!seb.is_empty());
-        assert_eq!(seb.len(), 4);
-        let sorted_batches = seb.iter().collect::<Vec<_>>();
-        assert_eq!(sorted_batches.len(), 4);
-        assert_eq!(sorted_batches[0].buffer_index, 6);
-        assert_eq!(sorted_batches[1].buffer_index, 55);
-        assert_eq!(sorted_batches[2].buffer_index, 5);
-        assert_eq!(sorted_batches[3].buffer_index, 42);
+        sorter.sort();
+        assert_eq!(sorter.effects.len(), 3);
+        assert_eq!(sorter.effects[0].entity, e2); // child first
+        assert_eq!(sorter.effects[1].entity, e3); // other child next (in same buffer as parent)
+        assert_eq!(sorter.effects[2].entity, e1); // finally, parent
+        assert_eq!(sorter.child_to_parent.len(), 2);
+        assert_eq!(sorter.child_to_parent[&e2], e1);
+        assert_eq!(sorter.child_to_parent[&e3], e1);
     }
 }

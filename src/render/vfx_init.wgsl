@@ -85,7 +85,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let read_index = 1u - write_index;
 
     // Recycle a dead particle from the destination group
-    let dead_index = atomicSub(&effect_metadata.dead_count, 1u) - 1u;
+    let dead_index = atomicSub(&effect_metadata.dead_count, 1u) - 1u +
+        effect_metadata.base_instance;
     let particle_index = indirect_buffer.indices[3u * dead_index + 2u];
 
     let particle_counter = atomicAdd(&effect_metadata.particle_counter, 1u);
@@ -130,7 +131,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     atomicAdd(&effect_metadata.alive_count, 1u);
 
     // Add to alive list
-    let instance_index = atomicAdd(&effect_metadata.instance_count, 1u);
+    let instance_index = atomicAdd(&effect_metadata.instance_count, 1u) +
+        effect_metadata.base_instance;
     indirect_buffer.indices[3u * instance_index + write_index] = particle_index;
 
     // Write back new particle

@@ -67,7 +67,9 @@ use crate::{
     asset::{DefaultMesh, EffectAsset},
     calc_func_id,
     render::{
-        batch::{BatchInput, EffectDrawBatch, InitAndUpdatePipelineIds},
+        batch::{
+            BatchInput, EffectDrawBatch, EffectSorter, EffectToBeSorted, InitAndUpdatePipelineIds,
+        },
         effect_cache::DispatchBufferIndices,
     },
     AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
@@ -1711,6 +1713,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
 pub(crate) struct ParticlesRenderPipeline {
     render_device: RenderDevice,
     view_layout: BindGroupLayout,
+    effect_metadata_bind_group_layout: BindGroupLayout,
     material_layouts: HashMap<TextureLayout, BindGroupLayout>,
 }
 
@@ -1808,9 +1811,32 @@ impl FromWorld for ParticlesRenderPipeline {
             ],
         );
 
+        let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
+        let effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
+
+        let effect_metadata_bind_group_layout = render_device.create_bind_group_layout(
+            "hanabi:bind_group_layout:render:effect_metadata",
+            &[
+                // @group(2) @binding(0) var<storage, read> effect_metadata : EffectMetadata;
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        // This WGSL struct is manually padded, so the Rust type GpuEffectMetadata doesn't
+                        // reflect its true min size.
+                        min_binding_size: Some(effect_metadata_size),
+                    },
+                    count: None,
+                },
+            ],
+        );
+
         Self {
             render_device: render_device.clone(),
             view_layout,
+            effect_metadata_bind_group_layout,
             material_layouts: default(),
         }
     }
@@ -1955,7 +1981,11 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             .render_device
             .create_bind_group_layout("hanabi:bind_group_layout:render:particle@1", &entries[..]);
 
-        let mut layout = vec![self.view_layout.clone(), particle_bind_group_layout];
+        let mut layout = vec![
+            self.view_layout.clone(),
+            particle_bind_group_layout,
+            self.effect_metadata_bind_group_layout.clone(),
+        ];
         let mut shader_defs = vec![];
 
         let vertex_buffer_layout = key.mesh_layout.as_ref().and_then(|mesh_layout| {
@@ -1969,6 +1999,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 .ok()
         });
 
+        // Bind group 3, if applicable.
         if let Some(material_bind_group_layout) = self.get_material(&key.texture_layout) {
             layout.push(material_bind_group_layout.clone());
         }
@@ -2963,6 +2994,7 @@ pub(crate) fn on_remove_cached_effect(
                     // Clear bind groups associated with the old buffer
                     effect_bind_groups.init_metadata_bind_groups.clear();
                     effect_bind_groups.update_metadata_bind_groups.clear();
+                    effect_bind_groups.render_metadata_bind_groups.clear();
                 }
             }
         }
@@ -3747,7 +3779,7 @@ pub(crate) fn prepare_effects(
 
         // Fetch the bind group layouts from the cache
         trace!("cached_child_info={:?}", cached_child_info);
-        let (parent_particle_layout_min_binding_size, parent_buffer_index) =
+        let parent_particle_layout_min_binding_size =
             if let Some(cached_child) = cached_child_info.as_ref() {
                 let Ok((_, parent_cached_effect, _, _, _, _, _, _, _)) =
                     q_cached_effects.get(cached_child.parent)
@@ -3760,17 +3792,14 @@ pub(crate) fn prepare_effects(
                     );
                     continue;
                 };
-                (
-                    Some(
-                        parent_cached_effect
-                            .slice
-                            .particle_layout
-                            .min_binding_size32(),
-                    ),
-                    Some(parent_cached_effect.buffer_index),
+                Some(
+                    parent_cached_effect
+                        .slice
+                        .particle_layout
+                        .min_binding_size32(),
                 )
             } else {
-                (None, None)
+                None
             };
         let Some(particle_bind_group_layout) = effect_cache.particle_bind_group_layout(
             effect_slice.particle_layout.min_binding_size32(),
@@ -3904,6 +3933,9 @@ pub(crate) fn prepare_effects(
             }
         }
 
+        // Create the metadata bind group layout for the render phase.
+        effect_cache.ensure_metadata_render_bind_group_layout();
+
         // Output some debug info
         trace!("init_shader = {:?}", extracted_effect.effect_shaders.init);
         trace!(
@@ -3933,9 +3965,8 @@ pub(crate) fn prepare_effects(
             handle: extracted_effect.handle,
             entity: extracted_effect.render_entity.id(),
             main_entity: extracted_effect.main_entity,
-            effect_slice,
+            effect_slice: effect_slice.clone(),
             init_and_update_pipeline_ids,
-            parent_buffer_index,
             event_buffer_index: cached_effect_events.map(|cee| cee.buffer_index),
             child_effects: cached_parent_info
                 .map(|cp| cp.children.clone())
@@ -4060,8 +4091,15 @@ pub(crate) fn prepare_effects(
             vertex_or_index_count: cached_mesh_location.vertex_or_index_count,
             instance_count: 0,
             first_index_or_vertex_offset: cached_mesh_location.first_index_or_vertex_offset,
-            vertex_offset_or_base_instance: cached_mesh_location.vertex_offset_or_base_instance,
-            base_instance: 0,
+            // This is the vertex offset when indexed and base instance when
+            // not. So we should fill in the base instance if this is a
+            // non-indexed mesh.
+            vertex_offset_or_base_instance: if cached_mesh_location.indexed.is_some() {
+                cached_mesh_location.vertex_offset_or_base_instance
+            } else {
+                effect_slice.slice.start as i32
+            },
+            base_instance: effect_slice.slice.start,
             alive_count: 0,
             max_update: 0,
             dead_count: capacity,
@@ -4113,6 +4151,7 @@ pub(crate) fn prepare_effects(
         effects_meta.indirect_metadata_bind_group = None;
         effect_bind_groups.init_metadata_bind_groups.clear();
         effect_bind_groups.update_metadata_bind_groups.clear();
+        effect_bind_groups.render_metadata_bind_groups.clear();
     }
 
     // Write the entire spawner buffer for this frame, for all effects combined
@@ -4191,24 +4230,50 @@ pub(crate) fn batch_effects(
 
     let mut sort_queue = GpuBufferOperationQueue::new();
 
-    // Loop on all extracted effects in order, and try to batch them together to
-    // reduce draw calls. -- currently does nothing, batching was broken and never
-    // fixed.
-    // FIXME - This is in ECS order, if we re-add the sorting above we need a
-    // different order here!
+    // Sort all extracted effects.
+
+    let mut effect_sorter = EffectSorter::new();
+
+    for (entity, _, _, _, cached_child_info, _, _, input) in &q_cached_effects {
+        effect_sorter.effects.push(EffectToBeSorted {
+            entity,
+            buffer_index: input.effect_slice.buffer_index,
+            base_instance: input.effect_slice.slice.start,
+        });
+        if let Some(child_info) = cached_child_info {
+            effect_sorter
+                .child_to_parent
+                .insert(entity, child_info.parent);
+        }
+    }
+
+    effect_sorter.sort();
+
+    // Loop on all extracted effects in the order we determined above, and try
+    // to batch them together to reduce draw calls. -- currently does nothing,
+    // batching was broken and never fixed.
     trace!("Batching {} effects...", q_cached_effects.iter().len());
+
     sorted_effect_batches.clear();
-    for (
-        entity,
-        main_entity,
-        cached_mesh,
-        cached_effect_events,
-        cached_child_info,
-        cached_properties,
-        dispatch_buffer_indices,
-        mut input,
-    ) in &mut q_cached_effects
+
+    for entity in effect_sorter
+        .effects
+        .into_iter()
+        .map(|effect_to_be_sorted| effect_to_be_sorted.entity)
     {
+        let Ok((
+            _,
+            main_entity,
+            cached_mesh,
+            cached_effect_events,
+            cached_child_info,
+            cached_properties,
+            dispatch_buffer_indices,
+            mut input,
+        )) = q_cached_effects.get_mut(entity)
+        else {
+            continue;
+        };
         // Detect if this cached effect was not updated this frame by a new extracted
         // effect. This happens when e.g. the effect is invisible and not simulated, or
         // some error prevented it from being extracted. We use the pipeline IDs vector
@@ -4342,8 +4407,6 @@ pub(crate) fn batch_effects(
     if !sort_queue.operation_queue.is_empty() {
         sorted_effect_batches.dispatch_queue_index = Some(gpu_buffer_operations.submit(sort_queue));
     }
-
-    sorted_effect_batches.sort();
 }
 
 /// Per-buffer bind groups for a GPU effect buffer.
@@ -4498,6 +4561,13 @@ struct UpdateMetadataBindGroupKey {
     pub event_buffers_keys: Vec<BindingKey>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct RenderMetadataBindGroupKey {
+    pub buffer_index: u32,
+    pub effect_metadata_buffer: BufferId,
+    pub effect_metadata_offset: u32,
+}
+
 struct CachedBindGroup<K: Eq> {
     /// Key the bind group was created from. Each time the key changes, the bind
     /// group should be re-created.
@@ -4562,14 +4632,34 @@ pub struct EffectBindGroups {
     images: HashMap<AssetId<Image>, BindGroup>,
     /// Map from buffer index to its metadata bind group (group 3) for the init
     /// pass.
-    // FIXME - doesn't work with batching; this should be the instance ID
-    init_metadata_bind_groups: HashMap<u32, CachedBindGroup<InitMetadataBindGroupKey>>,
+    // FIXME - prevents batching; this should be keyed off the buffer index
+    init_metadata_bind_groups:
+        HashMap<EffectMetadataBindGroupKey, CachedBindGroup<InitMetadataBindGroupKey>>,
     /// Map from buffer index to its metadata bind group (group 3) for the
     /// update pass.
-    // FIXME - doesn't work with batching; this should be the instance ID
-    update_metadata_bind_groups: HashMap<u32, CachedBindGroup<UpdateMetadataBindGroupKey>>,
+    // FIXME - prevents batching; this should be keyed off the buffer index
+    update_metadata_bind_groups:
+        HashMap<EffectMetadataBindGroupKey, CachedBindGroup<UpdateMetadataBindGroupKey>>,
+    /// Map from buffer index to its metadata bind group (group 2) for the
+    /// render pass.
+    // FIXME - prevents batching; this should be keyed off the buffer index
+    render_metadata_bind_groups:
+        HashMap<EffectMetadataBindGroupKey, CachedBindGroup<RenderMetadataBindGroupKey>>,
     /// Map from an effect material to its bind group.
     material_bind_groups: HashMap<Material, BindGroup>,
+}
+
+/// Identifies a bind group for effect metadata.
+///
+/// FIXME: This should eventually go away once we can batch init, update, and
+/// render. Then we'll have only one bind group per buffer.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EffectMetadataBindGroupKey {
+    /// The index of the buffer.
+    pub buffer_index: u32,
+    /// The offset of the first particle index for this effect in the indirect
+    /// index buffer.
+    pub base_instance: u32,
 }
 
 impl EffectBindGroups {
@@ -4656,7 +4746,10 @@ impl EffectBindGroups {
 
         Ok(&self
             .init_metadata_bind_groups
-            .entry(effect_batch.buffer_index)
+            .entry(EffectMetadataBindGroupKey {
+                buffer_index: effect_batch.buffer_index,
+                base_instance: effect_batch.slice.start,
+            })
             .and_modify(|cbg| {
                 if cbg.key != key {
                     trace!(
@@ -4783,7 +4876,10 @@ impl EffectBindGroups {
 
         Ok(&self
             .update_metadata_bind_groups
-            .entry(effect_batch.buffer_index)
+            .entry(EffectMetadataBindGroupKey {
+                buffer_index: effect_batch.buffer_index,
+                base_instance: effect_batch.slice.start,
+            })
             .and_modify(|cbg| {
                 if cbg.key != key {
                     trace!(
@@ -4802,6 +4898,85 @@ impl EffectBindGroups {
                 );
                 CachedBindGroup {
                     key: key.clone(),
+                    bind_group: make_entry(),
+                }
+            })
+            .bind_group)
+    }
+
+    /// Retrieve the metadata@2 bind group for the render pass, creating it if
+    /// needed.
+    pub(self) fn get_or_create_render_metadata(
+        &mut self,
+        effect_batch: &EffectBatch,
+        gpu_limits: &GpuLimits,
+        render_device: &RenderDevice,
+        layout: &BindGroupLayout,
+        effect_metadata_buffer: &Buffer,
+    ) -> Result<&BindGroup, ()> {
+        let DispatchBufferIndices {
+            effect_metadata_buffer_table_id,
+            ..
+        } = &effect_batch.dispatch_buffer_indices;
+
+        let key = RenderMetadataBindGroupKey {
+            buffer_index: effect_batch.buffer_index,
+            effect_metadata_buffer: effect_metadata_buffer.id(),
+            effect_metadata_offset: gpu_limits
+                .effect_metadata_offset(effect_metadata_buffer_table_id.0)
+                as u32,
+        };
+
+        let make_entry = || {
+            // @group(3) @binding(0) var<storage, read> effect_metadata :
+            // EffectMetadata;
+
+            let bind_group = render_device.create_bind_group(
+                "hanabi:bind_group:render:metadata@2",
+                layout,
+                &[BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Buffer(BufferBinding {
+                        buffer: effect_metadata_buffer,
+                        offset: key.effect_metadata_offset as u64,
+                        size: Some(gpu_limits.effect_metadata_aligned_size.into()),
+                    }),
+                }],
+            );
+
+            trace!(
+                "Created new metadata@2 bind group for render pass and buffer index {}: effect_metadata={}",
+                effect_batch.buffer_index,
+                effect_metadata_buffer_table_id.0,
+            );
+
+            bind_group
+        };
+
+        Ok(&self
+            .render_metadata_bind_groups
+            .entry(EffectMetadataBindGroupKey {
+                buffer_index: effect_batch.buffer_index,
+                base_instance: effect_batch.slice.start,
+            })
+            .and_modify(|cbg| {
+                if cbg.key != key {
+                    trace!(
+                        "Bind group key changed for render metadata@3, re-creating bind group... old={:?} new={:?}",
+                        cbg.key,
+                        key
+                    );
+                    cbg.key = key;
+                    cbg.bind_group = make_entry();
+                }
+            })
+            .or_insert_with(|| {
+                trace!(
+                    "Inserting new bind group for render metadata@3 with key={:?}",
+                    key
+                );
+                CachedBindGroup {
+                    key,
                     bind_group: make_entry(),
                 }
             })
@@ -5803,6 +5978,27 @@ pub(crate) fn prepare_bind_groups(
             }
         }
 
+        // Bind group @2 of render pass
+        // FIXME - this is instance-dependent, not buffer-dependent#
+        {
+            let Some(render_metadata_layout) = effect_cache.metadata_render_bind_group_layout()
+            else {
+                continue;
+            };
+            if effect_bind_groups
+                .get_or_create_render_metadata(
+                    effect_batch,
+                    &effects_meta.gpu_limits,
+                    &render_device,
+                    render_metadata_layout,
+                    effects_meta.effect_metadata_buffer.buffer().unwrap(),
+                )
+                .is_err()
+            {
+                continue;
+            }
+        }
+
         if effect_batch.layout_flags.contains(LayoutFlags::RIBBONS) {
             let effect_buffer = effect_cache.get_buffer(effect_batch.buffer_index).unwrap();
 
@@ -5986,6 +6182,23 @@ fn draw<'w>(
         &[spawner_offset],
     );
 
+    // Effects metadata
+    let Some(metadata_bind_group) =
+        effect_bind_groups
+            .render_metadata_bind_groups
+            .get(&EffectMetadataBindGroupKey {
+                buffer_index: effect_batch.buffer_index,
+                base_instance: effect_batch.slice.start,
+            })
+    else {
+        error!(
+            "Failed to find update metadata@3 bind group for buffer index {}",
+            effect_batch.buffer_index
+        );
+        return;
+    };
+    pass.set_bind_group(2, &metadata_bind_group.bind_group, &[]);
+
     // Particle texture
     // TODO = move
     let material = Material {
@@ -5994,7 +6207,7 @@ fn draw<'w>(
     };
     if !effect_batch.texture_layout.layout.is_empty() {
         if let Some(bind_group) = effect_bind_groups.material_bind_groups.get(&material) {
-            pass.set_bind_group(2, bind_group, &[]);
+            pass.set_bind_group(3, bind_group, &[]);
         } else {
             // Texture(s) not ready; skip this drawing for now
             trace!(
@@ -6387,9 +6600,13 @@ impl Node for VfxSimulateNode {
                 };
 
                 // Fetch bind group metadata@3
-                let Some(metadata_bind_group) = effect_bind_groups
-                    .init_metadata_bind_groups
-                    .get(&effect_batch.buffer_index)
+                let Some(metadata_bind_group) =
+                    effect_bind_groups
+                        .init_metadata_bind_groups
+                        .get(&EffectMetadataBindGroupKey {
+                            buffer_index: effect_batch.buffer_index,
+                            base_instance: effect_batch.slice.start,
+                        })
                 else {
                     error!(
                         "Failed to find init metadata@3 bind group for buffer index {}",
@@ -6611,10 +6828,12 @@ impl Node for VfxSimulateNode {
                 };
 
                 // Fetch bind group metadata@3
-                let Some(metadata_bind_group) = effect_bind_groups
-                    .update_metadata_bind_groups
-                    .get(&effect_batch.buffer_index)
-                else {
+                let Some(metadata_bind_group) = effect_bind_groups.update_metadata_bind_groups.get(
+                    &EffectMetadataBindGroupKey {
+                        buffer_index: effect_batch.buffer_index,
+                        base_instance: effect_batch.slice.start,
+                    },
+                ) else {
                     error!(
                         "Failed to find update metadata@3 bind group for buffer index {}",
                         effect_batch.buffer_index
@@ -6750,24 +6969,13 @@ impl Node for VfxSimulateNode {
                         warn!("Missing sort-fill bind group.");
                         continue;
                     };
-                    let particle_offset = effect_buffer.particle_offset(effect_batch.slice.start);
-                    let indirect_index_offset =
-                        effect_buffer.indirect_index_offset(effect_batch.slice.start);
                     let effect_metadata_offset = effects_meta.gpu_limits.effect_metadata_offset(
                         effect_batch
                             .dispatch_buffer_indices
                             .effect_metadata_buffer_table_id
                             .0,
                     ) as u32;
-                    compute_pass.set_bind_group(
-                        0,
-                        bind_group,
-                        &[
-                            particle_offset,
-                            indirect_index_offset,
-                            effect_metadata_offset,
-                        ],
-                    );
+                    compute_pass.set_bind_group(0, bind_group, &[effect_metadata_offset]);
 
                     compute_pass
                         .dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
@@ -6822,18 +7030,13 @@ impl Node for VfxSimulateNode {
                         warn!("Missing sort-copy bind group.");
                         continue;
                     };
-                    let indirect_index_offset = effect_batch.slice.start;
                     let effect_metadata_offset =
                         effects_meta.effect_metadata_buffer.dynamic_offset(
                             effect_batch
                                 .dispatch_buffer_indices
                                 .effect_metadata_buffer_table_id,
                         );
-                    compute_pass.set_bind_group(
-                        0,
-                        bind_group,
-                        &[indirect_index_offset, effect_metadata_offset],
-                    );
+                    compute_pass.set_bind_group(0, bind_group, &[effect_metadata_offset]);
 
                     compute_pass
                         .dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);

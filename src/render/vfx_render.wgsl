@@ -1,6 +1,6 @@
 #import bevy_render::view::View
 #import bevy_hanabi::vfx_common::{
-    IndirectBuffer, SimParams, Spawner,
+    EffectMetadata, IndirectBuffer, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
     rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
@@ -34,6 +34,9 @@ struct VertexOutput {
 @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
 @group(1) @binding(2) var<storage, read> spawner : Spawner;
+
+// "metadata" group @2
+@group(2) @binding(0) var<storage, read> effect_metadata : EffectMetadata;
 
 {{MATERIAL_BINDINGS}}
 
@@ -161,7 +164,7 @@ fn vertex(
 
 #ifdef RIBBONS
     // Discard first instance; we draw from second one, and link to previous one
-    if (instance_index == 0) {
+    if (instance_index == effect_metadata.base_instance) {
         out.position = vec4(0.0);
         return out;
     }
