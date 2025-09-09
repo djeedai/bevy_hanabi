@@ -486,13 +486,12 @@ impl VectorValue {
     }
 
     /// Workaround for `impl const From<Vec2>`.
-    #[allow(unsafe_code, clippy::transmute_float_to_int)] // to_bits() can't be const
     pub const fn new_vec2(value: Vec2) -> Self {
         Self {
             vector_type: VectorType::VEC2F,
             storage: [
-                unsafe { std::mem::transmute::<f32, u32>(value.x) },
-                unsafe { std::mem::transmute::<f32, u32>(value.y) },
+                f32::to_bits(value.x),
+                f32::to_bits(value.y),
                 0u32,
                 0u32,
             ],
@@ -500,14 +499,13 @@ impl VectorValue {
     }
 
     /// Workaround for `impl const From<Vec3>`.
-    #[allow(unsafe_code, clippy::transmute_float_to_int)] // to_bits() can't be const
     pub const fn new_vec3(value: Vec3) -> Self {
         Self {
             vector_type: VectorType::VEC3F,
             storage: [
-                unsafe { std::mem::transmute::<f32, u32>(value.x) },
-                unsafe { std::mem::transmute::<f32, u32>(value.y) },
-                unsafe { std::mem::transmute::<f32, u32>(value.z) },
+                f32::to_bits(value.x),
+                f32::to_bits(value.y),
+                f32::to_bits(value.z),
                 0u32,
             ],
         }
@@ -523,13 +521,12 @@ impl VectorValue {
     }
 
     /// Workaround for `impl const From<IVec2>`.
-    #[allow(unsafe_code)]
     pub const fn new_ivec2(value: IVec2) -> Self {
         Self {
             vector_type: VectorType::VEC2I,
             storage: [
-                unsafe { std::mem::transmute::<i32, u32>(value.x) },
-                unsafe { std::mem::transmute::<i32, u32>(value.y) },
+                value.x as u32,
+                value.y as u32,
                 0u32,
                 0u32,
             ],
@@ -537,14 +534,13 @@ impl VectorValue {
     }
 
     /// Workaround for `impl const From<IVec3>`.
-    #[allow(unsafe_code)]
     pub const fn new_ivec3(value: IVec3) -> Self {
         Self {
             vector_type: VectorType::VEC3I,
             storage: [
-                unsafe { std::mem::transmute::<i32, u32>(value.x) },
-                unsafe { std::mem::transmute::<i32, u32>(value.y) },
-                unsafe { std::mem::transmute::<i32, u32>(value.z) },
+                value.x as u32,
+                value.y as u32,
+                value.z as u32,
                 0u32,
             ],
         }
