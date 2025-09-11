@@ -102,11 +102,16 @@ fn setup(
             },
         ))
         .with_children(|p| {
+            // Reference cube to visualize the emit origin
+
+            let mut mat: StandardMaterial = utils::COLOR_CYAN.into();
+            mat.unlit = true;
             p.spawn((
                 Mesh3d(meshes.add(Cuboid {
-                    half_size: Vec3::splat(0.5),
+                    half_size: Vec3::splat(1.0),
                 })),
-                MeshMaterial3d(materials.add(utils::COLOR_RED)),
+                MeshMaterial3d(materials.add(mat)),
+                RenderLayers::layer(3),
             ));
         });
 }
