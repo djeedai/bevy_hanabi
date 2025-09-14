@@ -68,7 +68,7 @@ impl PropertyBuffer {
         let align = NonZeroU64::new(align as u64).unwrap();
         let label = label.unwrap_or("hanabi:buffer:properties".to_string());
         Self {
-            buffer: HybridAlignedBufferVec::new(BufferUsages::STORAGE, Some(align), Some(label)),
+            buffer: HybridAlignedBufferVec::new(BufferUsages::STORAGE, align, Some(label)),
         }
     }
 
@@ -124,7 +124,7 @@ impl PropertyBuffer {
     }
 
     pub fn write(&mut self, offset: u32, data: &[u8]) {
-        self.buffer.update(offset, data);
+        self.buffer.update_raw(offset, data);
     }
 
     #[inline]

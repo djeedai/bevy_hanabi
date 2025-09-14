@@ -1,6 +1,6 @@
 #import bevy_hanabi::vfx_common::{
-    ChildInfo, ChildInfoBuffer, EventBuffer, IndirectDispatch, IndirectBuffer,
-    EffectMetadata, RenderGroupIndirect, SimParams, Spawner,
+    ChildInfo, ChildInfoBuffer, EventBuffer, DispatchIndirectArgs, IndirectBuffer,
+    EffectMetadata, RenderGroupIndirect, SimParams, Spawner, DrawIndexedIndirectArgs,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
     rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
@@ -29,6 +29,7 @@ struct ParentParticleBuffer {
 {{PROPERTIES}}
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
+@group(0) @binding(1) var<storage, read_write> draw_indirect_buffer : array<DrawIndexedIndirectArgs>;
 
 // "particle" group @1
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
@@ -62,11 +63,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
-    // Always write into ping, read from pong
-    let write_index = effect_metadata.ping;
+    let write_index = effect_metadata.indirect_write_index;
     let read_index = 1u - write_index;
 
-    let particle_index = indirect_buffer.indices[3u * thread_index + read_index];
+    let particle_index = indirect_buffer
+        .rows[thread_index]
+        .particle_index[read_index];
 
     // Initialize the PRNG seed
     seed = pcg_hash(particle_index ^ spawner.seed);
@@ -81,16 +83,18 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Check if alive
     if (!is_alive) {
         // Save dead index
-        let dead_index = atomicAdd(&effect_metadata.dead_count, 1u);
-        indirect_buffer.indices[3u * dead_index + 2u] = particle_index;
+        let alive_index = atomicSub(&effect_metadata.alive_count, 1u);
+        let dead_index = effect_metadata.capacity - alive_index;
+        indirect_buffer.rows[dead_index].dead_index = particle_index;
 
         // Also increment copy of dead count, which was updated in dispatch indirect
-        // pass just before, and need to remain correct after this pass
+        // pass just before, and need to remain correct after this pass. We wouldn't have
+        // to do that here if we had a per-effect pass between update and the next init.
         atomicAdd(&effect_metadata.max_spawn, 1u);
-        atomicSub(&effect_metadata.alive_count, 1u);
     } else {
-        // Increment alive particle count and write indirection index for later rendering
-        let indirect_index = atomicAdd(&effect_metadata.instance_count, 1u);
-        indirect_buffer.indices[3u * indirect_index + write_index] = particle_index;
+        // Increment visible particle count (in the absence of any GPU culling), and write
+        // the indirection index for later rendering.
+        let indirect_index = atomicAdd(&draw_indirect_buffer[effect_metadata.indirect_render_index].instance_count, 1u);
+        indirect_buffer.rows[indirect_index].particle_index[write_index] = particle_index;
     }
 }

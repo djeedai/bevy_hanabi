@@ -1,5 +1,5 @@
 #import bevy_hanabi::vfx_common::{
-    ChildInfo, ChildInfoBuffer, EventBuffer, IndirectDispatch, IndirectBuffer,
+    ChildInfo, ChildInfoBuffer, EventBuffer, DispatchIndirectArgs, IndirectBuffer,
     EffectMetadata, RenderGroupIndirect, SimParams, Spawner,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
@@ -54,8 +54,8 @@ struct ParentParticleBuffer {
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let thread_index = global_invocation_id.x;
 
-    // Cap to max number of dead particles, copied from dead_count at the end of the
-    // previous iteration, and constant during this pass (unlike dead_count).
+    // Cap to max number of dead particles, copied from (capacity - alive_count) at the end
+    // of the previous iteration, and constant during this pass (unlike alive_count).
     let max_spawn = atomicLoad(&effect_metadata.max_spawn);
     if (thread_index >= max_spawn) {
         return;
@@ -80,14 +80,14 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     }
 #endif
 
-    // Always write into ping, read from pong
-    let write_index = effect_metadata.ping;
-    let read_index = 1u - write_index;
+    // Count as alive, and recycle a dead particle slot to store the newly spawned particle
+    let alive_index = atomicAdd(&effect_metadata.alive_count, 1u);
+    let dead_index = effect_metadata.capacity - alive_index - 1u;
+    let particle_index = indirect_buffer.rows[dead_index].dead_index;
 
-    // Recycle a dead particle from the destination group
-    let dead_index = atomicSub(&effect_metadata.dead_count, 1u) - 1u;
-    let particle_index = indirect_buffer.indices[3u * dead_index + 2u];
-
+    // Bump the particle counter each time we allocate a particle. This generates a unique
+    // particle ID used for various purposes (but not directly by the simulation). We still
+    // store it in a variable, because the INIT_CODE might access it.
     let particle_counter = atomicAdd(&effect_metadata.particle_counter, 1u);
 
     // Initialize the PRNG seed
@@ -126,12 +126,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     {{SIMULATION_SPACE_TRANSFORM_PARTICLE}}
 #endif
 
-    // Count as alive
-    atomicAdd(&effect_metadata.alive_count, 1u);
-
-    // Add to alive list
-    let instance_index = atomicAdd(&effect_metadata.instance_count, 1u);
-    indirect_buffer.indices[3u * instance_index + write_index] = particle_index;
+    // Append to alive list of indirect buffer.
+    let write_index = effect_metadata.indirect_write_index;
+    indirect_buffer.rows[alive_index].particle_index[write_index] = particle_index;
 
     // Write back new particle
     particle_buffer.particles[particle_index] = particle;

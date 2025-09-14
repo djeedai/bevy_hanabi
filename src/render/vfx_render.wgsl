@@ -149,8 +149,8 @@ fn vertex(
     // @location(1) vertex_velocity: vec3<f32>,
 ) -> VertexOutput {
     // Fetch particle
-    let pong = spawner.render_pong;
-    let particle_index = indirect_buffer.indices[3u * instance_index + pong];
+    let indirect_read_index = spawner.render_indirect_read_index;
+    let particle_index = indirect_buffer.rows[instance_index].particle_index[indirect_read_index];
     var particle = particle_buffer.particles[particle_index];
 
     var out: VertexOutput;
@@ -167,7 +167,7 @@ fn vertex(
     }
 
     // Fetch previous particle
-    let prev_index = indirect_buffer.indices[3u * (instance_index - 1u) + pong];
+    let prev_index = indirect_buffer.rows[instance_index - 1u].particle_index[indirect_read_index];
     let prev_particle = particle_buffer.particles[prev_index];
 
     // Discard this instance if previous one is from a different ribbon. Again,
