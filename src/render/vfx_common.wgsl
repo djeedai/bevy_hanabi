@@ -32,13 +32,15 @@ struct Spawner {
     /// effect is recompiled, and cannot be set deterministically (TODO).
     seed: u32,
     /// Index of the ping-pong buffer of particle indices to read particles from
-    /// during rendering. Cached from RenderIndirect::ping after it's swapped
-    /// in the indirect dispatch, because the RenderIndirect struct is used by GPU
+    /// during rendering. Cached from EffectMetadata::ping after it's swapped
+    /// in the indirect dispatch, because the EffectMetadata struct is used by GPU
     /// as an indirect draw source so cannot also be bound as regular storage
     /// buffer for reading.
-    render_pong: u32,
-    /// Index of the [`GpuEffectMetadata`] for this effect.
+    render_indirect_read_index: u32,
+    /// Index of the [`EffectMetadata`] for this effect.
     effect_metadata_index: u32,
+    /// Index of the [`DrawIndirectArgs`] or [`DrawIndexedIndirectArgs`] for this effect.
+    draw_indirect_index: u32,
 #ifdef SPAWNER_PADDING
     {{SPAWNER_PADDING}}
 #endif
@@ -46,8 +48,23 @@ struct Spawner {
 
 const SPAWNER_OFFSET_PONG: u32 = 27u;
 
+/// Single row entry into an IndirectBuffer.
+///
+/// Each row corresponds to one row in the ParticleBuffer. The total number of rows in the
+/// IndirectBuffer is the capacity of the ParticleBuffer itself (that is, they have the same
+/// number of rows).
+struct IndirectEntry {
+    /// Ping-pong index into ParticleBuffer.
+    particle_index: array<u32, 2>,
+    /// Index into ParticleBuffer of a dead particle slot which can be recycled.
+    dead_index: u32,
+}
+
+/// Indirection buffer storing the indices of alive and dead particles as a contiguous
+/// range, to ensure we can dispatch a tight number of workgroups only for alive particles,
+/// and can find a dead one to recycle quickly.
 struct IndirectBuffer {
-    indices: array<u32>,
+    rows: array<IndirectEntry>,
 }
 
 /// A event emitted by another effect during its update pass, to trigger the spawning
@@ -67,7 +84,7 @@ struct EventBuffer {
 
 /// Info about a single child of a parent effect.
 struct ChildInfo {
-    /// Index of the effect's IndirectDispatch entry in the global init indirect dispatch array.
+    /// Index of the effect's DispatchIndirectArgs entry in the global init indirect dispatch array.
     init_indirect_dispatch_index: u32,
     /// Number of events in the associated event buffer.
 #ifdef CHILD_INFO_EVENT_COUNT_IS_ATOMIC
@@ -84,7 +101,7 @@ struct ChildInfoBuffer {
 }
 
 /// Indirect compute dispatch struct for GPU-driven passes. The layout of this struct is dictated by WGSL.
-struct IndirectDispatch {
+struct DispatchIndirectArgs {
     /// Number of workgroups. Each workgroup has exactly 64 threads.
     x: u32,
     /// Unused; always 1.
@@ -93,58 +110,74 @@ struct IndirectDispatch {
     z: u32,
 }
 
-/// Stride in u32 count (4 bytes) of the IndirectDispatch struct.
+/// Stride in u32 count (4 bytes) of the DispatchIndirectArgs struct.
 const DISPATCH_INDIRECT_STRIDE: u32 = 3u;
+
+/// Indirect draw (non-indexed) dispatch struct for GPU-driven passes. The layout of this struct is dictated by WGSL.
+/// See https://docs.rs/wgpu/latest/wgpu/util/struct.DrawIndirectArgs.html.
+struct DrawIndirectArgs {
+    vertex_count: u32,
+    instance_count: atomic<u32>,
+    first_vertex: u32,
+    first_instance: u32,
+}
+
+/// Stride in u32 count (4 bytes) of the DrawIndirectArgs struct.
+const DRAW_INDIRECT_STRIDE: u32 = 4u;
+
+/// Indirect draw (non-indexed) dispatch struct for GPU-driven passes. The layout of this struct is dictated by WGSL.
+/// See https://docs.rs/wgpu/latest/wgpu/util/struct.DrawIndexedIndirectArgs.html.
+struct DrawIndexedIndirectArgs {
+    index_count: u32,
+    instance_count: atomic<u32>,
+    first_index: u32,
+    base_vertex: i32,
+    first_instance: u32,
+}
+
+/// Stride in u32 count (4 bytes) of the DrawIndexedIndirectArgs struct.
+const DRAW_INDEXED_INDIRECT_STRIDE: u32 = 5u;
 
 // Effect metadata offsets. Used when accessing a tightly packed array of EffectMetadata
 // as a raw array<u32>, so that we can avoid WGSL struct padding and keep data more compact
 // in the GPU buffer. Each offset corresponds to a field in the EffectMetadata struct.
-const EM_OFFSET_VERTEX_COUNT: u32 = 0u;
-const EM_OFFSET_INSTANCE_COUNT: u32 = 1u;
-const EM_OFFSET_FIRST_INDEX_OR_VERTEX_OFFSET: u32 = 2u;
-const EM_OFFSET_VERTEX_OFFSET_OR_BASE_INSTANCE: u32 = 3u;
-const EM_OFFSET_BASE_INSTANCE: u32 = 4u;
-const EM_OFFSET_ALIVE_COUNT: u32 = 5u;
-const EM_OFFSET_MAX_UPDATE: u32 = 6u;
-const EM_OFFSET_DEAD_COUNT: u32 = 7u;
-const EM_OFFSET_MAX_SPAWN: u32 = 8u;
-const EM_OFFSET_PING: u32 = 9u;
-const EM_OFFSET_INDIRECT_DISPATCH_INDEX: u32 = 10u;
+// Note that all fields are 4 bytes, so we can index by "number of 4-byte field".
+const EM_OFFSET_CAPACITY: u32 = 0u;
+const EM_OFFSET_ALIVE_COUNT: u32 = 1u;
+const EM_OFFSET_MAX_UPDATE: u32 = 2u;
+const EM_OFFSET_MAX_SPAWN: u32 = 3u;
+const EM_OFFSET_INDIRECT_WRITE_INDEX: u32 = 4u;
+const EM_OFFSET_INDIRECT_DISPATCH_INDEX: u32 = 5u;
 
 /// Draw indirect parameters for GPU-driven rendering, and additional effect data.
 struct EffectMetadata {
-    /// Number of vertices in the particle mesh.
-    vertex_count: u32,
-    /// Number of mesh instances, equal to the number of particles.
-    instance_count: atomic<u32>,
-    /// First index (if indexed) or vertex offset (if non-indexed).
-    first_index_or_vertex_offset: u32,
-    /// Vertex offset (if indexed) or base instance (if non-indexed).
-    vertex_offset_or_base_instance: i32,
-    /// Base instance (if indexed).
-    base_instance: u32,
+    /// Total number of particles for this effect. This is the capacity of the effect,
+    /// in number of particles, which is used to sub-allocate various storages for this
+    /// effect, notably in the ParticleBuffer and the IndirectBuffer. This is constant
+    /// for the duration of the effect instance life.
+    capacity: u32,
 
-    /// Number of particles alive after the init pass, used to calculate the number
-    /// of compute threads to spawn for the update pass and to cap those threads
-    /// via `max_update`.
+    /// Number of particles alive. Note that because particles can be simulated even
+    /// when off-screen, in theory this could be greater than instance_count. Currently
+    /// we don't have GPU culling, so in practice this remains strictly equal. But we
+    /// store it separately 1) because this could change in the future, and 2) because
+    /// the indirect render fields above should really be in their own buffer, not here.
     alive_count: atomic<u32>,
     /// Maximum number of update threads to run. This is cached from `alive_count`
     /// during the indirect dispatch, so that the update compute pass can cap its
     /// thread count while also modifying the actual `alive_count` if some particle
     /// dies during the update pass.
     max_update: u32,
-    /// Number of dead particles, decremented during the init pass as new particles
-    /// are spawned, and incremented during the update pass as existing particles die.
-    dead_count: atomic<u32>,
     /// Maxmimum number of init threads to run on next frame. This is cached from
-    /// `dead_count` during the indirect dispatch of the previous frame, so that the
-    /// init compute pass can cap its thread count while also decrementing the actual
-    /// `dead_count` as particles are spawned.
+    /// `capacity - alive_count` during the indirect dispatch of the previous frame,
+    /// so that the init compute pass can cap its thread count while also decrementing
+    /// the actual dead count (increment the `alive_count`) as particles are spawned.
     max_spawn: atomic<u32>,
-    /// Index of the ping buffer for particle indices. Init and update compute passes
-    /// always write into the ping buffer and read from the pong buffer. The buffers
-    /// are swapped (ping = 1 - ping) during the indirect dispatch.
-    ping: u32,
+
+    /// Write index into the ping-pong buffer for particle indices. The buffers
+    /// are swapped during the indirect dispatch (although the render pass still uses
+    /// the complement of this to write, so technically ignores that swap).
+    indirect_write_index: u32,
     /// Index of the [`GpuDispatchIndirect`] struct inside the global
     /// [`EffectsMeta::dispatch_indirect_buffer`].
     indirect_dispatch_index: u32,

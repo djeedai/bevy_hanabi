@@ -68,7 +68,7 @@ use crate::{
     calc_func_id,
     render::{
         batch::{BatchInput, EffectDrawBatch, InitAndUpdatePipelineIds},
-        effect_cache::DispatchBufferIndices,
+        effect_cache::{DispatchBufferIndices, DrawIndirectRowIndex},
     },
     AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
     EffectSpawner, EffectVisibilityClass, ParticleLayout, PropertyLayout, SimulationCondition,
@@ -358,6 +358,9 @@ pub(crate) struct GpuSpawnerParams {
     render_pong: u32,
     /// Index of the [`GpuEffectMetadata`] for this effect.
     effect_metadata_index: u32,
+    /// Index of the [`GpuDrawIndirect`] or [`GpuDrawIndexedIndirect`] for this
+    /// effect.
+    draw_indirect_index: u32,
 }
 
 /// GPU representation of an indirect compute dispatch input.
@@ -371,15 +374,75 @@ pub(crate) struct GpuSpawnerParams {
 /// See https://docs.rs/wgpu/latest/wgpu/util/struct.DispatchIndirectArgs.html.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable, ShaderType)]
-pub struct GpuDispatchIndirect {
+pub struct GpuDispatchIndirectArgs {
     pub x: u32,
     pub y: u32,
     pub z: u32,
 }
 
-impl Default for GpuDispatchIndirect {
+impl Default for GpuDispatchIndirectArgs {
     fn default() -> Self {
         Self { x: 0, y: 1, z: 1 }
+    }
+}
+
+/// GPU representation of an indirect (non-indexed) render input.
+///
+/// Note that unlike most other data structure, this doesn't need to be aligned
+/// (except for the default 4-byte align for most GPU types) to any uniform or
+/// storage buffer offset alignment, because the buffer storing this is only
+/// ever used as input to indirect render commands, and never bound as a shader
+/// resource.
+///
+/// See https://docs.rs/wgpu/latest/wgpu/util/struct.DrawIndirectArgs.html.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable, ShaderType)]
+pub struct GpuDrawIndirectArgs {
+    pub vertex_count: u32,
+    pub instance_count: u32,
+    pub first_vertex: u32,
+    pub first_instance: u32,
+}
+
+impl Default for GpuDrawIndirectArgs {
+    fn default() -> Self {
+        Self {
+            vertex_count: 0,
+            instance_count: 1,
+            first_vertex: 0,
+            first_instance: 0,
+        }
+    }
+}
+
+/// GPU representation of an indirect indexed render input.
+///
+/// Note that unlike most other data structure, this doesn't need to be aligned
+/// (except for the default 4-byte align for most GPU types) to any uniform or
+/// storage buffer offset alignment, because the buffer storing this is only
+/// ever used as input to indirect render commands, and never bound as a shader
+/// resource.
+///
+/// See https://docs.rs/wgpu/latest/wgpu/util/struct.DrawIndexedIndirectArgs.html.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable, ShaderType)]
+pub struct GpuDrawIndexedIndirectArgs {
+    pub index_count: u32,
+    pub instance_count: u32,
+    pub first_index: u32,
+    pub base_vertex: i32,
+    pub first_instance: u32,
+}
+
+impl Default for GpuDrawIndexedIndirectArgs {
+    fn default() -> Self {
+        Self {
+            index_count: 0,
+            instance_count: 1,
+            first_index: 0,
+            base_vertex: 0,
+            first_instance: 0,
+        }
     }
 }
 
@@ -389,39 +452,33 @@ impl Default for GpuDispatchIndirect {
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct GpuEffectMetadata {
-    /// The number of vertices in the mesh, if non-indexed; if indexed, the
-    /// number of indices in the mesh.
-    pub vertex_or_index_count: u32,
-    /// The number of instances to render.
-    pub instance_count: u32,
-    /// The first index to render, if the mesh is indexed; the offset of the
-    /// first vertex, if the mesh is non-indexed.
-    pub first_index_or_vertex_offset: u32,
-    /// The offset of the first vertex, if the mesh is indexed; the first
-    /// instance to render, if the mesh is non-indexed.
-    pub vertex_offset_or_base_instance: i32,
-    /// The first instance to render, if indexed; unused if non-indexed.
-    pub base_instance: u32,
-
+    //
+    // Some runtime variables modified on GPU only (capacity is constant)
+    /// Effect capacity, in number of particles.
+    pub capacity: u32,
     // Additional data not part of the required draw indirect args
     /// Number of alive particles.
     pub alive_count: u32,
     /// Cached value of `alive_count` to cap threads in update pass.
     pub max_update: u32,
-    /// Number of dead particles.
-    pub dead_count: u32,
     /// Cached value of `dead_count` to cap threads in init pass.
     pub max_spawn: u32,
     /// Index of the ping buffer for particle indices. Init and update compute
     /// passes always write into the ping buffer and read from the pong buffer.
     /// The buffers are swapped (ping = 1 - ping) during the indirect dispatch.
-    pub ping: u32,
+    pub indirect_write_index: u32,
+
+    //
+    // Some real metadata values depending on where the effect instance is allocated.
     /// Index of the [`GpuDispatchIndirect`] struct inside the global
     /// [`EffectsMeta::dispatch_indirect_buffer`].
     pub indirect_dispatch_index: u32,
-    /// Index of the [`GpuRenderIndirect`] struct inside the global
-    /// [`EffectsMeta::render_group_dispatch_buffer`].
-    pub indirect_render_index: u32,
+    /// Index of the [`GpuDrawIndirect`] or [`GpuDrawIndexedIndirect`] struct
+    /// inside the global [`EffectsMeta::draw_indirect_buffer`] or
+    /// [`EffectsMeta::draw_indexed_indirect_buffer`]. The actual buffer depends
+    /// on whether the mesh is indexed or not, which is stored in
+    /// [`CachedMeshLocation`].
+    pub indirect_draw_index: u32,
     /// Offset (in u32 count) of the init indirect dispatch struct inside its
     /// buffer. This avoids having to align those 16-byte structs to the GPU
     /// alignment (at least 32 bytes, even 256 bytes on some).
@@ -445,6 +502,8 @@ pub struct GpuEffectMetadata {
     /// Offset from the particle start to the second sort key, in number of u32.
     pub sort_key2_offset: u32,
 
+    //
+    // Again some runtime-only GPU-mutated data
     /// Atomic counter incremented each time a particle spawns. Useful for
     /// things like RIBBON_ID or any other use where a unique value is needed.
     /// The value loops back after some time, but unless some particle lives
@@ -522,7 +581,7 @@ impl InitFillDispatchQueue {
         let mut src_end = src_start + 1;
         let mut dst_end = dst_start + 1;
         let src_stride = GpuChildInfo::min_size().get() as u32 / 4;
-        let dst_stride = GpuDispatchIndirect::SHADER_SIZE.get() as u32 / 4;
+        let dst_stride = GpuDispatchIndirectArgs::SHADER_SIZE.get() as u32 / 4;
         for i in 1..self.queue.len() {
             let InitFillDispatchItem {
                 global_child_index: src,
@@ -632,7 +691,7 @@ impl FromWorld for DispatchIndirectPipeline {
         };
 
         let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
-        let render_effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
+        let effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
         let spawner_min_binding_size = GpuSpawnerParams::aligned_size(storage_alignment);
 
         // @group(0) @binding(0) var<uniform> sim_params : SimParams;
@@ -654,7 +713,7 @@ impl FromWorld for DispatchIndirectPipeline {
         trace!(
             "GpuEffectMetadata: min_size={} padded_size={}",
             GpuEffectMetadata::min_size(),
-            render_effect_metadata_size,
+            effect_metadata_size,
         );
         let effect_metadata_bind_group_layout = render_device.create_bind_group_layout(
             "hanabi:bind_group_layout:dispatch_indirect:effect_metadata@1",
@@ -667,11 +726,11 @@ impl FromWorld for DispatchIndirectPipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
-                        min_binding_size: Some(render_effect_metadata_size),
+                        min_binding_size: Some(effect_metadata_size),
                     },
                     count: None,
                 },
-                // @group(0) @binding(2) var<storage, read_write> dispatch_indirect_buffer :
+                // @group(0) @binding(1) var<storage, read_write> dispatch_indirect_buffer :
                 // array<u32>;
                 BindGroupLayoutEntry {
                     binding: 1,
@@ -682,6 +741,18 @@ impl FromWorld for DispatchIndirectPipeline {
                         min_binding_size: Some(
                             NonZeroU64::new(INDIRECT_INDEX_SIZE as u64).unwrap(),
                         ),
+                    },
+                    count: None,
+                },
+                // @group(0) @binding(2) var<storage, read_write> draw_indirect_buffer :
+                // array<u32>;
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(GpuDrawIndexedIndirectArgs::SHADER_SIZE),
                     },
                     count: None,
                 },
@@ -1432,7 +1503,7 @@ impl FromWorld for ParticlesInitPipeline {
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
         let sim_params_layout = render_device.create_bind_group_layout(
-            "hanabi:bind_group_layout:update_sim_params",
+            "hanabi:bind_group_layout:vfx_init:sim_params@0",
             // @group(0) @binding(0) var<uniform> sim_params: SimParams;
             &[BindGroupLayoutEntry {
                 binding: 0,
@@ -1589,17 +1660,32 @@ impl FromWorld for ParticlesUpdatePipeline {
 
         trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_layout = render_device.create_bind_group_layout(
-            "hanabi:bind_group_layout:update:particle",
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(GpuSimParams::min_size()),
+            "hanabi:bind_group_layout:vfx_update:sim_params@0",
+            &[
+                // @group(0) @binding(0) var<uniform> sim_params : SimParams;
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(GpuSimParams::min_size()),
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                // @group(0) @binding(1) var<storage, read_write> draw_indirect_buffer :
+                // array<DrawIndexedIndirectArgs>;
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(GpuDrawIndexedIndirectArgs::SHADER_SIZE),
+                    },
+                    count: None,
+                },
+            ],
         );
 
         Self {
@@ -2614,8 +2700,8 @@ impl GpuLimits {
     }
 }
 
-/// Global resource containing the GPU data to draw all the particle effects in
-/// all views.
+/// Global render world resource containing the GPU data to draw all the
+/// particle effects in all views.
 ///
 /// The resource is populated by [`prepare_effects()`] with all the effects to
 /// render for the current frame, for all views in the frame, and consumed by
@@ -2626,8 +2712,12 @@ pub struct EffectsMeta {
     /// Bind group for the camera view, containing the camera projection and
     /// other uniform values related to the camera.
     view_bind_group: Option<BindGroup>,
-    /// Bind group #0 of the vfx_indirect shader, for the simulation parameters
+    /// Bind group #0 of the vfx_update shader, for the simulation parameters
     /// like the current time and frame delta time.
+    update_sim_params_bind_group: Option<BindGroup>,
+    /// Bind group #0 of the vfx_indirect shader, for the simulation parameters
+    /// like the current time and frame delta time. This is shared with the
+    /// vfx_init pass too.
     indirect_sim_params_bind_group: Option<BindGroup>,
     /// Bind group #1 of the vfx_indirect shader, containing both the indirect
     /// compute dispatch and render buffers.
@@ -2642,7 +2732,13 @@ pub struct EffectsMeta {
     spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
     /// Global shared GPU buffer storing the various indirect dispatch structs
     /// for the indirect dispatch of the Update pass.
-    update_dispatch_indirect_buffer: GpuBuffer<GpuDispatchIndirect>,
+    dispatch_indirect_buffer: GpuBuffer<GpuDispatchIndirectArgs>,
+    /// Global shared GPU buffer storing the various indirect draw structs
+    /// for the indirect Render pass. Note that we use
+    /// GpuDrawIndexedIndirectArgs as the largest of the two variants (the
+    /// other being GpuDrawIndirectArgs). For non-indexed entries, we ignore
+    /// the last `u32` value.
+    draw_indirect_buffer: BufferTable<GpuDrawIndexedIndirectArgs>,
     /// Global shared GPU buffer storing the various `EffectMetadata`
     /// structs for the active effect instances.
     effect_metadata_buffer: BufferTable<GpuEffectMetadata>,
@@ -2678,6 +2774,7 @@ impl EffectsMeta {
 
         Self {
             view_bind_group: None,
+            update_sim_params_bind_group: None,
             indirect_sim_params_bind_group: None,
             indirect_metadata_bind_group: None,
             indirect_spawner_bind_group: None,
@@ -2687,13 +2784,18 @@ impl EffectsMeta {
                 NonZeroU64::new(item_align),
                 Some("hanabi:buffer:spawner".to_string()),
             ),
-            update_dispatch_indirect_buffer: GpuBuffer::new(
+            dispatch_indirect_buffer: GpuBuffer::new(
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
-                Some("hanabi:buffer:update_dispatch_indirect".to_string()),
+                Some("hanabi:buffer:dispatch_indirect".to_string()),
+            ),
+            draw_indirect_buffer: BufferTable::new(
+                BufferUsages::STORAGE | BufferUsages::INDIRECT,
+                Some(GpuDrawIndexedIndirectArgs::SHADER_SIZE),
+                Some("hanabi:buffer:draw_indirect".to_string()),
             ),
             effect_metadata_buffer: BufferTable::new(
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
-                NonZeroU64::new(item_align),
+                Some(NonZeroU64::new(item_align).unwrap()),
                 Some("hanabi:buffer:effect_metadata".to_string()),
             ),
             gpu_limits,
@@ -2735,13 +2837,17 @@ impl EffectsMeta {
 
             // Allocate an indirect dispatch arguments struct for this instance
             let update_dispatch_indirect_buffer_row_index =
-                self.update_dispatch_indirect_buffer.allocate();
+                self.dispatch_indirect_buffer.allocate();
+
+            // We cannot allocate yet an entry for the indirect draw arguments, because we
+            // need to know if the mesh is indexed.
+            let draw_indirect_buffer_row_index = DrawIndirectRowIndex::default(); // invalid
 
             // Allocate per-effect metadata.
             let gpu_effect_metadata = GpuEffectMetadata {
+                capacity: added_effect.capacity,
                 alive_count: 0,
                 max_update: 0,
-                dead_count: added_effect.capacity,
                 max_spawn: added_effect.capacity,
                 ..default()
             };
@@ -2750,6 +2856,7 @@ impl EffectsMeta {
                 self.effect_metadata_buffer.insert(gpu_effect_metadata);
             let dispatch_buffer_indices = DispatchBufferIndices {
                 update_dispatch_indirect_buffer_row_index,
+                draw_indirect_buffer_row_index,
                 effect_metadata_buffer_table_id,
             };
 
@@ -2847,6 +2954,7 @@ impl EffectsMeta {
         spawn_count: u32,
         prng_seed: u32,
         effect_metadata_buffer_table_id: BufferTableId,
+        draw_indirect_buffer_row_index: DrawIndirectRowIndex,
     ) -> u32 {
         let spawner_base = self.spawner_buffer.len() as u32;
         let transform = global_transform.compute_matrix().into();
@@ -2862,11 +2970,36 @@ impl EffectsMeta {
             spawn: spawn_count as i32,
             seed: prng_seed,
             effect_metadata_index: effect_metadata_buffer_table_id.0,
+            draw_indirect_index: draw_indirect_buffer_row_index.get().0,
             ..default()
         };
         trace!("spawner params = {:?}", spawner_params);
         self.spawner_buffer.push(spawner_params);
         spawner_base
+    }
+
+    pub fn allocate_draw_indirect(
+        &mut self,
+        is_indexed: bool,
+        mesh_location: &CachedMeshLocation,
+    ) -> DrawIndirectRowIndex {
+        let draw_args = GpuDrawIndexedIndirectArgs {
+            index_count: mesh_location.vertex_or_index_count,
+            instance_count: 0,
+            first_index: mesh_location.first_index_or_vertex_offset,
+            base_vertex: mesh_location.vertex_offset_or_base_instance,
+            first_instance: 0,
+        };
+        let idx = self.draw_indirect_buffer.insert(draw_args);
+        if is_indexed {
+            DrawIndirectRowIndex::Indexed(idx)
+        } else {
+            DrawIndirectRowIndex::NonIndexed(idx)
+        }
+    }
+
+    pub fn free_draw_indirect(&mut self, row_index: DrawIndirectRowIndex) {
+        self.draw_indirect_buffer.remove(row_index.get());
     }
 }
 
@@ -2990,8 +3123,9 @@ pub(crate) fn on_remove_cached_effect(
         .particle_buffers
         .remove(&cached_effect.buffer_index);
     effects_meta
-        .update_dispatch_indirect_buffer
+        .dispatch_indirect_buffer
         .free(dispatch_buffer_indices.update_dispatch_indirect_buffer_row_index);
+    effects_meta.free_draw_indirect(dispatch_buffer_indices.draw_indirect_buffer_row_index);
     effects_meta
         .effect_metadata_buffer
         .remove(dispatch_buffer_indices.effect_metadata_buffer_table_id);
@@ -3020,7 +3154,10 @@ pub(crate) fn add_effects(
     // the first point at which we can do that where we're not blocking the main
     // world (so, excluding the extract system).
     effects_meta
-        .update_dispatch_indirect_buffer
+        .dispatch_indirect_buffer
+        .clear_previous_frame_resizes();
+    effects_meta
+        .draw_indirect_buffer
         .clear_previous_frame_resizes();
     effects_meta
         .effect_metadata_buffer
@@ -3339,16 +3476,30 @@ pub fn fixup_parents(
 }
 
 /// Update any cached mesh info based on any relocation done by Bevy itself.
+///
+/// Bevy will merge small meshes into larger GPU buffers automatically. When
+/// this happens, the mesh location changes, and we need to update our
+/// references to it in order to know how to issue the draw commands.
 pub fn update_mesh_locations(
     mut commands: Commands,
+    mut effects_meta: ResMut<EffectsMeta>,
     mesh_allocator: Res<MeshAllocator>,
     render_meshes: Res<RenderAssets<RenderMesh>>,
     mut q_cached_effects: Query<
-        (Entity, &CachedMesh, Option<&mut CachedMeshLocation>),
+        (
+            Entity,
+            &CachedMesh,
+            &mut DispatchBufferIndices,
+            Option<&mut CachedMeshLocation>,
+        ),
         With<CachedEffect>,
     >,
 ) {
-    for (entity, cached_mesh, maybe_cached_mesh_location) in &mut q_cached_effects {
+    for (entity, cached_mesh, mut dispatch_buffer_indices, maybe_cached_mesh_location) in
+        &mut q_cached_effects
+    {
+        // FIXME - clear allocated entries (if any) if we can't resolve the mesh!
+
         // Resolve the render mesh
         let Some(render_mesh) = render_meshes.get(cached_mesh.mesh) else {
             warn!(
@@ -3394,6 +3545,7 @@ pub fn update_mesh_locations(
             };
 
         // Calculate the new mesh location as it should be based on Bevy's info
+        let is_indexed = indexed.is_some();
         let new_mesh_location = match &mesh_index_buffer_slice {
             // Indexed mesh rendering
             Some(mesh_index_buffer_slice) => CachedMeshLocation {
@@ -3412,6 +3564,29 @@ pub fn update_mesh_locations(
                 indexed: None,
             },
         };
+
+        // We don't allocate the draw indirect args ahead of time because we need to
+        // select the indexed vs. non-indexed buffer. Now that we know whether the mesh
+        // is indexed, we can allocate it (or reallocate it if indexing mode changed).
+        if dispatch_buffer_indices
+            .draw_indirect_buffer_row_index
+            .is_valid()
+        {
+            let was_indexed = dispatch_buffer_indices
+                .draw_indirect_buffer_row_index
+                .is_indexed();
+            if was_indexed != is_indexed {
+                effects_meta
+                    .free_draw_indirect(dispatch_buffer_indices.draw_indirect_buffer_row_index);
+            }
+        }
+        if !dispatch_buffer_indices
+            .draw_indirect_buffer_row_index
+            .is_valid()
+        {
+            dispatch_buffer_indices.draw_indirect_buffer_row_index =
+                effects_meta.allocate_draw_indirect(is_indexed, &new_mesh_location);
+        }
 
         // Compare to any cached data and update if necessary, or insert if missing.
         // This will trigger change detection in the ECS, which will in turn trigger
@@ -3922,6 +4097,7 @@ pub(crate) fn prepare_effects(
             extracted_effect.spawn_count,
             extracted_effect.prng_seed,
             dispatch_buffer_indices.effect_metadata_buffer_table_id,
+            dispatch_buffer_indices.draw_indirect_buffer_row_index,
         );
 
         trace!(
@@ -4026,6 +4202,24 @@ pub(crate) fn prepare_effects(
             continue;
         }
 
+        // Update the draw indirect args.
+        if cached_mesh_location.is_changed() {
+            let gpu_draw_args = GpuDrawIndexedIndirectArgs {
+                index_count: cached_mesh_location.vertex_or_index_count,
+                instance_count: 0,
+                first_index: cached_mesh_location.first_index_or_vertex_offset,
+                base_vertex: cached_mesh_location.vertex_offset_or_base_instance,
+                first_instance: 0,
+            };
+            assert!(dispatch_buffer_indices
+                .draw_indirect_buffer_row_index
+                .is_valid());
+            effects_meta.draw_indirect_buffer.update(
+                dispatch_buffer_indices.draw_indirect_buffer_row_index.get(),
+                gpu_draw_args,
+            );
+        }
+
         let capacity = cached_effect.slice.len();
 
         // Global and local indices of this effect as a child of another (parent) effect
@@ -4057,20 +4251,17 @@ pub(crate) fn prepare_effects(
             / 4;
 
         let gpu_effect_metadata = GpuEffectMetadata {
-            vertex_or_index_count: cached_mesh_location.vertex_or_index_count,
-            instance_count: 0,
-            first_index_or_vertex_offset: cached_mesh_location.first_index_or_vertex_offset,
-            vertex_offset_or_base_instance: cached_mesh_location.vertex_offset_or_base_instance,
-            base_instance: 0,
+            capacity,
             alive_count: 0,
             max_update: 0,
-            dead_count: capacity,
             max_spawn: capacity,
-            ping: 0,
+            indirect_write_index: 0,
             indirect_dispatch_index: dispatch_buffer_indices
                 .update_dispatch_indirect_buffer_row_index,
-            // Note: the indirect draw args are at the start of the GpuEffectMetadata struct
-            indirect_render_index: dispatch_buffer_indices.effect_metadata_buffer_table_id.0,
+            indirect_draw_index: dispatch_buffer_indices
+                .draw_indirect_buffer_row_index
+                .get()
+                .0,
             init_indirect_dispatch_index: cached_effect_events
                 .map(|cee| cee.init_indirect_dispatch_index)
                 .unwrap_or_default(),
@@ -4115,6 +4306,16 @@ pub(crate) fn prepare_effects(
         effect_bind_groups.update_metadata_bind_groups.clear();
     }
 
+    if effects_meta
+        .draw_indirect_buffer
+        .allocate_gpu(render_device, render_queue)
+    {
+        // All those bind groups use the buffer so need to be re-created
+        trace!("*** Draw indirect args buffer re-allocated; clearing all bind groups using it.");
+        effects_meta.update_sim_params_bind_group = None;
+        effects_meta.indirect_metadata_bind_group = None;
+    }
+
     // Write the entire spawner buffer for this frame, for all effects combined
     assert_eq!(
         prepared_effect_count,
@@ -4154,6 +4355,7 @@ pub(crate) fn prepare_effects(
         .write_buffer(render_device, render_queue);
     if prev_buffer_id != effects_meta.sim_params_uniforms.buffer().map(|b| b.id()) {
         // Buffer changed, invalidate bind groups
+        effects_meta.update_sim_params_bind_group = None;
         effects_meta.indirect_sim_params_bind_group = None;
     }
 }
@@ -4287,7 +4489,7 @@ pub(crate) fn batch_effects(
                 );
                 let src_offset = std::mem::offset_of!(GpuEffectMetadata, alive_count) as u32 / 4;
                 debug_assert_eq!(
-                    src_offset, 5,
+                    src_offset, 1,
                     "GpuEffectMetadata changed, update this assert."
                 );
                 // FIXME - This is a quick fix to get 0.15 out. The previous code used the
@@ -4308,7 +4510,7 @@ pub(crate) fn batch_effects(
                         src_offset,
                         src_stride: effects_meta.gpu_limits.effect_metadata_aligned_size.get() / 4,
                         dst_offset,
-                        dst_stride: GpuDispatchIndirect::SHADER_SIZE.get() as u32 / 4,
+                        dst_stride: GpuDispatchIndirectArgs::SHADER_SIZE.get() as u32 / 4,
                         count: 1,
                     },
                     src_buffer,
@@ -5467,7 +5669,7 @@ pub(crate) fn prepare_gpu_resources(
     event_cache.prepare_buffers(&render_device, &render_queue, &mut effect_bind_groups);
     sort_bind_groups.prepare_buffers(&render_device);
     if effects_meta
-        .update_dispatch_indirect_buffer
+        .dispatch_indirect_buffer
         .prepare_buffers(&render_device)
     {
         // All those bind groups use the buffer so need to be re-created
@@ -5522,6 +5724,7 @@ pub(crate) fn prepare_bind_groups(
     render_device: Res<RenderDevice>,
     dispatch_indirect_pipeline: Res<DispatchIndirectPipeline>,
     utils_pipeline: Res<UtilsPipeline>,
+    init_pipeline: Res<ParticlesInitPipeline>,
     update_pipeline: Res<ParticlesUpdatePipeline>,
     render_pipeline: ResMut<ParticlesRenderPipeline>,
     gpu_images: Res<RenderAssets<GpuImage>>,
@@ -5553,14 +5756,39 @@ pub(crate) fn prepare_bind_groups(
 
         // Create the sim_params@0 bind group for the global simulation parameters,
         // which is shared by the init and update passes.
+        if effects_meta.update_sim_params_bind_group.is_none() {
+            if let Some(draw_indirect_buffer) = effects_meta.draw_indirect_buffer.buffer() {
+                effects_meta.update_sim_params_bind_group = Some(render_device.create_bind_group(
+                    "hanabi:bind_group:vfx_update:sim_params@0",
+                    &update_pipeline.sim_params_layout,
+                    &[
+                        // @group(0) @binding(0) var<uniform> sim_params : SimParams;
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: effects_meta.sim_params_uniforms.binding().unwrap(),
+                        },
+                        // @group(0) @binding(1) var<storage, read_write> draw_indirect_buffer : array<DrawIndexedIndirectArgs>;
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: draw_indirect_buffer.as_entire_binding(),
+                        },
+                    ],
+                ));
+            } else {
+                debug!("Cannot allocate bind group for vfx_update:sim_params@0 - draw_indirect_buffer not ready");
+            }
+        }
         if effects_meta.indirect_sim_params_bind_group.is_none() {
             effects_meta.indirect_sim_params_bind_group = Some(render_device.create_bind_group(
                 "hanabi:bind_group:vfx_indirect:sim_params@0",
-                &update_pipeline.sim_params_layout, // FIXME - Shared with init
-                &[BindGroupEntry {
-                    binding: 0,
-                    resource: effects_meta.sim_params_uniforms.binding().unwrap(),
-                }],
+                &init_pipeline.sim_params_layout, // FIXME - Shared with init
+                &[
+                    // @group(0) @binding(0) var<uniform> sim_params : SimParams;
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: effects_meta.sim_params_uniforms.binding().unwrap(),
+                    },
+                ],
             ));
         }
 
@@ -5568,31 +5796,36 @@ pub(crate) fn prepare_bind_groups(
         // effects at once
         effects_meta.indirect_metadata_bind_group = match (
             effects_meta.effect_metadata_buffer.buffer(),
-            effects_meta.update_dispatch_indirect_buffer.buffer(),
+            effects_meta.dispatch_indirect_buffer.buffer(),
+            effects_meta.draw_indirect_buffer.buffer(),
         ) {
-            (Some(effect_metadata_buffer), Some(dispatch_indirect_buffer)) => {
+            (
+                Some(effect_metadata_buffer),
+                Some(dispatch_indirect_buffer),
+                Some(draw_indirect_buffer),
+            ) => {
                 // Base bind group for indirect pass
                 Some(render_device.create_bind_group(
                     "hanabi:bind_group:vfx_indirect:metadata@1",
                     &dispatch_indirect_pipeline.effect_metadata_bind_group_layout,
                     &[
-                        // @group(1) @binding(0) var<storage, read_write> effect_metadata_buffer : array<u32>;
+                        // @group(1) @binding(0) var<storage, read_write> effect_metadata_buffer :
+                        // array<u32>;
                         BindGroupEntry {
                             binding: 0,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: effect_metadata_buffer,
-                                offset: 0,
-                                size: None, //NonZeroU64::new(256), // Some(GpuEffectMetadata::min_size()),
-                            }),
+                            resource: effect_metadata_buffer.as_entire_binding(),
                         },
-                        // @group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer : array<u32>;
+                        // @group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer
+                        // : array<u32>;
                         BindGroupEntry {
                             binding: 1,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: dispatch_indirect_buffer,
-                                offset: 0,
-                                size: None, //NonZeroU64::new(256), // Some(GpuDispatchIndirect::min_size()),
-                            }),
+                            resource: dispatch_indirect_buffer.as_entire_binding(),
+                        },
+                        // @group(1) @binding(2) var<storage, read_write> draw_indirect_buffer :
+                        // array<u32>;
+                        BindGroupEntry {
+                            binding: 2,
+                            resource: draw_indirect_buffer.as_entire_binding(),
                         },
                     ],
                 ))
@@ -5944,8 +6177,6 @@ fn draw<'w>(
         .get(effect_draw_batch.effect_batch_index)
         .unwrap();
 
-    let gpu_limits = &effects_meta.gpu_limits;
-
     let Some(pipeline) = pipeline_cache.into_inner().get_render_pipeline(pipeline_id) else {
         return;
     };
@@ -6005,26 +6236,27 @@ fn draw<'w>(
         }
     }
 
-    let effect_metadata_index = effect_batch
+    let draw_indirect_index = effect_batch
         .dispatch_buffer_indices
-        .effect_metadata_buffer_table_id
+        .draw_indirect_buffer_row_index
+        .get()
         .0;
-    let effect_metadata_offset =
-        effect_metadata_index as u64 * gpu_limits.effect_metadata_aligned_size.get() as u64;
+    assert_eq!(GpuDrawIndexedIndirectArgs::SHADER_SIZE.get(), 20);
+    let draw_indirect_offset =
+        draw_indirect_index as u64 * GpuDrawIndexedIndirectArgs::SHADER_SIZE.get();
     trace!(
         "Draw up to {} particles with {} vertices per particle for batch from buffer #{} \
-            (effect_metadata_index={}, offset={}B).",
+            (effect_metadata_index={}, draw_indirect_offset={}B).",
         effect_batch.slice.len(),
         render_mesh.vertex_count,
         effect_batch.buffer_index,
-        effect_metadata_index,
-        effect_metadata_offset,
+        draw_indirect_index,
+        draw_indirect_offset,
     );
 
-    // Note: the indirect draw args are the first few fields of GpuEffectMetadata
-    let Some(indirect_buffer) = effects_meta.effect_metadata_buffer.buffer() else {
+    let Some(indirect_buffer) = effects_meta.draw_indirect_buffer.buffer() else {
         trace!(
-            "The metadata buffer containing the indirect draw args is not ready for batch buf=#{}. Skipping draw call.",
+            "The draw indirect buffer containing the indirect draw args is not ready for batch buf=#{}. Skipping draw call.",
             effect_batch.buffer_index,
         );
         return;
@@ -6034,14 +6266,18 @@ fn draw<'w>(
         RenderMeshBufferInfo::Indexed { index_format, .. } => {
             let Some(index_buffer_slice) = mesh_allocator.mesh_index_slice(&effect_batch.mesh)
             else {
+                trace!(
+                    "The index buffer for indexed rendering is not ready for batch buf=#{}. Skipping draw call.",
+                    effect_batch.buffer_index,
+                );
                 return;
             };
 
             pass.set_index_buffer(index_buffer_slice.buffer.slice(..), 0, index_format);
-            pass.draw_indexed_indirect(indirect_buffer, effect_metadata_offset);
+            pass.draw_indexed_indirect(indirect_buffer, draw_indirect_offset);
         }
         RenderMeshBufferInfo::NonIndexed => {
-            pass.draw_indirect(indirect_buffer, effect_metadata_offset);
+            pass.draw_indirect(indirect_buffer, draw_indirect_offset);
         }
     }
 }
@@ -6309,8 +6545,11 @@ impl Node for VfxSimulateNode {
         {
             let command_encoder = render_context.command_encoder();
             effects_meta
-                .update_dispatch_indirect_buffer
+                .dispatch_indirect_buffer
                 .write_buffers(command_encoder);
+            effects_meta
+                .draw_indirect_buffer
+                .write_buffer(command_encoder);
             effects_meta
                 .effect_metadata_buffer
                 .write_buffer(command_encoder);
@@ -6441,7 +6680,7 @@ impl Node for VfxSimulateNode {
 
                         // Note: the indirect offset of a dispatch workgroup only needs
                         // 4-byte alignment
-                        assert_eq!(GpuDispatchIndirect::min_size().get(), 12);
+                        assert_eq!(GpuDispatchIndirectArgs::min_size().get(), 12);
                         let indirect_offset = init_indirect_dispatch_index as u64 * 12;
 
                         trace!(
@@ -6574,8 +6813,7 @@ impl Node for VfxSimulateNode {
 
         // Compute update pass
         {
-            let Some(indirect_buffer) = effects_meta.update_dispatch_indirect_buffer.buffer()
-            else {
+            let Some(indirect_buffer) = effects_meta.dispatch_indirect_buffer.buffer() else {
                 warn!("Missing indirect buffer for update pass, cannot dispatch anything.");
                 render_context
                     .command_encoder()
@@ -6590,10 +6828,7 @@ impl Node for VfxSimulateNode {
             // Bind group simparams@0 is common to everything, only set once per update pass
             compute_pass.set_bind_group(
                 0,
-                effects_meta
-                    .indirect_sim_params_bind_group
-                    .as_ref()
-                    .unwrap(),
+                effects_meta.update_sim_params_bind_group.as_ref().unwrap(),
                 &[],
             );
 

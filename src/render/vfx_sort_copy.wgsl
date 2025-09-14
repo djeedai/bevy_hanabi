@@ -29,14 +29,12 @@ struct IndirectIndexBuffer {
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let row_index = global_invocation_id.x;
-    let count = atomicLoad(&effect_metadata.instance_count); // TODO - atomic not needed
+    let count = atomicLoad(&effect_metadata.alive_count); // TODO - atomic not needed
     if (row_index >= count) {
         return;
     }
     
-    // Always write into ping, read from pong
-    let write_index = effect_metadata.ping;
-
     let particle_index = sort_buffer.pairs[row_index].value;
+    let write_index = effect_metadata.indirect_write_index;
     indirect_index_buffer.data[row_index * 3u + write_index] = particle_index;
 }

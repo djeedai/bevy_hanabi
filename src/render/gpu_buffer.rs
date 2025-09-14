@@ -4,8 +4,8 @@ use bevy::{
     log::trace,
     render::{
         render_resource::{
-            BindingResource, Buffer, BufferAddress, BufferBinding, BufferDescriptor, BufferUsages,
-            ShaderSize, ShaderType,
+            BindingResource, Buffer, BufferAddress, BufferDescriptor, BufferUsages, ShaderSize,
+            ShaderType,
         },
         renderer::RenderDevice,
     },
@@ -194,14 +194,9 @@ impl<T: Pod + ShaderType + ShaderSize> GpuBuffer<T> {
 
     /// Get a binding for the entire GPU buffer, if allocated.
     #[inline]
-    #[allow(dead_code)]
-    pub fn binding(&self) -> Option<BindingResource<'_>> {
+    pub fn as_entire_binding(&self) -> Option<BindingResource<'_>> {
         let buffer = self.buffer()?;
-        Some(BindingResource::Buffer(BufferBinding {
-            buffer,
-            offset: 0,
-            size: None, // entire buffer
-        }))
+        Some(buffer.as_entire_binding())
     }
 
     /// Get the current buffer capacity, in element count.

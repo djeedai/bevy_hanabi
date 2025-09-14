@@ -375,16 +375,9 @@ pub struct HybridAlignedBufferVec {
 impl HybridAlignedBufferVec {
     /// Create a new collection.
     ///
-    /// `item_align` is an optional additional alignment for items in the
-    /// collection. If greater than the natural alignment dictated by WGSL
-    /// rules, this extra alignment is enforced. Otherwise it's ignored (so you
-    /// can pass `None` to ignore, which defaults to no alignment).
-    pub fn new(
-        buffer_usage: BufferUsages,
-        item_align: Option<NonZeroU64>,
-        label: Option<String>,
-    ) -> Self {
-        let item_align = item_align.map(|nz| nz.get()).unwrap_or(1) as usize;
+    /// `item_align` is the alignment for items in the collection.
+    pub fn new(buffer_usage: BufferUsages, item_align: NonZeroU64, label: Option<String>) -> Self {
+        let item_align = item_align.get() as usize;
         trace!(
             "HybridAlignedBufferVec['{}']: item_align={} byte",
             label.as_ref().map(|s| &s[..]).unwrap_or(""),
@@ -530,7 +523,6 @@ impl HybridAlignedBufferVec {
     /// The range span is the item byte size.
     ///
     /// [`item_align()`]: self::HybridAlignedBufferVec::item_align
-    #[allow(dead_code)]
     pub fn push<T: Pod + ShaderSize>(&mut self, value: &T) -> Range<u32> {
         let src: &[u8] = cast_slice(std::slice::from_ref(value));
         assert_eq!(value.size().get() as usize, src.len());
@@ -773,8 +765,16 @@ impl HybridAlignedBufferVec {
         true
     }
 
-    /// Update an allocated entry with new data
-    pub fn update(&mut self, offset: u32, data: &[u8]) {
+    /// Update an allocated entry with a new value.
+    #[inline]
+    pub fn update<T: Pod + ShaderSize>(&mut self, offset: u32, value: &T) {
+        let data: &[u8] = cast_slice(std::slice::from_ref(value));
+        assert_eq!(value.size().get() as usize, data.len());
+        self.update_raw(offset, data);
+    }
+
+    /// Update an allocated entry with new data.
+    pub fn update_raw(&mut self, offset: u32, data: &[u8]) {
         // Can only update entire blocks starting at an aligned size
         let align = self.item_align as u32;
         if offset % align != 0 {
@@ -985,7 +985,7 @@ mod tests {
     #[test]
     fn habv_remove() {
         let mut habv =
-            HybridAlignedBufferVec::new(BufferUsages::STORAGE, NonZeroU64::new(32), None);
+            HybridAlignedBufferVec::new(BufferUsages::STORAGE, NonZeroU64::new(32).unwrap(), None);
         assert!(habv.is_empty());
         assert_eq!(habv.item_align, 32);
 

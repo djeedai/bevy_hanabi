@@ -608,6 +608,58 @@ pub(crate) struct CachedEffect {
     pub slice: SliceRef,
 }
 
+#[derive(Debug, Clone, Copy, Component)]
+pub(crate) enum DrawIndirectRowIndex {
+    NonIndexed(BufferTableId),
+    Indexed(BufferTableId),
+}
+
+impl Default for DrawIndirectRowIndex {
+    fn default() -> Self {
+        Self::NonIndexed(BufferTableId::INVALID)
+    }
+}
+
+impl DrawIndirectRowIndex {
+    /// Check if the index is valid.
+    ///
+    /// An invalid index doesn't correspond to any allocated args entry. A valid
+    /// one may, but note that the args entry in the buffer may have been freed
+    /// already with this index. There's no mechanism to detect reuse either.
+    pub fn is_valid(&self) -> bool {
+        self.get_raw().is_valid()
+    }
+
+    /// Check if this row index refers to an indexed draw args entry.
+    pub fn is_indexed(&self) -> bool {
+        matches!(*self, Self::Indexed(..))
+    }
+
+    /// Get the raw index value.
+    ///
+    /// Retrieve the raw index value, losing the discriminant between indexed
+    /// and non-indexed draw. This is useful when storing the index value into a
+    /// GPU buffer. The rest of the time, prefer retaining the typed enum for
+    /// safety.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is invalid, whether indexed or non-indexed.
+    pub fn get(&self) -> BufferTableId {
+        let idx = self.get_raw();
+        assert!(idx.is_valid());
+        idx
+    }
+
+    #[inline(always)]
+    fn get_raw(&self) -> BufferTableId {
+        match *self {
+            Self::NonIndexed(idx) => idx,
+            Self::Indexed(idx) => idx,
+        }
+    }
+}
+
 /// The indices in the indirect dispatch buffers for a single effect, as well as
 /// that of the metadata buffer.
 #[derive(Debug, Default, Clone, Copy, Component)]
@@ -615,8 +667,19 @@ pub(crate) struct DispatchBufferIndices {
     /// The index of the [`GpuDispatchIndirect`] row in the GPU buffer
     /// [`EffectsMeta::update_dispatch_indirect_buffer`].
     ///
-    /// [`EffectsMeta::update_dispatch_indirect_buffer`]: super::EffectsMeta::update_dispatch_indirect_buffer
+    /// [`GpuDispatchIndirect`]: super::GpuDispatchIndirect
+    /// [`EffectsMeta::update_dispatch_indirect_buffer`]: super::EffectsMeta::dispatch_indirect_buffer
     pub(crate) update_dispatch_indirect_buffer_row_index: u32,
+
+    /// The index of the [`GpuDrawIndirect`] or [`GpuDrawIndexedIndirect`] row
+    /// in the GPU buffer [`EffectsMeta::draw_indirect_buffer`] or
+    /// [`EffectsMeta::draw_indexed_indirect_buffer`].
+    ///
+    /// [`GpuDrawIndirect`]: super::GpuDrawIndirect
+    /// [`GpuDrawIndexedIndirect`]: super::GpuDrawIndexedIndirect
+    /// [`EffectsMeta::draw_indirect_buffer`]: super::EffectsMeta::draw_indirect_buffer
+    /// [`EffectsMeta::draw_indexed_indirect_buffer`]: super::EffectsMeta::draw_indexed_indirect_buffer
+    pub(crate) draw_indirect_buffer_row_index: DrawIndirectRowIndex,
 
     /// The index of the [`GpuEffectMetadata`] in
     /// [`EffectsMeta::effect_metadata_buffer`].

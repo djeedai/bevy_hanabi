@@ -22,7 +22,7 @@ use wgpu::{
 
 use super::{
     aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState, gpu_buffer::GpuBuffer,
-    BufferBindingSource, EffectBindGroups, GpuDispatchIndirect,
+    BufferBindingSource, EffectBindGroups, GpuDispatchIndirectArgs,
 };
 use crate::ParticleLayout;
 
@@ -264,7 +264,7 @@ pub struct EventCache {
     // FIXME - merge with the update pass one, we don't need 2 buffers storing the same type; on
     // the other hand if we sync the allocations with GpuChildInfo we can guarantee a perfect
     // batching for the init fill dispatch pass (single dispatch for all instances at once).
-    init_indirect_dispatch_buffer: GpuBuffer<GpuDispatchIndirect>,
+    init_indirect_dispatch_buffer: GpuBuffer<GpuDispatchIndirectArgs>,
     /// Bind group layout for the indirect dispatch pass, which clears the GPU
     /// event counts ([`GpuChildInfo::event_count`]).
     indirect_child_info_buffer_bind_group_layout: BindGroupLayout,
@@ -299,7 +299,7 @@ impl EventCache {
             device,
             child_infos_buffer: HybridAlignedBufferVec::new(
                 BufferUsages::STORAGE,
-                Some(NonZeroU64::new(4).unwrap()),
+                NonZeroU64::new(4).unwrap(),
                 Some("hanabi:buffer:child_infos".to_string()),
             ),
             buffers: vec![],

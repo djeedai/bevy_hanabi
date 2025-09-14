@@ -32,12 +32,14 @@ struct RawParticleBuffer {
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let thread_index = global_invocation_id.x;
-    let count = atomicLoad(&effect_metadata.instance_count); // TODO - atomic not needed
+    let count = atomicLoad(&effect_metadata.alive_count); // TODO - atomic not needed
     if (thread_index >= count) {
         return;
     }
 
-    let read_index = effect_metadata.ping;
+    // Because we're after the indirect pass, the buffers are already swapped in preparation
+    // of next frame, so the "write index" of next frame is really the read index of this one.
+    let read_index = effect_metadata.indirect_write_index;
     let particle_index = indirect_index_buffer[thread_index * 3u + read_index];
 
     let particle_offset = particle_index * effect_metadata.particle_stride;
