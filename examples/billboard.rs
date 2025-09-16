@@ -162,12 +162,10 @@ fn setup(
     ));
 }
 
-fn rotate_camera(time: Res<Time>, mut query: Query<&mut Transform, With<Camera>>) {
-    if let Ok(mut transform) = query.single_mut() {
-        let radius_xz = 18_f32.sqrt();
-        let a = (time.elapsed_secs() * 0.3).sin();
-        let (s, c) = a.sin_cos();
-        *transform =
-            Transform::from_xyz(c * radius_xz, 3.0, s * radius_xz).looking_at(Vec3::ZERO, Vec3::Y)
-    }
+fn rotate_camera(time: Res<Time>, mut camera_transform: Single<&mut Transform, With<Camera3d>>) {
+    let radius_xz = 18_f32.sqrt();
+    let a = (time.elapsed_secs() * 0.3).sin();
+    let (s, c) = a.sin_cos();
+    **camera_transform =
+        Transform::from_xyz(c * radius_xz, 3.0, s * radius_xz).looking_at(Vec3::ZERO, Vec3::Y)
 }
