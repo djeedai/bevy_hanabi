@@ -33,8 +33,11 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     if (row_index >= count) {
         return;
     }
-    
-    let particle_index = sort_buffer.pairs[row_index].value;
+
+    // Write the particle index back into the same ping-pong column index we read it from
+    // in vfx_sort_fill. Sorting is optional and shouldn't influence that ping-pong logic.
     let write_index = effect_metadata.indirect_write_index;
+
+    let particle_index = sort_buffer.pairs[row_index].value;
     indirect_index_buffer.data[row_index * 3u + write_index] = particle_index;
 }

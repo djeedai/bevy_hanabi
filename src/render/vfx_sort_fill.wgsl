@@ -37,8 +37,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
-    // Because we're after the indirect pass, the buffers are already swapped in preparation
-    // of next frame, so the "write index" of next frame is really the read index of this one.
+    // Read the particle index from the ping-pong column index written this frame by vfx_update.
+    // After sorting we will write back into that same column, so that the sorting effectively
+    // sorted the column in-place (no ping-pong column swap here).
     let read_index = effect_metadata.indirect_write_index;
     let particle_index = indirect_index_buffer[thread_index * 3u + read_index];
 

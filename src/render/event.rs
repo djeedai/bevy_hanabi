@@ -21,7 +21,7 @@ use wgpu::{
 };
 
 use super::{
-    aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState, gpu_buffer::GpuBuffer,
+    aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::SlabState, gpu_buffer::GpuBuffer,
     BufferBindingSource, EffectBindGroups, GpuDispatchIndirectArgs,
 };
 use crate::ParticleLayout;
@@ -122,15 +122,15 @@ impl EventBuffer {
     }
 
     /// Free the slice of a consumer effect once that effect is deallocated.
-    pub fn free(&mut self, slice: &EventSlice) -> BufferState {
+    pub fn free(&mut self, slice: &EventSlice) -> SlabState {
         // Note: could use binary search, but likely not enough elements to be worth it
         if let Some(idx) = self.slices.iter().position(|es| es == slice) {
             self.slices.remove(idx);
         }
         if self.slices.is_empty() {
-            BufferState::Free
+            SlabState::Free
         } else {
-            BufferState::Used
+            SlabState::Used
         }
     }
 }
@@ -431,7 +431,7 @@ impl EventCache {
     pub fn free(
         &mut self,
         cached_effect_events: &CachedEffectEvents,
-    ) -> Result<BufferState, CachedEventsError> {
+    ) -> Result<SlabState, CachedEventsError> {
         trace!(
             "Removing cached event {:?} from cache.",
             cached_effect_events
@@ -451,13 +451,13 @@ impl EventCache {
         ))?;
         if buffer.free(&EventSlice {
             slice: cached_effect_events.range.clone(),
-        }) == BufferState::Free
+        }) == SlabState::Free
         {
             let buffer = entry.take().unwrap();
             buffer.buffer.destroy();
-            Ok(BufferState::Free)
+            Ok(SlabState::Free)
         } else {
-            Ok(BufferState::Used)
+            Ok(SlabState::Used)
         }
     }
 

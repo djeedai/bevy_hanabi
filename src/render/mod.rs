@@ -57,7 +57,7 @@ use bevy::{
 };
 use bitflags::bitflags;
 use bytemuck::{Pod, Zeroable};
-use effect_cache::{BufferState, CachedEffect, EffectSlice};
+use effect_cache::{CachedEffect, EffectSlice, SlabState};
 use event::{CachedChildInfo, CachedEffectEvents, CachedParentInfo, CachedParentRef, GpuChildInfo};
 use fixedbitset::FixedBitSet;
 use gpu_buffer::GpuBuffer;
@@ -68,7 +68,7 @@ use crate::{
     calc_func_id,
     render::{
         batch::{BatchInput, EffectDrawBatch, InitAndUpdatePipelineIds},
-        effect_cache::{DispatchBufferIndices, DrawIndirectRowIndex},
+        effect_cache::{DispatchBufferIndices, DrawIndirectRowIndex, SlabId},
     },
     AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
     EffectSpawner, EffectVisibilityClass, ParticleLayout, PropertyLayout, SimulationCondition,
@@ -121,7 +121,7 @@ pub(crate) struct BufferBindingSource {
 
 impl BufferBindingSource {
     /// Get a binding over the source data.
-    pub fn binding(&self) -> BindingResource<'_> {
+    pub fn as_binding(&self) -> BindingResource<'_> {
         BindingResource::Buffer(BufferBinding {
             buffer: &self.buffer,
             offset: self.offset as u64 * 4,
@@ -3092,7 +3092,7 @@ pub(crate) fn on_remove_cached_effect(
                 error!("Error while freeing effect event slice: {err:?}");
             }
             Ok(buffer_state) => {
-                if buffer_state != BufferState::Used {
+                if buffer_state != SlabState::Used {
                     // Clear bind groups associated with the old buffer
                     effect_bind_groups.init_metadata_bind_groups.clear();
                     effect_bind_groups.update_metadata_bind_groups.clear();
@@ -3108,7 +3108,7 @@ pub(crate) fn on_remove_cached_effect(
         render_entity,
         main_entity,
     );
-    let Ok(BufferState::Free) = effect_cache.remove(cached_effect) else {
+    let Ok(SlabState::Free) = effect_cache.remove(cached_effect) else {
         // Buffer was not affected, so all bind groups are still valid. Nothing else to
         // do.
         return;
@@ -3116,12 +3116,12 @@ pub(crate) fn on_remove_cached_effect(
 
     // Clear bind groups associated with the removed buffer
     trace!(
-        "=> GPU buffer #{} gone, destroying its bind groups...",
-        cached_effect.buffer_index
+        "=> GPU particle slab #{} gone, destroying its bind groups...",
+        cached_effect.slab_id.index()
     );
     effect_bind_groups
-        .particle_buffers
-        .remove(&cached_effect.buffer_index);
+        .particle_slabs
+        .remove(&cached_effect.slab_id);
     effects_meta
         .dispatch_indirect_buffer
         .free(dispatch_buffer_indices.update_dispatch_indirect_buffer_row_index);
@@ -3298,14 +3298,15 @@ pub(crate) fn resolve_parents(
             continue;
         };
         let Some(parent_buffer_binding_source) = effect_cache
-            .get_buffer(parent_cached_effect.buffer_index)
+            .get_slab(&parent_cached_effect.slab_id)
             .map(|effect_buffer| effect_buffer.max_binding_source())
         else {
             // Since we failed to resolve, remove this component so the next systems ignore
             // this effect.
             warn!(
-                "Unknown parent buffer #{} on entity {:?}, removing CachedChildInfo.",
-                parent_cached_effect.buffer_index, child_entity
+                "Unknown parent slab #{} on entity {:?}, removing CachedChildInfo.",
+                parent_cached_effect.slab_id.index(),
+                child_entity
             );
             commands.entity(child_entity).remove::<CachedChildInfo>();
             continue;
@@ -3674,7 +3675,7 @@ pub(crate) struct CachedMeshLocation {
 pub(crate) struct CachedProperties {
     /// Layout of the effect properties.
     pub layout: PropertyLayout,
-    /// Index of the buffer in the [`EffectCache`].
+    /// Index of the buffer in the [`PropertyCache`].
     pub buffer_index: u32,
     /// Offset in bytes inside the buffer.
     pub offset: u32,
@@ -3836,7 +3837,7 @@ pub(crate) fn prepare_effects(
 
         let effect_slice = EffectSlice {
             slice: cached_effect.slice.range(),
-            buffer_index: cached_effect.buffer_index,
+            slab_id: cached_effect.slab_id,
             particle_layout: cached_effect.slice.particle_layout.clone(),
         };
 
@@ -3922,7 +3923,7 @@ pub(crate) fn prepare_effects(
 
         // Fetch the bind group layouts from the cache
         trace!("cached_child_info={:?}", cached_child_info);
-        let (parent_particle_layout_min_binding_size, parent_buffer_index) =
+        let (parent_particle_layout_min_binding_size, parent_slab_id) =
             if let Some(cached_child) = cached_child_info.as_ref() {
                 let Ok((_, parent_cached_effect, _, _, _, _, _, _, _)) =
                     q_cached_effects.get(cached_child.parent)
@@ -3942,7 +3943,7 @@ pub(crate) fn prepare_effects(
                             .particle_layout
                             .min_binding_size32(),
                     ),
-                    Some(parent_cached_effect.buffer_index),
+                    Some(parent_cached_effect.slab_id),
                 )
             } else {
                 (None, None)
@@ -4009,6 +4010,23 @@ pub(crate) fn prepare_effects(
             init_pipeline_id
         };
 
+        // Never batch an effect with a pipeline not available; this will prevent its
+        // init/update pass from running, but the vfx_indirect pass will run
+        // nonetheless, which causes desyncs and leads to bugs.
+        if pipeline_cache
+            .get_compute_pipeline(init_pipeline_id)
+            .is_none()
+        {
+            error!(
+                "Skipping effect from main entity {:?} due to missing or not ready init pipeline (status: {:?})",
+                main_entity,
+                pipeline_cache.get_compute_pipeline_state(init_pipeline_id)
+            );
+            let mut cmd = commands.entity(extracted_effect.render_entity.id());
+            cmd.remove::<BatchInput>();
+            continue;
+        }
+
         let update_pipeline_id = {
             let num_event_buffers = cached_parent_info
                 .map(|p| p.children.len() as u32)
@@ -4058,6 +4076,23 @@ pub(crate) fn prepare_effects(
 
             update_pipeline_id
         };
+
+        // Never batch an effect with a pipeline not available; this will prevent its
+        // init/update pass from running, but the vfx_indirect pass will run
+        // nonetheless, which causes desyncs and leads to bugs.
+        if pipeline_cache
+            .get_compute_pipeline(update_pipeline_id)
+            .is_none()
+        {
+            error!(
+                "Skipping effect from main entity {:?} due to missing or not ready update pipeline (status: {:?})",
+                main_entity,
+                pipeline_cache.get_compute_pipeline_state(update_pipeline_id)
+            );
+            let mut cmd = commands.entity(extracted_effect.render_entity.id());
+            cmd.remove::<BatchInput>();
+            continue;
+        }
 
         let init_and_update_pipeline_ids = InitAndUpdatePipelineIds {
             init: init_pipeline_id,
@@ -4111,7 +4146,7 @@ pub(crate) fn prepare_effects(
             main_entity: extracted_effect.main_entity,
             effect_slice,
             init_and_update_pipeline_ids,
-            parent_buffer_index,
+            parent_slab_id,
             event_buffer_index: cached_effect_events.map(|cee| cee.buffer_index),
             child_effects: cached_parent_info
                 .map(|cp| cp.children.clone())
@@ -4326,7 +4361,7 @@ pub(crate) fn prepare_effects(
         .write_buffer(render_device, render_queue)
     {
         // All property bind groups use the spawner buffer, which was reallocate
-        effect_bind_groups.particle_buffers.clear();
+        effect_bind_groups.particle_slabs.clear();
         property_bind_groups.clear(true);
         effects_meta.indirect_spawner_bind_group = None;
     }
@@ -4685,7 +4720,7 @@ impl From<&ConsumeEventBuffers<'_>> for ConsumeEventKey {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct InitMetadataBindGroupKey {
-    pub buffer_index: u32,
+    pub slab_id: SlabId,
     pub effect_metadata_buffer: BufferId,
     pub effect_metadata_offset: u32,
     pub consume_event_key: Option<ConsumeEventKey>,
@@ -4693,13 +4728,20 @@ struct InitMetadataBindGroupKey {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct UpdateMetadataBindGroupKey {
-    pub buffer_index: u32,
+    pub slab_id: SlabId,
     pub effect_metadata_buffer: BufferId,
     pub effect_metadata_offset: u32,
     pub child_info_buffer_id: Option<BufferId>,
     pub event_buffers_keys: Vec<BindingKey>,
 }
 
+/// Bind group cached with an associated key.
+///
+/// The cached bind group is associated with the given key representing the
+/// inputs that the bind group depends on. When those inputs change, the key
+/// should change, indicating the bind group needs to be recreated.
+///
+/// This object manages a single bind group and its key.
 struct CachedBindGroup<K: Eq> {
     /// Key the bind group was created from. Each time the key changes, the bind
     /// group should be re-created.
@@ -4757,28 +4799,26 @@ struct ConsumeEventBuffers<'a> {
 
 #[derive(Default, Resource)]
 pub struct EffectBindGroups {
-    /// Map from buffer index to the bind groups shared among all effects that
-    /// use that buffer.
-    particle_buffers: HashMap<u32, BufferBindGroups>,
+    /// Map from a slab ID to the bind groups shared among all effects that
+    /// use that particle slab.
+    particle_slabs: HashMap<SlabId, BufferBindGroups>,
     /// Map of bind groups for image assets used as particle textures.
     images: HashMap<AssetId<Image>, BindGroup>,
     /// Map from buffer index to its metadata bind group (group 3) for the init
     /// pass.
     // FIXME - doesn't work with batching; this should be the instance ID
-    init_metadata_bind_groups: HashMap<u32, CachedBindGroup<InitMetadataBindGroupKey>>,
+    init_metadata_bind_groups: HashMap<SlabId, CachedBindGroup<InitMetadataBindGroupKey>>,
     /// Map from buffer index to its metadata bind group (group 3) for the
     /// update pass.
     // FIXME - doesn't work with batching; this should be the instance ID
-    update_metadata_bind_groups: HashMap<u32, CachedBindGroup<UpdateMetadataBindGroupKey>>,
+    update_metadata_bind_groups: HashMap<SlabId, CachedBindGroup<UpdateMetadataBindGroupKey>>,
     /// Map from an effect material to its bind group.
     material_bind_groups: HashMap<Material, BindGroup>,
 }
 
 impl EffectBindGroups {
-    pub fn particle_render(&self, buffer_index: u32) -> Option<&BindGroup> {
-        self.particle_buffers
-            .get(&buffer_index)
-            .map(|bg| &bg.render)
+    pub fn particle_render(&self, slab_id: &SlabId) -> Option<&BindGroup> {
+        self.particle_slabs.get(slab_id).map(|bg| &bg.render)
     }
 
     /// Retrieve the metadata@3 bind group for the init pass, creating it if
@@ -4800,7 +4840,7 @@ impl EffectBindGroups {
         let effect_metadata_offset =
             gpu_limits.effect_metadata_offset(effect_metadata_buffer_table_id.0) as u32;
         let key = InitMetadataBindGroupKey {
-            buffer_index: effect_batch.buffer_index,
+            slab_id: effect_batch.slab_id,
             effect_metadata_buffer: effect_metadata_buffer.id(),
             effect_metadata_offset,
             consume_event_key: consume_event_buffers.as_ref().map(Into::into),
@@ -4849,7 +4889,7 @@ impl EffectBindGroups {
 
             trace!(
                     "Created new metadata@3 bind group for init pass and buffer index {}: effect_metadata=#{}",
-                    effect_batch.buffer_index,
+                    effect_batch.slab_id.index(),
                     effect_metadata_buffer_table_id.0,
                 );
 
@@ -4858,7 +4898,7 @@ impl EffectBindGroups {
 
         Ok(&self
             .init_metadata_bind_groups
-            .entry(effect_batch.buffer_index)
+            .entry(effect_batch.slab_id)
             .and_modify(|cbg| {
                 if cbg.key != key {
                     trace!(
@@ -4915,7 +4955,7 @@ impl EffectBindGroups {
             .collect::<Vec<_>>();
 
         let key = UpdateMetadataBindGroupKey {
-            buffer_index: effect_batch.buffer_index,
+            slab_id: effect_batch.slab_id,
             effect_metadata_buffer: effect_metadata_buffer.id(),
             effect_metadata_offset: gpu_limits
                 .effect_metadata_offset(effect_metadata_buffer_table_id.0)
@@ -4975,8 +5015,8 @@ impl EffectBindGroups {
             );
 
             trace!(
-                "Created new metadata@3 bind group for update pass and buffer index {}: effect_metadata={}",
-                effect_batch.buffer_index,
+                "Created new metadata@3 bind group for update pass and slab ID {}: effect_metadata={}",
+                effect_batch.slab_id.index(),
                 effect_metadata_buffer_table_id.0,
             );
 
@@ -4985,7 +5025,7 @@ impl EffectBindGroups {
 
         Ok(&self
             .update_metadata_bind_groups
-            .entry(effect_batch.buffer_index)
+            .entry(effect_batch.slab_id)
             .and_modify(|cbg| {
                 if cbg.key != key {
                     trace!(
@@ -5084,8 +5124,8 @@ fn emit_sorted_draw<T, F>(
             };
 
             trace!(
-                "-> EffectBach: buffer_index={} spawner_base={} layout_flags={:?}",
-                effect_batch.buffer_index,
+                "-> EffectBach: slab_id={} spawner_base={} layout_flags={:?}",
+                effect_batch.slab_id.index(),
                 effect_batch.spawner_base,
                 effect_batch.layout_flags,
             );
@@ -5191,10 +5231,10 @@ fn emit_sorted_draw<T, F>(
 
             trace!("+ Render pipeline specialized: id={:?}", render_pipeline_id,);
             trace!(
-                "+ Add Transparent for batch on draw_entity {:?}: buffer_index={} \
+                "+ Add Transparent for batch on draw_entity {:?}: slab_id={} \
                 spawner_base={} handle={:?}",
                 draw_entity,
-                effect_batch.buffer_index,
+                effect_batch.slab_id.index(),
                 effect_batch.spawner_base,
                 effect_batch.handle
             );
@@ -5272,8 +5312,8 @@ fn emit_binned_draw<T, F, G>(
             };
 
             trace!(
-                "-> EffectBaches: buffer_index={} spawner_base={} layout_flags={:?}",
-                effect_batch.buffer_index,
+                "-> EffectBaches: slab_id={} spawner_base={} layout_flags={:?}",
+                effect_batch.slab_id.index(),
                 effect_batch.spawner_base,
                 effect_batch.layout_flags,
             );
@@ -5377,10 +5417,10 @@ fn emit_binned_draw<T, F, G>(
 
             trace!("+ Render pipeline specialized: id={:?}", render_pipeline_id,);
             trace!(
-                "+ Add Transparent for batch on draw_entity {:?}: buffer_index={} \
+                "+ Add Transparent for batch on draw_entity {:?}: slab_id={} \
                 spawner_base={} handle={:?}",
                 draw_entity,
-                effect_batch.buffer_index,
+                effect_batch.slab_id.index(),
                 effect_batch.spawner_base,
                 effect_batch.handle
             );
@@ -5674,7 +5714,7 @@ pub(crate) fn prepare_gpu_resources(
     {
         // All those bind groups use the buffer so need to be re-created
         trace!("*** Dispatch indirect buffer for update pass re-allocated; clearing all bind groups using it.");
-        effect_bind_groups.particle_buffers.clear();
+        effect_bind_groups.particle_slabs.clear();
     }
 }
 
@@ -5767,7 +5807,8 @@ pub(crate) fn prepare_bind_groups(
                             binding: 0,
                             resource: effects_meta.sim_params_uniforms.binding().unwrap(),
                         },
-                        // @group(0) @binding(1) var<storage, read_write> draw_indirect_buffer : array<DrawIndexedIndirectArgs>;
+                        // @group(0) @binding(1) var<storage, read_write> draw_indirect_buffer :
+                        // array<DrawIndexedIndirectArgs>;
                         BindGroupEntry {
                             binding: 1,
                             resource: draw_indirect_buffer.as_entire_binding(),
@@ -5858,16 +5899,16 @@ pub(crate) fn prepare_bind_groups(
         }
     }
 
-    // Create the per-buffer bind groups
-    trace!("Create per-buffer bind groups...");
-    for (buffer_index, effect_buffer) in effect_cache.buffers().iter().enumerate() {
+    // Create the per-slab bind groups
+    trace!("Create per-slab bind groups...");
+    for (slab_index, particle_slab) in effect_cache.slabs().iter().enumerate() {
         #[cfg(feature = "trace")]
         let _span_buffer = bevy::log::info_span!("create_buffer_bind_groups").entered();
 
-        let Some(effect_buffer) = effect_buffer else {
+        let Some(particle_slab) = particle_slab else {
             trace!(
-                "Effect buffer index #{} has no allocated EffectBuffer, skipped.",
-                buffer_index
+                "Particle slab index #{} has no allocated EffectBuffer, skipped.",
+                slab_index
             );
             continue;
         };
@@ -5875,13 +5916,13 @@ pub(crate) fn prepare_bind_groups(
         // Ensure all effects in this batch have a bind group for the entire buffer of
         // the group, since the update phase runs on an entire group/buffer at once,
         // with all the effect instances in it batched together.
-        trace!("effect particle buffer_index=#{}", buffer_index);
+        trace!("effect particle slab_index=#{}", slab_index);
         effect_bind_groups
-            .particle_buffers
-            .entry(buffer_index as u32)
+            .particle_slabs
+            .entry(SlabId::new(slab_index as u32))
             .or_insert_with(|| {
                 // Bind group particle@1 for render pass
-                trace!("Creating particle@1 bind group for buffer #{buffer_index} in render pass");
+                trace!("Creating particle@1 bind group for buffer #{slab_index} in render pass");
                 let spawner_min_binding_size = GpuSpawnerParams::aligned_size(
                     render_device.limits().min_storage_buffer_offset_alignment,
                 );
@@ -5889,12 +5930,12 @@ pub(crate) fn prepare_bind_groups(
                     // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
                     BindGroupEntry {
                         binding: 0,
-                        resource: effect_buffer.max_binding(),
+                        resource: particle_slab.as_entire_binding_particle(),
                     },
                     // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
                     BindGroupEntry {
                         binding: 1,
-                        resource: effect_buffer.indirect_index_max_binding(),
+                        resource: particle_slab.as_entire_binding_indirect(),
                     },
                     // @group(1) @binding(2) var<storage, read> spawner : Spawner;
                     BindGroupEntry {
@@ -5907,8 +5948,8 @@ pub(crate) fn prepare_bind_groups(
                     },
                 ];
                 let render = render_device.create_bind_group(
-                    &format!("hanabi:bind_group:render:particles@1:vfx{buffer_index}")[..],
-                    effect_buffer.render_particles_buffer_layout(),
+                    &format!("hanabi:bind_group:render:particles@1:vfx{slab_index}")[..],
+                    particle_slab.render_particles_buffer_layout(),
                     &entries[..],
                 );
 
@@ -5952,7 +5993,7 @@ pub(crate) fn prepare_bind_groups(
         // simulate particles.
         if effect_cache
             .create_particle_sim_bind_group(
-                effect_batch.buffer_index,
+                &effect_batch.slab_id,
                 &render_device,
                 effect_batch.particle_layout.min_binding_size32(),
                 effect_batch.parent_min_binding_size,
@@ -6037,7 +6078,7 @@ pub(crate) fn prepare_bind_groups(
         }
 
         if effect_batch.layout_flags.contains(LayoutFlags::RIBBONS) {
-            let effect_buffer = effect_cache.get_buffer(effect_batch.buffer_index).unwrap();
+            let effect_buffer = effect_cache.get_slab(&effect_batch.slab_id).unwrap();
 
             // Bind group @0 of sort-fill pass
             let particle_buffer = effect_buffer.particle_buffer();
@@ -6079,8 +6120,8 @@ pub(crate) fn prepare_bind_groups(
                 render_pipeline.get_material(&effect_batch.texture_layout)
             else {
                 error!(
-                    "Failed to find material bind group layout for buffer #{}",
-                    effect_batch.buffer_index
+                    "Failed to find material bind group layout for particle slab #{}",
+                    effect_batch.slab_id.index()
                 );
                 continue;
             };
@@ -6212,7 +6253,7 @@ fn draw<'w>(
     pass.set_bind_group(
         1,
         effect_bind_groups
-            .particle_render(effect_batch.buffer_index)
+            .particle_render(&effect_batch.slab_id)
             .unwrap(),
         &[spawner_offset],
     );
@@ -6229,8 +6270,8 @@ fn draw<'w>(
         } else {
             // Texture(s) not ready; skip this drawing for now
             trace!(
-                "Particle material bind group not available for batch buf={}. Skipping draw call.",
-                effect_batch.buffer_index,
+                "Particle material bind group not available for batch slab_id={}. Skipping draw call.",
+                effect_batch.slab_id.index(),
             );
             return;
         }
@@ -6245,19 +6286,19 @@ fn draw<'w>(
     let draw_indirect_offset =
         draw_indirect_index as u64 * GpuDrawIndexedIndirectArgs::SHADER_SIZE.get();
     trace!(
-        "Draw up to {} particles with {} vertices per particle for batch from buffer #{} \
+        "Draw up to {} particles with {} vertices per particle for batch from particle slab #{} \
             (effect_metadata_index={}, draw_indirect_offset={}B).",
         effect_batch.slice.len(),
         render_mesh.vertex_count,
-        effect_batch.buffer_index,
+        effect_batch.slab_id.index(),
         draw_indirect_index,
         draw_indirect_offset,
     );
 
     let Some(indirect_buffer) = effects_meta.draw_indirect_buffer.buffer() else {
         trace!(
-            "The draw indirect buffer containing the indirect draw args is not ready for batch buf=#{}. Skipping draw call.",
-            effect_batch.buffer_index,
+            "The draw indirect buffer containing the indirect draw args is not ready for batch slab_id=#{}. Skipping draw call.",
+            effect_batch.slab_id.index(),
         );
         return;
     };
@@ -6267,8 +6308,8 @@ fn draw<'w>(
             let Some(index_buffer_slice) = mesh_allocator.mesh_index_slice(&effect_batch.mesh)
             else {
                 trace!(
-                    "The index buffer for indexed rendering is not ready for batch buf=#{}. Skipping draw call.",
-                    effect_batch.buffer_index,
+                    "The index buffer for indexed rendering is not ready for batch slab_id=#{}. Skipping draw call.",
+                    effect_batch.slab_id.index(),
                 );
                 return;
             };
@@ -6405,6 +6446,7 @@ enum HanabiPipelineId {
     Cached(CachedComputePipelineId),
 }
 
+#[derive(Debug)]
 pub(crate) enum ComputePipelineError {
     Queued,
     Creating,
@@ -6616,11 +6658,11 @@ impl Node for VfxSimulateNode {
 
                 // Fetch bind group particle@1
                 let Some(particle_bind_group) =
-                    effect_cache.particle_sim_bind_group(effect_batch.buffer_index)
+                    effect_cache.particle_sim_bind_group(&effect_batch.slab_id)
                 else {
                     error!(
-                        "Failed to find init particle@1 bind group for buffer index {}",
-                        effect_batch.buffer_index
+                        "Failed to find init particle@1 bind group for slab #{}",
+                        effect_batch.slab_id.index()
                     );
                     continue;
                 };
@@ -6628,11 +6670,11 @@ impl Node for VfxSimulateNode {
                 // Fetch bind group metadata@3
                 let Some(metadata_bind_group) = effect_bind_groups
                     .init_metadata_bind_groups
-                    .get(&effect_batch.buffer_index)
+                    .get(&effect_batch.slab_id)
                 else {
                     error!(
-                        "Failed to find init metadata@3 bind group for buffer index {}",
-                        effect_batch.buffer_index
+                        "Failed to find init metadata@3 bind group for slab #{}",
+                        effect_batch.slab_id.index()
                     );
                     continue;
                 };
@@ -6836,32 +6878,37 @@ impl Node for VfxSimulateNode {
             for effect_batch in sorted_effect_batches.iter() {
                 // Fetch bind group particle@1
                 let Some(particle_bind_group) =
-                    effect_cache.particle_sim_bind_group(effect_batch.buffer_index)
+                    effect_cache.particle_sim_bind_group(&effect_batch.slab_id)
                 else {
                     error!(
-                        "Failed to find update particle@1 bind group for buffer index {}",
-                        effect_batch.buffer_index
+                        "Failed to find update particle@1 bind group for slab #{}",
+                        effect_batch.slab_id.index()
                     );
+                    compute_pass.insert_debug_marker("ERROR:MissingParticleSimBindGroup");
                     continue;
                 };
 
                 // Fetch bind group metadata@3
                 let Some(metadata_bind_group) = effect_bind_groups
                     .update_metadata_bind_groups
-                    .get(&effect_batch.buffer_index)
+                    .get(&effect_batch.slab_id)
                 else {
                     error!(
-                        "Failed to find update metadata@3 bind group for buffer index {}",
-                        effect_batch.buffer_index
+                        "Failed to find update metadata@3 bind group for slab #{}",
+                        effect_batch.slab_id.index()
                     );
+                    compute_pass.insert_debug_marker("ERROR:MissingMetadataBindGroup");
                     continue;
                 };
 
                 // Fetch compute pipeline
-                if compute_pass
+                if let Err(err) = compute_pass
                     .set_cached_compute_pipeline(effect_batch.init_and_update_pipeline_ids.update)
-                    .is_err()
                 {
+                    compute_pass.insert_debug_marker(&format!(
+                        "ERROR:FailedToSetCachedUpdatePipeline:{:?}",
+                        err
+                    ));
                     continue;
                 }
 
@@ -6942,7 +6989,7 @@ impl Node for VfxSimulateNode {
                 assert!(effect_batch.particle_layout.contains(Attribute::RIBBON_ID));
                 assert!(effect_batch.particle_layout.contains(Attribute::AGE)); // or is that optional?
 
-                let Some(effect_buffer) = effect_cache.get_buffer(effect_batch.buffer_index) else {
+                let Some(effect_buffer) = effect_cache.get_slab(&effect_batch.slab_id) else {
                     warn!("Missing sort-fill effect buffer.");
                     continue;
                 };

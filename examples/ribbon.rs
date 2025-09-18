@@ -79,7 +79,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app_exit.into_result()
 }
 
-fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
+fn setup(
+    mut commands: Commands,
+    mut effects: ResMut<Assets<EffectAsset>>,
+    mut debug_settings: ResMut<DebugSettings>,
+) {
+    debug_settings.capture_frame_count = 30;
+    debug_settings.start_capture_on_new_effect = true;
+    debug_settings.start_capture_this_frame = false;
+
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 50.)),
         Camera {

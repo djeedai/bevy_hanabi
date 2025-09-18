@@ -17,7 +17,7 @@ use wgpu::{
     BufferBindingType, BufferUsages, ShaderStages,
 };
 
-use super::{aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState};
+use super::{aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::SlabState};
 use crate::{
     render::{GpuSpawnerParams, StorageType},
     PropertyLayout,
@@ -90,7 +90,7 @@ impl PropertyBuffer {
 
     #[allow(dead_code)]
     #[inline]
-    pub fn free(&mut self, range: Range<u32>) -> BufferState {
+    pub fn free(&mut self, range: Range<u32>) -> SlabState {
         let id = self
             .buffer
             .buffer()
@@ -102,7 +102,7 @@ impl PropertyBuffer {
         let size = self.buffer.len();
         if self.buffer.remove(range) {
             if self.buffer.is_empty() {
-                BufferState::Free
+                SlabState::Free
             } else if self.buffer.len() != size
                 || self
                     .buffer
@@ -114,12 +114,12 @@ impl PropertyBuffer {
                     .unwrap_or(u32::MAX)
                     != id
             {
-                BufferState::Resized
+                SlabState::Resized
             } else {
-                BufferState::Used
+                SlabState::Used
             }
         } else {
-            BufferState::Used
+            SlabState::Used
         }
     }
 
@@ -309,7 +309,7 @@ impl PropertyCache {
     pub fn remove_properties(
         &mut self,
         cached_effect_properties: &CachedEffectProperties,
-    ) -> Result<BufferState, CachedPropertiesError> {
+    ) -> Result<SlabState, CachedPropertiesError> {
         trace!(
             "Removing cached properties {:?} from cache.",
             cached_effect_properties
@@ -489,7 +489,7 @@ pub(crate) fn on_remove_cached_properties(
             CachedPropertiesError::BufferDeallocated(buffer_index)
                 => error!("Failed to remove cached properties of render entity {render_entity:?} from buffer #{buffer_index}: the buffer is not allocated."),
         }
-        Ok(buffer_state) => if buffer_state != BufferState::Used {
+        Ok(buffer_state) => if buffer_state != SlabState::Used {
             // The entire buffer was deallocated, or it was resized; destroy all bind groups referencing it
             let key = cached_effect_properties.to_key();
             trace!("Destroying property bind group for key {key:?} due to property buffer deallocated.");

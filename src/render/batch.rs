@@ -11,7 +11,10 @@ use super::{
     event::{CachedChildInfo, CachedEffectEvents},
     BufferBindingSource, CachedMesh, LayoutFlags, PropertyBindGroupKey,
 };
-use crate::{AlphaMode, EffectAsset, EffectShader, ParticleLayout, TextureLayout};
+use crate::{
+    render::effect_cache::SlabId, AlphaMode, EffectAsset, EffectShader, ParticleLayout,
+    TextureLayout,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum BatchSpawnInfo {
@@ -44,12 +47,13 @@ pub(crate) enum BatchSpawnInfo {
 pub(crate) struct EffectBatch {
     /// Handle of the underlying effect asset describing the effect.
     pub handle: Handle<EffectAsset>,
-    /// Index of the [`EffectBuffer`].
+    /// ID of the particle slab in the [`EffectBuffer`] where all the batched
+    /// effects are stored.
     ///
     /// [`EffectBuffer`]: super::effect_cache::EffectBuffer
-    pub buffer_index: u32,
+    pub slab_id: SlabId,
     /// Slice of particles in the GPU effect buffer referenced by
-    /// [`EffectBatch::buffer_index`].
+    /// [`EffectBatch::slab_id`].
     pub slice: Range<u32>,
     /// Spawn info for this batch
     pub spawn_info: BatchSpawnInfo,
@@ -59,10 +63,10 @@ pub(crate) struct EffectBatch {
     /// Note that we don't need to keep the init/update shaders alive because
     /// their pipeline specialization is doing it via the specialization key.
     pub render_shader: Handle<Shader>,
-    /// Index of the buffer of the parent effect, if any. If a parent exists,
-    /// its particle buffer is made available (read-only) for a child effect to
-    /// read its attributes.
-    pub parent_buffer_index: Option<u32>,
+    /// ID of the particle slab where the parent effect is stored, if any. If a
+    /// parent exists, its particle buffer is made available (read-only) for
+    /// a child effect to read its attributes.
+    pub parent_slab_id: Option<SlabId>,
     pub parent_min_binding_size: Option<NonZeroU32>,
     pub parent_binding_source: Option<BufferBindingSource>,
     /// Event buffers of child effects, if any.
@@ -216,11 +220,11 @@ impl SortedEffectBatches {
         // care of sorting earlier during batching.
 
         // Build a map from buffer index to batch index.
-        let batch_index_from_buffer_index = self
+        let batch_index_from_slab_id = self
             .batches
             .iter()
             .enumerate()
-            .map(|(batch_index, effect_batch)| (effect_batch.buffer_index, batch_index))
+            .map(|(batch_index, effect_batch)| (effect_batch.slab_id, batch_index))
             .collect::<HashMap<_, _>>();
         // In theory with batching we could have multiple batches referencing the same
         // buffer if we failed to batch some effect instances together which
@@ -228,19 +232,18 @@ impl SortedEffectBatches {
         // happen because batching is disabled, so we always create one buffer
         // per effect instance. But this will need to be fixed later.
         assert_eq!(
-            batch_index_from_buffer_index.len(),
+            batch_index_from_slab_id.len(),
             self.batches.len(),
-            "FIXME: Duplicate buffer index in batches. This is not implemented yet."
+            "FIXME: Duplicate slab ID in batches. This is not implemented yet."
         );
 
         // Build a map from the batch index of a child to the batch index of its
         // parent.
         let mut parent_batch_index_from_batch_index = HashMap::with_capacity(self.batches.len());
         for (batch_index, effect_batch) in self.batches.iter().enumerate() {
-            if let Some(parent_buffer_index) = effect_batch.parent_buffer_index {
-                let parent_batch_index = batch_index_from_buffer_index
-                    .get(&parent_buffer_index)
-                    .unwrap();
+            if let Some(parent_buffer_index) = effect_batch.parent_slab_id {
+                let parent_batch_index =
+                    batch_index_from_slab_id.get(&parent_buffer_index).unwrap();
                 parent_batch_index_from_batch_index.insert(batch_index as u32, *parent_batch_index);
             }
         }
@@ -352,12 +355,12 @@ impl EffectBatch {
 
         EffectBatch {
             handle: input.handle.clone(),
-            buffer_index: input.effect_slice.buffer_index,
+            slab_id: input.effect_slice.slab_id,
             slice: input.effect_slice.slice.clone(),
             spawn_info,
             init_and_update_pipeline_ids: input.init_and_update_pipeline_ids,
             render_shader: input.shaders.render.clone(),
-            parent_buffer_index: input.parent_buffer_index,
+            parent_slab_id: input.parent_slab_id,
             parent_min_binding_size: cached_child_info
                 .map(|cci| cci.parent_particle_layout.min_binding_size32()),
             parent_binding_source: cached_child_info
@@ -394,8 +397,8 @@ pub(crate) struct BatchInput {
     pub effect_slice: EffectSlice,
     /// Compute pipeline IDs of the specialized and cached pipelines.
     pub init_and_update_pipeline_ids: InitAndUpdatePipelineIds,
-    /// Index of the buffer of the parent effect, if any.
-    pub parent_buffer_index: Option<u32>,
+    /// ID of the particle slab of the parent effect, if any.
+    pub parent_slab_id: Option<SlabId>,
     /// Index of the event buffer, if this effect consumes GPU spawn events.
     pub event_buffer_index: Option<u32>,
     /// Child effects, if any.
@@ -434,10 +437,10 @@ pub(crate) struct InitAndUpdatePipelineIds {
 mod tests {
     use super::*;
 
-    fn make_batch(buffer_index: u32, parent_buffer_index: Option<u32>) -> EffectBatch {
+    fn make_batch(slab_id: SlabId, parent_slab_id: Option<SlabId>) -> EffectBatch {
         EffectBatch {
             handle: default(),
-            buffer_index,
+            slab_id,
             slice: 0..0,
             spawn_info: BatchSpawnInfo::CpuSpawner {
                 total_spawn_count: 0,
@@ -447,7 +450,7 @@ mod tests {
                 update: CachedComputePipelineId::INVALID,
             },
             render_shader: default(),
-            parent_buffer_index,
+            parent_slab_id,
             parent_min_binding_size: default(),
             parent_binding_source: default(),
             child_event_buffers: default(),
@@ -473,11 +476,16 @@ mod tests {
         assert!(seb.is_empty());
         assert_eq!(seb.len(), 0);
 
-        seb.push(make_batch(42, None));
+        const PARENT_SLAB_ID: SlabId = SlabId::new(42);
+        const CHILD_SLAB_ID: SlabId = SlabId::new(5);
+        const OTHER_CHILD_SLAB_ID: SlabId = SlabId::new(6);
+        const GRAND_CHILD_SLAB_ID: SlabId = SlabId::new(55);
+
+        seb.push(make_batch(PARENT_SLAB_ID, None));
         assert!(!seb.is_empty());
         assert_eq!(seb.len(), 1);
 
-        seb.push(make_batch(5, Some(42)));
+        seb.push(make_batch(CHILD_SLAB_ID, Some(PARENT_SLAB_ID)));
         assert!(!seb.is_empty());
         assert_eq!(seb.len(), 2);
 
@@ -486,10 +494,10 @@ mod tests {
         assert_eq!(seb.len(), 2);
         let sorted_batches = seb.iter().collect::<Vec<_>>();
         assert_eq!(sorted_batches.len(), 2);
-        assert_eq!(sorted_batches[0].buffer_index, 5);
-        assert_eq!(sorted_batches[1].buffer_index, 42);
+        assert_eq!(sorted_batches[0].slab_id, CHILD_SLAB_ID);
+        assert_eq!(sorted_batches[1].slab_id, PARENT_SLAB_ID);
 
-        seb.push(make_batch(6, Some(42)));
+        seb.push(make_batch(OTHER_CHILD_SLAB_ID, Some(PARENT_SLAB_ID)));
         assert!(!seb.is_empty());
         assert_eq!(seb.len(), 3);
 
@@ -498,11 +506,11 @@ mod tests {
         assert_eq!(seb.len(), 3);
         let sorted_batches = seb.iter().collect::<Vec<_>>();
         assert_eq!(sorted_batches.len(), 3);
-        assert_eq!(sorted_batches[0].buffer_index, 5);
-        assert_eq!(sorted_batches[1].buffer_index, 6);
-        assert_eq!(sorted_batches[2].buffer_index, 42);
+        assert_eq!(sorted_batches[0].slab_id, CHILD_SLAB_ID);
+        assert_eq!(sorted_batches[1].slab_id, OTHER_CHILD_SLAB_ID);
+        assert_eq!(sorted_batches[2].slab_id, PARENT_SLAB_ID);
 
-        seb.push(make_batch(55, Some(5)));
+        seb.push(make_batch(GRAND_CHILD_SLAB_ID, Some(CHILD_SLAB_ID)));
         assert!(!seb.is_empty());
         assert_eq!(seb.len(), 4);
 
@@ -511,9 +519,9 @@ mod tests {
         assert_eq!(seb.len(), 4);
         let sorted_batches = seb.iter().collect::<Vec<_>>();
         assert_eq!(sorted_batches.len(), 4);
-        assert_eq!(sorted_batches[0].buffer_index, 6);
-        assert_eq!(sorted_batches[1].buffer_index, 55);
-        assert_eq!(sorted_batches[2].buffer_index, 5);
-        assert_eq!(sorted_batches[3].buffer_index, 42);
+        assert_eq!(sorted_batches[0].slab_id, OTHER_CHILD_SLAB_ID);
+        assert_eq!(sorted_batches[1].slab_id, GRAND_CHILD_SLAB_ID);
+        assert_eq!(sorted_batches[2].slab_id, CHILD_SLAB_ID);
+        assert_eq!(sorted_batches[3].slab_id, PARENT_SLAB_ID);
     }
 }
