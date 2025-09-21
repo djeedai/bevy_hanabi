@@ -2,7 +2,6 @@ use std::{
     borrow::Cow,
     hash::{DefaultHasher, Hash, Hasher},
     marker::PhantomData,
-    mem,
     num::{NonZeroU32, NonZeroU64},
     ops::{Deref, DerefMut, Range},
     time::Duration,
@@ -11,7 +10,7 @@ use std::{
 
 #[cfg(feature = "2d")]
 use bevy::core_pipeline::core_2d::{Transparent2d, CORE_2D_DEPTH_FORMAT};
-use bevy::ecs::entity::EntityHashSet;
+//use bevy::ecs::entity::{EntityHashMap, EntityHashSet};
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
 #[cfg(feature = "3d")]
@@ -32,7 +31,7 @@ use bevy::{
         system::{lifetimeless::*, SystemParam, SystemState},
     },
     log::trace,
-    platform::collections::{HashMap, HashSet},
+    platform::collections::HashMap,
     prelude::*,
     render::{
         mesh::{
@@ -58,7 +57,7 @@ use bevy::{
 use bitflags::bitflags;
 use bytemuck::{Pod, Zeroable};
 use effect_cache::{CachedEffect, EffectSlice, SlabState};
-use event::{CachedChildInfo, CachedEffectEvents, CachedParentInfo, CachedParentRef, GpuChildInfo};
+use event::{CachedChildInfo, CachedEffectEvents, CachedParentInfo, GpuChildInfo};
 use fixedbitset::FixedBitSet;
 use gpu_buffer::GpuBuffer;
 use naga_oil::compose::{Composer, NagaModuleDescriptor};
@@ -68,7 +67,9 @@ use crate::{
     calc_func_id,
     render::{
         batch::{BatchInput, EffectDrawBatch, InitAndUpdatePipelineIds},
-        effect_cache::{DispatchBufferIndices, DrawIndirectRowIndex, SlabId},
+        effect_cache::{
+            AnyDrawIndirectArgs, CachedDrawIndirectArgs, DispatchBufferIndices, SlabId,
+        },
     },
     AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
     EffectSpawner, EffectVisibilityClass, ParticleLayout, PropertyLayout, SimulationCondition,
@@ -90,9 +91,10 @@ use batch::BatchSpawnInfo;
 pub(crate) use batch::SortedEffectBatches;
 use buffer_table::{BufferTable, BufferTableId};
 pub(crate) use effect_cache::EffectCache;
-pub(crate) use event::EventCache;
+pub(crate) use event::{allocate_events, on_remove_cached_effect_events, EventCache};
 pub(crate) use property::{
-    on_remove_cached_properties, prepare_property_buffers, PropertyBindGroups, PropertyCache,
+    allocate_properties, on_remove_cached_properties, prepare_property_buffers, PropertyBindGroups,
+    PropertyCache,
 };
 use property::{CachedEffectProperties, PropertyBindGroupKey};
 pub use shader_cache::ShaderCache;
@@ -396,7 +398,7 @@ impl Default for GpuDispatchIndirectArgs {
 ///
 /// See https://docs.rs/wgpu/latest/wgpu/util/struct.DrawIndirectArgs.html.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Pod, Zeroable, ShaderType)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable, ShaderType)]
 pub struct GpuDrawIndirectArgs {
     pub vertex_count: u32,
     pub instance_count: u32,
@@ -415,6 +417,18 @@ impl Default for GpuDrawIndirectArgs {
     }
 }
 
+// impl GpuDrawIndirectArgs {
+//     pub fn bitcast_as_indexed(&self) -> GpuDrawIndexedIndirectArgs {
+//         GpuDrawIndexedIndirectArgs {
+//             index_count: self.vertex_count,
+//             instance_count: self.instance_count,
+//             first_index: self.first_vertex,
+//             base_vertex: self.first_instance,
+//             first_instance: 0,
+//         }
+//     }
+// }
+
 /// GPU representation of an indirect indexed render input.
 ///
 /// Note that unlike most other data structure, this doesn't need to be aligned
@@ -425,7 +439,7 @@ impl Default for GpuDrawIndirectArgs {
 ///
 /// See https://docs.rs/wgpu/latest/wgpu/util/struct.DrawIndexedIndirectArgs.html.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Pod, Zeroable, ShaderType)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable, ShaderType)]
 pub struct GpuDrawIndexedIndirectArgs {
     pub index_count: u32,
     pub instance_count: u32,
@@ -2201,8 +2215,8 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
 /// render world item.
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
-#[derive(Debug)]
-pub(crate) struct ExtractedEffect {
+#[derive(Debug, Component)]
+pub(crate) struct ExtractedEffectLegacy {
     /// Main world entity owning the [`CompiledParticleEffect`] this effect was
     /// extracted from. Mainly used for visibility.
     pub main_entity: MainEntity,
@@ -2249,6 +2263,93 @@ pub(crate) struct ExtractedEffect {
     pub effect_shaders: EffectShader,
 }
 
+/// A single effect instance extracted from a [`ParticleEffect`] as a
+/// render world item.
+///
+/// [`ParticleEffect`]: crate::ParticleEffect
+#[derive(Debug, Clone, PartialEq, Component)]
+pub(crate) struct ExtractedEffect {
+    /// Handle to the effect asset this instance is based on.
+    /// The handle is weak to prevent refcount cycles and gracefully handle
+    /// assets unloaded or destroyed after a draw call has been submitted.
+    pub handle: Handle<EffectAsset>,
+    /// Particle layout for the effect.
+    pub particle_layout: ParticleLayout,
+    /// Effect capacity, in number of particles.
+    pub capacity: u32,
+    /// Number of particles to spawn this frame.
+    ///
+    /// This is ignored if the effect is a child effect consuming GPU spawn
+    /// events.
+    pub spawn_count: u32,
+    /// PRNG seed.
+    pub prng_seed: u32,
+    /// Global transform of the effect origin.
+    pub transform: GlobalTransform,
+    /// Layout flags.
+    pub layout_flags: LayoutFlags,
+    /// Texture layout.
+    pub texture_layout: TextureLayout,
+    /// Textures.
+    pub textures: Vec<Handle<Image>>,
+    /// Alpha mode.
+    pub alpha_mode: AlphaMode,
+    /// Effect shaders.
+    pub effect_shaders: EffectShader,
+}
+
+/// Extracted parent information for a child effect.
+///
+/// This component is present on the [`RenderEntity`] of an extracted effect if
+/// the effect has a parent effect. Otherwise, it's removed.
+///
+/// This components forms an ECS relationship with [`ChildrenEffects`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+#[relationship(relationship_target = ChildrenEffects)]
+pub(crate) struct ChildEffectOf {
+    /// Render entity of the parent.
+    pub parent: Entity,
+}
+
+/// Extracted children information for a parent effect.
+///
+/// This component is present on the [`RenderEntity`] of an extracted effect if
+/// the effect is a parent effect for one or more child effects. Otherwise, it's
+/// removed.
+///
+/// This components forms an ECS relationship with [`ChildEffectOf`]. Note that
+/// we don't use `linked_spawn` because:
+/// 1. This would fight with the `SyncToRenderWorld` as the main world
+///    parent-child hierarchy is by design not an ECS relationship (it's a lose
+///    declarative coupling).
+/// 2. The components on the render entity often store GPU resources or other
+///    data we need to clean-up manually, and not all of them currently use
+///    lifecycle hooks, so we want to manage despawning manually to prevent
+///    leaks.
+#[derive(Debug, Clone, PartialEq, Eq, Component)]
+#[relationship_target(relationship = ChildEffectOf)]
+pub(crate) struct ChildrenEffects(Vec<Entity>);
+
+/// Extracted data for an effect's properties, if any.
+///
+/// This component is present on the [`RenderEntity`] of an extracted effect if
+/// that effect has properties. It optionally contains new CPU data to
+/// (re-)upload this frame. If the effect has no property, this component is
+/// removed.
+#[derive(Debug, Component)]
+pub(crate) struct ExtractedProperties {
+    /// Property layout for the effect.
+    pub property_layout: PropertyLayout,
+    /// Values of properties written in a binary blob according to
+    /// [`property_layout`].
+    ///
+    /// This is `Some(blob)` if the data needs to be (re)uploaded to GPU, or
+    /// `None` if nothing needs to be done for this frame.
+    ///
+    /// [`property_layout`]: crate::render::ExtractedEffect::property_layout
+    pub property_data: Option<Vec<u8>>,
+}
+
 pub struct AddedEffectParent {
     pub entity: MainEntity,
     pub layout: ParticleLayout,
@@ -2290,7 +2391,7 @@ pub struct AddedEffect {
 #[derive(Default, Resource)]
 pub(crate) struct ExtractedEffects {
     /// Extracted effects this frame.
-    pub effects: Vec<ExtractedEffect>,
+    pub effects: Vec<ExtractedEffectLegacy>,
     /// Newly added effects without a GPU allocation yet.
     pub added_effects: Vec<AddedEffect>,
 }
@@ -2383,6 +2484,54 @@ pub(crate) struct RenderDebugSettings {
     captured_frames: u32,
 }
 
+/// Manage GPU debug capture start/stop.
+///
+/// We do this during extract to try and capture as close as possible to an
+/// entire GPU frame.
+pub(crate) fn start_stop_gpu_debug_capture(
+    real_time: Extract<Res<Time<Real>>>,
+    render_device: Res<RenderDevice>,
+    debug_settings: Extract<Res<DebugSettings>>,
+    mut render_debug_settings: ResMut<RenderDebugSettings>,
+    q_added_effects: Extract<Query<(), Added<CompiledParticleEffect>>>,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("start_stop_debug_capture").entered();
+    trace!("start_stop_debug_capture()");
+
+    // Stop any pending capture if needed
+    if render_debug_settings.is_capturing {
+        render_debug_settings.captured_frames += 1;
+
+        if render_debug_settings.captured_frames >= debug_settings.capture_frame_count {
+            render_device.wgpu_device().stop_capture();
+            render_debug_settings.is_capturing = false;
+            warn!(
+                "Stopped GPU debug capture after {} frames, at t={}s.",
+                render_debug_settings.captured_frames,
+                real_time.elapsed().as_secs_f64()
+            );
+        }
+    }
+
+    // If no pending capture, consider starting a new one
+    if !render_debug_settings.is_capturing {
+        if debug_settings.start_capture_this_frame
+            || (debug_settings.start_capture_on_new_effect && !q_added_effects.is_empty())
+        {
+            render_device.wgpu_device().start_capture();
+            render_debug_settings.is_capturing = true;
+            render_debug_settings.capture_start = real_time.elapsed();
+            render_debug_settings.captured_frames = 0;
+            warn!(
+                "Started GPU debug capture of {} frames at t={}s.",
+                debug_settings.capture_frame_count,
+                render_debug_settings.capture_start.as_secs_f64()
+            );
+        }
+    }
+}
+
 /// System extracting data for rendering of all active [`ParticleEffect`]
 /// components.
 ///
@@ -2400,16 +2549,14 @@ pub(crate) struct RenderDebugSettings {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 pub(crate) fn extract_effects(
-    real_time: Extract<Res<Time<Real>>>,
-    virtual_time: Extract<Res<Time<Virtual>>>,
-    time: Extract<Res<Time<EffectSimulation>>>,
+    mut commands: Commands,
     effects: Extract<Res<Assets<EffectAsset>>>,
-    q_added_effects: Extract<
-        Query<
-            (Entity, &RenderEntity, &CompiledParticleEffect),
-            (Added<CompiledParticleEffect>, With<GlobalTransform>),
-        >,
-    >,
+    // q_added_effects: Extract<
+    //     Query<
+    //         (Entity, &RenderEntity, &CompiledParticleEffect),
+    //         (Added<CompiledParticleEffect>, With<GlobalTransform>),
+    //     >,
+    // >,
     q_effects: Extract<
         Query<(
             Entity,
@@ -2422,127 +2569,115 @@ pub(crate) fn extract_effects(
             &GlobalTransform,
         )>,
     >,
-    q_all_effects: Extract<Query<(&RenderEntity, &CompiledParticleEffect), With<GlobalTransform>>>,
-    mut pending_effects: Local<Vec<MainEntity>>,
-    render_device: Res<RenderDevice>,
-    debug_settings: Extract<Res<DebugSettings>>,
+    mut q_extracted_effects: Query<
+        (
+            Option<&mut ExtractedEffect>,
+            Option<&ChildEffectOf>, // immutable, because of relationship
+            Option<&mut ExtractedEffectMesh>,
+            Option<&mut ExtractedProperties>,
+        ),
+        With<ExtractedEffect>,
+    >,
     default_mesh: Extract<Res<DefaultMesh>>,
-    mut sim_params: ResMut<SimParams>,
-    mut extracted_effects: ResMut<ExtractedEffects>,
-    mut render_debug_settings: ResMut<RenderDebugSettings>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("extract_effects").entered();
     trace!("extract_effects()");
 
-    // Manage GPU debug capture
-    if render_debug_settings.is_capturing {
-        render_debug_settings.captured_frames += 1;
+    // // Collect added effects for later GPU data allocation
+    // for (entity, render_entity, compiled_effect) in
+    //     q_added_effects
+    //         .iter()
+    //         .chain(
+    //             mem::take(&mut *pending_effects)
+    //                 .into_iter()
+    //                 .filter_map(|main_entity| {
+    //                     q_all_effects.get(main_entity.id()).ok().map(
+    //                         |(render_entity, compiled_particle_effect)| {
+    //                             (main_entity.id(), render_entity,
+    // compiled_particle_effect)                         },
+    //                     )
+    //                 }),
+    //         )
+    // {
+    //     let handle = compiled_effect.asset.clone_weak();
+    //     let asset = match effects.get(&compiled_effect.asset) {
+    //         None => {
+    //             // The effect wasn't ready yet. Retry on subsequent frames.
+    //             trace!(
+    //                 "Failed to find asset for {:?}/{:?}, deferring to next
+    // frame",                 entity,
+    //                 render_entity
+    //             );
+    //             pending_effects.push(entity.into());
+    //             continue;
+    //         }
+    //         Some(asset) => asset,
+    //     };
+    //     let particle_layout = asset.particle_layout();
+    //     assert!(
+    //             particle_layout.size() > 0,
+    //             "Invalid empty particle layout for effect '{}' on entity {:?}
+    // (render entity {:?}). Did you forget to add some modifier to the asset?",
+    //             asset.name,
+    //             entity,
+    //             render_entity.id(),
+    //         );
+    //     let property_layout = asset.property_layout();
+    //     let mesh = compiled_effect
+    //         .mesh
+    //         .clone()
+    //         .unwrap_or(default_mesh.0.clone());
 
-        // Stop any pending capture if needed
-        if render_debug_settings.captured_frames >= debug_settings.capture_frame_count {
-            render_device.wgpu_device().stop_capture();
-            render_debug_settings.is_capturing = false;
-            warn!(
-                "Stopped GPU debug capture after {} frames, at t={}s.",
-                render_debug_settings.captured_frames,
-                real_time.elapsed().as_secs_f64()
-            );
-        }
-    }
-    if !render_debug_settings.is_capturing {
-        // If no pending capture, consider starting a new one
-        if debug_settings.start_capture_this_frame
-            || (debug_settings.start_capture_on_new_effect && !q_added_effects.is_empty())
-        {
-            render_device.wgpu_device().start_capture();
-            render_debug_settings.is_capturing = true;
-            render_debug_settings.capture_start = real_time.elapsed();
-            render_debug_settings.captured_frames = 0;
-            warn!(
-                "Started GPU debug capture at t={}s.",
-                render_debug_settings.capture_start.as_secs_f64()
-            );
-        }
-    }
+    //     trace!(
+    //             "Found new effect: entity {:?} | render entity {:?} | capacity
+    // {:?} | particle_layout {:?} | \              property_layout {:?} |
+    // layout_flags {:?} | mesh {:?}",              entity,
+    //              render_entity.id(),
+    //              asset.capacity(),
+    //              particle_layout,
+    //              property_layout,
+    //              compiled_effect.layout_flags,
+    //              mesh);
 
-    // Save simulation params into render world
-    sim_params.time = time.elapsed_secs_f64();
-    sim_params.delta_time = time.delta_secs();
-    sim_params.virtual_time = virtual_time.elapsed_secs_f64();
-    sim_params.virtual_delta_time = virtual_time.delta_secs();
-    sim_params.real_time = real_time.elapsed_secs_f64();
-    sim_params.real_delta_time = real_time.delta_secs();
+    //     // FIXME - fixed 256 events per child (per frame) for now... this neatly
+    // avoids any issue with alignment 32/256 byte storage buffer align for bind
+    // groups     const FIXME_HARD_CODED_EVENT_COUNT: u32 = 256;
+    //     let parent = compiled_effect.parent.map(|entity| AddedEffectParent {
+    //         entity: entity.into(),
+    //         layout: compiled_effect
+    //             .parent_particle_layout
+    //             .as_ref()
+    //             .unwrap()
+    //             .clone(),
+    //         event_count: FIXME_HARD_CODED_EVENT_COUNT,
+    //     });
 
-    // Collect added effects for later GPU data allocation
-    extracted_effects.added_effects = q_added_effects
-        .iter()
-        .chain(mem::take(&mut *pending_effects).into_iter().filter_map(|main_entity| {
-            q_all_effects.get(main_entity.id()).ok().map(|(render_entity, compiled_particle_effect)| {
-                (main_entity.id(), render_entity, compiled_particle_effect)
-            })
-        }))
-        .filter_map(|(entity, render_entity, compiled_effect)| {
-            let handle = compiled_effect.asset.clone_weak();
-            let asset = match effects.get(&compiled_effect.asset) {
-                None => {
-                    // The effect wasn't ready yet. Retry on subsequent frames.
-                    trace!("Failed to find asset for {:?}/{:?}, deferring to next frame", entity, render_entity);
-                    pending_effects.push(entity.into());
-                    return None;
-                }
-                Some(asset) => asset,
-            };
-            let particle_layout = asset.particle_layout();
-            assert!(
-                particle_layout.size() > 0,
-                "Invalid empty particle layout for effect '{}' on entity {:?} (render entity {:?}). Did you forget to add some modifier to the asset?",
-                asset.name,
-                entity,
-                render_entity.id(),
-            );
-            let property_layout = asset.property_layout();
-            let mesh = compiled_effect
-                .mesh
-                .clone()
-                .unwrap_or(default_mesh.0.clone());
+    //     trace!("Found new effect: entity {:?} | capacity {:?} | particle_layout {:?} | property_layout {:?} | layout_flags {:?}", entity, asset.capacity(), particle_layout, property_layout, compiled_effect.layout_flags);
 
-            trace!(
-                "Found new effect: entity {:?} | render entity {:?} | capacity {:?} | particle_layout {:?} | \
-                 property_layout {:?} | layout_flags {:?} | mesh {:?}",
-                 entity,
-                 render_entity.id(),
-                 asset.capacity(),
-                 particle_layout,
-                 property_layout,
-                 compiled_effect.layout_flags,
-                 mesh);
-
-            // FIXME - fixed 256 events per child (per frame) for now... this neatly avoids any issue with alignment 32/256 byte storage buffer align for bind groups
-            const FIXME_HARD_CODED_EVENT_COUNT: u32 = 256;
-            let parent = compiled_effect.parent.map(|entity| AddedEffectParent {
-                entity: entity.into(),
-                layout: compiled_effect.parent_particle_layout.as_ref().unwrap().clone(),
-                event_count: FIXME_HARD_CODED_EVENT_COUNT,
-            });
-
-            trace!("Found new effect: entity {:?} | capacity {:?} | particle_layout {:?} | property_layout {:?} | layout_flags {:?}", entity, asset.capacity(), particle_layout, property_layout, compiled_effect.layout_flags);
-            Some(AddedEffect {
-                entity: MainEntity::from(entity),
-                render_entity: *render_entity,
-                capacity: asset.capacity(),
-                mesh,
-                parent,
-                particle_layout,
-                property_layout,
-                layout_flags: compiled_effect.layout_flags,
-                handle,
-            })
-        })
-        .collect();
+    //     let mut cmd = commands.entity(render_entity.id());
+    //     cmd.insert((
+    //         MainEntity::from(entity),
+    //         ExtractedEffectLegacy {
+    //             render_entity: *render_entity,
+    //             main_entity: MainEntity::from(entity),
+    //             handle: compiled_effect.asset.clone_weak(),
+    //             particle_layout: asset.particle_layout().clone(),
+    //             property_layout,
+    //             property_data,
+    //             spawn_count: effect_spawner.spawn_count,
+    //             prng_seed: compiled_effect.prng_seed,
+    //             transform: *transform,
+    //             layout_flags: compiled_effect.layout_flags,
+    //             texture_layout: asset.module().texture_layout(),
+    //             textures: compiled_effect.textures.clone(),
+    //             alpha_mode: compiled_effect.alpha_mode;
+    //             effect_shaders: effect_shaders.clone(),
+    //         },
+    //     ));
+    // }
 
     // Loop over all existing effects to extract them
-    extracted_effects.effects.clear();
     for (
         main_entity,
         render_entity,
@@ -2560,6 +2695,8 @@ pub(crate) fn extract_effects(
         };
 
         // Check if hidden, unless always simulated
+        // FIXME - we want to keep the GPU resources when hidden, so need to continue
+        // extracting, but not update/render
         if compiled_effect.simulation_condition == SimulationCondition::WhenVisible
             && !maybe_inherited_visibility
                 .map(|cv| cv.get())
@@ -2578,44 +2715,26 @@ pub(crate) fn extract_effects(
             continue;
         };
 
-        // Resolve the render entity of the parent, if any
-        let _parent = if let Some(main_entity) = compiled_effect.parent {
-            let Ok((_, render_entity, _, _, _, _, _, _)) = q_effects.get(main_entity) else {
-                error!(
-                    "Failed to resolve render entity of parent with main entity {:?}.",
-                    main_entity
-                );
-                continue;
-            };
-            Some(*render_entity)
-        } else {
-            None
+        let mut cmd = commands.entity(render_entity.id());
+
+        // Fetch the existing extraction compoennts, if any, which we need to update.
+        // Because we use SyncToRenderWorld, there's always a render entity, but it may
+        // miss all components.
+        let Ok((
+            maybe_extracted_effect,
+            maybe_child_of,
+            maybe_extracted_mesh,
+            maybe_extracted_properties,
+        )) = q_extracted_effects.get_mut(render_entity.id())
+        else {
+            // Should never happen if Bevy sync'd correctly main <-> render.
+            continue;
         };
 
-        let property_layout = asset.property_layout();
-        let property_data = if let Some(properties) = maybe_properties {
-            // Note: must check that property layout is not empty, because the
-            // EffectProperties component is marked as changed when added but contains an
-            // empty Vec if there's no property, which would later raise an error if we
-            // don't return None here.
-            if properties.is_changed() && !property_layout.is_empty() {
-                trace!("Detected property change, re-serializing...");
-                Some(properties.serialize(&property_layout))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
+        // Extract general effect data
         let texture_layout = asset.module().texture_layout();
         let layout_flags = compiled_effect.layout_flags;
-        // let mesh = compiled_effect
-        //     .mesh
-        //     .clone()
-        //     .unwrap_or(default_mesh.0.clone());
         let alpha_mode = compiled_effect.alpha_mode;
-
         trace!(
             "Extracted instance of effect '{}' on entity {:?} (render entity {:?}): texture_layout_count={} texture_count={} layout_flags={:?}",
             asset.name,
@@ -2625,14 +2744,10 @@ pub(crate) fn extract_effects(
             compiled_effect.textures.len(),
             layout_flags,
         );
-
-        extracted_effects.effects.push(ExtractedEffect {
-            render_entity: *render_entity,
-            main_entity: main_entity.into(),
+        let new_extracted_effect = ExtractedEffect {
             handle: compiled_effect.asset.clone_weak(),
             particle_layout: asset.particle_layout().clone(),
-            property_layout,
-            property_data,
+            capacity: asset.capacity(),
             spawn_count: effect_spawner.spawn_count,
             prng_seed: compiled_effect.prng_seed,
             transform: *transform,
@@ -2641,8 +2756,115 @@ pub(crate) fn extract_effects(
             textures: compiled_effect.textures.clone(),
             alpha_mode,
             effect_shaders: effect_shaders.clone(),
-        });
+        };
+        if let Some(mut extracted_effect) = maybe_extracted_effect {
+            extracted_effect.set_if_neq(new_extracted_effect);
+        } else {
+            cmd.insert(new_extracted_effect);
+        }
+
+        // Extract the effect mesh
+        let mesh = compiled_effect
+            .mesh
+            .clone()
+            .unwrap_or(default_mesh.0.clone());
+        let new_mesh = ExtractedEffectMesh { mesh: mesh.id() };
+        if let Some(mut extracted_mesh) = maybe_extracted_mesh {
+            extracted_mesh.set_if_neq(new_mesh);
+        } else {
+            cmd.insert(new_mesh);
+        }
+
+        // Extract the parent, if any, and resolve its render entity
+        let parent_render_entity = if let Some(main_entity) = compiled_effect.parent {
+            let Ok((_, render_entity, _, _, _, _, _, _)) = q_effects.get(main_entity) else {
+                error!(
+                    "Failed to resolve render entity of parent with main entity {:?}.",
+                    main_entity
+                );
+                cmd.remove::<ChildEffectOf>();
+                // TODO - prevent extraction altogether here, instead of just de-parenting?
+                continue;
+            };
+            Some(*render_entity)
+        } else {
+            None
+        };
+        if let Some(render_entity) = parent_render_entity {
+            let new_child_of = ChildEffectOf {
+                parent: *render_entity,
+            };
+            // If there's already an ExtractedParent component, ensure we overwrite only if
+            // different, to not trigger ECS change detection that we rely on.
+            if let Some(child_effect_of) = maybe_child_of {
+                // The relationship makes ChildEffectOf immutable, so re-insert to mutate
+                if *child_effect_of != new_child_of {
+                    cmd.insert(new_child_of);
+                }
+            } else {
+                cmd.insert(new_child_of);
+            }
+        } else {
+            cmd.remove::<ChildEffectOf>();
+        }
+
+        // Extract property data
+        let property_layout = asset.property_layout();
+        if property_layout.is_empty() {
+            cmd.remove::<ExtractedProperties>();
+        } else {
+            // Re-extract CPU property data if any. Note that this data is not a "new value"
+            // but instead a "value that must be uploaded this frame", and therefore is
+            // empty when there's no change (as opposed to, having a constant value
+            // frame-to-frame).
+            let property_data = if let Some(properties) = maybe_properties {
+                if properties.is_changed() {
+                    trace!("Detected property change, re-serializing...");
+                    Some(properties.serialize(&property_layout))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let new_properties = ExtractedProperties {
+                property_layout,
+                property_data,
+            };
+
+            if let Some(mut extracted_properties) = maybe_extracted_properties {
+                // Always mutate if there's new CPU data to re-upload. Otherwise check for any
+                // other change.
+                if new_properties.property_data.is_some()
+                    || (extracted_properties.property_layout != new_properties.property_layout)
+                {
+                    *extracted_properties = new_properties;
+                }
+            } else {
+                cmd.insert(new_properties);
+            }
+        }
     }
+}
+
+pub(crate) fn extract_sim_params(
+    real_time: Extract<Res<Time<Real>>>,
+    virtual_time: Extract<Res<Time<Virtual>>>,
+    time: Extract<Res<Time<EffectSimulation>>>,
+    mut sim_params: ResMut<SimParams>,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("extract_sim_params").entered();
+    trace!("extract_sim_params()");
+
+    // Save simulation params into render world
+    sim_params.time = time.elapsed_secs_f64();
+    sim_params.delta_time = time.delta_secs();
+    sim_params.virtual_time = virtual_time.elapsed_secs_f64();
+    sim_params.virtual_delta_time = virtual_time.delta_secs();
+    sim_params.real_time = real_time.elapsed_secs_f64();
+    sim_params.real_delta_time = real_time.delta_secs();
 }
 
 /// Various GPU limits and aligned sizes computed once and cached.
@@ -2839,9 +3061,19 @@ impl EffectsMeta {
             let update_dispatch_indirect_buffer_row_index =
                 self.dispatch_indirect_buffer.allocate();
 
-            // We cannot allocate yet an entry for the indirect draw arguments, because we
-            // need to know if the mesh is indexed.
-            let draw_indirect_buffer_row_index = DrawIndirectRowIndex::default(); // invalid
+            // FIXME - Set those here because in case some pipelines are not ready, this
+            // will never be set
+            let particle_stride = added_effect.particle_layout.min_binding_size32().get() / 4;
+            let sort_key_offset = added_effect
+                .particle_layout
+                .offset(Attribute::RIBBON_ID)
+                .unwrap_or_default()
+                / 4;
+            let sort_key2_offset = added_effect
+                .particle_layout
+                .offset(Attribute::AGE)
+                .unwrap_or_default()
+                / 4;
 
             // Allocate per-effect metadata.
             let gpu_effect_metadata = GpuEffectMetadata {
@@ -2849,6 +3081,17 @@ impl EffectsMeta {
                 alive_count: 0,
                 max_update: 0,
                 max_spawn: added_effect.capacity,
+                indirect_write_index: 0,
+                indirect_dispatch_index: update_dispatch_indirect_buffer_row_index,
+                // indirect_draw_index,
+                // init_indirect_dispatch_index,
+                // local_child_index,
+                // global_child_index,
+                // base_child_index,
+                particle_stride,
+                sort_key_offset,
+                sort_key2_offset,
+                particle_counter: 0,
                 ..default()
             };
             trace!("+ Effect: {:?}", gpu_effect_metadata);
@@ -2856,8 +3099,11 @@ impl EffectsMeta {
                 self.effect_metadata_buffer.insert(gpu_effect_metadata);
             let dispatch_buffer_indices = DispatchBufferIndices {
                 update_dispatch_indirect_buffer_row_index,
-                draw_indirect_buffer_row_index,
+                // We cannot allocate yet an entry for the indirect draw arguments, because we
+                // need to know if the mesh is indexed.
+                // draw_indirect_buffer_row_index,
                 effect_metadata_buffer_table_id,
+                ..default()
             };
 
             // Insert the effect into the cache. This will allocate all the necessary
@@ -2873,33 +3119,19 @@ impl EffectsMeta {
                 added_effect.entity,
                 cached_effect,
                 dispatch_buffer_indices,
-                CachedMesh {
+                ExtractedEffectMesh {
                     mesh: added_effect.mesh.id(),
                 },
+                CachedPipelines::default(),
             ));
 
             // Allocate storage for properties if needed
             if !added_effect.property_layout.is_empty() {
-                let cached_effect_properties = property_cache.insert(&added_effect.property_layout);
+                let cached_effect_properties =
+                    property_cache.allocate(&added_effect.property_layout);
                 cmd.insert(cached_effect_properties);
             } else {
                 cmd.remove::<CachedEffectProperties>();
-            }
-
-            // Allocate storage for the reference to the parent effect if needed. Note that
-            // we cannot yet allocate the complete parent info (CachedChildInfo) because it
-            // depends on the list of children, which we can't resolve until all
-            // effects have been added/removed this frame. This will be done later in
-            // resolve_parents().
-            if let Some(parent) = added_effect.parent.as_ref() {
-                let cached_parent: CachedParentRef = CachedParentRef {
-                    entity: parent.entity,
-                };
-                cmd.insert(cached_parent);
-                trace!("+ new effect declares parent entity {:?}", parent.entity);
-            } else {
-                cmd.remove::<CachedParentRef>();
-                trace!("+ new effect declares no parent");
             }
 
             // Allocate storage for GPU spawn events if needed
@@ -2954,7 +3186,7 @@ impl EffectsMeta {
         spawn_count: u32,
         prng_seed: u32,
         effect_metadata_buffer_table_id: BufferTableId,
-        draw_indirect_buffer_row_index: DrawIndirectRowIndex,
+        draw_indirect_buffer_row_index: &CachedDrawIndirectArgs,
     ) -> u32 {
         let spawner_base = self.spawner_buffer.len() as u32;
         let transform = global_transform.compute_matrix().into();
@@ -2980,25 +3212,23 @@ impl EffectsMeta {
 
     pub fn allocate_draw_indirect(
         &mut self,
-        is_indexed: bool,
-        mesh_location: &CachedMeshLocation,
-    ) -> DrawIndirectRowIndex {
-        let draw_args = GpuDrawIndexedIndirectArgs {
-            index_count: mesh_location.vertex_or_index_count,
-            instance_count: 0,
-            first_index: mesh_location.first_index_or_vertex_offset,
-            base_vertex: mesh_location.vertex_offset_or_base_instance,
-            first_instance: 0,
-        };
-        let idx = self.draw_indirect_buffer.insert(draw_args);
-        if is_indexed {
-            DrawIndirectRowIndex::Indexed(idx)
-        } else {
-            DrawIndirectRowIndex::NonIndexed(idx)
+        draw_args: &AnyDrawIndirectArgs,
+    ) -> CachedDrawIndirectArgs {
+        let row = self
+            .draw_indirect_buffer
+            .insert(draw_args.bitcast_to_row_entry());
+        CachedDrawIndirectArgs {
+            row,
+            args: *draw_args,
         }
     }
 
-    pub fn free_draw_indirect(&mut self, row_index: DrawIndirectRowIndex) {
+    pub fn update_draw_indirect(&mut self, row_index: &CachedDrawIndirectArgs) {
+        self.draw_indirect_buffer
+            .update(row_index.get(), row_index.args.bitcast_to_row_entry());
+    }
+
+    pub fn free_draw_indirect(&mut self, row_index: &CachedDrawIndirectArgs) {
         self.draw_indirect_buffer.remove(row_index.get());
     }
 }
@@ -3125,29 +3355,38 @@ pub(crate) fn on_remove_cached_effect(
     effects_meta
         .dispatch_indirect_buffer
         .free(dispatch_buffer_indices.update_dispatch_indirect_buffer_row_index);
-    effects_meta.free_draw_indirect(dispatch_buffer_indices.draw_indirect_buffer_row_index);
     effects_meta
         .effect_metadata_buffer
         .remove(dispatch_buffer_indices.effect_metadata_buffer_table_id);
 }
 
-/// Update the [`CachedEffect`] component for any newly allocated effect.
-///
-/// After this system ran, and its commands are applied, all valid extracted
-/// effects have a corresponding entity in the render world, with a
-/// [`CachedEffect`] component. From there, we operate on those exclusively.
-pub(crate) fn add_effects(
-    commands: Commands,
+/// Observer raised when the [`CachedDrawIndirectArgs`] component is removed, to
+/// deallocate the GPU resources associated with the indirect draw args.
+pub(crate) fn on_remove_cached_draw_indirect_args(
+    trigger: Trigger<OnRemove, CachedDrawIndirectArgs>,
+    query: Query<&CachedDrawIndirectArgs>,
     mut effects_meta: ResMut<EffectsMeta>,
-    mut effect_cache: ResMut<EffectCache>,
-    mut property_cache: ResMut<PropertyCache>,
-    mut event_cache: ResMut<EventCache>,
-    mut extracted_effects: ResMut<ExtractedEffects>,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("on_remove_cached_mesh").entered();
+
+    if let Ok(cached_draw_args) = query.get(trigger.target()) {
+        effects_meta.free_draw_indirect(cached_draw_args);
+    };
+}
+
+/// Clear pending GPU resources left from previous frame.
+///
+/// Those generally are source buffers for buffer-to-buffer copies on capacity
+/// growth, which need the source buffer to be alive until the copy is done,
+/// then can be discarded here.
+pub(crate) fn clear_previous_frame_resizes(
+    mut effects_meta: ResMut<EffectsMeta>,
     mut sort_bind_groups: ResMut<SortBindGroups>,
 ) {
     #[cfg(feature = "trace")]
-    let _span = bevy::log::info_span!("add_effects").entered();
-    trace!("add_effects");
+    let _span = bevy::log::info_span!("clear_previous_frame_resizes").entered();
+    trace!("clear_previous_frame_resizes");
 
     // Clear last frame's buffer resizes which may have occured during last frame,
     // during `Node::run()` while the `BufferTable` could not be mutated. This is
@@ -3163,280 +3402,290 @@ pub(crate) fn add_effects(
         .effect_metadata_buffer
         .clear_previous_frame_resizes();
     sort_bind_groups.clear_previous_frame_resizes();
-    event_cache.clear_previous_frame_resizes();
-
-    // Allocate new effects
-    effects_meta.add_effects(
-        commands,
-        std::mem::take(&mut extracted_effects.added_effects),
-        &mut effect_cache,
-        &mut property_cache,
-        &mut event_cache,
-    );
-
-    // Note: we don't need to explicitly allocate GPU buffers for effects,
-    // because EffectBuffer already contains a reference to the
-    // RenderDevice, so has done so internally. This is not ideal
-    // design-wise, but works.
 }
 
-/// Check if two lists of entities are equal.
-fn is_child_list_changed(
-    parent_entity: Entity,
-    old: impl ExactSizeIterator<Item = Entity>,
-    new: impl ExactSizeIterator<Item = Entity>,
-) -> bool {
-    if old.len() != new.len() {
-        trace!(
-            "Child list changed for effect {:?}: old #{} != new #{}",
-            parent_entity,
-            old.len(),
-            new.len()
-        );
-        return true;
-    }
+/// Update the [`CachedEffect`] component for any newly allocated effect.
+///
+/// After this system ran, and its commands are applied, all valid extracted
+/// effects have a corresponding entity in the render world, with a
+/// [`CachedEffect`] component. From there, we operate on those exclusively.
+// pub(crate) fn add_effects(
+//     commands: Commands,
+//     mut effects_meta: ResMut<EffectsMeta>,
+//     mut effect_cache: ResMut<EffectCache>,
+//     mut property_cache: ResMut<PropertyCache>,
+//     mut event_cache: ResMut<EventCache>,
+//     mut extracted_effects: ResMut<ExtractedEffects>,
+//     mut sort_bind_groups: ResMut<SortBindGroups>,
+// ) {
+//     #[cfg(feature = "trace")]
+//     let _span = bevy::log::info_span!("add_effects").entered();
+//     trace!("add_effects");
 
-    // TODO - this value is arbitrary
-    if old.len() >= 16 {
-        // For large-ish lists, use a hash set.
-        let old = HashSet::<Entity, bevy::platform::hash::FixedHasher>::from_iter(old);
-        let new = HashSet::<Entity, bevy::platform::hash::FixedHasher>::from_iter(new);
-        if old != new {
-            trace!(
-                "Child list changed for effect {parent_entity:?}: old [{old:?}] != new [{new:?}]"
-            );
-            true
-        } else {
-            false
-        }
-    } else {
-        // For small lists, just use a linear array and sort it
-        let mut old = old.collect::<Vec<_>>();
-        let mut new = new.collect::<Vec<_>>();
-        old.sort_unstable();
-        new.sort_unstable();
-        if old != new {
-            trace!(
-                "Child list changed for effect {parent_entity:?}: old [{old:?}] != new [{new:?}]"
-            );
-            true
-        } else {
-            false
-        }
-    }
-}
+//     // Allocate new effects
+//     effects_meta.add_effects(
+//         commands,
+//         std::mem::take(&mut extracted_effects.added_effects),
+//         &mut effect_cache,
+//         &mut property_cache,
+//         &mut event_cache,
+//     );
 
-/// Resolve parents and children, updating their [`CachedParent`] and
-/// [`CachedChild`] components, as well as (re-)allocating any [`GpuChildInfo`]
-/// slice for all children of each parent.
-pub(crate) fn resolve_parents(
-    mut commands: Commands,
-    q_child_effects: Query<
-        (
-            Entity,
-            &CachedParentRef,
-            &CachedEffectEvents,
-            Option<&CachedChildInfo>,
-        ),
-        With<CachedEffect>,
-    >,
-    q_cached_effects: Query<(Entity, MainEntity, &CachedEffect)>,
-    effect_cache: Res<EffectCache>,
-    mut q_parent_effects: Query<(Entity, &mut CachedParentInfo), With<CachedEffect>>,
-    mut event_cache: ResMut<EventCache>,
-    mut children_from_parent: Local<
-        HashMap<Entity, (Vec<(Entity, BufferBindingSource)>, Vec<GpuChildInfo>)>,
-    >,
-) {
-    #[cfg(feature = "trace")]
-    let _span = bevy::log::info_span!("resolve_parents").entered();
-    let num_parent_effects = q_parent_effects.iter().len();
-    trace!("resolve_parents: num_parents={num_parent_effects}");
+//     // Note: we don't need to explicitly allocate GPU buffers for effects,
+//     // because EffectBuffer already contains a reference to the
+//     // RenderDevice, so has done so internally. This is not ideal
+//     // design-wise, but works.
+// }
 
-    // Build map of render entity from main entity for all cached effects.
-    let render_from_main_entity = q_cached_effects
-        .iter()
-        .map(|(render_entity, main_entity, _)| (main_entity, render_entity))
-        .collect::<HashMap<_, _>>();
+// /// Check if two lists of entities are equal.
+// fn is_child_list_changed(
+//     parent_entity: Entity,
+//     old: impl ExactSizeIterator<Item = Entity>,
+//     new: impl ExactSizeIterator<Item = Entity>,
+// ) -> bool {
+//     if old.len() != new.len() {
+//         trace!(
+//             "Child list changed for effect {:?}: old #{} != new #{}",
+//             parent_entity,
+//             old.len(),
+//             new.len()
+//         );
+//         return true;
+//     }
 
-    // Record all parents with children that changed so that we can mark those
-    // parents' `CachedParentInfo` as changed. See the comment in the
-    // `q_parent_effects` loop for more information.
-    let mut parents_with_dirty_children = EntityHashSet::default();
+//     // TODO - this value is arbitrary
+//     if old.len() >= 16 {
+//         // For large-ish lists, use a hash set.
+//         let old = HashSet::<Entity, bevy::platform::hash::FixedHasher>::from_iter(old);
+//         let new = HashSet::<Entity, bevy::platform::hash::FixedHasher>::from_iter(new);
+//         if old != new {
+//             trace!(
+//                 "Child list changed for effect {parent_entity:?}: old [{old:?}] != new [{new:?}]"
+//             );
+//             true
+//         } else {
+//             false
+//         }
+//     } else {
+//         // For small lists, just use a linear array and sort it
+//         let mut old = old.collect::<Vec<_>>();
+//         let mut new = new.collect::<Vec<_>>();
+//         old.sort_unstable();
+//         new.sort_unstable();
+//         if old != new {
+//             trace!(
+//                 "Child list changed for effect {parent_entity:?}: old [{old:?}] != new [{new:?}]"
+//             );
+//             true
+//         } else {
+//             false
+//         }
+//     }
+// }
 
-    // Group child effects by parent, building a list of children for each parent,
-    // solely based on the declaration each child makes of its parent. This doesn't
-    // mean yet that the parent exists.
-    if children_from_parent.capacity() < num_parent_effects {
-        let extra = num_parent_effects - children_from_parent.capacity();
-        children_from_parent.reserve(extra);
-    }
-    for (child_entity, cached_parent_ref, cached_effect_events, cached_child_info) in
-        q_child_effects.iter()
-    {
-        // Resolve the parent reference into the render world
-        let parent_main_entity = cached_parent_ref.entity;
-        let Some(parent_entity) = render_from_main_entity.get(&parent_main_entity.id()) else {
-            warn!(
-                "Cannot resolve parent render entity for parent main entity {:?}, removing CachedChildInfo from child entity {:?}.",
-                parent_main_entity, child_entity
-            );
-            commands.entity(child_entity).remove::<CachedChildInfo>();
-            continue;
-        };
-        let parent_entity = *parent_entity;
+// /// Resolve parents and children for effects which changed.
+// ///
+// /// Update their [`CachedChildInfo`] and [`CachedParentInfo`] components, as
+// /// well as (re-)allocating any [`GpuChildInfo`] slice for all children of each
+// /// parent.
+// pub(crate) fn resolve_parents(
+//     mut commands: Commands,
+//     // All extracted effects.
+//     q_extracted_effects: Query<(MainEntity, Entity), With<ExtractedEffect>>,
+//     // All extracted child effects (with changed ExtractedParent). May or may not already have a
+//     // CachedChildInfo. If not, this will be spawned below.
+//     q_child_effects: Query<
+//         (
+//             Entity,
+//             &ChildEffectOf,
+//             &CachedEffectEvents,
+//             Option<&CachedChildInfo>,
+//         ),
+//         Changed<ChildEffectOf>,
+//     >,
+//     // All parent effects from a previous frame (already have CachedParentInfo), which can be
+//     // updated in-place without spawning a new CachedParentInfo.
+//     mut q_parent_effects: Query<(Entity, &mut CachedParentInfo), With<ExtractedEffect>>,
+//     effect_cache: Res<EffectCache>,
+//     //mut event_cache: ResMut<EventCache>,
+//     mut children_from_parent: Local<
+//         EntityHashMap<(Vec<(Entity, BufferBindingSource)>, Vec<GpuChildInfo>)>,
+//     >,
+// ) {
+//     #[cfg(feature = "trace")]
+//     let _span = bevy::log::info_span!("resolve_parents").entered();
+//     let num_parent_effects = q_parent_effects.iter().len();
+//     trace!("resolve_parents: num_parents={num_parent_effects}");
 
-        // Resolve the parent
-        let Ok((_, _, parent_cached_effect)) = q_cached_effects.get(parent_entity) else {
-            // Since we failed to resolve, remove this component so the next systems ignore
-            // this effect.
-            warn!(
-                "Unknown parent render entity {:?}, removing CachedChildInfo from child entity {:?}.",
-                parent_entity, child_entity
-            );
-            commands.entity(child_entity).remove::<CachedChildInfo>();
-            continue;
-        };
-        let Some(parent_buffer_binding_source) = effect_cache
-            .get_slab(&parent_cached_effect.slab_id)
-            .map(|effect_buffer| effect_buffer.max_binding_source())
-        else {
-            // Since we failed to resolve, remove this component so the next systems ignore
-            // this effect.
-            warn!(
-                "Unknown parent slab #{} on entity {:?}, removing CachedChildInfo.",
-                parent_cached_effect.slab_id.index(),
-                child_entity
-            );
-            commands.entity(child_entity).remove::<CachedChildInfo>();
-            continue;
-        };
+//     // Record all parents with children that changed so that we can mark the
+//     // CachedParentInfo of those parents as changed. See the comment in the
+//     // q_parent_effects loop for more information.
+//     let mut parents_with_dirty_children = EntityHashSet::default();
 
-        let Some(child_event_buffer) = event_cache.get_buffer(cached_effect_events.buffer_index)
-        else {
-            // Since we failed to resolve, remove this component so the next systems ignore
-            // this effect.
-            warn!(
-                "Unknown child event buffer #{} on entity {:?}, removing CachedChildInfo.",
-                cached_effect_events.buffer_index, child_entity
-            );
-            commands.entity(child_entity).remove::<CachedChildInfo>();
-            continue;
-        };
-        let child_buffer_binding_source = BufferBindingSource {
-            buffer: child_event_buffer.clone(),
-            offset: cached_effect_events.range.start,
-            size: NonZeroU32::new(cached_effect_events.range.len() as u32).unwrap(),
-        };
+//     // Group child effects by parent, building a list of children for each parent,
+//     // solely based on the declaration each child makes of its parent. This doesn't
+//     // mean yet that the parent exists.
+//     if children_from_parent.capacity() < num_parent_effects {
+//         let extra = num_parent_effects - children_from_parent.capacity();
+//         children_from_parent.reserve(extra);
+//     }
+//     for (child_entity, child_effect_of, cached_effect_events, cached_child_info) in
+//         q_child_effects.iter()
+//     {
+//         let parent_entity = child_effect_of.parent;
 
-        // Push the child entity into the children list
-        let (child_vec, child_infos) = children_from_parent.entry(parent_entity).or_default();
-        let local_child_index = child_vec.len() as u32;
-        child_vec.push((child_entity, child_buffer_binding_source));
-        child_infos.push(GpuChildInfo {
-            event_count: 0,
-            init_indirect_dispatch_index: cached_effect_events.init_indirect_dispatch_index,
-        });
+//         // Resolve the parent
+//         let Ok(_) = q_extracted_effects.get(parent_entity) else {
+//             // Since we failed to resolve, remove this component so the next systems ignore
+//             // this effect.
+//             warn!(
+//                 "Unknown parent render entity {:?}, removing CachedChildInfo from child entity {:?}.",
+//                 parent_entity, child_entity
+//             );
+//             commands.entity(child_entity).remove::<CachedChildInfo>();
+//             continue;
+//         };
 
-        // Check if child info changed. Avoid overwriting if no change.
-        if let Some(old_cached_child_info) = cached_child_info {
-            if parent_entity == old_cached_child_info.parent
-                && parent_cached_effect.slice.particle_layout
-                    == old_cached_child_info.parent_particle_layout
-                && parent_buffer_binding_source
-                    == old_cached_child_info.parent_buffer_binding_source
-                // Note: if local child index didn't change, then keep global one too for now. Chances are the parent didn't change, but anyway we can't know for now without inspecting all its children.
-                && local_child_index == old_cached_child_info.local_child_index
-                && cached_effect_events.init_indirect_dispatch_index
-                    == old_cached_child_info.init_indirect_dispatch_index
-            {
-                trace!(
-                    "ChildInfo didn't change for child entity {:?}, skipping component write.",
-                    child_entity
-                );
-                continue;
-            }
-        }
+//         let Some(parent_buffer_binding_source) = effect_cache
+//             .get_slab(&parent_cached_effect.slab_id)
+//             .map(|effect_buffer| effect_buffer.max_binding_source())
+//         else {
+//             // Since we failed to resolve, remove this component so the next systems ignore
+//             // this effect.
+//             warn!(
+//                 "Unknown parent slab #{} on entity {:?}, removing CachedChildInfo.",
+//                 parent_cached_effect.slab_id.index(),
+//                 child_entity
+//             );
+//             commands.entity(child_entity).remove::<CachedChildInfo>();
+//             continue;
+//         };
 
-        // Allocate (or overwrite, if already existing) the child info, now that the
-        // parent is resolved.
-        let cached_child_info = CachedChildInfo {
-            parent: parent_entity,
-            parent_particle_layout: parent_cached_effect.slice.particle_layout.clone(),
-            parent_buffer_binding_source,
-            local_child_index,
-            global_child_index: u32::MAX, // fixed up later by fixup_parents()
-            init_indirect_dispatch_index: cached_effect_events.init_indirect_dispatch_index,
-        };
-        commands.entity(child_entity).insert(cached_child_info);
-        trace!("Spawned CachedChildInfo on child entity {:?}", child_entity);
+//         let Some(child_event_buffer) = event_cache.get_buffer(cached_effect_events.buffer_index)
+//         else {
+//             // Since we failed to resolve, remove this component so the next systems ignore
+//             // this effect.
+//             warn!(
+//                 "Unknown child event buffer #{} on entity {:?}, removing CachedChildInfo.",
+//                 cached_effect_events.buffer_index, child_entity
+//             );
+//             commands.entity(child_entity).remove::<CachedChildInfo>();
+//             continue;
+//         };
+//         let child_buffer_binding_source = BufferBindingSource {
+//             buffer: child_event_buffer.clone(),
+//             offset: cached_effect_events.range.start,
+//             size: NonZeroU32::new(cached_effect_events.range.len() as u32).unwrap(),
+//         };
 
-        // Make a note of the parent entity so that we remember to mark its
-        // `CachedParentInfo` as changed below.
-        parents_with_dirty_children.insert(parent_entity);
-    }
+//         // Push the child entity into the children list
+//         let (child_vec, child_infos) = children_from_parent.entry(parent_entity).or_default();
+//         let local_child_index = child_vec.len() as u32;
+//         child_vec.push((child_entity, child_buffer_binding_source));
+//         child_infos.push(GpuChildInfo {
+//             event_count: 0,
+//             init_indirect_dispatch_index: cached_effect_events.init_indirect_dispatch_index,
+//         });
 
-    // Once all parents are resolved, diff all children of already-cached parents,
-    // and re-allocate their GpuChildInfo if needed.
-    for (parent_entity, mut cached_parent_info) in q_parent_effects.iter_mut() {
-        // Fetch the newly extracted list of children
-        let Some((_, (children, child_infos))) = children_from_parent.remove_entry(&parent_entity)
-        else {
-            trace!("Entity {parent_entity:?} is no more a parent, removing CachedParentInfo component...");
-            commands.entity(parent_entity).remove::<CachedParentInfo>();
-            continue;
-        };
+//         // Check if child info changed. Avoid overwriting if no change.
+//         if let Some(old_cached_child_info) = cached_child_info {
+//             if parent_entity == old_cached_child_info.parent
+//                 && parent_cached_effect.slice.particle_layout
+//                     == old_cached_child_info.parent_particle_layout
+//                 && parent_buffer_binding_source
+//                     == old_cached_child_info.parent_buffer_binding_source
+//                 // Note: if local child index didn't change, then keep global one too for now. Chances are the parent didn't change, but anyway we can't know for now without inspecting all its children.
+//                 && local_child_index == old_cached_child_info.local_child_index
+//                 && cached_effect_events.init_indirect_dispatch_index
+//                     == old_cached_child_info.init_indirect_dispatch_index
+//             {
+//                 trace!(
+//                     "ChildInfo didn't change for child entity {:?}, skipping component write.",
+//                     child_entity
+//                 );
+//                 continue;
+//             }
+//         }
 
-        // If we updated `CachedChildInfo` for any of this entity's children,
-        // then even if the check below passes, we must still set the change
-        // flag on this entity's `CachedParentInfo`. That's because the
-        // `fixup_parents` system looks at the change flag for the parent in
-        // order to determine which `CachedChildInfo` it needs to update, and
-        // that system must process all newly-added `CachedChildInfo`s.
-        if parents_with_dirty_children.contains(&parent_entity) {
-            cached_parent_info.set_changed();
-        }
+//         // Allocate (or overwrite, if already existing) the child info, now that the
+//         // parent is resolved.
+//         let cached_child_info = CachedChildInfo {
+//             parent: parent_entity,
+//             parent_particle_layout: parent_cached_effect.slice.particle_layout.clone(),
+//             parent_buffer_binding_source,
+//             local_child_index,
+//             global_child_index: u32::MAX, // fixed up later by fixup_parents()
+//             init_indirect_dispatch_index: cached_effect_events.init_indirect_dispatch_index,
+//         };
+//         commands.entity(child_entity).insert(cached_child_info);
+//         trace!("Spawned CachedChildInfo on child entity {:?}", child_entity);
 
-        // Check if any child changed compared to the existing CachedChildren component
-        if !is_child_list_changed(
-            parent_entity,
-            cached_parent_info
-                .children
-                .iter()
-                .map(|(entity, _)| *entity),
-            children.iter().map(|(entity, _)| *entity),
-        ) {
-            continue;
-        }
+//         // Make a note of the parent entity so that we remember to mark its
+//         // `CachedParentInfo` as changed below.
+//         parents_with_dirty_children.insert(parent_entity);
+//     }
 
-        event_cache.reallocate_child_infos(
-            parent_entity,
-            children,
-            &child_infos[..],
-            cached_parent_info.deref_mut(),
-        );
-    }
+//     // Once all parents are resolved, diff all children of already-cached parents,
+//     // and re-allocate their GpuChildInfo if needed.
+//     for (parent_entity, mut cached_parent_info) in q_parent_effects.iter_mut() {
+//         // Fetch the newly extracted list of children
+//         let Some((_, (children, child_infos))) = children_from_parent.remove_entry(&parent_entity)
+//         else {
+//             trace!("Entity {parent_entity:?} is no more a parent, removing CachedParentInfo component...");
+//             commands.entity(parent_entity).remove::<CachedParentInfo>();
+//             continue;
+//         };
 
-    // Once this is done, the children hash map contains all entries which don't
-    // already have a CachedParentInfo component. That is, all entities which are
-    // new parents.
-    for (parent_entity, (children, child_infos)) in children_from_parent.drain() {
-        let cached_parent_info =
-            event_cache.allocate_child_infos(parent_entity, children, &child_infos[..]);
-        commands.entity(parent_entity).insert(cached_parent_info);
-    }
+//         // If we updated `CachedChildInfo` for any of this entity's children,
+//         // then even if the check below passes, we must still set the change
+//         // flag on this entity's `CachedParentInfo`. That's because the
+//         // `fixup_parents` system looks at the change flag for the parent in
+//         // order to determine which `CachedChildInfo` it needs to update, and
+//         // that system must process all newly-added `CachedChildInfo`s.
+//         if parents_with_dirty_children.contains(&parent_entity) {
+//             cached_parent_info.set_changed();
+//         }
 
-    // // Once all changes are applied, immediately schedule any GPU buffer
-    // // (re)allocation based on the new buffer size. The actual GPU buffer
-    // content // will be written later.
-    // if event_cache
-    //     .child_infos()
-    //     .allocate_gpu(render_device, render_queue)
-    // {
-    //     // All those bind groups use the buffer so need to be re-created
-    //     effect_bind_groups.particle_buffers.clear();
-    // }
-}
+//         // Check if any child changed compared to the existing CachedChildren component
+//         if !is_child_list_changed(
+//             parent_entity,
+//             cached_parent_info
+//                 .children
+//                 .iter()
+//                 .map(|(entity, _)| *entity),
+//             children.iter().map(|(entity, _)| *entity),
+//         ) {
+//             continue;
+//         }
+
+//         event_cache.reallocate_child_infos(
+//             parent_entity,
+//             children,
+//             &child_infos[..],
+//             cached_parent_info.deref_mut(),
+//         );
+//     }
+
+//     // Once this is done, the children hash map contains all entries which don't
+//     // already have a CachedParentInfo component. That is, all entities which are
+//     // new parents.
+//     for (parent_entity, (children, child_infos)) in children_from_parent.drain() {
+//         let cached_parent_info =
+//             event_cache.allocate_child_infos(parent_entity, children, &child_infos[..]);
+//         commands.entity(parent_entity).insert(cached_parent_info);
+//     }
+
+//     // // Once all changes are applied, immediately schedule any GPU buffer
+//     // // (re)allocation based on the new buffer size. The actual GPU buffer
+//     // content // will be written later.
+//     // if event_cache
+//     //     .child_infos()
+//     //     .allocate_gpu(render_device, render_queue)
+//     // {
+//     //     // All those bind groups use the buffer so need to be re-created
+//     //     effect_bind_groups.particle_buffers.clear();
+//     // }
+// }
 
 pub fn fixup_parents(
     q_changed_parents: Query<(Entity, &CachedParentInfo), Changed<CachedParentInfo>>,
@@ -3476,37 +3725,81 @@ pub fn fixup_parents(
     }
 }
 
+/// Allocate the GPU resources for all extracted effects.
+///
+/// This adds the [`CachedEffect`] component as needed, and update it with the
+/// allocation in the [`EffectCache`].
+pub fn allocate_effects(
+    mut commands: Commands,
+    mut q_extracted_effects: Query<
+        (Entity, &ExtractedEffect, Option<&mut CachedEffect>),
+        Changed<ExtractedEffect>,
+    >,
+    mut effect_cache: ResMut<EffectCache>,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("allocate_effects").entered();
+    trace!("allocate_effects");
+
+    for (entity, extracted_effect, maybe_cached_effect) in &mut q_extracted_effects {
+        if let Some(mut cached_effect) = maybe_cached_effect {
+            trace!("Updating EffectCache entry for entity {entity:?}...");
+            effect_cache.remove(cached_effect.as_ref());
+            *cached_effect = effect_cache.insert(
+                extracted_effect.handle.clone(),
+                extracted_effect.capacity,
+                &extracted_effect.particle_layout,
+                extracted_effect.layout_flags,
+            );
+        } else {
+            trace!("Allocating new entry in EffectCache for entity {entity:?}...");
+            let cached_effect = effect_cache.insert(
+                extracted_effect.handle.clone(),
+                extracted_effect.capacity,
+                &extracted_effect.particle_layout,
+                extracted_effect.layout_flags,
+            );
+            commands.entity(entity).insert(cached_effect);
+        }
+    }
+}
+
 /// Update any cached mesh info based on any relocation done by Bevy itself.
 ///
 /// Bevy will merge small meshes into larger GPU buffers automatically. When
 /// this happens, the mesh location changes, and we need to update our
 /// references to it in order to know how to issue the draw commands.
+///
+/// This system updates both the [`CachedMeshLocation`] and the
+/// [`CachedIndirectDrawArgs`] components.
 pub fn update_mesh_locations(
     mut commands: Commands,
     mut effects_meta: ResMut<EffectsMeta>,
     mesh_allocator: Res<MeshAllocator>,
     render_meshes: Res<RenderAssets<RenderMesh>>,
-    mut q_cached_effects: Query<
-        (
-            Entity,
-            &CachedMesh,
-            &mut DispatchBufferIndices,
-            Option<&mut CachedMeshLocation>,
-        ),
-        With<CachedEffect>,
-    >,
+    mut q_cached_effects: Query<(
+        Entity,
+        &ExtractedEffectMesh,
+        Option<&mut CachedMeshLocation>,
+        Option<&mut CachedDrawIndirectArgs>,
+    )>,
 ) {
-    for (entity, cached_mesh, mut dispatch_buffer_indices, maybe_cached_mesh_location) in
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("update_mesh_locations").entered();
+    trace!("update_mesh_locations");
+
+    for (entity, extracted_mesh, maybe_cached_mesh_location, maybe_cached_draw_indirect_args) in
         &mut q_cached_effects
     {
-        // FIXME - clear allocated entries (if any) if we can't resolve the mesh!
+        let mut cmds = commands.entity(entity);
 
         // Resolve the render mesh
-        let Some(render_mesh) = render_meshes.get(cached_mesh.mesh) else {
+        let Some(render_mesh) = render_meshes.get(extracted_mesh.mesh) else {
             warn!(
                 "Cannot find render mesh of particle effect instance on entity {:?}, despite applying default mesh. Invalid asset handle: {:?}",
-                entity, cached_mesh.mesh
+                entity, extracted_mesh.mesh
             );
+            cmds.remove::<CachedMeshLocation>();
             continue;
         };
 
@@ -3515,16 +3808,17 @@ pub fn update_mesh_locations(
         // re-batch the vertex and optional index data of meshes together at any point,
         // so we need to confirm that the location data we may have cached is still
         // valid.
-        let Some(mesh_vertex_buffer_slice) = mesh_allocator.mesh_vertex_slice(&cached_mesh.mesh)
+        let Some(mesh_vertex_buffer_slice) = mesh_allocator.mesh_vertex_slice(&extracted_mesh.mesh)
         else {
             trace!(
                 "Effect main_entity {:?}: cannot find vertex slice of render mesh {:?}",
                 entity,
-                cached_mesh.mesh
+                extracted_mesh.mesh
             );
+            cmds.remove::<CachedMeshLocation>();
             continue;
         };
-        let mesh_index_buffer_slice = mesh_allocator.mesh_index_slice(&cached_mesh.mesh);
+        let mesh_index_buffer_slice = mesh_allocator.mesh_index_slice(&extracted_mesh.mesh);
         let indexed =
             if let RenderMeshBufferInfo::Indexed { index_format, .. } = render_mesh.buffer_info {
                 if let Some(ref slice) = mesh_index_buffer_slice {
@@ -3537,16 +3831,20 @@ pub fn update_mesh_locations(
                     trace!(
                         "Effect main_entity {:?}: cannot find index slice of render mesh {:?}",
                         entity,
-                        cached_mesh.mesh
+                        extracted_mesh.mesh
                     );
+                    cmds.remove::<CachedMeshLocation>();
                     continue;
                 }
             } else {
                 None
             };
 
-        // Calculate the new mesh location as it should be based on Bevy's info
-        let is_indexed = indexed.is_some();
+        // Calculate the new draw args and mesh location based on Bevy's info
+        let new_draw_args = AnyDrawIndirectArgs::from_slices(
+            &mesh_vertex_buffer_slice,
+            mesh_index_buffer_slice.as_ref(),
+        );
         let new_mesh_location = match &mesh_index_buffer_slice {
             // Indexed mesh rendering
             Some(mesh_index_buffer_slice) => CachedMeshLocation {
@@ -3569,41 +3867,317 @@ pub fn update_mesh_locations(
         // We don't allocate the draw indirect args ahead of time because we need to
         // select the indexed vs. non-indexed buffer. Now that we know whether the mesh
         // is indexed, we can allocate it (or reallocate it if indexing mode changed).
-        if dispatch_buffer_indices
-            .draw_indirect_buffer_row_index
-            .is_valid()
-        {
-            let was_indexed = dispatch_buffer_indices
-                .draw_indirect_buffer_row_index
-                .is_indexed();
-            if was_indexed != is_indexed {
-                effects_meta
-                    .free_draw_indirect(dispatch_buffer_indices.draw_indirect_buffer_row_index);
+        if let Some(mut cached_draw_indirect) = maybe_cached_draw_indirect_args {
+            assert!(cached_draw_indirect.row.is_valid());
+
+            // If the GPU draw args changed, re-upload to GPU.
+            if new_draw_args != cached_draw_indirect.args {
+                debug!(
+                    "Indirect draw args changed for asset {:?}\nold:{:?}\nnew:{:?}",
+                    entity, cached_draw_indirect.args, new_draw_args
+                );
+                cached_draw_indirect.args = new_draw_args;
+                effects_meta.update_draw_indirect(cached_draw_indirect.as_ref());
             }
-        }
-        if !dispatch_buffer_indices
-            .draw_indirect_buffer_row_index
-            .is_valid()
-        {
-            dispatch_buffer_indices.draw_indirect_buffer_row_index =
-                effects_meta.allocate_draw_indirect(is_indexed, &new_mesh_location);
+        } else {
+            cmds.insert(effects_meta.allocate_draw_indirect(&new_draw_args));
         }
 
         // Compare to any cached data and update if necessary, or insert if missing.
         // This will trigger change detection in the ECS, which will in turn trigger
         // GpuEffectMetadata re-upload.
         if let Some(mut old_mesh_location) = maybe_cached_mesh_location {
-            #[cfg(debug_assertions)]
-            if *old_mesh_location.deref() != new_mesh_location {
+            if *old_mesh_location != new_mesh_location {
                 debug!(
                     "Mesh location changed for asset {:?}\nold:{:?}\nnew:{:?}",
                     entity, old_mesh_location, new_mesh_location
                 );
+                *old_mesh_location = new_mesh_location;
             }
-
-            old_mesh_location.set_if_neq(new_mesh_location);
         } else {
-            commands.entity(entity).insert(new_mesh_location);
+            cmds.insert(new_mesh_location);
+        }
+    }
+}
+
+/// Update the [`CachedParentInfo`] of parent effects and the  [`CachedChildInfo`] of child effects.
+pub fn allocate_parent_child_infos(
+    mut commands: Commands,
+    effect_cache: ResMut<EffectCache>,
+    mut event_cache: ResMut<EventCache>,
+    // All extracted child effects (with changed ChildEffectOf/parent). May or may not already have
+    // a CachedChildInfo. If not, this will be spawned below.
+    mut q_child_effects: Query<
+        (
+            Entity,
+            &ChildEffectOf,
+            &CachedEffectEvents,
+            Option<&mut CachedChildInfo>,
+        ),
+        Changed<ChildEffectOf>,
+    >,
+    // All parent effects from a previous frame (already have CachedParentInfo), which can be
+    // updated in-place without spawning a new CachedParentInfo.
+    mut q_parent_effects: Query<
+        (
+            Entity,
+            &CachedEffect,
+            &ChildrenEffects,
+            Option<&mut CachedParentInfo>,
+        ),
+        With<ExtractedEffect>,
+    >,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("allocate_child_infos").entered();
+    trace!("allocate_child_infos");
+
+    // Loop on all child effects and ensure their CachedChildInfo is up-to-date.
+    for (child_entity, child_effect_of, cached_effect_events, mut maybe_cached_child_info) in
+        &mut q_child_effects
+    {
+        // Fetch the parent effect
+        let parent_entity = child_effect_of.parent;
+        let Ok((_, parent_cached_effect, children_effects, _)) =
+            q_parent_effects.get(parent_entity)
+        else {
+            warn!("Unknown parent #{parent_entity:?} on child entity {child_entity:?}, removing CachedChildInfo.");
+            if maybe_cached_child_info.is_some() {
+                commands.entity(child_entity).remove::<CachedChildInfo>();
+            }
+            continue;
+        };
+
+        // Find the index of this child entity in its parent's storage
+        let Some(local_child_index) = children_effects.0.iter().position(|e| *e == child_entity)
+        else {
+            warn!("Cannot find child entity {child_entity:?} in the children collection of parent entity {parent_entity:?}. Relationship desync?");
+            if maybe_cached_child_info.is_some() {
+                commands.entity(child_entity).remove::<CachedChildInfo>();
+            }
+            continue;
+        };
+        let local_child_index = local_child_index as u32;
+
+        // Fetch the effect buffer of the parent effect
+        let Some(parent_buffer_binding_source) = effect_cache
+            .get_slab(&parent_cached_effect.slab_id)
+            .map(|effect_buffer| effect_buffer.max_binding_source())
+        else {
+            warn!(
+                "Unknown parent slab #{} on parent entity {:?}, removing CachedChildInfo.",
+                parent_cached_effect.slab_id.index(),
+                parent_entity
+            );
+            if maybe_cached_child_info.is_some() {
+                commands.entity(child_entity).remove::<CachedChildInfo>();
+            }
+            continue;
+        };
+
+        let new_cached_child_info = CachedChildInfo {
+            parent_particle_layout: parent_cached_effect.slice.particle_layout.clone(),
+            parent_buffer_binding_source,
+            local_child_index,
+            global_child_index: u32::MAX, // fixed up later by fixup_parents()
+            init_indirect_dispatch_index: cached_effect_events.init_indirect_dispatch_index,
+        };
+        if let Some(mut cached_child_info) = maybe_cached_child_info {
+            cached_child_info.set_if_neq(new_cached_child_info);
+        } else {
+            commands.entity(child_entity).insert(new_cached_child_info);
+        }
+    }
+
+    // Loop on all parent effects and ensure their CachedParentInfo is up-to-date.
+    // This relies on the
+    for (parent_entity, parent_cached_effect, children_effects, maybe_cached_parent_info) in
+        &mut q_parent_effects
+    {
+        // Loop over children and gather GpuChildInfo
+        let mut new_children = Vec::with_capacity(children_effects.0.len());
+        let mut new_child_infos = Vec::with_capacity(children_effects.0.len());
+        for child_entity in children_effects.0.iter() {
+            // Fetch the child's event buffer allocation info
+            let Ok((_, _, cached_effect_events, _)) = q_child_effects.get(*child_entity) else {
+                warn!("Child entity {child_entity:?} from parent entity {parent_entity:?} didnt't resolve to a child instance. The parent effect cannot be processed.");
+                break;
+            };
+
+            // Fetch the GPU event buffer of the child
+            let Some(event_buffer) = event_cache.get_buffer(cached_effect_events.buffer_index)
+            else {
+                warn!("Child entity {child_entity:?} from parent entity {parent_entity:?} doesn't have an allocated GPU event buffer. The parent effect cannot be processed.");
+                break;
+            };
+
+            let buffer_binding_source = BufferBindingSource {
+                buffer: event_buffer.clone(),
+                offset: cached_effect_events.range.start,
+                size: NonZeroU32::new(cached_effect_events.range.len() as u32).unwrap(),
+            };
+            new_children.push((*child_entity, buffer_binding_source));
+
+            new_child_infos.push(GpuChildInfo {
+                event_count: 0,
+                init_indirect_dispatch_index: cached_effect_events.init_indirect_dispatch_index,
+            });
+        }
+
+        // If we don't have all children, just abort this effect. We don't try to have
+        // partial relationships, this is too complex for shader bindings.
+        assert_eq!(new_children.len(), new_child_infos.len());
+        if new_children.len() < children_effects.len() {
+            if maybe_cached_parent_info.is_some() {
+                warn!("One or more child effect(s) on parent effect {parent_entity:?} failed to configure. The parent effect cannot be processed.");
+                commands.entity(parent_entity).remove::<CachedParentInfo>();
+                continue;
+            }
+        }
+
+        // Insert or update the CachedParentInfo component of the parent effect
+        if let Some(mut cached_parent_info) = maybe_cached_parent_info {
+            if cached_parent_info.children != new_children {
+                // FIXME - missing way to just update in-place without changing the allocation size!
+                //if cached_parent_info.children.len() == new_children.len() {
+                //} else {
+                event_cache.reallocate_child_infos(
+                    parent_entity,
+                    new_children,
+                    &new_child_infos[..],
+                    cached_parent_info.as_mut(),
+                );
+                //}
+            }
+        } else {
+            let cached_parent_info =
+                event_cache.allocate_child_infos(parent_entity, new_children, &new_child_infos[..]);
+            commands.entity(parent_entity).insert(cached_parent_info);
+        }
+    }
+}
+
+/// Resolve the pipelines necessary for an effect.
+///
+/// This caches the pipeline IDs once resolved, and their compiling state when
+/// it changes, to determine when an effect is ready to be used.
+pub fn resolve_pipelines(
+    mut q_effects: Query<(
+        &ExtractedEffect,
+        &CachedEffect,
+        Option<&CachedChildInfo>,
+        Option<&CachedProperties>,
+        &mut CachedPipelines,
+    )>,
+    effect_cache: Res<EffectCache>,
+    pipeline_cache: Res<PipelineCache>,
+    property_cache: ResMut<PropertyCache>,
+    mut init_pipeline: ResMut<ParticlesInitPipeline>,
+    mut update_pipeline: ResMut<ParticlesUpdatePipeline>,
+    mut specialized_init_pipelines: ResMut<SpecializedComputePipelines<ParticlesInitPipeline>>,
+    mut specialized_update_pipelines: ResMut<SpecializedComputePipelines<ParticlesUpdatePipeline>>,
+) {
+    for (
+        extracted_effect,
+        cached_effect,
+        maybe_cached_child_info,
+        maybe_cached_properties,
+        mut cached_pipelines,
+    ) in &mut q_effects
+    {
+        let particle_layout = &cached_effect.slice.particle_layout;
+        let particle_layout_min_binding_size = particle_layout.min_binding_size32();
+        let has_event_buffer = maybe_cached_child_info.is_some();
+        let parent_particle_layout_min_binding_size = maybe_cached_child_info
+            .as_ref()
+            .map(|cci| cci.parent_particle_layout.min_binding_size32());
+
+        // Resolve the init pipeline
+        if cached_pipelines.init.is_none() {
+            // Clear flag just in case...
+            cached_pipelines
+                .flags
+                .remove(CachedPipelineFlags::INIT_PIPELINE_READY);
+
+            let Some(particle_bind_group_layout) = effect_cache.particle_bind_group_layout(
+                particle_layout_min_binding_size,
+                parent_particle_layout_min_binding_size,
+            ) else {
+                error!("Failed to find particle sim bind group @1 for min_binding_size={} parent_min_binding_size={:?}",
+                    particle_layout_min_binding_size, parent_particle_layout_min_binding_size);
+                continue;
+            };
+
+            // This should always exist by the time we reach this point, because we should
+            // have inserted any property in the cache, which would have allocated the
+            // proper bind group layout (or the default no-property one).
+            let property_layout_min_binding_size =
+                maybe_cached_properties.map(|cp| cp.layout.min_binding_size());
+            let spawner_bind_group_layout = property_cache
+                .bind_group_layout(property_layout_min_binding_size)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Failed to find spawner@2 bind group layout for property binding size {:?}",
+                        property_layout_min_binding_size,
+                    )
+                });
+            trace!(
+                "Retrieved spawner@2 bind group layout {:?} for property binding size {:?}.",
+                spawner_bind_group_layout.id(),
+                property_layout_min_binding_size
+            );
+
+            // Fetch the metadata@3 bind group layout from the cache
+            let metadata_bind_group_layout = effect_cache
+                .metadata_init_bind_group_layout(has_event_buffer)
+                .unwrap()
+                .clone();
+
+            let init_pipeline_key_flags = {
+                let mut flags = ParticleInitPipelineKeyFlags::empty();
+                flags.set(
+                    ParticleInitPipelineKeyFlags::ATTRIBUTE_PREV,
+                    particle_layout.contains(Attribute::PREV),
+                );
+                flags.set(
+                    ParticleInitPipelineKeyFlags::ATTRIBUTE_NEXT,
+                    particle_layout.contains(Attribute::NEXT),
+                );
+                flags.set(
+                    ParticleInitPipelineKeyFlags::CONSUME_GPU_SPAWN_EVENTS,
+                    has_event_buffer,
+                );
+                flags
+            };
+
+            // https://github.com/bevyengine/bevy/issues/17132
+            let particle_bind_group_layout_id = particle_bind_group_layout.id();
+            let spawner_bind_group_layout_id = spawner_bind_group_layout.id();
+            let metadata_bind_group_layout_id = metadata_bind_group_layout.id();
+            init_pipeline.temp_particle_bind_group_layout =
+                Some(particle_bind_group_layout.clone());
+            init_pipeline.temp_spawner_bind_group_layout = Some(spawner_bind_group_layout.clone());
+            init_pipeline.temp_metadata_bind_group_layout = Some(metadata_bind_group_layout);
+            let init_pipeline_id: CachedComputePipelineId = specialized_init_pipelines.specialize(
+                &*pipeline_cache,
+                &init_pipeline,
+                ParticleInitPipelineKey {
+                    shader: extracted_effect.effect_shaders.init.clone(),
+                    particle_layout_min_binding_size,
+                    parent_particle_layout_min_binding_size,
+                    flags: init_pipeline_key_flags,
+                    particle_bind_group_layout_id,
+                    spawner_bind_group_layout_id,
+                    metadata_bind_group_layout_id,
+                },
+            );
+            // keep things tidy; this is just a hack, should not persist
+            init_pipeline.temp_particle_bind_group_layout = None;
+            init_pipeline.temp_spawner_bind_group_layout = None;
+            init_pipeline.temp_metadata_bind_group_layout = None;
+            trace!("Init pipeline specialized: id={:?}", init_pipeline_id);
+
+            cached_pipelines.init = Some(init_pipeline_id);
         }
     }
 }
@@ -3622,9 +4196,9 @@ pub fn clear_transient_batch_inputs(
     }
 }
 
-/// Render world cached mesh infos for a single effect instance.
-#[derive(Debug, Clone, Copy, Component)]
-pub(crate) struct CachedMesh {
+/// Effect mesh extracted from the main world.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+pub(crate) struct ExtractedEffectMesh {
     /// Asset of the effect mesh to draw.
     pub mesh: AssetId<Mesh>,
 }
@@ -3667,6 +4241,41 @@ pub(crate) struct CachedMeshLocation {
     pub vertex_offset_or_base_instance: i32,
     /// Indexed rendering metadata.
     pub indexed: Option<MeshIndexSlice>,
+}
+
+/// Cached info about the [`GpuEffectMetadata`] allocation for this effect.
+///
+/// The component is present when the [`GpuEffectMetadata`] is allocated.
+#[derive(Debug, Clone, PartialEq, Eq, Component)]
+pub(crate) struct CachedMetadata {
+    pub buffer_table_id: BufferTableId,
+}
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct CachedPipelineFlags: u8 {
+        const NONE = 0;
+        const INIT_PIPELINE_READY = (1u8 << 0);
+        const UPDATE_PIPELINE_READY = (1u8 << 1);
+    }
+}
+
+impl Default for CachedPipelineFlags {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+/// Render world cached shader pipelines for a [`CachedEffect`].
+///
+/// This is updated with the IDs of the pipelines when they are queued for
+/// compiling, and with the state of those pipelines to detect when the effect
+/// is ready to be used.
+#[derive(Debug, Default, Component)]
+pub(crate) struct CachedPipelines {
+    pub flags: CachedPipelineFlags,
+    pub init: Option<CachedComputePipelineId>,
+    pub update: Option<CachedComputePipelineId>,
 }
 
 /// Render world cached properties info for a single effect instance.
@@ -3717,13 +4326,12 @@ pub(crate) fn prepare_effects(
     mut property_bind_groups: ResMut<PropertyBindGroups>,
     q_cached_effects: Query<(
         MainEntity,
-        &CachedEffect,
-        Ref<CachedMesh>,
-        Ref<CachedMeshLocation>,
-        &DispatchBufferIndices,
+        Ref<CachedEffect>,
+        Ref<ExtractedEffectMesh>,
+        Ref<DispatchBufferIndices>,
         Option<&CachedEffectProperties>,
-        Option<&CachedParentInfo>,
-        Option<&CachedChildInfo>,
+        Option<Ref<CachedParentInfo>>,
+        Option<Ref<CachedChildInfo>>,
         Option<&CachedEffectEvents>,
     )>,
     q_debug_all_entities: Query<MainEntity>,
@@ -3808,7 +4416,6 @@ pub(crate) fn prepare_effects(
             main_entity,
             cached_effect,
             cached_mesh,
-            cached_mesh_location,
             dispatch_buffer_indices,
             cached_effect_properties,
             cached_parent_info,
@@ -3854,7 +4461,7 @@ pub(crate) fn prepare_effects(
         // dispatch during the indirect init pass of this effect based on the number of
         // GPU spawn events written in its buffer.
         if let (Some(cached_effect_events), Some(cached_child_info)) =
-            (cached_effect_events, cached_child_info)
+            (cached_effect_events, cached_child_info.as_deref())
         {
             debug_assert_eq!(
                 GpuChildInfo::min_size().get() % 4,
@@ -3863,7 +4470,7 @@ pub(crate) fn prepare_effects(
             );
 
             // Resolve parent entry
-            let Ok((_, _, _, _, _, _, cached_parent_info, _, _)) =
+            let Ok((_, _, _, _, _, cached_parent_info, _, _)) =
                 q_cached_effects.get(cached_child_info.parent)
             else {
                 continue;
@@ -3925,7 +4532,7 @@ pub(crate) fn prepare_effects(
         trace!("cached_child_info={:?}", cached_child_info);
         let (parent_particle_layout_min_binding_size, parent_slab_id) =
             if let Some(cached_child) = cached_child_info.as_ref() {
-                let Ok((_, parent_cached_effect, _, _, _, _, _, _, _)) =
+                let Ok((_, parent_cached_effect, _, _, _, _, _, _)) =
                     q_cached_effects.get(cached_child.parent)
                 else {
                     // At this point we should have discarded invalid effects with a missing parent,
@@ -3952,7 +4559,7 @@ pub(crate) fn prepare_effects(
             effect_slice.particle_layout.min_binding_size32(),
             parent_particle_layout_min_binding_size,
         ) else {
-            error!("Failed to find particle sim bind group @1 for min_binding_size={} parent_min_binding_size={:?}", 
+            error!("Failed to find particle sim bind group @1 for min_binding_size={} parent_min_binding_size={:?}",
             effect_slice.particle_layout.min_binding_size32(), parent_particle_layout_min_binding_size);
             continue;
         };
@@ -4029,6 +4636,7 @@ pub(crate) fn prepare_effects(
 
         let update_pipeline_id = {
             let num_event_buffers = cached_parent_info
+                .as_ref()
                 .map(|p| p.children.len() as u32)
                 .unwrap_or_default();
 
@@ -4099,9 +4707,11 @@ pub(crate) fn prepare_effects(
             update: update_pipeline_id,
         };
 
-        // For ribbons, which need particle sorting, create a bind group layout for
-        // sorting the effect, based on its particle layout.
+        // For ribbons, we need the sorting pipeline to be ready to sort the ribbon's
+        // particles by age in order to build a contiguous mesh.
         if extracted_effect.layout_flags.contains(LayoutFlags::RIBBONS) {
+            // Ensure the bind group layout for sort-fill is ready. This will also ensure
+            // the pipeline is created and queued if needed.
             if let Err(err) = sort_bind_groups.ensure_sort_fill_bind_group_layout(
                 pipeline_cache,
                 &extracted_effect.particle_layout,
@@ -4110,6 +4720,22 @@ pub(crate) fn prepare_effects(
                     "Failed to create bind group for ribbon effect sorting: {:?}",
                     err
                 );
+                let mut cmd = commands.entity(extracted_effect.render_entity.id());
+                cmd.remove::<BatchInput>();
+                continue;
+            }
+
+            // Check sort pipelines are ready, otherwise we might desync some buffers if
+            // running only some of them but not all.
+            if !sort_bind_groups
+                .is_pipeline_ready(&extracted_effect.particle_layout, pipeline_cache)
+            {
+                trace!(
+                    "Sort pipeline not ready for effect on main entity {:?}; skipped.",
+                    main_entity
+                );
+                let mut cmd = commands.entity(extracted_effect.render_entity.id());
+                cmd.remove::<BatchInput>();
                 continue;
             }
         }
@@ -4149,6 +4775,7 @@ pub(crate) fn prepare_effects(
             parent_slab_id,
             event_buffer_index: cached_effect_events.map(|cee| cee.buffer_index),
             child_effects: cached_parent_info
+                .as_ref()
                 .map(|cp| cp.children.clone())
                 .unwrap_or_default(),
             layout_flags: extracted_effect.layout_flags,
@@ -4161,6 +4788,7 @@ pub(crate) fn prepare_effects(
             spawn_count: extracted_effect.spawn_count,
             position: extracted_effect.transform.translation(),
             init_indirect_dispatch_index: cached_child_info
+                .as_ref()
                 .map(|cc| cc.init_indirect_dispatch_index),
         });
 
@@ -4199,10 +4827,10 @@ pub(crate) fn prepare_effects(
                 // FIXME - This doesn't work with batching!
                 if let Some(property_data) = &extracted_effect.property_data {
                     trace!(
-                    "Properties changed; (re-)uploading to GPU... New data: {} bytes. Capacity: {} bytes.",
-                    property_data.len(),
-                    cached_effect_properties.range.len(),
-                );
+                        "Properties changed; (re-)uploading to GPU... New data: {} bytes. Capacity: {} bytes.",
+                        property_data.len(),
+                        cached_effect_properties.range.len(),
+                    );
                     if property_data.len() <= cached_effect_properties.range.len() {
                         let property_buffer = property_cache.buffers_mut()
                             [cached_effect_properties.buffer_index as usize]
@@ -4232,38 +4860,33 @@ pub(crate) fn prepare_effects(
         // update its GpuEffectMetadata with all those infos.
         // FIXME - should do this only when the below changes (not only the mesh), via
         // some invalidation mechanism and ECS change detection.
-        if !cached_mesh.is_changed() && !cached_mesh_location.is_changed() {
+        if !cached_effect.is_changed()
+            && !cached_mesh.is_changed()
+            && !dispatch_buffer_indices.is_changed()
+            && !cached_child_info
+                .as_ref()
+                .map(|cci| cci.is_changed())
+                .unwrap_or(false)
+            && !cached_parent_info
+                .as_ref()
+                .map(|cci| cci.is_changed())
+                .unwrap_or(false)
+        {
             prepared_effect_count += 1;
             continue;
-        }
-
-        // Update the draw indirect args.
-        if cached_mesh_location.is_changed() {
-            let gpu_draw_args = GpuDrawIndexedIndirectArgs {
-                index_count: cached_mesh_location.vertex_or_index_count,
-                instance_count: 0,
-                first_index: cached_mesh_location.first_index_or_vertex_offset,
-                base_vertex: cached_mesh_location.vertex_offset_or_base_instance,
-                first_instance: 0,
-            };
-            assert!(dispatch_buffer_indices
-                .draw_indirect_buffer_row_index
-                .is_valid());
-            effects_meta.draw_indirect_buffer.update(
-                dispatch_buffer_indices.draw_indirect_buffer_row_index.get(),
-                gpu_draw_args,
-            );
         }
 
         let capacity = cached_effect.slice.len();
 
         // Global and local indices of this effect as a child of another (parent) effect
         let (global_child_index, local_child_index) = cached_child_info
+            .as_ref()
             .map(|cci| (cci.global_child_index, cci.local_child_index))
             .unwrap_or_default();
 
         // Base index of all children of this (parent) effect
         let base_child_index = cached_parent_info
+            .as_ref()
             .map(|cpi| {
                 debug_assert_eq!(
                     cpi.byte_range.start % GpuChildInfo::SHADER_SIZE.get() as u32,
@@ -4402,7 +5025,7 @@ pub(crate) fn batch_effects(
     mut q_cached_effects: Query<(
         Entity,
         &MainEntity,
-        &CachedMesh,
+        &ExtractedEffectMesh,
         Option<&CachedEffectEvents>,
         Option<&CachedChildInfo>,
         Option<&CachedProperties>,
@@ -6991,6 +7614,9 @@ impl Node for VfxSimulateNode {
 
                 let Some(effect_buffer) = effect_cache.get_slab(&effect_batch.slab_id) else {
                     warn!("Missing sort-fill effect buffer.");
+                    // render_context
+                    //     .command_encoder()
+                    //     .insert_debug_marker("ERROR:MissingEffectBatchBuffer");
                     continue;
                 };
 
@@ -7010,12 +7636,14 @@ impl Node for VfxSimulateNode {
                         sort_bind_groups.get_sort_fill_pipeline_id(&effect_batch.particle_layout)
                     else {
                         warn!("Missing sort-fill pipeline.");
+                        compute_pass.insert_debug_marker("ERROR:MissingSortFillPipeline");
                         continue;
                     };
                     if compute_pass
                         .set_cached_compute_pipeline(pipeline_id)
                         .is_err()
                     {
+                        compute_pass.insert_debug_marker("ERROR:FailedToSetSortFillPipeline");
                         compute_pass.pop_debug_group();
                         // FIXME - Bevy doesn't allow returning custom errors here...
                         return Ok(());
@@ -7030,6 +7658,7 @@ impl Node for VfxSimulateNode {
                         effect_metadata_buffer.id(),
                     ) else {
                         warn!("Missing sort-fill bind group.");
+                        compute_pass.insert_debug_marker("ERROR:MissingSortFillBindGroup");
                         continue;
                     };
                     let particle_offset = effect_buffer.particle_offset(effect_batch.slice.start);
@@ -7066,6 +7695,7 @@ impl Node for VfxSimulateNode {
                         .set_cached_compute_pipeline(sort_bind_groups.sort_pipeline_id())
                         .is_err()
                     {
+                        compute_pass.insert_debug_marker("ERROR:FailedToSetSortPipeline");
                         compute_pass.pop_debug_group();
                         // FIXME - Bevy doesn't allow returning custom errors here...
                         return Ok(());
@@ -7090,6 +7720,7 @@ impl Node for VfxSimulateNode {
                         .set_cached_compute_pipeline(pipeline_id)
                         .is_err()
                     {
+                        compute_pass.insert_debug_marker("ERROR:FailedToSetSortCopyPipeline");
                         compute_pass.pop_debug_group();
                         // FIXME - Bevy doesn't allow returning custom errors here...
                         return Ok(());
@@ -7102,6 +7733,7 @@ impl Node for VfxSimulateNode {
                         effect_metadata_buffer.id(),
                     ) else {
                         warn!("Missing sort-copy bind group.");
+                        compute_pass.insert_debug_marker("ERROR:MissingSortCopyBindGroup");
                         continue;
                     };
                     let indirect_index_offset = effect_batch.slice.start;

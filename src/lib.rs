@@ -741,7 +741,7 @@ impl TextureLayout {
 /// Effect shaders.
 ///
 /// Contains the configured shaders for the init, update, and render passes.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct EffectShader {
     pub init: Handle<Shader>,
     pub update: Handle<Shader>,

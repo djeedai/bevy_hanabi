@@ -9,7 +9,7 @@ use bevy::{
 use super::{
     effect_cache::{DispatchBufferIndices, EffectSlice},
     event::{CachedChildInfo, CachedEffectEvents},
-    BufferBindingSource, CachedMesh, LayoutFlags, PropertyBindGroupKey,
+    BufferBindingSource, ExtractedEffectMesh, LayoutFlags, PropertyBindGroupKey,
 };
 use crate::{
     render::effect_cache::SlabId, AlphaMode, EffectAsset, EffectShader, ParticleLayout,
@@ -328,7 +328,7 @@ pub(crate) struct EffectDrawBatch {
 impl EffectBatch {
     /// Create a new batch from a single input.
     pub fn from_input(
-        cached_mesh: &CachedMesh,
+        cached_mesh: &ExtractedEffectMesh,
         cached_effect_events: Option<&CachedEffectEvents>,
         cached_child_info: Option<&CachedChildInfo>,
         input: &mut BatchInput,

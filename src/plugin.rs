@@ -26,16 +26,20 @@ use crate::{
     compile_effects,
     properties::EffectProperties,
     render::{
-        add_effects, batch_effects, clear_transient_batch_inputs, extract_effect_events,
-        extract_effects, fixup_parents, on_remove_cached_effect, on_remove_cached_properties,
-        prepare_bind_groups, prepare_effects, prepare_gpu_resources, prepare_property_buffers,
-        queue_effects, queue_init_fill_dispatch_ops, resolve_parents, update_mesh_locations,
-        DebugSettings, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups,
-        EffectCache, EffectsMeta, EventCache, ExtractedEffects, GpuBufferOperations,
-        GpuEffectMetadata, GpuSpawnerParams, InitFillDispatchQueue, ParticlesInitPipeline,
-        ParticlesRenderPipeline, ParticlesUpdatePipeline, PropertyBindGroups, PropertyCache,
-        RenderDebugSettings, ShaderCache, SimParams, SortBindGroups, SortedEffectBatches,
-        StorageType as _, UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
+        allocate_effects, allocate_events, allocate_parent_child_infos, allocate_properties,
+        batch_effects, clear_previous_frame_resizes, clear_transient_batch_inputs,
+        extract_effect_events, extract_effects, extract_sim_params,
+        on_remove_cached_draw_indirect_args, on_remove_cached_effect,
+        on_remove_cached_effect_events, on_remove_cached_properties, prepare_bind_groups,
+        prepare_effects, prepare_gpu_resources, prepare_property_buffers, queue_effects,
+        queue_init_fill_dispatch_ops, resolve_pipelines, start_stop_gpu_debug_capture,
+        update_mesh_locations, DebugSettings, DispatchIndirectPipeline, DrawEffects,
+        EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, EventCache,
+        ExtractedEffects, GpuBufferOperations, GpuEffectMetadata, GpuSpawnerParams,
+        InitFillDispatchQueue, ParticlesInitPipeline, ParticlesRenderPipeline,
+        ParticlesUpdatePipeline, PropertyBindGroups, PropertyCache, RenderDebugSettings,
+        ShaderCache, SimParams, SortBindGroups, SortedEffectBatches, StorageType as _,
+        UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,
@@ -386,23 +390,46 @@ impl Plugin for HanabiPlugin {
                 ),
             )
             .edit_schedule(ExtractSchedule, |schedule| {
-                schedule.add_systems((extract_effects, extract_effect_events));
+                schedule.add_systems((
+                    start_stop_gpu_debug_capture,
+                    extract_effects,
+                    extract_sim_params,
+                    extract_effect_events,
+                ));
             })
             .add_systems(
                 Render,
                 (
                     (
-                        clear_transient_batch_inputs,
-                        add_effects,
-                        resolve_parents,
-                        fixup_parents,
-                        update_mesh_locations
-                            .after(bevy::render::mesh::allocator::allocate_and_free_meshes),
+                        // Do all clears from previous frame; they can run in parallel as they
+                        // clear different resources.
+                        (clear_transient_batch_inputs, clear_previous_frame_resizes),
+                        // Allocate GPU resources depending only on the extracted data; they can
+                        // run in parallel as they touch different components.
+                        (
+                            // Allocate GPU storage for the effect particles
+                            allocate_effects,
+                            // Allocate GPU storage for GPU events (for child effects)
+                            allocate_events,
+                            // Allocate GPU storage for properties
+                            allocate_properties,
+                            // Update draw indirect args if Bevy relocated a render mesh
+                            update_mesh_locations
+                                .after(bevy::render::mesh::allocator::allocate_and_free_meshes)
+                                .after(prepare_assets::<bevy::render::mesh::RenderMesh>),
+                        ),
+                        // Allocate parent and child infos. Those need all effects allocated and
+                        // all parents resolved first, as well as event buffers allocated.
+                        allocate_parent_child_infos,
+                        //
+                        //add_effects,
+                        //resolve_parents,
+                        //fixup_parents,
+                        resolve_pipelines,
                         prepare_effects,
                         batch_effects,
                     )
                         .chain()
-                        .after(prepare_assets::<bevy::render::mesh::RenderMesh>)
                         .in_set(EffectSystems::PrepareEffectAssets),
                     queue_effects
                         .in_set(EffectSystems::QueueEffects)
@@ -413,7 +440,7 @@ impl Plugin for HanabiPlugin {
                         .before(prepare_bind_groups),
                     prepare_property_buffers
                         .in_set(EffectSystems::PrepareEffectGpuResources)
-                        .after(add_effects)
+                        //.after(add_effects)
                         .before(prepare_bind_groups),
                     queue_init_fill_dispatch_ops
                         .in_set(EffectSystems::PrepareEffectGpuResources)
@@ -425,10 +452,15 @@ impl Plugin for HanabiPlugin {
                         .after(prepare_assets::<GpuImage>),
                 ),
             );
-        render_app.world_mut().add_observer(on_remove_cached_effect);
-        render_app
-            .world_mut()
-            .add_observer(on_remove_cached_properties);
+
+        // Register observers to deallocate GPU resources
+        {
+            let world = render_app.world_mut();
+            world.add_observer(on_remove_cached_effect);
+            world.add_observer(on_remove_cached_draw_indirect_args);
+            world.add_observer(on_remove_cached_effect_events);
+            world.add_observer(on_remove_cached_properties);
+        }
 
         // Register the draw function for drawing the particles. This will be called
         // during the main 2D/3D pass, at the Transparent2d/3d phase, after the
