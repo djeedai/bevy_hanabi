@@ -1069,7 +1069,7 @@ impl Expr {
                 //     )));
                 // }
 
-                if op.is_functional() {
+                let body = if op.is_functional() {
                     if op.needs_type_suffix() {
                         let lhs_type = module.get(*left).and_then(|arg| arg.value_type());
                         let rhs_type = module.get(*right).and_then(|arg| arg.value_type());
@@ -1122,7 +1122,15 @@ impl Expr {
                         op.to_wgsl_string(),
                         compiled_right
                     ))
-                }
+                };
+
+                body.map(|body| {
+                    check_side_effects_and_create_local_if_needed(
+                        context,
+                        body,
+                        self.has_side_effect(module),
+                    )
+                })
             }
             Expr::Ternary {
                 op,
@@ -1665,19 +1673,37 @@ impl BuiltInExpr {
 
     /// Evaluate the expression in the given context.
     pub fn eval(&self, context: &mut dyn EvalContext) -> Result<String, ExprError> {
-        if self.has_side_effect() {
-            let var_name = context.make_local_var();
-            context.push_stmt(&format!("let {} = {};", var_name, self.to_wgsl_string()));
-            Ok(var_name)
-        } else {
-            Ok(self.to_wgsl_string())
-        }
+        Ok(check_side_effects_and_create_local_if_needed(
+            context,
+            self.to_wgsl_string(),
+            self.has_side_effect(),
+        ))
     }
 }
 
 impl ToWgslString for BuiltInExpr {
     fn to_wgsl_string(&self) -> String {
         self.operator.to_wgsl_string()
+    }
+}
+
+/// Creates a local variable if necessary to avoid evaluating side-effecting
+/// expressions multiple times.
+///
+/// If `has_side_effect` is true, this function creates a local variable within
+/// the [`EvalContext`] and stores the `compiled_code` there. Otherwise, it
+/// simply returns `compiled_code` unchanged.
+fn check_side_effects_and_create_local_if_needed(
+    context: &mut dyn EvalContext,
+    compiled_code: String,
+    has_side_effect: bool,
+) -> String {
+    if has_side_effect {
+        let var_name = context.make_local_var();
+        context.push_stmt(&format!("let {} = {};", var_name, compiled_code));
+        var_name
+    } else {
+        compiled_code
     }
 }
 
