@@ -14,6 +14,7 @@ use bevy::core_pipeline::core_2d::{Transparent2d, CORE_2D_DEPTH_FORMAT};
 use bevy::ecs::entity::EntityHashSet;
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
+use bevy::render::sync_world::MainEntityHashSet;
 #[cfg(feature = "3d")]
 use bevy::{
     core_pipeline::{
@@ -2745,6 +2746,9 @@ pub struct EffectsMeta {
     /// Various GPU limits and aligned sizes lazily allocated and cached for
     /// convenience.
     gpu_limits: GpuLimits,
+    /// Set of all effects that have initialized [`GpuEffectMetadata`] entries
+    /// in the [`Self::effect_metadata_buffer`].
+    prepared_effects: MainEntityHashSet,
     indirect_shader_noevent: Handle<Shader>,
     indirect_shader_events: Handle<Shader>,
     /// Pipeline cache ID of the two indirect dispatch pass pipelines (the
@@ -2799,6 +2803,7 @@ impl EffectsMeta {
                 Some("hanabi:buffer:effect_metadata".to_string()),
             ),
             gpu_limits,
+            prepared_effects: MainEntityHashSet::default(),
             indirect_shader_noevent,
             indirect_shader_events,
             indirect_pipeline_ids: [
@@ -3052,7 +3057,7 @@ pub(crate) fn on_remove_cached_effect(
     trigger: Trigger<OnRemove, CachedEffect>,
     query: Query<(
         Entity,
-        MainEntity,
+        &MainEntity,
         &CachedEffect,
         &DispatchBufferIndices,
         Option<&CachedEffectProperties>,
@@ -3129,6 +3134,7 @@ pub(crate) fn on_remove_cached_effect(
     effects_meta
         .effect_metadata_buffer
         .remove(dispatch_buffer_indices.effect_metadata_buffer_table_id);
+    effects_meta.prepared_effects.remove(main_entity);
 }
 
 /// Update the [`CachedEffect`] component for any newly allocated effect.
@@ -3715,7 +3721,7 @@ pub(crate) fn prepare_effects(
     mut extracted_effects: ResMut<ExtractedEffects>,
     mut property_bind_groups: ResMut<PropertyBindGroups>,
     q_cached_effects: Query<(
-        MainEntity,
+        &MainEntity,
         &CachedEffect,
         Ref<CachedMesh>,
         Ref<CachedMeshLocation>,
@@ -4197,7 +4203,10 @@ pub(crate) fn prepare_effects(
         // update its GpuEffectMetadata with all those infos.
         // FIXME - should do this only when the below changes (not only the mesh), via
         // some invalidation mechanism and ECS change detection.
-        if !cached_mesh.is_changed() && !cached_mesh_location.is_changed() {
+        if effects_meta.prepared_effects.contains(main_entity)
+            && !cached_mesh.is_changed()
+            && !cached_mesh_location.is_changed()
+        {
             prepared_effect_count += 1;
             continue;
         }
@@ -4281,6 +4290,9 @@ pub(crate) fn prepare_effects(
             dispatch_buffer_indices.effect_metadata_buffer_table_id,
             gpu_effect_metadata,
         );
+
+        // Record that we prepared this entity.
+        effects_meta.prepared_effects.insert(*main_entity);
 
         // This triggers on all new spawns and annoys everyone; silence until we can at
         // least warn only on non-first-spawn, and ideally split indirect data from that
