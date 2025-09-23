@@ -946,30 +946,19 @@ impl Expr {
     /// Expressions with side-effect need to be stored into temporary variables
     /// when the shader code is emitted, so that the side effect is only applied
     /// once when the expression is reused in multiple locations.
-    pub fn has_side_effect(&self, module: &Module) -> bool {
+    pub fn has_side_effect(&self, _: &Module) -> bool {
         match self {
             Expr::BuiltIn(expr) => expr.has_side_effect(),
             Expr::Literal(_) => false,
             Expr::Property(_) => false,
             Expr::Attribute(_) => false,
             Expr::ParentAttribute(_) => false,
-            Expr::Unary { expr, .. } => module.has_side_effect(*expr),
-            Expr::Binary { left, right, op } => {
-                (*op == BinaryOperator::UniformRand || *op == BinaryOperator::NormalRand)
-                    || module.has_side_effect(*left)
-                    || module.has_side_effect(*right)
+            Expr::Unary { .. } => false,
+            Expr::Binary { op, .. } => {
+                *op == BinaryOperator::UniformRand || *op == BinaryOperator::NormalRand
             }
-            Expr::Ternary {
-                first,
-                second,
-                third,
-                ..
-            } => {
-                module.has_side_effect(*first)
-                    || module.has_side_effect(*second)
-                    || module.has_side_effect(*third)
-            }
-            Expr::Cast(expr) => module.has_side_effect(expr.inner),
+            Expr::Ternary { .. } => false,
+            Expr::Cast(_) => false,
             Expr::TextureSample(_) => false,
         }
     }
@@ -1069,7 +1058,7 @@ impl Expr {
                 //     )));
                 // }
 
-                if op.is_functional() {
+                let body = if op.is_functional() {
                     if op.needs_type_suffix() {
                         let lhs_type = module.get(*left).and_then(|arg| arg.value_type());
                         let rhs_type = module.get(*right).and_then(|arg| arg.value_type());
@@ -1122,7 +1111,15 @@ impl Expr {
                         op.to_wgsl_string(),
                         compiled_right
                     ))
-                }
+                };
+
+                body.map(|body| {
+                    check_side_effects_and_create_local_if_needed(
+                        context,
+                        body,
+                        self.has_side_effect(module),
+                    )
+                })
             }
             Expr::Ternary {
                 op,
@@ -1665,19 +1662,37 @@ impl BuiltInExpr {
 
     /// Evaluate the expression in the given context.
     pub fn eval(&self, context: &mut dyn EvalContext) -> Result<String, ExprError> {
-        if self.has_side_effect() {
-            let var_name = context.make_local_var();
-            context.push_stmt(&format!("let {} = {};", var_name, self.to_wgsl_string()));
-            Ok(var_name)
-        } else {
-            Ok(self.to_wgsl_string())
-        }
+        Ok(check_side_effects_and_create_local_if_needed(
+            context,
+            self.to_wgsl_string(),
+            self.has_side_effect(),
+        ))
     }
 }
 
 impl ToWgslString for BuiltInExpr {
     fn to_wgsl_string(&self) -> String {
         self.operator.to_wgsl_string()
+    }
+}
+
+/// Creates a local variable if necessary to avoid evaluating side-effecting
+/// expressions multiple times.
+///
+/// If `has_side_effect` is true, this function creates a local variable within
+/// the [`EvalContext`] and stores the `compiled_code` there. Otherwise, it
+/// simply returns `compiled_code` unchanged.
+fn check_side_effects_and_create_local_if_needed(
+    context: &mut dyn EvalContext,
+    compiled_code: String,
+    has_side_effect: bool,
+) -> String {
+    if has_side_effect {
+        let var_name = context.make_local_var();
+        context.push_stmt(&format!("let {} = {};", var_name, compiled_code));
+        var_name
+    } else {
+        compiled_code
     }
 }
 
