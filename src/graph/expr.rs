@@ -946,30 +946,19 @@ impl Expr {
     /// Expressions with side-effect need to be stored into temporary variables
     /// when the shader code is emitted, so that the side effect is only applied
     /// once when the expression is reused in multiple locations.
-    pub fn has_side_effect(&self, module: &Module) -> bool {
+    pub fn has_side_effect(&self, _: &Module) -> bool {
         match self {
             Expr::BuiltIn(expr) => expr.has_side_effect(),
             Expr::Literal(_) => false,
             Expr::Property(_) => false,
             Expr::Attribute(_) => false,
             Expr::ParentAttribute(_) => false,
-            Expr::Unary { expr, .. } => module.has_side_effect(*expr),
-            Expr::Binary { left, right, op } => {
-                (*op == BinaryOperator::UniformRand || *op == BinaryOperator::NormalRand)
-                    || module.has_side_effect(*left)
-                    || module.has_side_effect(*right)
+            Expr::Unary { .. } => false,
+            Expr::Binary { op, .. } => {
+                *op == BinaryOperator::UniformRand || *op == BinaryOperator::NormalRand
             }
-            Expr::Ternary {
-                first,
-                second,
-                third,
-                ..
-            } => {
-                module.has_side_effect(*first)
-                    || module.has_side_effect(*second)
-                    || module.has_side_effect(*third)
-            }
-            Expr::Cast(expr) => module.has_side_effect(expr.inner),
+            Expr::Ternary { .. } => false,
+            Expr::Cast(_) => false,
             Expr::TextureSample(_) => false,
         }
     }
