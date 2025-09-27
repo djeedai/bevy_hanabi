@@ -26,16 +26,21 @@ use crate::{
     compile_effects,
     properties::EffectProperties,
     render::{
-        add_effects, batch_effects, clear_transient_batch_inputs, extract_effect_events,
-        extract_effects, fixup_parents, on_remove_cached_effect, on_remove_cached_properties,
-        prepare_bind_groups, prepare_effects, prepare_gpu_resources, prepare_property_buffers,
-        queue_effects, queue_init_fill_dispatch_ops, resolve_parents, update_mesh_locations,
-        DebugSettings, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups,
-        EffectCache, EffectsMeta, EventCache, ExtractedEffects, GpuBufferOperations,
-        GpuEffectMetadata, GpuSpawnerParams, InitFillDispatchQueue, ParticlesInitPipeline,
-        ParticlesRenderPipeline, ParticlesUpdatePipeline, PropertyBindGroups, PropertyCache,
-        RenderDebugSettings, ShaderCache, SimParams, SortBindGroups, SortedEffectBatches,
-        StorageType as _, UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
+        allocate_effects, allocate_events, allocate_parent_child_infos, allocate_properties,
+        batch_effects, clear_previous_frame_resizes, clear_transient_batch_inputs,
+        extract_effect_events, extract_effects, extract_sim_params, fixup_parents,
+        on_remove_cached_draw_indirect_args, on_remove_cached_effect,
+        on_remove_cached_effect_events, on_remove_cached_properties, prepare_batch_inputs,
+        prepare_bind_groups, prepare_effect_metadata, prepare_gpu_resources,
+        prepare_indirect_pipeline, prepare_init_update_pipelines, prepare_property_buffers,
+        queue_effects, queue_init_fill_dispatch_ops, queue_init_indirect_workgroup_update,
+        start_stop_gpu_debug_capture, update_mesh_locations, DebugSettings,
+        DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache,
+        EffectsMeta, EventCache, GpuBufferOperations, GpuEffectMetadata, GpuSpawnerParams,
+        InitFillDispatchQueue, ParticlesInitPipeline, ParticlesRenderPipeline,
+        ParticlesUpdatePipeline, PropertyBindGroups, PropertyCache, RenderDebugSettings,
+        ShaderCache, SimParams, SortBindGroups, SortedEffectBatches, StorageType as _,
+        UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,
@@ -372,7 +377,6 @@ impl Plugin for HanabiPlugin {
             .init_resource::<SpecializedComputePipelines<ParticlesUpdatePipeline>>()
             .init_resource::<ParticlesRenderPipeline>()
             .init_resource::<SpecializedRenderPipelines<ParticlesRenderPipeline>>()
-            .init_resource::<ExtractedEffects>()
             .init_resource::<EffectAssetEvents>()
             .init_resource::<SimParams>()
             .init_resource::<SortedEffectBatches>()
@@ -386,34 +390,111 @@ impl Plugin for HanabiPlugin {
                 ),
             )
             .edit_schedule(ExtractSchedule, |schedule| {
-                schedule.add_systems((extract_effects, extract_effect_events));
+                schedule.add_systems((
+                    start_stop_gpu_debug_capture,
+                    extract_effects,
+                    extract_sim_params,
+                    extract_effect_events,
+                ));
             })
             .add_systems(
                 Render,
                 (
                     (
-                        clear_transient_batch_inputs,
-                        add_effects,
-                        resolve_parents,
-                        fixup_parents,
-                        update_mesh_locations
-                            .after(bevy::render::mesh::allocator::allocate_and_free_meshes),
-                        prepare_effects,
+                        // Do all clears from previous frame; they can run in parallel as they
+                        // clear different resources.
+                        (clear_transient_batch_inputs, clear_previous_frame_resizes),
+                        // Allocate GPU resources depending only on the extracted data; they can
+                        // run in parallel as they touch different components.
+                        (
+                            // Allocate GPU storage for the effect particles
+                            allocate_effects,
+                            // Allocate GPU storage for GPU events (for child effects)
+                            allocate_events,
+                            // Allocate GPU storage for properties
+                            allocate_properties,
+                            // Update draw indirect args if Bevy relocated a render mesh
+                            update_mesh_locations
+                                // Need Bevy to have allocated the mesh in the MeshAllocator
+                                .after(bevy::render::mesh::allocator::allocate_and_free_meshes)
+                                // Need Bevy to have prepared the RenderMesh to read it
+                                .after(prepare_assets::<bevy::render::mesh::RenderMesh>),
+                        ),
+                        // Allocate parent and child infos. Those need all effects allocated and
+                        // all parents resolved first, as well as event buffers allocated.
+                        allocate_parent_child_infos
+                            // Need the effects allocated to fetch the parent's slab ID
+                            .after(allocate_effects)
+                            // Need the events allocated to fetch the event buffer of children
+                            .after(allocate_events),
+                        fixup_parents
+                            // Second pass fixup after allocate_parent_child_infos()
+                            .after(allocate_parent_child_infos),
+                        // Prepare pipelines; they can run in parallel as they touch different
+                        // resources.
+                        (
+                            // Resolve the init and update pipelines, queue them if needed, and
+                            // check their state to determine if the
+                            // effect can be used this frame.
+                            prepare_init_update_pipelines
+                                // Need the bind group layout for the effect itself, which depends
+                                // on the particle layout.
+                                .after(allocate_effects)
+                                // Need the bind group layout for properties, which depends on the
+                                // property layout.
+                                .after(allocate_properties)
+                                // Need the number of event buffers to bind
+                                .after(fixup_parents),
+                            // Prepare the indirect pipeline depending on whether there's any child
+                            // info.
+                            prepare_indirect_pipeline
+                                // Need to know if any GPU event using effect is active or not
+                                .after(allocate_events),
+                        ),
+                        //
+                        //add_effects,
+                        //resolve_parents,
+                        prepare_batch_inputs,
                         batch_effects,
                     )
+                        // TODO: remove this chain() once all system dependencies are setup
+                        // correctly above.
                         .chain()
-                        .after(prepare_assets::<bevy::render::mesh::RenderMesh>)
                         .in_set(EffectSystems::PrepareEffectAssets),
+                    // Once batched, queue the effects/batches which are ready to be
+                    // updated/rendered this frame.
                     queue_effects
                         .in_set(EffectSystems::QueueEffects)
                         .after(batch_effects),
+                    // Queue the dispatch ops to fill the indirect dispatch args of the init pass
+                    // of child effects.
+                    queue_init_indirect_workgroup_update
+                        .in_set(EffectSystems::QueueEffects)
+                        .after(batch_effects)
+                        .after(fixup_parents),
                     prepare_gpu_resources
                         .in_set(EffectSystems::PrepareEffectGpuResources)
+                        // This creates the bind group for the view
                         .after(prepare_view_uniforms)
+                        // Upload and optionally resize the draw indirect args buffer
+                        .after(update_mesh_locations)
+                        // Bind groups depend on buffers being re-/allocated
                         .before(prepare_bind_groups),
                     prepare_property_buffers
                         .in_set(EffectSystems::PrepareEffectGpuResources)
-                        .after(add_effects)
+                        //.after(add_effects)
+                        .before(prepare_bind_groups),
+                    prepare_effect_metadata
+                        .in_set(EffectSystems::PrepareEffectGpuResources)
+                        // Need DispatchBufferIndices to be allocated
+                        .after(allocate_effects)
+                        // Need the draw indirect args to be allocated
+                        .after(update_mesh_locations)
+                        // Need the local/global/base child index
+                        .after(fixup_parents)
+                        // Need the indirect dispatch args index for GPU event based init pass
+                        .after(allocate_events)
+                        // This may invalidate some bind groups when resizing the metadata buffer
                         .before(prepare_bind_groups),
                     queue_init_fill_dispatch_ops
                         .in_set(EffectSystems::PrepareEffectGpuResources)
@@ -425,10 +506,15 @@ impl Plugin for HanabiPlugin {
                         .after(prepare_assets::<GpuImage>),
                 ),
             );
-        render_app.world_mut().add_observer(on_remove_cached_effect);
-        render_app
-            .world_mut()
-            .add_observer(on_remove_cached_properties);
+
+        // Register observers to deallocate GPU resources
+        {
+            let world = render_app.world_mut();
+            world.add_observer(on_remove_cached_effect);
+            world.add_observer(on_remove_cached_draw_indirect_args);
+            world.add_observer(on_remove_cached_effect_events);
+            world.add_observer(on_remove_cached_properties);
+        }
 
         // Register the draw function for drawing the particles. This will be called
         // during the main 2D/3D pass, at the Transparent2d/3d phase, after the

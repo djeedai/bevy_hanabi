@@ -895,6 +895,8 @@ pub fn tick_spawners(
         Option<&mut EffectSpawner>,
     )>,
 ) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("tick_spawners").entered();
     trace!("tick_spawners()");
 
     let dt = time.delta_secs();

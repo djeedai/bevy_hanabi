@@ -9,7 +9,7 @@ use bevy::{
     ecs::{component::Component, resource::Resource},
     log::{trace, warn},
     platform::collections::HashMap,
-    render::{render_resource::*, renderer::RenderDevice},
+    render::{mesh::allocator::MeshBufferSlice, render_resource::*, renderer::RenderDevice},
     utils::default,
 };
 use bytemuck::cast_slice_mut;
@@ -18,8 +18,8 @@ use super::{buffer_table::BufferTableId, BufferBindingSource};
 use crate::{
     asset::EffectAsset,
     render::{
-        calc_hash, event::GpuChildInfo, GpuEffectMetadata, GpuSpawnerParams, LayoutFlags,
-        StorageType as _, INDIRECT_INDEX_SIZE,
+        calc_hash, event::GpuChildInfo, GpuDrawIndexedIndirectArgs, GpuDrawIndirectArgs,
+        GpuEffectMetadata, GpuSpawnerParams, StorageType as _, INDIRECT_INDEX_SIZE,
     },
     ParticleLayout,
 };
@@ -239,15 +239,13 @@ impl ParticleSlab {
         asset: Handle<EffectAsset>,
         capacity: u32,
         particle_layout: ParticleLayout,
-        layout_flags: LayoutFlags,
         render_device: &RenderDevice,
     ) -> Self {
         trace!(
-            "ParticleSlab::new(slab_id={}, capacity={}, particle_layout={:?}, layout_flags={:?}, item_size={}B)",
+            "ParticleSlab::new(slab_id={}, capacity={}, particle_layout={:?}, item_size={}B)",
             slab_id.0,
             capacity,
             particle_layout,
-            layout_flags,
             particle_layout.min_binding_size().get(),
         );
 
@@ -342,10 +340,9 @@ impl ParticleSlab {
             slab_id.0
         );
         trace!(
-            "Creating render layout '{}' with {} entries (flags: {:?})",
+            "Creating render layout '{}' with {} entries",
             label,
             entries.len(),
-            layout_flags
         );
         let render_particles_buffer_layout =
             render_device.create_bind_group_layout(&label[..], &entries[..]);
@@ -665,40 +662,106 @@ pub(crate) struct CachedEffect {
     pub slice: SlabSliceRef,
 }
 
-/// Index of a row (entry) into the [`BufferTable`] storing the indirect draw
-/// args of a single draw call.
-#[derive(Debug, Clone, Copy, Component)]
-pub(crate) enum DrawIndirectRowIndex {
-    /// Index for the args of a non-indexed draw call ([`GpuDrawIndirectArgs`]).
-    ///
-    /// [`GpuDrawIndirectArgs`]: super::GpuDrawIndirectArgs
-    NonIndexed(BufferTableId),
-    /// Index for the args of an indexed draw call
-    /// ([`GpuDrawIndexedIndirectArgs`]).
-    ///
-    /// [`GpuDrawIndexedIndirectArgs`]: super::GpuDrawIndexedIndirectArgs
-    Indexed(BufferTableId),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AnyDrawIndirectArgs {
+    /// Args of a non-indexed draw call.
+    NonIndexed(GpuDrawIndirectArgs),
+    /// Args of an indexed draw call.
+    Indexed(GpuDrawIndexedIndirectArgs),
 }
 
-impl Default for DrawIndirectRowIndex {
-    fn default() -> Self {
-        Self::NonIndexed(BufferTableId::INVALID)
+impl AnyDrawIndirectArgs {
+    /// Create from a vertex buffer slice and an optional index buffer one.
+    pub fn from_slices(
+        vertex_slice: &MeshBufferSlice<'_>,
+        index_slice: Option<&MeshBufferSlice<'_>>,
+    ) -> Self {
+        if let Some(index_slice) = index_slice {
+            Self::Indexed(GpuDrawIndexedIndirectArgs {
+                index_count: index_slice.range.len() as u32,
+                instance_count: 0,
+                first_index: index_slice.range.start,
+                base_vertex: vertex_slice.range.start as i32,
+                first_instance: 0,
+            })
+        } else {
+            Self::NonIndexed(GpuDrawIndirectArgs {
+                vertex_count: vertex_slice.range.len() as u32,
+                instance_count: 0,
+                first_vertex: vertex_slice.range.start,
+                first_instance: 0,
+            })
+        }
+    }
+
+    /// Check if this args are for an indexed draw call.
+    #[inline(always)]
+    pub fn is_indexed(&self) -> bool {
+        matches!(*self, Self::Indexed(..))
+    }
+
+    /// Bit-cast the args to the row entry of the GPU buffer.
+    ///
+    /// If non-indexed, this returns an indexed struct bit-cast from the actual
+    /// non-indexed one, ready for GPU upload.
+    pub fn bitcast_to_row_entry(&self) -> GpuDrawIndexedIndirectArgs {
+        match self {
+            AnyDrawIndirectArgs::NonIndexed(args) => GpuDrawIndexedIndirectArgs {
+                index_count: args.vertex_count,
+                instance_count: args.instance_count,
+                first_index: args.first_vertex,
+                base_vertex: args.first_instance as i32,
+                first_instance: 0,
+            },
+            AnyDrawIndirectArgs::Indexed(args) => *args,
+        }
     }
 }
 
-impl DrawIndirectRowIndex {
+impl From<GpuDrawIndirectArgs> for AnyDrawIndirectArgs {
+    fn from(args: GpuDrawIndirectArgs) -> Self {
+        Self::NonIndexed(args)
+    }
+}
+
+impl From<GpuDrawIndexedIndirectArgs> for AnyDrawIndirectArgs {
+    fn from(args: GpuDrawIndexedIndirectArgs) -> Self {
+        Self::Indexed(args)
+    }
+}
+
+/// Index of a row (entry) into the [`BufferTable`] storing the indirect draw
+/// args of a single draw call.
+#[derive(Debug, Clone, Copy, Component)]
+pub(crate) struct CachedDrawIndirectArgs {
+    pub row: BufferTableId,
+    pub args: AnyDrawIndirectArgs,
+}
+
+impl Default for CachedDrawIndirectArgs {
+    fn default() -> Self {
+        Self {
+            row: BufferTableId::INVALID,
+            args: AnyDrawIndirectArgs::NonIndexed(default()),
+        }
+    }
+}
+
+impl CachedDrawIndirectArgs {
     /// Check if the index is valid.
     ///
     /// An invalid index doesn't correspond to any allocated args entry. A valid
     /// one may, but note that the args entry in the buffer may have been freed
     /// already with this index. There's no mechanism to detect reuse either.
+    #[inline(always)]
     pub fn is_valid(&self) -> bool {
-        self.get_raw().is_valid()
+        self.get_row_raw().is_valid()
     }
 
     /// Check if this row index refers to an indexed draw args entry.
+    #[inline(always)]
     pub fn is_indexed(&self) -> bool {
-        matches!(*self, Self::Indexed(..))
+        self.args.is_indexed()
     }
 
     /// Get the raw index value.
@@ -711,18 +774,15 @@ impl DrawIndirectRowIndex {
     /// # Panics
     ///
     /// Panics if the index is invalid, whether indexed or non-indexed.
-    pub fn get(&self) -> BufferTableId {
-        let idx = self.get_raw();
+    pub fn get_row(&self) -> BufferTableId {
+        let idx = self.get_row_raw();
         assert!(idx.is_valid());
         idx
     }
 
     #[inline(always)]
-    fn get_raw(&self) -> BufferTableId {
-        match *self {
-            Self::NonIndexed(idx) => idx,
-            Self::Indexed(idx) => idx,
-        }
+    fn get_row_raw(&self) -> BufferTableId {
+        self.row
     }
 }
 
@@ -736,16 +796,6 @@ pub(crate) struct DispatchBufferIndices {
     /// [`GpuDispatchIndirect`]: super::GpuDispatchIndirect
     /// [`EffectsMeta::update_dispatch_indirect_buffer`]: super::EffectsMeta::dispatch_indirect_buffer
     pub(crate) update_dispatch_indirect_buffer_row_index: u32,
-
-    /// The index of the [`GpuDrawIndirect`] or [`GpuDrawIndexedIndirect`] row
-    /// in the GPU buffer [`EffectsMeta::draw_indirect_buffer`] or
-    /// [`EffectsMeta::draw_indexed_indirect_buffer`].
-    ///
-    /// [`GpuDrawIndirect`]: super::GpuDrawIndirect
-    /// [`GpuDrawIndexedIndirect`]: super::GpuDrawIndexedIndirect
-    /// [`EffectsMeta::draw_indirect_buffer`]: super::EffectsMeta::draw_indirect_buffer
-    /// [`EffectsMeta::draw_indexed_indirect_buffer`]: super::EffectsMeta::draw_indexed_indirect_buffer
-    pub(crate) draw_indirect_buffer_row_index: DrawIndirectRowIndex,
 
     /// The index of the [`GpuEffectMetadata`] in
     /// [`EffectsMeta::effect_metadata_buffer`].
@@ -840,7 +890,6 @@ impl EffectCache {
         asset: Handle<EffectAsset>,
         capacity: u32,
         particle_layout: &ParticleLayout,
-        layout_flags: LayoutFlags,
     ) -> CachedEffect {
         trace!("Inserting new effect into cache: capacity={capacity}");
         let (slab_id, slice) = self
@@ -883,7 +932,6 @@ impl EffectCache {
                     asset,
                     capacity,
                     particle_layout.clone(),
-                    layout_flags,
                     &self.render_device,
                 );
                 let slice_ref = slab.allocate(capacity).unwrap();
@@ -1365,7 +1413,6 @@ mod gpu_tests {
             asset,
             capacity,
             l64.clone(),
-            LayoutFlags::NONE,
             &render_device,
         );
 
@@ -1439,7 +1486,6 @@ mod gpu_tests {
             asset,
             capacity,
             l64.clone(),
-            LayoutFlags::NONE,
             &render_device,
         );
 
@@ -1503,7 +1549,7 @@ mod gpu_tests {
         let item_size = l32.size();
 
         // Insert an effect
-        let effect1 = effect_cache.insert(asset.clone(), capacity, &l32, LayoutFlags::NONE);
+        let effect1 = effect_cache.insert(asset.clone(), capacity, &l32);
         //assert!(effect1.is_valid());
         let slice1 = &effect1.slice;
         assert_eq!(slice1.len(), capacity);
@@ -1515,7 +1561,7 @@ mod gpu_tests {
         assert_eq!(effect_cache.slabs().len(), 1);
 
         // Insert a second copy of the same effect
-        let effect2 = effect_cache.insert(asset.clone(), capacity, &l32, LayoutFlags::NONE);
+        let effect2 = effect_cache.insert(asset.clone(), capacity, &l32);
         //assert!(effect2.is_valid());
         let slice2 = &effect2.slice;
         assert_eq!(slice2.len(), capacity);
@@ -1539,7 +1585,7 @@ mod gpu_tests {
         }
 
         // Regression #60
-        let effect3 = effect_cache.insert(asset, capacity, &l32, LayoutFlags::NONE);
+        let effect3 = effect_cache.insert(asset, capacity, &l32);
         //assert!(effect3.is_valid());
         let slice3 = &effect3.slice;
         assert_eq!(slice3.len(), capacity);

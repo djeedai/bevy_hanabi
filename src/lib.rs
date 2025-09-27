@@ -741,7 +741,7 @@ impl TextureLayout {
 /// Effect shaders.
 ///
 /// Contains the configured shaders for the init, update, and render passes.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct EffectShader {
     pub init: Handle<Shader>,
     pub update: Handle<Shader>,
@@ -1784,6 +1784,8 @@ fn update_properties_from_asset(
     assets: Res<Assets<EffectAsset>>,
     mut q_effects: Query<(Ref<ParticleEffect>, &mut EffectProperties), Changed<ParticleEffect>>,
 ) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("update_properties_from_asset").entered();
     trace!("update_properties_from_asset()");
 
     // Loop over all existing effects, including invisible ones

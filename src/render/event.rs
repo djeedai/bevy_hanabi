@@ -1,12 +1,17 @@
 use std::{num::NonZeroU64, ops::Range};
 
 use bevy::{
-    log::trace,
+    ecs::{
+        observer::Trigger,
+        query::{With, Without},
+        system::{Commands, Query},
+        world::OnRemove,
+    },
+    log::{error, trace},
     prelude::{Component, Entity, ResMut, Resource},
     render::{
         render_resource::{BindGroup, BindGroupLayout, Buffer, ShaderSize as _, ShaderType},
         renderer::{RenderDevice, RenderQueue},
-        sync_world::MainEntity,
     },
 };
 use bytemuck::{Pod, Zeroable};
@@ -24,7 +29,10 @@ use super::{
     aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::SlabState, gpu_buffer::GpuBuffer,
     BufferBindingSource, EffectBindGroups, GpuDispatchIndirectArgs,
 };
-use crate::ParticleLayout;
+use crate::{
+    render::{effect_cache::SlabId, ChildEffectOf},
+    ParticleLayout,
+};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EventSlice {
@@ -138,7 +146,7 @@ impl EventBuffer {
 /// Data about the child effect(s) of this effect. This component is only
 /// present on an effect instance if that effect is the parent effect for at
 /// least one child effect.
-#[derive(Debug, Component)]
+#[derive(Debug, PartialEq, Component)]
 pub(crate) struct CachedParentInfo {
     /// Render world entities of the child effects, and their associated event
     /// buffer binding source.
@@ -150,31 +158,14 @@ pub(crate) struct CachedParentInfo {
     pub byte_range: Range<u32>,
 }
 
-/// Reference to the parent of an effect instance.
-///
-/// This is a weak reference to the parent while pending resolving. This
-/// component is always present on an effect instance if that effect is the
-/// child effect for another effect (that is, this effect has a parent effect),
-/// even if the parent is invalid. Once the parent is resolved,
-/// [`CachedChildInfo`] is also spawned.
-#[derive(Debug, Component)]
-pub(crate) struct CachedParentRef {
-    /// The main entity of the parent of this effect instance, as declared by
-    /// the effect.
-    pub entity: MainEntity,
-}
-
 /// Data about this effect as a child of another effect.
 ///
 /// This component is only present on an effect instance if that effect is the
 /// child effect for another effect (that is, this effect has a parent effect).
-/// However, unlike [`CachedParentRef`], if the parent could no be resolved then
-/// this component is absent.
-#[derive(Debug, Component)]
+#[derive(Debug, Clone, PartialEq, Component)]
 pub(crate) struct CachedChildInfo {
-    /// Render entity of the parent effect. This entity is resolved and always
-    /// valid, otherwise this component is removed.
-    pub parent: Entity,
+    /// ID of the slab storing the parent effect.
+    pub parent_slab_id: SlabId,
     /// Parent's particle layout.
     pub parent_particle_layout: ParticleLayout,
     /// Parent's buffer.
@@ -187,7 +178,7 @@ pub(crate) struct CachedChildInfo {
     /// [`EventCache::child_infos_buffer`] array. This is a unique index across
     /// all effects.
     pub global_child_index: u32,
-    /// Index of the [`GpuDispatchIndirect`] entry into the
+    /// Index of the [`GpuDispatchIndirectArgs`] entry into the
     /// [`EventCache::init_indirect_dispatch_buffer`] array.
     pub init_indirect_dispatch_index: u32,
 }
@@ -197,7 +188,7 @@ pub(crate) struct CachedChildInfo {
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
 pub struct GpuChildInfo {
-    /// Index of the [`GpuDispatchIndirect`] inside the
+    /// Index of the [`GpuDispatchIndirectArgs`] inside the
     /// [`EventCache::init_indirect_dispatch_buffer`] used to dispatch the init
     /// pass of this child effect.
     pub init_indirect_dispatch_index: u32,
@@ -207,6 +198,10 @@ pub struct GpuChildInfo {
     pub event_count: i32,
 }
 
+/// Cached allocation info for the GPU events of a child effect.
+///
+/// This component is automitically inserted by [`allocate_events()`] when a
+/// child effect uses GPU events.
 #[derive(Debug, Clone, Component)]
 pub struct CachedEffectEvents {
     /// Index of the [`EventBuffer`] inside the [`EventCache::buffers`]
@@ -218,7 +213,7 @@ pub struct CachedEffectEvents {
     /// effect. The number of used events is stored on the GPU in
     /// [`GpuChildInfo::event_count`].
     pub range: Range<u32>,
-    /// Index of the [`GpuDispatchIndirect`] inside the
+    /// Index of the [`GpuDispatchIndirectArgs`] inside the
     /// [`EventCache::init_indirect_dispatch_buffer`].
     pub init_indirect_dispatch_index: u32,
 }
@@ -230,6 +225,60 @@ impl CachedEffectEvents {
     pub fn capacity(&self) -> u32 {
         self.range.len() as u32
     }
+}
+
+/// Allocate storage for GPU events for all child effects.
+///
+/// This system manages allocating storage for GPU events of child effects, and
+/// spawning the [`CachedEffectEvents`] storing that allocation.
+pub(crate) fn allocate_events(
+    mut commands: Commands,
+    mut event_cache: ResMut<EventCache>,
+    mut q_child_effects: Query<(Entity, Option<&mut CachedEffectEvents>), With<ChildEffectOf>>,
+    q_old_child_effects: Query<Entity, (With<CachedEffectEvents>, Without<ChildEffectOf>)>,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("allocate_events").entered();
+    trace!("allocate_events");
+
+    event_cache.clear_previous_frame_resizes();
+
+    // Allocate storage and add the component to childs missing it.
+    for (entity, maybe_cached_events) in &mut q_child_effects {
+        if let Some(_cached_events) = maybe_cached_events {
+            // Nothing really to do for now because we hardcode a number of
+            // events, so the allocation won't ever change...
+        } else {
+            const FIXME_HARD_CODED_EVENT_COUNT: u32 = 256;
+            let cached_effect_events = event_cache.allocate(FIXME_HARD_CODED_EVENT_COUNT);
+            commands.entity(entity).insert(cached_effect_events);
+        }
+    }
+
+    // Remove the component from effects which are not a child anymore. This should
+    // be pretty rare; in general the effect is just despawned.
+    for entity in &q_old_child_effects {
+        commands.entity(entity).remove::<CachedEffectEvents>();
+    }
+}
+
+/// Observer raised when the [`CachedEffectEvents`] component is removed,
+/// which indicates that the effect doesn't use GPU events anymore.
+pub(crate) fn on_remove_cached_effect_events(
+    trigger: Trigger<OnRemove, CachedEffectEvents>,
+    query: Query<(Entity, &CachedEffectEvents)>,
+    mut event_cache: ResMut<EventCache>,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("on_remove_cached_effect_events").entered();
+    trace!("on_remove_cached_effect_events");
+
+    if let Ok((entity, cached_effect_event)) = query.get(trigger.target()) {
+        // TODO - handle SlabState return value to invalidate property bind groups!!
+        if let Err(err) = event_cache.free(cached_effect_event) {
+            error!("Error while freeing cached events for effect {entity:?}: {err:?}");
+        }
+    };
 }
 
 /// Error code for [`EventCache::free()`].
@@ -257,7 +306,7 @@ pub struct EventCache {
     /// be `None` if the entry is not used. Since the buffers are referenced
     /// by index, we cannot move them once they're allocated.
     buffers: Vec<Option<EventBuffer>>,
-    /// Single shared GPU buffer storing all the [`GpuDispatchIndirect`]
+    /// Single shared GPU buffer storing all the [`GpuDispatchIndirectArgs`]
     /// structs for all the indirect init passes. Any effect allocating storage
     /// for GPU events also get an entry into this buffer, to allow consuming
     /// the events from an init pass indirectly dispatched (GPU-driven).

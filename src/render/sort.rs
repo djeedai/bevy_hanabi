@@ -7,7 +7,7 @@ use bevy::{
     render::{
         render_resource::{
             BindGroup, BindGroupLayout, Buffer, BufferId, CachedComputePipelineId,
-            ComputePipelineDescriptor, PipelineCache, Shader,
+            CachedPipelineState, ComputePipelineDescriptor, PipelineCache, Shader,
         },
         renderer::RenderDevice,
     },
@@ -30,8 +30,10 @@ struct SortFillBindGroupLayoutKey {
 
 impl SortFillBindGroupLayoutKey {
     pub fn from_particle_layout(particle_layout: &ParticleLayout) -> Result<Self, ()> {
-        let particle_ribbon_id_offset = particle_layout.offset(Attribute::RIBBON_ID).ok_or(())?;
-        let particle_age_offset = particle_layout.offset(Attribute::AGE).ok_or(())?;
+        let particle_ribbon_id_offset = particle_layout
+            .byte_offset(Attribute::RIBBON_ID)
+            .ok_or(())?;
+        let particle_age_offset = particle_layout.byte_offset(Attribute::AGE).ok_or(())?;
         let key = SortFillBindGroupLayoutKey {
             particle_min_binding_size: particle_layout.min_binding_size32(),
             particle_ribbon_id_offset,
@@ -259,6 +261,52 @@ impl SortBindGroups {
     #[inline]
     pub fn sort_pipeline_id(&self) -> CachedComputePipelineId {
         self.sort_pipeline_id
+    }
+
+    /// Check if the sort pipeline is ready to run for the given effect
+    /// instance.
+    ///
+    /// This ensures all compute pipelines are compiled and ready to be used
+    /// this frame.
+    pub fn is_pipeline_ready(
+        &self,
+        particle_layout: &ParticleLayout,
+        pipeline_cache: &PipelineCache,
+    ) -> bool {
+        // Validate the sort-fill pipeline. It was created and queued for compile by
+        // ensure_sort_fill_bind_group_layout(), which normally is called just before
+        // is_pipeline_ready().
+        let Some(pipeline_id) = self.get_sort_fill_pipeline_id(particle_layout) else {
+            return false;
+        };
+        if !matches!(
+            pipeline_cache.get_compute_pipeline_state(pipeline_id),
+            CachedPipelineState::Ok(_)
+        ) {
+            return false;
+        }
+
+        // The 2 pipelines below are created and queued for compile in new(), so are
+        // almost always ready.
+        // FIXME - they could be checked once a frame only, not once per effect...
+
+        // Validate the sort pipeline
+        if !matches!(
+            pipeline_cache.get_compute_pipeline_state(self.sort_pipeline_id()),
+            CachedPipelineState::Ok(_)
+        ) {
+            return false;
+        }
+
+        // Validate the sort-copy pipeline
+        if !matches!(
+            pipeline_cache.get_compute_pipeline_state(self.get_sort_copy_pipeline_id()),
+            CachedPipelineState::Ok(_)
+        ) {
+            return false;
+        }
+
+        true
     }
 
     #[inline]
