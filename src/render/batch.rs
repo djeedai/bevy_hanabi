@@ -232,6 +232,20 @@ impl EffectSorter {
 
     /// Sorts all the effects into the optimal order for batching.
     pub fn sort(&mut self) {
+        // trace!("Sorting {} effects...", self.effects.len());
+        // for effect in &self.effects {
+        //     trace!(
+        //         "+ {}: slab={:?} base_instance={:?}",
+        //         effect.entity,
+        //         effect.slab_id,
+        //         effect.base_instance
+        //     );
+        // }
+        // trace!("child->parent:");
+        // for (k, v) in &self.child_to_parent {
+        //     trace!("+ c[{k}] -> p[{v}]");
+        // }
+
         // First, create a map of entity to index.
         let mut entity_to_index = EntityHashMap::default();
         for (index, effect) in self.effects.iter().enumerate() {

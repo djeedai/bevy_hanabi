@@ -565,6 +565,7 @@ impl InitFillDispatchQueue {
     /// Enqueue a new operation.
     #[inline]
     pub fn enqueue(&mut self, global_child_index: u32, dispatch_indirect_index: u32) {
+        assert!(global_child_index != u32::MAX);
         self.queue.push(InitFillDispatchItem {
             global_child_index,
             dispatch_indirect_index,
@@ -590,6 +591,10 @@ impl InitFillDispatchQueue {
         let mut fill_queue = GpuBufferOperationQueue::new();
 
         // Batch and schedule all init indirect dispatch operations
+        assert!(
+            self.queue[0].global_child_index != u32::MAX,
+            "Global child index not initialized"
+        );
         let mut src_start = self.queue[0].global_child_index;
         let mut dst_start = self.queue[0].dispatch_indirect_index;
         let mut src_end = src_start + 1;
@@ -2268,7 +2273,7 @@ pub(crate) struct ExtractedEffectLegacy {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 #[derive(Debug, Clone, PartialEq, Component)]
-#[require(CachedPipelines)]
+#[require(CachedPipelines, CachedReadyState)]
 pub(crate) struct ExtractedEffect {
     /// Handle to the effect asset this instance is based on.
     /// The handle is weak to prevent refcount cycles and gracefully handle
@@ -2292,7 +2297,9 @@ pub(crate) struct ExtractedEffect {
 
 /// Extracted data for the [`GpuSpawnerParams`].
 ///
-/// This contains all data which may change each frame during the regular usage of the effect, but doesn't require any particular GPU resource update (except re-uploading that new data to GPU, of course).
+/// This contains all data which may change each frame during the regular usage
+/// of the effect, but doesn't require any particular GPU resource update
+/// (except re-uploading that new data to GPU, of course).
 #[derive(Debug, Clone, PartialEq, Component)]
 pub(crate) struct ExtractedSpawner {
     /// Number of particles to spawn this frame.
@@ -2337,6 +2344,25 @@ pub(crate) struct ChildEffectOf {
 #[derive(Debug, Clone, PartialEq, Eq, Component)]
 #[relationship_target(relationship = ChildEffectOf)]
 pub(crate) struct ChildrenEffects(Vec<Entity>);
+
+impl<'a> IntoIterator for &'a ChildrenEffects {
+    type Item = <Self::IntoIter as Iterator>::Item;
+
+    type IntoIter = std::slice::Iter<'a, Entity>;
+
+    #[inline(always)]
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl Deref for ChildrenEffects {
+    type Target = [Entity];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 /// Extracted data for an effect's properties, if any.
 ///
@@ -3158,7 +3184,7 @@ pub(crate) fn clear_previous_frame_resizes(
 // Fixup the [`CachedChildInfo::global_child_index`] once all child infos have
 // been allocated.
 pub fn fixup_parents(
-    q_changed_parents: Query<(Entity, &CachedParentInfo), Changed<CachedParentInfo>>,
+    q_changed_parents: Query<(Entity, Ref<CachedParentInfo>)>,
     mut q_children: Query<&mut CachedChildInfo>,
 ) {
     #[cfg(feature = "trace")]
@@ -3173,16 +3199,25 @@ pub fn fixup_parents(
     for (parent_entity, cached_parent_info) in q_changed_parents.iter() {
         let base_index =
             cached_parent_info.byte_range.start / GpuChildInfo::SHADER_SIZE.get() as u32;
+        let parent_changed = cached_parent_info.is_changed();
         trace!(
-            "Updating {} children of parent effect {:?} with base child index {}...",
+            "Updating {} children of parent effect {:?} with base child index {} (parent_changed:{})...",
             cached_parent_info.children.len(),
             parent_entity,
-            base_index
+            base_index,
+            parent_changed
         );
         for (child_entity, _) in &cached_parent_info.children {
             let Ok(mut cached_child_info) = q_children.get_mut(*child_entity) else {
+                error!(
+                    "Cannot find child {:?} declared by parent {:?}",
+                    *child_entity, parent_entity
+                );
                 continue;
             };
+            if !cached_child_info.is_changed() && !parent_changed {
+                continue;
+            }
             cached_child_info.global_child_index = base_index + cached_child_info.local_child_index;
             trace!(
                 "+ Updated global index for child ID {:?} of parent {:?}: local={}, global={}",
@@ -3488,7 +3523,9 @@ pub fn allocate_parent_child_infos(
             init_indirect_dispatch_index: cached_effect_events.init_indirect_dispatch_index,
         };
         if let Some(mut cached_child_info) = maybe_cached_child_info {
-            cached_child_info.set_if_neq(new_cached_child_info);
+            if !cached_child_info.is_locally_equal(&new_cached_child_info) {
+                *cached_child_info = new_cached_child_info;
+            }
         } else {
             commands.entity(child_entity).insert(new_cached_child_info);
         }
@@ -3729,30 +3766,6 @@ pub fn prepare_init_update_pipelines(
             init_pipeline_id
         };
 
-        // Never batch an effect with a pipeline not available; this will prevent its
-        // init/update pass from running, but the vfx_indirect pass will run
-        // nonetheless, which causes desyncs and leads to bugs.
-        if pipeline_cache
-            .get_compute_pipeline(init_pipeline_id)
-            .is_none()
-        {
-            error!(
-                "Skipping effect from render entity {:?} due to missing or not ready init pipeline (status: {:?})",
-                entity,
-                pipeline_cache.get_compute_pipeline_state(init_pipeline_id)
-            );
-            cached_pipelines
-                .flags
-                .remove(CachedPipelineFlags::INIT_PIPELINE_READY);
-            continue;
-        }
-
-        // PipelineCache::get_compute_pipeline() only returns a value if the pipeline is
-        // ready
-        cached_pipelines
-            .flags
-            .insert(CachedPipelineFlags::INIT_PIPELINE_READY);
-
         // Resolve the update pipeline
         let update_pipeline_id = if let Some(update_pipeline_id) = cached_pipelines.update.as_ref()
         {
@@ -3816,10 +3829,34 @@ pub fn prepare_init_update_pipelines(
         // init/update pass from running, but the vfx_indirect pass will run
         // nonetheless, which causes desyncs and leads to bugs.
         if pipeline_cache
+            .get_compute_pipeline(init_pipeline_id)
+            .is_none()
+        {
+            trace!(
+                "Skipping effect from render entity {:?} due to missing or not ready init pipeline (status: {:?})",
+                entity,
+                pipeline_cache.get_compute_pipeline_state(init_pipeline_id)
+            );
+            cached_pipelines
+                .flags
+                .remove(CachedPipelineFlags::INIT_PIPELINE_READY);
+            continue;
+        }
+
+        // PipelineCache::get_compute_pipeline() only returns a value if the pipeline is
+        // ready
+        cached_pipelines
+            .flags
+            .insert(CachedPipelineFlags::INIT_PIPELINE_READY);
+
+        // Never batch an effect with a pipeline not available; this will prevent its
+        // init/update pass from running, but the vfx_indirect pass will run
+        // nonetheless, which causes desyncs and leads to bugs.
+        if pipeline_cache
             .get_compute_pipeline(update_pipeline_id)
             .is_none()
         {
-            error!(
+            trace!(
                 "Skipping effect from render entity {:?} due to missing or not ready update pipeline (status: {:?})",
                 entity,
                 pipeline_cache.get_compute_pipeline_state(update_pipeline_id)
@@ -4009,6 +4046,43 @@ impl CachedPipelines {
     }
 }
 
+/// Ready state for this effect.
+///
+/// An effect is ready if:
+/// - Its init and update pipelines are ready, as reported by
+///   [`CachedPipelines::is_ready()`].
+///
+/// This components holds the calculated ready state propagated from all
+/// ancestor effects, if any. That propagation is done by the
+/// [`propagate_ready_state()`] system.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Component)]
+pub(crate) struct CachedReadyState {
+    is_ready: bool,
+}
+
+impl CachedReadyState {
+    #[inline(always)]
+    pub fn new(is_ready: bool) -> Self {
+        Self { is_ready }
+    }
+
+    #[inline(always)]
+    pub fn and(mut self, ancestors_ready: bool) -> Self {
+        self.and_with(ancestors_ready);
+        self
+    }
+
+    #[inline(always)]
+    pub fn and_with(&mut self, ancestors_ready: bool) {
+        self.is_ready = self.is_ready && ancestors_ready;
+    }
+
+    #[inline(always)]
+    pub fn is_ready(&self) -> bool {
+        self.is_ready
+    }
+}
+
 /// Render world cached properties info for a single effect instance.
 #[allow(unused)]
 #[derive(Debug, Component)]
@@ -4040,6 +4114,166 @@ pub struct PipelineSystemParams<'w, 's> {
     marker: PhantomData<&'s usize>,
 }
 
+/// Update the ready state of all effects, and propagate recursively to
+/// children.
+pub(crate) fn propagate_ready_state(
+    mut q_root_effects: Query<
+        (
+            Entity,
+            &ChildrenEffects,
+            Ref<CachedPipelines>,
+            &mut CachedReadyState,
+        ),
+        Without<ChildEffectOf>,
+    >,
+    mut orphaned: RemovedComponents<ChildEffectOf>,
+    q_ready_state: Query<
+        (
+            Ref<CachedPipelines>,
+            &mut CachedReadyState,
+            Option<&ChildrenEffects>,
+        ),
+        With<ChildEffectOf>,
+    >,
+    q_child_effects: Query<(Entity, Ref<ChildEffectOf>), With<CachedReadyState>>,
+    mut orphaned_entities: Local<Vec<Entity>>,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("propagate_ready_state").entered();
+    trace!("propagate_ready_state");
+
+    // Update orphaned list for this frame, and sort it so we can efficiently binary
+    // search it
+    orphaned_entities.clear();
+    orphaned_entities.extend(orphaned.read());
+    orphaned_entities.sort_unstable();
+
+    // Iterate in parallel over all root effects (those without any parent). This is
+    // the most common case, so should take care of the heavy lifting of propagating
+    // to most effects. For child effects, we then descend recursively.
+    q_root_effects.par_iter_mut().for_each(
+        |(entity, children, cached_pipelines, mut cached_ready_state)| {
+            // Update the ready state of this root effect
+            let changed = cached_pipelines.is_changed() || cached_ready_state.is_added() || orphaned_entities.binary_search(&entity).is_ok();
+            if changed {
+                // Root effects by default are ready since they have no ancestors to check. After that we check the ready conditions for this effect alone.
+                let new_ready_state = CachedReadyState::new(cached_pipelines.is_ready());
+                if *cached_ready_state != new_ready_state {
+                    debug!(
+                        "[Entity {}] Changed ready to: {}",
+                        entity,
+                        new_ready_state.is_ready()
+                    );
+                    *cached_ready_state = new_ready_state;
+                }
+            }
+
+            // Recursively update the ready state of its descendants
+            for (child, child_of) in q_child_effects.iter_many(children) {
+                assert_eq!(
+                    child_of.parent, entity,
+                    "Malformed hierarchy. This probably means that your hierarchy has been improperly maintained, or contains a cycle"
+                );
+                // SAFETY:
+                // - `child` must have consistent parentage, or the above assertion would panic.
+                //   Since `child` is parented to a root entity, the entire hierarchy leading to it
+                //   is consistent.
+                // - We may operate as if all descendants are consistent, since
+                //   `propagate_ready_state_recursive` will panic before continuing to propagate if it
+                //   encounters an entity with inconsistent parentage.
+                // - Since each root entity is unique and the hierarchy is consistent and
+                //   forest-like, other root entities' `propagate_ready_state_recursive` calls will not conflict
+                //   with this one.
+                // - Since this is the only place where `transform_query` gets used, there will be
+                //   no conflicting fetches elsewhere.
+                #[expect(unsafe_code, reason = "`propagate_ready_state_recursive()` is unsafe due to its use of `Query::get_unchecked()`.")]
+                unsafe {
+                    propagate_ready_state_recursive(
+                        &cached_ready_state,
+                        &q_ready_state,
+                        &q_child_effects,
+                        child,
+                        changed || child_of.is_changed(),
+                    );
+                }
+            }
+        },
+    );
+}
+
+#[expect(
+    unsafe_code,
+    reason = "This function uses `Query::get_unchecked()`, which can result in multiple mutable references if the preconditions are not met."
+)]
+unsafe fn propagate_ready_state_recursive(
+    parent_state: &CachedReadyState,
+    q_ready_state: &Query<
+        (
+            Ref<CachedPipelines>,
+            &mut CachedReadyState,
+            Option<&ChildrenEffects>,
+        ),
+        With<ChildEffectOf>,
+    >,
+    q_child_of: &Query<(Entity, Ref<ChildEffectOf>), With<CachedReadyState>>,
+    entity: Entity,
+    mut changed: bool,
+) {
+    // Update this effect in-place by checking its own state and the state of its
+    // parent (which has already been propagated from all the parent's ancestors, so
+    // is correct for this frame).
+    let (cached_ready_state, maybe_children) = {
+        let Ok((cached_pipelines, mut cached_ready_state, maybe_children)) =
+        // SAFETY: Copied from Bevy's transform propagation, same reasoning
+        (unsafe { q_ready_state.get_unchecked(entity) }) else {
+            return;
+        };
+
+        changed |= cached_pipelines.is_changed() || cached_ready_state.is_added();
+        if changed {
+            let new_ready_state =
+                CachedReadyState::new(parent_state.is_ready()).and(cached_pipelines.is_ready());
+            // Ensure we don't trigger ECS change detection here if state didn't change, so
+            // we can avoid this effect branch on next iteration.
+            if *cached_ready_state != new_ready_state {
+                debug!(
+                    "[Entity {}] Changed ready to: {}",
+                    entity,
+                    new_ready_state.is_ready()
+                );
+                *cached_ready_state = new_ready_state;
+            }
+        }
+        (cached_ready_state, maybe_children)
+    };
+
+    // Recurse into descendants
+    let Some(children) = maybe_children else {
+        return;
+    };
+    for (child, child_of) in q_child_of.iter_many(children) {
+        assert_eq!(
+        child_of.parent, entity,
+        "Malformed hierarchy. This probably means that your hierarchy has been improperly maintained, or contains a cycle"
+    );
+        // SAFETY: The caller guarantees that `transform_query` will not be fetched for
+        // any descendants of `entity`, so it is safe to call
+        // `propagate_recursive` for each child.
+        //
+        // The above assertion ensures that each child has one and only one unique
+        // parent throughout the entire hierarchy.
+        unsafe {
+            propagate_ready_state_recursive(
+                cached_ready_state.as_ref(),
+                q_ready_state,
+                q_child_of,
+                child,
+                changed || child_of.is_changed(),
+            );
+        }
+    }
+}
+
 /// Once all effects are extracted and all cached components are updated, it's
 /// time to prepare for sorting and batching. Collect all relevant data and
 /// insert/update the [`BatchInput`] for each effect.
@@ -4057,6 +4291,7 @@ pub(crate) fn prepare_batch_inputs(
         &ExtractedSpawner,
         &CachedEffect,
         &DispatchBufferIndices,
+        &CachedReadyState,
         &CachedPipelines,
         Option<&CachedDrawIndirectArgs>,
         Option<&CachedParentInfo>,
@@ -4090,6 +4325,7 @@ pub(crate) fn prepare_batch_inputs(
         extracted_spawner,
         cached_effect,
         dispatch_buffer_indices,
+        cached_ready_state,
         cached_pipelines,
         maybe_cached_draw_indirect_args,
         maybe_cached_parent_info,
@@ -4100,16 +4336,17 @@ pub(crate) fn prepare_batch_inputs(
     {
         extracted_effect_count += 1;
 
-        // Fetch the effect's init and update pipelines
-        if !cached_pipelines.is_ready() {
+        // Skip this effect if not ready
+        if !cached_ready_state.is_ready() {
             trace!(
-                "Pipelines not ready for effect {:?}, skipped. (flags: {:?})",
-                render_entity,
-                cached_pipelines.flags
+                "Pipelines not ready for effect {:?}, skipped.",
+                render_entity
             );
             continue;
         }
-        // SAFETY: if is_ready() returns true, this means the pipelines are cached and
+
+        // Fetch the init and update pipelines.
+        // SAFETY: If is_ready() returns true, this means the pipelines are cached and
         // ready, so the IDs must be valid.
         let init_and_update_pipeline_ids = InitAndUpdatePipelineIds {
             init: cached_pipelines.init.unwrap(),
@@ -4125,7 +4362,7 @@ pub(crate) fn prepare_batch_inputs(
         // Fetch the bind group layouts from the cache
         trace!("child_effect_of={:?}", maybe_child_effect_of);
         let parent_slab_id = if let Some(child_effect_of) = maybe_child_effect_of {
-            let Ok((_, _, _, _, parent_cached_effect, _, _, _, _, _, _, _)) =
+            let Ok((_, _, _, _, parent_cached_effect, _, _, _, _, _, _, _, _)) =
                 q_cached_effects.get(child_effect_of.parent)
             else {
                 // At this point we should have discarded invalid effects with a missing parent,
@@ -5346,16 +5583,18 @@ pub(crate) fn queue_effects(
     // If an image has changed, the GpuImage has (probably) changed
     for event in &events.images {
         match event {
-            AssetEvent::Added { .. } => None,
-            AssetEvent::LoadedWithDependencies { .. } => None,
-            AssetEvent::Unused { .. } => None,
+            AssetEvent::Added { .. } => (),
+            AssetEvent::LoadedWithDependencies { .. } => (),
+            AssetEvent::Unused { .. } => (),
             AssetEvent::Modified { id } => {
-                trace!("Destroy bind group of modified image asset {:?}", id);
-                effect_bind_groups.images.remove(id)
+                if effect_bind_groups.images.remove(id).is_some() {
+                    trace!("Destroyed bind group of modified image asset {:?}", id);
+                }
             }
             AssetEvent::Removed { id } => {
-                trace!("Destroy bind group of removed image asset {:?}", id);
-                effect_bind_groups.images.remove(id)
+                if effect_bind_groups.images.remove(id).is_some() {
+                    trace!("Destroyes bind group of removed image asset {:?}", id);
+                }
             }
         };
     }
@@ -5559,6 +5798,7 @@ pub fn queue_init_indirect_workgroup_update(
             global_child_index,
             init_indirect_dispatch_index,
         );
+        assert!(global_child_index != u32::MAX);
         init_fill_dispatch_queue.enqueue(global_child_index, init_indirect_dispatch_index);
     }
 }
@@ -5718,7 +5958,7 @@ pub(crate) fn prepare_effect_metadata(
         // Global and local indices of this effect as a child of another (parent) effect
         let (global_child_index, local_child_index) = maybe_cached_child_info
             .map(|cci| (cci.global_child_index, cci.local_child_index))
-            .unwrap_or_default();
+            .unwrap_or((u32::MAX, u32::MAX));
 
         // Base index of all children of this (parent) effect
         let base_child_index = maybe_cached_parent_info

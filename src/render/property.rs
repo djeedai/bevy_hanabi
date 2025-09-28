@@ -594,12 +594,6 @@ pub(crate) fn on_remove_cached_properties(
 }
 
 /// Prepare GPU buffers storing effect properties.
-///
-/// This system runs after the new effects have been registered by
-/// [`add_effects()`], and all effects using properties are known for this
-/// frame. It (re-)allocate any property buffer, and schedule buffer writes to
-/// them, in anticipation of [`prepare_bind_groups()`] referencing those buffers
-/// to create bind groups.
 pub(crate) fn prepare_property_buffers(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,

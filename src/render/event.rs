@@ -183,6 +183,17 @@ pub(crate) struct CachedChildInfo {
     pub init_indirect_dispatch_index: u32,
 }
 
+impl CachedChildInfo {
+    pub fn is_locally_equal(&self, other: &CachedChildInfo) -> bool {
+        self.parent_slab_id == other.parent_slab_id
+        && self.parent_particle_layout == other.parent_particle_layout
+        && self.parent_buffer_binding_source == other.parent_buffer_binding_source
+        && self.local_child_index == other.local_child_index
+        // skip global_child_index here!
+        && self.init_indirect_dispatch_index == other.init_indirect_dispatch_index
+    }
+}
+
 /// GPU representation of the child info data structure storing some data for a
 /// child effect. The associated CPU representation is [`CachedEffectEvents`].
 #[repr(C)]

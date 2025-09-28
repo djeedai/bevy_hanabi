@@ -33,11 +33,11 @@ use crate::{
         on_remove_cached_effect_events, on_remove_cached_properties, prepare_batch_inputs,
         prepare_bind_groups, prepare_effect_metadata, prepare_gpu_resources,
         prepare_indirect_pipeline, prepare_init_update_pipelines, prepare_property_buffers,
-        queue_effects, queue_init_fill_dispatch_ops, queue_init_indirect_workgroup_update,
-        start_stop_gpu_debug_capture, update_mesh_locations, DebugSettings,
-        DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache,
-        EffectsMeta, EventCache, GpuBufferOperations, GpuEffectMetadata, GpuSpawnerParams,
-        InitFillDispatchQueue, ParticlesInitPipeline, ParticlesRenderPipeline,
+        propagate_ready_state, queue_effects, queue_init_fill_dispatch_ops,
+        queue_init_indirect_workgroup_update, start_stop_gpu_debug_capture, update_mesh_locations,
+        DebugSettings, DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups,
+        EffectCache, EffectsMeta, EventCache, GpuBufferOperations, GpuEffectMetadata,
+        GpuSpawnerParams, InitFillDispatchQueue, ParticlesInitPipeline, ParticlesRenderPipeline,
         ParticlesUpdatePipeline, PropertyBindGroups, PropertyCache, RenderDebugSettings,
         ShaderCache, SimParams, SortBindGroups, SortedEffectBatches, StorageType as _,
         UtilsPipeline, VfxSimulateDriverNode, VfxSimulateNode,
@@ -451,9 +451,10 @@ impl Plugin for HanabiPlugin {
                                 // Need to know if any GPU event using effect is active or not
                                 .after(allocate_events),
                         ),
-                        //
-                        //add_effects,
-                        //resolve_parents,
+                        propagate_ready_state
+                            // Need the ready state of parents, which depends on the init/update
+                            // pipeline states
+                            .after(prepare_init_update_pipelines),
                         prepare_batch_inputs,
                         batch_effects,
                     )
@@ -482,7 +483,6 @@ impl Plugin for HanabiPlugin {
                         .before(prepare_bind_groups),
                     prepare_property_buffers
                         .in_set(EffectSystems::PrepareEffectGpuResources)
-                        //.after(add_effects)
                         .before(prepare_bind_groups),
                     prepare_effect_metadata
                         .in_set(EffectSystems::PrepareEffectGpuResources)
