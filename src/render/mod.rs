@@ -2749,6 +2749,7 @@ pub(crate) fn extract_effects(
                 property_layout,
                 property_data,
             };
+            trace!("new_properties = {new_properties:?}");
 
             if let Some(mut extracted_properties) = maybe_extracted_properties {
                 // Always mutate if there's new CPU data to re-upload. Otherwise check for any
@@ -2756,6 +2757,10 @@ pub(crate) fn extract_effects(
                 if new_properties.property_data.is_some()
                     || (extracted_properties.property_layout != new_properties.property_layout)
                 {
+                    trace!(
+                        "Updating existing ExtractedProperties (was: {:?})",
+                        extracted_properties.as_ref()
+                    );
                     *extracted_properties = new_properties;
                 }
             } else {
