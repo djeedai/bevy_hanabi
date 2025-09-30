@@ -1348,6 +1348,8 @@ pub struct CompiledParticleEffect {
     parent_particle_layout: Option<ParticleLayout>,
     /// PRNG seed.
     prng_seed: u32,
+    /// Ready state reported by the render world.
+    is_ready: bool,
 }
 
 impl Default for CompiledParticleEffect {
@@ -1364,11 +1366,18 @@ impl Default for CompiledParticleEffect {
             alpha_mode: default(),
             parent_particle_layout: None,
             prng_seed: 0,
+            is_ready: false,
         }
     }
 }
 
 impl CompiledParticleEffect {
+    /// Check if the effect is ready.
+    #[inline(always)]
+    pub fn is_ready(&self) -> bool {
+        self.is_ready
+    }
+
     /// Clear the compiled data from this component.
     pub(crate) fn clear(&mut self) {
         self.asset = Handle::default();

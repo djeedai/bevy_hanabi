@@ -8,7 +8,9 @@ use rand::{
 use rand_pcg::Pcg32;
 use serde::{Deserialize, Serialize};
 
-use crate::{EffectAsset, EffectSimulation, ParticleEffect, SimulationCondition};
+use crate::{
+    CompiledParticleEffect, EffectAsset, EffectSimulation, ParticleEffect, SimulationCondition,
+};
 
 /// An RNG to be used in the CPU for the particle system engine
 pub(crate) fn new_rng() -> Pcg32 {
@@ -891,6 +893,7 @@ pub fn tick_spawners(
     mut query: Query<(
         Entity,
         &ParticleEffect,
+        &CompiledParticleEffect,
         &InheritedVisibility,
         Option<&mut EffectSpawner>,
     )>,
@@ -901,7 +904,15 @@ pub fn tick_spawners(
 
     let dt = time.delta_secs();
 
-    for (entity, effect, inherited_visibility, maybe_spawner) in query.iter_mut() {
+    for (entity, effect, compiled_effect, inherited_visibility, maybe_spawner) in query.iter_mut() {
+        // Skip effect which are not ready; this prevents ticking the spawner for an
+        // effect not ready to consume those spawn commands.
+        let mut can_tick = true;
+        if !compiled_effect.is_ready() {
+            trace!("[Effect {entity:?}] Not ready; skipped spawner tick.");
+            can_tick = false;
+        }
+
         let Some(asset) = effects.get(&effect.handle) else {
             trace!(
                 "Effect asset with handle {:?} is not available; skipped initializers tick.",
@@ -917,20 +928,20 @@ pub fn tick_spawners(
                 "Effect asset with handle {:?} is not visible, and simulates only WhenVisible; skipped initializers tick.",
                 effect.handle
             );
-            continue;
+            can_tick = false;
         }
 
         if let Some(mut effect_spawner) = maybe_spawner {
-            effect_spawner.tick(dt, &mut rng.0);
-            continue;
-        }
-
-        let effect_spawner = {
+            if can_tick {
+                effect_spawner.tick(dt, &mut rng.0);
+            }
+        } else {
             let mut effect_spawner = EffectSpawner::new(&asset.spawner);
-            effect_spawner.tick(dt, &mut rng.0);
-            effect_spawner
-        };
-        commands.entity(entity).insert(effect_spawner);
+            if can_tick {
+                effect_spawner.tick(dt, &mut rng.0);
+            }
+            commands.entity(entity).insert(effect_spawner);
+        }
     }
 }
 

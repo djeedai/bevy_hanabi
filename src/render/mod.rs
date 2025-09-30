@@ -51,7 +51,7 @@ use bevy::{
             ExtractedView, RenderVisibleEntities, ViewTarget, ViewUniform, ViewUniformOffset,
             ViewUniforms,
         },
-        Extract,
+        Extract, MainWorld,
     },
 };
 use bitflags::bitflags;
@@ -2525,6 +2525,20 @@ pub(crate) fn start_stop_gpu_debug_capture(
     }
 }
 
+/// Write the ready state of all render world effects back into their source
+/// effect in the main world.
+pub(crate) fn report_ready_state(
+    mut main_world: ResMut<MainWorld>,
+    q_ready_state: Query<&CachedReadyState>,
+) {
+    let mut q_effects = main_world.query::<(RenderEntity, &mut CompiledParticleEffect)>();
+    for (render_entity, mut compiled_particle_effect) in q_effects.iter_mut(&mut main_world) {
+        if let Ok(cached_ready_state) = q_ready_state.get(render_entity) {
+            compiled_particle_effect.is_ready = cached_ready_state.is_ready();
+        }
+    }
+}
+
 /// System extracting data for rendering of all active [`ParticleEffect`]
 /// components.
 ///
@@ -2662,11 +2676,17 @@ pub(crate) fn extract_effects(
             prng_seed: compiled_effect.prng_seed,
             transform: *transform,
         };
+        trace!(
+            "[Effect {}] spawn_count={} prng_seed={}",
+            render_entity,
+            new_spawner.spawn_count,
+            new_spawner.prng_seed
+        );
         if let Some(mut extracted_spawner) = maybe_extracted_spawner {
             extracted_spawner.set_if_neq(new_spawner);
         } else {
             trace!(
-                "Inserting new ExtractedSpawner component on {:?}",
+                "Inserting new ExtractedSpawner component on {}",
                 render_entity
             );
             cmd.insert(new_spawner);
@@ -2791,6 +2811,15 @@ pub(crate) fn extract_sim_params(
     sim_params.virtual_delta_time = virtual_time.delta_secs();
     sim_params.real_time = real_time.elapsed_secs_f64();
     sim_params.real_delta_time = real_time.delta_secs();
+    trace!(
+        "SimParams: time={} delta_time={} vtime={} delta_vtime={} rtime={} delta_rtime={}",
+        sim_params.time,
+        sim_params.delta_time,
+        sim_params.virtual_time,
+        sim_params.virtual_delta_time,
+        sim_params.real_time,
+        sim_params.real_delta_time,
+    );
 }
 
 /// Various GPU limits and aligned sizes computed once and cached.
