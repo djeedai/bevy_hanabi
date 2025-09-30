@@ -3632,7 +3632,7 @@ pub fn prepare_init_update_pipelines(
         &CachedEffect,
         Option<&CachedChildInfo>,
         Option<&CachedParentInfo>,
-        Option<&CachedProperties>,
+        Option<&CachedEffectProperties>,
         &mut CachedPipelines,
     )>,
     // FIXME - need mut for bind group layout creation; shouldn't be create there though
@@ -3688,7 +3688,7 @@ pub fn prepare_init_update_pipelines(
         // have inserted any property in the cache, which would have allocated the
         // proper bind group layout (or the default no-property one).
         let property_layout_min_binding_size =
-            maybe_cached_properties.map(|cp| cp.layout.min_binding_size());
+            maybe_cached_properties.map(|cp| cp.property_layout.min_binding_size());
         let spawner_bind_group_layout = property_cache
             .bind_group_layout(property_layout_min_binding_size)
             .unwrap_or_else(|| {
@@ -4083,20 +4083,6 @@ impl CachedReadyState {
     pub fn is_ready(&self) -> bool {
         self.is_ready
     }
-}
-
-/// Render world cached properties info for a single effect instance.
-#[allow(unused)]
-#[derive(Debug, Component)]
-pub(crate) struct CachedProperties {
-    /// Layout of the effect properties.
-    pub layout: PropertyLayout,
-    /// Index of the buffer in the [`PropertyCache`].
-    pub buffer_index: u32,
-    /// Offset in bytes inside the buffer.
-    pub offset: u32,
-    /// Binding size in bytes of the property struct.
-    pub binding_size: u32,
 }
 
 #[derive(SystemParam)]
@@ -4509,7 +4495,7 @@ pub(crate) fn batch_effects(
         Option<&CachedEffectEvents>,
         Option<&ChildEffectOf>,
         Option<&CachedChildInfo>,
-        Option<&CachedProperties>,
+        Option<&CachedEffectProperties>,
         &mut DispatchBufferIndices,
         // The presence of BatchInput ensure the effect is ready
         &mut BatchInput,
@@ -4586,9 +4572,9 @@ pub(crate) fn batch_effects(
             cached_draw_indirect_args.row,
             cached_properties.map(|cp| PropertyBindGroupKey {
                 buffer_index: cp.buffer_index,
-                binding_size: cp.binding_size,
+                binding_size: cp.property_layout.min_binding_size().get() as u32,
             }),
-            cached_properties.map(|cp| cp.offset),
+            cached_properties.map(|cp| cp.range.start),
         );
 
         // If the batch has ribbons, we need to sort the particles by RIBBON_ID and AGE
