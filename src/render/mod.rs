@@ -3848,6 +3848,7 @@ pub fn prepare_init_update_pipelines(
         cached_pipelines
             .flags
             .insert(CachedPipelineFlags::INIT_PIPELINE_READY);
+        trace!("[Effect {:?}] Init pipeline ready.", entity);
 
         // Never batch an effect with a pipeline not available; this will prevent its
         // init/update pass from running, but the vfx_indirect pass will run
@@ -3872,6 +3873,7 @@ pub fn prepare_init_update_pipelines(
         cached_pipelines
             .flags
             .insert(CachedPipelineFlags::UPDATE_PIPELINE_READY);
+        trace!("[Effect {:?}] Update pipeline ready.", entity);
     }
 }
 
@@ -4120,7 +4122,7 @@ pub(crate) fn propagate_ready_state(
     mut q_root_effects: Query<
         (
             Entity,
-            &ChildrenEffects,
+            Option<&ChildrenEffects>,
             Ref<CachedPipelines>,
             &mut CachedReadyState,
         ),
@@ -4152,9 +4154,10 @@ pub(crate) fn propagate_ready_state(
     // the most common case, so should take care of the heavy lifting of propagating
     // to most effects. For child effects, we then descend recursively.
     q_root_effects.par_iter_mut().for_each(
-        |(entity, children, cached_pipelines, mut cached_ready_state)| {
+        |(entity, maybe_children, cached_pipelines, mut cached_ready_state)| {
             // Update the ready state of this root effect
             let changed = cached_pipelines.is_changed() || cached_ready_state.is_added() || orphaned_entities.binary_search(&entity).is_ok();
+            trace!("[Entity {}] changed={} cached_pipelines={} ready_state={}", entity, changed, cached_pipelines.is_ready(), cached_ready_state.is_ready);
             if changed {
                 // Root effects by default are ready since they have no ancestors to check. After that we check the ready conditions for this effect alone.
                 let new_ready_state = CachedReadyState::new(cached_pipelines.is_ready());
@@ -4169,32 +4172,34 @@ pub(crate) fn propagate_ready_state(
             }
 
             // Recursively update the ready state of its descendants
-            for (child, child_of) in q_child_effects.iter_many(children) {
-                assert_eq!(
-                    child_of.parent, entity,
-                    "Malformed hierarchy. This probably means that your hierarchy has been improperly maintained, or contains a cycle"
-                );
-                // SAFETY:
-                // - `child` must have consistent parentage, or the above assertion would panic.
-                //   Since `child` is parented to a root entity, the entire hierarchy leading to it
-                //   is consistent.
-                // - We may operate as if all descendants are consistent, since
-                //   `propagate_ready_state_recursive` will panic before continuing to propagate if it
-                //   encounters an entity with inconsistent parentage.
-                // - Since each root entity is unique and the hierarchy is consistent and
-                //   forest-like, other root entities' `propagate_ready_state_recursive` calls will not conflict
-                //   with this one.
-                // - Since this is the only place where `transform_query` gets used, there will be
-                //   no conflicting fetches elsewhere.
-                #[expect(unsafe_code, reason = "`propagate_ready_state_recursive()` is unsafe due to its use of `Query::get_unchecked()`.")]
-                unsafe {
-                    propagate_ready_state_recursive(
-                        &cached_ready_state,
-                        &q_ready_state,
-                        &q_child_effects,
-                        child,
-                        changed || child_of.is_changed(),
+            if let Some(children) = maybe_children {
+                for (child, child_of) in q_child_effects.iter_many(children) {
+                    assert_eq!(
+                        child_of.parent, entity,
+                        "Malformed hierarchy. This probably means that your hierarchy has been improperly maintained, or contains a cycle"
                     );
+                    // SAFETY:
+                    // - `child` must have consistent parentage, or the above assertion would panic.
+                    //   Since `child` is parented to a root entity, the entire hierarchy leading to it
+                    //   is consistent.
+                    // - We may operate as if all descendants are consistent, since
+                    //   `propagate_ready_state_recursive` will panic before continuing to propagate if it
+                    //   encounters an entity with inconsistent parentage.
+                    // - Since each root entity is unique and the hierarchy is consistent and
+                    //   forest-like, other root entities' `propagate_ready_state_recursive` calls will not conflict
+                    //   with this one.
+                    // - Since this is the only place where `transform_query` gets used, there will be
+                    //   no conflicting fetches elsewhere.
+                    #[expect(unsafe_code, reason = "`propagate_ready_state_recursive()` is unsafe due to its use of `Query::get_unchecked()`.")]
+                    unsafe {
+                        propagate_ready_state_recursive(
+                            &cached_ready_state,
+                            &q_ready_state,
+                            &q_child_effects,
+                            child,
+                            changed || child_of.is_changed(),
+                        );
+                    }
                 }
             }
         },
