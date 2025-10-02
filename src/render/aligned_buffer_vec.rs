@@ -11,7 +11,6 @@ use bevy::{
     },
 };
 use bytemuck::{cast_slice, Pod};
-use copyless::VecHelper;
 
 /// Like Bevy's [`BufferVec`], but with extra per-item alignment.
 ///
@@ -222,7 +221,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
     pub fn push(&mut self, value: T) -> usize {
         let index = self.values.len();
-        self.values.alloc().init(value);
+        self.values.push(value);
         index
     }
 
