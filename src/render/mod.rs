@@ -2293,6 +2293,8 @@ pub(crate) struct ExtractedEffect {
     pub alpha_mode: AlphaMode,
     /// Effect shaders.
     pub effect_shaders: EffectShader,
+    /// Condition under which the effect is simulated.
+    pub simulation_condition: SimulationCondition,
 }
 
 /// Extracted data for the [`GpuSpawnerParams`].
@@ -2311,6 +2313,8 @@ pub(crate) struct ExtractedSpawner {
     pub prng_seed: u32,
     /// Global transform of the effect origin.
     pub transform: GlobalTransform,
+    /// Is the effect visible this frame?
+    pub is_visible: bool,
 }
 
 /// Extracted parent information for a child effect.
@@ -2592,22 +2596,6 @@ pub(crate) fn extract_effects(
             continue;
         };
 
-        // Check if hidden, unless always simulated
-        // FIXME - we want to keep the GPU resources when hidden, so need to continue
-        // extracting, but not update/render
-        if compiled_effect.simulation_condition == SimulationCondition::WhenVisible
-            && !maybe_inherited_visibility
-                .map(|cv| cv.get())
-                .unwrap_or(true)
-            && !maybe_view_visibility.map(|cv| cv.get()).unwrap_or(true)
-        {
-            trace!(
-                "Effect {:?}: not visible and SimulationCondition::WhenVisible, skipped.",
-                main_entity
-            );
-            continue;
-        }
-
         // Check if asset is available, otherwise silently ignore
         let Some(asset) = effects.get(&compiled_effect.asset) else {
             trace!(
@@ -2617,6 +2605,11 @@ pub(crate) fn extract_effects(
             );
             continue;
         };
+
+        let is_visible = maybe_inherited_visibility
+            .map(|cv| cv.get())
+            .unwrap_or(true)
+            && maybe_view_visibility.map(|cv| cv.get()).unwrap_or(true);
 
         let mut cmd = commands.entity(render_entity);
 
@@ -2659,6 +2652,7 @@ pub(crate) fn extract_effects(
             textures: compiled_effect.textures.clone(),
             alpha_mode,
             effect_shaders: effect_shaders.clone(),
+            simulation_condition: asset.simulation_condition,
         };
         if let Some(mut extracted_effect) = maybe_extracted_effect {
             extracted_effect.set_if_neq(new_extracted_effect);
@@ -2675,6 +2669,7 @@ pub(crate) fn extract_effects(
             spawn_count: effect_spawner.spawn_count,
             prng_seed: compiled_effect.prng_seed,
             transform: *transform,
+            is_visible,
         };
         trace!(
             "[Effect {}] spawn_count={} prng_seed={}",
@@ -4363,8 +4358,16 @@ pub(crate) fn prepare_batch_inputs(
 
         // Skip this effect if not ready
         if !cached_ready_state.is_ready() {
+            trace!("Pipelines not ready for effect {}, skipped.", render_entity);
+            continue;
+        }
+
+        // Skip this effect if not visible and not simulating when hidden
+        if !extracted_spawner.is_visible
+            && (extracted_effect.simulation_condition == SimulationCondition::WhenVisible)
+        {
             trace!(
-                "Pipelines not ready for effect {:?}, skipped.",
+                "Effect {} not visible, and simulation condition is WhenVisible, so skipped.",
                 render_entity
             );
             continue;
