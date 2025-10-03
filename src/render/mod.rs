@@ -10,7 +10,6 @@ use std::{
 
 #[cfg(feature = "2d")]
 use bevy::core_pipeline::core_2d::{Transparent2d, CORE_2D_DEPTH_FORMAT};
-//use bevy::ecs::entity::{EntityHashMap, EntityHashSet};
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
 #[cfg(feature = "3d")]
@@ -3085,7 +3084,7 @@ pub(crate) fn on_remove_cached_effect(
     trigger: Trigger<OnRemove, CachedEffect>,
     query: Query<(
         Entity,
-        MainEntity,
+        &MainEntity,
         &CachedEffect,
         &DispatchBufferIndices,
         Option<&CachedEffectProperties>,
