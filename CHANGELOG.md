@@ -5,6 +5,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `CompiledParticleEffect::is_ready()` reporting whether the effect is ready for simulation.
+  This returns `true` once all GPU resources, notably the GPU pipeline and shaders, are ready.
+  For parent effects, `is_ready()` reports `true` only when all descendant effects are ready, recursively.
+- Added a new effect sorter before batching, to improve GPU dispatch and reduce GPU resource swapping.
+- Added more tracing spans, for debugging and profiling. As before, this requires the `trace` feature.
+
+### Changed
+
+- Rewrote most of the extraction pass, splitting the logic into more components and systems for clarity.
+- Spawners for effects which are not _ready_ (see new `CompiledParticleEffect::is_ready()`) do not tick.
+  This ensures one-shot/burst effects don't attempt to spawn particles
+  during a frame where the effect cannot execute its simulation,
+  which leads to the spawn being lost, and one-shot/burst effects doing nothing.
+- Changed the naming of the particle buffer to use the _slab_ terminology, in line with what Bevy does for meshes.
+  A slab is a large single GPU buffer sub-allocated with one or more actual effects.
+
 ### Fixed
 
 - Fixed a bug in `ColorBlendMask::to_component()` which ignored the last (alpha) component. (#479)

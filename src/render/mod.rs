@@ -417,18 +417,6 @@ impl Default for GpuDrawIndirectArgs {
     }
 }
 
-// impl GpuDrawIndirectArgs {
-//     pub fn bitcast_as_indexed(&self) -> GpuDrawIndexedIndirectArgs {
-//         GpuDrawIndexedIndirectArgs {
-//             index_count: self.vertex_count,
-//             instance_count: self.instance_count,
-//             first_index: self.first_vertex,
-//             base_vertex: self.first_instance,
-//             first_instance: 0,
-//         }
-//     }
-// }
-
 /// GPU representation of an indirect indexed render input.
 ///
 /// Note that unlike most other data structure, this doesn't need to be aligned
