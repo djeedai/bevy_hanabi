@@ -796,12 +796,6 @@ pub(crate) struct DispatchBufferIndices {
     /// [`GpuDispatchIndirect`]: super::GpuDispatchIndirect
     /// [`EffectsMeta::update_dispatch_indirect_buffer`]: super::EffectsMeta::dispatch_indirect_buffer
     pub(crate) update_dispatch_indirect_buffer_row_index: u32,
-
-    /// The index of the [`GpuEffectMetadata`] in
-    /// [`EffectsMeta::effect_metadata_buffer`].
-    ///
-    /// [`EffectsMeta::effect_metadata_buffer`]: super::EffectsMeta::effect_metadata_buffer
-    pub(crate) effect_metadata_buffer_table_id: BufferTableId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

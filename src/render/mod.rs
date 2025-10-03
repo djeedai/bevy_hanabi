@@ -464,7 +464,7 @@ impl Default for GpuDrawIndexedIndirectArgs {
 ///
 /// This is written by the CPU and read by the GPU.
 #[repr(C)]
-#[derive(Debug, Default, Clone, Copy, Pod, Zeroable, ShaderType)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Pod, Zeroable, ShaderType)]
 pub struct GpuEffectMetadata {
     //
     // Some runtime variables modified on GPU only (capacity is constant)
@@ -2273,7 +2273,7 @@ pub(crate) struct ExtractedEffectLegacy {
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
 #[derive(Debug, Clone, PartialEq, Component)]
-#[require(CachedPipelines, CachedReadyState)]
+#[require(CachedPipelines, CachedReadyState, CachedEffectMetadata)]
 pub(crate) struct ExtractedEffect {
     /// Handle to the effect asset this instance is based on.
     /// The handle is weak to prevent refcount cycles and gracefully handle
@@ -2315,6 +2315,18 @@ pub(crate) struct ExtractedSpawner {
     pub transform: GlobalTransform,
     /// Is the effect visible this frame?
     pub is_visible: bool,
+}
+
+/// Cache info for the metadata of the effect.
+///
+/// This manages the GPU allocation of the [`GpuEffectMetadata`] for this
+/// effect.
+#[derive(Debug, Default, Component)]
+pub(crate) struct CachedEffectMetadata {
+    /// Allocation ID.
+    pub table_id: BufferTableId,
+    /// Current metadata values, cached on CPU for change detection.
+    pub metadata: GpuEffectMetadata,
 }
 
 /// Extracted parent information for a child effect.
@@ -3158,9 +3170,25 @@ pub(crate) fn on_remove_cached_effect(
     effects_meta
         .dispatch_indirect_buffer
         .free(dispatch_buffer_indices.update_dispatch_indirect_buffer_row_index);
-    effects_meta
-        .effect_metadata_buffer
-        .remove(dispatch_buffer_indices.effect_metadata_buffer_table_id);
+}
+
+/// Observer raised when the [`CachedEffectMetadata`] component is removed, to
+/// deallocate the GPU resources associated with the indirect draw args.
+pub(crate) fn on_remove_cached_metadata(
+    trigger: Trigger<OnRemove, CachedEffectMetadata>,
+    query: Query<&CachedEffectMetadata>,
+    mut effects_meta: ResMut<EffectsMeta>,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("on_remove_cached_metadata").entered();
+
+    if let Ok(cached_metadata) = query.get(trigger.target()) {
+        if cached_metadata.table_id.is_valid() {
+            effects_meta
+                .effect_metadata_buffer
+                .remove(cached_metadata.table_id);
+        }
+    };
 }
 
 /// Observer raised when the [`CachedDrawIndirectArgs`] component is removed, to
@@ -3171,7 +3199,7 @@ pub(crate) fn on_remove_cached_draw_indirect_args(
     mut effects_meta: ResMut<EffectsMeta>,
 ) {
     #[cfg(feature = "trace")]
-    let _span = bevy::log::info_span!("on_remove_cached_mesh").entered();
+    let _span = bevy::log::info_span!("on_remove_cached_draw_indirect_args").entered();
 
     if let Ok(cached_draw_args) = query.get(trigger.target()) {
         effects_meta.free_draw_indirect(cached_draw_args);
@@ -3467,6 +3495,38 @@ pub fn update_mesh_locations(
             }
         } else {
             cmds.insert(new_mesh_location);
+        }
+    }
+}
+
+/// Allocate an entry in the GPU table for any [`CachedEffectMetadata`] missing
+/// one.
+///
+/// This system does NOT take care of (re-)uploading recent CPU data to GPU.
+/// This is done much later in the frame, after batching and once all data for
+/// it is ready. But it's necessary to ensure the allocation is determined
+/// already ahead of time, in order to do batching of contiguous metadata
+/// blocks (TODO; not currently used, also may end up using binary search in
+/// shader, in which case we won't need continguous-ness and can maybe remove
+/// this system).
+// TODO - consider using observer OnAdd instead?
+pub fn allocate_metadata(
+    mut effects_meta: ResMut<EffectsMeta>,
+    mut q_metadata: Query<&mut CachedEffectMetadata>,
+) {
+    for mut metadata in &mut q_metadata {
+        if !metadata.table_id.is_valid() {
+            metadata.table_id = effects_meta
+                .effect_metadata_buffer
+                .insert(metadata.metadata);
+        } else {
+            // Unless this is the first time we allocate the GPU entry (above),
+            // we should never reach the beginning of this frame
+            // with a changed metadata which has not
+            // been re-uploaded last frame.
+            // NO! We can only detect the change *since last run of THIS system*
+            // so wont' see that a latter system the data.
+            // assert!(!metadata.is_changed());
         }
     }
 }
@@ -4310,7 +4370,7 @@ pub(crate) fn prepare_batch_inputs(
         &ExtractedEffect,
         &ExtractedSpawner,
         &CachedEffect,
-        &DispatchBufferIndices,
+        &CachedEffectMetadata,
         &CachedReadyState,
         &CachedPipelines,
         Option<&CachedDrawIndirectArgs>,
@@ -4344,7 +4404,7 @@ pub(crate) fn prepare_batch_inputs(
         extracted_effect,
         extracted_spawner,
         cached_effect,
-        dispatch_buffer_indices,
+        cached_effect_metadata,
         cached_ready_state,
         cached_pipelines,
         maybe_cached_draw_indirect_args,
@@ -4448,11 +4508,12 @@ pub(crate) fn prepare_batch_inputs(
         trace!("layout_flags = {:?}", extracted_effect.layout_flags);
         trace!("particle_layout = {:?}", effect_slice.particle_layout);
 
+        assert!(cached_effect_metadata.table_id.is_valid());
         let spawner_index = effects_meta.allocate_spawner(
             &extracted_spawner.transform,
             extracted_spawner.spawn_count,
             extracted_spawner.prng_seed,
-            dispatch_buffer_indices.effect_metadata_buffer_table_id,
+            cached_effect_metadata.table_id,
             maybe_cached_draw_indirect_args,
         );
 
@@ -4529,6 +4590,7 @@ pub(crate) fn batch_effects(
         &ExtractedSpawner,
         &ExtractedEffectMesh,
         &CachedDrawIndirectArgs,
+        &CachedEffectMetadata,
         Option<&CachedEffectEvents>,
         Option<&ChildEffectOf>,
         Option<&CachedChildInfo>,
@@ -4552,7 +4614,7 @@ pub(crate) fn batch_effects(
     // - with parents before their children, to ensure ???? FIXME don't we need to
     //   opposite?!!!
     let mut effect_sorter = EffectSorter::new();
-    for (entity, _, _, _, _, _, _, child_of, _, _, _, input) in &q_cached_effects {
+    for (entity, _, _, _, _, _, _, _, child_of, _, _, _, input) in &q_cached_effects {
         effect_sorter.insert(
             entity,
             input.effect_slice.slab_id,
@@ -4581,6 +4643,7 @@ pub(crate) fn batch_effects(
             extracted_spawner,
             extracted_effect_mesh,
             cached_draw_indirect_args,
+            cached_effect_metadata,
             cached_effect_events,
             _,
             cached_child_info,
@@ -4605,8 +4668,9 @@ pub(crate) fn batch_effects(
             cached_effect_events,
             cached_child_info,
             &mut input,
-            *dispatch_buffer_indices.as_ref(),
+            *dispatch_buffer_indices,
             cached_draw_indirect_args.row,
+            cached_effect_metadata.table_id,
             cached_properties.map(|cp| PropertyBindGroupKey {
                 buffer_index: cp.buffer_index,
                 binding_size: cp.property_layout.min_binding_size().get() as u32,
@@ -4636,11 +4700,9 @@ pub(crate) fn batch_effects(
             // dispatch the fill-sort pass.
             {
                 let src_buffer = effect_metadata_buffer.clone();
-                let src_binding_offset = effects_meta.effect_metadata_buffer.dynamic_offset(
-                    effect_batch
-                        .dispatch_buffer_indices
-                        .effect_metadata_buffer_table_id,
-                );
+                let src_binding_offset = effects_meta
+                    .effect_metadata_buffer
+                    .dynamic_offset(effect_batch.metadata_table_id);
                 let src_binding_size = effects_meta.gpu_limits.effect_metadata_aligned_size;
                 let Some(dst_buffer) = sort_bind_groups.indirect_buffer() else {
                     error!("Missing indirect dispatch buffer for sorting, cannot schedule particle sort for ribbon. This is a bug.");
@@ -4967,13 +5029,10 @@ impl EffectBindGroups {
         effect_metadata_buffer: &Buffer,
         consume_event_buffers: Option<ConsumeEventBuffers>,
     ) -> Result<&BindGroup, ()> {
-        let DispatchBufferIndices {
-            effect_metadata_buffer_table_id,
-            ..
-        } = &effect_batch.dispatch_buffer_indices;
+        assert!(effect_batch.metadata_table_id.is_valid());
 
         let effect_metadata_offset =
-            gpu_limits.effect_metadata_offset(effect_metadata_buffer_table_id.0) as u32;
+            gpu_limits.effect_metadata_offset(effect_batch.metadata_table_id.0) as u32;
         let key = InitMetadataBindGroupKey {
             slab_id: effect_batch.slab_id,
             effect_metadata_buffer: effect_metadata_buffer.id(),
@@ -5025,7 +5084,7 @@ impl EffectBindGroups {
             trace!(
                     "Created new metadata@3 bind group for init pass and buffer index {}: effect_metadata=#{}",
                     effect_batch.slab_id.index(),
-                    effect_metadata_buffer_table_id.0,
+                    effect_batch.metadata_table_id.0,
                 );
 
             bind_group
@@ -5067,10 +5126,7 @@ impl EffectBindGroups {
         child_info_buffer: Option<&Buffer>,
         event_buffers: &[(Entity, BufferBindingSource)],
     ) -> Result<&BindGroup, ()> {
-        let DispatchBufferIndices {
-            effect_metadata_buffer_table_id,
-            ..
-        } = &effect_batch.dispatch_buffer_indices;
+        assert!(effect_batch.metadata_table_id.is_valid());
 
         // Check arguments consistency
         assert_eq!(effect_batch.child_event_buffers.len(), event_buffers.len());
@@ -5093,7 +5149,7 @@ impl EffectBindGroups {
             slab_id: effect_batch.slab_id,
             effect_metadata_buffer: effect_metadata_buffer.id(),
             effect_metadata_offset: gpu_limits
-                .effect_metadata_offset(effect_metadata_buffer_table_id.0)
+                .effect_metadata_offset(effect_batch.metadata_table_id.0)
                 as u32,
             child_info_buffer_id,
             event_buffers_keys,
@@ -5152,7 +5208,7 @@ impl EffectBindGroups {
             trace!(
                 "Created new metadata@3 bind group for update pass and slab ID {}: effect_metadata={}",
                 effect_batch.slab_id.index(),
-                effect_metadata_buffer_table_id.0,
+                effect_batch.metadata_table_id.0,
             );
 
             bind_group
@@ -5908,8 +5964,13 @@ pub(crate) fn prepare_gpu_resources(
     }
 }
 
-/// Allocate or update the [`GpuEffectMetadata`] of all the effects queued for
-/// update/render this frame.
+/// Update the [`GpuEffectMetadata`] of all the effects queued for update/render
+/// this frame.
+///
+/// By this point, all effects should have a [`CachedEffectMetadata`] with a
+/// valid allocation in the GPU table for a [`GpuEffectMetadata`] entry. This
+/// system actually synchronize the CPU value with the GPU one in case of
+/// change.
 pub(crate) fn prepare_effect_metadata(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
@@ -5917,11 +5978,12 @@ pub(crate) fn prepare_effect_metadata(
         MainEntity,
         Ref<ExtractedEffect>,
         Ref<CachedEffect>,
-        &mut DispatchBufferIndices,
+        Ref<DispatchBufferIndices>,
         Option<Ref<CachedChildInfo>>,
         Option<Ref<CachedParentInfo>>,
         Option<Ref<CachedDrawIndirectArgs>>,
         Option<Ref<CachedEffectEvents>>,
+        &mut CachedEffectMetadata,
     )>,
     mut effects_meta: ResMut<EffectsMeta>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
@@ -5934,17 +5996,19 @@ pub(crate) fn prepare_effect_metadata(
         main_entity,
         extracted_effect,
         cached_effect,
-        mut dispatch_buffer_indices,
+        dispatch_buffer_indices,
         maybe_cached_child_info,
         maybe_cached_parent_info,
         maybe_cached_draw_indirect_args,
         maybe_cached_effect_events,
+        mut cached_effect_metadata,
     ) in &mut q_effects
     {
         // Check if anything relevant to GpuEffectMetadata changed this frame; otherwise
         // early out and skip this effect.
         let is_changed_ee = extracted_effect.is_changed();
         let is_changed_ce = cached_effect.is_changed();
+        let is_changed_dbi = dispatch_buffer_indices.is_changed();
         let is_changed_cci = maybe_cached_child_info
             .as_ref()
             .map(|cci| cci.is_changed())
@@ -5962,10 +6026,11 @@ pub(crate) fn prepare_effect_metadata(
             .map(|cee| cee.is_changed())
             .unwrap_or(false);
         trace!(
-            "Preparting GpuEffectMetadata for effect {:?}: is_changed[] = {} {} {} {} {} {}",
+            "Preparting GpuEffectMetadata for effect {:?}: is_changed[] = {} {} {} {} {} {} {}",
             main_entity,
             is_changed_ee,
             is_changed_ce,
+            is_changed_dbi,
             is_changed_cci,
             is_changed_cpi,
             is_changed_cdia,
@@ -5973,6 +6038,7 @@ pub(crate) fn prepare_effect_metadata(
         );
         if !is_changed_ee
             && !is_changed_ce
+            && !is_changed_dbi
             && !is_changed_cci
             && !is_changed_cpi
             && !is_changed_cdia
@@ -6035,27 +6101,22 @@ pub(crate) fn prepare_effect_metadata(
         };
 
         // Insert of update entry in GPU buffer table
-        if dispatch_buffer_indices
-            .effect_metadata_buffer_table_id
-            .is_valid()
-        {
-            effects_meta.effect_metadata_buffer.update(
-                dispatch_buffer_indices.effect_metadata_buffer_table_id,
-                gpu_effect_metadata,
-            );
-        } else {
-            dispatch_buffer_indices.effect_metadata_buffer_table_id = effects_meta
+        assert!(cached_effect_metadata.table_id.is_valid());
+        if gpu_effect_metadata != cached_effect_metadata.metadata {
+            effects_meta
                 .effect_metadata_buffer
-                .insert(gpu_effect_metadata);
-        }
+                .update(cached_effect_metadata.table_id, gpu_effect_metadata);
 
-        // This triggers on all new spawns and annoys everyone; silence until we can at
-        // least warn only on non-first-spawn, and ideally split indirect data from that
-        // struct so we don't overwrite it and solve the issue.
-        debug!(
-            "Updated metadata entry {} for effect {:?}, this will reset it.",
-            dispatch_buffer_indices.effect_metadata_buffer_table_id.0, main_entity
-        );
+            cached_effect_metadata.metadata = gpu_effect_metadata;
+
+            // This triggers on all new spawns and annoys everyone; silence until we can at
+            // least warn only on non-first-spawn, and ideally split indirect data from that
+            // struct so we don't overwrite it and solve the issue.
+            debug!(
+                "Updated metadata entry {} for effect {:?}, this will reset it.",
+                cached_effect_metadata.table_id.0, main_entity
+            );
+        }
     }
 
     // Once all EffectMetadata values are written, schedule a GPU upload
@@ -7390,12 +7451,10 @@ impl Node for VfxSimulateNode {
                     let particle_offset = effect_buffer.particle_offset(effect_batch.slice.start);
                     let indirect_index_offset =
                         effect_buffer.indirect_index_offset(effect_batch.slice.start);
-                    let effect_metadata_offset = effects_meta.gpu_limits.effect_metadata_offset(
-                        effect_batch
-                            .dispatch_buffer_indices
-                            .effect_metadata_buffer_table_id
-                            .0,
-                    ) as u32;
+                    let effect_metadata_offset = effects_meta
+                        .gpu_limits
+                        .effect_metadata_offset(effect_batch.metadata_table_id.0)
+                        as u32;
                     compute_pass.set_bind_group(
                         0,
                         bind_group,
@@ -7463,12 +7522,9 @@ impl Node for VfxSimulateNode {
                         continue;
                     };
                     let indirect_index_offset = effect_batch.slice.start;
-                    let effect_metadata_offset =
-                        effects_meta.effect_metadata_buffer.dynamic_offset(
-                            effect_batch
-                                .dispatch_buffer_indices
-                                .effect_metadata_buffer_table_id,
-                        );
+                    let effect_metadata_offset = effects_meta
+                        .effect_metadata_buffer
+                        .dynamic_offset(effect_batch.metadata_table_id);
                     compute_pass.set_bind_group(
                         0,
                         bind_group,

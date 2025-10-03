@@ -87,9 +87,13 @@ pub(crate) struct EffectBatch {
     /// [`GpuSpawnerParams`]: super::GpuSpawnerParams
     pub spawner_base: u32,
     /// The indices within the various indirect dispatch buffers.
+    // FIXME - this is per-effect not per-batch
     pub dispatch_buffer_indices: DispatchBufferIndices,
     /// Indirect draw args.
     pub draw_indirect_buffer_row_index: BufferTableId,
+    /// Metadata table row index.
+    // FIXME - this is per-effect not per-batch
+    pub metadata_table_id: BufferTableId,
     /// Particle layout shared by all batched effects and groups.
     pub particle_layout: ParticleLayout,
     /// Flags describing the render layout.
@@ -352,6 +356,7 @@ impl EffectBatch {
         input: &mut BatchInput,
         dispatch_buffer_indices: DispatchBufferIndices,
         draw_indirect_buffer_row_index: BufferTableId,
+        metadata_table_id: BufferTableId,
         property_key: Option<PropertyBindGroupKey>,
         property_offset: Option<u32>,
     ) -> EffectBatch {
@@ -391,6 +396,7 @@ impl EffectBatch {
             particle_layout: input.effect_slice.particle_layout.clone(),
             dispatch_buffer_indices,
             draw_indirect_buffer_row_index,
+            metadata_table_id,
             layout_flags: extracted_effect.layout_flags,
             mesh: cached_mesh.mesh,
             texture_layout: extracted_effect.texture_layout.clone(),

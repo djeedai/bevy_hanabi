@@ -26,12 +26,12 @@ use crate::{
     compile_effects,
     properties::EffectProperties,
     render::{
-        allocate_effects, allocate_events, allocate_parent_child_infos, allocate_properties,
-        batch_effects, clear_previous_frame_resizes, clear_transient_batch_inputs,
-        extract_effect_events, extract_effects, extract_sim_params, fixup_parents,
-        on_remove_cached_draw_indirect_args, on_remove_cached_effect,
-        on_remove_cached_effect_events, on_remove_cached_properties, prepare_batch_inputs,
-        prepare_bind_groups, prepare_effect_metadata, prepare_gpu_resources,
+        allocate_effects, allocate_events, allocate_metadata, allocate_parent_child_infos,
+        allocate_properties, batch_effects, clear_previous_frame_resizes,
+        clear_transient_batch_inputs, extract_effect_events, extract_effects, extract_sim_params,
+        fixup_parents, on_remove_cached_draw_indirect_args, on_remove_cached_effect,
+        on_remove_cached_effect_events, on_remove_cached_metadata, on_remove_cached_properties,
+        prepare_batch_inputs, prepare_bind_groups, prepare_effect_metadata, prepare_gpu_resources,
         prepare_indirect_pipeline, prepare_init_update_pipelines, prepare_property_buffers,
         propagate_ready_state, queue_effects, queue_init_fill_dispatch_ops,
         queue_init_indirect_workgroup_update, report_ready_state, start_stop_gpu_debug_capture,
@@ -421,6 +421,8 @@ impl Plugin for HanabiPlugin {
                                 .after(bevy::render::mesh::allocator::allocate_and_free_meshes)
                                 // Need Bevy to have prepared the RenderMesh to read it
                                 .after(prepare_assets::<bevy::render::mesh::RenderMesh>),
+                            // Allocate GPU effect metadata
+                            allocate_metadata,
                         ),
                         // Allocate parent and child infos. Those need all effects allocated and
                         // all parents resolved first, as well as event buffers allocated.
@@ -513,6 +515,7 @@ impl Plugin for HanabiPlugin {
         {
             let world = render_app.world_mut();
             world.add_observer(on_remove_cached_effect);
+            world.add_observer(on_remove_cached_metadata);
             world.add_observer(on_remove_cached_draw_indirect_args);
             world.add_observer(on_remove_cached_effect_events);
             world.add_observer(on_remove_cached_properties);
