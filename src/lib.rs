@@ -2175,7 +2175,7 @@ else { return c1; }
 
                 // Need at least one frame tick for the loaded asset to send a message to the
                 // asset server to get registered
-                let mut max_frames = 600; // it takes a decent amount of time to load async the asset, even if embedded
+                let mut max_frames = 10000; // it takes a decent amount of time to load async the asset, even if embedded
                 while max_frames > 0 {
                     dummy_app.update();
 
