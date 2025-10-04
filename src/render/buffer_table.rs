@@ -215,7 +215,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             let item_align = item_align.get() as usize;
             let aligned_size = item_size.next_multiple_of(item_align);
             assert!(aligned_size >= item_size);
-            assert!(aligned_size % item_align == 0);
+            assert!(aligned_size.is_multiple_of(item_align));
             aligned_size
         } else {
             item_size

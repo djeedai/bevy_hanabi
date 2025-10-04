@@ -1825,7 +1825,7 @@ mod tests {
                 memory::{Dir, MemoryAssetReader},
                 AssetSourceBuilder, AssetSourceBuilders, AssetSourceId,
             },
-            AssetServerMode, UnapprovedPathMode,
+            AssetServerMode, LoadState, UnapprovedPathMode,
         },
         camera::visibility::{VisibilityPlugin, VisibilitySystems},
         shader::ShaderLoader,
@@ -2171,7 +2171,7 @@ else { return c1; }
                 dummy_app.add_plugins(bevy::render::view::ViewPlugin);
                 let asset_server = dummy_app.world().resource::<AssetServer>();
                 let view_shader_handle =
-                    asset_server.load::<Shader>("embedded://bevy_render\\view\\view.wgsl");
+                    asset_server.load::<Shader>("embedded://bevy_render/view/view.wgsl");
 
                 // Need at least one frame tick for the loaded asset to send a message to the
                 // asset server to get registered
@@ -2179,11 +2179,12 @@ else { return c1; }
                 while max_frames > 0 {
                     dummy_app.update();
 
-                    if dummy_app
-                        .world()
-                        .resource::<AssetServer>()
-                        .is_loaded(&view_shader_handle)
-                    {
+                    let asset_server = dummy_app.world().resource::<AssetServer>();
+                    let load_state = asset_server.get_load_state(&view_shader_handle).unwrap();
+                    if let LoadState::Failed(err) = load_state {
+                        panic!("Load failed: {:?}", err);
+                    }
+                    if matches!(load_state, LoadState::Loaded) {
                         break;
                     }
 
