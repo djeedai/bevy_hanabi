@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which leads to the spawn being lost, and one-shot/burst effects doing nothing.
 - Changed the naming of the particle buffer to use the _slab_ terminology, in line with what Bevy does for meshes.
   A slab is a large single GPU buffer sub-allocated with one or more actual effects.
+- The `EffectSpawner` component is now always spawned, even when the effect is not visible.
+  However it won't tick if the effect is not ready.
 
 ### Fixed
 

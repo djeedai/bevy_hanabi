@@ -1272,14 +1272,22 @@ mod test {
                                 handle: handle.clone(),
                                 ..default()
                             },
+                            // Force-ready the effect as those tests don't initialize the render
+                            // world (headless), so the effect would never get ready otherwise.
+                            CompiledParticleEffect::default().with_ready_for_tests(),
                         ))
                         .id()
                 } else {
                     world
-                        .spawn((ParticleEffect {
-                            handle: handle.clone(),
-                            ..default()
-                        },))
+                        .spawn((
+                            ParticleEffect {
+                                handle: handle.clone(),
+                                ..default()
+                            },
+                            // Force-ready the effect as those tests don't initialize the render
+                            // world (headless), so the effect would never get ready otherwise.
+                            CompiledParticleEffect::default().with_ready_for_tests(),
+                        ))
                         .id()
                 };
 
@@ -1326,24 +1334,27 @@ mod test {
                     test_visibility == Visibility::Visible
                 );
                 assert_eq!(particle_effect.handle, handle);
-                if inherited_visibility.get() {
-                    // If visible, `tick_spawners()` spawns the EffectSpawner and ticks it
-                    assert!(effect_spawner.is_some());
-                    let effect_spawner = effect_spawner.unwrap();
-                    let actual_spawner = effect_spawner.settings;
 
+                // The EffectSpawner component is always spawned, even if not visible.
+                assert!(effect_spawner.is_some());
+                let effect_spawner = effect_spawner.unwrap();
+                let actual_spawner = effect_spawner.settings;
+                assert_eq!(actual_spawner, test_case.asset_spawner);
+
+                if inherited_visibility.get() {
                     // Check the spawner ticked
                     assert!(effect_spawner.active); // will get deactivated next tick()
                     assert_eq!(effect_spawner.spawn_remainder, 0.);
                     assert_eq!(effect_spawner.cycle_time, 0.);
                     assert_eq!(effect_spawner.completed_cycle_count, 1);
                     assert_eq!(effect_spawner.spawn_count, 32);
-
-                    assert_eq!(actual_spawner, test_case.asset_spawner);
                 } else {
-                    // If not visible, `tick_spawners()` skips the effect entirely so won't
-                    // spawn an `EffectSpawner` for it
-                    assert!(effect_spawner.is_none());
+                    // Didn't tick
+                    assert!(effect_spawner.active);
+                    assert_eq!(effect_spawner.spawn_remainder, 0.);
+                    assert_eq!(effect_spawner.cycle_time, 0.);
+                    assert_eq!(effect_spawner.completed_cycle_count, 0);
+                    assert_eq!(effect_spawner.spawn_count, 0);
                 }
             } else {
                 // Always-simulated effect (SimulationCondition::Always)

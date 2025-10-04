@@ -1378,6 +1378,12 @@ impl CompiledParticleEffect {
         self.is_ready
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_ready_for_tests(mut self) -> Self {
+        self.is_ready = true;
+        self
+    }
+
     /// Clear the compiled data from this component.
     pub(crate) fn clear(&mut self) {
         self.asset = Handle::default();
