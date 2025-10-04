@@ -65,7 +65,7 @@
 //! # use bevy_hanabi::prelude::*;
 //! fn setup(mut effects: ResMut<Assets<EffectAsset>>) {
 //!     // Define a color gradient from red to transparent black
-//!     let mut gradient = bevy_haanbi::Gradient::new();
+//!     let mut gradient = bevy_hanabi::Gradient::new();
 //!     gradient.add_key(0.0, Vec4::new(1., 0., 0., 1.));
 //!     gradient.add_key(1.0, Vec4::ZERO);
 //!
