@@ -741,7 +741,7 @@ impl TextureLayout {
 /// Effect shaders.
 ///
 /// Contains the configured shaders for the init, update, and render passes.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct EffectShader {
     pub init: Handle<Shader>,
     pub update: Handle<Shader>,
@@ -1348,6 +1348,8 @@ pub struct CompiledParticleEffect {
     parent_particle_layout: Option<ParticleLayout>,
     /// PRNG seed.
     prng_seed: u32,
+    /// Ready state reported by the render world.
+    is_ready: bool,
 }
 
 impl Default for CompiledParticleEffect {
@@ -1364,11 +1366,24 @@ impl Default for CompiledParticleEffect {
             alpha_mode: default(),
             parent_particle_layout: None,
             prng_seed: 0,
+            is_ready: false,
         }
     }
 }
 
 impl CompiledParticleEffect {
+    /// Check if the effect is ready.
+    #[inline(always)]
+    pub fn is_ready(&self) -> bool {
+        self.is_ready
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_ready_for_tests(mut self) -> Self {
+        self.is_ready = true;
+        self
+    }
+
     /// Clear the compiled data from this component.
     pub(crate) fn clear(&mut self) {
         self.asset = Handle::default();
@@ -1784,6 +1799,8 @@ fn update_properties_from_asset(
     assets: Res<Assets<EffectAsset>>,
     mut q_effects: Query<(Ref<ParticleEffect>, &mut EffectProperties), Changed<ParticleEffect>>,
 ) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("update_properties_from_asset").entered();
     trace!("update_properties_from_asset()");
 
     // Loop over all existing effects, including invisible ones

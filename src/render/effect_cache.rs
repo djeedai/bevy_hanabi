@@ -9,7 +9,7 @@ use bevy::{
     ecs::{component::Component, resource::Resource},
     log::{trace, warn},
     platform::collections::HashMap,
-    render::{render_resource::*, renderer::RenderDevice},
+    render::{mesh::allocator::MeshBufferSlice, render_resource::*, renderer::RenderDevice},
     utils::default,
 };
 use bytemuck::cast_slice_mut;
@@ -18,8 +18,8 @@ use super::{buffer_table::BufferTableId, BufferBindingSource};
 use crate::{
     asset::EffectAsset,
     render::{
-        calc_hash, event::GpuChildInfo, GpuEffectMetadata, GpuSpawnerParams, LayoutFlags,
-        StorageType as _, INDIRECT_INDEX_SIZE,
+        calc_hash, event::GpuChildInfo, GpuDrawIndexedIndirectArgs, GpuDrawIndirectArgs,
+        GpuEffectMetadata, GpuSpawnerParams, StorageType as _, INDIRECT_INDEX_SIZE,
     },
     ParticleLayout,
 };
@@ -32,15 +32,15 @@ pub struct EffectSlice {
     ///
     /// This is measured in items, not bytes.
     pub slice: Range<u32>,
-    /// Index of the buffer in the [`EffectCache`].
-    pub buffer_index: u32,
+    /// ID of the particle slab in the [`EffectCache`].
+    pub slab_id: SlabId,
     /// Particle layout of the effect.
     pub particle_layout: ParticleLayout,
 }
 
 impl Ord for EffectSlice {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.buffer_index.cmp(&other.buffer_index) {
+        match self.slab_id.cmp(&other.slab_id) {
             Ordering::Equal => self.slice.start.cmp(&other.slice.start),
             ord => ord,
         }
@@ -53,15 +53,15 @@ impl PartialOrd for EffectSlice {
     }
 }
 
-/// A reference to a slice allocated inside an [`EffectBuffer`].
+/// A reference to a slice allocated inside an [`ParticleSlab`].
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct SliceRef {
-    /// Range into an [`EffectBuffer`], in item count.
+pub struct SlabSliceRef {
+    /// Range into an [`ParticleSlab`], in item count.
     range: Range<u32>,
     pub(crate) particle_layout: ParticleLayout,
 }
 
-impl SliceRef {
+impl SlabSliceRef {
     /// The length of the slice, in number of items.
     #[allow(dead_code)]
     pub fn len(&self) -> u32 {
@@ -119,60 +119,108 @@ impl From<Option<&BufferBindingSource>> for SimBindGroupKey {
     }
 }
 
-/// Storage for a single kind of effects, sharing the same buffer(s).
+/// State of a [`ParticleSlab`] after an insertion or removal operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlabState {
+    /// The slab is in use, with allocated resources.
+    Used,
+    /// Like `Used`, but the slab was resized, so any bind group is
+    /// nonetheless invalid.
+    Resized,
+    /// The slab is free (its resources were deallocated).
+    Free,
+}
+
+/// ID of a [`ParticleSlab`] inside an [`EffectCache`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SlabId(u32);
+
+impl SlabId {
+    /// An invalid value, often used as placeholder.
+    pub const INVALID: SlabId = SlabId(u32::MAX);
+
+    /// Create a new slab ID from its underlying index.
+    pub const fn new(index: u32) -> Self {
+        assert!(index != u32::MAX);
+        Self(index)
+    }
+
+    /// Check if the current ID is valid, that is, is different from
+    /// [`INVALID`].
+    ///
+    /// [`INVALID`]: Self::INVALID
+    #[inline]
+    pub const fn is_valid(&self) -> bool {
+        self.0 != Self::INVALID.0
+    }
+
+    /// Get the raw underlying index.
+    ///
+    /// This is mostly used for debugging / logging.
+    #[inline]
+    pub const fn index(&self) -> u32 {
+        self.0
+    }
+}
+
+impl Default for SlabId {
+    fn default() -> Self {
+        Self::INVALID
+    }
+}
+
+/// Storage for the per-particle data of effects sharing compatible layouts.
 ///
-/// Currently only accepts a single unique item size (particle size), fixed at
-/// creation.
+/// Currently only accepts a single unique particle layout, fixed at creation.
+/// If an effect has a different particle layout, it needs to be stored in a
+/// different slab.
 ///
 /// Also currently only accepts instances of a unique effect asset, although
 /// this restriction is purely for convenience and may be relaxed in the future
 /// to improve batching.
 #[derive(Debug)]
-pub struct EffectBuffer {
-    /// GPU buffer holding all particles for the entire group of effects.
+pub struct ParticleSlab {
+    /// GPU buffer storing all particles for the entire slab of effects.
+    ///
+    /// Each particle is a collection of attributes arranged according to
+    /// [`Self::particle_layout`]. The buffer contains storage for exactly
+    /// [`Self::capacity`] particles.
     particle_buffer: Buffer,
-    /// GPU buffer holding the indirection indices for the entire group of
-    /// effects. This is a triple buffer containing:
+    /// GPU buffer storing the indirection indices for the entire slab of
+    /// effects.
+    ///
+    /// Each indirection item contains 3 values:
     /// - the ping-pong alive particles and render indirect indices at offsets 0
     ///   and 1
     /// - the dead particle indices at offset 2
+    ///
+    /// The buffer contains storage for exactly [`Self::capacity`] items.
     indirect_index_buffer: Buffer,
     /// Layout of particles.
     particle_layout: ParticleLayout,
-    /// Layout of the particle@1 bind group for the render pass.
-    render_particles_buffer_layout: BindGroupLayout,
-    /// Total buffer capacity, in number of particles.
+    /// Total slab capacity, in number of particles.
     capacity: u32,
-    /// Used buffer size, in number of particles, either from allocated slices
+    /// Used slab size, in number of particles, either from allocated slices
     /// or from slices in the free list.
     used_size: u32,
-    /// Array of free slices for new allocations, sorted in increasing order in
-    /// the buffer.
+    /// Array of free slices for new allocations, sorted in increasing order
+    /// inside the slab buffers.
     free_slices: Vec<Range<u32>>,
-    /// Compute pipeline for the effect update pass.
-    // pub compute_pipeline: ComputePipeline, // FIXME - ComputePipelineId, to avoid duplicating per
-    // instance!
-    /// Handle of all effects common in this buffer. TODO - replace with
+
+    /// Handle of all effects common in this slab. TODO - replace with
     /// compatible layout.
     asset: Handle<EffectAsset>,
+    /// Layout of the particle@1 bind group for the render pass.
+    // TODO - move; this only depends on the particle and spawner layouts, can be shared across
+    // slabs
+    render_particles_buffer_layout: BindGroupLayout,
     /// Bind group particle@1 of the simulation passes (init and udpate).
     sim_bind_group: Option<BindGroup>,
     /// Key the `sim_bind_group` was created from.
     sim_bind_group_key: SimBindGroupKey,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BufferState {
-    /// The buffer is in use, with allocated resources.
-    Used,
-    /// Like `Used`, but the buffer was resized, so any bind group is
-    /// nonetheless invalid.
-    Resized,
-    /// The buffer is free (its resources were deallocated).
-    Free,
-}
-
-impl EffectBuffer {
+impl ParticleSlab {
     /// Minimum buffer capacity to allocate, in number of particles.
     // FIXME - Batching is broken due to binding a single GpuSpawnerParam instead of
     // N, and inability for a particle index to tell which Spawner it should
@@ -180,26 +228,24 @@ impl EffectBuffer {
     // the effect, so batching never occurs.
     pub const MIN_CAPACITY: u32 = 1; // 65536; // at least 64k particles
 
-    /// Create a new group and a GPU buffer to back it up.
+    /// Create a new slab and the GPU resources to back it up.
     ///
-    /// The buffer cannot contain less than [`MIN_CAPACITY`] particles. If
-    /// `capacity` is smaller, it's rounded up to [`MIN_CAPACITY`].
+    /// The slab cannot contain less than [`MIN_CAPACITY`] particles. If the
+    /// input `capacity` is smaller, it's rounded up to [`MIN_CAPACITY`].
     ///
-    /// [`MIN_CAPACITY`]: EffectBuffer::MIN_CAPACITY
+    /// [`MIN_CAPACITY`]: Self::MIN_CAPACITY
     pub fn new(
-        buffer_index: u32,
+        slab_id: SlabId,
         asset: Handle<EffectAsset>,
         capacity: u32,
         particle_layout: ParticleLayout,
-        layout_flags: LayoutFlags,
         render_device: &RenderDevice,
     ) -> Self {
         trace!(
-            "EffectBuffer::new(buffer_index={}, capacity={}, particle_layout={:?}, layout_flags={:?}, item_size={}B)",
-            buffer_index,
+            "ParticleSlab::new(slab_id={}, capacity={}, particle_layout={:?}, item_size={}B)",
+            slab_id.0,
             capacity,
             particle_layout,
-            layout_flags,
             particle_layout.min_binding_size().get(),
         );
 
@@ -214,7 +260,7 @@ impl EffectBuffer {
         // particle.
         let particle_capacity_bytes: BufferAddress =
             capacity as u64 * particle_layout.min_binding_size().get();
-        let particle_label = format!("hanabi:buffer:vfx{buffer_index}_particle");
+        let particle_label = format!("hanabi:buffer:slab{}:particle", slab_id.0);
         let particle_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&particle_label),
             size: particle_capacity_bytes,
@@ -226,7 +272,7 @@ impl EffectBuffer {
         // particles.
         let capacity_bytes: BufferAddress = capacity as u64 * 4 * 3;
 
-        let indirect_label = format!("hanabi:buffer:vfx{buffer_index}_indirect");
+        let indirect_label = format!("hanabi:buffer:slab{}:indirect", slab_id.0);
         let indirect_index_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
             size: capacity_bytes,
@@ -249,6 +295,8 @@ impl EffectBuffer {
         }
 
         // Create the render layout.
+        // TODO - move; this only depends on the particle and spawner layouts, can be
+        // shared across slabs
         let spawner_params_size = GpuSpawnerParams::aligned_size(
             render_device.limits().min_storage_buffer_offset_alignment,
         );
@@ -287,12 +335,14 @@ impl EffectBuffer {
                 count: None,
             },
         ];
-        let label = format!("hanabi:bind_group_layout:render:particles@1:vfx{buffer_index}");
+        let label = format!(
+            "hanabi:bind_group_layout:render:particles@1:vfx{}",
+            slab_id.0
+        );
         trace!(
-            "Creating render layout '{}' with {} entries (flags: {:?})",
+            "Creating render layout '{}' with {} entries",
             label,
             entries.len(),
-            layout_flags
         );
         let render_particles_buffer_layout =
             render_device.create_bind_group_layout(&label[..], &entries[..]);
@@ -311,6 +361,8 @@ impl EffectBuffer {
         }
     }
 
+    // TODO - move; this only depends on the particle and spawner layouts, can be
+    // shared across slabs
     pub fn render_particles_buffer_layout(&self) -> &BindGroupLayout {
         &self.render_particles_buffer_layout
     }
@@ -336,13 +388,14 @@ impl EffectBuffer {
     }
 
     /// Return a binding for the entire particle buffer.
-    pub fn max_binding(&self) -> BindingResource<'_> {
+    pub fn as_entire_binding_particle(&self) -> BindingResource<'_> {
         let capacity_bytes = self.capacity as u64 * self.particle_layout.min_binding_size().get();
         BindingResource::Buffer(BufferBinding {
             buffer: &self.particle_buffer,
             offset: 0,
             size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
         })
+        //self.particle_buffer.as_entire_binding()
     }
 
     /// Return a binding source for the entire particle buffer.
@@ -357,24 +410,25 @@ impl EffectBuffer {
 
     /// Return a binding for the entire indirect buffer associated with the
     /// current effect buffer.
-    pub fn indirect_index_max_binding(&self) -> BindingResource<'_> {
+    pub fn as_entire_binding_indirect(&self) -> BindingResource<'_> {
         let capacity_bytes = self.capacity as u64 * 12;
         BindingResource::Buffer(BufferBinding {
             buffer: &self.indirect_index_buffer,
             offset: 0,
             size: Some(NonZeroU64::new(capacity_bytes).unwrap()),
         })
+        //self.indirect_index_buffer.as_entire_binding()
     }
 
     /// Create the "particle" bind group @1 for the init and update passes if
     /// needed.
     ///
-    /// The `buffer_index` must be the index of the current [`EffectBuffer`]
-    /// inside the [`EffectCache`].
+    /// The `slab_id` must be the ID of the current [`ParticleSlab`] inside the
+    /// [`EffectCache`].
     pub fn create_particle_sim_bind_group(
         &mut self,
         layout: &BindGroupLayout,
-        buffer_index: u32,
+        slab_id: &SlabId,
         render_device: &RenderDevice,
         parent_binding_source: Option<&BufferBindingSource>,
     ) {
@@ -383,35 +437,36 @@ impl EffectBuffer {
             return;
         }
 
-        let label = format!("hanabi:bind_group:sim:particle@1:vfx{}", buffer_index);
-        let entries: &[BindGroupEntry] =
-            if let Some(parent_binding) = parent_binding_source.as_ref().map(|bbs| bbs.binding()) {
-                &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: self.max_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: self.indirect_index_max_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: parent_binding,
-                    },
-                ]
-            } else {
-                &[
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: self.max_binding(),
-                    },
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: self.indirect_index_max_binding(),
-                    },
-                ]
-            };
+        let label = format!("hanabi:bind_group:sim:particle@1:vfx{}", slab_id.index());
+        let entries: &[BindGroupEntry] = if let Some(parent_binding) =
+            parent_binding_source.as_ref().map(|bbs| bbs.as_binding())
+        {
+            &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: self.as_entire_binding_particle(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: self.as_entire_binding_indirect(),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: parent_binding,
+                },
+            ]
+        } else {
+            &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: self.as_entire_binding_particle(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: self.as_entire_binding_indirect(),
+                },
+            ]
+        };
 
         trace!(
             "Create particle simulation bind group '{}' with {} entries (has_parent:{})",
@@ -431,7 +486,7 @@ impl EffectBuffer {
     /// re-allocated. This forces a re-creation of the bind group
     /// next time [`create_particle_sim_bind_group()`] is called.
     ///
-    /// [`create_particle_sim_bind_group()`]: self::EffectBuffer::create_particle_sim_bind_group
+    /// [`create_particle_sim_bind_group()`]: self::ParticleSlab::create_particle_sim_bind_group
     #[allow(dead_code)] // FIXME - review this...
     fn invalidate_particle_sim_bind_group(&mut self) {
         self.sim_bind_group = None;
@@ -448,8 +503,8 @@ impl EffectBuffer {
     /// [`invalidate_particle_sim_bind_groups()`] clears the
     /// cached reference.
     ///
-    /// [`create_particle_sim_bind_group()`]: self::EffectBuffer::create_particle_sim_bind_group
-    /// [`invalidate_particle_sim_bind_groups()`]: self::EffectBuffer::invalidate_particle_sim_bind_groups
+    /// [`create_particle_sim_bind_group()`]: self::ParticleSlab::create_particle_sim_bind_group
+    /// [`invalidate_particle_sim_bind_groups()`]: self::ParticleSlab::invalidate_particle_sim_bind_groups
     pub fn particle_sim_bind_group(&self) -> Option<&BindGroup> {
         self.sim_bind_group.as_ref()
     }
@@ -503,19 +558,10 @@ impl EffectBuffer {
         }
     }
 
-    /// Allocate a new slice in the buffer to store the particles of a single
+    /// Allocate a new entry in the slab to store the particles of a single
     /// effect.
-    pub fn allocate_slice(
-        &mut self,
-        capacity: u32,
-        particle_layout: &ParticleLayout,
-    ) -> Option<SliceRef> {
-        trace!(
-            "EffectBuffer::allocate_slice: capacity={} particle_layout={:?} item_size={}",
-            capacity,
-            particle_layout,
-            particle_layout.min_binding_size().get(),
-        );
+    pub fn allocate(&mut self, capacity: u32) -> Option<SlabSliceRef> {
+        trace!("ParticleSlab::allocate(capacity={})", capacity);
 
         if capacity > self.capacity {
             return None;
@@ -532,7 +578,7 @@ impl EffectBuffer {
             } else {
                 if self.used_size == 0 {
                     warn!(
-                        "Cannot allocate slice of size {} in effect cache buffer of capacity {}.",
+                        "Cannot allocate slice of size {} in particle slab of capacity {}.",
                         capacity, self.capacity
                     );
                 }
@@ -541,15 +587,15 @@ impl EffectBuffer {
         };
 
         trace!("-> allocated slice {:?}", range);
-        Some(SliceRef {
+        Some(SlabSliceRef {
             range,
-            particle_layout: particle_layout.clone(),
+            particle_layout: self.particle_layout.clone(),
         })
     }
 
     /// Free an allocated slice, and if this was the last allocated slice also
     /// free the buffer.
-    pub fn free_slice(&mut self, slice: SliceRef) -> BufferState {
+    pub fn free_slice(&mut self, slice: SlabSliceRef) -> SlabState {
         // If slice is at the end of the buffer, reduce total used size
         if slice.range.end == self.used_size {
             self.used_size = slice.range.start;
@@ -566,11 +612,11 @@ impl EffectBuffer {
             if self.used_size == 0 {
                 assert!(self.free_slices.is_empty());
                 // The buffer is not used anymore, free it too
-                BufferState::Free
+                SlabState::Free
             } else {
                 // There are still some slices used, the last one of which ends at
                 // self.used_size
-                BufferState::Used
+                SlabState::Used
             }
         } else {
             // Free slice is not at end; insert it in free list
@@ -587,52 +633,135 @@ impl EffectBuffer {
                 Ok(_) => warn!("Range {:?} already present in free list!", range),
                 Err(index) => self.free_slices.insert(index, range),
             }
-            BufferState::Used
+            SlabState::Used
         }
     }
 
-    pub fn is_compatible(&self, handle: &Handle<EffectAsset>) -> bool {
+    /// Check whether this slab is compatible with the given asset.
+    ///
+    /// This allows determining whether an instance of the effect can be stored
+    /// inside this slab.
+    pub fn is_compatible(
+        &self,
+        handle: &Handle<EffectAsset>,
+        _particle_layout: &ParticleLayout,
+    ) -> bool {
         // TODO - replace with check particle layout is compatible to allow tighter
         // packing in less buffers, and update in the less dispatch calls
         *handle == self.asset
     }
 }
 
-/// A single cached effect (all groups) in the [`EffectCache`].
+/// A single cached effect in the [`EffectCache`].
 #[derive(Debug, Component)]
 pub(crate) struct CachedEffect {
-    /// Index into the [`EffectCache::buffers`] of the buffer storing the
-    /// particles for this effect.
-    pub buffer_index: u32,
-    /// The effect slice within that buffer.
-    pub slice: SliceRef,
+    /// ID of the slab of the slab storing the particles for this effect in the
+    /// [`EffectCache`].
+    pub slab_id: SlabId,
+    /// The allocated effect slice within that slab.
+    pub slice: SlabSliceRef,
 }
 
-#[derive(Debug, Clone, Copy, Component)]
-pub(crate) enum DrawIndirectRowIndex {
-    NonIndexed(BufferTableId),
-    Indexed(BufferTableId),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AnyDrawIndirectArgs {
+    /// Args of a non-indexed draw call.
+    NonIndexed(GpuDrawIndirectArgs),
+    /// Args of an indexed draw call.
+    Indexed(GpuDrawIndexedIndirectArgs),
 }
 
-impl Default for DrawIndirectRowIndex {
-    fn default() -> Self {
-        Self::NonIndexed(BufferTableId::INVALID)
+impl AnyDrawIndirectArgs {
+    /// Create from a vertex buffer slice and an optional index buffer one.
+    pub fn from_slices(
+        vertex_slice: &MeshBufferSlice<'_>,
+        index_slice: Option<&MeshBufferSlice<'_>>,
+    ) -> Self {
+        if let Some(index_slice) = index_slice {
+            Self::Indexed(GpuDrawIndexedIndirectArgs {
+                index_count: index_slice.range.len() as u32,
+                instance_count: 0,
+                first_index: index_slice.range.start,
+                base_vertex: vertex_slice.range.start as i32,
+                first_instance: 0,
+            })
+        } else {
+            Self::NonIndexed(GpuDrawIndirectArgs {
+                vertex_count: vertex_slice.range.len() as u32,
+                instance_count: 0,
+                first_vertex: vertex_slice.range.start,
+                first_instance: 0,
+            })
+        }
+    }
+
+    /// Check if this args are for an indexed draw call.
+    #[inline(always)]
+    pub fn is_indexed(&self) -> bool {
+        matches!(*self, Self::Indexed(..))
+    }
+
+    /// Bit-cast the args to the row entry of the GPU buffer.
+    ///
+    /// If non-indexed, this returns an indexed struct bit-cast from the actual
+    /// non-indexed one, ready for GPU upload.
+    pub fn bitcast_to_row_entry(&self) -> GpuDrawIndexedIndirectArgs {
+        match self {
+            AnyDrawIndirectArgs::NonIndexed(args) => GpuDrawIndexedIndirectArgs {
+                index_count: args.vertex_count,
+                instance_count: args.instance_count,
+                first_index: args.first_vertex,
+                base_vertex: args.first_instance as i32,
+                first_instance: 0,
+            },
+            AnyDrawIndirectArgs::Indexed(args) => *args,
+        }
     }
 }
 
-impl DrawIndirectRowIndex {
+impl From<GpuDrawIndirectArgs> for AnyDrawIndirectArgs {
+    fn from(args: GpuDrawIndirectArgs) -> Self {
+        Self::NonIndexed(args)
+    }
+}
+
+impl From<GpuDrawIndexedIndirectArgs> for AnyDrawIndirectArgs {
+    fn from(args: GpuDrawIndexedIndirectArgs) -> Self {
+        Self::Indexed(args)
+    }
+}
+
+/// Index of a row (entry) into the [`BufferTable`] storing the indirect draw
+/// args of a single draw call.
+#[derive(Debug, Clone, Copy, Component)]
+pub(crate) struct CachedDrawIndirectArgs {
+    pub row: BufferTableId,
+    pub args: AnyDrawIndirectArgs,
+}
+
+impl Default for CachedDrawIndirectArgs {
+    fn default() -> Self {
+        Self {
+            row: BufferTableId::INVALID,
+            args: AnyDrawIndirectArgs::NonIndexed(default()),
+        }
+    }
+}
+
+impl CachedDrawIndirectArgs {
     /// Check if the index is valid.
     ///
     /// An invalid index doesn't correspond to any allocated args entry. A valid
     /// one may, but note that the args entry in the buffer may have been freed
     /// already with this index. There's no mechanism to detect reuse either.
+    #[inline(always)]
     pub fn is_valid(&self) -> bool {
-        self.get_raw().is_valid()
+        self.get_row_raw().is_valid()
     }
 
     /// Check if this row index refers to an indexed draw args entry.
+    #[inline(always)]
     pub fn is_indexed(&self) -> bool {
-        matches!(*self, Self::Indexed(..))
+        self.args.is_indexed()
     }
 
     /// Get the raw index value.
@@ -645,18 +774,15 @@ impl DrawIndirectRowIndex {
     /// # Panics
     ///
     /// Panics if the index is invalid, whether indexed or non-indexed.
-    pub fn get(&self) -> BufferTableId {
-        let idx = self.get_raw();
+    pub fn get_row(&self) -> BufferTableId {
+        let idx = self.get_row_raw();
         assert!(idx.is_valid());
         idx
     }
 
     #[inline(always)]
-    fn get_raw(&self) -> BufferTableId {
-        match *self {
-            Self::NonIndexed(idx) => idx,
-            Self::Indexed(idx) => idx,
-        }
+    fn get_row_raw(&self) -> BufferTableId {
+        self.row
     }
 }
 
@@ -670,22 +796,6 @@ pub(crate) struct DispatchBufferIndices {
     /// [`GpuDispatchIndirect`]: super::GpuDispatchIndirect
     /// [`EffectsMeta::update_dispatch_indirect_buffer`]: super::EffectsMeta::dispatch_indirect_buffer
     pub(crate) update_dispatch_indirect_buffer_row_index: u32,
-
-    /// The index of the [`GpuDrawIndirect`] or [`GpuDrawIndexedIndirect`] row
-    /// in the GPU buffer [`EffectsMeta::draw_indirect_buffer`] or
-    /// [`EffectsMeta::draw_indexed_indirect_buffer`].
-    ///
-    /// [`GpuDrawIndirect`]: super::GpuDrawIndirect
-    /// [`GpuDrawIndexedIndirect`]: super::GpuDrawIndexedIndirect
-    /// [`EffectsMeta::draw_indirect_buffer`]: super::EffectsMeta::draw_indirect_buffer
-    /// [`EffectsMeta::draw_indexed_indirect_buffer`]: super::EffectsMeta::draw_indexed_indirect_buffer
-    pub(crate) draw_indirect_buffer_row_index: DrawIndirectRowIndex,
-
-    /// The index of the [`GpuEffectMetadata`] in
-    /// [`EffectsMeta::effect_metadata_buffer`].
-    ///
-    /// [`EffectsMeta::effect_metadata_buffer`]: super::EffectsMeta::effect_metadata_buffer
-    pub(crate) effect_metadata_buffer_table_id: BufferTableId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -699,10 +809,10 @@ struct ParticleBindGroupLayoutKey {
 pub struct EffectCache {
     /// Render device the GPU resources (buffers) are allocated from.
     render_device: RenderDevice,
-    /// Collection of effect buffers managed by this cache. Some buffers might
-    /// be `None` if the entry is not used. Since the buffers are referenced
+    /// Collection of particle slabs managed by this cache. Some slabs might be
+    /// `None` if the entry is not used. Since the slabs are referenced
     /// by index, we cannot move them once they're allocated.
-    buffers: Vec<Option<EffectBuffer>>,
+    particle_slabs: Vec<Option<ParticleSlab>>,
     /// Cache of bind group layouts for the particle@1 bind groups of the
     /// simulation passes (init and update). Since all bindings depend only
     /// on buffers managed by the [`EffectCache`], we also cache the layouts
@@ -717,53 +827,53 @@ pub struct EffectCache {
 }
 
 impl EffectCache {
+    /// Create a new empty cache.
     pub fn new(device: RenderDevice) -> Self {
         Self {
             render_device: device,
-            buffers: vec![],
+            particle_slabs: vec![],
             particle_bind_group_layouts: default(),
             metadata_init_bind_group_layout: [None, None],
             metadata_update_bind_group_layouts: default(),
         }
     }
 
-    /// Get all the buffer slots. Unallocated slots are `None`. This can be
-    /// indexed by the buffer index.
+    /// Get all the particle slab slots. Unallocated slots are `None`. This can
+    /// be indexed by the slab index.
     #[allow(dead_code)]
     #[inline]
-    pub fn buffers(&self) -> &[Option<EffectBuffer>] {
-        &self.buffers
+    pub fn slabs(&self) -> &[Option<ParticleSlab>] {
+        &self.particle_slabs
     }
 
-    /// Get all the buffer slots. Unallocated slots are `None`. This can be
-    /// indexed by the buffer index.
+    /// Get all the particle slab slots. Unallocated slots are `None`. This can
+    /// be indexed by the slab ID.
     #[allow(dead_code)]
     #[inline]
-    pub fn buffers_mut(&mut self) -> &mut [Option<EffectBuffer>] {
-        &mut self.buffers
+    pub fn slabs_mut(&mut self) -> &mut [Option<ParticleSlab>] {
+        &mut self.particle_slabs
     }
 
-    /// Fetch a specific buffer by index.
-    #[allow(dead_code)]
+    /// Fetch a specific slab by ID.
     #[inline]
-    pub fn get_buffer(&self, buffer_index: u32) -> Option<&EffectBuffer> {
-        self.buffers.get(buffer_index as usize)?.as_ref()
+    pub fn get_slab(&self, slab_id: &SlabId) -> Option<&ParticleSlab> {
+        self.particle_slabs.get(slab_id.0 as usize)?.as_ref()
     }
 
-    /// Fetch a specific buffer by index.
+    /// Fetch a specific buffer by ID.
     #[allow(dead_code)]
     #[inline]
-    pub fn get_buffer_mut(&mut self, buffer_index: u32) -> Option<&mut EffectBuffer> {
-        self.buffers.get_mut(buffer_index as usize)?.as_mut()
+    pub fn get_slab_mut(&mut self, slab_id: &SlabId) -> Option<&mut ParticleSlab> {
+        self.particle_slabs.get_mut(slab_id.0 as usize)?.as_mut()
     }
 
     /// Invalidate all the particle@1 bind group for all buffers.
     ///
     /// This iterates over all valid buffers and calls
-    /// [`EffectBuffer::invalidate_particle_sim_bind_group()`] on each one.
+    /// [`ParticleSlab::invalidate_particle_sim_bind_group()`] on each one.
     #[allow(dead_code)] // FIXME - review this...
     pub fn invalidate_particle_sim_bind_groups(&mut self) {
-        for buffer in self.buffers.iter_mut().flatten() {
+        for buffer in self.particle_slabs.iter_mut().flatten() {
             buffer.invalidate_particle_sim_bind_group();
         }
     }
@@ -774,85 +884,82 @@ impl EffectCache {
         asset: Handle<EffectAsset>,
         capacity: u32,
         particle_layout: &ParticleLayout,
-        layout_flags: LayoutFlags,
     ) -> CachedEffect {
         trace!("Inserting new effect into cache: capacity={capacity}");
-        let (buffer_index, slice) = self
-            .buffers
+        let (slab_id, slice) = self
+            .particle_slabs
             .iter_mut()
             .enumerate()
-            .find_map(|(buffer_index, buffer)| {
-                if let Some(buffer) = buffer {
-                    // The buffer must be compatible with the effect layout, to allow the update pass
-                    // to update all particles at once from all compatible effects in a single dispatch.
-                    if !buffer.is_compatible(&asset) {
-                        return None;
-                    }
+            .find_map(|(slab_index, maybe_slab)| {
+                // Ignore empty (non-allocated) entries as we're trying to fit the new allocation inside an existing slab.
+                let Some(slab) = maybe_slab else { return None; };
 
-                    // Try to allocate a slice into the buffer
-                    buffer
-                        .allocate_slice(capacity, particle_layout)
-                        .map(|slice| (buffer_index, slice))
-                } else {
-                    None
+                // The slab must be compatible with the effect's layout, otherwise ignore it.
+                if !slab.is_compatible(&asset, particle_layout) {
+                    return None;
                 }
+
+                // Try to allocate a slice into the slab
+                slab
+                    .allocate(capacity)
+                    .map(|slice| (SlabId::new(slab_index as u32), slice))
             })
             .unwrap_or_else(|| {
-                // Cannot find any suitable buffer; allocate a new one
-                let buffer_index = self.buffers.iter().position(|buf| buf.is_none()).unwrap_or(self.buffers.len());
+                // Cannot find any suitable slab; allocate a new one
+                let index = self.particle_slabs.iter().position(|buf| buf.is_none()).unwrap_or(self.particle_slabs.len());
                 let byte_size = capacity.checked_mul(particle_layout.min_binding_size().get() as u32).unwrap_or_else(|| panic!(
-                    "Effect size overflow: capacities={:?} particle_layout={:?} item_size={}",
+                    "Effect size overflow: capacity={:?} particle_layout={:?} item_size={}",
                     capacity, particle_layout, particle_layout.min_binding_size().get()
                 ));
                 trace!(
-                    "Creating new effect buffer #{} for effect {:?} (capacities={:?}, particle_layout={:?} item_size={}, byte_size={})",
-                    buffer_index,
+                    "Creating new particle slab #{} for effect {:?} (capacity={:?}, particle_layout={:?} item_size={}, byte_size={})",
+                    index,
                     asset,
                     capacity,
                     particle_layout,
                     particle_layout.min_binding_size().get(),
                     byte_size
                 );
-                let mut buffer = EffectBuffer::new(
-                    buffer_index as u32,
+                let slab_id = SlabId::new(index as u32);
+                let mut slab = ParticleSlab::new(
+                    slab_id,
                     asset,
                     capacity,
                     particle_layout.clone(),
-                    layout_flags,
                     &self.render_device,
                 );
-                let slice_ref = buffer.allocate_slice(capacity, particle_layout).unwrap();
-                if buffer_index >= self.buffers.len() {
-                    self.buffers.push(Some(buffer));
+                let slice_ref = slab.allocate(capacity).unwrap();
+                if index >= self.particle_slabs.len() {
+                    self.particle_slabs.push(Some(slab));
                 } else {
-                    debug_assert!(self.buffers[buffer_index].is_none());
-                    self.buffers[buffer_index] = Some(buffer);
+                    debug_assert!(self.particle_slabs[index].is_none());
+                    self.particle_slabs[index] = Some(slab);
                 }
-                (buffer_index, slice_ref)
+                (slab_id, slice_ref)
             });
 
-        let slice = SliceRef {
+        let slice = SlabSliceRef {
             range: slice.range.clone(),
             particle_layout: slice.particle_layout,
         };
 
         trace!(
-            "Insert effect buffer_index={} slice={}B particle_layout={:?}",
-            buffer_index,
+            "Insert effect slab_id={} slice={}B particle_layout={:?}",
+            slab_id.0,
             slice.particle_layout.min_binding_size().get(),
             slice.particle_layout,
         );
-        CachedEffect {
-            buffer_index: buffer_index as u32,
-            slice,
-        }
+        CachedEffect { slab_id, slice }
     }
 
     /// Remove an effect from the cache. If this was the last effect, drop the
     /// underlying buffer and return the index of the dropped buffer.
-    pub fn remove(&mut self, cached_effect: &CachedEffect) -> Result<BufferState, ()> {
+    pub fn remove(&mut self, cached_effect: &CachedEffect) -> Result<SlabState, ()> {
         // Resolve the buffer by index
-        let Some(maybe_buffer) = self.buffers.get_mut(cached_effect.buffer_index as usize) else {
+        let Some(maybe_buffer) = self
+            .particle_slabs
+            .get_mut(cached_effect.slab_id.0 as usize)
+        else {
             return Err(());
         };
         let Some(buffer) = maybe_buffer.as_mut() else {
@@ -860,12 +967,12 @@ impl EffectCache {
         };
 
         // Free the slice inside the resolved buffer
-        if buffer.free_slice(cached_effect.slice.clone()) == BufferState::Free {
+        if buffer.free_slice(cached_effect.slice.clone()) == SlabState::Free {
             *maybe_buffer = None;
-            return Ok(BufferState::Free);
+            return Ok(SlabState::Free);
         }
 
-        Ok(BufferState::Used)
+        Ok(SlabState::Used)
     }
 
     //
@@ -959,15 +1066,14 @@ impl EffectCache {
 
     /// Get the "particle" bind group for the simulation (init and update)
     /// passes a cached effect stored in a given GPU particle buffer.
-    pub fn particle_sim_bind_group(&self, buffer_index: u32) -> Option<&BindGroup> {
-        self.buffers[buffer_index as usize]
-            .as_ref()
-            .and_then(|eb| eb.particle_sim_bind_group())
+    pub fn particle_sim_bind_group(&self, slab_id: &SlabId) -> Option<&BindGroup> {
+        self.get_slab(slab_id)
+            .and_then(|slab| slab.particle_sim_bind_group())
     }
 
     pub fn create_particle_sim_bind_group(
         &mut self,
-        buffer_index: u32,
+        slab_id: &SlabId,
         render_device: &RenderDevice,
         min_binding_size: NonZeroU32,
         parent_min_binding_size: Option<NonZeroU32>,
@@ -977,11 +1083,14 @@ impl EffectCache {
         let layout = self
             .ensure_particle_bind_group_layout(min_binding_size, parent_min_binding_size)
             .clone();
-        let slot = self.buffers.get_mut(buffer_index as usize).ok_or(())?;
+        let slot = self
+            .particle_slabs
+            .get_mut(slab_id.index() as usize)
+            .ok_or(())?;
         let effect_buffer = slot.as_mut().ok_or(())?;
         effect_buffer.create_particle_sim_bind_group(
             &layout,
-            buffer_index,
+            slab_id,
             render_device,
             parent_binding_source,
         );
@@ -1205,12 +1314,12 @@ mod gpu_tests {
         let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
         let slice1 = EffectSlice {
             slice: 0..32,
-            buffer_index: 1,
+            slab_id: SlabId::new(1),
             particle_layout: particle_layout.clone(),
         };
         let slice2 = EffectSlice {
             slice: 32..64,
-            buffer_index: 1,
+            slab_id: SlabId::new(1),
             particle_layout: particle_layout.clone(),
         };
         assert!(slice1 < slice2);
@@ -1220,7 +1329,7 @@ mod gpu_tests {
 
         let slice3 = EffectSlice {
             slice: 0..32,
-            buffer_index: 0,
+            slab_id: SlabId::new(0),
             particle_layout,
         };
         assert!(slice3 < slice1);
@@ -1269,7 +1378,7 @@ mod gpu_tests {
             (0..16, &l32, 16, 16 * 32),
             (240..256, &l48, 16, 16 * 48),
         ] {
-            let sr = SliceRef {
+            let sr = SlabSliceRef {
                 range,
                 particle_layout: particle_layout.clone(),
             };
@@ -1293,27 +1402,26 @@ mod gpu_tests {
 
         let asset = Handle::<EffectAsset>::default();
         let capacity = 4096;
-        let mut buffer = EffectBuffer::new(
-            42,
+        let mut buffer = ParticleSlab::new(
+            SlabId::new(42),
             asset,
             capacity,
             l64.clone(),
-            LayoutFlags::NONE,
             &render_device,
         );
 
-        assert_eq!(buffer.capacity, capacity.max(EffectBuffer::MIN_CAPACITY));
+        assert_eq!(buffer.capacity, capacity.max(ParticleSlab::MIN_CAPACITY));
         assert_eq!(64, buffer.particle_layout.size());
         assert_eq!(64, buffer.particle_layout.min_binding_size().get());
         assert_eq!(0, buffer.used_size);
         assert!(buffer.free_slices.is_empty());
 
-        assert_eq!(None, buffer.allocate_slice(buffer.capacity + 1, &l64));
+        assert_eq!(None, buffer.allocate(buffer.capacity + 1));
 
         let mut offset = 0;
         let mut slices = vec![];
         for size in [32, 128, 55, 148, 1, 2048, 42] {
-            let slice = buffer.allocate_slice(size, &l64);
+            let slice = buffer.allocate(size);
             assert!(slice.is_some());
             let slice = slice.unwrap();
             assert_eq!(64, slice.particle_layout.size());
@@ -1324,29 +1432,29 @@ mod gpu_tests {
         }
         assert_eq!(offset, buffer.used_size);
 
-        assert_eq!(BufferState::Used, buffer.free_slice(slices[2].clone()));
+        assert_eq!(SlabState::Used, buffer.free_slice(slices[2].clone()));
         assert_eq!(1, buffer.free_slices.len());
         let free_slice = &buffer.free_slices[0];
         assert_eq!(160..215, *free_slice);
         assert_eq!(offset, buffer.used_size); // didn't move
 
-        assert_eq!(BufferState::Used, buffer.free_slice(slices[3].clone()));
-        assert_eq!(BufferState::Used, buffer.free_slice(slices[4].clone()));
-        assert_eq!(BufferState::Used, buffer.free_slice(slices[5].clone()));
+        assert_eq!(SlabState::Used, buffer.free_slice(slices[3].clone()));
+        assert_eq!(SlabState::Used, buffer.free_slice(slices[4].clone()));
+        assert_eq!(SlabState::Used, buffer.free_slice(slices[5].clone()));
         assert_eq!(4, buffer.free_slices.len());
         assert_eq!(offset, buffer.used_size); // didn't move
 
         // this will collapse all the way to slices[1], the highest allocated
-        assert_eq!(BufferState::Used, buffer.free_slice(slices[6].clone()));
+        assert_eq!(SlabState::Used, buffer.free_slice(slices[6].clone()));
         assert_eq!(0, buffer.free_slices.len()); // collapsed
         assert_eq!(160, buffer.used_size); // collapsed
 
-        assert_eq!(BufferState::Used, buffer.free_slice(slices[0].clone()));
+        assert_eq!(SlabState::Used, buffer.free_slice(slices[0].clone()));
         assert_eq!(1, buffer.free_slices.len());
         assert_eq!(160, buffer.used_size); // didn't move
 
         // collapse all, and free buffer
-        assert_eq!(BufferState::Free, buffer.free_slice(slices[1].clone()));
+        assert_eq!(SlabState::Free, buffer.free_slice(slices[1].clone()));
         assert_eq!(0, buffer.free_slices.len());
         assert_eq!(0, buffer.used_size); // collapsed and empty
     }
@@ -1365,38 +1473,37 @@ mod gpu_tests {
         assert_eq!(64, l64.size());
 
         let asset = Handle::<EffectAsset>::default();
-        let capacity = 2048; // EffectBuffer::MIN_CAPACITY;
+        let capacity = 2048; // ParticleSlab::MIN_CAPACITY;
         assert!(capacity >= 2048); // otherwise the logic below breaks
-        let mut buffer = EffectBuffer::new(
-            42,
+        let mut buffer = ParticleSlab::new(
+            SlabId::new(42),
             asset,
             capacity,
             l64.clone(),
-            LayoutFlags::NONE,
             &render_device,
         );
 
-        let slice0 = buffer.allocate_slice(32, &l64);
+        let slice0 = buffer.allocate(32);
         assert!(slice0.is_some());
         let slice0 = slice0.unwrap();
         assert_eq!(slice0.range, 0..32);
         assert!(buffer.free_slices.is_empty());
 
-        let slice1 = buffer.allocate_slice(1024, &l64);
+        let slice1 = buffer.allocate(1024);
         assert!(slice1.is_some());
         let slice1 = slice1.unwrap();
         assert_eq!(slice1.range, 32..1056);
         assert!(buffer.free_slices.is_empty());
 
         let state = buffer.free_slice(slice0);
-        assert_eq!(state, BufferState::Used);
+        assert_eq!(state, SlabState::Used);
         assert_eq!(buffer.free_slices.len(), 1);
         assert_eq!(buffer.free_slices[0], 0..32);
 
         // Try to allocate a slice larger than slice0, such that slice0 cannot be
         // recycled, and instead the new slice has to be appended after all
         // existing ones.
-        let slice2 = buffer.allocate_slice(64, &l64);
+        let slice2 = buffer.allocate(64);
         assert!(slice2.is_some());
         let slice2 = slice2.unwrap();
         assert_eq!(slice2.range.start, slice1.range.end); // after slice1
@@ -1404,7 +1511,7 @@ mod gpu_tests {
         assert_eq!(buffer.free_slices.len(), 1);
 
         // Now allocate a small slice that fits, to recycle (part of) slice0.
-        let slice3 = buffer.allocate_slice(16, &l64);
+        let slice3 = buffer.allocate(16);
         assert!(slice3.is_some());
         let slice3 = slice3.unwrap();
         assert_eq!(slice3.range, 0..16);
@@ -1413,7 +1520,7 @@ mod gpu_tests {
 
         // Allocate a second small slice that fits exactly the left space, completely
         // recycling
-        let slice4 = buffer.allocate_slice(16, &l64);
+        let slice4 = buffer.allocate(16);
         assert!(slice4.is_some());
         let slice4 = slice4.unwrap();
         assert_eq!(slice4.range, 16..32);
@@ -1429,14 +1536,14 @@ mod gpu_tests {
         assert_eq!(32, l32.size());
 
         let mut effect_cache = EffectCache::new(render_device);
-        assert_eq!(effect_cache.buffers().len(), 0);
+        assert_eq!(effect_cache.slabs().len(), 0);
 
         let asset = Handle::<EffectAsset>::default();
-        let capacity = EffectBuffer::MIN_CAPACITY;
+        let capacity = ParticleSlab::MIN_CAPACITY;
         let item_size = l32.size();
 
         // Insert an effect
-        let effect1 = effect_cache.insert(asset.clone(), capacity, &l32, LayoutFlags::NONE);
+        let effect1 = effect_cache.insert(asset.clone(), capacity, &l32);
         //assert!(effect1.is_valid());
         let slice1 = &effect1.slice;
         assert_eq!(slice1.len(), capacity);
@@ -1445,10 +1552,10 @@ mod gpu_tests {
             item_size
         );
         assert_eq!(slice1.range, 0..capacity);
-        assert_eq!(effect_cache.buffers().len(), 1);
+        assert_eq!(effect_cache.slabs().len(), 1);
 
         // Insert a second copy of the same effect
-        let effect2 = effect_cache.insert(asset.clone(), capacity, &l32, LayoutFlags::NONE);
+        let effect2 = effect_cache.insert(asset.clone(), capacity, &l32);
         //assert!(effect2.is_valid());
         let slice2 = &effect2.slice;
         assert_eq!(slice2.len(), capacity);
@@ -1457,22 +1564,22 @@ mod gpu_tests {
             item_size
         );
         assert_eq!(slice2.range, 0..capacity);
-        assert_eq!(effect_cache.buffers().len(), 2);
+        assert_eq!(effect_cache.slabs().len(), 2);
 
         // Remove the first effect instance
         let buffer_state = effect_cache.remove(&effect1).unwrap();
         // Note: currently batching is disabled, so each instance has its own buffer,
         // which becomes unused once the instance is destroyed.
-        assert_eq!(buffer_state, BufferState::Free);
-        assert_eq!(effect_cache.buffers().len(), 2);
+        assert_eq!(buffer_state, SlabState::Free);
+        assert_eq!(effect_cache.slabs().len(), 2);
         {
-            let buffers = effect_cache.buffers();
-            assert!(buffers[0].is_none());
-            assert!(buffers[1].is_some()); // id2
+            let slabs = effect_cache.slabs();
+            assert!(slabs[0].is_none());
+            assert!(slabs[1].is_some()); // id2
         }
 
         // Regression #60
-        let effect3 = effect_cache.insert(asset, capacity, &l32, LayoutFlags::NONE);
+        let effect3 = effect_cache.insert(asset, capacity, &l32);
         //assert!(effect3.is_valid());
         let slice3 = &effect3.slice;
         assert_eq!(slice3.len(), capacity);
@@ -1482,11 +1589,11 @@ mod gpu_tests {
         );
         assert_eq!(slice3.range, 0..capacity);
         // Note: currently batching is disabled, so each instance has its own buffer.
-        assert_eq!(effect_cache.buffers().len(), 2);
+        assert_eq!(effect_cache.slabs().len(), 2);
         {
-            let buffers = effect_cache.buffers();
-            assert!(buffers[0].is_some()); // id3
-            assert!(buffers[1].is_some()); // id2
+            let slabs = effect_cache.slabs();
+            assert!(slabs[0].is_some()); // id3
+            assert!(slabs[1].is_some()); // id2
         }
     }
 }

@@ -1873,10 +1873,10 @@ impl ParticleLayout {
     ///     .append(Attribute::POSITION)
     ///     .append(Attribute::SIZE)
     ///     .build();
-    /// let size_offset = layout.offset(Attribute::SIZE);
+    /// let size_offset = layout.byte_offset(Attribute::SIZE);
     /// assert_eq!(size_offset, Some(12));
     /// ```
-    pub fn offset(&self, attribute: Attribute) -> Option<u32> {
+    pub fn byte_offset(&self, attribute: Attribute) -> Option<u32> {
         self.layout.iter().find_map(|&entry| {
             if entry.attribute.name() == attribute.name() {
                 Some(entry.offset)

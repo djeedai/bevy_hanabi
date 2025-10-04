@@ -4,6 +4,7 @@ use std::{
 };
 
 use bevy::{
+    ecs::{system::Commands, world::Mut},
     log::{error, trace},
     platform::collections::HashMap,
     prelude::{Component, Entity, OnRemove, Query, Res, ResMut, Resource, Trigger},
@@ -17,9 +18,9 @@ use wgpu::{
     BufferBindingType, BufferUsages, ShaderStages,
 };
 
-use super::{aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::BufferState};
+use super::{aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::SlabState};
 use crate::{
-    render::{GpuSpawnerParams, StorageType},
+    render::{ExtractedProperties, GpuSpawnerParams, StorageType},
     PropertyLayout,
 };
 
@@ -27,6 +28,8 @@ use crate::{
 /// is only present on an effect instance if that effect uses properties.
 #[derive(Debug, Clone, PartialEq, Eq, Component)]
 pub struct CachedEffectProperties {
+    /// Property layout.
+    pub property_layout: PropertyLayout,
     /// Index of the [`PropertyBuffer`] inside the [`PropertyCache`].
     pub buffer_index: u32,
     /// Slice of GPU buffer where the storage for properties is allocated.
@@ -90,7 +93,7 @@ impl PropertyBuffer {
 
     #[allow(dead_code)]
     #[inline]
-    pub fn free(&mut self, range: Range<u32>) -> BufferState {
+    pub fn free(&mut self, range: Range<u32>) -> SlabState {
         let id = self
             .buffer
             .buffer()
@@ -102,7 +105,7 @@ impl PropertyBuffer {
         let size = self.buffer.len();
         if self.buffer.remove(range) {
             if self.buffer.is_empty() {
-                BufferState::Free
+                SlabState::Free
             } else if self.buffer.len() != size
                 || self
                     .buffer
@@ -114,12 +117,12 @@ impl PropertyBuffer {
                     .unwrap_or(u32::MAX)
                     != id
             {
-                BufferState::Resized
+                SlabState::Resized
             } else {
-                BufferState::Used
+                SlabState::Used
             }
         } else {
-            BufferState::Used
+            SlabState::Used
         }
     }
 
@@ -201,7 +204,7 @@ impl PropertyCache {
         self.bind_group_layouts.get(&key)
     }
 
-    pub fn insert(&mut self, property_layout: &PropertyLayout) -> CachedEffectProperties {
+    pub fn allocate(&mut self, property_layout: &PropertyLayout) -> CachedEffectProperties {
         assert!(!property_layout.is_empty());
 
         // Ensure there's a bind group layout for the property variant with that binding
@@ -264,6 +267,7 @@ impl PropertyCache {
                     let range = buffer.allocate(property_layout);
                     trace!("Allocate new slice in property buffer #{buffer_index} for layout {property_layout:?}: range={range:?}");
                     Some(CachedEffectProperties {
+                        property_layout: property_layout.clone(),
                         buffer_index: buffer_index as u32,
                         range,
                     })
@@ -292,6 +296,7 @@ impl PropertyCache {
                     self.buffers[buffer_index] = Some(buffer);
                 }
                 CachedEffectProperties {
+                    property_layout: property_layout.clone(),
                     buffer_index: buffer_index as u32,
                     range,
                 }
@@ -306,10 +311,10 @@ impl PropertyCache {
     }
 
     /// Deallocated and remove properties from the cache.
-    pub fn remove_properties(
+    pub fn free(
         &mut self,
         cached_effect_properties: &CachedEffectProperties,
-    ) -> Result<BufferState, CachedPropertiesError> {
+    ) -> Result<SlabState, CachedPropertiesError> {
         trace!(
             "Removing cached properties {:?} from cache.",
             cached_effect_properties
@@ -466,6 +471,103 @@ impl PropertyBindGroups {
     }
 }
 
+fn upload_properties(
+    extracted_properties: &ExtractedProperties,
+    cached_effect_properties: &CachedEffectProperties,
+    mut property_cache: Mut<'_, PropertyCache>,
+) {
+    if let Some(property_data) = &extracted_properties.property_data {
+        trace!(
+            "Properties changed; (re-)uploading to GPU... New data: {} bytes. Capacity: {} bytes.",
+            property_data.len(),
+            cached_effect_properties.range.len(),
+        );
+        if property_data.len() <= cached_effect_properties.range.len() {
+            let property_buffer = property_cache.buffers_mut()
+                [cached_effect_properties.buffer_index as usize]
+                .as_mut()
+                .unwrap();
+            property_buffer.write(cached_effect_properties.range.start, property_data);
+        } else {
+            error!(
+                "Cannot upload properties: existing property slice in property buffer #{} is too small ({} bytes) for the new data ({} bytes).",
+                cached_effect_properties.buffer_index,
+                cached_effect_properties.range.len(),
+                property_data.len()
+            );
+        }
+    }
+}
+
+/// Allocate GPU resources to store an effect's properties.
+///
+/// This insert or updates the [`CachedEffectProperties`] component with the
+/// allocation details.
+pub(crate) fn allocate_properties(
+    mut commands: Commands,
+    mut property_cache: ResMut<PropertyCache>,
+    mut q_effects: Query<(
+        Entity,
+        &ExtractedProperties,
+        Option<&mut CachedEffectProperties>,
+    )>,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("allocate_properties").entered();
+    trace!("allocate_properties");
+
+    for (entity, extracted_properties, maybe_cached_effect_properties) in &mut q_effects {
+        if let Some(mut cached_effect_properties) = maybe_cached_effect_properties {
+            // Note: Technically we should compare the entire layout, but in practice the
+            // allocation only cares about the size of the layout to store all properties,
+            // and not about the actual layout itself (where each property is). So to reduce
+            // updates and maximize the chance of reuse, compare the allocation size only.
+            if cached_effect_properties.property_layout.min_binding_size()
+                != extracted_properties.property_layout.min_binding_size()
+            {
+                // Free the old allocations. We're sure there's one because the component
+                // exists.
+                // TODO - handle SlabState return value to invalidate property bind groups!!
+                if let Err(err) = property_cache.free(cached_effect_properties.as_ref()) {
+                    error!("Error while freeing cached properties for effect {entity:?}: {err:?}");
+                }
+
+                // If the layout is not empty, which means we need to store at least one
+                // property, then allocate a new storate. Otherwise remove the component.
+                if extracted_properties.property_layout.is_empty() {
+                    commands.entity(entity).remove::<CachedEffectProperties>();
+                } else {
+                    *cached_effect_properties =
+                        property_cache.allocate(&extracted_properties.property_layout);
+                }
+            }
+
+            // Re-upload new properties
+            if !extracted_properties.property_layout.is_empty() {
+                debug_assert_eq!(
+                    extracted_properties.property_layout,
+                    cached_effect_properties.property_layout
+                );
+                upload_properties(
+                    extracted_properties,
+                    cached_effect_properties.as_ref(),
+                    property_cache.reborrow(),
+                );
+            }
+        } else {
+            let cached_effect_properties =
+                property_cache.allocate(&extracted_properties.property_layout);
+            trace!("First-time properties, allocated a new CachedEffectProperties : {cached_effect_properties:?}");
+            upload_properties(
+                extracted_properties,
+                &cached_effect_properties,
+                property_cache.reborrow(),
+            );
+            commands.entity(entity).insert(cached_effect_properties);
+        }
+    }
+}
+
 /// Observer raised when the [`CachedEffectProperties`] component is removed,
 /// which indicates that the effect doesn't use properties anymore (including,
 /// when the effect itself is despawned).
@@ -482,14 +584,14 @@ pub(crate) fn on_remove_cached_properties(
         return;
     };
 
-    match property_cache.remove_properties(cached_effect_properties) {
+    match property_cache.free(cached_effect_properties) {
         Err(err) => match err {
             CachedPropertiesError::InvalidBufferIndex(buffer_index)
                 => error!("Failed to remove cached properties of render entity {render_entity:?} from buffer #{buffer_index}: the index is invalid."),
             CachedPropertiesError::BufferDeallocated(buffer_index)
                 => error!("Failed to remove cached properties of render entity {render_entity:?} from buffer #{buffer_index}: the buffer is not allocated."),
         }
-        Ok(buffer_state) => if buffer_state != BufferState::Used {
+        Ok(buffer_state) => if buffer_state != SlabState::Used {
             // The entire buffer was deallocated, or it was resized; destroy all bind groups referencing it
             let key = cached_effect_properties.to_key();
             trace!("Destroying property bind group for key {key:?} due to property buffer deallocated.");
@@ -501,21 +603,15 @@ pub(crate) fn on_remove_cached_properties(
 }
 
 /// Prepare GPU buffers storing effect properties.
-///
-/// This system runs after the new effects have been registered by
-/// [`add_effects()`], and all effects using properties are known for this
-/// frame. It (re-)allocate any property buffer, and schedule buffer writes to
-/// them, in anticipation of [`prepare_bind_groups()`] referencing those buffers
-/// to create bind groups.
 pub(crate) fn prepare_property_buffers(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
-    mut cache: ResMut<PropertyCache>,
+    mut property_cache: ResMut<PropertyCache>,
     mut bind_groups: ResMut<PropertyBindGroups>,
 ) {
     // Allocate all the property buffer(s) as needed, before we move to the next
     // step which will need those buffers to schedule data copies from CPU.
-    for (buffer_index, buffer_slot) in cache.buffers_mut().iter_mut().enumerate() {
+    for (buffer_index, buffer_slot) in property_cache.buffers_mut().iter_mut().enumerate() {
         let Some(property_buffer) = buffer_slot.as_mut() else {
             continue;
         };

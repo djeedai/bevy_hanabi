@@ -15,7 +15,6 @@ use bevy::{
     },
 };
 use bytemuck::{cast_slice, Pod};
-use copyless::VecHelper;
 
 /// Round a range start down to a given alignment, and return the new range and
 /// the start offset inside the new range of the old range.
@@ -388,13 +387,13 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             allocated_count
         );
         if index < allocated_count {
-            self.pending_values.alloc().init((index, value));
+            self.pending_values.push((index, value));
         } else {
             let extra_index = index - allocated_count;
             if extra_index < self.extra_pending_values.len() as u32 {
                 self.extra_pending_values[extra_index as usize] = value;
             } else {
-                self.extra_pending_values.alloc().init(value);
+                self.extra_pending_values.push(value);
             }
         }
         BufferTableId(index)
@@ -450,7 +449,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                 // update per row, which would waste GPU bandwidth.
                 self.pending_values[idx] = (id.0, value);
             } else {
-                self.pending_values.alloc().init((id.0, value));
+                self.pending_values.push((id.0, value));
             }
         } else {
             let extra_index = (id.0 - allocated_count) as usize;
@@ -541,13 +540,13 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
         for (i, value) in values.enumerate() {
             let index = first_index + i as u32;
             if index < allocated_count {
-                self.pending_values.alloc().init((index, value));
+                self.pending_values.push((index, value));
             } else {
                 let extra_index = index - allocated_count;
                 if extra_index < self.extra_pending_values.len() as u32 {
                     self.extra_pending_values[extra_index as usize] = value;
                 } else {
-                    self.extra_pending_values.alloc().init(value);
+                    self.extra_pending_values.push(value);
                 }
             }
         }
