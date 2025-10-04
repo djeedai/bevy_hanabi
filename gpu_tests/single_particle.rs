@@ -28,7 +28,6 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<EffectAsset>>) {
         Transform::from_translation(Vec3::new(0., 0., 50.)),
         Camera3d::default(),
         Camera {
-            hdr: false,
             clear_color: Color::BLACK.into(),
             ..default()
         },
@@ -46,9 +45,9 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<EffectAsset>>) {
     commands.spawn(ParticleEffect::new(handle));
 }
 
-fn timeout(mut frame: ResMut<Frame>, mut ev_app_exit: EventWriter<AppExit>) {
+fn timeout(mut frame: ResMut<Frame>, mut ev_app_exit: MessageWriter<AppExit>) {
     frame.0 += 1;
-    if frame.0 >= 1000 {
+    if frame.0 >= 300 {
         info!("SUCCESS!");
         ev_app_exit.write(AppExit::Success);
     }

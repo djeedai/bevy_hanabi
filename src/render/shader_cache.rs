@@ -5,7 +5,7 @@ use bevy::{
     ecs::{change_detection::ResMut, resource::Resource},
     log::{debug, trace},
     platform::collections::HashMap,
-    render::render_resource::Shader,
+    shader::Shader,
 };
 
 /// Cache of baked shaders variants.

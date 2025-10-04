@@ -63,18 +63,19 @@ bitflags = "2.3"
 typetag = { version = "0.2", optional = true }
 thiserror = "2"
 # Same versions as Bevy 0.16 (bevy_render)
-wgpu = { version = "24", default-features = false, features = [
+wgpu = { version = "26", default-features = false, features = [
   "wgsl",
   "dx12",
   "metal",
+  "vulkan",
   "naga-ir",
   "fragile-send-sync-non-atomic-wasm",
 ] }
-naga = { version = "24", features = ["wgsl-in"] }
-naga_oil = { version = "0.17", default-features = false, features = ["test_shader"] }
+naga = { version = "26", features = ["wgsl-in"] }
+naga_oil = { version = "0.19", default-features = false, features = ["test_shader"] }
 
 [dependencies.bevy]
-version = "0.16"
+version = "0.17"
 default-features = false
 features = [
   "bevy_core_pipeline",
@@ -88,7 +89,7 @@ features = [
 all-features = true
 
 [dev-dependencies]
-bevy = { version = "0.16", default-features = true }
+bevy = { version = "0.17", default-features = true }
 
 # For procedural texture generation in examples
 noise = "0.9"

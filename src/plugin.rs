@@ -3,7 +3,8 @@ use bevy::core_pipeline::core_2d::Transparent2d;
 #[cfg(feature = "3d")]
 use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Transparent3d};
 use bevy::{
-    asset::weak_handle,
+    asset::uuid_handle,
+    camera::visibility::VisibilitySystems,
     prelude::*,
     render::{
         extract_component::ExtractComponentPlugin,
@@ -13,10 +14,10 @@ use bevy::{
         render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
         renderer::{RenderAdapterInfo, RenderDevice},
         texture::GpuImage,
-        view::{prepare_view_uniforms, visibility::VisibilitySystems},
-        Render, RenderApp, RenderSet,
+        view::prepare_view_uniforms,
+        Render, RenderApp, RenderSystems,
     },
-    time::{time_system, TimeSystem},
+    time::{time_system, TimeSystems},
 };
 
 #[cfg(feature = "serde")]
@@ -81,23 +82,23 @@ pub enum EffectSystems {
 
     /// Prepare effect assets for the extracted effects.
     ///
-    /// Part of Bevy's own [`RenderSet::PrepareAssets`].
+    /// Part of Bevy's own [`RenderSystems::PrepareAssets`].
     PrepareEffectAssets,
 
     /// Queue the GPU commands for the extracted effects.
     ///
-    /// Part of Bevy's own [`RenderSet::Queue`].
+    /// Part of Bevy's own [`RenderSystems::Queue`].
     QueueEffects,
 
     /// Prepare GPU data for the queued effects.
     ///
-    /// Part of Bevy's own [`RenderSet::PrepareResources`].
+    /// Part of Bevy's own [`RenderSystems::PrepareResources`].
     PrepareEffectGpuResources,
 
     /// Prepare the GPU bind groups once all buffers have been (re-)allocated
     /// and won't change this frame.
     ///
-    /// Part of Bevy's own [`RenderSet::PrepareBindGroups`].
+    /// Part of Bevy's own [`RenderSystems::PrepareBindGroups`].
     PrepareBindGroups,
 }
 
@@ -129,7 +130,7 @@ pub mod simulate_graph {
 }
 
 const HANABI_COMMON_TEMPLATE_HANDLE: Handle<Shader> =
-    weak_handle!("626E7AD3-4E54-487E-B796-9A90E34CC1EC");
+    uuid_handle!("626E7AD3-4E54-487E-B796-9A90E34CC1EC");
 
 /// Plugin to add systems related to Hanabi.
 #[derive(Debug, Clone, Copy)]
@@ -223,13 +224,13 @@ impl Plugin for HanabiPlugin {
             )
             .configure_sets(
                 PreUpdate,
-                EffectSystems::UpdatePropertiesFromAsset.after(bevy::asset::TrackAssets),
+                EffectSystems::UpdatePropertiesFromAsset.after(bevy::asset::AssetTrackingSystems),
             )
             .add_systems(
                 First,
                 effect_simulation_time_system
                     .after(time_system)
-                    .in_set(TimeSystem),
+                    .in_set(TimeSystems),
             )
             .add_systems(
                 PostUpdate,
@@ -281,7 +282,9 @@ impl Plugin for HanabiPlugin {
                 render_device.limits().min_storage_buffer_offset_alignment,
             );
             let mut assets = app.world_mut().resource_mut::<Assets<Shader>>();
-            assets.insert(&HANABI_COMMON_TEMPLATE_HANDLE, common_shader);
+            assets
+                .insert(&HANABI_COMMON_TEMPLATE_HANDLE, common_shader)
+                .unwrap();
         }
 
         // Insert the two variants of the properly aligned `vfx_indirect.wgsl` shaders
@@ -384,10 +387,11 @@ impl Plugin for HanabiPlugin {
             .configure_sets(
                 Render,
                 (
-                    EffectSystems::PrepareEffectAssets.in_set(RenderSet::PrepareAssets),
-                    EffectSystems::QueueEffects.in_set(RenderSet::Queue),
-                    EffectSystems::PrepareEffectGpuResources.in_set(RenderSet::PrepareResources),
-                    EffectSystems::PrepareBindGroups.in_set(RenderSet::PrepareBindGroups),
+                    EffectSystems::PrepareEffectAssets.in_set(RenderSystems::PrepareAssets),
+                    EffectSystems::QueueEffects.in_set(RenderSystems::Queue),
+                    EffectSystems::PrepareEffectGpuResources
+                        .in_set(RenderSystems::PrepareResources),
+                    EffectSystems::PrepareBindGroups.in_set(RenderSystems::PrepareBindGroups),
                 ),
             )
             .edit_schedule(ExtractSchedule, |schedule| {

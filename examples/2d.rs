@@ -1,6 +1,6 @@
 //! A particle system with a 2D camera.
 
-use bevy::{prelude::*, render::camera::ScalingMode};
+use bevy::{camera::ScalingMode, prelude::*};
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -46,7 +46,7 @@ fn setup(
     ));
 
     // Create a color gradient for the particles
-    let mut gradient = Gradient::new();
+    let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.5, 0.5, 1.0, 0.0));
 
@@ -87,7 +87,7 @@ fn setup(
             .init(init_age)
             .init(init_lifetime)
             .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant(Vec3::splat(0.02)),
+                gradient: bevy_hanabi::Gradient::constant(Vec3::splat(0.02)),
                 screen_space_size: false,
             })
             .render(ColorOverLifetimeModifier::new(gradient))

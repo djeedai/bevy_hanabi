@@ -30,12 +30,11 @@ use bevy::{
         system::{lifetimeless::*, SystemParam, SystemState},
     },
     log::trace,
+    mesh::MeshVertexBufferLayoutRef,
     platform::collections::HashMap,
     prelude::*,
     render::{
-        mesh::{
-            allocator::MeshAllocator, MeshVertexBufferLayoutRef, RenderMesh, RenderMeshBufferInfo,
-        },
+        mesh::{allocator::MeshAllocator, RenderMesh, RenderMeshBufferInfo},
         render_asset::RenderAssets,
         render_graph::{Node, NodeRunError, RenderGraphContext, SlotInfo},
         render_phase::{
@@ -861,7 +860,7 @@ impl SpecializedComputePipeline for DispatchIndirectPipeline {
                 self.indirect_shader_noevent.clone()
             },
             shader_defs,
-            entry_point: "main".into(),
+            entry_point: Some("main".into()),
             push_constant_ranges: vec![],
             zero_initialize_workgroup_memory: false,
         }
@@ -1399,14 +1398,13 @@ impl FromWorld for UtilsPipeline {
         };
 
         trace!("Create vfx_utils pipelines...");
-        let dummy = std::collections::HashMap::<String, f64>::new();
         let zero_pipeline = render_device.create_compute_pipeline(&RawComputePipelineDescriptor {
             label: Some("hanabi:compute_pipeline:zero_buffer"),
             layout: Some(&pipeline_layout),
             module: &shader_module,
             entry_point: Some("zero_buffer"),
             compilation_options: PipelineCompilationOptions {
-                constants: &dummy,
+                constants: &[],
                 zero_initialize_workgroup_memory: false,
             },
             cache: None,
@@ -1417,7 +1415,7 @@ impl FromWorld for UtilsPipeline {
             module: &shader_module,
             entry_point: Some("copy_buffer"),
             compilation_options: PipelineCompilationOptions {
-                constants: &dummy,
+                constants: &[],
                 zero_initialize_workgroup_memory: false,
             },
             cache: None,
@@ -1429,7 +1427,7 @@ impl FromWorld for UtilsPipeline {
                 module: &shader_module,
                 entry_point: Some("fill_dispatch_args"),
                 compilation_options: PipelineCompilationOptions {
-                    constants: &dummy,
+                    constants: &[],
                     zero_initialize_workgroup_memory: false,
                 },
                 cache: None,
@@ -1441,7 +1439,7 @@ impl FromWorld for UtilsPipeline {
                 module: &shader_module,
                 entry_point: Some("fill_dispatch_args_self"),
                 compilation_options: PipelineCompilationOptions {
-                    constants: &dummy,
+                    constants: &[],
                     zero_initialize_workgroup_memory: false,
                 },
                 cache: None,
@@ -1639,7 +1637,7 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
             ],
             shader: key.shader,
             shader_defs,
-            entry_point: "main".into(),
+            entry_point: Some("main".into()),
             push_constant_ranges: vec![],
             zero_initialize_workgroup_memory: false,
         }
@@ -1792,7 +1790,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
             ],
             shader: key.shader,
             shader_defs,
-            entry_point: "main".into(),
+            entry_point: Some("main".into()),
             push_constant_ranges: Vec::new(),
             zero_initialize_workgroup_memory: false,
         }
@@ -2167,14 +2165,14 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             label: Some(label.into()),
             vertex: VertexState {
                 shader: key.shader.clone(),
-                entry_point: "vertex".into(),
+                entry_point: Some("vertex".into()),
                 shader_defs: shader_defs.clone(),
                 buffers: vec![vertex_buffer_layout.expect("Vertex buffer layout not present")],
             },
             fragment: Some(FragmentState {
                 shader: key.shader,
                 shader_defs,
-                entry_point: "fragment".into(),
+                entry_point: Some("fragment".into()),
                 targets: vec![Some(ColorTargetState {
                     format,
                     blend: Some(key.alpha_mode.into()),
@@ -2398,7 +2396,7 @@ pub(crate) struct EffectAssetEvents {
 /// This system runs in parallel of [`extract_effects`].
 pub(crate) fn extract_effect_events(
     mut events: ResMut<EffectAssetEvents>,
-    mut image_events: Extract<EventReader<AssetEvent<Image>>>,
+    mut image_events: Extract<MessageReader<AssetEvent<Image>>>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("extract_effect_events").entered();
@@ -2500,7 +2498,10 @@ pub(crate) fn start_stop_gpu_debug_capture(
         render_debug_settings.captured_frames += 1;
 
         if render_debug_settings.captured_frames >= debug_settings.capture_frame_count {
-            render_device.wgpu_device().stop_capture();
+            #[expect(unsafe_code, reason = "Debugging only")]
+            unsafe {
+                render_device.wgpu_device().stop_graphics_debugger_capture();
+            }
             render_debug_settings.is_capturing = false;
             warn!(
                 "Stopped GPU debug capture after {} frames, at t={}s.",
@@ -2515,7 +2516,12 @@ pub(crate) fn start_stop_gpu_debug_capture(
         && (debug_settings.start_capture_this_frame
             || (debug_settings.start_capture_on_new_effect && !q_added_effects.is_empty()))
     {
-        render_device.wgpu_device().start_capture();
+        #[expect(unsafe_code, reason = "Debugging only")]
+        unsafe {
+            render_device
+                .wgpu_device()
+                .start_graphics_debugger_capture();
+        }
         render_debug_settings.is_capturing = true;
         render_debug_settings.capture_start = real_time.elapsed();
         render_debug_settings.captured_frames = 0;
@@ -2642,7 +2648,7 @@ pub(crate) fn extract_effects(
             layout_flags,
         );
         let new_extracted_effect = ExtractedEffect {
-            handle: compiled_effect.asset.clone_weak(),
+            handle: compiled_effect.asset.clone(),
             particle_layout: asset.particle_layout().clone(),
             capacity: asset.capacity(),
             layout_flags,
@@ -2988,7 +2994,7 @@ impl EffectsMeta {
         maybe_cached_draw_indirect_args: Option<&CachedDrawIndirectArgs>,
     ) -> u32 {
         let spawner_base = self.spawner_buffer.len() as u32;
-        let transform = global_transform.compute_matrix().into();
+        let transform = global_transform.to_matrix().into();
         let inverse_transform = Mat4::from(
             // Inverse the Affine3A first, then convert to Mat4. This is a lot more
             // efficient than inversing the Mat4.
@@ -3080,7 +3086,7 @@ impl Default for LayoutFlags {
 /// Observer raised when the [`CachedEffect`] component is removed, which
 /// indicates that the effect instance was despawned.
 pub(crate) fn on_remove_cached_effect(
-    trigger: Trigger<OnRemove, CachedEffect>,
+    trigger: On<Remove, CachedEffect>,
     query: Query<(
         Entity,
         &MainEntity,
@@ -3111,7 +3117,7 @@ pub(crate) fn on_remove_cached_effect(
         _opt_props,
         _opt_parent,
         opt_cached_effect_events,
-    )) = query.get(trigger.target())
+    )) = query.get(trigger.event().entity)
     else {
         return;
     };
@@ -3161,14 +3167,14 @@ pub(crate) fn on_remove_cached_effect(
 /// Observer raised when the [`CachedEffectMetadata`] component is removed, to
 /// deallocate the GPU resources associated with the indirect draw args.
 pub(crate) fn on_remove_cached_metadata(
-    trigger: Trigger<OnRemove, CachedEffectMetadata>,
+    trigger: On<Remove, CachedEffectMetadata>,
     query: Query<&CachedEffectMetadata>,
     mut effects_meta: ResMut<EffectsMeta>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("on_remove_cached_metadata").entered();
 
-    if let Ok(cached_metadata) = query.get(trigger.target()) {
+    if let Ok(cached_metadata) = query.get(trigger.event().entity) {
         if cached_metadata.table_id.is_valid() {
             effects_meta
                 .effect_metadata_buffer
@@ -3180,14 +3186,14 @@ pub(crate) fn on_remove_cached_metadata(
 /// Observer raised when the [`CachedDrawIndirectArgs`] component is removed, to
 /// deallocate the GPU resources associated with the indirect draw args.
 pub(crate) fn on_remove_cached_draw_indirect_args(
-    trigger: Trigger<OnRemove, CachedDrawIndirectArgs>,
+    trigger: On<Remove, CachedDrawIndirectArgs>,
     query: Query<&CachedDrawIndirectArgs>,
     mut effects_meta: ResMut<EffectsMeta>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("on_remove_cached_draw_indirect_args").entered();
 
-    if let Ok(cached_draw_args) = query.get(trigger.target()) {
+    if let Ok(cached_draw_args) = query.get(trigger.event().entity) {
         effects_meta.free_draw_indirect(cached_draw_args);
     };
 }

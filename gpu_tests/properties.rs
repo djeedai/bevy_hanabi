@@ -49,7 +49,7 @@ fn timeout(
     mut assets: ResMut<Assets<EffectAsset>>,
     mut frame: ResMut<Frame>,
     mut query: Query<(Entity, &mut ParticleEffect)>,
-    mut ev_app_exit: EventWriter<AppExit>,
+    mut ev_app_exit: MessageWriter<AppExit>,
 ) {
     frame.0 += 1;
 

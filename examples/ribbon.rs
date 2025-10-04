@@ -14,10 +14,8 @@
 
 use bevy::math::vec4;
 use bevy::prelude::*;
-use bevy::{
-    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
-    math::vec3,
-};
+use bevy::render::view::Hdr;
+use bevy::{core_pipeline::tonemapping::Tonemapping, math::vec3, post_process::bloom::Bloom};
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -83,11 +81,11 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 50.)),
         Camera {
-            hdr: true,
             clear_color: Color::BLACK.into(),
             ..default()
         },
         Camera3d::default(),
+        Hdr,
         Tonemapping::None,
         Bloom::default(),
     ));
@@ -126,7 +124,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         value: writer.lit(0u32).expr(),
     };
 
-    let render_color = ColorOverLifetimeModifier::new(Gradient::linear(
+    let render_color = ColorOverLifetimeModifier::new(bevy_hanabi::Gradient::linear(
         vec4(3.0, 0.0, 0.0, 1.0),
         vec4(3.0, 0.0, 0.0, 0.0),
     ));
@@ -148,7 +146,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         .init(init_size_attr)
         .init(init_ribbon_id)
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::linear(Vec3::ONE, Vec3::ZERO),
+            gradient: bevy_hanabi::Gradient::linear(Vec3::ONE, Vec3::ZERO),
             ..default()
         })
         .render(render_color);

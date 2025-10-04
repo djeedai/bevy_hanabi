@@ -9,9 +9,11 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::{
-    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
+    core_pipeline::tonemapping::Tonemapping,
     math::{vec3, vec4},
+    post_process::bloom::Bloom,
     prelude::*,
+    render::view::Hdr,
 };
 use bevy_hanabi::prelude::*;
 
@@ -189,11 +191,11 @@ fn setup(
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 25.)),
         Camera {
-            hdr: true,
             clear_color: Color::BLACK.into(),
             ..default()
         },
         Camera3d::default(),
+        Hdr,
         Tonemapping::None,
         Bloom::default(),
     ));

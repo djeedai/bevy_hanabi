@@ -958,7 +958,7 @@ mod test {
             },
             AssetServerMode, UnapprovedPathMode,
         },
-        render::view::{VisibilityPlugin, VisibilitySystems},
+        camera::visibility::{VisibilityPlugin, VisibilitySystems},
         tasks::{IoTaskPool, TaskPoolBuilder},
     };
 

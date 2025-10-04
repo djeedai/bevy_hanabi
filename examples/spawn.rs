@@ -70,13 +70,13 @@ fn setup(
     });
     let mat = materials.add(utils::COLOR_PURPLE);
 
-    let mut color_gradient1 = Gradient::new();
+    let mut color_gradient1 = bevy_hanabi::Gradient::new();
     color_gradient1.add_key(0.0, Vec4::splat(1.0));
     color_gradient1.add_key(0.1, Vec4::new(1.0, 1.0, 0.0, 1.0));
     color_gradient1.add_key(0.4, Vec4::new(1.0, 0.0, 0.0, 1.0));
     color_gradient1.add_key(1.0, Vec4::splat(0.0));
 
-    let mut size_gradient1 = Gradient::new();
+    let mut size_gradient1 = bevy_hanabi::Gradient::new();
     size_gradient1.add_key(0.0, Vec3::splat(0.1));
     size_gradient1.add_key(0.5, Vec3::splat(0.5));
     size_gradient1.add_key(0.8, Vec3::splat(0.08));
@@ -138,7 +138,7 @@ fn setup(
             ));
         });
 
-    let mut gradient2 = Gradient::new();
+    let mut gradient2 = bevy_hanabi::Gradient::new();
     gradient2.add_key(0.0, Vec4::new(0.0, 0.7, 0.0, 1.0));
     gradient2.add_key(1.0, Vec4::splat(0.0));
 
@@ -187,7 +187,7 @@ fn setup(
 
     // Note: same as gradient2, will yield shared render shader between effects #2
     // and #3
-    let mut gradient3 = Gradient::new();
+    let mut gradient3 = bevy_hanabi::Gradient::new();
     gradient3.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
     gradient3.add_key(1.0, Vec4::splat(0.0));
 

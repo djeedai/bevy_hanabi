@@ -183,11 +183,10 @@ use std::fmt::Write as _;
 
 use bevy::{
     asset::AsAssetId,
+    camera::visibility::VisibilityClass,
     platform::collections::{HashMap, HashSet},
     prelude::*,
-    render::{
-        extract_component::ExtractComponent, sync_world::SyncToRenderWorld, view::VisibilityClass,
-    },
+    render::{extract_component::ExtractComponent, sync_world::SyncToRenderWorld},
 };
 use rand::{Rng, SeedableRng as _};
 use serde::{Deserialize, Serialize};
@@ -651,7 +650,7 @@ pub struct EffectVisibilityClass;
     VisibilityClass,
     SyncToRenderWorld
 )]
-#[component(on_add = bevy::render::view::add_visibility_class::<EffectVisibilityClass>)]
+#[component(on_add = bevy::camera::visibility::add_visibility_class::<EffectVisibilityClass>)]
 pub struct ParticleEffect {
     /// Handle of the effect to instantiate.
     pub handle: Handle<EffectAsset>,
@@ -1828,7 +1827,8 @@ mod tests {
             },
             AssetServerMode, UnapprovedPathMode,
         },
-        render::view::{VisibilityPlugin, VisibilitySystems},
+        camera::visibility::{VisibilityPlugin, VisibilitySystems},
+        shader::ShaderLoader,
         tasks::{IoTaskPool, TaskPoolBuilder},
     };
     use naga_oil::compose::{Composer, NagaModuleDescriptor, ShaderDefValue};
@@ -2128,7 +2128,7 @@ else { return c1; }
         assert!(res.is_ok());
         let shader_source = res.unwrap();
         for (name, code) in [
-            ("Ini", shader_source.init_shader_source),
+            ("Init", shader_source.init_shader_source),
             ("Update", shader_source.update_shader_source),
             ("Render", shader_source.render_shader_source),
         ] {
@@ -2157,11 +2157,45 @@ else { return c1; }
                 // bevy_render. We use a few tricks to get a Shader that we can
                 // then convert into a composable module (which is how imports work in Bevy
                 // itself).
+                IoTaskPool::get_or_init(|| {
+                    TaskPoolBuilder::default()
+                        .num_threads(1)
+                        .thread_name("Hanabi test IO Task Pool".to_string())
+                        .build()
+                });
                 let mut dummy_app = App::new();
-                dummy_app.init_resource::<Assets<Shader>>();
+                dummy_app.add_plugins(bevy::asset::AssetPlugin::default());
+                dummy_app
+                    .init_asset::<Shader>()
+                    .init_asset_loader::<ShaderLoader>();
                 dummy_app.add_plugins(bevy::render::view::ViewPlugin);
+                let asset_server = dummy_app.world().resource::<AssetServer>();
+                let view_shader_handle =
+                    asset_server.load::<Shader>("embedded://bevy_render\\view\\view.wgsl");
+
+                // Need at least one frame tick for the loaded asset to send a message to the
+                // asset server to get registered
+                let mut max_frames = 600; // it takes a decent amount of time to load async the asset, even if embedded
+                while max_frames > 0 {
+                    dummy_app.update();
+
+                    if dummy_app
+                        .world()
+                        .resource::<AssetServer>()
+                        .is_loaded(&view_shader_handle)
+                    {
+                        break;
+                    }
+
+                    max_frames -= 1;
+                }
+                assert!(max_frames > 0);
+
                 let shaders = dummy_app.world().get_resource::<Assets<Shader>>().unwrap();
-                let view_shader = shaders.get(&bevy::render::view::VIEW_TYPE_HANDLE).unwrap();
+                for (id, shader) in shaders.iter() {
+                    println!("[{id:?}] {shader:?}");
+                }
+                let view_shader = shaders.get(&view_shader_handle).unwrap();
 
                 let res = composer.add_composable_module(view_shader.into());
                 assert!(res.is_ok());

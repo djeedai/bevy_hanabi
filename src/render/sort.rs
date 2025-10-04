@@ -7,10 +7,11 @@ use bevy::{
     render::{
         render_resource::{
             BindGroup, BindGroupLayout, Buffer, BufferId, CachedComputePipelineId,
-            CachedPipelineState, ComputePipelineDescriptor, PipelineCache, Shader,
+            CachedPipelineState, ComputePipelineDescriptor, PipelineCache,
         },
         renderer::RenderDevice,
     },
+    shader::Shader,
     utils::default,
 };
 use wgpu::{
@@ -152,7 +153,7 @@ impl SortBindGroups {
             layout: vec![sort_bind_group_layout],
             shader: sort_shader,
             shader_defs: vec!["HAS_DUAL_KEY".into()],
-            entry_point: "main".into(),
+            entry_point: Some("main".into()),
             push_constant_ranges: vec![],
             zero_initialize_workgroup_memory: false,
         });
@@ -207,7 +208,7 @@ impl SortBindGroups {
                 layout: vec![sort_copy_bind_group_layout.clone()],
                 shader: sort_copy_shader,
                 shader_defs: vec![],
-                entry_point: "main".into(),
+                entry_point: Some("main".into()),
                 push_constant_ranges: vec![],
                 zero_initialize_workgroup_memory: false,
             });
@@ -393,7 +394,7 @@ impl SortBindGroups {
                         layout: vec![bind_group_layout.clone()],
                         shader: self.sort_fill_shader.clone(),
                         shader_defs: vec!["HAS_DUAL_KEY".into()],
-                        entry_point: "main".into(),
+                        entry_point: Some("main".into()),
                         push_constant_ranges: vec![],
                         zero_initialize_workgroup_memory: false,
                     });
