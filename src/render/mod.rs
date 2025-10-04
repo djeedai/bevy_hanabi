@@ -2511,20 +2511,19 @@ pub(crate) fn start_stop_gpu_debug_capture(
     }
 
     // If no pending capture, consider starting a new one
-    if !render_debug_settings.is_capturing {
-        if debug_settings.start_capture_this_frame
-            || (debug_settings.start_capture_on_new_effect && !q_added_effects.is_empty())
-        {
-            render_device.wgpu_device().start_capture();
-            render_debug_settings.is_capturing = true;
-            render_debug_settings.capture_start = real_time.elapsed();
-            render_debug_settings.captured_frames = 0;
-            warn!(
-                "Started GPU debug capture of {} frames at t={}s.",
-                debug_settings.capture_frame_count,
-                render_debug_settings.capture_start.as_secs_f64()
-            );
-        }
+    if !render_debug_settings.is_capturing
+        && (debug_settings.start_capture_this_frame
+            || (debug_settings.start_capture_on_new_effect && !q_added_effects.is_empty()))
+    {
+        render_device.wgpu_device().start_capture();
+        render_debug_settings.is_capturing = true;
+        render_debug_settings.capture_start = real_time.elapsed();
+        render_debug_settings.captured_frames = 0;
+        warn!(
+            "Started GPU debug capture of {} frames at t={}s.",
+            debug_settings.capture_frame_count,
+            render_debug_settings.capture_start.as_secs_f64()
+        );
     }
 }
 
@@ -3344,7 +3343,6 @@ pub fn allocate_effects(
                 effects_meta.dispatch_indirect_buffer.allocate();
             commands.entity(entity).insert(DispatchBufferIndices {
                 update_dispatch_indirect_buffer_row_index,
-                ..default()
             });
         }
     }
@@ -3659,12 +3657,10 @@ pub fn allocate_parent_child_infos(
         // If we don't have all children, just abort this effect. We don't try to have
         // partial relationships, this is too complex for shader bindings.
         debug_assert_eq!(new_children.len(), new_child_infos.len());
-        if new_children.len() < children_effects.len() {
-            if maybe_cached_parent_info.is_some() {
-                warn!("One or more child effect(s) on parent effect {parent_entity:?} failed to configure. The parent effect cannot be processed.");
-                commands.entity(parent_entity).remove::<CachedParentInfo>();
-                continue;
-            }
+        if (new_children.len() < children_effects.len()) && maybe_cached_parent_info.is_some() {
+            warn!("One or more child effect(s) on parent effect {parent_entity:?} failed to configure. The parent effect cannot be processed.");
+            commands.entity(parent_entity).remove::<CachedParentInfo>();
+            continue;
         }
 
         // Insert or update the CachedParentInfo component of the parent effect

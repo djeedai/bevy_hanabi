@@ -549,7 +549,7 @@ pub(crate) fn allocate_properties(
                     cached_effect_properties.property_layout
                 );
                 upload_properties(
-                    &extracted_properties,
+                    extracted_properties,
                     cached_effect_properties.as_ref(),
                     property_cache.reborrow(),
                 );
@@ -559,7 +559,7 @@ pub(crate) fn allocate_properties(
                 property_cache.allocate(&extracted_properties.property_layout);
             trace!("First-time properties, allocated a new CachedEffectProperties : {cached_effect_properties:?}");
             upload_properties(
-                &extracted_properties,
+                extracted_properties,
                 &cached_effect_properties,
                 property_cache.reborrow(),
             );

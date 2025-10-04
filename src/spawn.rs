@@ -907,11 +907,12 @@ pub fn tick_spawners(
     for (entity, effect, compiled_effect, inherited_visibility, maybe_spawner) in query.iter_mut() {
         // Skip effect which are not ready; this prevents ticking the spawner for an
         // effect not ready to consume those spawn commands.
-        let mut can_tick = true;
-        if !compiled_effect.is_ready() {
+        let mut can_tick = if compiled_effect.is_ready() {
+            true
+        } else {
             trace!("[Effect {entity:?}] Not ready; skipped spawner tick.");
-            can_tick = false;
-        }
+            false
+        };
 
         let Some(asset) = effects.get(&effect.handle) else {
             trace!(
@@ -1340,19 +1341,16 @@ mod test {
                 let effect_spawner = effect_spawner.unwrap();
                 let actual_spawner = effect_spawner.settings;
                 assert_eq!(actual_spawner, test_case.asset_spawner);
+                assert!(effect_spawner.active);
+                assert_eq!(effect_spawner.spawn_remainder, 0.);
+                assert_eq!(effect_spawner.cycle_time, 0.);
 
                 if inherited_visibility.get() {
                     // Check the spawner ticked
-                    assert!(effect_spawner.active); // will get deactivated next tick()
-                    assert_eq!(effect_spawner.spawn_remainder, 0.);
-                    assert_eq!(effect_spawner.cycle_time, 0.);
                     assert_eq!(effect_spawner.completed_cycle_count, 1);
                     assert_eq!(effect_spawner.spawn_count, 32);
                 } else {
                     // Didn't tick
-                    assert!(effect_spawner.active);
-                    assert_eq!(effect_spawner.spawn_remainder, 0.);
-                    assert_eq!(effect_spawner.cycle_time, 0.);
                     assert_eq!(effect_spawner.completed_cycle_count, 0);
                     assert_eq!(effect_spawner.spawn_count, 0);
                 }
