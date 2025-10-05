@@ -482,7 +482,7 @@ mod tests {
     use std::collections::hash_map::DefaultHasher;
 
     use bevy::reflect::{PartialReflect, ReflectRef, Struct};
-    use rand::{distributions::Standard, prelude::Distribution, rngs::ThreadRng, thread_rng, Rng};
+    use rand::{distr::StandardUniform, prelude::Distribution, rng, rngs::ThreadRng, Rng};
 
     use super::*;
     use crate::test_utils::*;
@@ -688,26 +688,26 @@ mod tests {
     where
         R: Rng + ?Sized,
         T: Lerp + FromReflect + From<S>,
-        Standard: Distribution<S>,
+        StandardUniform: Distribution<S>,
     {
         if count == 0 {
             return vec![];
         }
         if count == 1 {
-            return vec![(0., rng.gen().into())];
+            return vec![(0., rng.random().into())];
         }
         let mut ret = Vec::with_capacity(count);
         for i in 0..count {
-            ret.push((i as f32 / (count - 1) as f32, rng.gen().into()));
+            ret.push((i as f32 / (count - 1) as f32, rng.random().into()));
         }
         ret
     }
 
     #[test]
     fn hash() {
-        let mut rng = thread_rng();
+        let mut thread_rng = rng();
         for count in 0..10 {
-            let keys: Vec<(f32, f32)> = make_keys::<ThreadRng, f32, f32>(&mut rng, count);
+            let keys: Vec<(f32, f32)> = make_keys::<ThreadRng, f32, f32>(&mut thread_rng, count);
             let mut g1 = Gradient::new().with_keys(keys.into_iter());
             let g2 = g1.clone();
             assert_eq!(g1, g2);
@@ -722,9 +722,10 @@ mod tests {
             }
         }
 
-        let mut rng = thread_rng();
+        let mut thread_rng = rng();
         for count in 0..10 {
-            let keys: Vec<(f32, Vec2)> = make_keys::<ThreadRng, Vec2, (f32, f32)>(&mut rng, count);
+            let keys: Vec<(f32, Vec2)> =
+                make_keys::<ThreadRng, Vec2, (f32, f32)>(&mut thread_rng, count);
             let mut g1 = Gradient::new().with_keys(keys.into_iter());
             let g2 = g1.clone();
             assert_eq!(g1, g2);
@@ -739,10 +740,10 @@ mod tests {
             }
         }
 
-        let mut rng = thread_rng();
+        let mut thread_rng = rng();
         for count in 0..10 {
             let keys: Vec<(f32, Vec3)> =
-                make_keys::<ThreadRng, Vec3, (f32, f32, f32)>(&mut rng, count);
+                make_keys::<ThreadRng, Vec3, (f32, f32, f32)>(&mut thread_rng, count);
             let mut g1 = Gradient::new().with_keys(keys.into_iter());
             let g2 = g1.clone();
             assert_eq!(g1, g2);
@@ -757,10 +758,10 @@ mod tests {
             }
         }
 
-        let mut rng = thread_rng();
+        let mut thread_rng = rng();
         for count in 0..10 {
             let keys: Vec<(f32, Vec4)> =
-                make_keys::<ThreadRng, Vec4, (f32, f32, f32, f32)>(&mut rng, count);
+                make_keys::<ThreadRng, Vec4, (f32, f32, f32, f32)>(&mut thread_rng, count);
             let mut g1 = Gradient::new().with_keys(keys.into_iter());
             let g2 = g1.clone();
             assert_eq!(g1, g2);

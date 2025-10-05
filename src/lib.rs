@@ -1760,7 +1760,7 @@ fn compile_effects(
             // there's no randomness anymore, because the uses of the previous frame
             // are "forgotten".
             let mut rng = rand::rngs::StdRng::seed_from_u64(compiled_effect.prng_seed as u64);
-            compiled_effect.prng_seed = rng.gen();
+            compiled_effect.prng_seed = rng.random();
         }
     }
 
