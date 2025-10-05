@@ -109,9 +109,7 @@ jobs:
         with:
           target: wasm32-unknown-unknown
       - name: Check wasm
-        run: cargo check --target wasm32-unknown-unknown --no-default-features --features 2d,3d
-        env:
-          RUSTFLAGS: '--cfg getrandom_backend="wasm_js"'
+        run: RUSTFLAGS='--cfg getrandom_backend="wasm_js"' cargo check --target wasm32-unknown-unknown --no-default-features --features 2d,3d
 
   msrv:
     runs-on: ubuntu-latest
