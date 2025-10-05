@@ -3,7 +3,7 @@ name = "bevy_hanabi"
 version = "0.17.0-dev"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
-rust-version = "1.85.0"
+rust-version = "1.88.0"
 description = "Hanabi GPU particle system for the Bevy game engine"
 repository = "https://github.com/djeedai/bevy_hanabi"
 homepage = "https://github.com/djeedai/bevy_hanabi"
@@ -54,8 +54,8 @@ gpu_tests = []
 [dependencies]
 bytemuck = { version = "1.5", features = ["derive", "must_cast"] }
 fixedbitset = "0.5"
-rand = "0.8"
-rand_pcg = "0.3"
+rand = "0.9"
+rand_pcg = "0.9"
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 ron = "0.8"
@@ -63,18 +63,19 @@ bitflags = "2.3"
 typetag = { version = "0.2", optional = true }
 thiserror = "2"
 # Same versions as Bevy 0.16 (bevy_render)
-wgpu = { version = "24", default-features = false, features = [
+wgpu = { version = "26", default-features = false, features = [
   "wgsl",
   "dx12",
   "metal",
+  "vulkan",
   "naga-ir",
   "fragile-send-sync-non-atomic-wasm",
 ] }
-naga = { version = "24", features = ["wgsl-in"] }
-naga_oil = { version = "0.17", default-features = false, features = ["test_shader"] }
+naga = { version = "26", features = ["wgsl-in"] }
+naga_oil = { version = "0.19", default-features = false, features = ["test_shader"] }
 
 [dependencies.bevy]
-version = "0.16"
+version = "0.17"
 default-features = false
 features = [
   "bevy_core_pipeline",
@@ -88,7 +89,7 @@ features = [
 all-features = true
 
 [dev-dependencies]
-bevy = { version = "0.16", default-features = true }
+bevy = { version = "0.17", default-features = true }
 
 # For procedural texture generation in examples
 noise = "0.9"

@@ -1,6 +1,9 @@
 use std::f32::consts::PI;
 
-use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*, render::view::RenderLayers};
+use bevy::{
+    camera::visibility::RenderLayers, core_pipeline::tonemapping::Tonemapping, prelude::*,
+    render::view::Hdr,
+};
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -30,11 +33,8 @@ fn setup(
     // camera.
     commands.spawn((
         Transform::from_translation(Vec3::Z * 100.),
-        Camera {
-            hdr: true,
-            ..default()
-        },
         Camera3d::default(),
+        Hdr,
         Tonemapping::None,
         // For this example, we assign to the camera a specific render layer (3)
         // different from the default (0) to demonstrate it works.
@@ -43,7 +43,7 @@ fn setup(
 
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");
 
-    let mut gradient = Gradient::new();
+    let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 0.5, 1.0));
     gradient.add_key(0.1, Vec4::new(0.5, 0.5, 0.0, 1.0));
     gradient.add_key(0.4, Vec4::new(0.5, 0.0, 0.0, 1.0));

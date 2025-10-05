@@ -52,7 +52,7 @@ fn setup(
     // number of sprites.
     let frame_count = sprite_grid_size.x * sprite_grid_size.y;
 
-    let mut gradient = Gradient::new();
+    let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::ONE);
     gradient.add_key(0.5, Vec4::ONE);
     gradient.add_key(1.0, Vec3::ONE.extend(0.));
@@ -142,7 +142,7 @@ fn setup(
         .render(FlipbookModifier { sprite_grid_size })
         .render(ColorOverLifetimeModifier::new(gradient))
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant([0.5; 3].into()),
+            gradient: bevy_hanabi::Gradient::constant([0.5; 3].into()),
             screen_space_size: false,
         }),
     );

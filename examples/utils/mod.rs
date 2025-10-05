@@ -3,12 +3,10 @@
 use std::num::NonZeroU8;
 
 use bevy::{
+    camera::{visibility::RenderLayers, CameraOutputMode},
     log::LogPlugin,
     prelude::*,
-    render::{
-        camera::CameraOutputMode, settings::WgpuSettings, view::RenderLayers, RenderDebugFlags,
-        RenderPlugin,
-    },
+    render::{settings::WgpuSettings, RenderDebugFlags, RenderPlugin},
     text::{TextColor, TextFont},
     ui::{
         widget::Text, BackgroundColor, BorderColor, BorderRadius, Display, Node, Overflow,
@@ -21,7 +19,7 @@ use crate::prelude::*;
 
 /// Helper system to enable closing the example application by pressing the
 /// escape key (ESC).
-pub fn close_on_esc(mut ev_app_exit: EventWriter<AppExit>, input: Res<ButtonInput<KeyCode>>) {
+pub fn close_on_esc(mut ev_app_exit: MessageWriter<AppExit>, input: Res<ButtonInput<KeyCode>>) {
     if input.just_pressed(KeyCode::Escape) {
         ev_app_exit.write(AppExit::Success);
     }
@@ -167,7 +165,6 @@ fn spawn_demo_ui(mut cmd: Commands, demo: Res<Demo>) {
             Camera2d,
             Projection::Orthographic(OrthographicProjection::default_2d()),
             Camera {
-                hdr: false,
                 order: 1000, // render UI above everything
                 clear_color: ClearColorConfig::None,
                 output_mode: CameraOutputMode::Write {
@@ -201,7 +198,7 @@ fn spawn_demo_ui(mut cmd: Commands, demo: Res<Demo>) {
             ..default()
         },
         BackgroundColor(Color::linear_rgba(0., 0., 0., 0.8)),
-        BorderColor(Color::linear_rgb(0.8, 0.8, 0.8)),
+        BorderColor::all(Color::linear_rgb(0.8, 0.8, 0.8)),
         BorderRadius::all(Val::Px(8.)),
         ZIndex(3000),
         children![

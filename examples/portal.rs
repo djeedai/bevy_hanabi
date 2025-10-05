@@ -12,8 +12,8 @@
 //! before they disappear, like sparkles fading away.
 
 use bevy::{
-    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
-    prelude::*,
+    core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
+    render::view::Hdr,
 };
 use bevy_hanabi::prelude::*;
 
@@ -35,22 +35,22 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 25.)),
         Camera {
-            hdr: true,
             clear_color: Color::BLACK.into(),
             ..default()
         },
         Camera3d::default(),
+        Hdr,
         Tonemapping::None,
         Bloom::default(),
     ));
 
-    let mut color_gradient1 = Gradient::new();
+    let mut color_gradient1 = bevy_hanabi::Gradient::new();
     color_gradient1.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
     color_gradient1.add_key(0.1, Vec4::new(4.0, 4.0, 0.0, 1.0));
     color_gradient1.add_key(0.9, Vec4::new(4.0, 0.0, 0.0, 1.0));
     color_gradient1.add_key(1.0, Vec4::new(4.0, 0.0, 0.0, 0.0));
 
-    let mut size_gradient1 = Gradient::new();
+    let mut size_gradient1 = bevy_hanabi::Gradient::new();
     size_gradient1.add_key(0.3, Vec3::new(0.2, 0.02, 1.0));
     size_gradient1.add_key(1.0, Vec3::splat(0.0));
 

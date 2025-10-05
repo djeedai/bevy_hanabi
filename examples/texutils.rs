@@ -1,9 +1,7 @@
 use bevy::{
+    asset::RenderAssetUsages,
     prelude::*,
-    render::{
-        render_asset::RenderAssetUsages,
-        render_resource::{Extent3d, TextureDimension, TextureFormat},
-    },
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 use noise::{NoiseFn, Perlin};
 

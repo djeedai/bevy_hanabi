@@ -43,7 +43,7 @@ fn setup(
     });
     let mat = materials.add(utils::COLOR_PURPLE);
 
-    let mut gradient = Gradient::new();
+    let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.0, 0.0, 1.0, 0.0));
 

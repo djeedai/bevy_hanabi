@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use bevy::{ecs::resource::Resource, log::trace, math::FloatOrd, prelude::*, reflect::Reflect};
 use rand::{
-    distributions::{uniform::SampleUniform, Distribution, Uniform},
+    distr::{uniform::SampleUniform, Distribution, Uniform},
     SeedableRng,
 };
 use rand_pcg::Pcg32;
@@ -14,9 +14,14 @@ use crate::{
 
 /// An RNG to be used in the CPU for the particle system engine
 pub(crate) fn new_rng() -> Pcg32 {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut seed = [0u8; 16];
-    seed.copy_from_slice(&Uniform::from(0..=u128::MAX).sample(&mut rng).to_le_bytes());
+    seed.copy_from_slice(
+        &Uniform::new_inclusive(0, u128::MAX)
+            .unwrap()
+            .sample(&mut rng)
+            .to_le_bytes(),
+    );
     Pcg32::from_seed(seed)
 }
 
@@ -99,7 +104,7 @@ impl<T: Copy + FromReflect + SampleUniform> CpuValue<T> {
     pub fn sample(&self, rng: &mut Pcg32) -> T {
         match self {
             Self::Single(x) => *x,
-            Self::Uniform((a, b)) => Uniform::new_inclusive(*a, *b).sample(rng),
+            Self::Uniform((a, b)) => Uniform::new_inclusive(*a, *b).unwrap().sample(rng),
         }
     }
 }
@@ -958,7 +963,7 @@ mod test {
             },
             AssetServerMode, UnapprovedPathMode,
         },
-        render::view::{VisibilityPlugin, VisibilitySystems},
+        camera::visibility::{VisibilityPlugin, VisibilitySystems},
         tasks::{IoTaskPool, TaskPoolBuilder},
     };
 

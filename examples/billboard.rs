@@ -29,7 +29,7 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*, render::camera::Projection};
+use bevy::{camera::Projection, core_pipeline::tonemapping::Tonemapping, prelude::*};
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -137,7 +137,7 @@ fn setup(
                 rotation: Some(rotation_attr),
             })
             .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant([0.2; 3].into()),
+                gradient: bevy_hanabi::Gradient::constant([0.2; 3].into()),
                 screen_space_size: false,
             }),
     );

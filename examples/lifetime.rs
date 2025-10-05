@@ -59,7 +59,7 @@ fn setup(
     let lifetime3 = 0.75;
     let period = 3.;
 
-    let mut gradient1 = Gradient::new();
+    let mut gradient1 = bevy_hanabi::Gradient::new();
     gradient1.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
     gradient1.add_key(0.25, Vec4::new(1.0, 1.0, 0.0, 1.0));
     gradient1.add_key(0.5, Vec4::new(0.0, 1.0, 0.0, 1.0));
@@ -109,7 +109,7 @@ fn setup(
             ));
         });
 
-    let mut gradient2 = Gradient::new();
+    let mut gradient2 = bevy_hanabi::Gradient::new();
     gradient2.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
     gradient2.add_key(1.0, Vec4::new(1.0, 1.0, 0.0, 1.0));
 
@@ -156,7 +156,7 @@ fn setup(
             ));
         });
 
-    let mut gradient3 = Gradient::new();
+    let mut gradient3 = bevy_hanabi::Gradient::new();
     gradient3.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
     gradient3.add_key(1.0, Vec4::new(0.75, 0.25, 0.0, 1.0));
 

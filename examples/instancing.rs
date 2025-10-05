@@ -117,8 +117,8 @@ impl InstanceManager {
         }
         let free_count = self.instances.len() - self.count;
 
-        let mut rng = rand::thread_rng();
-        let index = rng.gen_range(0..free_count);
+        let mut thread_rng = rand::rng();
+        let index = thread_rng.random_range(0..free_count);
         let (index, _) = self
             .instances
             .iter_mut()
@@ -154,8 +154,8 @@ impl InstanceManager {
     /// Randomly despawn one of the existing particle effects, if any.
     pub fn despawn_random(&mut self, commands: &mut Commands) {
         if self.count > 0 {
-            let mut rng = rand::thread_rng();
-            let index = rng.gen_range(0..self.count);
+            let mut thread_rng = rand::rng();
+            let index = thread_rng.random_range(0..self.count);
             self.despawn_nth(commands, index);
         }
     }
@@ -215,7 +215,7 @@ fn setup(
     });
     let mat = materials.add(utils::COLOR_PURPLE);
 
-    let mut gradient = Gradient::new();
+    let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::splat(0.0));
 
@@ -248,7 +248,7 @@ fn setup(
             .render(ColorOverLifetimeModifier::new(gradient)),
     );
 
-    let mut gradient = Gradient::new();
+    let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(1., 0., 0., 0.));
     gradient.add_key(0.1, Vec4::new(1., 0., 0., 1.));
     gradient.add_key(1.0, Vec4::new(1., 0., 0., 0.));
@@ -330,8 +330,8 @@ fn keyboard_input_system(
 }
 
 fn stress_test(mut commands: Commands, mut my_effect: ResMut<InstanceManager>) {
-    let mut rng = rand::thread_rng();
-    let r = rng.gen_range(0_f32..1_f32);
+    let mut thread_rng = rand::rng();
+    let r = thread_rng.random_range(0_f32..1_f32);
     if r < 0.45 {
         let spawn_count = (r * 10.) as i32 + 1;
         for _ in 0..spawn_count {

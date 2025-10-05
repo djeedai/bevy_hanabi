@@ -101,7 +101,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
             let item_align = item_align.get() as usize;
             let aligned_size = item_size.next_multiple_of(item_align);
             assert!(aligned_size >= item_size);
-            assert!(aligned_size % item_align == 0);
+            assert!(aligned_size.is_multiple_of(item_align));
             aligned_size
         } else {
             item_size
@@ -447,7 +447,7 @@ impl HybridAlignedBufferVec {
     #[allow(dead_code)]
     #[inline]
     pub fn range_binding(&self, offset: u32, size: u32) -> Option<BindingResource<'_>> {
-        assert!(offset as usize % self.item_align == 0);
+        assert!((offset as usize).is_multiple_of(self.item_align));
         let buffer = self.buffer()?;
         let size = NonZeroU64::new(size as u64).unwrap();
         Some(BindingResource::Buffer(BufferBinding {
@@ -666,7 +666,7 @@ impl HybridAlignedBufferVec {
     pub fn remove(&mut self, range: Range<u32>) -> bool {
         // Can only remove entire blocks starting at an aligned size
         let align = self.item_align as u32;
-        if range.start % align != 0 {
+        if !range.start.is_multiple_of(align) {
             return false;
         }
 
@@ -776,7 +776,7 @@ impl HybridAlignedBufferVec {
     pub fn update_raw(&mut self, offset: u32, data: &[u8]) {
         // Can only update entire blocks starting at an aligned size
         let align = self.item_align as u32;
-        if offset % align != 0 {
+        if !offset.is_multiple_of(align) {
             return;
         }
 
@@ -1194,7 +1194,7 @@ mod gpu_tests {
         queue.on_submitted_work_done(move || {
             tx.send(()).unwrap();
         });
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::Wait);
         let _ = futures::executor::block_on(rx);
         println!("Buffer written");
 
@@ -1206,7 +1206,7 @@ mod gpu_tests {
         buffer.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::Wait);
         let _result = futures::executor::block_on(rx);
         let view = buffer.get_mapped_range();
 

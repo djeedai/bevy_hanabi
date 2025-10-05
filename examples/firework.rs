@@ -18,8 +18,8 @@
 //! to form an arc using [`EffectAsset::with_ribbons`].
 
 use bevy::{
-    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
-    prelude::*,
+    core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
+    render::view::Hdr,
 };
 use bevy_hanabi::prelude::*;
 
@@ -112,12 +112,12 @@ fn create_rocket_effect() -> EffectAsset {
         .update(update_spawn_trail)
         .update(update_spawn_on_die)
         .render(ColorOverLifetimeModifier {
-            gradient: Gradient::constant(Vec4::ONE),
+            gradient: bevy_hanabi::Gradient::constant(Vec4::ONE),
             blend: ColorBlendMode::Overwrite,
             mask: ColorBlendMask::RGBA,
         })
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec3::ONE * 0.1),
+            gradient: bevy_hanabi::Gradient::constant(Vec3::ONE * 0.1),
             screen_space_size: false,
         })
 }
@@ -156,7 +156,7 @@ fn create_sparkle_trail_effect() -> EffectAsset {
     // The (CPU) spawner is unused
     let spawner = SpawnerSettings::default();
 
-    let mut color_gradient = Gradient::new();
+    let mut color_gradient = bevy_hanabi::Gradient::new();
     color_gradient.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
     color_gradient.add_key(0.8, Vec4::new(4.0, 4.0, 4.0, 1.0));
     color_gradient.add_key(1.0, Vec4::new(4.0, 4.0, 4.0, 0.0));
@@ -175,7 +175,7 @@ fn create_sparkle_trail_effect() -> EffectAsset {
             mask: ColorBlendMask::RGBA,
         })
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec3::ONE * 0.02),
+            gradient: bevy_hanabi::Gradient::constant(Vec3::ONE * 0.02),
             screen_space_size: false,
         })
 }
@@ -225,7 +225,7 @@ fn create_trails_effect() -> EffectAsset {
     // The (CPU) spawner is unused
     let spawner = SpawnerSettings::default();
 
-    let mut color_gradient = Gradient::new();
+    let mut color_gradient = bevy_hanabi::Gradient::new();
     color_gradient.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
     color_gradient.add_key(0.6, Vec4::new(4.0, 4.0, 4.0, 1.0));
     color_gradient.add_key(1.0, Vec4::new(4.0, 4.0, 4.0, 0.0));
@@ -245,7 +245,7 @@ fn create_trails_effect() -> EffectAsset {
             mask: ColorBlendMask::RGBA,
         })
         .render(SizeOverLifetimeModifier {
-            gradient: Gradient::constant(Vec3::new(0.2, 0.05, 0.05)),
+            gradient: bevy_hanabi::Gradient::constant(Vec3::new(0.2, 0.05, 0.05)),
             screen_space_size: false,
         })
         .render(orient)
@@ -257,10 +257,10 @@ fn setup(mut commands: Commands, effects: ResMut<Assets<EffectAsset>>) {
         Transform::from_translation(Vec3::new(0., 20., 50.)),
         Camera3d::default(),
         Camera {
-            hdr: true,
             clear_color: Color::BLACK.into(),
             ..default()
         },
+        Hdr,
         Tonemapping::None,
         Bloom {
             intensity: 0.5,

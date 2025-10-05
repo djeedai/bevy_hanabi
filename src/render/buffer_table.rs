@@ -215,7 +215,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
             let item_align = item_align.get() as usize;
             let aligned_size = item_size.next_multiple_of(item_align);
             assert!(aligned_size >= item_size);
-            assert!(aligned_size % item_align == 0);
+            assert!(aligned_size.is_multiple_of(item_align));
             aligned_size
         } else {
             item_size
@@ -1090,7 +1090,7 @@ mod gpu_tests {
         slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::Wait);
         let result = futures::executor::block_on(rx);
         assert!(result.is_ok());
         slice.get_mapped_range()
@@ -1115,7 +1115,7 @@ mod gpu_tests {
         });
 
         // Poll device, checking for completion and raising callback
-        device.poll(wgpu::Maintain::Wait);
+        let _ = device.poll(wgpu::PollType::Wait);
 
         // Wait for callback to be raised. This was need in previous versions, however
         // it's a bit unclear if it's still needed or if device.poll() is enough to

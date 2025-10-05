@@ -10,8 +10,8 @@
 //! therefore ensure that the rectangles in front and behind the particle effect
 //! do not overlap the bounding box of the effect itself.
 use bevy::{
-    core_pipeline::{bloom::Bloom, tonemapping::Tonemapping},
-    prelude::*,
+    core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
+    render::view::Hdr,
 };
 use bevy_hanabi::prelude::*;
 
@@ -34,13 +34,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn make_firework() -> EffectAsset {
     // Set the particles bright white (HDR; value=4.) so we can see the effect of
     // any colored object covering them.
-    let mut color_gradient1 = Gradient::new();
+    let mut color_gradient1 = bevy_hanabi::Gradient::new();
     color_gradient1.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
     color_gradient1.add_key(1.0, Vec4::new(4.0, 4.0, 4.0, 0.0));
 
     // Keep the size large so we can more visibly see the particles for longer, and
     // see the effect of alpha blending.
-    let mut size_gradient1 = Gradient::new();
+    let mut size_gradient1 = bevy_hanabi::Gradient::new();
     size_gradient1.add_key(0.0, Vec3::ONE);
     size_gradient1.add_key(0.1, Vec3::ONE);
     size_gradient1.add_key(1.0, Vec3::ZERO);
@@ -102,11 +102,11 @@ fn setup(
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 50.)),
         Camera {
-            hdr: true,
             clear_color: Color::BLACK.into(),
             ..default()
         },
         Camera3d::default(),
+        Hdr,
         Tonemapping::None,
         Bloom::default(),
     ));

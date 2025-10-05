@@ -50,7 +50,7 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let mut projection = OrthographicProjection::default_3d();
-    projection.scaling_mode = bevy::render::camera::ScalingMode::FixedVertical {
+    projection.scaling_mode = bevy::camera::ScalingMode::FixedVertical {
         viewport_height: 5.,
     };
     commands.spawn((
@@ -113,7 +113,7 @@ fn setup(
         })),
     ));
 
-    let mut gradient = Gradient::new();
+    let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.0, 1.0, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.0, 1.0, 1.0, 0.0));
 
@@ -202,7 +202,7 @@ fn setup(
             .update(allow_zone)
             .update(deny_zone)
             .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant(Vec3::splat(0.05)),
+                gradient: bevy_hanabi::Gradient::constant(Vec3::splat(0.05)),
                 screen_space_size: false,
             })
             .render(ColorOverLifetimeModifier::new(gradient)),

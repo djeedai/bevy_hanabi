@@ -36,7 +36,7 @@ jobs:
         run: |
           sudo apt-get update;
           DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
-            libasound2-dev libudev-dev;
+            libasound2-dev libudev-dev libwayland-dev;
         if: runner.os == 'linux'
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -109,6 +109,8 @@ jobs:
         with:
           target: wasm32-unknown-unknown
       - name: Check wasm
+        env:
+          RUSTFLAGS: --cfg getrandom_backend="wasm_js"
         run: cargo check --target wasm32-unknown-unknown --no-default-features --features 2d,3d
 
   msrv:
@@ -118,7 +120,7 @@ jobs:
         run: |
           sudo apt-get update;
           DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
-            libasound2-dev libudev-dev;
+            libasound2-dev libudev-dev libwayland-dev;
         if: runner.os == 'linux'
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -134,7 +136,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-msrv-stable-${{ hashFiles('**/Cargo.toml') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.85
+          toolchain: 1.88
           components: rustfmt, clippy
       - name: Check
         run: cargo check --lib --all-features
@@ -188,7 +190,7 @@ jobs:
         run: |
           sudo apt-get update;
           DEBIAN_FRONTEND=noninteractive sudo apt-get install --no-install-recommends -yq \
-            libasound2-dev libudev-dev;
+            libasound2-dev libudev-dev libwayland-dev;
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:

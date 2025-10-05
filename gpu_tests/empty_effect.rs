@@ -28,7 +28,7 @@ fn setup(mut commands: Commands) {
     commands.spawn(ParticleEffect::default());
 }
 
-fn timeout(mut frame: ResMut<Frame>, mut ev_app_exit: EventWriter<AppExit>) {
+fn timeout(mut frame: ResMut<Frame>, mut ev_app_exit: MessageWriter<AppExit>) {
     frame.0 += 1;
     if frame.0 >= 10 {
         info!("SUCCESS!");

@@ -6,8 +6,7 @@
 //! providing total control to the application.
 
 use bevy::{
-    core_pipeline::tonemapping::Tonemapping, math::Vec3Swizzles, prelude::*,
-    render::camera::ScalingMode,
+    camera::ScalingMode, core_pipeline::tonemapping::Tonemapping, math::Vec3Swizzles, prelude::*,
 };
 use bevy_hanabi::prelude::*;
 

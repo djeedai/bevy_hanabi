@@ -14,8 +14,7 @@
 //! are despawned when reaching the surface.
 
 use bevy::{
-    core_pipeline::tonemapping::Tonemapping, prelude::*, render::camera::ScalingMode,
-    text::TextFont,
+    camera::ScalingMode, core_pipeline::tonemapping::Tonemapping, prelude::*, text::TextFont,
 };
 use bevy_hanabi::prelude::*;
 
@@ -85,7 +84,7 @@ fn setup(
         Name::new("ball"),
     ));
 
-    let mut gradient = Gradient::new();
+    let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.5, 0.5, 1.0, 0.0));
 

@@ -185,7 +185,7 @@ pub(crate) fn effect_simulation_time_system(
 mod tests {
     use std::{thread::sleep, time::Duration};
 
-    use bevy::time::{time_system, TimePlugin, TimeSystem};
+    use bevy::time::{time_system, TimePlugin, TimeSystems};
 
     use super::*;
 
@@ -198,7 +198,7 @@ mod tests {
             First,
             effect_simulation_time_system
                 .after(time_system)
-                .in_set(TimeSystem),
+                .in_set(TimeSystems),
         );
 
         app

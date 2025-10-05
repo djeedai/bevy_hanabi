@@ -8,8 +8,9 @@ use bevy::{
     color::palettes::css::FOREST_GREEN,
     core_pipeline::tonemapping::Tonemapping,
     math::vec3,
+    mesh::{SphereKind, SphereMeshBuilder},
     prelude::*,
-    render::mesh::{SphereKind, SphereMeshBuilder},
+    render::view::Hdr,
 };
 use bevy_hanabi::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -61,11 +62,11 @@ fn setup(
     commands.spawn((
         Transform::from_xyz(25.0, 15.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
         Camera {
-            hdr: true,
             clear_color: Color::BLACK.into(),
             ..default()
         },
         Camera3d::default(),
+        Hdr,
         Tonemapping::None,
     ));
 

@@ -2,10 +2,10 @@ use std::{num::NonZeroU64, ops::Range};
 
 use bevy::{
     ecs::{
-        observer::Trigger,
+        lifecycle::Remove,
+        observer::On,
         query::{With, Without},
         system::{Commands, Query},
-        world::OnRemove,
     },
     log::{error, trace},
     prelude::{Component, Entity, ResMut, Resource},
@@ -276,7 +276,7 @@ pub(crate) fn allocate_events(
 /// Observer raised when the [`CachedEffectEvents`] component is removed,
 /// which indicates that the effect doesn't use GPU events anymore.
 pub(crate) fn on_remove_cached_effect_events(
-    trigger: Trigger<OnRemove, CachedEffectEvents>,
+    trigger: On<Remove, CachedEffectEvents>,
     query: Query<(Entity, &CachedEffectEvents)>,
     mut event_cache: ResMut<EventCache>,
 ) {
@@ -284,7 +284,7 @@ pub(crate) fn on_remove_cached_effect_events(
     let _span = bevy::log::info_span!("on_remove_cached_effect_events").entered();
     trace!("on_remove_cached_effect_events");
 
-    if let Ok((entity, cached_effect_event)) = query.get(trigger.target()) {
+    if let Ok((entity, cached_effect_event)) = query.get(trigger.event().entity) {
         // TODO - handle SlabState return value to invalidate property bind groups!!
         if let Err(err) = event_cache.free(cached_effect_event) {
             error!("Error while freeing cached events for effect {entity:?}: {err:?}");

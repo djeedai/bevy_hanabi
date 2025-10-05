@@ -465,14 +465,14 @@ mod tests {
         let mut sorter = EffectSorter::new();
 
         // Some "parent" effect
-        let e1 = Entity::from_raw(1);
+        let e1 = Entity::from_raw_u32(1).unwrap();
         insert_entry(&mut sorter, e1, SlabId::new(42), 0, None);
         assert_eq!(sorter.effects.len(), 1);
         assert_eq!(sorter.effects[0].entity, e1);
         assert!(sorter.child_to_parent.is_empty());
 
         // Some "child" effect in a different buffer
-        let e2 = Entity::from_raw(2);
+        let e2 = Entity::from_raw_u32(2).unwrap();
         insert_entry(&mut sorter, e2, SlabId::new(5), 30, Some(e1));
         assert_eq!(sorter.effects.len(), 2);
         assert_eq!(sorter.effects[0].entity, e1);
@@ -488,7 +488,7 @@ mod tests {
         assert_eq!(sorter.child_to_parent[&e2], e1); // unchanged
 
         // Some "child" effect in the same buffer as its parent
-        let e3 = Entity::from_raw(3);
+        let e3 = Entity::from_raw_u32(3).unwrap();
         insert_entry(&mut sorter, e3, SlabId::new(42), 20, Some(e1));
         assert_eq!(sorter.effects.len(), 3);
         assert_eq!(sorter.effects[0].entity, e2); // from previous sort
