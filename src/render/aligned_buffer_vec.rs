@@ -522,6 +522,7 @@ impl HybridAlignedBufferVec {
     /// The range span is the item byte size.
     ///
     /// [`item_align()`]: self::HybridAlignedBufferVec::item_align
+    #[allow(dead_code)]
     pub fn push<T: Pod + ShaderSize>(&mut self, value: &T) -> Range<u32> {
         let src: &[u8] = cast_slice(std::slice::from_ref(value));
         assert_eq!(value.size().get() as usize, src.len());
@@ -765,6 +766,7 @@ impl HybridAlignedBufferVec {
     }
 
     /// Update an allocated entry with a new value.
+    #[allow(dead_code)]
     #[inline]
     pub fn update<T: Pod + ShaderSize>(&mut self, offset: u32, value: &T) {
         let data: &[u8] = cast_slice(std::slice::from_ref(value));

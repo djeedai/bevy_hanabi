@@ -888,7 +888,7 @@ impl EffectSpawner {
 /// [`EffectSpawner::tick()`], adding a new [`EffectSpawner`] component if it
 /// doesn't already exist on the same entity as the [`ParticleEffect`].
 ///
-/// [`VisibilitySystems::VisibilityPropagate`]: bevy::render::view::VisibilitySystems::VisibilityPropagate
+/// [`VisibilitySystems::VisibilityPropagate`]: bevy::camera::visibility::VisibilitySystems::VisibilityPropagate
 /// [`EffectAsset::simulation_condition`]: crate::EffectAsset::simulation_condition
 pub fn tick_spawners(
     mut commands: Commands,

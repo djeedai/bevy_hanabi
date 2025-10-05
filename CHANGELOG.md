@@ -3,7 +3,9 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.17.0] 2025-10-05
+
+_This version is compatible with Bevy 0.17_
 
 ### Added
 
@@ -15,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Compatible with Bevy 0.17
 - Rewrote most of the extraction pass, splitting the logic into more components and systems for clarity.
 - Spawners for effects which are not _ready_ (see new `CompiledParticleEffect::is_ready()`) do not tick.
   This ensures one-shot/burst effects don't attempt to spawn particles
@@ -37,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.0] 2025-05-31
 
+_This version is compatible with Bevy 0.16_
+
 ### Added
 
 - Added the ability to read the particle buffer from a fragment shader. (#468)
@@ -53,6 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.15.1] 2025-04-23
 
+_This version is compatible with Bevy 0.15_
+
 ### Fixed
 
 - Fixed several bugs related to buffer reallocation and bind group invalidation.
@@ -63,6 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added more padding attributes to ensure the particle layout generated is always valid.
 
 ## [0.15.0] 2025-04-01
+
+_This version is compatible with Bevy 0.15_
 
 ### Added
 
@@ -162,6 +171,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.14.0] 2024-12-09
 
+_This version is compatible with Bevy 0.15_
+
 ### Added
 
 - Added a `TextureLayout::get_slot_by_name()` helper to retrieve the index of a texture slot.
@@ -175,11 +186,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.13.1] 2024-11-16
 
+_This version is compatible with Bevy 0.14_
+
 ### Fixed
 
 - Fixed a panic in the init compute shader when using trails and ribbons, affecting some combinations of graphics API (notably Vulkan) and GPU devices only. (#399)
 
 ## [0.13.0] 2024-11-14
+
+_This version is compatible with Bevy 0.14_
 
 ### Added
 
@@ -225,17 +240,23 @@ long as they call the new RenderContext::set_needs_normal method.
 
 ## [0.12.2] 2024-08-05
 
+_This version is compatible with Bevy 0.14_
+
 ### Fixed
 
 - Fix regression building with `rustc 1.79`, which is the Bevy MSRV. (#360)
 
 ## [0.12.1] 2024-07-28
 
+_This version is compatible with Bevy 0.14_
+
 ### Fixed
 
 - Fix new `rustc 1.80` linter error breaking the crate build. (#351)
 
 ## [0.12.0] 2024-07-09
+
+_This version is compatible with Bevy 0.14_
 
 ### Added
 
@@ -252,6 +273,8 @@ long as they call the new RenderContext::set_needs_normal method.
 - Fixed a panic when a particle effect as an invalid asset handle. (#343)
 
 ## [0.11.0] 2024-05-29
+
+_This version is compatible with Bevy 0.13_
 
 ### Added
 
@@ -317,6 +340,8 @@ long as they call the new RenderContext::set_needs_normal method.
 
 ## [0.10.0] 2024-02-24
 
+_This version is compatible with Bevy 0.13_
+
 ### Changed
 
 - Compatible with Bevy 0.13
@@ -329,6 +354,8 @@ long as they call the new RenderContext::set_needs_normal method.
 - Fixed a bug where screen-space size ignored the particle's local orientation. (#269)
 
 ## [0.9.0] 2023-12-26
+
+_This version is compatible with Bevy 0.12_
 
 ### Added
 
@@ -351,6 +378,8 @@ long as they call the new RenderContext::set_needs_normal method.
 - Exposed publicly the `attributes` and `properties` modules, and documented them.
 
 ## [0.8.0] 2023-11-08
+
+_This version is compatible with Bevy 0.12_
 
 ### Added
 
@@ -410,6 +439,8 @@ long as they call the new RenderContext::set_needs_normal method.
 
 ## [0.7.0] 2023-07-17
 
+_This version is compatible with Bevy 0.11_
+
 ### Added
 
 - Added `Gradient::linear()` helper method to produce a linear gradient between two values at keys `0.` and `1.`.
@@ -467,6 +498,8 @@ long as they call the new RenderContext::set_needs_normal method.
 
 ## [0.6.2] 2023-06-10
 
+_This version is compatible with Bevy 0.10_
+
 ### Added
 
 - Added `SetColorModifier` to set a per-particle color on spawning, which doesn't vary during the particle's lifetime.
@@ -519,6 +552,8 @@ long as they call the new RenderContext::set_needs_normal method.
 
 ## [0.6.1] 2023-03-13
 
+_This version is compatible with Bevy 0.10_
+
 ### Added
 
 - Added an example `init.rs` showing the various kinds of position initializing modifiers.
@@ -532,6 +567,8 @@ long as they call the new RenderContext::set_needs_normal method.
 - Fixed a bug in `PositionCone3dModifier` where the translation of the emitter is applied twice. (#152)
 
 ## [0.6.0] 2023-03-10
+
+_This version is compatible with Bevy 0.10_
 
 ### Added
 
@@ -571,6 +608,8 @@ long as they call the new RenderContext::set_needs_normal method.
 
 ## [0.5.3] 2023-02-07
 
+_This version is compatible with Bevy 0.9_
+
 ### Fixed
 
 - Fix a panic on `unwrap()` after despawning N > 1 effects and re-spawning M < N effects. (#123)
@@ -580,6 +619,8 @@ long as they call the new RenderContext::set_needs_normal method.
 - Changed the `instance.rs` example to spawn effects in random positions. Also added a (disabled) stress test which randomly spawns and despawns effects quickly to uncover bugs more easily.
 
 ## [0.5.2] 2023-01-20
+
+_This version is compatible with Bevy 0.9_
 
 ### Added
 
@@ -599,6 +640,8 @@ long as they call the new RenderContext::set_needs_normal method.
 
 ## [0.5.1] 2022-12-03
 
+_This version is compatible with Bevy 0.9_
+
 ### Added
 
 - Add support for HDR cameras (`Camera::hdr == true`).
@@ -611,6 +654,8 @@ long as they call the new RenderContext::set_needs_normal method.
 - Fix a bug in the way `BillboardModifier` was projecting the particle vertices onto the camera plane, producing some partial or total clipping of particles.
 
 ## [0.5.0] 2022-11-14
+
+_This version is compatible with Bevy 0.9_
 
 ### Changed
 
@@ -627,6 +672,8 @@ long as they call the new RenderContext::set_needs_normal method.
 
 ## [0.4.1] 2022-10-28
 
+_This version is compatible with Bevy 0.8_
+
 ### Fixed
 
 - Respect user-defined MSAA setting by reading the value of `Msaa::samples` when building the render pipeline. (#59)
@@ -635,6 +682,8 @@ long as they call the new RenderContext::set_needs_normal method.
 - Fixed a bug in the calculation of some GPU buffer binding causing a panic under some combination of effect capacity and spawn count. (#68)
 
 ## [0.4.0] 2022-10-11
+
+_This version is compatible with Bevy 0.8_
 
 ### Added
 
@@ -660,6 +709,8 @@ long as they call the new RenderContext::set_needs_normal method.
 
 ## [0.3.1] 2022-08-19
 
+_This version is compatible with Bevy 0.8_
+
 ### Added
 
 - Added `EffectAsset::z_layer_2d` and `ParticleEffect::z_layer_2d` to control the Z layer at which particles are rendered in 2D mode. Note that effects with different Z values cannot be batched together, which may negatively affect performance.
@@ -667,12 +718,16 @@ long as they call the new RenderContext::set_needs_normal method.
 
 ## [0.3.0] 2022-08-06
 
+_This version is compatible with Bevy 0.8_
+
 ### Changed
 
 - Switch to Bevy v0.8.
 - Update spawners in a separate system `tick_spawners()` (label: `EffectSystems::TickSpawners`) which runs in the `CoreStage::PostUpdate` stage after the visibility system updated all `ComputedVisibility`, to allow skipping effect instances which are not visible. Spawners were previously ticked in the render extract phase.
 
 ## [0.2.0] 2022-04-17
+
+_This version is compatible with Bevy 0.7_
 
 ### Added
 
@@ -690,6 +745,8 @@ long as they call the new RenderContext::set_needs_normal method.
 - Fix a bug in spawner parameters alignment making the library crash on some GPUs. The spawner parameters are now properly aligned according to the device-dependent constraints queried at runtime. (#26)
 
 ## [0.1.2] 2022-04-07
+
+_This version is compatible with Bevy 0.6_
 
 ### Added
 
@@ -725,12 +782,16 @@ long as they call the new RenderContext::set_needs_normal method.
 
 ## [0.1.1] 2022-02-15
 
+_This version is compatible with Bevy 0.6_
+
 ### Fixed
 
 - Fix homepage link in `Cargo.toml`
 - Bevy 0.6.1 fixed build on nightly, thereby fixing docs.rs builds
 
 ## [0.1.0] 2022-02-11
+
+_This version is compatible with Bevy 0.6_
 
 Initial alpha version. Lots of things missing, but the barebone functionality is there.
 See the README.md for the list of planned and implemented features.

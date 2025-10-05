@@ -194,6 +194,7 @@ impl<T: Pod + ShaderType + ShaderSize> GpuBuffer<T> {
 
     /// Get a binding for the entire GPU buffer, if allocated.
     #[inline]
+    #[allow(dead_code)]
     pub fn as_entire_binding(&self) -> Option<BindingResource<'_>> {
         let buffer = self.buffer()?;
         Some(buffer.as_entire_binding())

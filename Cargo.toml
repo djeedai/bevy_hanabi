@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.17.0-dev"
+version = "0.17.0"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 rust-version = "1.88.0"
@@ -62,7 +62,7 @@ ron = "0.8"
 bitflags = "2.3"
 typetag = { version = "0.2", optional = true }
 thiserror = "2"
-# Same versions as Bevy 0.16 (bevy_render)
+# Same versions as Bevy 0.17 (bevy_render)
 wgpu = { version = "26", default-features = false, features = [
   "wgsl",
   "dx12",

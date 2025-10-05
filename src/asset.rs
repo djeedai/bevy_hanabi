@@ -66,9 +66,9 @@ pub enum SimulationCondition {
     /// Note also that AABB culling is not currently available. Only boolean
     /// ON/OFF visibility is used.
     ///
-    /// [`Visibility`]: bevy::render::view::Visibility
-    /// [`InheritedVisibility`]: bevy::render::view::InheritedVisibility
-    /// [`ViewVisibility`]: bevy::render::view::ViewVisibility
+    /// [`Visibility`]: bevy::camera::visibility::Visibility
+    /// [`InheritedVisibility`]: bevy::camera::visibility::InheritedVisibility
+    /// [`ViewVisibility`]: bevy::camera::visibility::ViewVisibility
     /// [`ParticleEffect`]: crate::ParticleEffect
     /// [`CompiledParticleEffect`]: crate::CompiledParticleEffect
     #[default]
@@ -86,9 +86,9 @@ pub enum SimulationCondition {
     ///
     /// Any [`InheritedVisibility`] or [`ViewVisibility`] component is ignored.
     ///
-    /// [`Visibility`]: bevy::render::view::Visibility
-    /// [`InheritedVisibility`]: bevy::render::view::InheritedVisibility
-    /// [`ViewVisibility`]: bevy::render::view::ViewVisibility
+    /// [`Visibility`]: bevy::camera::visibility::Visibility
+    /// [`InheritedVisibility`]: bevy::camera::visibility::InheritedVisibility
+    /// [`ViewVisibility`]: bevy::camera::visibility::ViewVisibility
     Always,
 }
 

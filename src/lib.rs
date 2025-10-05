@@ -14,7 +14,6 @@
     clippy::useless_let_if_seq
 )]
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
-#![allow(dead_code)] // Bug in encase@0.10, fixed in 0.11.1 but bevy@0.16 depends on the buggy one
 
 //! 🎆 Hanabi -- a GPU particle system plugin for the Bevy game engine.
 //!
@@ -41,7 +40,7 @@
 //!
 //! ```toml
 //! # Example: enable only 3D integration
-//! bevy_hanabi = { version = "0.15", default-features = false, features = ["3d"] }
+//! bevy_hanabi = { version = "0.17", default-features = false, features = ["3d"] }
 //! ```
 //!
 //! # Example

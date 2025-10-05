@@ -2205,58 +2205,6 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
 /// render world item.
 ///
 /// [`ParticleEffect`]: crate::ParticleEffect
-#[derive(Debug, Component)]
-pub(crate) struct ExtractedEffectLegacy {
-    /// Main world entity owning the [`CompiledParticleEffect`] this effect was
-    /// extracted from. Mainly used for visibility.
-    pub main_entity: MainEntity,
-    /// Render world entity, if any, where the [`CachedEffect`] component
-    /// caching this extracted effect resides. If this component was never
-    /// cached in the render world, this is `None`. In that case a new
-    /// [`CachedEffect`] will be spawned automatically.
-    pub render_entity: RenderEntity,
-    /// Handle to the effect asset this instance is based on.
-    /// The handle is weak to prevent refcount cycles and gracefully handle
-    /// assets unloaded or destroyed after a draw call has been submitted.
-    pub handle: Handle<EffectAsset>,
-    /// Particle layout for the effect.
-    #[allow(dead_code)]
-    pub particle_layout: ParticleLayout,
-    /// Property layout for the effect.
-    pub property_layout: PropertyLayout,
-    /// Values of properties written in a binary blob according to
-    /// [`property_layout`].
-    ///
-    /// This is `Some(blob)` if the data needs to be (re)uploaded to GPU, or
-    /// `None` if nothing needs to be done for this frame.
-    ///
-    /// [`property_layout`]: crate::render::ExtractedEffect::property_layout
-    pub property_data: Option<Vec<u8>>,
-    /// Number of particles to spawn this frame.
-    ///
-    /// This is ignored if the effect is a child effect consuming GPU spawn
-    /// events.
-    pub spawn_count: u32,
-    /// PRNG seed.
-    pub prng_seed: u32,
-    /// Global transform of the effect origin.
-    pub transform: GlobalTransform,
-    /// Layout flags.
-    pub layout_flags: LayoutFlags,
-    /// Texture layout.
-    pub texture_layout: TextureLayout,
-    /// Textures.
-    pub textures: Vec<Handle<Image>>,
-    /// Alpha mode.
-    pub alpha_mode: AlphaMode,
-    /// Effect shaders.
-    pub effect_shaders: EffectShader,
-}
-
-/// A single effect instance extracted from a [`ParticleEffect`] as a
-/// render world item.
-///
-/// [`ParticleEffect`]: crate::ParticleEffect
 #[derive(Debug, Clone, PartialEq, Component)]
 #[require(CachedPipelines, CachedReadyState, CachedEffectMetadata)]
 pub(crate) struct ExtractedEffect {
@@ -4067,14 +4015,6 @@ pub(crate) struct CachedMeshLocation {
     pub indexed: Option<MeshIndexSlice>,
 }
 
-/// Cached info about the [`GpuEffectMetadata`] allocation for this effect.
-///
-/// The component is present when the [`GpuEffectMetadata`] is allocated.
-#[derive(Debug, Clone, PartialEq, Eq, Component)]
-pub(crate) struct CachedMetadata {
-    pub buffer_table_id: BufferTableId,
-}
-
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct CachedPipelineFlags: u8 {
@@ -4168,15 +4108,6 @@ pub struct PrepareEffectsReadOnlyParams<'w, 's> {
     sim_params: Res<'w, SimParams>,
     render_device: Res<'w, RenderDevice>,
     render_queue: Res<'w, RenderQueue>,
-    marker: PhantomData<&'s usize>,
-}
-
-#[derive(SystemParam)]
-pub struct PipelineSystemParams<'w, 's> {
-    pipeline_cache: Res<'w, PipelineCache>,
-    init_pipeline: ResMut<'w, ParticlesInitPipeline>,
-    indirect_pipeline: Res<'w, DispatchIndirectPipeline>,
-    update_pipeline: ResMut<'w, ParticlesUpdatePipeline>,
     marker: PhantomData<&'s usize>,
 }
 
@@ -4349,7 +4280,7 @@ unsafe fn propagate_ready_state_recursive(
 pub(crate) fn prepare_batch_inputs(
     mut commands: Commands,
     read_only_params: PrepareEffectsReadOnlyParams,
-    pipelines: PipelineSystemParams,
+    pipeline_cache: Res<PipelineCache>,
     mut effects_meta: ResMut<EffectsMeta>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
     mut property_bind_groups: ResMut<PropertyBindGroups>,
@@ -4378,7 +4309,6 @@ pub(crate) fn prepare_batch_inputs(
     let sim_params = read_only_params.sim_params.into_inner();
     let render_device = read_only_params.render_device.into_inner();
     let render_queue = read_only_params.render_queue.into_inner();
-    let pipeline_cache = pipelines.pipeline_cache.into_inner();
 
     // Clear per-instance buffers, which are filled below and re-uploaded each frame
     effects_meta.spawner_buffer.clear();
@@ -4461,7 +4391,7 @@ pub(crate) fn prepare_batch_inputs(
             // Ensure the bind group layout for sort-fill is ready. This will also ensure
             // the pipeline is created and queued if needed.
             if let Err(err) = sort_bind_groups.ensure_sort_fill_bind_group_layout(
-                pipeline_cache,
+                &pipeline_cache,
                 &extracted_effect.particle_layout,
             ) {
                 error!(
@@ -4474,7 +4404,7 @@ pub(crate) fn prepare_batch_inputs(
             // Check sort pipelines are ready, otherwise we might desync some buffers if
             // running only some of them but not all.
             if !sort_bind_groups
-                .is_pipeline_ready(&extracted_effect.particle_layout, pipeline_cache)
+                .is_pipeline_ready(&extracted_effect.particle_layout, &pipeline_cache)
             {
                 trace!(
                     "Sort pipeline not ready for effect on main entity {:?}; skipped.",

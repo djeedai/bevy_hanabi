@@ -150,6 +150,7 @@ impl SlabId {
     ///
     /// [`INVALID`]: Self::INVALID
     #[inline]
+    #[allow(dead_code)]
     pub const fn is_valid(&self) -> bool {
         self.0 != Self::INVALID.0
     }
@@ -696,6 +697,7 @@ impl AnyDrawIndirectArgs {
 
     /// Check if this args are for an indexed draw call.
     #[inline(always)]
+    #[allow(dead_code)]
     pub fn is_indexed(&self) -> bool {
         matches!(*self, Self::Indexed(..))
     }
@@ -754,12 +756,14 @@ impl CachedDrawIndirectArgs {
     /// one may, but note that the args entry in the buffer may have been freed
     /// already with this index. There's no mechanism to detect reuse either.
     #[inline(always)]
+    #[allow(dead_code)]
     pub fn is_valid(&self) -> bool {
         self.get_row_raw().is_valid()
     }
 
     /// Check if this row index refers to an indexed draw args entry.
     #[inline(always)]
+    #[allow(dead_code)]
     pub fn is_indexed(&self) -> bool {
         self.args.is_indexed()
     }

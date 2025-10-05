@@ -69,6 +69,7 @@ pub(crate) struct EffectBatch {
     /// ID of the particle slab where the parent effect is stored, if any. If a
     /// parent exists, its particle buffer is made available (read-only) for
     /// a child effect to read its attributes.
+    #[allow(dead_code)]
     pub parent_slab_id: Option<SlabId>,
     pub parent_min_binding_size: Option<NonZeroU32>,
     pub parent_binding_source: Option<BufferBindingSource>,
