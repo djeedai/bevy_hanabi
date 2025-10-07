@@ -43,7 +43,7 @@ struct ParentParticleBuffer {
 {{PROPERTIES_BINDING}}
 
 // "metadata" group @3
-@group(3) @binding(0) var<storage, read_write> effect_metadata : EffectMetadata;
+@group(3) @binding(0) var<storage, read_write> effect_metadatas : array<EffectMetadata>;
 #ifdef EMITS_GPU_SPAWN_EVENTS
 {{EMIT_EVENT_BUFFER_BINDINGS}}
 #endif
@@ -59,7 +59,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let thread_index = global_invocation_id.x;
 
     // Cap at maximum number of alive particles.
-    if (thread_index >= effect_metadata.max_update) {
+    let effect_metadata = &effect_metadatas[spawner.effect_metadata_index];
+    if (thread_index >= (*effect_metadata).max_update) {
         return;
     }
 
@@ -83,18 +84,18 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Check if alive
     if (!is_alive) {
         // Save dead index
-        let alive_index = atomicSub(&effect_metadata.alive_count, 1u);
-        let dead_index = effect_metadata.capacity - alive_index;
+        let alive_index = atomicSub(&((*effect_metadata).alive_count), 1u);
+        let dead_index = (*effect_metadata).capacity - alive_index;
         indirect_buffer.rows[dead_index].dead_index = particle_index;
 
         // Also increment copy of dead count, which was updated in dispatch indirect
         // pass just before, and need to remain correct after this pass. We wouldn't have
         // to do that here if we had a per-effect pass between update and the next init.
-        atomicAdd(&effect_metadata.max_spawn, 1u);
+        atomicAdd(&((*effect_metadata).max_spawn), 1u);
     } else {
         // Increment visible particle count (in the absence of any GPU culling), and write
         // the indirection index for later rendering.
-        let indirect_index = atomicAdd(&draw_indirect_buffer[effect_metadata.indirect_render_index].instance_count, 1u);
+        let indirect_index = atomicAdd(&draw_indirect_buffer[(*effect_metadata).indirect_render_index].instance_count, 1u);
         indirect_buffer.rows[indirect_index].particle_index[write_index] = particle_index;
     }
 }

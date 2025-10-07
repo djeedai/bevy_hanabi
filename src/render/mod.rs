@@ -2817,11 +2817,6 @@ impl GpuLimits {
     pub fn effect_metadata_offset(&self, buffer_index: u32) -> u64 {
         self.effect_metadata_aligned_size.get() as u64 * buffer_index as u64
     }
-
-    /// Byte alignment for [`GpuEffectMetadata`].
-    pub fn effect_metadata_size(&self) -> NonZeroU64 {
-        NonZeroU64::new(self.effect_metadata_aligned_size.get() as u64).unwrap()
-    }
 }
 
 /// Global render world resource containing the GPU data to draw all the
@@ -4838,7 +4833,6 @@ impl From<&ConsumeEventBuffers<'_>> for ConsumeEventKey {
 struct InitMetadataBindGroupKey {
     pub slab_id: SlabId,
     pub effect_metadata_buffer: BufferId,
-    pub effect_metadata_offset: u32,
     pub consume_event_key: Option<ConsumeEventKey>,
 }
 
@@ -4846,7 +4840,6 @@ struct InitMetadataBindGroupKey {
 struct UpdateMetadataBindGroupKey {
     pub slab_id: SlabId,
     pub effect_metadata_buffer: BufferId,
-    pub effect_metadata_offset: u32,
     pub child_info_buffer_id: Option<BufferId>,
     pub event_buffers_keys: Vec<BindingKey>,
 }
@@ -4942,7 +4935,6 @@ impl EffectBindGroups {
     pub(self) fn get_or_create_init_metadata(
         &mut self,
         effect_batch: &EffectBatch,
-        gpu_limits: &GpuLimits,
         render_device: &RenderDevice,
         layout: &BindGroupLayout,
         effect_metadata_buffer: &Buffer,
@@ -4950,25 +4942,22 @@ impl EffectBindGroups {
     ) -> Result<&BindGroup, ()> {
         assert!(effect_batch.metadata_table_id.is_valid());
 
-        let effect_metadata_offset =
-            gpu_limits.effect_metadata_offset(effect_batch.metadata_table_id.0) as u32;
         let key = InitMetadataBindGroupKey {
             slab_id: effect_batch.slab_id,
             effect_metadata_buffer: effect_metadata_buffer.id(),
-            effect_metadata_offset,
             consume_event_key: consume_event_buffers.as_ref().map(Into::into),
         };
 
         let make_entry = || {
             let mut entries = Vec::with_capacity(3);
             entries.push(
-                // @group(3) @binding(0) var<storage, read_write> effect_metadata : EffectMetadata;
+                // @group(3) @binding(0) var<storage, read_write> effect_metadatas : array<EffectMetadata>;
                 BindGroupEntry {
                     binding: 0,
                     resource: BindingResource::Buffer(BufferBinding {
                         buffer: effect_metadata_buffer,
-                        offset: key.effect_metadata_offset as u64,
-                        size: Some(gpu_limits.effect_metadata_size()),
+                        offset: 0,
+                        size: None,
                     }),
                 },
             );
@@ -5038,7 +5027,6 @@ impl EffectBindGroups {
     pub(self) fn get_or_create_update_metadata(
         &mut self,
         effect_batch: &EffectBatch,
-        gpu_limits: &GpuLimits,
         render_device: &RenderDevice,
         layout: &BindGroupLayout,
         effect_metadata_buffer: &Buffer,
@@ -5067,23 +5055,20 @@ impl EffectBindGroups {
         let key = UpdateMetadataBindGroupKey {
             slab_id: effect_batch.slab_id,
             effect_metadata_buffer: effect_metadata_buffer.id(),
-            effect_metadata_offset: gpu_limits
-                .effect_metadata_offset(effect_batch.metadata_table_id.0)
-                as u32,
             child_info_buffer_id,
             event_buffers_keys,
         };
 
         let make_entry = || {
             let mut entries = Vec::with_capacity(2 + event_buffers.len());
-            // @group(3) @binding(0) var<storage, read_write> effect_metadata :
-            // EffectMetadata;
+            // @group(3) @binding(0) var<storage, read_write> effect_metadatas :
+            // array<EffectMetadata>;
             entries.push(BindGroupEntry {
                 binding: 0,
                 resource: BindingResource::Buffer(BufferBinding {
                     buffer: effect_metadata_buffer,
-                    offset: key.effect_metadata_offset as u64,
-                    size: Some(gpu_limits.effect_metadata_aligned_size.into()),
+                    offset: 0,
+                    size: None,
                 }),
             });
             if emits_gpu_spawn_events {
@@ -6372,7 +6357,6 @@ pub(crate) fn prepare_bind_groups(
             if effect_bind_groups
                 .get_or_create_init_metadata(
                     effect_batch,
-                    &effects_meta.gpu_limits,
                     &render_device,
                     init_metadata_layout,
                     effects_meta.effect_metadata_buffer.buffer().unwrap(),
@@ -6397,7 +6381,6 @@ pub(crate) fn prepare_bind_groups(
             if effect_bind_groups
                 .get_or_create_update_metadata(
                     effect_batch,
-                    &effects_meta.gpu_limits,
                     &render_device,
                     update_metadata_layout,
                     effects_meta.effect_metadata_buffer.buffer().unwrap(),
@@ -7242,16 +7225,16 @@ impl Node for VfxSimulateNode {
                 }
 
                 // Compute dynamic offsets
-                let spawner_index = effect_batch.spawner_base;
+                let spawner_base = effect_batch.spawner_base;
                 let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
                 assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
-                let spawner_offset = spawner_index * spawner_aligned_size as u32;
+                let spawner_offset = spawner_base * spawner_aligned_size as u32;
                 let property_offset = effect_batch.property_offset;
 
                 trace!(
                     "record commands for update pipeline of effect {:?} spawner_base={}",
                     effect_batch.handle,
-                    spawner_index,
+                    spawner_base,
                 );
 
                 // Setup update pass

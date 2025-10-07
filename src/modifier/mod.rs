@@ -674,11 +674,11 @@ impl EmitSpawnEventModifier {
 
         let cond = match self.condition {
             EventEmitCondition::Always => format!(
-                "if (is_alive) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
+                "if (is_alive) {{ append_spawn_events_{channel_index}((*effect_metadata).base_child_index, particle_index, {}); }}",
                 count_var
             ),
             EventEmitCondition::OnDie => format!(
-                "if (was_alive && !is_alive) {{ append_spawn_events_{channel_index}(particle_index, {}); }}",
+                "if (was_alive && !is_alive) {{ append_spawn_events_{channel_index}((*effect_metadata).base_child_index, particle_index, {}); }}",
                 count_var
             ),
         };
