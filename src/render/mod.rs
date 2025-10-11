@@ -4951,7 +4951,8 @@ impl EffectBindGroups {
         let make_entry = || {
             let mut entries = Vec::with_capacity(3);
             entries.push(
-                // @group(3) @binding(0) var<storage, read_write> effect_metadatas : array<EffectMetadata>;
+                // @group(3) @binding(0) var<storage, read_write> effect_metadatas :
+                // array<EffectMetadata>;
                 BindGroupEntry {
                     binding: 0,
                     resource: BindingResource::Buffer(BufferBinding {
