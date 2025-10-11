@@ -545,6 +545,7 @@ impl Module {
     impl_module_binary!(uniform, UniformRand);
     impl_module_binary!(normal, NormalRand);
     impl_module_binary!(vec2, Vec2);
+    impl_module_binary!(vec4_xyz_w, Vec4XyzW);
 
     /// Build a ternary expression and append it to the module.
     ///
@@ -581,7 +582,9 @@ impl Module {
     }
 
     impl_module_ternary!(mix, Mix);
+    impl_module_ternary!(clamp, Clamp);
     impl_module_ternary!(smoothstep, SmoothStep);
+    impl_module_ternary!(vec3, Vec3);
 
     /// Build a cast expression and append it to the module.
     ///
@@ -2187,6 +2190,17 @@ pub enum TernaryOperator {
     /// (1 - t) + y * t`.
     Mix,
 
+    /// Clamp operator.
+    ///
+    /// Returns the first argument clamped to the range defined by the second
+    /// and third arguments. If the operands are vectors, they must be of
+    /// the same rank, and the result is a vector of that rank
+    /// and same element scalar type.
+    ///
+    /// The expression `clamp(x, low, high)` is equivalent to `min(max(x, low),
+    /// high)`.
+    Clamp,
+
     /// Smooth stepping operator.
     ///
     /// Returns the smooth Hermitian interpolation between the first and second
@@ -2212,6 +2226,7 @@ impl ToWgslString for TernaryOperator {
     fn to_wgsl_string(&self) -> String {
         match *self {
             TernaryOperator::Mix => "mix".to_string(),
+            TernaryOperator::Clamp => "clamp".to_string(),
             TernaryOperator::SmoothStep => "smoothstep".to_string(),
             TernaryOperator::Vec3 => "vec3".to_string(),
         }
@@ -3600,6 +3615,35 @@ impl WriterExpr {
         self.binary_op(other, BinaryOperator::Mul)
     }
 
+    /// Apply the logical operator "normal" to this expression and another
+    /// expression.
+    ///
+    /// This is a binary operator, which applies component-wise to vector
+    /// operand expressions. That is, for vectors, this produces a vector of
+    /// random values where each component is normally distributed with a mean
+    /// of the corresponding component of the first operand and a standard
+    /// deviation of the corresponding component of the second operand.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec3;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec3<f32>(3., -2., 7.);`.
+    /// let x = w.lit(Vec3::new(3., -2., 7.));
+    ///
+    /// // Another literal expression `y = vec3<f32>(1., 5., 7.);`.
+    /// let y = w.lit(Vec3::new(1., 5., 7.));
+    ///
+    /// // A random variable normally distributed in [1:3]x[-2:5]x[7:7].
+    /// let z = x.normal(y);
+    /// ```
+    #[inline]
+    pub fn normal(self, other: Self) -> Self {
+        self.binary_op(other, BinaryOperator::NormalRand)
+    }
+
     /// Calculate the remainder of the division of the current expression by
     /// another expression.
     ///
@@ -3712,35 +3756,6 @@ impl WriterExpr {
         self.binary_op(other, BinaryOperator::UniformRand)
     }
 
-    /// Apply the logical operator "normal" to this expression and another
-    /// expression.
-    ///
-    /// This is a binary operator, which applies component-wise to vector
-    /// operand expressions. That is, for vectors, this produces a vector of
-    /// random values where each component is normally distributed with a mean
-    /// of the corresponding component of the first operand and a standard
-    /// deviation of the corresponding component of the second operand.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use bevy_hanabi::*;
-    /// # use bevy::math::Vec3;
-    /// # let mut w = ExprWriter::new();
-    /// // A literal expression `x = vec3<f32>(3., -2., 7.);`.
-    /// let x = w.lit(Vec3::new(3., -2., 7.));
-    ///
-    /// // Another literal expression `y = vec3<f32>(1., 5., 7.);`.
-    /// let y = w.lit(Vec3::new(1., 5., 7.));
-    ///
-    /// // A random variable normally distributed in [1:3]x[-2:5]x[7:7].
-    /// let z = x.normal(y);
-    /// ```
-    #[inline]
-    pub fn normal(self, other: Self) -> Self {
-        self.binary_op(other, BinaryOperator::NormalRand)
-    }
-
     fn ternary_op(self, second: Self, third: Self, op: TernaryOperator) -> Self {
         assert_eq!(self.module, second.module);
         assert_eq!(self.module, third.module);
@@ -3786,6 +3801,34 @@ impl WriterExpr {
     #[inline]
     pub fn mix(self, other: Self, fraction: Self) -> Self {
         self.ternary_op(other, fraction, TernaryOperator::Mix)
+    }
+
+    /// Clamp an expression between the bounds defined by two other expressions.
+    ///
+    /// This is a ternary operator, which applies component-wise to vector
+    /// operand expressions.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy_hanabi::*;
+    /// # use bevy::math::Vec2;
+    /// # let mut w = ExprWriter::new();
+    /// // A literal expression `x = vec2<f32>(1., -2.);`.
+    /// let x = w.lit(Vec2::new(1., -2.));
+    ///
+    /// // A literal expression `lo = vec2<f32>(3., -3.);`.
+    /// let lo = w.lit(Vec2::new(3., -3.));
+    ///
+    /// // A literal expression `hi = vec2<f32>(5., 1.);`.
+    /// let hi = w.lit(Vec2::new(5., 1.));
+    ///
+    /// // Clamp x in [lo:hi]
+    /// let z = x.clamp(lo, hi); // == vec2<f32>(3., -2.)
+    /// ```
+    #[inline]
+    pub fn clamp(self, lo: Self, hi: Self) -> Self {
+        self.ternary_op(lo, hi, TernaryOperator::Clamp)
     }
 
     /// Calculate the smooth Hermite interpolation in \[0:1\] of the current
@@ -4326,6 +4369,7 @@ mod tests {
 
         let x = m.attr(Attribute::POSITION);
         let y = m.lit(Vec3::ONE);
+        let z = m.lit(1.45);
 
         let atan2 = m.atan2(x, y);
         let cross = m.cross(x, y);
@@ -4334,6 +4378,7 @@ mod tests {
         let min = m.min(x, y);
         let max = m.max(x, y);
         let step = m.step(x, y);
+        let vec4_xyz_w = m.vec4_xyz_w(x, z);
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
@@ -4361,6 +4406,17 @@ mod tests {
                 )
             );
         }
+
+        {
+            let expr = ctx.eval(&m, vec4_xyz_w);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            let z = ctx.eval(&m, z).unwrap();
+            assert_eq!(
+                expr,
+                format!("vec4(particle.{}, {})", Attribute::POSITION.name(), z)
+            );
+        }
     }
 
     #[test]
@@ -4369,17 +4425,26 @@ mod tests {
 
         let x = m.attr(Attribute::POSITION);
         let y = m.lit(Vec3::ONE);
+        let z = m.lit(Vec3::splat(2.));
         let t = m.lit(0.3);
+        let a = m.lit(-4.2);
+        let b = m.lit(53.09);
 
         let mix = m.mix(x, y, t);
+        let clamp = m.clamp(x, y, z);
         let smoothstep = m.smoothstep(x, y, x);
+        let vecthree = m.vec3(a, b, t);
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
         let mut ctx =
             ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
 
-        for (expr, op, third) in [(mix, "mix", t), (smoothstep, "smoothstep", x)] {
+        for (expr, op, third) in [
+            (mix, "mix", t),
+            (clamp, "clamp", z),
+            (smoothstep, "smoothstep", x),
+        ] {
             let expr = ctx.eval(&m, expr);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
@@ -4393,6 +4458,16 @@ mod tests {
                     third
                 )
             );
+        }
+
+        {
+            let expr = ctx.eval(&m, vecthree);
+            assert!(expr.is_ok());
+            let expr = expr.unwrap();
+            let a = ctx.eval(&m, a).unwrap();
+            let b = ctx.eval(&m, b).unwrap();
+            let t = ctx.eval(&m, t).unwrap();
+            assert_eq!(expr, format!("vec3({}, {}, {})", a, b, t));
         }
     }
 
