@@ -949,13 +949,12 @@ impl EffectShaderSource {
                 "@group(3) @binding({binding_index}) var<storage, read_write> event_buffer_{i} : EventBuffer;\n"));
             emit_event_buffer_append_funcs_code.push_str(&format!(
                 r##"/// Append one or more spawn events to the event buffer.
-fn append_spawn_events_{0}(particle_index: u32, count: u32) {{
+fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u32) {{
     // Optimize this case.
     if (count == 0u) {{
         return;
     }}
 
-    let base_child_index = effect_metadata.base_child_index;
     let capacity = arrayLength(&event_buffer_{0}.spawn_events);
     let base = min(u32(atomicAdd(&child_info_buffer.rows[base_child_index + {0}].event_count, i32(count))), capacity);
     let capped_count = min(count, capacity - base);

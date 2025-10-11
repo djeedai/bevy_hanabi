@@ -42,7 +42,7 @@ struct ParentParticleBuffer {
 {{PROPERTIES_BINDING}}
 
 // "metadata" group @3
-@group(3) @binding(0) var<storage, read_write> effect_metadata : EffectMetadata;
+@group(3) @binding(0) var<storage, read_write> effect_metadatas : array<EffectMetadata>;
 #ifdef CONSUME_GPU_SPAWN_EVENTS
 @group(3) @binding(1) var<storage, read> child_info_buffer : ChildInfoBuffer;
 @group(3) @binding(2) var<storage, read> event_buffer : EventBuffer;
@@ -56,7 +56,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap to max number of dead particles, copied from (capacity - alive_count) at the end
     // of the previous iteration, and constant during this pass (unlike alive_count).
-    let max_spawn = atomicLoad(&effect_metadata.max_spawn);
+    let effect_metadata = &effect_metadatas[spawner.effect_metadata_index];
+    let max_spawn = atomicLoad(&(*effect_metadata).max_spawn);
     if (thread_index >= max_spawn) {
         return;
     }
@@ -65,7 +66,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).
 #ifdef CONSUME_GPU_SPAWN_EVENTS
     let event_index = thread_index;
-    let global_child_index = effect_metadata.global_child_index;
+    let global_child_index = (*effect_metadata).global_child_index;
     let event_count = child_info_buffer.rows[global_child_index].event_count;
     if (event_index >= u32(event_count)) {
         return;
@@ -81,14 +82,14 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 #endif
 
     // Count as alive, and recycle a dead particle slot to store the newly spawned particle
-    let alive_index = atomicAdd(&effect_metadata.alive_count, 1u);
-    let dead_index = effect_metadata.capacity - alive_index - 1u;
+    let alive_index = atomicAdd(&(*effect_metadata).alive_count, 1u);
+    let dead_index = (*effect_metadata).capacity - alive_index - 1u;
     let particle_index = indirect_buffer.rows[dead_index].dead_index;
 
     // Bump the particle counter each time we allocate a particle. This generates a unique
     // particle ID used for various purposes (but not directly by the simulation). We still
     // store it in a variable, because the INIT_CODE might access it.
-    let particle_counter = atomicAdd(&effect_metadata.particle_counter, 1u);
+    let particle_counter = atomicAdd(&(*effect_metadata).particle_counter, 1u);
 
     // Initialize the PRNG seed
     seed = pcg_hash(particle_index ^ spawner.seed);
@@ -127,7 +128,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 #endif
 
     // Append to alive list of indirect buffer.
-    let write_index = effect_metadata.indirect_write_index;
+    let write_index = (*effect_metadata).indirect_write_index;
     indirect_buffer.rows[alive_index].particle_index[write_index] = particle_index;
 
     // Write back new particle
