@@ -4955,11 +4955,7 @@ impl EffectBindGroups {
                 // array<EffectMetadata>;
                 BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::Buffer(BufferBinding {
-                        buffer: effect_metadata_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
+                    resource: effect_metadata_buffer.as_entire_binding(),
                 },
             );
             if let Some(consume_event_buffers) = consume_event_buffers.as_ref() {
@@ -5066,11 +5062,7 @@ impl EffectBindGroups {
             // array<EffectMetadata>;
             entries.push(BindGroupEntry {
                 binding: 0,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer: effect_metadata_buffer,
-                    offset: 0,
-                    size: None,
-                }),
+                resource: effect_metadata_buffer.as_entire_binding(),
             });
             if emits_gpu_spawn_events {
                 let child_info_buffer = child_info_buffer.unwrap();
@@ -5766,7 +5758,12 @@ pub(crate) fn queue_effects(
 /// indirect dispatch args of its init pass based on the number of GPU events
 /// emitted in the previous frame and stored in its event buffer.
 pub fn queue_init_indirect_workgroup_update(
-    q_cached_effects: Query<(Entity, &CachedChildInfo, &CachedEffectEvents)>,
+    q_cached_effects: Query<(
+        Entity,
+        &CachedChildInfo,
+        &CachedEffectEvents,
+        &CachedReadyState,
+    )>,
     mut init_fill_dispatch_queue: ResMut<InitFillDispatchQueue>,
 ) {
     debug_assert_eq!(
@@ -5778,7 +5775,14 @@ pub fn queue_init_indirect_workgroup_update(
     // Schedule some GPU buffer operation to update the number of workgroups to
     // dispatch during the indirect init pass of this effect based on the number of
     // GPU spawn events written in its buffer.
-    for (entity, cached_child_info, cached_effect_events) in &q_cached_effects {
+    for (entity, cached_child_info, cached_effect_events, cached_ready_state) in &q_cached_effects {
+        if !cached_ready_state.is_ready() {
+            trace!(
+                "[Effect {:?}] Skipping init_fill_dispatch.enqueue() because effect is not ready.",
+                entity
+            );
+            continue;
+        }
         let init_indirect_dispatch_index = cached_effect_events.init_indirect_dispatch_index;
         let global_child_index = cached_child_info.global_child_index;
         trace!(
