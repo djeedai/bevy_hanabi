@@ -1,16 +1,15 @@
 #import bevy_hanabi::vfx_common::{
-    ChildInfo, ChildInfoBuffer, SimParams, Spawner,
+    ChildInfo, ChildInfoBuffer, DispatchIndirectArgs, SimParams, Spawner,
     EM_OFFSET_ALIVE_COUNT, EM_OFFSET_MAX_UPDATE, EM_OFFSET_CAPACITY,
     EM_OFFSET_MAX_SPAWN, EM_OFFSET_INDIRECT_DISPATCH_INDEX, DRAW_INDEXED_INDIRECT_STRIDE,
-    EM_OFFSET_INDIRECT_WRITE_INDEX, DISPATCH_INDIRECT_STRIDE, EFFECT_METADATA_STRIDE
+    EM_OFFSET_INDIRECT_WRITE_INDEX, EFFECT_METADATA_STRIDE
 }
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 
 // Tightly packed array of EffectMetadata[], accessed as u32 array.
 @group(1) @binding(0) var<storage, read_write> effect_metadata_buffer : array<u32>;
-// Tightly packed array of DispatchIndirectArgs[], accessed as u32 array.
-@group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer : array<u32>;
+@group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer : array<DispatchIndirectArgs>;
 // Tightly packed array of DrawIndexedIndirectArgs[], accessed as u32 array. This can contain
 // some DrawIndirectArgs[] instead, but in that case the stride is adjusted so all rows have
 // the same size. Since we access the instance_count, which is at the same position in both,
@@ -70,10 +69,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Calculate the number of workgroups (thread groups) to dispatch for the update
     // pass, which is the number of alive particles rounded up to 64 (workgroup_size).
     let indirect_dispatch_index = effect_metadata_buffer[em_base + EM_OFFSET_INDIRECT_DISPATCH_INDEX];
-    let di_base = DISPATCH_INDIRECT_STRIDE * indirect_dispatch_index;
-    dispatch_indirect_buffer[di_base] = (alive_count + 63u) >> 6u;
-    dispatch_indirect_buffer[di_base + 1u] = 1u;
-    dispatch_indirect_buffer[di_base + 2u] = 1u;
+    dispatch_indirect_buffer[indirect_dispatch_index].x = (alive_count + 63u) >> 6u;
+    dispatch_indirect_buffer[indirect_dispatch_index].y = 1u;
+    dispatch_indirect_buffer[indirect_dispatch_index].z = 1u;
 
     // Swap ping/pong buffers. The update pass always writes into ping, and both the update
     // pass and the render pass always read from pong.

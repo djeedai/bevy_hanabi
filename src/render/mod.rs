@@ -2885,10 +2885,10 @@ impl EffectsMeta {
 
         // Ensure individual GpuSpawnerParams elements are properly aligned so they can
         // be addressed individually by the computer shaders.
-        let item_align = gpu_limits.storage_buffer_align().get() as u64;
+        let item_align = gpu_limits.storage_buffer_align();
         trace!(
             "Aligning storage buffers to {} bytes as device limits requires.",
-            item_align
+            item_align.get()
         );
 
         Self {
@@ -2900,7 +2900,7 @@ impl EffectsMeta {
             sim_params_uniforms: UniformBuffer::default(),
             spawner_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
-                NonZeroU64::new(item_align),
+                Some(item_align.into()),
                 Some("hanabi:buffer:spawner".to_string()),
             ),
             dispatch_indirect_buffer: GpuBuffer::new(
@@ -2914,7 +2914,7 @@ impl EffectsMeta {
             ),
             effect_metadata_buffer: BufferTable::new(
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
-                Some(NonZeroU64::new(item_align).unwrap()),
+                Some(item_align.into()),
                 Some("hanabi:buffer:effect_metadata".to_string()),
             ),
             gpu_limits,
@@ -6180,7 +6180,7 @@ pub(crate) fn prepare_bind_groups(
                             resource: effect_metadata_buffer.as_entire_binding(),
                         },
                         // @group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer
-                        // : array<u32>;
+                        // : array<DispatchIndirectArgs>;
                         BindGroupEntry {
                             binding: 1,
                             resource: dispatch_indirect_buffer.as_entire_binding(),

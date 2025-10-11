@@ -110,9 +110,6 @@ struct DispatchIndirectArgs {
     z: u32,
 }
 
-/// Stride in u32 count (4 bytes) of the DispatchIndirectArgs struct.
-const DISPATCH_INDIRECT_STRIDE: u32 = 3u;
-
 /// Indirect draw (non-indexed) dispatch struct for GPU-driven passes. The layout of this struct is dictated by WGSL.
 /// See https://docs.rs/wgpu/latest/wgpu/util/struct.DrawIndirectArgs.html.
 struct DrawIndirectArgs {
@@ -216,7 +213,6 @@ struct EffectMetadata {
     /// of an array, or sometimes individually as a single unit. In the later case,
     /// we need it to be aligned to the GPU limits of the device. That limit is only
     /// known at runtime when initializing the WebGPU device.
-    // FIXME - not anymore, but would be again with proper batching, so keep for now
     {{EFFECT_METADATA_PADDING}}
 }
 
