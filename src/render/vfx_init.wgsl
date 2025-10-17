@@ -81,10 +81,15 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     }
 #endif
 
+    let base_particle = spawner.slab_offset;
+
     // Count as alive, and recycle a dead particle slot to store the newly spawned particle
     let alive_index = atomicAdd(&(*effect_metadata).alive_count, 1u);
-    let dead_index = (*effect_metadata).capacity - alive_index - 1u;
-    let particle_index = indirect_buffer.rows[dead_index].dead_index;
+    let slab_particle_index = indirect_buffer.rows[base_particle + alive_index].dead_index;
+    let particle_index = slab_particle_index - base_particle;
+
+    // DEBUG
+    //indirect_buffer.rows[base_particle + alive_index].dead_index = 0xFFFFFFFFu;
 
     // Bump the particle counter each time we allocate a particle. This generates a unique
     // particle ID used for various purposes (but not directly by the simulation). We still
@@ -106,8 +111,9 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
 #ifdef READ_PARENT_PARTICLE
     // Fetch parent particle which triggered this spawn
+    let parent_base_particle = spawner.parent_slab_offset;
     let parent_particle_index = event_buffer.spawn_events[event_index].particle_index;
-    let parent_particle = parent_particle_buffer.particles[parent_particle_index];
+    let parent_particle = parent_particle_buffer.particles[parent_base_particle + parent_particle_index];
 #endif
 
     // Initialize new particle
@@ -129,8 +135,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Append to alive list of indirect buffer.
     let write_index = (*effect_metadata).indirect_write_index;
-    indirect_buffer.rows[alive_index].particle_index[write_index] = particle_index;
+    indirect_buffer.rows[base_particle + alive_index].particle_index[write_index] = particle_index;
 
     // Write back new particle
-    particle_buffer.particles[particle_index] = particle;
+    particle_buffer.particles[base_particle + particle_index] = particle;
 }

@@ -20,7 +20,7 @@ use wgpu::{
 };
 
 use super::{gpu_buffer::GpuBuffer, GpuDispatchIndirectArgs, GpuEffectMetadata, StorageType};
-use crate::{Attribute, ParticleLayout};
+use crate::{render::GpuSpawnerParams, Attribute, ParticleLayout};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct SortFillBindGroupLayoutKey {
@@ -158,9 +158,7 @@ impl SortBindGroups {
             zero_initialize_workgroup_memory: false,
         });
 
-        let effect_metadata_min_binding_size = GpuEffectMetadata::aligned_size(
-            render_device.limits().min_storage_buffer_offset_alignment,
-        );
+        let alignment = render_device.limits().min_storage_buffer_offset_alignment;
         let sort_copy_bind_group_layout = render_device.create_bind_group_layout(
             "hanabi:bind_group_layout:sort_copy",
             &[
@@ -171,7 +169,7 @@ impl SortBindGroups {
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: true,
+                        has_dynamic_offset: false,
                         min_binding_size: Some(NonZeroU64::new(12).unwrap()), // ping/pong+dead
                     },
                     count: None,
@@ -195,7 +193,18 @@ impl SortBindGroups {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: true,
-                        min_binding_size: Some(effect_metadata_min_binding_size),
+                        min_binding_size: Some(GpuEffectMetadata::aligned_size(alignment)),
+                    },
+                    count: None,
+                },
+                // @group(0) @binding(3) var<storage, read> spawner : Spawner;
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: true,
+                        min_binding_size: Some(GpuSpawnerParams::aligned_size(alignment)),
                     },
                     count: None,
                 },
@@ -342,7 +351,7 @@ impl SortBindGroups {
                 let bind_group_layout = self.render_device.create_bind_group_layout(
                     "hanabi:bind_group_layout:sort_fill",
                     &[
-                        // @group(0) @binding(0) var<storage, read_write> pairs: array<KeyValuePair>;
+                        // @group(0) @binding(0) var<storage, read_write> sort_buffer : SortBuffer;
                         BindGroupLayoutEntry {
                             binding: 0,
                             visibility: ShaderStages::COMPUTE,
@@ -353,13 +362,13 @@ impl SortBindGroups {
                             },
                             count: None,
                         },
-                        // @group(0) @binding(1) var<storage, read> particle_buffer: ParticleBuffer;
+                        // @group(0) @binding(1) var<storage, read> particle_buffer : RawParticleBuffer;
                         BindGroupLayoutEntry {
                             binding: 1,
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Buffer {
                                 ty: BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: true,
+                                has_dynamic_offset: false,
                                 min_binding_size: Some(key.particle_min_binding_size.into()),
                             },
                             count: None,
@@ -370,7 +379,7 @@ impl SortBindGroups {
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Buffer {
                                 ty: BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: true,
+                                has_dynamic_offset: false,
                                 min_binding_size: Some(NonZeroU64::new(12).unwrap()), // ping/pong+dead
                             },
                             count: None,
@@ -383,6 +392,17 @@ impl SortBindGroups {
                                 ty: BufferBindingType::Storage { read_only: false },
                                 has_dynamic_offset: true,
                                 min_binding_size: Some(GpuEffectMetadata::aligned_size(alignment)),
+                            },
+                            count: None,
+                        },
+                        // @group(0) @binding(4) var<storage, read> spawner : Spawner;
+                        BindGroupLayoutEntry {
+                            binding: 4,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: true,
+                                min_binding_size: Some(GpuSpawnerParams::aligned_size(alignment)),
                             },
                             count: None,
                         },
@@ -436,6 +456,7 @@ impl SortBindGroups {
         particle: &Buffer,
         indirect_index: &Buffer,
         effect_metadata: &Buffer,
+        spawner_buffer: &Buffer,
     ) -> Result<&BindGroup, ()> {
         let key = SortFillBindGroupKey {
             particle: particle.id(),
@@ -461,31 +482,19 @@ impl SortBindGroups {
                             // array<KeyValuePair>;
                             BindGroupEntry {
                                 binding: 0,
-                                resource: BindingResource::Buffer(BufferBinding {
-                                    buffer: &self.sort_buffer,
-                                    offset: 0,
-                                    size: None,
-                                }),
+                                resource: self.sort_buffer.as_entire_binding(),
                             },
                             // @group(0) @binding(1) var<storage, read> particle_buffer:
                             // ParticleBuffer;
                             BindGroupEntry {
                                 binding: 1,
-                                resource: BindingResource::Buffer(BufferBinding {
-                                    buffer: particle,
-                                    offset: 0,
-                                    size: None,
-                                }),
+                                resource: particle.as_entire_binding(),
                             },
                             // @group(0) @binding(2) var<storage, read> indirect_index_buffer :
                             // array<u32>;
                             BindGroupEntry {
                                 binding: 2,
-                                resource: BindingResource::Buffer(BufferBinding {
-                                    buffer: indirect_index,
-                                    offset: 0,
-                                    size: None,
-                                }),
+                                resource: indirect_index.as_entire_binding(),
                             },
                             // @group(0) @binding(3) var<storage, read> effect_metadata :
                             // EffectMetadata;
@@ -495,6 +504,19 @@ impl SortBindGroups {
                                     buffer: effect_metadata,
                                     offset: 0,
                                     size: Some(GpuEffectMetadata::aligned_size(
+                                        self.render_device
+                                            .limits()
+                                            .min_storage_buffer_offset_alignment,
+                                    )),
+                                }),
+                            },
+                            // @group(0) @binding(4) var<storage, read> spawner : Spawner;
+                            BindGroupEntry {
+                                binding: 4,
+                                resource: BindingResource::Buffer(BufferBinding {
+                                    buffer: spawner_buffer,
+                                    offset: 0,
+                                    size: Some(GpuSpawnerParams::aligned_size(
                                         self.render_device
                                             .limits()
                                             .min_storage_buffer_offset_alignment,
@@ -527,6 +549,7 @@ impl SortBindGroups {
         &mut self,
         indirect_index_buffer: &Buffer,
         effect_metadata_buffer: &Buffer,
+        spawner_buffer: &Buffer,
     ) -> Result<&BindGroup, ()> {
         let key = SortCopyBindGroupKey {
             indirect_index: indirect_index_buffer.id(),
@@ -546,20 +569,12 @@ impl SortBindGroups {
                             // : IndirectIndexBuffer;
                             BindGroupEntry {
                                 binding: 0,
-                                resource: BindingResource::Buffer(BufferBinding {
-                                    buffer: indirect_index_buffer,
-                                    offset: 0,
-                                    size: None,
-                                }),
+                                resource: indirect_index_buffer.as_entire_binding(),
                             },
                             // @group(0) @binding(1) var<storage, read> sort_buffer : SortBuffer;
                             BindGroupEntry {
                                 binding: 1,
-                                resource: BindingResource::Buffer(BufferBinding {
-                                    buffer: &self.sort_buffer,
-                                    offset: 0,
-                                    size: None,
-                                }),
+                                resource: self.sort_buffer.as_entire_binding(),
                             },
                             // @group(0) @binding(2) var<storage, read> effect_metadata :
                             // EffectMetadata;
@@ -569,6 +584,19 @@ impl SortBindGroups {
                                     buffer: effect_metadata_buffer,
                                     offset: 0,
                                     size: Some(GpuEffectMetadata::aligned_size(
+                                        self.render_device
+                                            .limits()
+                                            .min_storage_buffer_offset_alignment,
+                                    )),
+                                }),
+                            },
+                            // @group(0) @binding(3) var<storage, read> spawner : Spawner;
+                            BindGroupEntry {
+                                binding: 3,
+                                resource: BindingResource::Buffer(BufferBinding {
+                                    buffer: spawner_buffer,
+                                    offset: 0,
+                                    size: Some(GpuSpawnerParams::aligned_size(
                                         self.render_device
                                             .limits()
                                             .min_storage_buffer_offset_alignment,

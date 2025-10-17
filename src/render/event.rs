@@ -166,6 +166,8 @@ pub(crate) struct CachedParentInfo {
 pub(crate) struct CachedChildInfo {
     /// ID of the slab storing the parent effect.
     pub parent_slab_id: SlabId,
+    /// Offset into the slab of the parent's particles.
+    pub parent_slab_offset: u32,
     /// Parent's particle layout.
     pub parent_particle_layout: ParticleLayout,
     /// Parent's buffer.
@@ -186,6 +188,7 @@ pub(crate) struct CachedChildInfo {
 impl CachedChildInfo {
     pub fn is_locally_equal(&self, other: &CachedChildInfo) -> bool {
         self.parent_slab_id == other.parent_slab_id
+        && self.parent_slab_offset == other.parent_slab_offset
         && self.parent_particle_layout == other.parent_particle_layout
         && self.parent_buffer_binding_source == other.parent_buffer_binding_source
         && self.local_child_index == other.local_child_index

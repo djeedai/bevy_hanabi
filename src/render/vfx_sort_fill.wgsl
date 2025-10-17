@@ -1,4 +1,4 @@
-#import bevy_hanabi::vfx_common::EffectMetadata
+#import bevy_hanabi::vfx_common::{EffectMetadata, Spawner}
 
 /// Key-value pair for sorting, with optional second sort key.
 struct KeyValuePair {
@@ -27,6 +27,7 @@ struct RawParticleBuffer {
 @group(0) @binding(2) var<storage, read> indirect_index_buffer : array<u32>;
 // Technically read-only, but the type contains atomic<> fields and wasm is strict about it
 @group(0) @binding(3) var<storage, read_write> effect_metadata : EffectMetadata;
+@group(0) @binding(4) var<storage, read> spawner : Spawner;
 
 /// Fill the sorting key-value pair buffer with data to prepare for actual sorting.
 @compute @workgroup_size(64)
@@ -37,13 +38,15 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
+    let base_particle = spawner.slab_offset;
+
     // Read the particle index from the ping-pong column index written this frame by vfx_update.
     // After sorting we will write back into that same column, so that the sorting effectively
     // sorted the column in-place (no ping-pong column swap here).
     let read_index = effect_metadata.indirect_write_index;
-    let particle_index = indirect_index_buffer[thread_index * 3u + read_index];
+    let particle_index = indirect_index_buffer[(base_particle + thread_index) * 3u + read_index];
 
-    let particle_offset = particle_index * effect_metadata.particle_stride;
+    let particle_offset = (base_particle + particle_index) * effect_metadata.particle_stride;
     let key_offset = particle_offset + effect_metadata.sort_key_offset;
     let key2_offset = particle_offset + effect_metadata.sort_key2_offset;
 

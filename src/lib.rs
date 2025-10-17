@@ -1248,7 +1248,7 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
         {
             writeln!(
                 &mut writeback_code,
-                "    particle_buffer.particles[particle_index].{0} = particle.{0};",
+                "    particle_buffer.particles[base_particle + particle_index].{0} = particle.{0};",
                 attribute.name()
             )
             .unwrap();

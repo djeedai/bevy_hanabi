@@ -64,17 +64,22 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         return;
     }
 
+    let base_particle = spawner.slab_offset;
+#ifdef READ_PARENT_PARTICLE
+    let parent_base_particle = spawner.parent_slab_offset;
+#endif
+
     let write_index = effect_metadata.indirect_write_index;
     let read_index = 1u - write_index;
 
     let particle_index = indirect_buffer
-        .rows[thread_index]
+        .rows[base_particle + thread_index]
         .particle_index[read_index];
 
     // Initialize the PRNG seed
     seed = pcg_hash(particle_index ^ spawner.seed);
 
-    var particle: Particle = particle_buffer.particles[particle_index];
+    var particle: Particle = particle_buffer.particles[base_particle + particle_index];
     {{AGE_CODE}}
     {{REAP_CODE}}
     {{UPDATE_CODE}}
@@ -84,9 +89,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Check if alive
     if (!is_alive) {
         // Save dead index
-        let alive_index = atomicSub(&((*effect_metadata).alive_count), 1u);
-        let dead_index = (*effect_metadata).capacity - alive_index;
-        indirect_buffer.rows[dead_index].dead_index = particle_index;
+        let alive_index = atomicSub(&((*effect_metadata).alive_count), 1u) - 1u;
+        indirect_buffer.rows[base_particle + alive_index].dead_index = base_particle + particle_index;
+
+        // DEBUG
+        //indirect_buffer.rows[base_particle + alive_index].particle_index[0] = 0xFFFFFFFFu;
+        //indirect_buffer.rows[base_particle + alive_index].particle_index[1] = 0xFFFFFFFFu;
 
         // Also increment copy of dead count, which was updated in dispatch indirect
         // pass just before, and need to remain correct after this pass. We wouldn't have
@@ -96,6 +104,6 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         // Increment visible particle count (in the absence of any GPU culling), and write
         // the indirection index for later rendering.
         let indirect_index = atomicAdd(&draw_indirect_buffer[(*effect_metadata).indirect_render_index].instance_count, 1u);
-        indirect_buffer.rows[indirect_index].particle_index[write_index] = particle_index;
+        indirect_buffer.rows[base_particle + indirect_index].particle_index[write_index] = particle_index;
     }
 }
