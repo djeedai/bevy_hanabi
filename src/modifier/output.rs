@@ -518,9 +518,38 @@ pub enum OrientMode {
 
 /// Orients the particle's local frame.
 ///
-/// The orientation is calculated during the rendering of each particle. An
-/// additional in-plane rotation can be optionally specified; its meaning
-/// depends on the [`OrientMode`] in use.
+/// The orientation is calculated during the rendering of each particle.
+///
+/// An additional in-plane rotation can be optionally specified; its meaning
+/// depends on the [`OrientMode`] in use. Note that the in-plane rotation
+/// expression should be saved as an attribute (such as [`Attribute::F32_0`])
+/// if you want it to have different values per instance.
+///
+/// # Example
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_hanabi::*;
+/// let writer = ExprWriter::new();
+///
+/// let init_rotation = (writer.rand(ScalarType::Float) * writer.lit(std::f32::consts::TAU)).expr();
+/// let init_rotation = SetAttributeModifier::new(Attribute::F32_0, init_rotation);
+///
+/// let rotation = writer.attr(Attribute::F32_0).expr();
+///
+/// let lifetime = writer.lit(1.).expr();
+/// let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+///
+/// let age = writer.lit(0.).expr();
+/// let init_age = SetAttributeModifier::new(Attribute::AGE, age);
+///
+/// let asset = EffectAsset::new(256, SpawnerSettings::default(), writer.finish())
+///     .with_name("orient")
+///     .init(init_age)
+///     .init(init_lifetime)
+///     .init(init_rotation)
+///     .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane).with_rotation(rotation)));
+/// ```
 ///
 /// # Attributes
 ///
