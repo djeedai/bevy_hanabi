@@ -361,6 +361,13 @@ pub(crate) struct GpuSpawnerParams {
     /// Index of the [`GpuDrawIndirect`] or [`GpuDrawIndexedIndirect`] for this
     /// effect.
     draw_indirect_index: u32,
+    /// Start offset of the particles and indirect indices into the effect's
+    /// slab, in number of particles (row index).
+    slab_offset: u32,
+    /// Start offset of the particles and indirect indices into the parent effect's
+    /// slab (if the effect has a parent effect), in number of particles (row index).
+    /// This is ignored if the effect has no parent.
+    parent_slab_offset: u32,
 }
 
 /// GPU representation of an indirect compute dispatch input.
@@ -2933,6 +2940,8 @@ impl EffectsMeta {
         global_transform: &GlobalTransform,
         spawn_count: u32,
         prng_seed: u32,
+        slab_offset: u32,
+        parent_slab_offset: Option<u32>,
         effect_metadata_buffer_table_id: BufferTableId,
         maybe_cached_draw_indirect_args: Option<&CachedDrawIndirectArgs>,
     ) -> u32 {
@@ -2953,6 +2962,8 @@ impl EffectsMeta {
             draw_indirect_index: maybe_cached_draw_indirect_args
                 .map(|cdia| cdia.get_row().0)
                 .unwrap_or_default(),
+            slab_offset,
+            parent_slab_offset: parent_slab_offset.unwrap_or(u32::MAX),
             ..default()
         };
         trace!("spawner params = {:?}", spawner_params);
@@ -3539,6 +3550,7 @@ pub fn allocate_parent_child_infos(
 
         let new_cached_child_info = CachedChildInfo {
             parent_slab_id: parent_cached_effect.slab_id,
+            parent_slab_offset: parent_cached_effect.slice.range().start,
             parent_particle_layout: parent_cached_effect.slice.particle_layout.clone(),
             parent_buffer_binding_source,
             local_child_index,
@@ -4422,11 +4434,15 @@ pub(crate) fn prepare_batch_inputs(
         trace!("layout_flags = {:?}", extracted_effect.layout_flags);
         trace!("particle_layout = {:?}", effect_slice.particle_layout);
 
+        let parent_slab_offset = maybe_cached_child_info.map(|cci| cci.parent_slab_offset);
+
         assert!(cached_effect_metadata.table_id.is_valid());
         let spawner_index = effects_meta.allocate_spawner(
             &extracted_spawner.transform,
             extracted_spawner.spawn_count,
             extracted_spawner.prng_seed,
+            cached_effect.slice.range().start,
+            parent_slab_offset,
             cached_effect_metadata.table_id,
             maybe_cached_draw_indirect_args,
         );
@@ -6410,6 +6426,7 @@ pub(crate) fn prepare_bind_groups(
                 particle_buffer,
                 indirect_index_buffer,
                 effect_metadata_buffer,
+                &spawner_buffer,
             ) {
                 error!(
                     "Failed to create sort-fill bind group @0 for ribbon effect: {:?}",
@@ -6420,9 +6437,11 @@ pub(crate) fn prepare_bind_groups(
 
             // Bind group @0 of sort-copy pass
             let indirect_index_buffer = effect_buffer.indirect_index_buffer();
-            if let Err(err) = sort_bind_groups
-                .ensure_sort_copy_bind_group(indirect_index_buffer, effect_metadata_buffer)
-            {
+            if let Err(err) = sort_bind_groups.ensure_sort_copy_bind_group(
+                indirect_index_buffer,
+                effect_metadata_buffer,
+                &spawner_buffer,
+            ) {
                 error!(
                     "Failed to create sort-copy bind group @0 for ribbon effect: {:?}",
                     err
@@ -7343,6 +7362,11 @@ impl Node for VfxSimulateNode {
                         return Ok(());
                     }
 
+                    let spawner_base = effect_batch.spawner_base;
+                    let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
+                    assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
+                    let spawner_offset = spawner_base * spawner_aligned_size as u32;
+
                     // Bind group sort_fill@0
                     let particle_buffer = effect_buffer.particle_buffer();
                     let indirect_index_buffer = effect_buffer.indirect_index_buffer();
@@ -7355,9 +7379,6 @@ impl Node for VfxSimulateNode {
                         compute_pass.insert_debug_marker("ERROR:MissingSortFillBindGroup");
                         continue;
                     };
-                    let particle_offset = effect_buffer.particle_offset(effect_batch.slice.start);
-                    let indirect_index_offset =
-                        effect_buffer.indirect_index_offset(effect_batch.slice.start);
                     let effect_metadata_offset = effects_meta
                         .gpu_limits
                         .effect_metadata_offset(effect_batch.metadata_table_id.0)
@@ -7365,11 +7386,7 @@ impl Node for VfxSimulateNode {
                     compute_pass.set_bind_group(
                         0,
                         bind_group,
-                        &[
-                            particle_offset,
-                            indirect_index_offset,
-                            effect_metadata_offset,
-                        ],
+                        &[effect_metadata_offset, spawner_offset],
                     );
 
                     compute_pass
@@ -7418,6 +7435,11 @@ impl Node for VfxSimulateNode {
                         return Ok(());
                     }
 
+                    let spawner_base = effect_batch.spawner_base;
+                    let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
+                    assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
+                    let spawner_offset = spawner_base * spawner_aligned_size as u32;
+
                     // Bind group sort_copy@0
                     let indirect_index_buffer = effect_buffer.indirect_index_buffer();
                     let Some(bind_group) = sort_bind_groups.sort_copy_bind_group(
@@ -7428,14 +7450,13 @@ impl Node for VfxSimulateNode {
                         compute_pass.insert_debug_marker("ERROR:MissingSortCopyBindGroup");
                         continue;
                     };
-                    let indirect_index_offset = effect_batch.slice.start;
                     let effect_metadata_offset = effects_meta
                         .effect_metadata_buffer
                         .dynamic_offset(effect_batch.metadata_table_id);
                     compute_pass.set_bind_group(
                         0,
                         bind_group,
-                        &[indirect_index_offset, effect_metadata_offset],
+                        &[effect_metadata_offset, spawner_offset],
                     );
 
                     compute_pass

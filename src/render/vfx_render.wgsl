@@ -24,7 +24,7 @@ struct VertexOutput {
     @location(2) normal: vec3<f32>,
 #endif
 #ifdef NEEDS_PARTICLE_FRAGMENT
-    @location(3) particle_index: u32,
+    @location(3) slab_particle_index: u32,
 #endif
 }
 
@@ -148,15 +148,17 @@ fn vertex(
     // @location(1) vertex_color: u32,
     // @location(1) vertex_velocity: vec3<f32>,
 ) -> VertexOutput {
+    let base_particle = spawner.slab_offset;
+
     // Fetch particle
     let indirect_read_index = spawner.render_indirect_read_index;
-    let particle_index = indirect_buffer.rows[instance_index].particle_index[indirect_read_index];
-    var particle = particle_buffer.particles[particle_index];
+    let particle_index = indirect_buffer.rows[base_particle + instance_index].particle_index[indirect_read_index];
+    var particle = particle_buffer.particles[base_particle + particle_index];
 
     var out: VertexOutput;
 
 #ifdef NEEDS_PARTICLE_FRAGMENT
-    out.particle_index = particle_index;
+    out.slab_particle_index = base_particle + particle_index;
 #endif // NEEDS_PARTICLE_FRAGMENT
 
 #ifdef RIBBONS
@@ -167,8 +169,8 @@ fn vertex(
     }
 
     // Fetch previous particle
-    let prev_index = indirect_buffer.rows[instance_index - 1u].particle_index[indirect_read_index];
-    let prev_particle = particle_buffer.particles[prev_index];
+    let prev_index = indirect_buffer.rows[base_particle + instance_index - 1u].particle_index[indirect_read_index];
+    let prev_particle = particle_buffer.particles[base_particle + prev_index];
 
     // Discard this instance if previous one is from a different ribbon. Again,
     // we draw from second one of each ribbon.
@@ -234,7 +236,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var normal = in.normal;
 #endif
 #ifdef NEEDS_PARTICLE_FRAGMENT
-    var particle = particle_buffer.particles[in.particle_index];
+    var particle = particle_buffer.particles[in.slab_particle_index];
 #endif // NEEDS_PARTICLE_FRAGMENT
 
 {{FRAGMENT_MODIFIERS}}

@@ -41,6 +41,13 @@ struct Spawner {
     effect_metadata_index: u32,
     /// Index of the [`DrawIndirectArgs`] or [`DrawIndexedIndirectArgs`] for this effect.
     draw_indirect_index: u32,
+    /// Start offset of the particles and indirect indices into the effect's
+    /// slab, in number of particles (row index).
+    slab_offset: u32,
+    /// Start offset of the particles and indirect indices into the parent effect's
+    /// slab (if the effect has a parent effect), in number of particles (row index).
+    /// This is ignored if the effect has no parent.
+    parent_slab_offset: u32,
 #ifdef SPAWNER_PADDING
     {{SPAWNER_PADDING}}
 #endif

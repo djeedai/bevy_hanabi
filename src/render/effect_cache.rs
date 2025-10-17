@@ -56,8 +56,9 @@ impl PartialOrd for EffectSlice {
 /// A reference to a slice allocated inside an [`ParticleSlab`].
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SlabSliceRef {
-    /// Range into an [`ParticleSlab`], in item count.
+    /// Range into a [`ParticleSlab`], in item count.
     range: Range<u32>,
+    /// Particle layout for the effect stored in that slice.
     pub(crate) particle_layout: ParticleLayout,
 }
 
@@ -223,16 +224,16 @@ pub struct ParticleSlab {
 
 impl ParticleSlab {
     /// Minimum buffer capacity to allocate, in number of particles.
-    // FIXME - Batching is broken due to binding a single GpuSpawnerParam instead of
-    // N, and inability for a particle index to tell which Spawner it should
-    // use. Setting this to 1 effectively ensures that all new buffers just fit
-    // the effect, so batching never occurs.
-    pub const MIN_CAPACITY: u32 = 1; // 65536; // at least 64k particles
+    pub const MIN_CAPACITY: u32 = 65536; // at least 64k particles
 
     /// Create a new slab and the GPU resources to back it up.
     ///
     /// The slab cannot contain less than [`MIN_CAPACITY`] particles. If the
     /// input `capacity` is smaller, it's rounded up to [`MIN_CAPACITY`].
+    ///
+    /// # Panics
+    ///
+    /// This panics if the `capacity` is zero.
     ///
     /// [`MIN_CAPACITY`]: Self::MIN_CAPACITY
     pub fn new(
@@ -252,13 +253,17 @@ impl ParticleSlab {
 
         // Calculate the clamped capacity of the group, in number of particles.
         let capacity = capacity.max(Self::MIN_CAPACITY);
-        debug_assert!(
+        assert!(
             capacity > 0,
             "Attempted to create a zero-sized effect buffer."
         );
 
         // Allocate the particle buffer itself, containing the attributes of each
         // particle.
+        #[cfg(debug_assertions)]
+        let mapped_at_creation = true;
+        #[cfg(not(debug_assertions))]
+        let mapped_at_creation = false;
         let particle_capacity_bytes: BufferAddress =
             capacity as u64 * particle_layout.min_binding_size().get();
         let particle_label = format!("hanabi:buffer:slab{}:particle", slab_id.0);
@@ -266,17 +271,29 @@ impl ParticleSlab {
             label: Some(&particle_label),
             size: particle_capacity_bytes,
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
-            mapped_at_creation: false,
+            mapped_at_creation,
         });
+        // Set content
+        #[cfg(debug_assertions)]
+        {
+            // Scope get_mapped_range_mut() to force a drop before unmap()
+            {
+                let slice: &mut [u8] = &mut particle_buffer
+                    .slice(..particle_capacity_bytes)
+                    .get_mapped_range_mut();
+                let slice: &mut [u32] = cast_slice_mut(slice);
+                slice.fill(0xFFFFFFFF);
+            }
+            particle_buffer.unmap();
+        }
 
         // Each indirect buffer stores 3 arrays of u32, of length the number of
         // particles.
-        let capacity_bytes: BufferAddress = capacity as u64 * 4 * 3;
-
+        let indirect_capacity_bytes: BufferAddress = capacity as u64 * 4 * 3;
         let indirect_label = format!("hanabi:buffer:slab{}:indirect", slab_id.0);
         let indirect_index_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some(&indirect_label),
-            size: capacity_bytes,
+            size: indirect_capacity_bytes,
             usage: BufferUsages::COPY_DST | BufferUsages::STORAGE,
             mapped_at_creation: true,
         });
@@ -285,11 +302,11 @@ impl ParticleSlab {
             // Scope get_mapped_range_mut() to force a drop before unmap()
             {
                 let slice: &mut [u8] = &mut indirect_index_buffer
-                    .slice(..capacity_bytes)
+                    .slice(..indirect_capacity_bytes)
                     .get_mapped_range_mut();
                 let slice: &mut [u32] = cast_slice_mut(slice);
                 for index in 0..capacity {
-                    slice[3 * index as usize + 2] = capacity - 1 - index;
+                    slice[3 * index as usize + 2] = index;
                 }
             }
             indirect_index_buffer.unmap();
@@ -337,11 +354,11 @@ impl ParticleSlab {
             },
         ];
         let label = format!(
-            "hanabi:bind_group_layout:render:particles@1:vfx{}",
+            "hanabi:bind_group_layout:render:particles@1:slab{}",
             slab_id.0
         );
         trace!(
-            "Creating render layout '{}' with {} entries",
+            "Creating particles@1 layout '{}' for render pass with {} entries",
             label,
             entries.len(),
         );
@@ -376,16 +393,6 @@ impl ParticleSlab {
     #[inline]
     pub fn indirect_index_buffer(&self) -> &Buffer {
         &self.indirect_index_buffer
-    }
-
-    #[inline]
-    pub fn particle_offset(&self, row: u32) -> u32 {
-        self.particle_layout.min_binding_size().get() as u32 * row
-    }
-
-    #[inline]
-    pub fn indirect_index_offset(&self, row: u32) -> u32 {
-        row * 12
     }
 
     /// Return a binding for the entire particle buffer.
