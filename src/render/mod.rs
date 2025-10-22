@@ -364,9 +364,9 @@ pub(crate) struct GpuSpawnerParams {
     /// Start offset of the particles and indirect indices into the effect's
     /// slab, in number of particles (row index).
     slab_offset: u32,
-    /// Start offset of the particles and indirect indices into the parent effect's
-    /// slab (if the effect has a parent effect), in number of particles (row index).
-    /// This is ignored if the effect has no parent.
+    /// Start offset of the particles and indirect indices into the parent
+    /// effect's slab (if the effect has a parent effect), in number of
+    /// particles (row index). This is ignored if the effect has no parent.
     parent_slab_offset: u32,
 }
 

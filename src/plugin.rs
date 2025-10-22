@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 #[cfg(feature = "2d")]
 use bevy::core_pipeline::core_2d::Transparent2d;
 #[cfg(feature = "3d")]
@@ -50,6 +52,10 @@ use crate::{
     update_properties_from_asset, EffectSimulation, EffectVisibilityClass, ParticleEffect,
     SpawnerSettings, ToWgslString,
 };
+
+/// Source code for the `vfx_sort` compute shader.
+pub(crate) const VFX_SORT_WGSL: Cow<'static, str> =
+    Cow::Borrowed(include_str!("render/vfx_sort.wgsl"));
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
@@ -308,7 +314,7 @@ impl Plugin for HanabiPlugin {
                     .to_string_lossy(),
             );
             let sort_shader = Shader::from_wgsl(
-                include_str!("render/vfx_sort.wgsl"),
+                VFX_SORT_WGSL,
                 std::path::Path::new(file!())
                     .parent()
                     .unwrap()

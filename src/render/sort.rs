@@ -624,3 +624,457 @@ impl SortBindGroups {
         self.sort_copy_bind_groups.get(&key)
     }
 }
+
+#[cfg(all(test, feature = "gpu_tests"))]
+mod gpu_tests {
+    use bevy::{
+        math::FloatOrd,
+        render::render_resource::{
+            binding_types::storage_buffer_sized, BindGroupEntries, BindGroupLayoutEntries,
+            ShaderSize, ShaderType,
+        },
+    };
+    #[allow(unused_imports)]
+    use bytemuck::{cast_slice, cast_slice_mut, Pod, Zeroable};
+    use rand::Rng;
+    use wgpu::{
+        BufferDescriptor, BufferUsages, ComputePassDescriptor, ComputePipelineDescriptor,
+        PipelineCompilationOptions, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource,
+        ShaderStages,
+    };
+
+    use crate::{plugin::VFX_SORT_WGSL, test_utils::*};
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Pod, Zeroable, ShaderType)]
+    #[repr(C)]
+    struct KeyValuePair {
+        pub key: u32,
+        pub value: u32,
+    }
+
+    impl std::cmp::PartialOrd for KeyValuePair {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(&other))
+        }
+    }
+
+    impl std::cmp::Ord for KeyValuePair {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.key.cmp(&other.key)
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable, ShaderType)]
+    #[repr(C)]
+    struct DualKeyValuePair {
+        pub key: u32,
+        pub key2: f32,
+        pub value: u32,
+    }
+
+    // Ignore weirdnesses with f32 NaN etc. here, we should never have a key with
+    // such values.
+    impl std::cmp::Eq for DualKeyValuePair {}
+
+    impl std::cmp::PartialOrd for DualKeyValuePair {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            if self.key != other.key {
+                return Some(self.key.cmp(&other.key));
+            }
+            self.key2.partial_cmp(&other.key2)
+        }
+    }
+
+    impl std::cmp::Ord for DualKeyValuePair {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            if self.key != other.key {
+                return self.key.cmp(&other.key);
+            }
+            FloatOrd(self.key2).cmp(&FloatOrd(other.key2))
+        }
+    }
+
+    /// Workgroup-level sort with Batcher's odd-even mergesort.
+    /// - spawn 64 threads (one workgroup)
+    /// - each thread sorts 1024 / 64 = 16 elements
+    #[test]
+    fn test_batcher_odd_even_mergesort() {
+        let renderer = MockRenderer::new();
+        let device = renderer.device();
+        let queue = renderer.queue();
+
+        println!(
+            "max_compute_workgroup_storage_size = {}",
+            device.limits().max_compute_workgroup_storage_size
+        );
+
+        // SAFETY : for debugging only
+        #[allow(unsafe_code)]
+        unsafe {
+            device.wgpu_device().start_graphics_debugger_capture()
+        };
+
+        // Clamp max block size to the device's reported storage
+        let max_block_size = device.limits().max_compute_workgroup_storage_size
+            / DualKeyValuePair::SHADER_SIZE.get() as u32;
+        println!("max_block_size = {}", max_block_size);
+        let num_kv = 1024.min(max_block_size);
+
+        let byte_size = 4 + num_kv as u64 * DualKeyValuePair::SHADER_SIZE.get();
+        let sort_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("sort_buffer"),
+            size: byte_size,
+            usage: BufferUsages::STORAGE | BufferUsages::MAP_READ,
+            mapped_at_creation: true,
+        });
+        {
+            // Scope get_mapped_range_mut() to force a drop before unmap()
+            {
+                let slice: &mut [u8] = &mut sort_buffer.slice(..).get_mapped_range_mut();
+                let header: &mut [u32] = cast_slice_mut(slice);
+                header[0] = num_kv;
+                let values: &mut [DualKeyValuePair] = cast_slice_mut(&mut slice[4..]);
+                for (i, kv) in values.iter_mut().enumerate() {
+                    kv.key = byte_size as u32 - i as u32;
+                    kv.key2 = i as f32 * 0.1;
+                    kv.value = i as u32;
+                    //println!("[#{}] k={} k2={} v={}", i, kv.key, kv.key2,
+                    // kv.value);
+                }
+            }
+            sort_buffer.unmap();
+        }
+
+        // Create GPU resources
+        let bind_group_layout = device.create_bind_group_layout(
+            "bind_group_layout",
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                storage_buffer_sized(false, None),
+            ),
+        );
+        let bind_group = device.create_bind_group(
+            None,
+            &bind_group_layout,
+            &BindGroupEntries::single(sort_buffer.as_entire_binding()),
+        );
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("pipeline_layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let src = VFX_SORT_WGSL
+            .replace("#ifdef HAS_DUAL_KEY", "")
+            .replace("#ifdef TEST", "")
+            .replace("#endif", "");
+        let shader_module = device.create_and_validate_shader_module(ShaderModuleDescriptor {
+            label: Some("vfx_sort"),
+            source: ShaderSource::Wgsl(src.into()),
+        });
+        let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("test_batcher_odd_even_mergesort"),
+            layout: Some(&pipeline_layout),
+            module: &shader_module,
+            entry_point: Some("test_batcher_odd_even_mergesort"),
+            compilation_options: PipelineCompilationOptions {
+                constants: &[("blockSize", max_block_size as f64)],
+                // Ensure the shader behaves even if memory is not zero-initialized
+                zero_initialize_workgroup_memory: false,
+            },
+            cache: None,
+        });
+
+        // Dispatch test
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("test"),
+        });
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("test_batcher_odd_even_mergesort"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&pipeline);
+            compute_pass.set_bind_group(0, &bind_group, &[]);
+            compute_pass.dispatch_workgroups(1, 1, 1);
+        }
+
+        // Submit command queue and wait for execution
+        println!("Executing pipeline...");
+        let command_buffer = encoder.finish();
+        queue.submit([command_buffer]);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        queue.on_submitted_work_done(move || {
+            tx.send(()).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait);
+        let _ = futures::executor::block_on(rx);
+        println!("Pipeline executed");
+
+        // SAFETY : for debugging only
+        #[allow(unsafe_code)]
+        unsafe {
+            device.wgpu_device().stop_graphics_debugger_capture()
+        };
+
+        // Read back (GPU -> CPU)
+        println!("Downloading result buffer from GPU to CPU...");
+        let buffer_slice = sort_buffer.slice(..);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait);
+        let _result = futures::executor::block_on(rx);
+        let view = buffer_slice.get_mapped_range();
+        println!("Result buffer downloaded to CPU");
+
+        // Validate content
+        assert_eq!(view.len(), byte_size as usize);
+        let view_slice: &[DualKeyValuePair] = cast_slice(&view[4..]);
+        for i in 1..view_slice.len() {
+            //println!("[#{}] k={} k2={} v={}", i, kv.key, kv.key2, kv.value);
+
+            // Ordered within one block of 16 elements (1024 items / 64 threads = 16
+            // items/thread)
+            if (i - 1) / 16 == i / 16 {
+                assert!(view_slice[i] >= view_slice[i - 1])
+            }
+        }
+    }
+
+    /// Calculate the merge path for a parallel merge.
+    #[test]
+    fn test_calc_merge_path() {
+        let renderer = MockRenderer::new();
+        let device = renderer.device();
+        let queue = renderer.queue();
+
+        println!(
+            "max_compute_workgroup_storage_size = {}",
+            device.limits().max_compute_workgroup_storage_size
+        );
+
+        // SAFETY : for debugging only
+        #[allow(unsafe_code)]
+        unsafe {
+            device.wgpu_device().start_graphics_debugger_capture()
+        };
+
+        // Clamp max block size to the device's reported storage. We need 2 workgroup
+        // arrays, so we need to halve the limit for each.
+        let max_block_size = device.limits().max_compute_workgroup_storage_size
+            / DualKeyValuePair::SHADER_SIZE.get() as u32;
+        println!("max_block_size = {}", max_block_size);
+        let block_size = 1024.min(max_block_size); // total input buffer size
+        let block_size = block_size / 2; // actual block size in shader
+        let num_kv = block_size * 2; // ensure we don't have an odd size
+        println!("block_size = {} (x2)", block_size);
+        let list_len = 1024.min(block_size);
+        println!("list_len = {}", list_len);
+
+        let byte_size = 4 + num_kv as u64 * DualKeyValuePair::SHADER_SIZE.get();
+        let sort_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("sort_buffer"),
+            size: byte_size,
+            usage: BufferUsages::STORAGE | BufferUsages::MAP_READ,
+            mapped_at_creation: true,
+        });
+        let mut expected = Vec::with_capacity(num_kv as usize);
+        {
+            // Scope get_mapped_range_mut() to force a drop before unmap()
+            {
+                let slice: &mut [u8] = &mut sort_buffer.slice(..).get_mapped_range_mut();
+                let header: &mut [u32] = cast_slice_mut(slice);
+                header[0] = num_kv;
+                let values: &mut [DualKeyValuePair] = cast_slice_mut(&mut slice[4..]);
+
+                assert_eq!(num_kv % 2, 0);
+                assert_eq!(num_kv / 2, list_len);
+                let (values_a, values_b) = values.split_at_mut(list_len as usize);
+                let mut thread_rng = rand::rng();
+                let max_value = list_len - 30; // limit the range to force duplicate values
+                for i in 0..list_len {
+                    values_a[i as usize].key = thread_rng.random_range(0..max_value);
+                    values_a[i as usize].key2 = i as f32 * 0.1;
+                    values_a[i as usize].value = i;
+
+                    values_b[i as usize].key = thread_rng.random_range(0..max_value);
+                    values_b[i as usize].key2 = i as f32 * 0.1;
+                    values_b[i as usize].value = list_len + i;
+
+                    expected.push(values_a[i as usize]);
+                    expected.push(values_b[i as usize]);
+                }
+                values_a.sort();
+                values_b.sort();
+                // for (i, kv) in values_a.iter().enumerate() {
+                //     println!("A [#{}] k={} k2={} v={}", i, kv.key, kv.key2,
+                // kv.value); }
+                // for (i, kv) in values_b.iter().enumerate() {
+                //     println!("B [#{}] k={} k2={} v={}", i, kv.key, kv.key2,
+                // kv.value); }
+            }
+            sort_buffer.unmap();
+        }
+
+        // Create GPU resources
+        let bind_group_layout = device.create_bind_group_layout(
+            "bind_group_layout",
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                storage_buffer_sized(false, None),
+            ),
+        );
+        let bind_group = device.create_bind_group(
+            None,
+            &bind_group_layout,
+            &BindGroupEntries::single(sort_buffer.as_entire_binding()),
+        );
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("pipeline_layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let src = VFX_SORT_WGSL
+            .replace("#ifdef HAS_DUAL_KEY", "")
+            .replace("#ifdef TEST", "")
+            .replace("#endif", "");
+        let shader_module = device.create_and_validate_shader_module(ShaderModuleDescriptor {
+            label: Some("vfx_sort"),
+            source: ShaderSource::Wgsl(src.into()),
+        });
+        let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("test_calc_merge_path"),
+            layout: Some(&pipeline_layout),
+            module: &shader_module,
+            entry_point: Some("test_calc_merge_path"),
+            compilation_options: PipelineCompilationOptions {
+                constants: &[("blockSize", block_size as f64)],
+                // Ensure the shader behaves even if memory is not zero-initialized
+                zero_initialize_workgroup_memory: false,
+            },
+            cache: None,
+        });
+
+        // Dispatch test
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("test"),
+        });
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("test_calc_merge_path"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&pipeline);
+            compute_pass.set_bind_group(0, &bind_group, &[]);
+            compute_pass.dispatch_workgroups(1, 1, 1);
+        }
+
+        // Submit command queue and wait for execution
+        println!("Executing pipeline...");
+        let command_buffer = encoder.finish();
+        queue.submit([command_buffer]);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        queue.on_submitted_work_done(move || {
+            tx.send(()).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait);
+        let _ = futures::executor::block_on(rx);
+        println!("Pipeline executed");
+
+        // SAFETY : for debugging only
+        #[allow(unsafe_code)]
+        unsafe {
+            device.wgpu_device().stop_graphics_debugger_capture()
+        };
+
+        // Read back (GPU -> CPU)
+        println!("Downloading result buffer from GPU to CPU...");
+        let buffer_slice = sort_buffer.slice(..);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait);
+        let _result = futures::executor::block_on(rx);
+        let view = buffer_slice.get_mapped_range();
+        println!("Result buffer downloaded to CPU");
+
+        // Calculate the expected result by doing the actual merge sort, and deriving
+        // all the merge paths from it.
+        expected.sort();
+        let path_len = list_len.div_ceil(64);
+        let num_paths = list_len.div_ceil(path_len);
+        println!("path_len = {path_len}");
+        println!("num_paths = {num_paths}");
+        let mut paths: Vec<_> = (0..num_paths)
+            .map(|ipath| {
+                let start = (ipath * path_len) as usize;
+                let end = (start + path_len as usize).min(list_len as usize);
+                let slice = &expected[start..end];
+                let mut ia = 0;
+                for kv in slice {
+                    if kv.value < list_len {
+                        ia += 1;
+                    }
+                }
+                ia
+            })
+            .collect();
+        for i in 1..paths.len() {
+            // The path at index #i is actually the cumulated path from start. Above we
+            // counted only the i_a within a cross-diagonal interval, but the GPU calculates
+            // the total i_a for the path starting at the beginning of the block up to the
+            // diagonal.
+            paths[i] += paths[i - 1];
+        }
+        //println!("EXPECTED:");
+        // for (i, exp_val) in paths.iter().enumerate() {
+        //     let diag = (i as u32 + 1) * path_len;
+        //     let i_a = *exp_val;
+        //     let i_b = diag - i_a;
+        //     println!("+ PATH #{i} : diag={diag} i_a={i_a} i_b={i_b}");
+        //     let s: String = (0..path_len)
+        //         .map(|idx| expected[idx as usize + (i * path_len as usize)])
+        //         .fold("".to_string(), |acc, x| {
+        //             format!(
+        //                 "{} {}[{},{},{}]",
+        //                 acc,
+        //                 if x.value < list_len { 'A' } else { 'B' },
+        //                 x.key,
+        //                 x.key2,
+        //                 x.value
+        //             )
+        //         });
+        //     println!("  {s}");
+        // }
+
+        // Validate content
+        assert_eq!(view.len(), byte_size as usize);
+        let view_slice: &[DualKeyValuePair] = cast_slice(&view[4..]);
+        assert_eq!(view_slice.len(), list_len as usize * 2);
+        assert!(view_slice.len() >= paths.len());
+        for (i, exp_val) in paths.iter().enumerate() {
+            // The test shader stores the resulting i_a[] into the 'value' of the first N
+            // entries of the sort buffer, and the diagonal value of the path into the 'key'
+            // field.
+
+            let calc_diag = view_slice[i].key;
+            let exp_diag = (i as u32 + 1) * path_len;
+            assert_eq!(calc_diag, exp_diag);
+
+            let calc_ia = view_slice[i].value;
+            let exp_ia = *exp_val;
+            assert_eq!(calc_ia, exp_ia);
+
+            // println!(
+            //     "-> [{}] diag={} a_i={} b_i={} [EXPECTED:{}]",
+            //     i,
+            //     view_slice[i].key,
+            //     view_slice[i].value,
+            //     view_slice[i].key - view_slice[i].value,
+            //     *exp_val
+            // );
+        }
+    }
+}
