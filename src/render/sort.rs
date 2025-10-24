@@ -1077,4 +1077,188 @@ mod gpu_tests {
             // );
         }
     }
+
+    fn binary_search_prefix_sum(particle_index: u32, sums: &[u32]) -> u32 {
+        let mut lo = 0;
+        let mut hi = sums.len() as u32 - 1;
+        while lo <= hi {
+            let mid = (hi + lo) >> 1;
+            if particle_index >= sums[mid as usize] {
+                lo = mid + 1;
+            } else if particle_index < sums[mid as usize] {
+                hi = mid;
+            }
+        }
+        return lo - 1;
+    }
+
+    #[test]
+    fn test_cpu_binary_search_prefix_sum() {
+        let sums = [0, 10, 20, 30];
+        for i in 30..120 {
+            let block = binary_search_prefix_sum(i, &sums[..]);
+            assert_eq!(block, (i / 10).min(3), "Failed at i={i}");
+        }
+    }
+
+    /// Calculate the effect index from a particle index using a binary search of the base particle prefix sum.
+    #[test]
+    fn test_binary_search_prefix_sum() {
+        let renderer = MockRenderer::new();
+        let device = renderer.device();
+        let queue = renderer.queue();
+
+        println!(
+            "max_compute_workgroup_storage_size = {}",
+            device.limits().max_compute_workgroup_storage_size
+        );
+
+        // SAFETY : for debugging only
+        #[allow(unsafe_code)]
+        unsafe {
+            device.wgpu_device().start_graphics_debugger_capture()
+        };
+
+        // Clamp max block size to the device's reported storage
+        let max_block_size = device.limits().max_compute_workgroup_storage_size
+            / DualKeyValuePair::SHADER_SIZE.get() as u32;
+        println!("max_block_size = {}", max_block_size);
+        let max_block_size = 1024;
+        let num_particle = 1024.min(max_block_size);
+
+        let byte_size = 4 + num_particle as u64 * DualKeyValuePair::SHADER_SIZE.get();
+        let sort_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("sort_buffer"),
+            size: byte_size,
+            usage: BufferUsages::STORAGE | BufferUsages::MAP_READ,
+            mapped_at_creation: true,
+        });
+        let effects = [0, 35, 399, 1000];
+        assert!((effects.len() as u32) < num_particle);
+        {
+            // Scope get_mapped_range_mut() to force a drop before unmap()
+            {
+                let slice: &mut [u8] = &mut sort_buffer.slice(..).get_mapped_range_mut();
+                let header: &mut [u32] = cast_slice_mut(slice);
+                header[0] = effects.len() as u32;
+                let values: &mut [DualKeyValuePair] = cast_slice_mut(&mut slice[4..]);
+                for (i, kv) in values.iter_mut().enumerate() {
+                    if i < effects.len() {
+                        kv.key = effects[i];
+                    } else {
+                        kv.key = 0xDEAD0000;
+                    }
+                    kv.key2 = i as f32 * 0.1;
+                    kv.value = i as u32;
+                    //println!("[#{}] k={} k2={} v={}", i, kv.key, kv.key2,
+                    // kv.value);
+                }
+            }
+            sort_buffer.unmap();
+        }
+
+        // Create GPU resources
+        let bind_group_layout = device.create_bind_group_layout(
+            "bind_group_layout",
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                storage_buffer_sized(false, None),
+            ),
+        );
+        let bind_group = device.create_bind_group(
+            None,
+            &bind_group_layout,
+            &BindGroupEntries::single(sort_buffer.as_entire_binding()),
+        );
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("pipeline_layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let src = VFX_SORT_WGSL
+            .replace("#ifdef HAS_DUAL_KEY", "")
+            .replace("#ifdef TEST", "")
+            .replace("#endif", "");
+        let shader_module = device.create_and_validate_shader_module(ShaderModuleDescriptor {
+            label: Some("vfx_sort"),
+            source: ShaderSource::Wgsl(src.into()),
+        });
+        let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("test_binary_search_prefix_sum"),
+            layout: Some(&pipeline_layout),
+            module: &shader_module,
+            entry_point: Some("test_find_effect_from_particle"),
+            compilation_options: PipelineCompilationOptions {
+                constants: &[("blockSize", max_block_size as f64)],
+                // Ensure the shader behaves even if memory is not zero-initialized
+                zero_initialize_workgroup_memory: false,
+            },
+            cache: None,
+        });
+
+        // Dispatch test
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("test"),
+        });
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("test_binary_search_prefix_sum"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&pipeline);
+            compute_pass.set_bind_group(0, &bind_group, &[]);
+            compute_pass.dispatch_workgroups(1, 1, 1);
+        }
+
+        // Submit command queue and wait for execution
+        println!("Executing pipeline...");
+        let command_buffer = encoder.finish();
+        queue.submit([command_buffer]);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        queue.on_submitted_work_done(move || {
+            tx.send(()).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait);
+        let _ = futures::executor::block_on(rx);
+        println!("Pipeline executed");
+
+        // SAFETY : for debugging only
+        #[allow(unsafe_code)]
+        unsafe {
+            device.wgpu_device().stop_graphics_debugger_capture()
+        };
+
+        // Read back (GPU -> CPU)
+        println!("Downloading result buffer from GPU to CPU...");
+        let buffer_slice = sort_buffer.slice(..);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait);
+        let _result = futures::executor::block_on(rx);
+        let view = buffer_slice.get_mapped_range();
+        println!("Result buffer downloaded to CPU");
+
+        // Validate content
+        assert_eq!(view.len(), byte_size as usize);
+        let view_slice: &[DualKeyValuePair] = cast_slice(&view[4..]);
+        for (i, kv) in view_slice.iter().enumerate() {
+            //println!("[#{}] k={} k2={} v={}", i, kv.key, kv.key2, kv.value);
+
+            let mut effect_index = usize::MAX;
+            for (idx, base_particle) in effects.iter().enumerate().rev() {
+                if i as u32 >= *base_particle {
+                    effect_index = idx;
+                    break;
+                }
+            }
+            assert!(effect_index <= effects.len());
+            assert_eq!(
+                effect_index as u32, kv.value,
+                "Test failed for particle {} : expected effect index {}, got {}",
+                i, effect_index, kv.value
+            );
+        }
+    }
 }

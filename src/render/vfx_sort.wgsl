@@ -136,7 +136,57 @@ fn batcher_odd_even_mergesort(offset: u32, n: u32) {
     }
 }
 
+/// Find the index of an effect from the index of a particle.
+///
+/// This uses a binary search on the slab_offset field of the spawners array, which
+/// represents a prefix sum of the particle count per effect (for previous effects;
+/// the value is actually the base particle so the first entry is always 0).
+fn find_effect_from_particle(num_effects: u32, particle_index: u32) -> u32 {
+    var lo = 0u;
+    var hi = num_effects;
+    var nnn = 0;
+    while (lo < hi) {
+        let mid = (hi + lo) >> 1u;
+        let base_particle = arr0[mid].key;
+        if (particle_index >= base_particle) {
+            lo = mid + 1u;
+        } else if (particle_index < base_particle) {
+            hi = mid;
+        }
+        nnn += 1;
+        if (nnn >= 100) {
+            return 0xDEADBEEFu;
+        }
+    }
+    return lo - 1u;
+}
+
 #ifdef TEST
+
+@compute @workgroup_size(64)
+fn test_find_effect_from_particle(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
+    let tid = global_invocation_id.x;
+    if (tid >= 64) {
+        return;
+    }
+    
+    let num_particles = arrayLength(&sort_buffer.pairs);
+    let num_effects = u32(sort_buffer.count);
+
+    // Copy prefix sum into arr0[]
+    if (tid < num_effects) {
+        arr0[tid] = sort_buffer.pairs[tid];
+    }
+
+    workgroupBarrier();
+
+    let particle_per_thread = (num_particles + 63u) >> 6u;
+    let first_particle = particle_per_thread * tid;
+    let last_particle = min(first_particle + particle_per_thread, num_particles);
+    for (var i = first_particle; i < last_particle; i += 1u) {
+        sort_buffer.pairs[i].value = find_effect_from_particle(num_effects, i);
+    }
+}
 
 /// Test for batcher_odd_even_mergesort().
 @compute @workgroup_size(64)
