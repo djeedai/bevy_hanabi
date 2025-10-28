@@ -548,7 +548,7 @@ pub enum OrientMode {
 ///     .init(init_age)
 ///     .init(init_lifetime)
 ///     .init(init_rotation)
-///     .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane).with_rotation(rotation)));
+///     .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane).with_rotation(rotation));
 /// ```
 ///
 /// # Attributes
