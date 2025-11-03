@@ -366,6 +366,86 @@ impl RenderModifier for ColorOverLifetimeModifier {
     }
 }
 
+/// A modifier modulating each particle's color based on its velocity using a
+/// gradient curve.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::VELOCITY`]
+#[derive(Debug, Default, Clone, PartialEq, Reflect, serde::Serialize, serde::Deserialize)]
+pub struct ColorByVelocityModifier {
+    /// The color gradient defining the particle color based on its lifetime.
+    pub gradient: Gradient<Vec4>,
+    /// The color blend mode.
+    pub blend: ColorBlendMode,
+    /// The blend mask.
+    pub mask: ColorBlendMask,
+    /// the velocity range to use for the color gradient
+    pub velocity_range: std::ops::Range<f32>,
+}
+
+impl ColorByVelocityModifier {
+    /// Create a new modifier from a given gradient.
+    pub fn new(gradient: Gradient<Vec4>) -> Self {
+        Self {
+            gradient,
+            blend: default(),
+            mask: default(),
+            velocity_range: 0.0..1.0,
+        }
+    }
+}
+
+impl_mod_render!(ColorByVelocityModifier, &[Attribute::VELOCITY]);
+
+#[cfg_attr(feature = "serde", typetag::serde)]
+impl RenderModifier for ColorByVelocityModifier {
+    fn apply_render(
+        &self,
+        _module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError> {
+        let func_name = context.add_color_gradient(self.gradient.clone());
+        context.render_extra += &format!(
+            r#"fn {0}(key: f32) -> vec4<f32> {{
+    {1}
+}}
+
+"#,
+            func_name,
+            self.gradient.to_shader_code("key")
+        );
+
+        let op = self.blend.to_assign_operator();
+        let col = format!(
+            "{func}(clamp(length(particle.{vel}), {min}, {max}) / {range});\n",
+            func = func_name,
+            vel = Attribute::VELOCITY.name(),
+            min = self.velocity_range.start.to_wgsl_string(),
+            max = self.velocity_range.end.to_wgsl_string(),
+            range = (self.velocity_range.end - self.velocity_range.start).to_wgsl_string()
+        );
+        let s = if self.mask == ColorBlendMask::RGBA {
+            format!("color {op} {col};\n")
+        } else {
+            let mask = self.mask.to_components();
+            format!("color.{mask} {op} ({col}).{mask};\n")
+        };
+
+        context.vertex_code += &s;
+        Ok(())
+    }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(self.clone())
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
+    }
+}
+
 /// A modifier to set the size of all particles.
 ///
 /// This modifier assigns a _single_ size to all particles. That size can be
