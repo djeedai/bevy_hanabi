@@ -1504,6 +1504,8 @@ impl ParticleLayoutBuilder {
     /// let layout = ParticleLayout::new().append(Attribute::POSITION).build();
     /// ```
     pub fn build(mut self) -> ParticleLayout {
+        self.require_age_if_has_lifetime();
+
         let pads = [
             Attribute::PAD0,
             Attribute::PAD1,
@@ -1656,6 +1658,26 @@ impl ParticleLayoutBuilder {
             layout,
             align,
             unpadded_len,
+        }
+    }
+
+    fn require_age_if_has_lifetime(&mut self){
+        let mut should_add_age = false;
+        for attribute in self.layout.iter_mut() {
+            if attribute.attribute == Attribute::LIFETIME {
+                should_add_age = true;
+            }else if attribute.attribute == Attribute::AGE {
+                should_add_age = false;
+                break;
+            }
+        }
+        if should_add_age{
+            self.layout.push(
+              AttributeLayout{
+                  attribute: Attribute::AGE,
+                  offset: 0,
+              }  
+            );
         }
     }
 }
@@ -2365,6 +2387,40 @@ mod tests {
     }
 
     #[test]
+    fn test_age_requirement_on_lifetime_existence(){
+        let default_age_attribute = AttributeLayout{
+            attribute: Attribute::AGE,
+            offset: 0,
+        };
+
+        let empty_layout_builder = ParticleLayout::new();
+        let layout_with_lifetime_builder =
+            ParticleLayout::new().append(Attribute::LIFETIME);
+
+        let layout_with_lifetime = layout_with_lifetime_builder.build();
+        let empty_layout = empty_layout_builder.build();
+
+        assert!(has_attribute_layout(&layout_with_lifetime, default_age_attribute));
+        assert!( ! has_attribute_layout_of_type(&empty_layout, Attribute::AGE));
+    }
+
+    fn has_attribute_layout(layout: &ParticleLayout, attribute_layout_to_check: AttributeLayout) -> bool {
+        layout
+            .layout
+            .iter()
+            .any(|attribute_layout| {
+                *attribute_layout == attribute_layout_to_check
+            })
+    }
+
+    fn has_attribute_layout_of_type(layout: &ParticleLayout, attribute_type: Attribute) -> bool {
+        layout
+            .layout
+            .iter()
+            .any(|attribute_layout| attribute_layout.attribute == attribute_type)
+    }
+
+    #[test]
     fn test_layout_build() {
         // empty
         let layout = ParticleLayout::new().build();
@@ -2374,9 +2430,14 @@ mod tests {
         // single
         for attr in Attribute::ALL {
             let layout = ParticleLayout::new().append(attr).build();
+            let expected_initial_length = if Attribute::LIFETIME == attr {
+                    2
+                }else{
+                    1
+                };
 
             // This is the un-padded length, so exactly equal
-            assert_eq!(layout.len(), 1);
+            assert_eq!(layout.len(), expected_initial_length);
 
             // There may be padding field(s)...
             assert!(!layout.layout.is_empty());
@@ -2393,7 +2454,7 @@ mod tests {
                 assert_eq!(layout.layout.len() as u32, 1 + num_pad);
             } else {
                 // No padding
-                assert_eq!(layout.layout.len(), 1);
+                assert_eq!(layout.layout.len(), expected_initial_length as usize);
             }
 
             let attr0 = &layout.layout[0];
