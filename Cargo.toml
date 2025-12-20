@@ -24,7 +24,7 @@ exclude = [
   "run_examples.bat",
   "run_examples.sh",
   "deny.toml",
-  "rustfmt.toml.nightly"
+  "rustfmt.toml.nightly",
 ]
 autoexamples = false
 
@@ -72,7 +72,9 @@ wgpu = { version = "26", default-features = false, features = [
   "fragile-send-sync-non-atomic-wasm",
 ] }
 naga = { version = "26", features = ["wgsl-in"] }
-naga_oil = { version = "0.19", default-features = false, features = ["test_shader"] }
+naga_oil = { version = "0.19", default-features = false, features = [
+  "test_shader",
+] }
 
 [dependencies.bevy]
 version = "0.17"
@@ -159,32 +161,26 @@ name = "ordering"
 [[example]]
 name = "puffs"
 
+[[example]]
+name = "lightning"
+
 [[test]]
 name = "empty_effect"
 path = "gpu_tests/empty_effect.rs"
 harness = false
-required-features = [
-    "bevy/bevy_winit",
-    "bevy/bevy_window",
-]
+required-features = ["bevy/bevy_winit", "bevy/bevy_window"]
 
 [[test]]
 name = "single_particle"
 path = "gpu_tests/single_particle.rs"
 harness = false
-required-features = [
-    "bevy/bevy_winit",
-    "bevy/bevy_window",
-]
+required-features = ["bevy/bevy_winit", "bevy/bevy_window"]
 
 [[test]]
 name = "properties"
 path = "gpu_tests/properties.rs"
 harness = false
-required-features = [
-    "bevy/bevy_winit",
-    "bevy/bevy_window",
-]
+required-features = ["bevy/bevy_winit", "bevy/bevy_window"]
 
 [workspace]
 resolver = "2"

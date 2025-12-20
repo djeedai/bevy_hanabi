@@ -1,0 +1,10 @@
+This example shows a cinematic vertical lightning strike from sky to ground.
+
+A jagged lightning bolt strikes the ground at regular intervals, triggering a synchronized impact burst effect. Both the bolt and the impact burst use ribbons and particles with HDR bloom to create a high-energy electric glow.
+
+The effect features:
+- Vertical strike: a 30-unit long bolt hitting the ground (Y = -15)
+- Impact burst: a synchronized radial explosion at the strike point
+- Jagged appearance: procedural jitter with tapering at the endpoints
+- HDR rendering: subtle bloom for a sharp electric glow
+- Procedural variation: unique bolt shapes and impact patterns per strike
