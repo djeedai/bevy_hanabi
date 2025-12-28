@@ -1,4 +1,15 @@
-//! Cinematic lightning strike from sky to ground with impact burst.
+//! Vertical lightning bolt striking from sky to ground with impact sparks.
+//!
+//! This example demonstrates procedural geometry using [`ExprWriter`] to create
+//! a jagged lightning bolt as a ribbon. Each particle's position is computed
+//! from a deterministic hash based on its index and a random seed, creating
+//! sharp angular segments that look like electricity.
+//!
+//! The bolt uses [`Attribute::RIBBON_ID`] to connect particles into a
+//! continuous strip. A parabolic weight tapers the jitter at both endpoints,
+//! ensuring the bolt always starts and ends at fixed positions.
+//!
+//! An impact burst effect spawns radial sparks when the lightning strikes.
 
 use bevy::{
     core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
@@ -9,17 +20,12 @@ use bevy_hanabi::prelude::*;
 mod utils;
 use utils::AppExitIntoResult;
 
-/// Number of particles composing a single lightning bolt.
 const PARTICLES_PER_BOLT: u32 = 40;
-/// Duration in seconds each bolt remains visible.
 const BOLT_LIFETIME: f32 = 0.3;
-/// Height of the lightning bolt (vertical length).
 const BOLT_LENGTH: f32 = 30.0;
-/// Maximum horizontal (X/Z) jitter in world units at the bolt's midpoint.
+/// Maximum horizontal deviation from the central axis, in world units.
 const MAX_SPREAD: f32 = 1.5;
-/// Time in seconds between consecutive lightning strikes.
 const BURST_INTERVAL: f32 = 1.5;
-/// Y position where lightning strikes the ground.
 const GROUND_Y: f32 = -15.0;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -41,7 +47,6 @@ struct LightningTimer {
 struct ImpactEffect;
 
 fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
-    // Camera positioned to see vertical lightning
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 60.)).looking_at(Vec3::ZERO, Vec3::Y),
         Camera3d::default(),
@@ -57,15 +62,10 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         },
     ));
 
-    // === LIGHTNING BOLT EFFECT ===
-    let bolt_effect = create_bolt_effect();
-    let bolt_handle = effects.add(bolt_effect);
+    let bolt_handle = effects.add(create_bolt_effect());
+    let impact_handle = effects.add(create_impact_effect());
 
-    // === IMPACT BURST EFFECT ===
-    let impact_effect = create_impact_effect();
-    let impact_handle = effects.add(impact_effect);
-
-    // Spawn lightning bolt
+    // Start timer near completion so first strike happens quickly
     let mut timer = Timer::from_seconds(BURST_INTERVAL, TimerMode::Repeating);
     timer.set_elapsed(std::time::Duration::from_secs_f32(BURST_INTERVAL - 0.1));
 
@@ -76,7 +76,6 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         Name::new("lightning_bolt"),
     ));
 
-    // Spawn impact effect at ground level
     commands.spawn((
         Transform::from_translation(Vec3::new(0., GROUND_Y, 0.)),
         ParticleEffect::new(impact_handle),
@@ -89,6 +88,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 fn create_bolt_effect() -> EffectAsset {
     let writer = ExprWriter::new();
 
+    // Seed randomizes the bolt shape each strike
     let wave_seed = writer.add_property("wave_seed", 0.0.into());
     let wave_seed_int =
         ((writer.prop(wave_seed) + writer.lit(100.0)) * writer.lit(1000.0)).cast(ScalarType::Uint);
@@ -97,6 +97,7 @@ fn create_bolt_effect() -> EffectAsset {
     let cell_size = writer.lit(4u32);
     let cell_id = particle_index.clone() / cell_size.clone();
 
+    // Hash function to generate deterministic jitter per grid cell
     let get_control_point = |id: WriterExpr| {
         let hash = |mult: u32, modulus: u32| {
             (id.clone() * writer.lit(mult) + wave_seed_int.clone() * writer.lit(67891u32))
@@ -110,6 +111,7 @@ fn create_bolt_effect() -> EffectAsset {
         (jitter, x_rnd, z_rnd)
     };
 
+    // Catmull-Rom style interpolation between 3 control points
     let id0 = cell_id.clone().max(writer.lit(1u32)) - writer.lit(1u32);
     let id1 = cell_id.clone();
     let id2 = cell_id.clone() + writer.lit(1u32);
@@ -147,18 +149,18 @@ fn create_bolt_effect() -> EffectAsset {
     let x_jitter = start_xr.mix(end_xr, progress.clone()) * writer.lit(MAX_SPREAD);
     let z_jitter = start_zr.mix(end_zr, progress.clone()) * writer.lit(MAX_SPREAD * 0.5);
 
-    // Vertical Y position: from top (BOLT_LENGTH/2) down to GROUND_Y
     let total_progress = particle_index.clone().cast(ScalarType::Float)
         / writer.lit((PARTICLES_PER_BOLT - 1) as f32);
     let y_top = writer.lit(GROUND_Y + BOLT_LENGTH);
     let y_pos = y_top - total_progress.clone() * writer.lit(BOLT_LENGTH);
 
-    // Parabolic weight to taper jitter at endpoints
+    // Parabolic falloff: max jitter at center, zero at endpoints
     let weight =
         writer.lit(4.0) * total_progress.clone() * (writer.lit(1.0) - total_progress.clone());
 
     let position = (x_jitter * weight.clone()).vec3(y_pos, z_jitter * weight.clone());
 
+    // Tiny age offset ensures stable ribbon ordering (particles spawned same frame)
     let init_age = particle_index.clone().cast(ScalarType::Float) * writer.lit(0.0001);
     let init_ribbon_id =
         (writer.attr(Attribute::PARTICLE_COUNTER) / writer.lit(PARTICLES_PER_BOLT)).expr();
@@ -203,11 +205,10 @@ fn create_bolt_effect() -> EffectAsset {
 fn create_impact_effect() -> EffectAsset {
     let writer = ExprWriter::new();
 
-    // Radial burst on XZ plane
     let angle = writer.rand(ScalarType::Float) * writer.lit(std::f32::consts::TAU);
     let speed = writer.lit(15.0) + writer.rand(ScalarType::Float) * writer.lit(25.0);
     let velocity = (angle.clone().cos() * speed.clone()).vec3(
-        writer.lit(5.0) + writer.rand(ScalarType::Float) * writer.lit(15.0), // upward bounce
+        writer.lit(5.0) + writer.rand(ScalarType::Float) * writer.lit(15.0),
         angle.sin() * speed,
     );
 
@@ -232,7 +233,7 @@ fn create_impact_effect() -> EffectAsset {
         .render(ColorOverLifetimeModifier {
             gradient: {
                 let mut g = bevy_hanabi::Gradient::new();
-                g.add_key(0.0, Vec4::new(25.0, 28.0, 35.0, 1.0)); // bright white-blue core
+                g.add_key(0.0, Vec4::new(25.0, 28.0, 35.0, 1.0));
                 g.add_key(0.15, Vec4::new(18.0, 20.0, 30.0, 1.0));
                 g.add_key(0.4, Vec4::new(8.0, 12.0, 25.0, 0.8));
                 g.add_key(0.7, Vec4::new(3.0, 5.0, 18.0, 0.4));
@@ -269,11 +270,9 @@ fn update_lightning_timers(
     for (mut lt, mut spawner, mut properties) in &mut bolt_query {
         lt.timer.tick(time.delta());
         if lt.timer.just_finished() {
-            let seed = rand::random::<f32>() * 100.0 - 50.0;
-            properties.set("wave_seed", seed.into());
+            properties.set("wave_seed", (rand::random::<f32>() * 100.0 - 50.0).into());
             spawner.reset();
 
-            // Trigger impact effect simultaneously
             for mut impact_spawner in &mut impact_query {
                 impact_spawner.reset();
             }
