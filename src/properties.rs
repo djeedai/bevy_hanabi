@@ -881,7 +881,7 @@ mod tests {
     };
 
     use bevy::{
-        ecs::{change_detection::MaybeLocation, component::Tick},
+        ecs::change_detection::{MaybeLocation, Tick},
         math::{Vec2, Vec3, Vec4},
     };
 

@@ -9,7 +9,7 @@ use bevy::{
     platform::collections::HashMap,
     prelude::{Component, Entity, Query, Res, ResMut, Resource},
     render::{
-        render_resource::{BindGroup, BindGroupLayout, Buffer},
+        render_resource::{BindGroup, BindGroupLayoutDescriptor, Buffer, PipelineCache},
         renderer::{RenderDevice, RenderQueue},
     },
 };
@@ -149,14 +149,14 @@ pub struct PropertyCache {
     /// size zero is valid, and corresponds to the variant without properties,
     /// which by abuse is stored here even though it's not related to properties
     /// (contains only the spawner binding).
-    bind_group_layouts: HashMap<u32, BindGroupLayout>,
+    bind_group_layouts: HashMap<u32, BindGroupLayoutDescriptor>,
 }
 
 impl PropertyCache {
     pub fn new(device: RenderDevice) -> Self {
         let spawner_min_binding_size =
             GpuSpawnerParams::aligned_size(device.limits().min_storage_buffer_offset_alignment);
-        let bgl = device.create_bind_group_layout(
+        let bgl = BindGroupLayoutDescriptor::new(
             "hanabi:bind_group_layout:no_property",
             // @group(2) @binding(0) var<storage, read> spawner: Spawner;
             &[BindGroupLayoutEntry {
@@ -170,10 +170,7 @@ impl PropertyCache {
                 count: None,
             }],
         );
-        trace!(
-            "-> created bind group layout #{:?} for no-property variant",
-            bgl.id()
-        );
+        trace!("-> created bind group layout for no-property variant");
         let mut bind_group_layouts = HashMap::with_capacity_and_hasher(1, Default::default());
         bind_group_layouts.insert(0, bgl);
 
@@ -199,7 +196,7 @@ impl PropertyCache {
     pub fn bind_group_layout(
         &self,
         min_binding_size: Option<NonZeroU64>,
-    ) -> Option<&BindGroupLayout> {
+    ) -> Option<&BindGroupLayoutDescriptor> {
         let key = min_binding_size.map(NonZeroU64::get).unwrap_or(0) as u32;
         self.bind_group_layouts.get(&key)
     }
@@ -225,8 +222,8 @@ impl PropertyCache {
                     label,
                     properties_min_binding_size.get()
                 );
-                let bgl = self.device.create_bind_group_layout(
-                    Some(&label[..]),
+                let bgl = BindGroupLayoutDescriptor::new(
+                    label.clone(),
                     &[
                         // @group(2) @binding(0) var<storage, read> spawner: Spawner;
                         BindGroupLayoutEntry {
@@ -252,7 +249,7 @@ impl PropertyCache {
                         },
                     ],
                 );
-                trace!("-> created bind group layout #{:?}", bgl.id());
+                trace!("-> created bind group layout for '{label}'");
                 bgl
             });
 
@@ -368,6 +365,7 @@ impl PropertyBindGroups {
         property_cache: &PropertyCache,
         spawner_buffer: &Buffer,
         spawner_buffer_binding_size: NonZeroU64,
+        pipeline_cache: &PipelineCache,
         render_device: &RenderDevice,
     ) -> Result<(), ()> {
         let Some(property_buffer) = property_cache.get_buffer(property_key.buffer_index) else {
@@ -380,13 +378,15 @@ impl PropertyBindGroups {
 
         // This should always be non-zero if the property key is Some().
         let property_binding_size = NonZeroU64::new(property_key.binding_size as u64).unwrap();
-        let Some(layout) = property_cache.bind_group_layout(Some(property_binding_size)) else {
+        let Some(layout_desc) = property_cache.bind_group_layout(Some(property_binding_size))
+        else {
             error!(
                 "Missing property bind group layout for binding size {}, referenced by effect batch.",
                 property_binding_size.get(),
             );
             return Err(());
         };
+        let layout = pipeline_cache.get_bind_group_layout(layout_desc);
 
         self.property_bind_groups
             .entry(*property_key)
@@ -403,7 +403,7 @@ impl PropertyBindGroups {
                             property_key.buffer_index, property_key.binding_size
                         )[..],
                     ),
-                    layout,
+                    &layout,
                     &[
                         BindGroupEntry {
                             binding: 0,
@@ -433,20 +433,22 @@ impl PropertyBindGroups {
         property_cache: &PropertyCache,
         spawner_buffer: &Buffer,
         spawner_buffer_binding_size: NonZeroU64,
+        pipeline_cache: &PipelineCache,
         render_device: &RenderDevice,
     ) -> Result<(), ()> {
-        let Some(layout) = property_cache.bind_group_layout(None) else {
+        let Some(layout_desc) = property_cache.bind_group_layout(None) else {
             error!(
                 "Missing property bind group layout for no-property variant, referenced by effect batch.",
             );
             return Err(());
         };
+        let layout = pipeline_cache.get_bind_group_layout(layout_desc);
 
         if self.no_property_bind_group.is_none() {
             trace!("Creating new spawner@2 bind group for no-property variant");
             self.no_property_bind_group = Some(render_device.create_bind_group(
                 Some("hanabi:bind_group:spawner@2:no-property"),
-                layout,
+                &layout,
                 &[BindGroupEntry {
                     binding: 0,
                     resource: BindingResource::Buffer(BufferBinding {

@@ -10,7 +10,10 @@ use bevy::{
     log::{error, trace},
     prelude::{Component, Entity, ResMut, Resource},
     render::{
-        render_resource::{BindGroup, BindGroupLayout, Buffer, ShaderSize as _, ShaderType},
+        render_resource::{
+            BindGroup, BindGroupLayoutDescriptor, Buffer, PipelineCache, ShaderSize as _,
+            ShaderType,
+        },
         renderer::{RenderDevice, RenderQueue},
     },
 };
@@ -141,6 +144,22 @@ impl EventBuffer {
             SlabState::Used
         }
     }
+}
+
+pub(crate) fn indirect_child_info_bind_group_layout_desc() -> BindGroupLayoutDescriptor {
+    BindGroupLayoutDescriptor::new(
+        "hanabi:bind_group_layout:dispatch_indirect:child_infos",
+        &[BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::COMPUTE,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: false },
+                has_dynamic_offset: false,
+                min_binding_size: Some(GpuChildInfo::min_size()),
+            },
+            count: None,
+        }],
+    )
 }
 
 /// Data about the child effect(s) of this effect. This component is only
@@ -330,7 +349,7 @@ pub struct EventCache {
     init_indirect_dispatch_buffer: GpuBuffer<GpuDispatchIndirectArgs>,
     /// Bind group layout for the indirect dispatch pass, which clears the GPU
     /// event counts ([`GpuChildInfo::event_count`]).
-    indirect_child_info_buffer_bind_group_layout: BindGroupLayout,
+    indirect_child_info_buffer_bind_group_layout: BindGroupLayoutDescriptor,
     /// Bind group for the indirect dispatch pass, which clears the GPU event
     /// counts ([`GpuChildInfo::event_count`]).
     indirect_child_info_buffer_bind_group: Option<BindGroup>,
@@ -344,19 +363,7 @@ impl EventCache {
             Some("hanabi:buffer:init_indirect_dispatch".to_string()),
         );
 
-        let child_infos_bind_group_layout = device.create_bind_group_layout(
-            "hanabi:bind_group_layout:indirect:child_infos@3",
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(GpuChildInfo::min_size()),
-                },
-                count: None,
-            }],
-        );
+        let child_infos_bind_group_layout = indirect_child_info_bind_group_layout_desc();
 
         Self {
             device,
@@ -636,13 +643,16 @@ impl EventCache {
 
     pub fn ensure_indirect_child_info_buffer_bind_group(
         &mut self,
-        device: &RenderDevice,
+        pipeline_cache: &PipelineCache,
+        render_device: &RenderDevice,
     ) -> Option<&BindGroup> {
         let buffer = self.child_infos_buffer()?;
+        let layout = pipeline_cache
+            .get_bind_group_layout(&self.indirect_child_info_buffer_bind_group_layout);
         // TODO - stop re-creating each frame...
-        self.indirect_child_info_buffer_bind_group = Some(device.create_bind_group(
+        self.indirect_child_info_buffer_bind_group = Some(render_device.create_bind_group(
             "hanabi:bind_group:indirect:child_infos@3",
-            &self.indirect_child_info_buffer_bind_group_layout,
+            &layout,
             &[BindGroupEntry {
                 binding: 0,
                 resource: BindingResource::Buffer(BufferBinding {

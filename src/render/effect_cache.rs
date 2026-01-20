@@ -212,10 +212,10 @@ pub struct ParticleSlab {
     /// Handle of all effects common in this slab. TODO - replace with
     /// compatible layout.
     asset: Handle<EffectAsset>,
-    /// Layout of the particle@1 bind group for the render pass.
+    /// Layout descriptor of the particle@1 bind group for the render pass.
     // TODO - move; this only depends on the particle and spawner layouts, can be shared across
     // slabs
-    render_particles_buffer_layout: BindGroupLayout,
+    render_particles_buffer_layout: BindGroupLayoutDescriptor,
     /// Bind group particle@1 of the simulation passes (init and udpate).
     sim_bind_group: Option<BindGroup>,
     /// Key the `sim_bind_group` was created from.
@@ -318,52 +318,13 @@ impl ParticleSlab {
         let spawner_params_size = GpuSpawnerParams::aligned_size(
             render_device.limits().min_storage_buffer_offset_alignment,
         );
-        let entries = [
-            // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
-            BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::VERTEX_FRAGMENT,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(particle_layout.min_binding_size()),
-                },
-                count: None,
-            },
-            // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
-            BindGroupLayoutEntry {
-                binding: 1,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(NonZeroU64::new(INDIRECT_INDEX_SIZE as u64).unwrap()),
-                },
-                count: None,
-            },
-            // @group(1) @binding(2) var<storage, read> spawner : Spawner;
-            BindGroupLayoutEntry {
-                binding: 2,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(spawner_params_size),
-                },
-                count: None,
-            },
-        ];
-        let label = format!(
-            "hanabi:bind_group_layout:render:particles@1:slab{}",
-            slab_id.0
-        );
+        let render_particles_buffer_layout =
+            render_particle_bind_group_layout_desc(&particle_layout, spawner_params_size);
         trace!(
             "Creating particles@1 layout '{}' for render pass with {} entries",
-            label,
-            entries.len(),
+            render_particles_buffer_layout.label.as_ref(),
+            render_particles_buffer_layout.entries.len(),
         );
-        let render_particles_buffer_layout =
-            render_device.create_bind_group_layout(&label[..], &entries[..]);
 
         Self {
             particle_buffer,
@@ -381,7 +342,7 @@ impl ParticleSlab {
 
     // TODO - move; this only depends on the particle and spawner layouts, can be
     // shared across slabs
-    pub fn render_particles_buffer_layout(&self) -> &BindGroupLayout {
+    pub fn render_particles_buffer_layout(&self) -> &BindGroupLayoutDescriptor {
         &self.render_particles_buffer_layout
     }
 
@@ -828,13 +789,13 @@ pub struct EffectCache {
     /// simulation passes (init and update). Since all bindings depend only
     /// on buffers managed by the [`EffectCache`], we also cache the layouts
     /// here for convenience.
-    particle_bind_group_layouts: HashMap<ParticleBindGroupLayoutKey, BindGroupLayout>,
+    particle_bind_group_layouts: HashMap<ParticleBindGroupLayoutKey, BindGroupLayoutDescriptor>,
     /// Cache of bind group layouts for the metadata@3 bind group of the init
     /// pass.
-    metadata_init_bind_group_layout: [Option<BindGroupLayout>; 2],
+    metadata_init_bind_group_layout: [Option<BindGroupLayoutDescriptor>; 2],
     /// Cache of bind group layouts for the metadata@3 bind group of the
     /// updatepass.
-    metadata_update_bind_group_layouts: HashMap<u32, BindGroupLayout>,
+    metadata_update_bind_group_layouts: HashMap<u32, BindGroupLayoutDescriptor>,
 }
 
 impl EffectCache {
@@ -996,7 +957,7 @@ impl EffectCache {
         &mut self,
         min_binding_size: NonZeroU32,
         parent_min_binding_size: Option<NonZeroU32>,
-    ) -> &BindGroupLayout {
+    ) -> &BindGroupLayoutDescriptor {
         // FIXME - This "ensure" pattern means we never de-allocate entries. This is
         // probably fine, because there's a limited number of realistic combinations,
         // but could cause wastes if e.g. loading widely different scenes.
@@ -1008,11 +969,7 @@ impl EffectCache {
             .entry(key)
             .or_insert_with(|| {
                 trace!("Creating new particle sim bind group @1 for min_binding_size={} parent_min_binding_size={:?}", min_binding_size, parent_min_binding_size);
-                create_particle_sim_bind_group_layout(
-                    &self.render_device,
-                    min_binding_size,
-                    parent_min_binding_size,
-                )
+                create_particle_sim_bind_group_layout_desc(min_binding_size, parent_min_binding_size)
             })
     }
 
@@ -1022,7 +979,7 @@ impl EffectCache {
         &self,
         min_binding_size: NonZeroU32,
         parent_min_binding_size: Option<NonZeroU32>,
-    ) -> Option<&BindGroupLayout> {
+    ) -> Option<&BindGroupLayoutDescriptor> {
         let key = ParticleBindGroupLayoutKey {
             min_binding_size,
             parent_min_binding_size,
@@ -1035,7 +992,7 @@ impl EffectCache {
     pub fn ensure_metadata_init_bind_group_layout(&mut self, consume_gpu_spawn_events: bool) {
         let layout = &mut self.metadata_init_bind_group_layout[consume_gpu_spawn_events as usize];
         if layout.is_none() {
-            *layout = Some(create_metadata_init_bind_group_layout(
+            *layout = Some(create_metadata_init_bind_group_layout_desc(
                 &self.render_device,
                 consume_gpu_spawn_events,
             ));
@@ -1047,7 +1004,7 @@ impl EffectCache {
     pub fn metadata_init_bind_group_layout(
         &self,
         consume_gpu_spawn_events: bool,
-    ) -> Option<&BindGroupLayout> {
+    ) -> Option<&BindGroupLayoutDescriptor> {
         self.metadata_init_bind_group_layout[consume_gpu_spawn_events as usize].as_ref()
     }
 
@@ -1057,7 +1014,10 @@ impl EffectCache {
         self.metadata_update_bind_group_layouts
             .entry(num_event_buffers)
             .or_insert_with(|| {
-                create_metadata_update_bind_group_layout(&self.render_device, num_event_buffers)
+                create_metadata_update_bind_group_layout_desc(
+                    &self.render_device,
+                    num_event_buffers,
+                )
             });
     }
 
@@ -1066,7 +1026,7 @@ impl EffectCache {
     pub fn metadata_update_bind_group_layout(
         &self,
         num_event_buffers: u32,
-    ) -> Option<&BindGroupLayout> {
+    ) -> Option<&BindGroupLayoutDescriptor> {
         self.metadata_update_bind_group_layouts
             .get(&num_event_buffers)
     }
@@ -1085,15 +1045,17 @@ impl EffectCache {
     pub fn create_particle_sim_bind_group(
         &mut self,
         slab_id: &SlabId,
+        pipeline_cache: &PipelineCache,
         render_device: &RenderDevice,
         min_binding_size: NonZeroU32,
         parent_min_binding_size: Option<NonZeroU32>,
         parent_binding_source: Option<&BufferBindingSource>,
     ) -> Result<(), ()> {
         // Create the bind group
-        let layout = self
+        let layout_desc = self
             .ensure_particle_bind_group_layout(min_binding_size, parent_min_binding_size)
             .clone();
+        let layout = pipeline_cache.get_bind_group_layout(&layout_desc);
         let slot = self
             .particle_slabs
             .get_mut(slab_id.index() as usize)
@@ -1109,13 +1071,55 @@ impl EffectCache {
     }
 }
 
+pub(crate) fn render_particle_bind_group_layout_desc(
+    particle_layout: &ParticleLayout,
+    spawner_min_binding_size: NonZeroU64,
+) -> BindGroupLayoutDescriptor {
+    let entries = [
+        // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
+        BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::VERTEX_FRAGMENT,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: Some(particle_layout.min_binding_size()),
+            },
+            count: None,
+        },
+        // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
+        BindGroupLayoutEntry {
+            binding: 1,
+            visibility: ShaderStages::VERTEX,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: Some(NonZeroU64::new(INDIRECT_INDEX_SIZE as u64).unwrap()),
+            },
+            count: None,
+        },
+        // @group(1) @binding(2) var<storage, read> spawner : Spawner;
+        BindGroupLayoutEntry {
+            binding: 2,
+            visibility: ShaderStages::VERTEX,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: true,
+                min_binding_size: Some(spawner_min_binding_size),
+            },
+            count: None,
+        },
+    ];
+
+    BindGroupLayoutDescriptor::new("hanabi:bind_group_layout:render:particle@1", &entries)
+}
+
 /// Create the bind group layout for the "particle" group (@1) of the init and
 /// update passes.
-fn create_particle_sim_bind_group_layout(
-    render_device: &RenderDevice,
+fn create_particle_sim_bind_group_layout_desc(
     particle_layout_min_binding_size: NonZeroU32,
     parent_particle_layout_min_binding_size: Option<NonZeroU32>,
-) -> BindGroupLayout {
+) -> BindGroupLayoutDescriptor {
     let mut entries = Vec::with_capacity(3);
 
     // @group(1) @binding(0) var<storage, read_write> particle_buffer :
@@ -1167,14 +1171,14 @@ fn create_particle_sim_bind_group_layout(
         entries.len(),
         parent_particle_layout_min_binding_size.is_some(),
     );
-    render_device.create_bind_group_layout(&label[..], &entries)
+    BindGroupLayoutDescriptor::new(label, &entries)
 }
 
 /// Create the bind group layout for the metadata@3 bind group of the init pass.
-fn create_metadata_init_bind_group_layout(
+fn create_metadata_init_bind_group_layout_desc(
     render_device: &RenderDevice,
     consume_gpu_spawn_events: bool,
-) -> BindGroupLayout {
+) -> BindGroupLayoutDescriptor {
     let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
     let effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
 
@@ -1237,15 +1241,15 @@ fn create_metadata_init_bind_group_layout(
         entries.len(),
         consume_gpu_spawn_events,
     );
-    render_device.create_bind_group_layout(&label[..], &entries)
+    BindGroupLayoutDescriptor::new(label, &entries)
 }
 
 /// Create the bind group layout for the metadata@3 bind group of the update
 /// pass.
-fn create_metadata_update_bind_group_layout(
+fn create_metadata_update_bind_group_layout_desc(
     render_device: &RenderDevice,
     num_event_buffers: u32,
-) -> BindGroupLayout {
+) -> BindGroupLayoutDescriptor {
     let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
     let effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
 
@@ -1304,7 +1308,7 @@ fn create_metadata_update_bind_group_layout(
         entries.len(),
         num_event_buffers,
     );
-    render_device.create_bind_group_layout(&label[..], &entries)
+    BindGroupLayoutDescriptor::new(label, &entries)
 }
 
 #[cfg(all(test, feature = "gpu_tests"))]

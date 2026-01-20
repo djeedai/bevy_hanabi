@@ -1,6 +1,6 @@
 [package]
 name = "bevy_hanabi"
-version = "0.17.0"
+version = "0.18.0"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
 rust-version = "1.88.0"
@@ -62,8 +62,8 @@ ron = "0.8"
 bitflags = "2.3"
 typetag = { version = "0.2", optional = true }
 thiserror = "2"
-# Same versions as Bevy 0.17 (bevy_render)
-wgpu = { version = "26", default-features = false, features = [
+# Same versions as Bevy 0.18 (bevy_render)
+wgpu = { version = "27", default-features = false, features = [
   "wgsl",
   "dx12",
   "metal",
@@ -71,11 +71,11 @@ wgpu = { version = "26", default-features = false, features = [
   "naga-ir",
   "fragile-send-sync-non-atomic-wasm",
 ] }
-naga = { version = "26", features = ["wgsl-in"] }
-naga_oil = { version = "0.19", default-features = false, features = ["test_shader"] }
+naga = { version = "27", features = ["wgsl-in"] }
+naga_oil = { version = "0.20", default-features = false, features = ["test_shader"] }
 
 [dependencies.bevy]
-version = "0.17"
+version = "0.18"
 default-features = false
 features = [
   "bevy_core_pipeline",
@@ -89,7 +89,7 @@ features = [
 all-features = true
 
 [dev-dependencies]
-bevy = { version = "0.17", default-features = true }
+bevy = { version = "0.18", default-features = true }
 
 # For procedural texture generation in examples
 noise = "0.9"

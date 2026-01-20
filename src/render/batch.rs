@@ -403,7 +403,7 @@ impl EffectBatch {
             texture_layout: extracted_effect.texture_layout.clone(),
             textures: extracted_effect.textures.clone(),
             alpha_mode: extracted_effect.alpha_mode,
-            entities: vec![main_entity.index()],
+            entities: vec![main_entity.index_u32()],
             cached_effect_events: cached_effect_events.cloned(),
             sort_fill_indirect_dispatch_index: None, // set later as needed
         }

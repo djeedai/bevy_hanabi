@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let app_exit = DemoApp::new("puffs")
         .with_desc(DEMO_DESC)
         .build()
-        .insert_resource(AmbientLight {
+        .insert_resource(GlobalAmbientLight {
             color: Color::WHITE,
             brightness: 500.0,
             ..default()
