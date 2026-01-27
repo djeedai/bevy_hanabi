@@ -488,10 +488,10 @@ impl Plugin for HanabiPlugin {
                         // Upload and optionally resize the draw indirect args buffer
                         .after(update_mesh_locations)
                         // Bind groups depend on buffers being re-/allocated
-                        .before(EffectSystems::PrepareBindGroups),
+                        .before(prepare_bind_groups),
                     prepare_property_buffers
                         .in_set(EffectSystems::PrepareEffectGpuResources)
-                        .before(EffectSystems::PrepareBindGroups),
+                        .before(prepare_bind_groups),
                     prepare_effect_metadata
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         // Need DispatchBufferIndices to be allocated
@@ -503,11 +503,11 @@ impl Plugin for HanabiPlugin {
                         // Need the indirect dispatch args index for GPU event based init pass
                         .after(allocate_events)
                         // This may invalidate some bind groups when resizing the metadata buffer
-                        .before(EffectSystems::PrepareBindGroups),
+                        .before(prepare_bind_groups),
                     queue_init_fill_dispatch_ops
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         .after(prepare_gpu_resources)
-                        .before(EffectSystems::PrepareBindGroups),
+                        .before(prepare_bind_groups),
                     prepare_bind_groups
                         .in_set(EffectSystems::PrepareBindGroups)
                         .after(queue_effects)
