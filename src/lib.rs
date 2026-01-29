@@ -996,6 +996,26 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             layout_flags |= LayoutFlags::READ_PARENT_PARTICLE;
         }
 
+        // Generate material bindings code for init and update shaders
+        // These use @group(4) to avoid conflicts with existing bindings
+        let texture_layout = module.texture_layout();
+        trace!(
+            "Generating material bindings code for init/update shaders with layout: {:?}",
+            texture_layout
+        );
+        let mut material_bindings_code_init_update = String::new();
+        let mut bind_index = 0;
+        for (slot, _) in texture_layout.layout.iter().enumerate() {
+            let tex_index = bind_index;
+            let sampler_index = bind_index + 1;
+            material_bindings_code_init_update.push_str(&format!(
+                "@group(4) @binding({tex_index}) var material_texture_{slot}: texture_2d<f32>;
+@group(4) @binding({sampler_index}) var material_sampler_{slot}: sampler;
+"
+            ));
+            bind_index += 2;
+        }
+
         // Generate the shader code for the initializing shader
         let (init_code, init_extra, init_sim_space_transform_code, consume_gpu_spawn_events) = {
             // Apply all the init modifiers
@@ -1040,7 +1060,8 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             .replace(
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
                 &init_sim_space_transform_code,
-            );
+            )
+            .replace("{{MATERIAL_BINDINGS}}", &material_bindings_code_init_update);
         trace!(
             "Configured init shader for '{}':\n{}",
             asset.name,
@@ -1273,7 +1294,8 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             .replace(
                 "{{EMIT_EVENT_BUFFER_APPEND_FUNCS}}",
                 &emit_event_buffer_append_funcs_code,
-            );
+            )
+            .replace("{{MATERIAL_BINDINGS}}", &material_bindings_code_init_update);
         trace!(
             "Configured update shader for '{}':\n{}",
             asset.name,

@@ -48,6 +48,9 @@ struct ParentParticleBuffer {
 {{EMIT_EVENT_BUFFER_BINDINGS}}
 #endif
 
+// "material" group @4
+{{MATERIAL_BINDINGS}}
+
 {{UPDATE_EXTRA}}
 
 #ifdef EMITS_GPU_SPAWN_EVENTS

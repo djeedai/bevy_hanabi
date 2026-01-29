@@ -48,6 +48,9 @@ struct ParentParticleBuffer {
 @group(3) @binding(2) var<storage, read> event_buffer : EventBuffer;
 #endif
 
+// "material" group @4
+{{MATERIAL_BINDINGS}}
+
 {{INIT_EXTRA}}
 
 @compute @workgroup_size(64)

@@ -1498,6 +1498,8 @@ impl UtilsPipeline {
 #[derive(Resource)]
 pub(crate) struct ParticlesInitPipeline {
     sim_params_layout: BindGroupLayout,
+    render_device: RenderDevice,
+    material_layouts: HashMap<TextureLayout, BindGroupLayout>,
 
     // Temporary values passed to specialize()
     // https://github.com/bevyengine/bevy/issues/17132
@@ -1507,6 +1509,8 @@ pub(crate) struct ParticlesInitPipeline {
     temp_spawner_bind_group_layout: Option<BindGroupLayout>,
     /// Layout of the metadata@3 bind group this pipeline was specialized with.
     temp_metadata_bind_group_layout: Option<BindGroupLayout>,
+    /// Layout of the material@4 bind group this pipeline was specialized with.
+    temp_material_bind_group_layout: Option<BindGroupLayout>,
 }
 
 impl FromWorld for ParticlesInitPipeline {
@@ -1530,10 +1534,71 @@ impl FromWorld for ParticlesInitPipeline {
 
         Self {
             sim_params_layout,
+            render_device: render_device.clone(),
+            material_layouts: default(),
             temp_particle_bind_group_layout: None,
             temp_spawner_bind_group_layout: None,
             temp_metadata_bind_group_layout: None,
+            temp_material_bind_group_layout: None,
         }
+    }
+}
+
+impl ParticlesInitPipeline {
+    /// Cache a material, creating its bind group layout based on the texture
+    /// layout.
+    pub fn cache_material(&mut self, layout: &TextureLayout) {
+        if layout.layout.is_empty() {
+            return;
+        }
+
+        if self.material_layouts.contains_key(layout) {
+            return;
+        }
+
+        let mut entries = Vec::with_capacity(layout.layout.len() * 2);
+        let mut index = 0;
+        for _slot_layout in &layout.layout {
+            entries.push(BindGroupLayoutEntry {
+                binding: index,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            });
+            entries.push(BindGroupLayoutEntry {
+                binding: index + 1,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            });
+            index += 2;
+        }
+        debug!(
+            "Creating material bind group for init shader with {} entries [{:?}] for layout {:?}",
+            entries.len(),
+            entries,
+            layout
+        );
+        let material_bind_group_layout = self
+            .render_device
+            .create_bind_group_layout("hanabi:material_layout_init", &entries[..]);
+
+        self.material_layouts
+            .insert(layout.clone(), material_bind_group_layout);
+    }
+
+    /// Retrieve a bind group layout for a cached material.
+    pub fn get_material(&self, layout: &TextureLayout) -> Option<&BindGroupLayout> {
+        // Prevent a hash and lookup for the trivial case of an empty layout
+        if layout.layout.is_empty() {
+            return None;
+        }
+
+        self.material_layouts.get(layout)
     }
 }
 
@@ -1634,14 +1699,21 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
                 .fold(String::new(), |acc, x| acc + &format!(" {x:?}"))
         );
 
+        let mut layout = vec![
+            self.sim_params_layout.clone(),
+            particle_bind_group_layout.clone(),
+            spawner_bind_group_layout.clone(),
+            metadata_bind_group_layout.clone(),
+        ];
+
+        // Add material bind group layout if present
+        if let Some(material_bind_group_layout) = &self.temp_material_bind_group_layout {
+            layout.push(material_bind_group_layout.clone());
+        }
+
         ComputePipelineDescriptor {
             label: Some(label.into()),
-            layout: vec![
-                self.sim_params_layout.clone(),
-                particle_bind_group_layout.clone(),
-                spawner_bind_group_layout.clone(),
-                metadata_bind_group_layout.clone(),
-            ],
+            layout,
             shader: key.shader,
             shader_defs,
             entry_point: Some("main".into()),
@@ -1654,6 +1726,8 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
 #[derive(Resource)]
 pub(crate) struct ParticlesUpdatePipeline {
     sim_params_layout: BindGroupLayout,
+    render_device: RenderDevice,
+    material_layouts: HashMap<TextureLayout, BindGroupLayout>,
 
     // Temporary values passed to specialize()
     // https://github.com/bevyengine/bevy/issues/17132
@@ -1663,6 +1737,8 @@ pub(crate) struct ParticlesUpdatePipeline {
     temp_spawner_bind_group_layout: Option<BindGroupLayout>,
     /// Layout of the metadata@3 bind group this pipeline was specialized with.
     temp_metadata_bind_group_layout: Option<BindGroupLayout>,
+    /// Layout of the material@4 bind group this pipeline was specialized with.
+    temp_material_bind_group_layout: Option<BindGroupLayout>,
 }
 
 impl FromWorld for ParticlesUpdatePipeline {
@@ -1701,10 +1777,71 @@ impl FromWorld for ParticlesUpdatePipeline {
 
         Self {
             sim_params_layout,
+            render_device: render_device.clone(),
+            material_layouts: default(),
             temp_particle_bind_group_layout: None,
             temp_spawner_bind_group_layout: None,
             temp_metadata_bind_group_layout: None,
+            temp_material_bind_group_layout: None,
         }
+    }
+}
+
+impl ParticlesUpdatePipeline {
+    /// Cache a material, creating its bind group layout based on the texture
+    /// layout.
+    pub fn cache_material(&mut self, layout: &TextureLayout) {
+        if layout.layout.is_empty() {
+            return;
+        }
+
+        if self.material_layouts.contains_key(layout) {
+            return;
+        }
+
+        let mut entries = Vec::with_capacity(layout.layout.len() * 2);
+        let mut index = 0;
+        for _slot_layout in &layout.layout {
+            entries.push(BindGroupLayoutEntry {
+                binding: index,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            });
+            entries.push(BindGroupLayoutEntry {
+                binding: index + 1,
+                visibility: ShaderStages::COMPUTE,
+                ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                count: None,
+            });
+            index += 2;
+        }
+        debug!(
+            "Creating material bind group for update shader with {} entries [{:?}] for layout {:?}",
+            entries.len(),
+            entries,
+            layout
+        );
+        let material_bind_group_layout = self
+            .render_device
+            .create_bind_group_layout("hanabi:material_layout_update", &entries[..]);
+
+        self.material_layouts
+            .insert(layout.clone(), material_bind_group_layout);
+    }
+
+    /// Retrieve a bind group layout for a cached material.
+    pub fn get_material(&self, layout: &TextureLayout) -> Option<&BindGroupLayout> {
+        // Prevent a hash and lookup for the trivial case of an empty layout
+        if layout.layout.is_empty() {
+            return None;
+        }
+
+        self.material_layouts.get(layout)
     }
 }
 
@@ -1787,14 +1924,21 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
                 .fold(String::new(), |acc, x| acc + &format!(" {x:?}"))
         );
 
+        let mut layout = vec![
+            self.sim_params_layout.clone(),
+            particle_bind_group_layout.clone(),
+            spawner_bind_group_layout.clone(),
+            metadata_bind_group_layout.clone(),
+        ];
+
+        // Add material bind group layout if present
+        if let Some(material_bind_group_layout) = &self.temp_material_bind_group_layout {
+            layout.push(material_bind_group_layout.clone());
+        }
+
         ComputePipelineDescriptor {
             label: Some(label.into()),
-            layout: vec![
-                self.sim_params_layout.clone(),
-                particle_bind_group_layout.clone(),
-                spawner_bind_group_layout.clone(),
-                metadata_bind_group_layout.clone(),
-            ],
+            layout,
             shader: key.shader,
             shader_defs,
             entry_point: Some("main".into()),
@@ -3772,10 +3916,16 @@ pub fn prepare_init_update_pipelines(
             let particle_bind_group_layout_id = particle_bind_group_layout.id();
             let spawner_bind_group_layout_id = spawner_bind_group_layout.id();
             let metadata_bind_group_layout_id = metadata_bind_group_layout.id();
+
+            // Cache material and set temp bind group layout
+            init_pipeline.cache_material(&extracted_effect.texture_layout);
+            let material_bind_group_layout = init_pipeline.get_material(&extracted_effect.texture_layout).cloned();
+
             init_pipeline.temp_particle_bind_group_layout =
                 Some(particle_bind_group_layout.clone());
             init_pipeline.temp_spawner_bind_group_layout = Some(spawner_bind_group_layout.clone());
             init_pipeline.temp_metadata_bind_group_layout = Some(metadata_bind_group_layout);
+            init_pipeline.temp_material_bind_group_layout = material_bind_group_layout;
             let init_pipeline_id: CachedComputePipelineId = specialized_init_pipelines.specialize(
                 pipeline_cache.as_ref(),
                 &init_pipeline,
@@ -3793,6 +3943,7 @@ pub fn prepare_init_update_pipelines(
             init_pipeline.temp_particle_bind_group_layout = None;
             init_pipeline.temp_spawner_bind_group_layout = None;
             init_pipeline.temp_metadata_bind_group_layout = None;
+            init_pipeline.temp_material_bind_group_layout = None;
             trace!("Init pipeline specialized: id={:?}", init_pipeline_id);
 
             cached_pipelines.init = Some(init_pipeline_id);
@@ -3831,10 +3982,16 @@ pub fn prepare_init_update_pipelines(
             let particle_bind_group_layout_id = particle_bind_group_layout.id();
             let spawner_bind_group_layout_id = spawner_bind_group_layout.id();
             let metadata_bind_group_layout_id = metadata_bind_group_layout.id();
+
+            // Cache material and set temp bind group layout
+            update_pipeline.cache_material(&extracted_effect.texture_layout);
+            let material_bind_group_layout = update_pipeline.get_material(&extracted_effect.texture_layout).cloned();
+
             update_pipeline.temp_particle_bind_group_layout = Some(particle_bind_group_layout);
             update_pipeline.temp_spawner_bind_group_layout =
                 Some(spawner_bind_group_layout.clone());
             update_pipeline.temp_metadata_bind_group_layout = Some(metadata_bind_group_layout);
+            update_pipeline.temp_material_bind_group_layout = material_bind_group_layout;
             let update_pipeline_id = specialized_update_pipelines.specialize(
                 pipeline_cache.as_ref(),
                 &update_pipeline,
@@ -3852,6 +4009,7 @@ pub fn prepare_init_update_pipelines(
             update_pipeline.temp_particle_bind_group_layout = None;
             update_pipeline.temp_spawner_bind_group_layout = None;
             update_pipeline.temp_metadata_bind_group_layout = None;
+            update_pipeline.temp_material_bind_group_layout = None;
             trace!("Update pipeline specialized: id={:?}", update_pipeline_id);
 
             cached_pipelines.update = Some(update_pipeline_id);
@@ -7045,6 +7203,24 @@ impl Node for VfxSimulateNode {
                 );
                 compute_pass.set_bind_group(3, &metadata_bind_group.bind_group, &[]);
 
+                // Set material bind group @4 if textures are present
+                if !effect_batch.texture_layout.layout.is_empty() {
+                    let material = Material {
+                        layout: effect_batch.texture_layout.clone(),
+                        textures: effect_batch.textures.iter().map(|h| h.id()).collect(),
+                    };
+                    if let Some(bind_group) = effect_bind_groups.material_bind_groups.get(&material) {
+                        compute_pass.set_bind_group(4, bind_group, &[]);
+                    } else {
+                        // Texture(s) not ready; skip this init pass for now
+                        trace!(
+                            "Init: Skipping dispatch for slab #{} due to missing material bind group",
+                            effect_batch.slab_id.index()
+                        );
+                        continue;
+                    }
+                }
+
                 // Dispatch init job
                 match effect_batch.spawn_info {
                     // Indirect dispatch via GPU spawn events
@@ -7276,6 +7452,24 @@ impl Node for VfxSimulateNode {
                     &offsets[..],
                 );
                 compute_pass.set_bind_group(3, &metadata_bind_group.bind_group, &[]);
+
+                // Set material bind group @4 if textures are present
+                if !effect_batch.texture_layout.layout.is_empty() {
+                    let material = Material {
+                        layout: effect_batch.texture_layout.clone(),
+                        textures: effect_batch.textures.iter().map(|h| h.id()).collect(),
+                    };
+                    if let Some(bind_group) = effect_bind_groups.material_bind_groups.get(&material) {
+                        compute_pass.set_bind_group(4, bind_group, &[]);
+                    } else {
+                        // Texture(s) not ready; skip this update pass for now
+                        trace!(
+                            "Update: Skipping dispatch for slab #{} due to missing material bind group",
+                            effect_batch.slab_id.index()
+                        );
+                        continue;
+                    }
+                }
 
                 // Dispatch update job
                 let dispatch_indirect_offset = effect_batch

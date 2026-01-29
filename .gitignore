@@ -5,6 +5,7 @@ Cargo.lock
 
 # IDEs
 .vs*
+.idea/
 
 # OS
 .DS_Store
