@@ -1196,7 +1196,10 @@ mod gpu_tests {
         queue.on_submitted_work_done(move || {
             tx.send(()).unwrap();
         });
-        let _ = device.poll(wgpu::PollType::Wait);
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
         let _ = futures::executor::block_on(rx);
         println!("Buffer written");
 
@@ -1208,7 +1211,10 @@ mod gpu_tests {
         buffer.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
-        let _ = device.poll(wgpu::PollType::Wait);
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
         let _result = futures::executor::block_on(rx);
         let view = buffer.get_mapped_range();
 

@@ -508,6 +508,7 @@ impl Plugin for HanabiPlugin {
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         .after(prepare_gpu_resources)
                         .before(prepare_bind_groups),
+                    // Prepare the bind groups
                     prepare_bind_groups
                         .in_set(EffectSystems::PrepareBindGroups)
                         .after(queue_effects)
