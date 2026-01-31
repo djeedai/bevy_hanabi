@@ -34,12 +34,6 @@
 //! vector position can be assigned to a [property](crate::properties) and
 //! mutated each frame, giving CPU-side control over the behavior of the GPU
 //! particle effect. See [expressions](crate::graph::expr) for more details.
-//!
-//! # Limitations
-//!
-//! At this time, serialization and deserialization of modifiers is not
-//! supported on Wasm. This means assets authored and saved on a non-Wasm target
-//! cannot be read back into an application running on Wasm.
 
 use std::{
     collections::hash_map::DefaultHasher,

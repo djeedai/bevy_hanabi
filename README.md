@@ -215,7 +215,7 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
 | `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.17.2/bevy/core_pipeline/core_3d/struct.Camera3d.html)) |
 | `serde`* | ✔ | Use `serde` to derive `Serialization` and `Deserialization` on asset-related types. |
 
-(*) `serde` is not compatible with WASM (due to the `typetag` dependency not being available on `wasm` without extra setup).
+(*) Needs `bevy/reflect_auto_register` (which is enabled by default) to setup [`inventory`](https://docs.rs/inventory/latest/inventory/#webassembly-and-constructors) on `wasm` due to the `typetag` dependency.
 
 For optimization purpose, users of a single type of camera can disable the other type by skipping default features in their `Cargo.toml`. For example to use only the 3D mode:
 

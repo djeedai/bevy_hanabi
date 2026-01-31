@@ -174,9 +174,7 @@
 //!
 //! The [`EffectAsset`] is intended to be the serialized effect format, which
 //! authors can save to disk and ship with their application. At this time
-//! however serialization and deserialization is still a work in progress. In
-//! particular, serialization and deserialization of all
-//! [modifiers](crate::modifier) is currently not supported on `wasm` target.
+//! however serialization and deserialization is still a work in progress.
 
 use std::fmt::Write as _;
 

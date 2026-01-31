@@ -39,8 +39,9 @@ default = ["2d", "3d", "serde", "gpu_tests"]
 # You need to activate either the 2d or 3d feature at least (or both).
 3d = []
 
-# Enable serializing and deserializing of assets. This doesn't work on WASM,
-# because typetag is not available for the wasm target.
+# Enable serializing and deserializing of assets.
+# This requires https://docs.rs/inventory/latest/inventory/#webassembly-and-constructors on WASM because of typetag,
+# bevy will setup it for you on WASM if `bevy/reflect_auto_register` is enabled.
 serde = ["typetag"]
 
 # Enable tracing annotations. This is disabled by default for performance.

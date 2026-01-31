@@ -37,9 +37,9 @@ For more information about WebAssembly support, see also:
 
 The `serde` feature,
 which allows deriving the `Serialize` and `Deserialize` traits on asset-related types,
-is not compatible with the `wasm` target.
+needs `bevy/reflect_auto_register` with the `wasm` target.
 This is due to the use of the `typetag` dependency to handle trait objects,
-which itself is not available for `wasm`.
+which requires https://docs.rs/inventory/latest/inventory/#webassembly-and-constructors and bevy will setup it for you with `bevy/reflect_auto_register` feature.
 
 To disable the `serde` feature,
 simply disable default features and explicitly list the features you need:
