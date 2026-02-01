@@ -3,7 +3,7 @@ name = "bevy_hanabi"
 version = "0.18.0"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
-rust-version = "1.92.0"
+rust-version = "1.89.0"
 description = "Hanabi GPU particle system for the Bevy game engine"
 repository = "https://github.com/djeedai/bevy_hanabi"
 homepage = "https://github.com/djeedai/bevy_hanabi"
@@ -89,6 +89,8 @@ features = [
 all-features = true
 
 [dev-dependencies]
+# Enable all features by default in examples to make it easier to run them and to use
+# extra features like text rendering or gizmos, which are example-specific.
 bevy = { version = "0.18", default-features = true }
 
 # For procedural texture generation in examples

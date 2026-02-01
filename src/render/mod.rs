@@ -6221,7 +6221,7 @@ pub(crate) fn prepare_bind_groups(
     }
 
     // Create bind groups for queued GPU buffer operations
-    gpu_buffer_operation_queue.create_bind_groups(&render_device, &utils_pipeline);
+    gpu_buffer_operation_queue.create_bind_groups(&render_device, utils_pipeline);
 
     // Create the per-effect bind groups
     let spawner_buffer_binding_size =
@@ -7054,11 +7054,19 @@ impl Node for VfxSimulateNode {
         }
 
         // Compute indirect dispatch pass
-        if effects_meta.spawner_buffer.buffer().is_some()
-            && !effects_meta.spawner_buffer.is_empty()
-            && effects_meta.indirect_metadata_bind_group.is_some()
-            && effects_meta.indirect_sim_params_bind_group.is_some()
-        {
+        if let (
+            Some(_),
+            true,
+            Some(indirect_metadata_bind_group),
+            Some(indirect_sim_params_bind_group),
+            Some(indirect_spawner_bind_group),
+        ) = (
+            effects_meta.spawner_buffer.buffer(),
+            !effects_meta.spawner_buffer.is_empty(),
+            &effects_meta.indirect_metadata_bind_group,
+            &effects_meta.indirect_sim_params_bind_group,
+            &effects_meta.indirect_spawner_bind_group,
+        ) {
             // Only start a compute pass if there's an effect; makes things clearer in
             // debugger.
             let mut compute_pass =
@@ -7100,26 +7108,9 @@ impl Node for VfxSimulateNode {
             let workgroup_count = total_effect_count.div_ceil(WORKGROUP_SIZE);
 
             // Setup vfx_indirect pass
-            compute_pass.set_bind_group(
-                0,
-                effects_meta
-                    .indirect_sim_params_bind_group
-                    .as_ref()
-                    .unwrap(),
-                &[],
-            );
-            compute_pass.set_bind_group(
-                1,
-                // FIXME - got some unwrap() panic here, investigate... possibly race
-                // condition!
-                effects_meta.indirect_metadata_bind_group.as_ref().unwrap(),
-                &[],
-            );
-            compute_pass.set_bind_group(
-                2,
-                effects_meta.indirect_spawner_bind_group.as_ref().unwrap(),
-                &[],
-            );
+            compute_pass.set_bind_group(0, indirect_sim_params_bind_group, &[]);
+            compute_pass.set_bind_group(1, indirect_metadata_bind_group, &[]);
+            compute_pass.set_bind_group(2, indirect_spawner_bind_group, &[]);
             compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
             trace!(
                 "indirect dispatch compute dispatched: total_effect_count={} workgroup_count={}",
