@@ -1,5 +1,7 @@
 #[cfg(feature = "serde")]
 use bevy::asset::{io::Reader, AssetLoader, LoadContext};
+#[cfg(feature = "serde")]
+use bevy::reflect::TypePath;
 use bevy::{
     asset::{Asset, Assets, Handle},
     log::trace,
@@ -645,7 +647,7 @@ impl EffectAsset {
 ///
 /// Effet assets take the `.effect` extension.
 #[cfg(feature = "serde")]
-#[derive(Default)]
+#[derive(Default, TypePath)]
 pub struct EffectAssetLoader;
 
 /// Error for the [`EffectAssetLoader`] loading an [`EffectAsset`].

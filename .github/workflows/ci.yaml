@@ -136,7 +136,7 @@ jobs:
           key: ${{ runner.os }}-cargo-build-msrv-stable-${{ hashFiles('**/Cargo.toml') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.88
+          toolchain: 1.89
           components: rustfmt, clippy
       - name: Check
         run: cargo check --lib --all-features
@@ -250,7 +250,7 @@ jobs:
       #   if: runner.os == 'linux'
       - name: Install cargo-tarpaulin
         run: |
-          RUST_BACKTRACE=1 cargo install --version 0.31.2 cargo-tarpaulin
+          RUST_BACKTRACE=1 cargo install --version 0.32.8 cargo-tarpaulin
       - name: Generate code coverage
         run: |
           RUST_BACKTRACE=1 cargo tarpaulin --engine llvm --verbose --timeout 120 --out Lcov --workspace --all-features

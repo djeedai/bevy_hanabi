@@ -1085,12 +1085,15 @@ mod gpu_tests {
     ///
     /// This call blocks until the data is available on CPU. Used for testing
     /// only.
-    fn read_back_gpu<'a>(device: &RenderDevice, slice: BufferSlice<'a>) -> BufferView<'a> {
+    fn read_back_gpu(device: &RenderDevice, slice: BufferSlice<'_>) -> BufferView {
         let (tx, rx) = futures::channel::oneshot::channel();
         slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
-        let _ = device.poll(wgpu::PollType::Wait);
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
         let result = futures::executor::block_on(rx);
         assert!(result.is_ok());
         slice.get_mapped_range()
@@ -1115,7 +1118,10 @@ mod gpu_tests {
         });
 
         // Poll device, checking for completion and raising callback
-        let _ = device.poll(wgpu::PollType::Wait);
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
 
         // Wait for callback to be raised. This was need in previous versions, however
         // it's a bit unclear if it's still needed or if device.poll() is enough to

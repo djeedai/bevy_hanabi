@@ -195,11 +195,11 @@ fn spawn_demo_ui(mut cmd: Commands, demo: Res<Demo>) {
             min_width: width,
             width,
             border: UiRect::all(Val::Px(1.)),
+            border_radius: BorderRadius::all(Val::Px(8.)),
             ..default()
         },
         BackgroundColor(Color::linear_rgba(0., 0., 0., 0.8)),
         BorderColor::all(Color::linear_rgb(0.8, 0.8, 0.8)),
-        BorderRadius::all(Val::Px(8.)),
         ZIndex(3000),
         children![
             (

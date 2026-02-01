@@ -2052,12 +2052,12 @@ else { return c1; }
             .world_mut()
             .get_resource_or_insert_with::<AssetSourceBuilders>(Default::default);
         let dir = Dir::default();
-        let dummy_builder = AssetSourceBuilder::default()
-            .with_reader(move || Box::new(MemoryAssetReader { root: dir.clone() }));
+        let dummy_builder =
+            AssetSourceBuilder::new(move || Box::new(MemoryAssetReader { root: dir.clone() }));
         builders.insert(AssetSourceId::Default, dummy_builder);
         let sources = builders.build_sources(watch_for_changes, false);
         let asset_server = AssetServer::new(
-            sources,
+            sources.into(),
             AssetServerMode::Unprocessed,
             watch_for_changes,
             UnapprovedPathMode::Forbid,
