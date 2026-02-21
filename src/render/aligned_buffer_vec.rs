@@ -143,11 +143,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
         // we wouldn't be calling the xxx_bindings() helpers, we'd have earlied out
         // before.
         let buffer = self.buffer()?;
-        Some(BindingResource::Buffer(BufferBinding {
-            buffer,
-            offset: 0,
-            size: None, // entire buffer
-        }))
+        Some(buffer.as_entire_binding())
     }
 
     /// Get a binding for a subset of the elements of the buffer.
@@ -201,6 +197,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     ///
     /// [`aligned_size()`]: crate::AlignedBufferVec::aligned_size
     #[inline]
+    #[must_use]
     pub fn dynamic_offset(&self, index: usize) -> u32 {
         let offset = self.aligned_size * index;
         assert!(offset <= u32::MAX as usize);
@@ -208,6 +205,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     }
 
     #[inline]
+    #[must_use]
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()

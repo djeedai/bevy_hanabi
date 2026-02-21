@@ -41,7 +41,13 @@ use bevy::{
             Draw, DrawError, DrawFunctions, PhaseItemExtraIndex, SortedPhaseItem,
             TrackedRenderPass, ViewSortedRenderPhases,
         },
-        render_resource::*,
+        render_resource::{
+            binding_types::{
+                storage_buffer, storage_buffer_read_only, storage_buffer_read_only_sized,
+                storage_buffer_sized, uniform_buffer,
+            },
+            *,
+        },
         renderer::{RenderContext, RenderDevice, RenderQueue},
         sync_world::{MainEntity, RenderEntity, TemporaryRenderEntity},
         texture::GpuImage,
@@ -100,9 +106,18 @@ pub(crate) use sort::SortBindGroups;
 
 use self::batch::EffectBatch;
 
-// Size of an indirect index (including both parts of the ping-pong buffer) in
-// bytes.
-const INDIRECT_INDEX_SIZE: u32 = 12;
+/// GPU representation of a single entry in the indirect index buffer of
+/// particles.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable, ShaderType)]
+struct GpuIndirectIndex {
+    /// Ping-pong indirection index for particles (ping).
+    pub ping: u32,
+    /// Ping-pong indirection index for particles (pong).
+    pub pong: u32,
+    /// Indirection index for dead particles, for recycling.
+    pub dead: u32,
+}
 
 /// Helper to calculate a hash of a given hashable value.
 fn calc_hash<H: Hash>(value: &H) -> u64 {
@@ -709,17 +724,11 @@ impl FromWorld for DispatchIndirectPipeline {
         // @group(0) @binding(0) var<uniform> sim_params : SimParams;
         trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_bind_group_layout = BindGroupLayoutDescriptor::new(
-            "hanabi:bind_group_layout:dispatch_indirect:sim_params",
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(GpuSimParams::min_size()),
-                },
-                count: None,
-            }],
+            "hanabi:bgl:dispatch_indirect:sim_params",
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                uniform_buffer::<GpuSimParams>(false),
+            ),
         );
 
         trace!(
@@ -728,79 +737,41 @@ impl FromWorld for DispatchIndirectPipeline {
             effect_metadata_size,
         );
         let effect_metadata_bind_group_layout = BindGroupLayoutDescriptor::new(
-            "hanabi:bind_group_layout:dispatch_indirect:effect_metadata@1",
-            &[
-                // @group(0) @binding(0) var<storage, read_write> effect_metadata_buffer :
-                // array<u32>;
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(effect_metadata_size),
-                    },
-                    count: None,
-                },
-                // @group(0) @binding(1) var<storage, read_write> dispatch_indirect_buffer :
-                // array<u32>;
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(
-                            NonZeroU64::new(INDIRECT_INDEX_SIZE as u64).unwrap(),
-                        ),
-                    },
-                    count: None,
-                },
-                // @group(0) @binding(2) var<storage, read_write> draw_indirect_buffer :
-                // array<u32>;
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(GpuDrawIndexedIndirectArgs::SHADER_SIZE),
-                    },
-                    count: None,
-                },
-            ],
+            "hanabi:bgl:dispatch_indirect:effect_metadata@1",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    // @group(1) @binding(0) var<storage, read_write> effect_metadata_buffer :
+                    // array<u32>;
+                    storage_buffer_sized(false, Some(effect_metadata_size)),
+                    // @group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer :
+                    // array<u32>;
+                    storage_buffer::<GpuIndirectIndex>(false),
+                    // @group(1) @binding(2) var<storage, read_write> draw_indirect_buffer :
+                    // array<u32>;
+                    storage_buffer::<GpuDrawIndexedIndirectArgs>(false),
+                ),
+            ),
         );
 
         // @group(2) @binding(0) var<storage, read_write> spawner_buffer :
         // array<Spawner>;
         let spawner_bind_group_layout = BindGroupLayoutDescriptor::new(
-            "hanabi:bind_group_layout:dispatch_indirect:spawner@2",
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(spawner_min_binding_size),
-                },
-                count: None,
-            }],
+            "hanabi:bgl:dispatch_indirect:spawner@2",
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                storage_buffer_sized(false, Some(spawner_min_binding_size)),
+            ),
         );
 
         // @group(3) @binding(0) var<storage, read_write> child_info_buffer :
         // ChildInfoBuffer;
         let child_infos_bind_group_layout = BindGroupLayoutDescriptor::new(
-            "hanabi:bind_group_layout:dispatch_indirect:child_infos",
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(GpuChildInfo::min_size()),
-                },
-                count: None,
-            }],
+            "hanabi:bgl:dispatch_indirect:child_infos",
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                storage_buffer::<GpuChildInfo>(false),
+            ),
         );
 
         Self {
@@ -1104,7 +1075,7 @@ impl GpuBufferOperations {
                 self.bind_groups.entry(key).or_insert_with(|| {
                     let src_id: NonZeroU32 = qop.src_buffer.id().into();
                     let dst_id: NonZeroU32 = qop.dst_buffer.id().into();
-                    let label = format!("hanabi:bind_group:util_{}_{}", src_id.get(), dst_id.get());
+                    let label = format!("hanabi:bg:util_{}_{}", src_id.get(), dst_id.get());
                     let use_dynamic_offset = matches!(qop.op, GpuBufferOperationType::FillDispatchArgs);
                     let bind_group_layout =
                         utils_pipeline.bind_group_layout(qop.op, use_dynamic_offset);
@@ -1256,39 +1227,15 @@ impl FromWorld for UtilsPipeline {
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
         let bind_group_layout = render_device.create_bind_group_layout(
-            "hanabi:bind_group_layout:utils",
-            &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(GpuBufferOperationArgs::min_size()),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(4),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(4),
-                    },
-                    count: None,
-                },
-            ],
+            "hanabi:bgl:utils",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    uniform_buffer::<GpuBufferOperationArgs>(false),
+                    storage_buffer_read_only::<u32>(false),
+                    storage_buffer::<u32>(false),
+                ),
+            ),
         );
 
         let pipeline_layout = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -1298,39 +1245,15 @@ impl FromWorld for UtilsPipeline {
         });
 
         let bind_group_layout_dyn = render_device.create_bind_group_layout(
-            "hanabi:bind_group_layout:utils_dyn",
-            &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(GpuBufferOperationArgs::min_size()),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: true,
-                        min_binding_size: NonZeroU64::new(4),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: true,
-                        min_binding_size: NonZeroU64::new(4),
-                    },
-                    count: None,
-                },
-            ],
+            "hanabi:bgl:utils_dyn",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    uniform_buffer::<GpuBufferOperationArgs>(true),
+                    storage_buffer_read_only::<u32>(true),
+                    storage_buffer::<u32>(true),
+                ),
+            ),
         );
 
         let pipeline_layout_dyn = render_device.create_pipeline_layout(&PipelineLayoutDescriptor {
@@ -1352,6 +1275,7 @@ impl FromWorld for UtilsPipeline {
                     },
                     count: None,
                 },
+                // (no binding #1)
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStages::COMPUTE,
@@ -1503,18 +1427,12 @@ pub(crate) struct ParticlesInitPipeline {
 impl Default for ParticlesInitPipeline {
     fn default() -> Self {
         let sim_params_layout_desc = BindGroupLayoutDescriptor::new(
-            "hanabi:bind_group_layout:vfx_init:sim_params@0",
+            "hanabi:bgl:vfx_init:sim_params@0",
             // @group(0) @binding(0) var<uniform> sim_params: SimParams;
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(GpuSimParams::min_size()),
-                },
-                count: None,
-            }],
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                uniform_buffer::<GpuSimParams>(false),
+            ),
         );
 
         Self {
@@ -1621,34 +1539,18 @@ pub(crate) struct ParticlesUpdatePipeline {
 
 impl Default for ParticlesUpdatePipeline {
     fn default() -> Self {
-        trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
         let sim_params_layout_desc = BindGroupLayoutDescriptor::new(
-            "hanabi:bind_group_layout:vfx_update:sim_params@0",
-            &[
-                // @group(0) @binding(0) var<uniform> sim_params : SimParams;
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(GpuSimParams::min_size()),
-                    },
-                    count: None,
-                },
-                // @group(0) @binding(1) var<storage, read_write> draw_indirect_buffer :
-                // array<DrawIndexedIndirectArgs>;
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(GpuDrawIndexedIndirectArgs::SHADER_SIZE),
-                    },
-                    count: None,
-                },
-            ],
+            "hanabi:bgl:vfx_update:sim_params@0",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE,
+                (
+                    // @group(0) @binding(0) var<uniform> sim_params : SimParams;
+                    uniform_buffer::<GpuSimParams>(false),
+                    // @group(0) @binding(1) var<storage, read_write> draw_indirect_buffer :
+                    // array<DrawIndexedIndirectArgs>;
+                    storage_buffer::<GpuDrawIndexedIndirectArgs>(false),
+                ),
+            ),
         );
 
         Self {
@@ -1802,31 +1704,16 @@ impl FromWorld for ParticlesRenderPipeline {
         let render_device = world.get_resource::<RenderDevice>().unwrap();
 
         let view_layout_desc = BindGroupLayoutDescriptor::new(
-            "hanabi:bind_group_layout:render:view@0",
-            &[
-                // @group(0) @binding(0) var<uniform> view: View;
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::VERTEX_FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(ViewUniform::min_size()),
-                    },
-                    count: None,
-                },
-                // @group(0) @binding(1) var<uniform> sim_params : SimParams;
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::VERTEX_FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(GpuSimParams::min_size()),
-                    },
-                    count: None,
-                },
-            ],
+            "hanabi:bgl:render:view@0",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::VERTEX_FRAGMENT,
+                (
+                    // @group(0) @binding(0) var<uniform> view: View;
+                    uniform_buffer::<ViewUniform>(true),
+                    // @group(0) @binding(1) var<uniform> sim_params : SimParams;
+                    uniform_buffer::<GpuSimParams>(false),
+                ),
+            ),
         );
 
         Self {
@@ -1937,44 +1824,23 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             .limits()
             .min_storage_buffer_offset_alignment;
         let spawner_min_binding_size = GpuSpawnerParams::aligned_size(alignment);
-        let entries = [
-            // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
-            BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::VERTEX_FRAGMENT,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(key.particle_layout.min_binding_size()),
-                },
-                count: None,
-            },
-            // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
-            BindGroupLayoutEntry {
-                binding: 1,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(NonZeroU64::new(INDIRECT_INDEX_SIZE as u64).unwrap()),
-                },
-                count: None,
-            },
-            // @group(1) @binding(2) var<storage, read> spawner : Spawner;
-            BindGroupLayoutEntry {
-                binding: 2,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(spawner_min_binding_size),
-                },
-                count: None,
-            },
-        ];
         let particle_bind_group_layout_desc = BindGroupLayoutDescriptor::new(
-            "hanabi:bind_group_layout:render:particle@1",
-            &entries[..],
+            "hanabi:bgl:render:particle@1",
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::VERTEX,
+                (
+                    // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
+                    storage_buffer_read_only_sized(
+                        false,
+                        Some(key.particle_layout.min_binding_size()),
+                    )
+                    .visibility(ShaderStages::VERTEX_FRAGMENT),
+                    // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
+                    storage_buffer_read_only::<GpuIndirectIndex>(false),
+                    // @group(1) @binding(2) var<storage, read> spawner : Spawner;
+                    storage_buffer_read_only_sized(true, Some(spawner_min_binding_size)),
+                ),
+            ),
         );
 
         let mut layout = vec![
@@ -4903,11 +4769,8 @@ impl EffectBindGroups {
                 );
             }
 
-            let bind_group = render_device.create_bind_group(
-                "hanabi:bind_group:init:metadata@3",
-                layout,
-                &entries[..],
-            );
+            let bind_group =
+                render_device.create_bind_group("hanabi:bg:init:metadata@3", layout, &entries[..]);
 
             trace!(
                     "Created new metadata@3 bind group for init pass and buffer index {}: effect_metadata=#{}",
@@ -5020,7 +4883,7 @@ impl EffectBindGroups {
             }
 
             let bind_group = render_device.create_bind_group(
-                "hanabi:bind_group:update:metadata@3",
+                "hanabi:bg:update:metadata@3",
                 layout,
                 &entries[..],
             );
@@ -5755,18 +5618,12 @@ pub(crate) fn prepare_gpu_resources(
     // Create the bind group for the camera/view parameters
     // FIXME - Not here!
     effects_meta.view_bind_group = Some(render_device.create_bind_group(
-        "hanabi:bind_group_camera_view",
+        "hanabi:bg:camera_view",
         &pipeline_cache.get_bind_group_layout(&render_pipeline.view_layout_desc),
-        &[
-            BindGroupEntry {
-                binding: 0,
-                resource: view_binding,
-            },
-            BindGroupEntry {
-                binding: 1,
-                resource: effects_meta.sim_params_uniforms.binding().unwrap(),
-            },
-        ],
+        &BindGroupEntries::sequential((
+            view_binding,
+            effects_meta.sim_params_uniforms.binding().unwrap(),
+        )),
     ));
 
     // Re-/allocate the draw indirect args buffer if needed
@@ -6058,21 +5915,15 @@ pub(crate) fn prepare_bind_groups(
         if effects_meta.update_sim_params_bind_group.is_none() {
             if let Some(draw_indirect_buffer) = effects_meta.draw_indirect_buffer.buffer() {
                 effects_meta.update_sim_params_bind_group = Some(render_device.create_bind_group(
-                    "hanabi:bind_group:vfx_update:sim_params@0",
+                    "hanabi:bg:vfx_update:sim_params@0",
                     &pipeline_cache.get_bind_group_layout(&update_pipeline.sim_params_layout_desc),
-                    &[
+                    &BindGroupEntries::sequential((
                         // @group(0) @binding(0) var<uniform> sim_params : SimParams;
-                        BindGroupEntry {
-                            binding: 0,
-                            resource: effects_meta.sim_params_uniforms.binding().unwrap(),
-                        },
+                        effects_meta.sim_params_uniforms.binding().unwrap(),
                         // @group(0) @binding(1) var<storage, read_write> draw_indirect_buffer :
                         // array<DrawIndexedIndirectArgs>;
-                        BindGroupEntry {
-                            binding: 1,
-                            resource: draw_indirect_buffer.as_entire_binding(),
-                        },
-                    ],
+                        draw_indirect_buffer.as_entire_binding(),
+                    )),
                 ));
             } else {
                 debug!("Cannot allocate bind group for vfx_update:sim_params@0 - draw_indirect_buffer not ready");
@@ -6080,15 +5931,10 @@ pub(crate) fn prepare_bind_groups(
         }
         if effects_meta.indirect_sim_params_bind_group.is_none() {
             effects_meta.indirect_sim_params_bind_group = Some(render_device.create_bind_group(
-                "hanabi:bind_group:vfx_indirect:sim_params@0",
+                "hanabi:bg:vfx_indirect:sim_params@0",
                 &pipeline_cache.get_bind_group_layout(&init_pipeline.sim_params_layout_desc), // FIXME - Shared with init
-                &[
-                    // @group(0) @binding(0) var<uniform> sim_params : SimParams;
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: effects_meta.sim_params_uniforms.binding().unwrap(),
-                    },
-                ],
+                // @group(0) @binding(0) var<uniform> sim_params : SimParams;
+                &BindGroupEntries::single(effects_meta.sim_params_uniforms.binding().unwrap()),
             ));
         }
 
@@ -6106,30 +5952,21 @@ pub(crate) fn prepare_bind_groups(
             ) => {
                 // Base bind group for indirect pass
                 Some(render_device.create_bind_group(
-                    "hanabi:bind_group:vfx_indirect:metadata@1",
+                    "hanabi:bg:vfx_indirect:metadata@1",
                     &pipeline_cache.get_bind_group_layout(
                         &dispatch_indirect_pipeline.effect_metadata_bind_group_layout_desc,
                     ),
-                    &[
+                    &BindGroupEntries::sequential((
                         // @group(1) @binding(0) var<storage, read_write> effect_metadata_buffer :
                         // array<u32>;
-                        BindGroupEntry {
-                            binding: 0,
-                            resource: effect_metadata_buffer.as_entire_binding(),
-                        },
+                        effect_metadata_buffer.as_entire_binding(),
                         // @group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer
                         // : array<DispatchIndirectArgs>;
-                        BindGroupEntry {
-                            binding: 1,
-                            resource: dispatch_indirect_buffer.as_entire_binding(),
-                        },
+                        dispatch_indirect_buffer.as_entire_binding(),
                         // @group(1) @binding(2) var<storage, read_write> draw_indirect_buffer :
                         // array<u32>;
-                        BindGroupEntry {
-                            binding: 2,
-                            resource: draw_indirect_buffer.as_entire_binding(),
-                        },
-                    ],
+                        draw_indirect_buffer.as_entire_binding(),
+                    )),
                 ))
             }
 
@@ -6141,21 +5978,14 @@ pub(crate) fn prepare_bind_groups(
         // effects at once
         if effects_meta.indirect_spawner_bind_group.is_none() {
             let bind_group = render_device.create_bind_group(
-                "hanabi:bind_group:vfx_indirect:spawner@2",
+                "hanabi:bg:vfx_indirect:spawner@2",
                 &pipeline_cache.get_bind_group_layout(
                     &dispatch_indirect_pipeline.spawner_bind_group_layout_desc,
                 ),
-                &[
+                &BindGroupEntries::single(
                     // @group(2) @binding(0) var<storage, read> spawner_buffer : array<Spawner>;
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: BindingResource::Buffer(BufferBinding {
-                            buffer: &spawner_buffer,
-                            offset: 0,
-                            size: None,
-                        }),
-                    },
-                ],
+                    spawner_buffer.as_entire_binding(),
+                ),
             );
 
             effects_meta.indirect_spawner_bind_group = Some(bind_group);
@@ -6189,31 +6019,23 @@ pub(crate) fn prepare_bind_groups(
                 let spawner_min_binding_size = GpuSpawnerParams::aligned_size(
                     render_device.limits().min_storage_buffer_offset_alignment,
                 );
-                let entries = [
-                    // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
-                    BindGroupEntry {
-                        binding: 0,
-                        resource: particle_slab.as_entire_binding_particle(),
-                    },
-                    // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
-                    BindGroupEntry {
-                        binding: 1,
-                        resource: particle_slab.as_entire_binding_indirect(),
-                    },
-                    // @group(1) @binding(2) var<storage, read> spawner : Spawner;
-                    BindGroupEntry {
-                        binding: 2,
-                        resource: BindingResource::Buffer(BufferBinding {
+                let render = render_device.create_bind_group(
+                    &format!("hanabi:bg:render:particles@1:vfx{slab_index}")[..],
+                    particle_slab.render_particles_buffer_layout(),
+                    &BindGroupEntries::sequential((
+                        // @group(1) @binding(0) var<storage, read> particle_buffer :
+                        // ParticleBuffer;
+                        particle_slab.as_entire_binding_particle(),
+                        // @group(1) @binding(1) var<storage, read> indirect_buffer :
+                        // IndirectBuffer;
+                        particle_slab.as_entire_binding_indirect(),
+                        // @group(1) @binding(2) var<storage, read> spawner : Spawner;
+                        BindingResource::Buffer(BufferBinding {
                             buffer: &spawner_buffer,
                             offset: 0,
                             size: Some(spawner_min_binding_size),
                         }),
-                    },
-                ];
-                let render = render_device.create_bind_group(
-                    &format!("hanabi:bind_group:render:particles@1:vfx{slab_index}")[..],
-                    particle_slab.render_particles_buffer_layout(),
-                    &entries[..],
+                    )),
                 );
 
                 BufferBindGroups { render }

@@ -10,7 +10,10 @@ use bevy::{
     log::{error, trace},
     prelude::{Component, Entity, ResMut, Resource},
     render::{
-        render_resource::{BindGroup, BindGroupLayout, Buffer, ShaderSize as _, ShaderType},
+        render_resource::{
+            binding_types::storage_buffer, BindGroup, BindGroupEntries, BindGroupLayout,
+            BindGroupLayoutEntries, Buffer, ShaderSize as _, ShaderType,
+        },
         renderer::{RenderDevice, RenderQueue},
     },
 };
@@ -20,10 +23,7 @@ use thiserror::Error;
 use wgpu::util::BufferInitDescriptor;
 #[cfg(not(debug_assertions))]
 use wgpu::BufferDescriptor;
-use wgpu::{
-    BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BufferBinding,
-    BufferBindingType, BufferUsages, CommandEncoder, ShaderStages,
-};
+use wgpu::{BufferUsages, CommandEncoder, ShaderStages};
 
 use super::{
     aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::SlabState, gpu_buffer::GpuBuffer,
@@ -345,17 +345,11 @@ impl EventCache {
         );
 
         let child_infos_bind_group_layout = device.create_bind_group_layout(
-            "hanabi:bind_group_layout:indirect:child_infos@3",
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(GpuChildInfo::min_size()),
-                },
-                count: None,
-            }],
+            "hanabi:bgl:indirect:child_infos@3",
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                storage_buffer::<GpuChildInfo>(false),
+            ),
         );
 
         Self {
@@ -641,16 +635,9 @@ impl EventCache {
         let buffer = self.child_infos_buffer()?;
         // TODO - stop re-creating each frame...
         self.indirect_child_info_buffer_bind_group = Some(device.create_bind_group(
-            "hanabi:bind_group:indirect:child_infos@3",
+            "hanabi:bg:indirect:child_infos@3",
             &self.indirect_child_info_buffer_bind_group_layout,
-            &[BindGroupEntry {
-                binding: 0,
-                resource: BindingResource::Buffer(BufferBinding {
-                    buffer,
-                    offset: 0,
-                    size: None,
-                }),
-            }],
+            &BindGroupEntries::single(buffer.as_entire_binding()),
         ));
         self.indirect_child_info_buffer_bind_group.as_ref()
     }

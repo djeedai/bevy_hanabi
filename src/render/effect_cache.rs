@@ -9,7 +9,14 @@ use bevy::{
     ecs::{component::Component, resource::Resource},
     log::{trace, warn},
     platform::collections::HashMap,
-    render::{mesh::allocator::MeshBufferSlice, render_resource::*, renderer::RenderDevice},
+    render::{
+        mesh::allocator::MeshBufferSlice,
+        render_resource::{
+            binding_types::{storage_buffer_read_only, storage_buffer_read_only_sized},
+            *,
+        },
+        renderer::RenderDevice,
+    },
     utils::default,
 };
 use bytemuck::cast_slice_mut;
@@ -19,7 +26,7 @@ use crate::{
     asset::EffectAsset,
     render::{
         calc_hash, event::GpuChildInfo, GpuDrawIndexedIndirectArgs, GpuDrawIndirectArgs,
-        GpuEffectMetadata, GpuSpawnerParams, StorageType as _, INDIRECT_INDEX_SIZE,
+        GpuEffectMetadata, GpuIndirectIndex, GpuSpawnerParams, StorageType as _,
     },
     ParticleLayout,
 };
@@ -318,52 +325,22 @@ impl ParticleSlab {
         let spawner_params_size = GpuSpawnerParams::aligned_size(
             render_device.limits().min_storage_buffer_offset_alignment,
         );
-        let entries = [
-            // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
-            BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::VERTEX_FRAGMENT,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(particle_layout.min_binding_size()),
-                },
-                count: None,
-            },
-            // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
-            BindGroupLayoutEntry {
-                binding: 1,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: Some(NonZeroU64::new(INDIRECT_INDEX_SIZE as u64).unwrap()),
-                },
-                count: None,
-            },
-            // @group(1) @binding(2) var<storage, read> spawner : Spawner;
-            BindGroupLayoutEntry {
-                binding: 2,
-                visibility: ShaderStages::VERTEX,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(spawner_params_size),
-                },
-                count: None,
-            },
-        ];
-        let label = format!(
-            "hanabi:bind_group_layout:render:particles@1:slab{}",
-            slab_id.0
+        let label = format!("hanabi:bgl:render:particles@1:slab{}", slab_id.0);
+        let render_particles_buffer_layout = render_device.create_bind_group_layout(
+            &label[..],
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::VERTEX,
+                (
+                    // @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
+                    storage_buffer_read_only_sized(false, Some(particle_layout.min_binding_size()))
+                        .visibility(ShaderStages::VERTEX_FRAGMENT),
+                    // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
+                    storage_buffer_read_only::<GpuIndirectIndex>(false),
+                    // @group(1) @binding(2) var<storage, read> spawner : Spawner;
+                    storage_buffer_read_only_sized(true, Some(spawner_params_size)),
+                ),
+            ),
         );
-        trace!(
-            "Creating particles@1 layout '{}' for render pass with {} entries",
-            label,
-            entries.len(),
-        );
-        let render_particles_buffer_layout =
-            render_device.create_bind_group_layout(&label[..], &entries[..]);
 
         Self {
             particle_buffer,
@@ -445,35 +422,20 @@ impl ParticleSlab {
             return;
         }
 
-        let label = format!("hanabi:bind_group:sim:particle@1:vfx{}", slab_id.index());
+        let label = format!("hanabi:bg:sim:particle@1:vfx{}", slab_id.index());
         let entries: &[BindGroupEntry] = if let Some(parent_binding) =
             parent_binding_source.as_ref().map(|bbs| bbs.as_binding())
         {
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: self.as_entire_binding_particle(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: self.as_entire_binding_indirect(),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: parent_binding,
-                },
-            ]
+            &BindGroupEntries::sequential((
+                self.as_entire_binding_particle(),
+                self.as_entire_binding_indirect(),
+                parent_binding,
+            ))
         } else {
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: self.as_entire_binding_particle(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: self.as_entire_binding_indirect(),
-                },
-            ]
+            &BindGroupEntries::sequential((
+                self.as_entire_binding_particle(),
+                self.as_entire_binding_indirect(),
+            ))
         };
 
         trace!(
@@ -1143,7 +1105,7 @@ fn create_particle_sim_bind_group_layout_desc(
         ty: BindingType::Buffer {
             ty: BufferBindingType::Storage { read_only: false },
             has_dynamic_offset: false,
-            min_binding_size: Some(NonZeroU64::new(INDIRECT_INDEX_SIZE as _).unwrap()),
+            min_binding_size: Some(GpuIndirectIndex::SHADER_SIZE),
         },
         count: None,
     });
@@ -1164,7 +1126,7 @@ fn create_particle_sim_bind_group_layout_desc(
     }
 
     let hash = calc_hash(&entries);
-    let label = format!("hanabi:bind_group_layout:sim:particles_{:016X}", hash);
+    let label = format!("hanabi:bgl:sim:particles_{:016X}", hash);
     trace!(
         "Creating particle bind group layout '{}' for init pass with {} entries. (parent_buffer:{})",
         label,
@@ -1227,7 +1189,7 @@ fn create_metadata_init_bind_group_layout_desc(
 
     let hash = calc_hash(&entries);
     let label = format!(
-        "hanabi:bind_group_layout:init:metadata@3_{}{:016X}",
+        "hanabi:bgl:init:metadata@3_{}{:016X}",
         if consume_gpu_spawn_events {
             "events"
         } else {
@@ -1301,7 +1263,7 @@ fn create_metadata_update_bind_group_layout_desc(
     }
 
     let hash = calc_hash(&entries);
-    let label = format!("hanabi:bind_group_layout:update:metadata_{:016X}", hash);
+    let label = format!("hanabi:bgl:update:metadata_{:016X}", hash);
     trace!(
         "Creating particle bind group layout '{}' for init update with {} entries. (num_event_buffers:{})",
         label,

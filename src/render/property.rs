@@ -9,14 +9,14 @@ use bevy::{
     platform::collections::HashMap,
     prelude::{Component, Entity, Query, Res, ResMut, Resource},
     render::{
-        render_resource::{BindGroup, BindGroupLayoutDescriptor, Buffer, PipelineCache},
+        render_resource::{
+            binding_types::storage_buffer_read_only_sized, BindGroup, BindGroupEntries,
+            BindGroupLayoutDescriptor, BindGroupLayoutEntries, Buffer, PipelineCache,
+        },
         renderer::{RenderDevice, RenderQueue},
     },
 };
-use wgpu::{
-    BindGroupEntry, BindGroupLayoutEntry, BindingResource, BindingType, BufferBinding,
-    BufferBindingType, BufferUsages, ShaderStages,
-};
+use wgpu::{BufferBinding, BufferUsages, ShaderStages};
 
 use super::{aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::SlabState};
 use crate::{
@@ -157,18 +157,12 @@ impl PropertyCache {
         let spawner_min_binding_size =
             GpuSpawnerParams::aligned_size(device.limits().min_storage_buffer_offset_alignment);
         let bgl = BindGroupLayoutDescriptor::new(
-            "hanabi:bind_group_layout:no_property",
-            // @group(2) @binding(0) var<storage, read> spawner: Spawner;
-            &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: ShaderStages::COMPUTE,
-                ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(spawner_min_binding_size),
-                },
-                count: None,
-            }],
+            "hanabi:bgl:no_property",
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                // @group(2) @binding(0) var<storage, read> spawner: Spawner;
+                storage_buffer_read_only_sized(true, Some(spawner_min_binding_size)),
+            ),
         );
         trace!(
             "-> created bind group layout desc for no-property variant: {:?}",
@@ -217,7 +211,7 @@ impl PropertyCache {
             .entry(properties_min_binding_size.get() as u32)
             .or_insert_with(|| {
                 let label = format!(
-                    "hanabi:bind_group_layout:property_size{}",
+                    "hanabi:bgl:property_size{}",
                     properties_min_binding_size.get()
                 );
                 trace!(
@@ -227,30 +221,15 @@ impl PropertyCache {
                 );
                 let bgl = BindGroupLayoutDescriptor::new(
                     label,
-                    &[
-                        // @group(2) @binding(0) var<storage, read> spawner: Spawner;
-                        BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: ShaderStages::COMPUTE,
-                            ty: BindingType::Buffer {
-                                ty: BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: true,
-                                min_binding_size: Some(spawner_min_binding_size),
-                            },
-                            count: None,
-                        },
-                        // @group(2) @binding(1) var<storage, read> properties : Properties;
-                        BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: ShaderStages::COMPUTE,
-                            ty: BindingType::Buffer {
-                                ty: BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: true,
-                                min_binding_size: Some(properties_min_binding_size),
-                            },
-                            count: None,
-                        },
-                    ],
+                    &BindGroupLayoutEntries::sequential(
+                        ShaderStages::COMPUTE,
+                        (
+                            // @group(2) @binding(0) var<storage, read> spawner: Spawner;
+                            storage_buffer_read_only_sized(true, Some(spawner_min_binding_size)),
+                            // @group(2) @binding(1) var<storage, read> properties : Properties;
+                            storage_buffer_read_only_sized(true, Some(properties_min_binding_size)),
+                        ),
+                    ),
                 );
                 trace!(
                     "-> created bind group layout desc for size {}: {:?}",
@@ -405,29 +384,23 @@ impl PropertyBindGroups {
                 render_device.create_bind_group(
                     Some(
                         &format!(
-                            "hanabi:bind_group:spawner@2:property{}_size{}",
+                            "hanabi:bg:spawner@2:property{}_size{}",
                             property_key.buffer_index, property_key.binding_size
                         )[..],
                     ),
                     &pipeline_cache.get_bind_group_layout(layout_desc),
-                    &[
-                        BindGroupEntry {
-                            binding: 0,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: spawner_buffer,
-                                offset: 0,
-                                size: Some(spawner_buffer_binding_size),
-                            }),
+                    &BindGroupEntries::sequential((
+                        BufferBinding {
+                            buffer: spawner_buffer,
+                            offset: 0,
+                            size: Some(spawner_buffer_binding_size),
                         },
-                        BindGroupEntry {
-                            binding: 1,
-                            resource: BindingResource::Buffer(BufferBinding {
-                                buffer: property_buffer,
-                                offset: 0,
-                                size: Some(property_binding_size),
-                            }),
+                        BufferBinding {
+                            buffer: property_buffer,
+                            offset: 0,
+                            size: Some(property_binding_size),
                         },
-                    ],
+                    )),
                 )
             });
         Ok(())
@@ -452,16 +425,13 @@ impl PropertyBindGroups {
         if self.no_property_bind_group.is_none() {
             trace!("Creating new spawner@2 bind group for no-property variant");
             self.no_property_bind_group = Some(render_device.create_bind_group(
-                Some("hanabi:bind_group:spawner@2:no-property"),
+                Some("hanabi:bg:spawner@2:no-property"),
                 &pipeline_cache.get_bind_group_layout(layout_desc),
-                &[BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::Buffer(BufferBinding {
-                        buffer: spawner_buffer,
-                        offset: 0,
-                        size: Some(spawner_buffer_binding_size),
-                    }),
-                }],
+                &BindGroupEntries::single(BufferBinding {
+                    buffer: spawner_buffer,
+                    offset: 0,
+                    size: Some(spawner_buffer_binding_size),
+                }),
             ));
         }
 
