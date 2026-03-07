@@ -4497,7 +4497,7 @@ pub(crate) fn batch_effects(
         // Now that the effects are sorted in batching order, we can allocate the
         // GpuSpawnerParams in the GPU buffer, such that they're contiguous for a single
         // batch.
-        let spawner_index = effects_meta.allocate_spawner(input.gpu_spawner_params.clone());
+        let spawner_index = effects_meta.allocate_spawner(input.gpu_spawner_params);
 
         // Spawn one EffectBatch per instance (no batching; TODO). This contains
         // most of the data needed to drive rendering. However this doesn't drive
@@ -5648,9 +5648,9 @@ pub(crate) fn queue_effects(
                 &effect_draw_batches,
                 &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
-                &property_cache,
+                property_cache,
                 &render_meshes,
-                &pipeline_cache,
+                pipeline_cache,
                 |id, entity, draw_batch, _view| Transparent2d {
                     sort_key: FloatOrd(draw_batch.translation.z),
                     entity,
@@ -5691,9 +5691,9 @@ pub(crate) fn queue_effects(
                 &effect_draw_batches,
                 &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
-                &property_cache,
+                property_cache,
                 &render_meshes,
-                &pipeline_cache,
+                pipeline_cache,
                 |id, entity, batch, view| Transparent3d {
                     distance: view.rangefinder3d().distance(&batch.translation),
                     pipeline: id,
@@ -5729,8 +5729,8 @@ pub(crate) fn queue_effects(
                 &effect_draw_batches,
                 &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
-                &property_cache,
-                &pipeline_cache,
+                property_cache,
+                pipeline_cache,
                 &render_meshes,
                 |id, _batch, _view| OpaqueNoLightmap3dBatchSetKey {
                     pipeline: id,
@@ -5771,8 +5771,8 @@ pub(crate) fn queue_effects(
                 &effect_draw_batches,
                 &mut render_pipeline,
                 specialized_render_pipelines.reborrow(),
-                &property_cache,
-                &pipeline_cache,
+                property_cache,
+                pipeline_cache,
                 &render_meshes,
                 |id, _batch, _view| Opaque3dBatchSetKey {
                     pipeline: id,
