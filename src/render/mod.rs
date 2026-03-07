@@ -929,7 +929,8 @@ impl FromWorld for PrefixSumPipeline {
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::COMPUTE,
                 (
-                    // @group(0) @binding(0) var<storage, read_write> batch_infos : array<BatchInfo>;
+                    // @group(0) @binding(0) var<storage, read_write> batch_infos :
+                    // array<BatchInfo>;
                     storage_buffer_sized(
                         false,
                         Some(GpuBatchInfo::aligned_size(
@@ -1757,7 +1758,6 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
 
 #[derive(Resource)]
 pub(crate) struct ParticlesRenderPipeline {
-    render_device: RenderDevice,
     view_layout_desc: BindGroupLayoutDescriptor,
     material_layout_descs: HashMap<TextureLayout, BindGroupLayoutDescriptor>,
 }
@@ -1823,9 +1823,7 @@ impl ParticlesRenderPipeline {
 }
 
 impl FromWorld for ParticlesRenderPipeline {
-    fn from_world(world: &mut World) -> Self {
-        let render_device = world.get_resource::<RenderDevice>().unwrap();
-
+    fn from_world(_world: &mut World) -> Self {
         let view_layout_desc = BindGroupLayoutDescriptor::new(
             "hanabi:bgl:render:view@0",
             &BindGroupLayoutEntries::sequential(
@@ -1840,7 +1838,6 @@ impl FromWorld for ParticlesRenderPipeline {
         );
 
         Self {
-            render_device: render_device.clone(),
             view_layout_desc,
             material_layout_descs: default(),
         }
@@ -1921,11 +1918,7 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
         trace!("Specializing render pipeline for key: {key:?}");
 
         trace!("Creating layout for bind group particle@1 of render pass");
-        let alignment = self
-            .render_device
-            .limits()
-            .min_storage_buffer_offset_alignment;
-        let spawner_min_binding_size = GpuSpawnerParams::aligned_size(alignment);
+        // FIXME - duplicated in ParticleSlab::new()
         let particle_bind_group_layout_desc = BindGroupLayoutDescriptor::new(
             "hanabi:bgl:render:particle@1",
             &BindGroupLayoutEntries::sequential(
@@ -1939,8 +1932,6 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                     .visibility(ShaderStages::VERTEX_FRAGMENT),
                     // @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
                     storage_buffer_read_only::<GpuIndirectIndex>(false),
-                    // @group(1) @binding(2) var<storage, read> spawner : Spawner;
-                    storage_buffer_read_only_sized(true, Some(spawner_min_binding_size)),
                 ),
             ),
         );
@@ -6308,9 +6299,6 @@ pub(crate) fn prepare_bind_groups(
             .or_insert_with(|| {
                 // Bind group particle@1 for render pass
                 trace!("Creating particle@1 bind group for buffer #{slab_index} in render pass");
-                let spawner_min_binding_size = GpuSpawnerParams::aligned_size(
-                    render_device.limits().min_storage_buffer_offset_alignment,
-                );
                 let render = render_device.create_bind_group(
                     &format!("hanabi:bg:render:particles@1:vfx{slab_index}")[..],
                     particle_slab.render_particles_buffer_layout(),
@@ -6321,12 +6309,6 @@ pub(crate) fn prepare_bind_groups(
                         // @group(1) @binding(1) var<storage, read> indirect_buffer :
                         // IndirectBuffer;
                         particle_slab.as_entire_binding_indirect(),
-                        // @group(1) @binding(2) var<storage, read> spawner : Spawner;
-                        BindingResource::Buffer(BufferBinding {
-                            buffer: &spawner_buffer,
-                            offset: 0,
-                            size: Some(spawner_min_binding_size),
-                        }),
                     )),
                 );
 
@@ -6641,16 +6623,12 @@ fn draw<'w>(
     );
 
     // Particles buffer
-    let spawner_base = effect_batch.spawner_base;
-    let spawner_buffer_aligned = effects_meta.spawner_buffer.aligned_size();
-    assert!(spawner_buffer_aligned >= GpuSpawnerParams::min_size().get() as usize);
-    let spawner_offset = spawner_base * spawner_buffer_aligned as u32;
     pass.set_bind_group(
         1,
         effect_bind_groups
             .particle_render(&effect_batch.slab_id)
             .unwrap(),
-        &[spawner_offset],
+        &[],
     );
 
     //
