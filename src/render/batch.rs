@@ -8,13 +8,14 @@ use bevy::{
 use fixedbitset::FixedBitSet;
 
 use super::{
-    effect_cache::{DispatchBufferIndices, EffectSlice},
+    effect_cache::EffectSlice,
     event::{CachedChildInfo, CachedEffectEvents},
     BufferBindingSource, ExtractedEffectMesh, LayoutFlags, PropertyBindGroupKey,
 };
 use crate::{
     render::{
         buffer_table::BufferTableId, effect_cache::SlabId, ExtractedEffect, ExtractedSpawner,
+        GpuSpawnerParams,
     },
     AlphaMode, EffectAsset, ParticleLayout, TextureLayout,
 };
@@ -48,6 +49,8 @@ pub(crate) enum BatchSpawnInfo {
 /// Batch of effects dispatched and rendered together.
 #[derive(Debug, Clone)]
 pub(crate) struct EffectBatch {
+    /// ID of the [`GpuBatchInfo`] in the global shared array for this batch.
+    pub batch_info_id: u32,
     /// Handle of the underlying effect asset describing the effect.
     pub handle: Handle<EffectAsset>,
     /// ID of the particle slab in the [`EffectBuffer`] where all the batched
@@ -77,19 +80,12 @@ pub(crate) struct EffectBatch {
     pub child_event_buffers: Vec<(Entity, BufferBindingSource)>,
     /// Index of the property buffer, if any.
     pub property_key: Option<PropertyBindGroupKey>,
-    /// Offset in bytes into the property buffer where the Property struct is
-    /// located for this effect.
-    // FIXME: This is a per-instance value which prevents batching :(
-    pub property_offset: Option<u32>,
     /// Index of the first [`GpuSpawnerParams`] entry of the effects in the
     /// batch. Subsequent batched effects have their entries following linearly
     /// after that one.
     ///
     /// [`GpuSpawnerParams`]: super::GpuSpawnerParams
     pub spawner_base: u32,
-    /// The indices within the various indirect dispatch buffers.
-    // FIXME - this is per-effect not per-batch
-    pub dispatch_buffer_indices: DispatchBufferIndices,
     /// Indirect draw args.
     pub draw_indirect_buffer_row_index: BufferTableId,
     /// Metadata table row index.
@@ -137,6 +133,14 @@ impl SortedEffectBatches {
         self.dispatch_queue_index = None;
     }
 
+    /// Insert a new batch into the collection.
+    ///
+    /// # Returns
+    ///
+    /// This returns the index of the new batch if the inserted one couldn't be
+    /// merged with a previous batch. Otherwise the input batch was merged with
+    /// an existing one, and therefore share its index; in that case `None` is
+    /// returned.
     pub fn push(&mut self, effect_batch: EffectBatch) -> EffectBatchIndex {
         let index = self.batches.len() as u32;
         self.batches.push(effect_batch);
@@ -354,14 +358,12 @@ impl EffectBatch {
         cached_mesh: &ExtractedEffectMesh,
         cached_effect_events: Option<&CachedEffectEvents>,
         cached_child_info: Option<&CachedChildInfo>,
+        spawner_index: u32,
         input: &mut BatchInput,
-        dispatch_buffer_indices: DispatchBufferIndices,
         draw_indirect_buffer_row_index: BufferTableId,
         metadata_table_id: BufferTableId,
         property_key: Option<PropertyBindGroupKey>,
-        property_offset: Option<u32>,
     ) -> EffectBatch {
-        assert_eq!(property_key.is_some(), property_offset.is_some());
         assert_eq!(
             input.event_buffer_index.is_some(),
             input.init_indirect_dispatch_index.is_some()
@@ -379,6 +381,7 @@ impl EffectBatch {
         };
 
         EffectBatch {
+            batch_info_id: u32::MAX, // allocated later once the batch is completed
             handle: extracted_effect.handle.clone(),
             slab_id: input.effect_slice.slab_id,
             slice: input.effect_slice.slice.clone(),
@@ -392,10 +395,8 @@ impl EffectBatch {
                 .map(|cci| cci.parent_buffer_binding_source.clone()),
             child_event_buffers: input.child_effects.clone(),
             property_key,
-            property_offset,
-            spawner_base: input.spawner_index,
+            spawner_base: spawner_index,
             particle_layout: input.effect_slice.particle_layout.clone(),
-            dispatch_buffer_indices,
             draw_indirect_buffer_row_index,
             metadata_table_id,
             layout_flags: extracted_effect.layout_flags,
@@ -423,10 +424,8 @@ pub(crate) struct BatchInput {
     pub event_buffer_index: Option<u32>,
     /// Child effects, if any.
     pub child_effects: Vec<(Entity, BufferBindingSource)>,
-
-    /// Index of the [`GpuSpawnerParams`] in the
-    /// [`EffectsCache::spawner_buffer`].
-    pub spawner_index: u32,
+    /// [`GpuSpawnerParams`] for this instance.
+    pub gpu_spawner_params: GpuSpawnerParams,
     /// Index of the init indirect dispatch struct, if any.
     // FIXME - Contains a single effect's data; should handle multiple ones.
     pub init_indirect_dispatch_index: Option<u32>,

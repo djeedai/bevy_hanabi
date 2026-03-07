@@ -10,8 +10,9 @@ use bevy::{
     prelude::{Component, Entity, Query, Res, ResMut, Resource},
     render::{
         render_resource::{
-            binding_types::storage_buffer_read_only_sized, BindGroup, BindGroupEntries,
-            BindGroupLayoutDescriptor, BindGroupLayoutEntries, Buffer, PipelineCache,
+            binding_types::{storage_buffer_read_only, storage_buffer_read_only_sized},
+            BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, Buffer,
+            PipelineCache,
         },
         renderer::{RenderDevice, RenderQueue},
     },
@@ -20,7 +21,7 @@ use wgpu::{BufferBinding, BufferUsages, ShaderStages};
 
 use super::{aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::SlabState};
 use crate::{
-    render::{ExtractedProperties, GpuSpawnerParams, StorageType},
+    render::{ExtractedProperties, GpuBatchInfo, GpuSpawnerParams, StorageType},
     PropertyLayout,
 };
 
@@ -154,14 +155,21 @@ pub struct PropertyCache {
 
 impl PropertyCache {
     pub fn new(device: RenderDevice) -> Self {
-        let spawner_min_binding_size =
-            GpuSpawnerParams::aligned_size(device.limits().min_storage_buffer_offset_alignment);
+        let align = device.limits().min_storage_buffer_offset_alignment;
+
+        // Create the default bind group layout when no properties are present
         let bgl = BindGroupLayoutDescriptor::new(
             "hanabi:bgl:no_property",
-            &BindGroupLayoutEntries::single(
-                ShaderStages::COMPUTE,
-                // @group(2) @binding(0) var<storage, read> spawner: Spawner;
-                storage_buffer_read_only_sized(true, Some(spawner_min_binding_size)),
+            &BindGroupLayoutEntries::sequential(
+                ShaderStages::COMPUTE | ShaderStages::VERTEX,
+                (
+                    // @group(2) @binding(0) var<storage, read> spawners : array<Spawner>;
+                    storage_buffer_read_only::<GpuSpawnerParams>(false),
+                    // @group(2) @binding(1) var<storage, read> prefix_sum : array<u32>;
+                    storage_buffer_read_only::<u32>(false),
+                    // @group(2) @binding(2) var<storage, read> batch_info : BatchInfo;
+                    storage_buffer_read_only_sized(true, Some(GpuBatchInfo::aligned_size(align))),
+                ),
             ),
         );
         trace!(
@@ -204,9 +212,7 @@ impl PropertyCache {
         // Ensure there's a bind group layout for the property variant with that binding
         // size
         let properties_min_binding_size = property_layout.min_binding_size();
-        let spawner_min_binding_size = GpuSpawnerParams::aligned_size(
-            self.device.limits().min_storage_buffer_offset_alignment,
-        );
+        let mut bgl = self.bind_group_layout_descs.get(&0).unwrap().clone();
         self.bind_group_layout_descs
             .entry(properties_min_binding_size.get() as u32)
             .or_insert_with(|| {
@@ -219,17 +225,11 @@ impl PropertyCache {
                     label,
                     properties_min_binding_size.get()
                 );
-                let bgl = BindGroupLayoutDescriptor::new(
-                    label,
-                    &BindGroupLayoutEntries::sequential(
-                        ShaderStages::COMPUTE,
-                        (
-                            // @group(2) @binding(0) var<storage, read> spawner: Spawner;
-                            storage_buffer_read_only_sized(true, Some(spawner_min_binding_size)),
-                            // @group(2) @binding(1) var<storage, read> properties : Properties;
-                            storage_buffer_read_only_sized(true, Some(properties_min_binding_size)),
-                        ),
-                    ),
+                // Clone the entry without properties, and append the Properties array binding
+                bgl.label = label.into();
+                bgl.entries.push(
+                    storage_buffer_read_only_sized(false, Some(properties_min_binding_size))
+                        .build(3, ShaderStages::COMPUTE | ShaderStages::VERTEX),
                 );
                 trace!(
                     "-> created bind group layout desc for size {}: {:?}",
@@ -350,7 +350,8 @@ impl PropertyBindGroups {
         property_key: &PropertyBindGroupKey,
         property_cache: &PropertyCache,
         spawner_buffer: &Buffer,
-        spawner_buffer_binding_size: NonZeroU64,
+        prefix_sum_buffer: &Buffer,
+        batch_info_buffer: &Buffer,
         render_device: &RenderDevice,
         pipeline_cache: &PipelineCache,
     ) -> Result<(), ()> {
@@ -373,6 +374,7 @@ impl PropertyBindGroups {
             return Err(());
         };
 
+        let align = render_device.limits().min_storage_buffer_offset_alignment;
         self.property_bind_groups
             .entry(*property_key)
             .or_insert_with(|| {
@@ -390,16 +392,14 @@ impl PropertyBindGroups {
                     ),
                     &pipeline_cache.get_bind_group_layout(layout_desc),
                     &BindGroupEntries::sequential((
+                        spawner_buffer.as_entire_binding(),
+                        prefix_sum_buffer.as_entire_binding(),
                         BufferBinding {
-                            buffer: spawner_buffer,
+                            buffer: batch_info_buffer,
                             offset: 0,
-                            size: Some(spawner_buffer_binding_size),
+                            size: Some(GpuBatchInfo::aligned_size(align)),
                         },
-                        BufferBinding {
-                            buffer: property_buffer,
-                            offset: 0,
-                            size: Some(property_binding_size),
-                        },
+                        property_buffer.as_entire_binding(),
                     )),
                 )
             });
@@ -411,7 +411,8 @@ impl PropertyBindGroups {
         &mut self,
         property_cache: &PropertyCache,
         spawner_buffer: &Buffer,
-        spawner_buffer_binding_size: NonZeroU64,
+        prefix_sum_buffer: &Buffer,
+        batch_info_buffer: &Buffer,
         render_device: &RenderDevice,
         pipeline_cache: &PipelineCache,
     ) -> Result<(), ()> {
@@ -423,15 +424,20 @@ impl PropertyBindGroups {
         };
 
         if self.no_property_bind_group.is_none() {
+            let align = render_device.limits().min_storage_buffer_offset_alignment;
             trace!("Creating new spawner@2 bind group for no-property variant");
             self.no_property_bind_group = Some(render_device.create_bind_group(
                 Some("hanabi:bg:spawner@2:no-property"),
                 &pipeline_cache.get_bind_group_layout(layout_desc),
-                &BindGroupEntries::single(BufferBinding {
-                    buffer: spawner_buffer,
-                    offset: 0,
-                    size: Some(spawner_buffer_binding_size),
-                }),
+                &BindGroupEntries::sequential((
+                    spawner_buffer.as_entire_binding(),
+                    prefix_sum_buffer.as_entire_binding(),
+                    BufferBinding {
+                        buffer: batch_info_buffer,
+                        offset: 0,
+                        size: Some(GpuBatchInfo::aligned_size(align)),
+                    },
+                )),
             ));
         }
 

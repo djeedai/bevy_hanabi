@@ -759,18 +759,6 @@ impl CachedDrawIndirectArgs {
     }
 }
 
-/// The indices in the indirect dispatch buffers for a single effect, as well as
-/// that of the metadata buffer.
-#[derive(Debug, Default, Clone, Copy, Component)]
-pub(crate) struct DispatchBufferIndices {
-    /// The index of the [`GpuDispatchIndirect`] row in the GPU buffer
-    /// [`EffectsMeta::update_dispatch_indirect_buffer`].
-    ///
-    /// [`GpuDispatchIndirect`]: super::GpuDispatchIndirect
-    /// [`EffectsMeta::update_dispatch_indirect_buffer`]: super::EffectsMeta::dispatch_indirect_buffer
-    pub(crate) update_dispatch_indirect_buffer_row_index: u32,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ParticleBindGroupLayoutKey {
     pub min_binding_size: NonZeroU32,

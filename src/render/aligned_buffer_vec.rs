@@ -223,6 +223,19 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
         index
     }
 
+    #[inline]
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn last(&self) -> Option<&T> {
+        self.values.last()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn last_mut(&mut self) -> Option<&mut T> {
+        self.values.last_mut()
+    }
+
     /// Reserve some capacity into the buffer.
     ///
     /// If the buffer is reallocated, the old content (on the GPU) is lost, and

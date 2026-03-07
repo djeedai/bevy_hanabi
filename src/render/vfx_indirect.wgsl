@@ -17,42 +17,55 @@
 @group(1) @binding(2) var<storage, read_write> draw_indirect_buffer : array<u32>;
 
 @group(2) @binding(0) var<storage, read_write> spawner_buffer : array<Spawner>;
+@group(2) @binding(1) var<storage, read_write> prefix_sum : array<u32>;
 
 #ifdef HAS_GPU_SPAWN_EVENTS
 @group(3) @binding(0) var<storage, read_write> child_info_buffer : ChildInfoBuffer;
 #endif
 
-/// Calculate the indirect workgroups counts based on the number of particles alive.
+/// Perform per-instance update between the init and update passes.
+///
+/// This is invoked once per instance, with the global invocation ID indexing the list of spawners,
+/// which is re-uploaded each frame so is guaranteed to be a tightly packed array with exactly the
+/// number of 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    let thread_index = global_invocation_id.x;
-
-#ifdef HAS_GPU_SPAWN_EVENTS
-    // Clear any GPU event. The indexing is safe because there are always less child effects
-    // than there are effects in total, so 'index' will always cover the entire child info array.
-    if (thread_index < arrayLength(&child_info_buffer.rows)) {
-        child_info_buffer.rows[thread_index].event_count = 0;
-    }
-#endif
-
     // Cap at maximum number of effects
-    let effect_index = thread_index;
-    if (effect_index >= sim_params.num_effects) {
+    let global_effect_index = global_invocation_id.x;
+    if (global_effect_index >= sim_params.num_effects) {
         return;
     }
 
-    let effect_metadata_index = spawner_buffer[effect_index].effect_metadata_index;
+#ifdef HAS_GPU_SPAWN_EVENTS
+    // Clear any GPU event. The indexing is inconsistent here (indexing child info buffer with an
+    // effect instance), but is safe because there are always less child effects than there are effects
+    // in total, so the index will always cover the entire child info array. And we're only resetting
+    // a value so don't read anything, so only need to visit each entry once but the order doesn't matter.
+    if (global_effect_index < arrayLength(&child_info_buffer.rows)) {
+        child_info_buffer.rows[global_effect_index].event_count = 0;
+    }
+#endif
+
+    let spawner = &spawner_buffer[global_effect_index];
+
+    let effect_metadata_index = (*spawner).effect_metadata_index;
     let em_base = EFFECT_METADATA_STRIDE * effect_metadata_index;
 
     // Clear the rendering instance count, which will be upgraded by the update pass
     // with the particles actually alive at the end of their update (after aged).
-    let draw_indirect_index = spawner_buffer[effect_index].draw_indirect_index;
+    let draw_indirect_index = (*spawner).draw_indirect_index;
     let dri_base = DRAW_INDEXED_INDIRECT_STRIDE * draw_indirect_index;
     draw_indirect_buffer[dri_base + 1u] = 0u;
 
     let capacity = effect_metadata_buffer[em_base + EM_OFFSET_CAPACITY];
     let alive_count = effect_metadata_buffer[em_base + EM_OFFSET_ALIVE_COUNT];
     let dead_count = capacity - alive_count;
+
+    // Prepare to rebuild the prefix sum of active instances by storing in the prefix sum array
+    // the actual number of alive particles for each instance. We will build the prefix sum in
+    // the next pass (vfx_prefix_sum) once that's done.
+    // The prefix sums and spawners are allocated in sync, so are indexed with the same index value.
+    prefix_sum[global_effect_index] = alive_count;
 
     // Update max_update from current value of alive_count, so that the
     // update pass coming next can cap its threads to this value, while also
@@ -81,5 +94,5 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Copy the new pong into the spawner buffer, which will be used during rendering
     // to determine where to read particle indices.
-    spawner_buffer[effect_index].render_indirect_read_index = pong;
+    (*spawner).render_indirect_read_index = pong;
 }

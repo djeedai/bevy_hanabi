@@ -48,9 +48,6 @@ struct Spawner {
     /// slab (if the effect has a parent effect), in number of particles (row index).
     /// This is ignored if the effect has no parent.
     parent_slab_offset: u32,
-#ifdef SPAWNER_PADDING
-    {{SPAWNER_PADDING}}
-#endif
 }
 
 const SPAWNER_OFFSET_PONG: u32 = 27u;
@@ -142,6 +139,30 @@ struct DrawIndexedIndirectArgs {
 /// Stride in u32 count (4 bytes) of the DrawIndexedIndirectArgs struct.
 const DRAW_INDEXED_INDIRECT_STRIDE: u32 = 5u;
 
+/// Shared info for a single batch (single shader invocation).
+struct BatchInfo {
+    total_spawn_count: u32,
+    total_update_count: u32,
+    base_effect: u32,
+    /// Offset to apply to the workgroup thread index to determine the global
+    /// particle index in the currently bound slab. This is often (and ideally)
+    /// zero, but may be > 0 if the entire slab cannot be processed with a
+    /// single invocation.
+    base_particle: u32,
+    /// Offset into the prefix sum buffer of the sum for the first effect of
+    /// this batch.
+    prefix_sum_offset: u32,
+    /// Number of active effects in the batch, and therefore number of
+    /// consecutive prefix sum values for effects of this batch.
+    prefix_sum_count: u32,
+
+    /// Padding for storage buffer alignment. This struct is sometimes bound as part
+    /// of an array, or sometimes individually as a single unit. In the later case,
+    /// we need it to be aligned to the GPU limits of the device. That limit is only
+    /// known at runtime when initializing the WebGPU device.
+    {{BATCH_INFO_PADDING}}
+}
+
 // Effect metadata offsets. Used when accessing a tightly packed array of EffectMetadata
 // as a raw array<u32>, so that we can avoid WGSL struct padding and keep data more compact
 // in the GPU buffer. Each offset corresponds to a field in the EffectMetadata struct.
@@ -153,7 +174,10 @@ const EM_OFFSET_MAX_SPAWN: u32 = 3u;
 const EM_OFFSET_INDIRECT_WRITE_INDEX: u32 = 4u;
 const EM_OFFSET_INDIRECT_DISPATCH_INDEX: u32 = 5u;
 
-/// Draw indirect parameters for GPU-driven rendering, and additional effect data.
+/// Metadata describing a single effect instance.
+///
+/// The metadata describes various effect settings, as well we the location in
+/// GPU buffers of the piece of data associated with that instance.
 struct EffectMetadata {
     /// Total number of particles for this effect. This is the capacity of the effect,
     /// in number of particles, which is used to sub-allocate various storages for this
@@ -182,9 +206,6 @@ struct EffectMetadata {
     /// are swapped during the indirect dispatch (although the render pass still uses
     /// the complement of this to write, so technically ignores that swap).
     indirect_write_index: u32,
-    /// Index of the [`GpuDispatchIndirect`] struct inside the global
-    /// [`EffectsMeta::dispatch_indirect_buffer`].
-    indirect_dispatch_index: u32,
     /// Index of the [`GpuRenderIndirect`] struct inside the global
     /// [`EffectsMeta::render_group_dispatch_buffer`].
     indirect_render_index: u32,
@@ -192,6 +213,11 @@ struct EffectMetadata {
     /// buffer. This avoids having to align those 16-byte structs to the GPU
     /// alignment (at least 32 bytes, even 256 bytes on some).
     init_indirect_dispatch_index: u32,
+    /// Index inside the global array of the spawner struct for this effect instance.
+    //spawner_index: u32,
+    /// Offset (in u32 count) of the start of the property block for this
+    /// effect. This is ignored if the effect doesn't use properties.
+    properties_offset: u32,
     /// Index of this effect into its parent's ChildInfo array
     /// ([`EffectChildren::effect_cache_ids`] and its associated GPU
     /// array). This starts at zero for the first child of each effect, and is

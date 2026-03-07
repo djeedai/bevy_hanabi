@@ -167,7 +167,7 @@ impl Property {
 
 impl ToWgslString for Property {
     fn to_wgsl_string(&self) -> String {
-        format!("properties.{}", self.name)
+        format!("properties[properties_offset].{}", self.name)
     }
 }
 
@@ -828,7 +828,7 @@ impl PropertyLayout {
     /// This generates code declaring the `Properties` struct in WGSL, or `None`
     /// if the layout is empty. The `Properties` struct contains the values
     /// of all the effect properties, as defined by this layout.
-    pub fn generate_code(&self) -> Option<String> {
+    pub fn generate_property_struct_code(&self) -> Option<String> {
         // debug_assert!(self.layout.is_sorted_by_key(|entry| entry.offset));
         if self.layout.is_empty() {
             return None;
@@ -895,7 +895,10 @@ mod tests {
         assert_eq!(*p.default_value(), value);
         assert_eq!(p.value_type(), value.value_type());
         assert_eq!(p.size(), value.value_type().size());
-        assert_eq!(p.to_wgsl_string(), format!("properties.{}", p.name()));
+        assert_eq!(
+            p.to_wgsl_string(),
+            format!("properties[properties_offset].{}", p.name())
+        );
     }
 
     #[test]
@@ -992,7 +995,7 @@ mod tests {
         assert_eq!(l.cpu_size(), 0);
         assert_eq!(l.align(), 0);
         assert_eq!(l.properties().next(), None);
-        let s = l.generate_code();
+        let s = l.generate_property_struct_code();
         assert!(s.is_none());
     }
 
@@ -1023,7 +1026,7 @@ mod tests {
         // anything left go last
         assert_eq!(it.next(), Some((32, &prop3)));
         assert_eq!(it.next(), None);
-        let s = layout.generate_code();
+        let s = layout.generate_property_struct_code();
         assert_eq!(
             s,
             Some(
@@ -1058,7 +1061,7 @@ mod tests {
         // [padding] @24,+4
         assert_eq!(it.next(), Some((32, &prop3)));
         assert_eq!(it.next(), None);
-        let s = layout.generate_code();
+        let s = layout.generate_property_struct_code();
         assert_eq!(
             s,
             Some(
@@ -1089,7 +1092,7 @@ mod tests {
         assert_eq!(it.next(), Some((16, &prop3)));
         assert_eq!(it.next(), Some((32, &prop1)));
         assert_eq!(it.next(), None);
-        let s = layout.generate_code();
+        let s = layout.generate_property_struct_code();
         assert_eq!(
             s,
             Some(
@@ -1118,7 +1121,7 @@ mod tests {
         assert_eq!(it.next(), Some((0, &prop2)));
         assert_eq!(it.next(), Some((16, &prop1)));
         assert_eq!(it.next(), None);
-        let s = layout.generate_code();
+        let s = layout.generate_property_struct_code();
         assert_eq!(
             s,
             Some(
@@ -1146,7 +1149,7 @@ mod tests {
         assert_eq!(it.next(), Some((0, &prop2)));
         assert_eq!(it.next(), Some((8, &prop1)));
         assert_eq!(it.next(), None);
-        let s = layout.generate_code();
+        let s = layout.generate_property_struct_code();
         assert_eq!(
             s,
             Some(

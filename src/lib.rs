@@ -928,11 +928,13 @@ impl EffectShaderSource {
 
         // Generate the shader code defining the per-effect properties, if any
         let property_layout = asset.property_layout();
-        let properties_code = property_layout.generate_code().unwrap_or_default();
+        let properties_code = property_layout
+            .generate_property_struct_code()
+            .unwrap_or_default();
         let properties_binding_code = if property_layout.is_empty() {
             "// (no properties)".to_string()
         } else {
-            "@group(2) @binding(1) var<storage, read> properties : Properties;".to_string()
+            "@group(2) @binding(3) var<storage, read> properties : array<Properties>;".to_string()
         };
 
         // Event buffer bindings for the update pass, if the effect emits GPU events to
@@ -1176,8 +1178,8 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                 let tex_index = bind_index;
                 let sampler_index = bind_index + 1;
                 material_bindings_code.push_str(&format!(
-                    "@group(2) @binding({tex_index}) var material_texture_{slot}: texture_2d<f32>;
-@group(2) @binding({sampler_index}) var material_sampler_{slot}: sampler;
+                    "@group(3) @binding({tex_index}) var material_texture_{slot}: texture_2d<f32>;
+@group(3) @binding({sampler_index}) var material_sampler_{slot}: sampler;
 "
                 ));
                 bind_index += 2;
@@ -1285,6 +1287,8 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
         let render_shader_source = PARTICLES_RENDER_SHADER_TEMPLATE
             .replace("{{ATTRIBUTES}}", &attributes_code)
             .replace("{{INPUTS}}", &inputs_code)
+            .replace("{{PROPERTIES}}", &properties_code)
+            .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
             .replace("{{MATERIAL_BINDINGS}}", &material_bindings_code)
             .replace("{{VERTEX_MODIFIERS}}", &vertex_code)
             .replace("{{FRAGMENT_MODIFIERS}}", &fragment_code)
