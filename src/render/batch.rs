@@ -1,4 +1,4 @@
-use std::{fmt::Debug, num::NonZeroU32, ops::Range};
+use std::{fmt::Debug, num::NonZeroU32};
 
 use bevy::{
     ecs::entity::EntityHashMap,
@@ -20,12 +20,14 @@ use crate::{
     AlphaMode, EffectAsset, ParticleLayout, TextureLayout,
 };
 
+/// Info about particle spawning for an entire batch of effects.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum BatchSpawnInfo {
     /// Spawn a number of particles uploaded from CPU each frame.
     CpuSpawner {
         /// Total number of particles to spawn for the batch. This is only used
-        /// to calculate the number of compute workgroups to dispatch.
+        /// to calculate the number of compute workgroups to dispatch. This is
+        /// the sum of all spawn counts for all effects in the batch.
         total_spawn_count: u32,
     },
 
@@ -46,21 +48,83 @@ pub(crate) enum BatchSpawnInfo {
     },
 }
 
+impl BatchSpawnInfo {
+    /// Check if this batch uses CPU-based spawning.
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if this instance is a `BatchSpawnInfo::CpuSpawner`.
+    #[inline]
+    #[must_use]
+    pub fn is_cpu(&self) -> bool {
+        matches!(self, Self::CpuSpawner { .. })
+    }
+
+    /// Check if this batch uses GPU-based spawning.
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if this instance is a `BatchSpawnInfo::GpuSpawner`.
+    #[inline]
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn is_gpu(&self) -> bool {
+        matches!(self, Self::GpuSpawner { .. })
+    }
+
+    /// Retrieve the CPU spawn count, if this batch is CPU-based.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(count)` with the total spawn count if this instance is a
+    /// `BatchSpawnInfo::CpuSpawner`. Otherwise returns `None`.
+    #[inline]
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn as_cpu(&self) -> Option<&u32> {
+        if let Self::CpuSpawner { total_spawn_count } = self {
+            Some(total_spawn_count)
+        } else {
+            None
+        }
+    }
+
+    /// Retrieve the CPU spawn count or a default value.
+    ///
+    /// This variant is used as a shortcut to
+    /// `.as_cpu().unwrap_or(<unspecified>)` when filling out GPU buffers,
+    /// where we need a value whatever the case, but will ignore it if GPU
+    /// based.
+    ///
+    /// # Returns
+    ///
+    /// Returns the total spawn count if this instance is a
+    /// `BatchSpawnInfo::CpuSpawner`. Otherwise returns an unspecified value,
+    /// which should be ignored.
+    #[inline]
+    #[must_use]
+    pub fn cpu_spawn_count(&self) -> u32 {
+        if let Self::CpuSpawner { total_spawn_count } = self {
+            *total_spawn_count
+        } else {
+            u32::MAX
+        }
+    }
+}
+
 /// Batch of effects dispatched and rendered together.
 #[derive(Debug, Clone)]
 pub(crate) struct EffectBatch {
     /// ID of the [`GpuBatchInfo`] in the global shared array for this batch.
     pub batch_info_id: u32,
-    /// Handle of the underlying effect asset describing the effect.
+    /// Handle of the underlying effect asset describing the effect. The batch
+    /// only contains effect instances of the same asset.
     pub handle: Handle<EffectAsset>,
     /// ID of the particle slab in the [`EffectBuffer`] where all the batched
     /// effects are stored.
     ///
     /// [`EffectBuffer`]: super::effect_cache::EffectBuffer
     pub slab_id: SlabId,
-    /// Slice of particles in the GPU effect buffer referenced by
-    /// [`EffectBatch::slab_id`].
-    pub slice: Range<u32>,
     /// Spawn info for this batch
     pub spawn_info: BatchSpawnInfo,
     /// Specialized init and update compute pipelines.
@@ -86,8 +150,10 @@ pub(crate) struct EffectBatch {
     ///
     /// [`GpuSpawnerParams`]: super::GpuSpawnerParams
     pub spawner_base: u32,
-    /// Indirect draw args.
-    pub draw_indirect_buffer_row_index: BufferTableId,
+    /// Total number of effect instances batched together in this batch.
+    pub effect_count: u32,
+    /// Indirect draw args for each effect instance.
+    pub draw_indirect_buffer_row_index: Vec<BufferTableId>,
     /// Metadata table row index.
     // FIXME - this is per-effect not per-batch
     pub metadata_table_id: BufferTableId,
@@ -112,6 +178,75 @@ pub(crate) struct EffectBatch {
     pub sort_fill_indirect_dispatch_index: Option<u32>,
 }
 
+impl EffectBatch {
+    /// Try to merge another batch into this one.
+    ///
+    /// Consume the input effect batch and merge it into this one, if possible.
+    /// If the input batch is not compatible with the current batch, do
+    /// nothing and return it back to the caller.
+    ///
+    /// # Returns
+    ///
+    /// Returns `None` if the merge suceeded and the input batch was merged.
+    /// Otherwise return `Some` with the input effect batch which couldn't be
+    /// merged.
+    pub fn try_merge(&mut self, effect_batch: EffectBatch) -> Option<EffectBatch> {
+        // Check basic compatibility, including shared slab storage
+        // - Same effect: we don't attempt to merge different effects, the probability
+        //   that their shaders are compatible for a single dispatch/draw call is nearly
+        //   zero.
+        // - Same slab: we bind a single slab per dispatch/draw call, so can only batch
+        //   effects whose particles are stored in the same slab. We could lift this
+        //   restriction with bindless, but this is a complex change, and bindless only
+        //   works on higher end platforms (desktop, basically).
+        // - Same pipelines: same reasoning as "same effect".
+        // - Same mesh: we bind a single input vertex/index buffer, so again need the
+        //   same particle mesh in input if we want a single dispatch/draw call. We
+        //   could lift this restriction with bindless, but this is a complex change,
+        //   and bindless only works on higher end platforms (desktop, basically).
+        // - Same alpha mode: should be trivial from same pipeline, but different alpha
+        //   modes render in different phases, so can't be merged together.
+        // - Same spawner type: should be trivial from same asset.
+        if self.handle != effect_batch.handle
+            || self.slab_id != effect_batch.slab_id
+            || self.init_and_update_pipeline_ids != effect_batch.init_and_update_pipeline_ids
+            || self.mesh != effect_batch.mesh
+            || self.alpha_mode != effect_batch.alpha_mode
+            || self.spawn_info.is_cpu() != effect_batch.spawn_info.is_cpu()
+        {
+            return Some(effect_batch);
+        }
+
+        // OK, merge!
+        self.entities.extend(effect_batch.entities);
+        self.draw_indirect_buffer_row_index
+            .extend(effect_batch.draw_indirect_buffer_row_index);
+        assert_eq!(
+            self.entities.len(),
+            self.draw_indirect_buffer_row_index.len(),
+        );
+        self.effect_count += effect_batch.effect_count;
+        assert_eq!(self.entities.len(), self.effect_count as usize);
+        assert_eq!(
+            self.spawn_info.is_cpu(),
+            effect_batch.spawn_info.is_cpu(),
+            "Incompatible spawner type"
+        );
+        if let (
+            BatchSpawnInfo::CpuSpawner {
+                total_spawn_count: self_count,
+            },
+            BatchSpawnInfo::CpuSpawner {
+                total_spawn_count: input_count,
+            },
+        ) = (&mut self.spawn_info, &effect_batch.spawn_info)
+        {
+            *self_count += *input_count;
+        }
+        None
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct EffectBatchIndex(pub u32);
 
@@ -122,6 +257,9 @@ pub(crate) struct SortedEffectBatches {
     ///
     /// [`push()`]: Self::push
     batches: Vec<EffectBatch>,
+    /// Index of the sort queue used for copying `alive_count` to the prefix sum
+    /// buffer, and submitted to [`GpuBufferOperations`].
+    pub(super) sort_fill_prefix_sum_queue_index: Option<u32>,
     /// Index of the dispatch queue used for indirect fill dispatch and
     /// submitted to [`GpuBufferOperations`].
     pub(super) dispatch_queue_index: Option<u32>,
@@ -130,6 +268,7 @@ pub(crate) struct SortedEffectBatches {
 impl SortedEffectBatches {
     pub fn clear(&mut self) {
         self.batches.clear();
+        self.sort_fill_prefix_sum_queue_index = None;
         self.dispatch_queue_index = None;
     }
 
@@ -141,10 +280,32 @@ impl SortedEffectBatches {
     /// merged with a previous batch. Otherwise the input batch was merged with
     /// an existing one, and therefore share its index; in that case `None` is
     /// returned.
-    pub fn push(&mut self, effect_batch: EffectBatch) -> EffectBatchIndex {
+    pub fn push(&mut self, effect_batch: EffectBatch) -> Option<EffectBatchIndex> {
+        let effect_batch = if let Some(batch) = self.batches.last_mut() {
+            let Some(effect_batch) = batch.try_merge(effect_batch) else {
+                // Merged, therefore consumed.
+                return None;
+            };
+            effect_batch
+        } else {
+            effect_batch
+        };
+        // New batch
         let index = self.batches.len() as u32;
         self.batches.push(effect_batch);
-        EffectBatchIndex(index)
+        Some(EffectBatchIndex(index))
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn last(&self) -> Option<&EffectBatch> {
+        self.batches.last()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn last_mut(&mut self) -> Option<&mut EffectBatch> {
+        self.batches.last_mut()
     }
 
     #[allow(dead_code)]
@@ -384,7 +545,6 @@ impl EffectBatch {
             batch_info_id: u32::MAX, // allocated later once the batch is completed
             handle: extracted_effect.handle.clone(),
             slab_id: input.effect_slice.slab_id,
-            slice: input.effect_slice.slice.clone(),
             spawn_info,
             init_and_update_pipeline_ids: input.init_and_update_pipeline_ids,
             render_shader: extracted_effect.effect_shaders.render.clone(),
@@ -396,8 +556,9 @@ impl EffectBatch {
             child_event_buffers: input.child_effects.clone(),
             property_key,
             spawner_base: spawner_index,
+            effect_count: 1,
             particle_layout: input.effect_slice.particle_layout.clone(),
-            draw_indirect_buffer_row_index,
+            draw_indirect_buffer_row_index: vec![draw_indirect_buffer_row_index],
             metadata_table_id,
             layout_flags: extracted_effect.layout_flags,
             mesh: cached_mesh.mesh,

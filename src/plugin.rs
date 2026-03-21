@@ -40,11 +40,11 @@ use crate::{
         queue_init_indirect_workgroup_update, report_ready_state, start_stop_gpu_debug_capture,
         update_mesh_locations, DebugSettings, DispatchIndirectPipeline, DrawEffects,
         EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, EventCache, GpuBatchInfo,
-        GpuBufferOperations, GpuEffectMetadata, InitFillDispatchQueue, ParticlesInitPipeline,
-        ParticlesRenderPipeline, ParticlesUpdatePipeline, PrefixSumPipeline, PropertyBindGroups,
-        PropertyCache, RenderDebugSettings, ShaderCache, SimParams, SortBindGroups,
-        SortedEffectBatches, StorageType as _, UtilsPipeline, VfxSimulateDriverNode,
-        VfxSimulateNode,
+        GpuBufferOperations, GpuEffectMetadata, GpuSpawnerParams, InitFillDispatchQueue,
+        ParticlesInitPipeline, ParticlesRenderPipeline, ParticlesUpdatePipeline, PrefixSumPipeline,
+        PropertyBindGroups, PropertyCache, RenderDebugSettings, ShaderCache, SimParams,
+        SortBindGroups, SortedEffectBatches, StorageType as _, UtilsPipeline,
+        VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,
@@ -150,6 +150,8 @@ impl HanabiPlugin {
     /// shader ready for the specific GPU device associated with that
     /// alignment.
     pub(crate) fn make_common_shader(min_storage_buffer_offset_alignment: u32) -> Shader {
+        let spawner_padding_code =
+            GpuSpawnerParams::padding_code(min_storage_buffer_offset_alignment);
         let batch_info_padding_code =
             GpuBatchInfo::padding_code(min_storage_buffer_offset_alignment);
         let effect_metadata_padding_code =
@@ -159,6 +161,7 @@ impl HanabiPlugin {
         let effect_metadata_stride_code =
             (render_effect_indirect_size.get() as u32).to_wgsl_string();
         let common_code = include_str!("render/vfx_common.wgsl")
+            .replace("{{SPAWNER_PADDING}}", &spawner_padding_code)
             .replace("{{BATCH_INFO_PADDING}}", &batch_info_padding_code)
             .replace("{{EFFECT_METADATA_PADDING}}", &effect_metadata_padding_code)
             .replace("{{EFFECT_METADATA_STRIDE}}", &effect_metadata_stride_code);
@@ -522,7 +525,7 @@ impl Plugin for HanabiPlugin {
                         .before(prepare_bind_groups),
                     prepare_effect_metadata
                         .in_set(EffectSystems::PrepareEffectGpuResources)
-                        // Need DispatchBufferIndices to be allocated
+                        //
                         .after(allocate_effects)
                         // Need the draw indirect args to be allocated
                         .after(update_mesh_locations)

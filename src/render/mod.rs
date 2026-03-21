@@ -507,14 +507,17 @@ impl Default for GpuDrawIndexedIndirectArgs {
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Pod, Zeroable, ShaderType)]
 pub struct GpuBatchInfo {
+    /// Total number of CPU particles to spawn. This is the sum of all `spawn`
+    /// counts of all effect instances in this batch which spawn CPU-based
+    /// particles. This is uploaded from CPU each frame.
     pub total_spawn_count: u32,
+    /// Total number of CPU particles to update. This is the sum of all
+    /// `alive_count` of all effect instances in this batch. This is calculated
+    /// on GPU each frame, between the init and update passes.
     pub total_update_count: u32,
+    /// Index of the first effect instance in this batch, into the array of
+    /// spawners.
     pub base_effect: u32,
-    /// Offset to apply to the workgroup thread index to determine the global
-    /// particle index in the currently bound slab. This is often (and ideally)
-    /// zero, but may be > 0 if the entire slab cannot be processed with a
-    /// single batch.
-    pub base_particle: u32,
     /// Offset, in u32 count (4 bytes), into the prefix sum buffer where the
     /// first value for this batch is located.
     pub prefix_sum_offset: u32,
@@ -762,6 +765,9 @@ pub(crate) struct DispatchIndirectPipeline {
 
 impl FromWorld for DispatchIndirectPipeline {
     fn from_world(world: &mut World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        let align = render_device.limits().min_storage_buffer_offset_alignment;
+
         // Copy the indirect pipeline shaders to self, because we can't access anything
         // else during pipeline specialization.
         let (indirect_shader_noevent, indirect_shader_events) = {
@@ -815,7 +821,7 @@ impl FromWorld for DispatchIndirectPipeline {
                 (
                     // @group(2) @binding(0) var<storage, read_write> spawner_buffer :
                     // array<Spawner>;
-                    storage_buffer::<GpuSpawnerParams>(false),
+                    storage_buffer_sized(false, Some(GpuSpawnerParams::aligned_size(align))),
                     // @group(2) @binding(1) var<storage, read_write> prefix_sum : array<u32>;
                     storage_buffer::<u32>(false),
                 ),
@@ -1942,6 +1948,14 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             key.spawner_bind_group_layout_desc.clone(),
         ];
         let mut shader_defs = vec![];
+        if !key.texture_layout.layout.is_empty() {
+            shader_defs.push("HAS_MATERIAL".into());
+            if let Some(material_bind_group_layout) = self.get_material(&key.texture_layout) {
+                layout.push(material_bind_group_layout.clone());
+            } else {
+                panic!("Failed to retrieve material bind group layout, cannot specialize render pipeline.");
+            }
+        }
 
         let vertex_buffer_layout = key.mesh_layout.as_ref().and_then(|mesh_layout| {
             mesh_layout
@@ -1953,10 +1967,6 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
                 ])
                 .ok()
         });
-
-        if let Some(material_bind_group_layout) = self.get_material(&key.texture_layout) {
-            layout.push(material_bind_group_layout.clone());
-        }
 
         // Key: LOCAL_SPACE_SIMULATION
         if key.local_space_simulation {
@@ -2744,7 +2754,10 @@ pub struct EffectsMeta {
     /// for the active effect instances.
     spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
     /// Global shared GPU buffer storing the various indirect dispatch structs
-    /// for the indirect dispatch of the Update pass.
+    /// for the indirect dispatch of the Update pass, stored in batching order
+    /// (same as `batch_info_buffer`). There's no explicit allocation, the
+    /// buffer is filled with one entry per batch each time an indirect dispatch
+    /// is needed (update, and gpu spawn init).
     dispatch_indirect_buffer: GpuBuffer<GpuDispatchIndirectArgs>,
     /// Global shared GPU buffer storing the various indirect draw structs
     /// for the indirect Render pass. Note that we use
@@ -2824,6 +2837,7 @@ impl EffectsMeta {
             ),
             batch_info_buffer: AlignedBufferVec::new(
                 BufferUsages::STORAGE,
+                // We're binding a single array item in the init and update passes
                 Some(item_align.into()),
                 Some("hanabi:buffer:batch_info".to_string()),
             ),
@@ -2849,7 +2863,7 @@ impl EffectsMeta {
     }
 
     /// Begin a new batch of effects.
-    pub fn begin_batch(&mut self, base_particle: u32, spawner_base: u32) -> u32 {
+    pub fn begin_batch(&mut self, spawner_base: u32) -> u32 {
         assert!(!self.is_batch_open, "Duplicate call to begin_batch()");
 
         let prefix_sum_offset = self.prefix_sum_buffer.len() as u32;
@@ -2859,7 +2873,6 @@ impl EffectsMeta {
             total_spawn_count: 0,
             total_update_count: 0,
             base_effect: spawner_base,
-            base_particle,
             prefix_sum_offset,
             prefix_sum_count: u32::MAX, // invalid; set in end_batch()
         };
@@ -2875,17 +2888,23 @@ impl EffectsMeta {
         batch_info_base
     }
 
-    /// Add a single effect instance to the current batch.
-    pub fn add_effect_to_batch(&mut self, slab_offset: u32) {
+    pub fn add_effect_to_batch(&mut self, cpu_spawn_count: Option<u32>) {
         assert!(
             self.is_batch_open,
             "Cannot add effect before calling begin_batch()"
         );
-        self.prefix_sum_buffer.push(slab_offset);
+        self.prefix_sum_buffer
+            .push(cpu_spawn_count.unwrap_or(u32::MAX));
     }
 
-    /// End the current batch.
-    pub fn end_batch(&mut self) {
+    pub fn end_batch(&mut self, batch_spawn_count: Option<u32>) {
+        // Allow calling end_batch() at the very start even without begin_batch(), this
+        // simplifies the batching loop.
+        if self.batch_info_buffer.is_empty() && self.prefix_sum_buffer.is_empty() {
+            assert!(batch_spawn_count.is_none());
+            return;
+        }
+
         assert!(
             self.is_batch_open,
             "Call to end_batch() without begin_batch()"
@@ -2894,10 +2913,11 @@ impl EffectsMeta {
         let batch = self
             .batch_info_buffer
             .last_mut()
-            .expect("No open batch. Missing begin_batch() call?");
+            .expect("No open batch. Missing begin_batc() call?");
         let end = self.prefix_sum_buffer.len() as u32;
         assert!(end >= batch.prefix_sum_offset);
         batch.prefix_sum_count = end - batch.prefix_sum_offset;
+        batch.total_spawn_count = batch_spawn_count.unwrap_or(u32::MAX);
 
         self.is_batch_open = false;
     }
@@ -3649,7 +3669,7 @@ pub fn prepare_init_update_pipelines(
         let property_layout_min_binding_size =
             maybe_cached_properties.map(|cp| cp.property_layout.min_binding_size());
         let spawner_bind_group_layout_desc = property_cache
-            .bind_group_layout_desc(property_layout_min_binding_size)
+            .bind_group_layout_desc(property_layout_min_binding_size, true)
             .unwrap_or_else(|| {
                 panic!(
                     "Failed to find spawner@2 bind group layout for property binding size {:?}",
@@ -3770,11 +3790,15 @@ pub fn prepare_init_update_pipelines(
             .get_compute_pipeline(init_pipeline_id)
             .is_none()
         {
-            trace!(
-                "Skipping effect from render entity {:?} due to missing or not ready init pipeline (status: {:?})",
-                entity,
-                pipeline_cache.get_compute_pipeline_state(init_pipeline_id)
-            );
+            match pipeline_cache.get_compute_pipeline_state(init_pipeline_id)
+            {
+                CachedPipelineState::Err(err) => error!("Skipping effect from render entity {:?} due to missing or not ready init pipeline (error: {:?})", entity, err),
+                other => trace!(
+                    "Skipping effect from render entity {:?} due to missing or not ready init pipeline (status: {:?})",
+                    entity,
+                    other
+                ),
+            }
             cached_pipelines
                 .flags
                 .remove(CachedPipelineFlags::INIT_PIPELINE_READY);
@@ -4454,6 +4478,7 @@ pub(crate) fn batch_effects(
     // transfer, this is pretty cheap in practice.
     sort_bind_groups.clear_indirect_dispatch_buffer();
 
+    let mut sort_fill_prefix_sum_queue = GpuBufferOperationQueue::new();
     let mut sort_queue = GpuBufferOperationQueue::new();
 
     effects_meta.prefix_sum_buffer.clear();
@@ -4592,54 +4617,58 @@ pub(crate) fn batch_effects(
         // couldn't be merged together with the previous one, then it creates a separate
         // draw call. In that case, spawn an EffectDrawBatch to render that new separate
         // batch.
-        // if let Some(effect_batch_index) = sorted_effect_batches.push(effect_batch) {
-        //     trace!(
-        //         "Queued new effect batch #{:?} from cached instance on entity {:?}.",
-        //         effect_batch_index,
-        //         entity,
-        //     );
+        let spawner_base = effect_batch.spawner_base;
+        let effect_cpu_spawn_count = effect_batch.spawn_info.as_cpu().cloned();
+        let prev_batch_spawn_count = sorted_effect_batches
+            .last()
+            .map(|effect_batch| effect_batch.spawn_info.cpu_spawn_count());
+        if let Some(effect_batch_index) = sorted_effect_batches.push(effect_batch) {
+            // End the previous batch. It's safe to call when the buffers are empty, before
+            // the first batch is started, and is a no-op in that case.
+            effects_meta.end_batch(prev_batch_spawn_count);
 
-        //     // Spawn an EffectDrawBatch, to actually drive rendering of that new
-        // batch.     commands
-        //         .spawn(EffectDrawBatch {
-        //             effect_batch_index,
-        //             translation,
-        //             main_entity: *main_entity,
-        //         })
-        //         .insert(TemporaryRenderEntity);
-        // } else {
-        //     trace!("Cached instance on entity {entity:?} merged with last effect
-        // batch"); }
+            // Start a new batch
+            let batch_info_id = effects_meta.begin_batch(spawner_base);
+            sorted_effect_batches.last_mut().unwrap().batch_info_id = batch_info_id;
 
-        // FIXME - for now, no batching, so any new effect is a new batch...
-        let batch_info_id =
-            effects_meta.begin_batch(effect_batch.slice.start, effect_batch.spawner_base);
-        effect_batch.batch_info_id = batch_info_id;
-        effects_meta.add_effect_to_batch(effect_batch.slice.start);
-        effects_meta.end_batch();
-
-        let effect_batch_index = sorted_effect_batches.push(effect_batch);
-        trace!(
-            "Spawned effect batch #{:?} with batch-info-id {} from cached instance on entity {:?}.",
-            effect_batch_index,
-            batch_info_id,
-            entity,
-        );
-
-        // Spawn an EffectDrawBatch, to actually drive rendering.
-        commands
-            .spawn(EffectDrawBatch {
+            trace!(
+                "Spawned effect batch #{:?} with batch-info-id {} from cached instance on entity {:?}.",
                 effect_batch_index,
-                translation,
-                main_entity: *main_entity,
-            })
-            .insert(TemporaryRenderEntity);
+                batch_info_id,
+                entity,
+            );
+
+            // Spawn an EffectDrawBatch, to actually drive rendering of that new batch
+            commands
+                .spawn(EffectDrawBatch {
+                    effect_batch_index,
+                    translation,
+                    main_entity: *main_entity,
+                })
+                .insert(TemporaryRenderEntity);
+        } else {
+            trace!("Cached instance on entity {entity:?} merged with last effect batch");
+        }
+        effects_meta.add_effect_to_batch(effect_cpu_spawn_count);
     }
+
+    // End the last batch. It's safe to call even if no batch was created.
+    let batch_spawn_count = sorted_effect_batches
+        .last()
+        .map(|effect_batch| effect_batch.spawn_info.cpu_spawn_count());
+    effects_meta.end_batch(batch_spawn_count);
 
     gpu_buffer_operations.begin_frame();
     debug_assert!(sorted_effect_batches.dispatch_queue_index.is_none());
     if !sort_queue.operation_queue.is_empty() {
         sorted_effect_batches.dispatch_queue_index = Some(gpu_buffer_operations.submit(sort_queue));
+    }
+    debug_assert!(sorted_effect_batches
+        .sort_fill_prefix_sum_queue_index
+        .is_none());
+    if !sort_fill_prefix_sum_queue.operation_queue.is_empty() {
+        sorted_effect_batches.sort_fill_prefix_sum_queue_index =
+            Some(gpu_buffer_operations.submit(sort_fill_prefix_sum_queue));
     }
 
     // Write the entire spawner buffer for this frame, for all effects combined
@@ -5289,11 +5318,12 @@ fn emit_sorted_draw<T, F>(
             // This should always exist by the time we reach this point, because we should
             // have inserted any property in the cache, which would have allocated the
             // proper bind group layout (or the default no-property one).
+            let has_multi_draw = false; // TODO?
             let property_layout_min_binding_size = effect_batch
                 .property_key
                 .map(|key| NonZeroU64::new(key.binding_size as u64).unwrap());
             let spawner_bind_group_layout_desc = property_cache
-                .bind_group_layout_desc(property_layout_min_binding_size)
+                .bind_group_layout_desc(property_layout_min_binding_size, has_multi_draw)
                 .unwrap_or_else(|| {
                     panic!(
                         "Failed to find spawner@2 bind group layout for property binding size {:?}",
@@ -5492,11 +5522,12 @@ fn emit_binned_draw<T, F, G>(
             // This should always exist by the time we reach this point, because we should
             // have inserted any property in the cache, which would have allocated the
             // proper bind group layout (or the default no-property one).
+            let has_multi_draw = false; // TODO?
             let property_layout_min_binding_size = effect_batch
                 .property_key
                 .map(|key| NonZeroU64::new(key.binding_size as u64).unwrap());
             let spawner_bind_group_layout_desc = property_cache
-                .bind_group_layout_desc(property_layout_min_binding_size)
+                .bind_group_layout_desc(property_layout_min_binding_size, has_multi_draw)
                 .unwrap_or_else(|| {
                     panic!(
                         "Failed to find spawner@2 bind group layout for property binding size {:?}",
@@ -6596,6 +6627,7 @@ fn draw<'w>(
         .unwrap();
 
     let Some(pipeline) = pipeline_cache.into_inner().get_render_pipeline(pipeline_id) else {
+        trace!("ERROR: Failed to find render pipeline ID {:?}", pipeline_id);
         return;
     };
 
@@ -6631,16 +6663,19 @@ fn draw<'w>(
         &[],
     );
 
-    //
-    let batch_info_aligned_size = effects_meta.batch_info_buffer.aligned_size();
-    let batch_info_offset = effect_batch.batch_info_id * batch_info_aligned_size as u32;
-    pass.set_bind_group(
-        2,
-        property_bind_groups
-            .get(effect_batch.property_key.as_ref())
-            .unwrap(),
-        &[batch_info_offset],
-    );
+    // Bind group @2 -- multi-draw variant (set once for all draw calls)
+    let has_multi_draw = false;
+    if has_multi_draw {
+        let batch_info_aligned_size = effects_meta.batch_info_buffer.aligned_size();
+        let batch_info_offset = effect_batch.batch_info_id * batch_info_aligned_size as u32;
+        pass.set_bind_group(
+            2,
+            property_bind_groups
+                .get(effect_batch.property_key.as_ref(), true)
+                .unwrap(),
+            &[batch_info_offset],
+        );
+    }
 
     // Effect materials (textures and samplers)
     // TODO = move
@@ -6648,7 +6683,8 @@ fn draw<'w>(
         layout: effect_batch.texture_layout.clone(),
         textures: effect_batch.textures.iter().map(|h| h.id()).collect(),
     };
-    if !effect_batch.texture_layout.layout.is_empty() {
+    let has_material = !effect_batch.texture_layout.layout.is_empty();
+    if has_material {
         if let Some(bind_group) = effect_bind_groups.material_bind_groups.get(&material) {
             pass.set_bind_group(3, bind_group, &[]);
         } else {
@@ -6661,20 +6697,6 @@ fn draw<'w>(
         }
     }
 
-    let draw_indirect_index = effect_batch.draw_indirect_buffer_row_index.0;
-    assert_eq!(GpuDrawIndexedIndirectArgs::SHADER_SIZE.get(), 20);
-    let draw_indirect_offset =
-        draw_indirect_index as u64 * GpuDrawIndexedIndirectArgs::SHADER_SIZE.get();
-    trace!(
-        "Draw up to {} particles with {} vertices per particle for batch from particle slab #{} \
-            (effect_metadata_index={}, draw_indirect_offset={}B).",
-        effect_batch.slice.len(),
-        render_mesh.vertex_count,
-        effect_batch.slab_id.index(),
-        draw_indirect_index,
-        draw_indirect_offset,
-    );
-
     let Some(indirect_buffer) = effects_meta.draw_indirect_buffer.buffer() else {
         trace!(
             "The draw indirect buffer containing the indirect draw args is not ready for batch slab_id=#{}. Skipping draw call.",
@@ -6682,6 +6704,9 @@ fn draw<'w>(
         );
         return;
     };
+
+    let spawner_size = effects_meta.spawner_buffer.aligned_size() as u32;
+    assert!(spawner_size >= GpuSpawnerParams::min_size().get() as u32);
 
     match render_mesh.buffer_info {
         RenderMeshBufferInfo::Indexed { index_format, .. } => {
@@ -6695,10 +6720,107 @@ fn draw<'w>(
             };
 
             pass.set_index_buffer(index_buffer_slice.buffer.slice(..), index_format);
-            pass.draw_indexed_indirect(indirect_buffer, draw_indirect_offset);
+
+            // Note: multi_draw_indexed_indirect() only works if first_instance is
+            // available, which doesn't work without validation in wgpu. This is due to a
+            // limitation in DX12. We could have multidraw in Vulkan only though, but that
+            // requires dynamically switching.
+            // pass.multi_draw_indexed_indirect(
+            //     indirect_buffer,
+            //     draw_indirect_offset,
+            //     effect_batch.effect_count,
+            // );
+            trace!(
+                "Emitting {} draw batches (indexed)",
+                effect_batch.draw_indirect_buffer_row_index.len()
+            );
+            for (index, draw_indirect_index) in effect_batch
+                .draw_indirect_buffer_row_index
+                .iter()
+                .enumerate()
+            {
+                let draw_indirect_index = draw_indirect_index.0;
+                assert_eq!(GpuDrawIndexedIndirectArgs::SHADER_SIZE.get(), 20);
+                let draw_indirect_offset =
+                    draw_indirect_index as u64 * GpuDrawIndexedIndirectArgs::SHADER_SIZE.get();
+                trace!(
+                    "Draw particles with {} vertices per particle for batch from particle slab #{} \
+                        (effect_metadata_index={}, draw_indirect_offset={}B).",
+                    render_mesh.vertex_count,
+                    effect_batch.slab_id.index(),
+                    draw_indirect_index,
+                    draw_indirect_offset,
+                );
+
+                // Bind group @2 -- non-multi-draw variant (set for each draw call)
+                if !has_multi_draw {
+                    let batch_info_aligned_size = effects_meta.batch_info_buffer.aligned_size();
+                    let batch_info_offset =
+                        effect_batch.batch_info_id * batch_info_aligned_size as u32;
+                    let spawner_index = effect_batch.spawner_base + index as u32;
+                    let spawner_offset = spawner_index * spawner_size;
+                    pass.set_bind_group(
+                        2,
+                        property_bind_groups
+                            .get(effect_batch.property_key.as_ref(), false)
+                            .unwrap(),
+                        &[spawner_offset, batch_info_offset],
+                    );
+                }
+
+                pass.draw_indexed_indirect(indirect_buffer, draw_indirect_offset);
+            }
         }
         RenderMeshBufferInfo::NonIndexed => {
-            pass.draw_indirect(indirect_buffer, draw_indirect_offset);
+            // Note: multi_draw_indexed_indirect() only works if first_instance is
+            // available, which doesn't work without validation in wgpu. This is due to a
+            // limitation in DX12. We could have multidraw in Vulkan only though, but that
+            // requires dynamically switching.
+            // pass.multi_draw_indirect(
+            //     indirect_buffer,
+            //     draw_indirect_offset,
+            //     effect_batch.effect_count,
+            // );
+            trace!(
+                "Emitting {} draw batches (non indexed)",
+                effect_batch.draw_indirect_buffer_row_index.len()
+            );
+            for (index, draw_indirect_index) in effect_batch
+                .draw_indirect_buffer_row_index
+                .iter()
+                .enumerate()
+            {
+                let draw_indirect_index = draw_indirect_index.0;
+                assert_eq!(GpuDrawIndexedIndirectArgs::SHADER_SIZE.get(), 20);
+                let draw_indirect_offset =
+                    draw_indirect_index as u64 * GpuDrawIndexedIndirectArgs::SHADER_SIZE.get();
+                trace!(
+                    "Draw particles with {} vertices per particle for batch from particle slab #{} \
+                        (effect_metadata_index={}, draw_indirect_offset={}B).",
+                    render_mesh.vertex_count,
+                    effect_batch.slab_id.index(),
+                    draw_indirect_index,
+                    draw_indirect_offset,
+                );
+
+                // Bind group @2 -- non-multi-draw variant (set for each draw call)
+                if !has_multi_draw {
+                    let batch_info_aligned_size = effects_meta.batch_info_buffer.aligned_size();
+                    let batch_info_offset =
+                        effect_batch.batch_info_id * batch_info_aligned_size as u32;
+                    let spawner_index = effect_batch.spawner_base + index as u32;
+                    let spawner_offset = spawner_index * spawner_size;
+                    pass.set_bind_group(
+                        2,
+                        property_bind_groups
+                            .get(effect_batch.property_key.as_ref(), false)
+                            .unwrap(),
+                        &[spawner_offset, batch_info_offset],
+                    );
+                }
+
+                pass.draw_indirect(indirect_buffer, draw_indirect_offset);
+            }
         }
     }
 }
@@ -6993,8 +7115,8 @@ impl Node for VfxSimulateNode {
         }
 
         // If there's no batch, there's nothing more to do. Avoid continuing because
-        // some GPU resources are missing, which is expected when there's no effect but
-        // is an error (and will log warnings/errors) otherwise.
+        // some GPU resources are missing, which is expected when there's no effect, but
+        // is an error otherwise (and will log warnings/errors).
         if sorted_effect_batches.is_empty() {
             return Ok(());
         }
@@ -7099,10 +7221,6 @@ impl Node for VfxSimulateNode {
                 }
 
                 // Compute dynamic offsets
-                let spawner_base = effect_batch.spawner_base;
-                let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
-                debug_assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
-                let spawner_offset = spawner_base * spawner_aligned_size as u32;
                 let batch_info_aligned_size = effects_meta.batch_info_buffer.aligned_size();
                 let batch_info_offset = effect_batch.batch_info_id * batch_info_aligned_size as u32;
 
@@ -7111,7 +7229,7 @@ impl Node for VfxSimulateNode {
                 compute_pass.set_bind_group(
                     2,
                     property_bind_groups
-                        .get(effect_batch.property_key.as_ref())
+                        .get(effect_batch.property_key.as_ref(), true)
                         .unwrap(),
                     &[batch_info_offset],
                 );
@@ -7137,14 +7255,10 @@ impl Node for VfxSimulateNode {
                             "record commands for indirect init pipeline of effect {:?} \
                                 init_indirect_dispatch_index={} \
                                 indirect_offset={} \
-                                spawner_base={} \
-                                spawner_offset={} \
                                 property_key={:?}...",
                             effect_batch.handle,
                             init_indirect_dispatch_index,
                             indirect_offset,
-                            spawner_base,
-                            spawner_offset,
                             effect_batch.property_key,
                         );
 
@@ -7167,14 +7281,11 @@ impl Node for VfxSimulateNode {
 
                         trace!(
                             "record commands for init pipeline of effect {:?} \
-                                (spawn {} particles => {} workgroups) spawner_base={} \
-                                spawner_offset={} \
+                                (spawn {} particles => {} workgroups) \
                                 property_key={:?}...",
                             effect_batch.handle,
                             spawn_count,
                             workgroup_count,
-                            spawner_base,
-                            spawner_offset,
                             effect_batch.property_key,
                         );
 
@@ -7351,7 +7462,7 @@ impl Node for VfxSimulateNode {
                 compute_pass.set_bind_group(
                     2,
                     property_bind_groups
-                        .get(effect_batch.property_key.as_ref())
+                        .get(effect_batch.property_key.as_ref(), true)
                         .unwrap(),
                     &[batch_info_offset],
                 );
@@ -7458,18 +7569,23 @@ impl Node for VfxSimulateNode {
 
                 // Loop on batches and find those which need sorting
                 for effect_batch in sorted_effect_batches.iter() {
-                    trace!("Processing effect batch for sorting...");
                     if !effect_batch.layout_flags.contains(LayoutFlags::RIBBONS) {
+                        trace!(
+                            "Skipping effect batch {} for sorting: no RIBBONS flag on batch",
+                            effect_batch.batch_info_id
+                        );
                         continue;
                     }
+                    trace!(
+                        "Processing effect batch {} for sorting...",
+                        effect_batch.batch_info_id
+                    );
                     assert!(effect_batch.particle_layout.contains(Attribute::RIBBON_ID));
                     assert!(effect_batch.particle_layout.contains(Attribute::AGE)); // or is that optional?
 
                     let Some(effect_buffer) = effect_cache.get_slab(&effect_batch.slab_id) else {
                         warn!("Missing sort-fill effect buffer.");
-                        // render_context
-                        //     .command_encoder()
-                        //     .insert_debug_marker("ERROR:MissingEffectBatchBuffer");
+                        compute_pass.insert_debug_marker("ERROR:MissingEffectBatchBuffer");
                         continue;
                     };
 

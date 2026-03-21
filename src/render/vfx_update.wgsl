@@ -3,7 +3,8 @@
     EffectMetadata, RenderGroupIndirect, SimParams, Spawner, DrawIndexedIndirectArgs, BatchInfo,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
-    rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
+    rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj,
+    find_effect_from_particle
 }
 
 struct Particle {
@@ -48,16 +49,16 @@ struct EffectLocation {
 /// Requirements:
 /// - var<storage, read> batch_info : BatchInfo
 /// - var<storage, read> prefix_sum : array<u32>
-fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
+fn find_location_from_particle(global_update_index: u32) -> EffectLocation {
     var lo = batch_info.prefix_sum_offset;
     var hi = lo + batch_info.prefix_sum_count;
     var num_iter = 0;  // avoid deadlocking the GPU by capping the iteration count
     while (lo < hi) {
         let mid = (hi + lo) >> 1u;
-        let base_particle = prefix_sum[mid];
-        if (slab_particle_index >= base_particle) {
+        let base_update_index = prefix_sum[mid];
+        if (global_update_index >= base_update_index) {
             lo = mid + 1u;
-        } else if (slab_particle_index < base_particle) {
+        } else if (global_update_index < base_update_index) {
             hi = mid;
         }
         num_iter += 1;
@@ -65,9 +66,9 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
             return EffectLocation(0xDEADBEEFu, 0xDEADBEEFu, 0xDEADBEEFu);
         }
     }
-    let base_particle = batch_info.base_particle + prefix_sum[lo - 1u];
     let effect_index = lo - 1u - batch_info.prefix_sum_offset;
-    let update_index = slab_particle_index - base_particle;
+    let update_index = global_update_index - prefix_sum[lo - 1u];
+    let base_particle = spawners[batch_info.base_effect + effect_index].slab_offset;
     return EffectLocation(effect_index, base_particle, update_index);
 }
 
@@ -104,13 +105,14 @@ var<private> properties_offset: u32;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    // Global particle index into the slab, including those particles from other
-    // effect instances in the same batch, as well as possibly from other batches.
-    // This is rarely useful on its own.
-    let slab_particle_index = batch_info.base_particle + global_invocation_id.x;
+    // Cap the number of threads to the total number of alive particles
+    let global_update_index = global_invocation_id.x;
+    if (global_update_index >= batch_info.total_update_count) {
+        return;
+    }
 
     // Find the index of the effect this particle is part of.
-    let location = find_location_from_particle(slab_particle_index);
+    let location = find_location_from_particle(global_update_index);
     let spawner = &spawners[batch_info.base_effect + location.effect_index];
     effect_metadata_index = (*spawner).effect_metadata_index;
     let base_particle = location.base_particle;
@@ -128,7 +130,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // This is the actual particle index, from the indirection buffer, addressing an
     // actually alive particle.
     let particle_index = indirect_buffer
-        .rows[slab_particle_index]
+        .rows[base_particle + location.update_index]
         .particle_index[read_index];
 
 #ifdef READ_PARENT_PARTICLE

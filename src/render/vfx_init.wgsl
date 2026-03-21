@@ -3,7 +3,8 @@
     EffectMetadata, RenderGroupIndirect, SimParams, Spawner, BatchInfo,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
-    rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
+    rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj,
+    find_effect_from_particle
 }
 
 struct Particle {
@@ -65,9 +66,9 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
             return EffectLocation(0xDEADBEEFu, 0xDEADBEEFu, 0xDEADBEEFu);
         }
     }
-    let base_particle = prefix_sum[lo - 1u];
     let effect_index = lo - 1u - batch_info.prefix_sum_offset;
-    let update_index = slab_particle_index - base_particle;
+    let update_index = slab_particle_index - prefix_sum[lo - 1u];
+    let base_particle = spawners[batch_info.base_effect + effect_index].slab_offset;
     return EffectLocation(effect_index, base_particle, update_index);
 }
 
@@ -100,10 +101,16 @@ var<private> properties_offset: u32;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
+    // Cap the number of threads to the total number of alive particles
+    let global_init_index = global_invocation_id.x;
+    if (global_init_index >= batch_info.total_spawn_count) {
+        return;
+    }
+
     // Global particle index into the slab, including those particles from other
     // effect instances in the same batch, as well as possibly from other batches.
     // This is rarely useful on its own.
-    let slab_particle_index = batch_info.base_particle + global_invocation_id.x;
+    let slab_particle_index = /*batch_info.base_particle +*/ global_init_index;
 
     // Find the index of the effect this particle is part of.
     let location = find_location_from_particle(slab_particle_index);
@@ -113,8 +120,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap to max number of dead particles, copied from (capacity - alive_count) at the end
     // of the previous iteration, and constant during this pass (unlike alive_count).
-    let effect_metadata = &effect_metadatas[(*spawner).effect_metadata_index];
-    let max_spawn = atomicLoad(&(*effect_metadata).max_spawn);
+    let effect_metadata = &effect_metadatas[effect_metadata_index];
+    let max_spawn = atomicLoad(&(*effect_metadata).max_spawn);  // Not atomic
     if (location.update_index >= max_spawn) {
         return;
     }

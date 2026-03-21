@@ -48,6 +48,7 @@ struct Spawner {
     /// slab (if the effect has a parent effect), in number of particles (row index).
     /// This is ignored if the effect has no parent.
     parent_slab_offset: u32,
+    {{SPAWNER_PADDING}}
 }
 
 const SPAWNER_OFFSET_PONG: u32 = 27u;
@@ -144,11 +145,6 @@ struct BatchInfo {
     total_spawn_count: u32,
     total_update_count: u32,
     base_effect: u32,
-    /// Offset to apply to the workgroup thread index to determine the global
-    /// particle index in the currently bound slab. This is often (and ideally)
-    /// zero, but may be > 0 if the entire slab cannot be processed with a
-    /// single invocation.
-    base_particle: u32,
     /// Offset into the prefix sum buffer of the sum for the first effect of
     /// this batch.
     prefix_sum_offset: u32,
@@ -189,7 +185,8 @@ struct EffectMetadata {
     /// when off-screen, in theory this could be greater than instance_count. Currently
     /// we don't have GPU culling, so in practice this remains strictly equal. But we
     /// store it separately 1) because this could change in the future, and 2) because
-    /// the indirect render fields above should really be in their own buffer, not here.
+    /// the indirect render fields above (FIXME: not there anymore) should really be in
+    /// their own buffer, not here.
     alive_count: atomic<u32>,
     /// Maximum number of update threads to run. This is cached from `alive_count`
     /// during the indirect dispatch, so that the update compute pass can cap its
@@ -213,8 +210,6 @@ struct EffectMetadata {
     /// buffer. This avoids having to align those 16-byte structs to the GPU
     /// alignment (at least 32 bytes, even 256 bytes on some).
     init_indirect_dispatch_index: u32,
-    /// Index inside the global array of the spawner struct for this effect instance.
-    //spawner_index: u32,
     /// Offset (in u32 count) of the start of the property block for this
     /// effect. This is ignored if the effect doesn't use properties.
     properties_offset: u32,
