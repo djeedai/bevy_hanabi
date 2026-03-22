@@ -18,6 +18,10 @@ use utils::*;
 
 const DEMO_DESC: &str = include_str!("instancing.txt");
 
+/// Per-effect instance Hue offset, to show that all instances are unique.
+#[derive(Component)]
+struct HueOffset(pub f32);
+
 #[derive(Default, Resource)]
 struct InstanceManager {
     effect: Handle<EffectAsset>,
@@ -75,6 +79,9 @@ impl InstanceManager {
 
         let pos = origin + IVec2::new(index % self.grid_size.x, index / self.grid_size.x);
 
+        let mut thread_rng = rand::rng();
+        let hue_offset = thread_rng.random_range(0..360) as f32;
+
         *entry = Some(
             commands
                 .spawn((
@@ -94,6 +101,12 @@ impl InstanceManager {
                     EffectMaterial {
                         images: vec![self.texture.clone()],
                     },
+                    // Only used if alt_effect, but just simpler to add all the time for this
+                    // example only.
+                    EffectProperties::default(),
+                    // Set a unique random Hue offset per effect instance, so that they don't all
+                    // look the same.
+                    HueOffset(hue_offset),
                 ))
                 .with_children(|p| {
                     // Reference cube to visualize the emit origin
@@ -180,7 +193,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .insert_resource(InstanceManager::new(5, 4))
         .add_systems(Startup, setup)
-        .add_systems(Update, keyboard_input_system)
+        .add_systems(Update, (keyboard_input_system, update_color_via_property))
         //.add_system(stress_test.after(keyboard_input_system))
         .run();
     app_exit.into_result()
@@ -215,10 +228,6 @@ fn setup(
     });
     let mat = materials.add(utils::COLOR_PURPLE);
 
-    let mut gradient = bevy_hanabi::Gradient::new();
-    gradient.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
-    gradient.add_key(1.0, Vec4::splat(0.0));
-
     let writer = ExprWriter::new();
 
     let age = writer.lit(0.).expr();
@@ -238,6 +247,10 @@ fn setup(
         speed: writer.lit(2.).expr(),
     };
 
+    let prop_color = writer.add_property("prop_color", 0xFFFFFFFFu32.into());
+    let prop_color = writer.prop(prop_color);
+    let update_col = SetAttributeModifier::new(Attribute::COLOR, prop_color.expr());
+
     let effect = effects.add(
         EffectAsset::new(512, SpawnerSettings::rate(50.0.into()), writer.finish())
             .with_name("instancing")
@@ -245,13 +258,8 @@ fn setup(
             .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
-            .render(ColorOverLifetimeModifier::new(gradient)),
+            .update(update_col),
     );
-
-    let mut gradient = bevy_hanabi::Gradient::new();
-    gradient.add_key(0.0, Vec4::new(1., 0., 0., 0.));
-    gradient.add_key(0.1, Vec4::new(1., 0., 0., 1.));
-    gradient.add_key(1.0, Vec4::new(1., 0., 0., 0.));
 
     let writer = ExprWriter::new();
 
@@ -275,6 +283,10 @@ fn setup(
 
     let texture_slot = writer.lit(0u32).expr();
 
+    let prop_color = writer.add_property("prop_color", 0xFFFFFFFFu32.into());
+    let prop_color = writer.prop(prop_color);
+    let update_col = SetAttributeModifier::new(Attribute::COLOR, prop_color.expr());
+
     let mut module = writer.finish();
     module.add_texture_slot("color");
 
@@ -286,11 +298,11 @@ fn setup(
             .init(init_vel)
             .init(init_lifetime)
             .update(radial_accel)
+            .update(update_col)
             .render(ParticleTextureModifier {
                 texture_slot,
                 sample_mapping: ImageSampleMapping::Modulate,
-            })
-            .render(ColorOverLifetimeModifier::new(gradient)),
+            }),
     );
 
     // Store the effects for later reference
@@ -320,13 +332,21 @@ fn keyboard_input_system(
     {
         my_effect.despawn_random(&mut commands);
     }
+}
 
-    // #123 - Hanabi 0.5.2 Causes Panic on Unwrap
-    // if my_effect.frame == 5 {
-    //     my_effect.despawn_nth(&mut commands, 3);
-    //     my_effect.despawn_nth(&mut commands, 2);
-    //     my_effect.spawn_random(&mut commands);
-    // }
+fn update_color_via_property(
+    time: Res<Time>,
+    mut q_effects: Query<(&HueOffset, &mut EffectProperties)>,
+) {
+    for (hue_offset, properties) in &mut q_effects {
+        let color = Color::hsv(
+            (time.elapsed_secs() / 10.0 + hue_offset.0 / 360.0).fract() * 360.0,
+            1.0,
+            1.0,
+        )
+        .to_linear();
+        EffectProperties::set_if_changed(properties, "prop_color", color.as_u32().into());
+    }
 }
 
 fn stress_test(mut commands: Commands, mut my_effect: ResMut<InstanceManager>) {
