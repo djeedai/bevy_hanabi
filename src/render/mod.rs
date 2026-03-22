@@ -797,12 +797,12 @@ impl FromWorld for DispatchIndirectPipeline {
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::COMPUTE,
                 (
-                    // @group(1) @binding(0) var<storage, read_write> effect_metadata_buffer :
-                    // array<u32>;
+                    // @group(1) @binding(0) var<storage, read_write> effect_metadatas :
+                    // array<EffectMetadata>;
                     storage_buffer::<GpuEffectMetadata>(false),
                     // @group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer :
-                    // array<u32>;
-                    storage_buffer::<GpuIndirectIndex>(false),
+                    // array<DispatchIndirectArgs>;
+                    storage_buffer::<GpuDispatchIndirectArgs>(false),
                     // @group(1) @binding(2) var<storage, read_write> draw_indirect_buffer :
                     // array<u32>;
                     storage_buffer::<GpuDrawIndexedIndirectArgs>(false),
@@ -1100,6 +1100,14 @@ impl GpuBufferOperationQueue {
             dst_binding_offset,
             dst_binding_size,
         );
+        let use_dynamic_offset = matches!(
+            op,
+            GpuBufferOperationType::FillDispatchArgs | GpuBufferOperationType::Copy
+        );
+        if !use_dynamic_offset {
+            assert_eq!(src_binding_offset, 0);
+            assert_eq!(dst_binding_offset, 0);
+        }
         let args_index = self.args.len() as u32;
         self.args.push(args);
         self.operation_queue.push(QueuedOperation {
@@ -1186,7 +1194,10 @@ impl GpuBufferOperations {
         );
 
         // Upload to GPU buffer
-        self.args_buffer.write_buffer(device, render_queue);
+        if self.args_buffer.write_buffer(device, render_queue) {
+            // Buffer was reallocated; clear all bind groups depending on it
+            self.bind_groups.clear();
+        }
     }
 
     /// Create all necessary bind groups for all queued operations.
@@ -1205,11 +1216,16 @@ impl GpuBufferOperations {
                 self.bind_groups.entry(key).or_insert_with(|| {
                     let src_id: NonZeroU32 = qop.src_buffer.id().into();
                     let dst_id: NonZeroU32 = qop.dst_buffer.id().into();
-                    let label = format!("hanabi:bg:util_{}_{}", src_id.get(), dst_id.get());
-                    let use_dynamic_offset = matches!(qop.op, GpuBufferOperationType::FillDispatchArgs);
-                    let bind_group_layout =
+                    let label = format!("hanabi:bg:util_{:?}_{}_{}", qop.op, src_id.get(), dst_id.get());
+                    let use_dynamic_offset = matches!(
+                        qop.op,
+                        GpuBufferOperationType::FillDispatchArgs | GpuBufferOperationType::Copy
+                    );
+                    let bind_group_layout: &BindGroupLayout =
                         utils_pipeline.bind_group_layout(qop.op, use_dynamic_offset);
-                    let (src_offset, dst_offset) = if use_dynamic_offset {
+                    let (src_offset, dst_offset) = if !use_dynamic_offset {
+                        assert_eq!(qop.src_binding_offset, 0);
+                        assert_eq!(qop.dst_binding_offset, 0);
                         (0, 0)
                     } else {
                         (qop.src_binding_offset as u64, qop.dst_binding_offset as u64)
@@ -1309,20 +1325,30 @@ impl GpuBufferOperations {
 
             let key: QueuedOperationBindGroupKey = qop.into();
             if let Some(bind_group) = self.bind_groups.get(&key) {
-                let args_offset = self.args_buffer.dynamic_offset(qop.args_index as usize);
-                let use_dynamic_offset = matches!(qop.op, GpuBufferOperationType::FillDispatchArgs);
-                let (src_offset, dst_offset) = if use_dynamic_offset {
-                    (qop.src_binding_offset, qop.dst_binding_offset)
-                } else {
-                    (0, 0)
-                };
-                compute_pass.set_bind_group(0, bind_group, &[args_offset, src_offset, dst_offset]);
-                trace!(
-                    "set bind group with args_offset=+{}B src_offset=+{}B dst_offset=+{}B",
-                    args_offset,
-                    src_offset,
-                    dst_offset
+                let use_dynamic_offset = matches!(
+                    qop.op,
+                    GpuBufferOperationType::FillDispatchArgs | GpuBufferOperationType::Copy
                 );
+                if use_dynamic_offset {
+                    let args_offset = self.args_buffer.dynamic_offset(qop.args_index as usize);
+                    compute_pass.set_bind_group(
+                        0,
+                        bind_group,
+                        &[args_offset, qop.src_binding_offset, qop.dst_binding_offset],
+                    );
+                    trace!(
+                        "set bind group with dynamic offsets: op={:?} args=+{}B src_binding=+{}B dst_binding=+{}B",
+                        qop.op,
+                        args_offset,
+                        qop.src_binding_offset,
+                        qop.dst_binding_offset
+                    );
+                } else {
+                    assert_eq!(qop.src_binding_offset, 0);
+                    assert_eq!(qop.dst_binding_offset, 0);
+                    compute_pass.set_bind_group(0, bind_group, &[]);
+                    trace!("set bind group without dynamic offsets: op={:?}", qop.op);
+                }
             } else {
                 error!("GPU fill dispatch buffer operation bind group not found for buffers src#{:?} dst#{:?}", qop.src_buffer.id(), qop.dst_buffer.id());
                 continue;
@@ -2681,11 +2707,12 @@ struct GpuLimits {
     /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
     storage_buffer_align: NonZeroU32,
 
-    /// Size of [`GpuEffectMetadata`] aligned to the contraint of
+    /// Size of [`GpuSpawnerParams`] aligned to the contraint of
     /// [`WgpuLimits::min_storage_buffer_offset_alignment`].
     ///
     /// [`WgpuLimits::min_storage_buffer_offset_alignment`]: bevy::render::settings::WgpuLimits::min_storage_buffer_offset_alignment
-    effect_metadata_aligned_size: NonZeroU32,
+    #[allow(dead_code)]
+    spawner_params_aligned_size: NonZeroU32,
 }
 
 impl GpuLimits {
@@ -2693,34 +2720,29 @@ impl GpuLimits {
         let storage_buffer_align =
             render_device.limits().min_storage_buffer_offset_alignment as u64;
 
-        let effect_metadata_aligned_size = NonZeroU32::new(
-            GpuEffectMetadata::min_size()
+        let spawner_params_aligned_size = NonZeroU32::new(
+            GpuSpawnerParams::min_size()
                 .get()
                 .next_multiple_of(storage_buffer_align) as u32,
         )
         .unwrap();
 
         trace!(
-            "GPU-aligned sizes (align: {} B):\n- GpuEffectMetadata: {} B -> {} B",
+            "GPU-aligned sizes (align: {} B):\n- GpuSpawnerParams: {} B -> {} B",
             storage_buffer_align,
-            GpuEffectMetadata::min_size().get(),
-            effect_metadata_aligned_size.get(),
+            GpuSpawnerParams::min_size().get(),
+            spawner_params_aligned_size.get(),
         );
 
         Self {
             storage_buffer_align: NonZeroU32::new(storage_buffer_align as u32).unwrap(),
-            effect_metadata_aligned_size,
+            spawner_params_aligned_size,
         }
     }
 
     /// Byte alignment for any storage buffer binding.
     pub fn storage_buffer_align(&self) -> NonZeroU32 {
         self.storage_buffer_align
-    }
-
-    /// Byte offset of the [`GpuEffectMetadata`] of a given buffer.
-    pub fn effect_metadata_offset(&self, buffer_index: u32) -> u64 {
-        self.effect_metadata_aligned_size.get() as u64 * buffer_index as u64
     }
 }
 
@@ -2778,6 +2800,7 @@ pub struct EffectsMeta {
     effect_metadata_buffer: BufferTable<GpuEffectMetadata>,
     /// Various GPU limits and aligned sizes lazily allocated and cached for
     /// convenience.
+    #[allow(dead_code)]
     gpu_limits: GpuLimits,
     indirect_shader_noevent: Handle<Shader>,
     indirect_shader_events: Handle<Shader>,
@@ -2845,7 +2868,7 @@ impl EffectsMeta {
             prefix_sum_buffer,
             effect_metadata_buffer: BufferTable::new(
                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
-                Some(item_align.into()),
+                None,
                 Some("hanabi:buffer:effect_metadata".to_string()),
             ),
             gpu_limits,
@@ -4476,12 +4499,15 @@ pub(crate) fn batch_effects(
 
     // For now we re-create that buffer each frame. Since there's no CPU -> GPU
     // transfer, this is pretty cheap in practice.
-    sort_bind_groups.clear_indirect_dispatch_buffer();
+    sort_bind_groups.clear_indirect_args_buffer();
 
-    let mut sort_fill_prefix_sum_queue = GpuBufferOperationQueue::new();
+    //let mut sort_fill_prefix_sum_queue = GpuBufferOperationQueue::new();
     let mut sort_queue = GpuBufferOperationQueue::new();
 
+    // We will write the CPU spawn counts in the prefix buffer directly for this
+    // frame. Later, we'll add any GPU spawn count for any child effect if needed.
     effects_meta.prefix_sum_buffer.clear();
+    // We will write the new batches for this frame.
     effects_meta.batch_info_buffer.clear();
 
     // Loop on all extracted effects in sorted order, and try to batch them together
@@ -4489,6 +4515,7 @@ pub(crate) fn batch_effects(
     // never fixed, but at least we minimize the GPU state changes with the sorting!
     trace!("Batching {} effects...", q_cached_effects.iter().len());
     sorted_effect_batches.clear();
+    let mut num_effects_to_sort = 0;
     for entity in effect_sorter.effects.iter().map(|e| e.entity) {
         let Ok((
             entity,
@@ -4518,7 +4545,7 @@ pub(crate) fn batch_effects(
         // Spawn one EffectBatch per instance (no batching; TODO). This contains
         // most of the data needed to drive rendering. However this doesn't drive
         // rendering; this is just storage.
-        let mut effect_batch = EffectBatch::from_input(
+        let effect_batch = EffectBatch::from_input(
             main_entity.id(),
             extracted_effect,
             extracted_spawner,
@@ -4540,77 +4567,7 @@ pub(crate) fn batch_effects(
         // of the ribbon die (since we can't guarantee a linear lifetime through the
         // ribbon).
         if extracted_effect.layout_flags.contains(LayoutFlags::RIBBONS) {
-            // This buffer is allocated in prepare_effects(), so should always be available
-            let Some(effect_metadata_buffer) = effects_meta.effect_metadata_buffer.buffer() else {
-                error!("Failed to find effect metadata buffer. This is a bug.");
-                continue;
-            };
-
-            // Allocate a GpuDispatchIndirect entry
-            let sort_fill_indirect_dispatch_index = sort_bind_groups.allocate_indirect_dispatch();
-            effect_batch.sort_fill_indirect_dispatch_index =
-                Some(sort_fill_indirect_dispatch_index);
-
-            // Enqueue a fill dispatch operation which reads GpuEffectMetadata::alive_count,
-            // compute a number of workgroups to dispatch based on that particle count, and
-            // store the result into a GpuDispatchIndirect struct which will be used to
-            // dispatch the fill-sort pass.
-            {
-                let src_buffer = effect_metadata_buffer.clone();
-                let src_binding_offset = effects_meta
-                    .effect_metadata_buffer
-                    .dynamic_offset(effect_batch.metadata_table_id);
-                let src_binding_size = effects_meta.gpu_limits.effect_metadata_aligned_size;
-                let Some(dst_buffer) = sort_bind_groups.indirect_buffer() else {
-                    error!("Missing indirect dispatch buffer for sorting, cannot schedule particle sort for ribbon. This is a bug.");
-                    continue;
-                };
-                let dst_buffer = dst_buffer.clone();
-                let dst_binding_offset = 0; // see dst_offset below
-                                            //let dst_binding_size = NonZeroU32::new(12).unwrap();
-                trace!(
-                    "queue_fill_dispatch(): src#{:?}@+{}B ({}B) -> dst#{:?}@+{}B ({}B)",
-                    src_buffer.id(),
-                    src_binding_offset,
-                    src_binding_size.get(),
-                    dst_buffer.id(),
-                    dst_binding_offset,
-                    -1, //dst_binding_size.get(),
-                );
-                let src_offset = std::mem::offset_of!(GpuEffectMetadata, alive_count) as u32 / 4;
-                debug_assert_eq!(
-                    src_offset, 1,
-                    "GpuEffectMetadata changed, update this assert."
-                );
-                // FIXME - This is a quick fix to get 0.15 out. The previous code used the
-                // dynamic binding offset, but the indirect dispatch structs are only 12 bytes,
-                // so are not aligned to min_storage_buffer_offset_alignment. The fix uses a
-                // binding offset of 0 and binds the entire destination buffer,
-                // then use the dst_offset value embedded inside the GpuBufferOperationArgs to
-                // index the proper offset in the buffer. This requires of
-                // course binding the entire buffer, or at least enough to index all operations
-                // (hence the None below). This is not really a general solution, so should be
-                // reviewed.
-                let dst_offset = sort_bind_groups
-                    .get_indirect_dispatch_byte_offset(sort_fill_indirect_dispatch_index)
-                    / 4;
-                sort_queue.enqueue(
-                    GpuBufferOperationType::FillDispatchArgs,
-                    GpuBufferOperationArgs {
-                        src_offset,
-                        src_stride: effects_meta.gpu_limits.effect_metadata_aligned_size.get() / 4,
-                        dst_offset,
-                        dst_stride: GpuDispatchIndirectArgs::SHADER_SIZE.get() as u32 / 4,
-                        count: 1,
-                    },
-                    src_buffer,
-                    src_binding_offset,
-                    Some(src_binding_size),
-                    dst_buffer,
-                    dst_binding_offset,
-                    None, //Some(dst_binding_size),
-                );
-            }
+            num_effects_to_sort += 1;
         }
 
         // Append the batch to the (sorted) set of batches to render. If that batch
@@ -4658,19 +4615,6 @@ pub(crate) fn batch_effects(
         .map(|effect_batch| effect_batch.spawn_info.cpu_spawn_count());
     effects_meta.end_batch(batch_spawn_count);
 
-    gpu_buffer_operations.begin_frame();
-    debug_assert!(sorted_effect_batches.dispatch_queue_index.is_none());
-    if !sort_queue.operation_queue.is_empty() {
-        sorted_effect_batches.dispatch_queue_index = Some(gpu_buffer_operations.submit(sort_queue));
-    }
-    debug_assert!(sorted_effect_batches
-        .sort_fill_prefix_sum_queue_index
-        .is_none());
-    if !sort_fill_prefix_sum_queue.operation_queue.is_empty() {
-        sorted_effect_batches.sort_fill_prefix_sum_queue_index =
-            Some(gpu_buffer_operations.submit(sort_fill_prefix_sum_queue));
-    }
-
     // Write the entire spawner buffer for this frame, for all effects combined
     if effects_meta
         .spawner_buffer
@@ -4716,6 +4660,156 @@ pub(crate) fn batch_effects(
                 .prefix_sum_buffer
                 .write_buffer(&render_device, &render_queue);
         }
+    }
+
+    // Now that all buffers are written (or at least the ones we care about), we can
+    // record all the copy commands, which reference those buffers.
+    if num_effects_to_sort > 0 {
+        trace!("Recording copy commands for {num_effects_to_sort} effects requiring sorting");
+
+        // Given a list of effects in a batch, or even a list of batches, each with an
+        // updated alive_count, we need to calculate the prefix sum of those
+        // alive_count per batch, for sorting.
+        // - for each effect instance, copy its alive_count into the prefix_buffer
+        // - run the prefix_sum pass
+        // We also need to copy all sort pairs from all instances, for a total copy of
+        // sum(alive_count)
+        // - we could do one pass per batch; -or- we could use the prefix sum
+        // - the prefix sum binary search per particle is costly compared to the actual
+        //   pair copy, so we could block-process, say, 8 particles per thread, to
+        //   amortize the cost of the binary search.
+        // For the sort itself, we can for now do one dispatch per effect. Later with
+        // segmented sort, we can process a batch at once, or even the entire sort
+        // buffer is the prefix sum covers it all.
+
+        // This buffer is allocated in prepare_effects(), so should always be available
+        let Some(effect_metadata_buffer) = effects_meta.effect_metadata_buffer.buffer() else {
+            error!("Failed to find effect metadata buffer (for sorting pass). This is a bug.");
+            return;
+        };
+
+        for effect_batch in &mut sorted_effect_batches.batches {
+            // Skip batches without ribbons; we only need sorting for ribbons.
+            if !effect_batch.layout_flags.contains(LayoutFlags::RIBBONS) {
+                continue;
+            }
+
+            // Loop on all effects in this batch
+            for effect_data in &mut effect_batch.effect_data {
+                // Allocate an indirect compute dispatch entry for this effect instance, for
+                // sorting.
+                assert!(effect_data.sort_indirect_args_index.is_none());
+                let indirect_args_index = sort_bind_groups.allocate_indirect_args();
+                effect_data.sort_indirect_args_index = Some(indirect_args_index);
+
+                // // Enqueue a copy operation which reads GpuEffectMetadata::alive_count, and
+                // // store it into the prefix_sum buffer.
+                // {
+                //     let src_buffer = effect_metadata_buffer.clone();
+                //     let Some(dst_buffer) = effects_meta.prefix_sum_buffer.buffer() else {
+                //         error!("Missing prefix sum buffer for sorting, cannot schedule
+                // particle sort for ribbon. This is a bug.");         continue;
+                //     };
+                //     let dst_buffer = dst_buffer.clone();
+                //     trace!(
+                //         "queue_fill_sort_prefix_sum(): src#{:?} -> dst#{:?}",
+                //         src_buffer.id(),
+                //         dst_buffer.id()
+                //     );
+                //     let alive_count_offset = std::mem::offset_of!(GpuEffectMetadata,
+                // alive_count);     debug_assert_eq!(
+                //         alive_count_offset, 4,
+                //         "GpuEffectMetadata changed, update this assert."
+                //     );
+                //     let src_stride = GpuEffectMetadata::SHADER_SIZE.get() as usize;
+                //     let src_offset =
+                //         effect_data.metadata_table_id.0 as usize * src_stride +
+                // alive_count_offset;     // By convention, copy at the same
+                // index into the prefix_sum than it's at in the     // metadata
+                // buffer. And since prefix sum values are packed u32, the table ID is
+                //     // the offset.
+                //     let dst_offset_u32 = effect_data.metadata_table_id.0;
+                //     sort_fill_prefix_sum_queue.enqueue(
+                //         GpuBufferOperationType::Copy,
+                //         GpuBufferOperationArgs {
+                //             src_offset: (src_offset / 4) as u32,
+                //             src_stride: (src_stride / 4) as u32,
+                //             dst_offset: dst_offset_u32,
+                //             dst_stride: 1, // tightly packed prefix_sum values
+                //             count: 1,
+                //         },
+                //         src_buffer,
+                //         0,
+                //         None,
+                //         dst_buffer,
+                //         0,
+                //         None,
+                //     );
+                // }
+
+                // Enqueue a fill dispatch operation which reads GpuEffectMetadata::alive_count,
+                // compute a number of workgroups to dispatch based on that particle count, and
+                // store the result into a GpuDispatchIndirectArgs struct which will be used to
+                // dispatch the various sort passes (sort-fill, sort, sort-copy).
+                {
+                    let src_buffer = effect_metadata_buffer.clone();
+                    let Some(dst_buffer) = sort_bind_groups.indirect_args_buffer() else {
+                        error!("Missing indirect args buffer for sorting, cannot schedule particle sort for ribbon. This is a bug.");
+                        continue;
+                    };
+                    let dst_buffer = dst_buffer.clone();
+                    trace!(
+                        "queue_fill_dispatch(): src#{:?} -> dst#{:?}",
+                        src_buffer.id(),
+                        dst_buffer.id()
+                    );
+                    let alive_count_offset = std::mem::offset_of!(GpuEffectMetadata, alive_count);
+                    debug_assert_eq!(
+                        alive_count_offset, 4,
+                        "GpuEffectMetadata changed, update this assert."
+                    );
+                    let src_stride = GpuEffectMetadata::SHADER_SIZE.get() as usize;
+                    let src_offset =
+                        effect_data.metadata_table_id.0 as usize * src_stride + alive_count_offset;
+                    let dst_offset =
+                        sort_bind_groups.get_indirect_args_byte_offset(indirect_args_index);
+                    let dst_stride = GpuDispatchIndirectArgs::SHADER_SIZE.get() as usize;
+                    sort_queue.enqueue(
+                        GpuBufferOperationType::FillDispatchArgs,
+                        GpuBufferOperationArgs {
+                            src_offset: (src_offset / 4) as u32,
+                            src_stride: (src_stride / 4) as u32,
+                            dst_offset: (dst_offset / 4) as u32,
+                            dst_stride: (dst_stride / 4) as u32,
+                            count: 1,
+                        },
+                        src_buffer,
+                        0,
+                        None,
+                        dst_buffer,
+                        0,
+                        None,
+                    );
+                }
+            }
+        }
+
+        // Submit the recorded operations
+        gpu_buffer_operations.begin_frame();
+        debug_assert!(sorted_effect_batches
+            .sort_fill_indirect_args_queue_index
+            .is_none());
+        if !sort_queue.operation_queue.is_empty() {
+            sorted_effect_batches.sort_fill_indirect_args_queue_index =
+                Some(gpu_buffer_operations.submit(sort_queue));
+        }
+        // debug_assert!(sorted_effect_batches
+        //     .sort_fill_prefix_sum_queue_index
+        //     .is_none());
+        // if !sort_fill_prefix_sum_queue.operation_queue.is_empty() {
+        //     sorted_effect_batches.sort_fill_prefix_sum_queue_index =
+        //         Some(gpu_buffer_operations.
+        // submit(sort_fill_prefix_sum_queue)); }
     }
 }
 
@@ -4964,8 +5058,6 @@ impl EffectBindGroups {
         effect_metadata_buffer: &Buffer,
         consume_event_buffers: Option<ConsumeEventBuffers>,
     ) -> Result<&BindGroup, ()> {
-        assert!(effect_batch.metadata_table_id.is_valid());
-
         let key = InitMetadataBindGroupKey {
             slab_id: effect_batch.slab_id,
             effect_metadata_buffer: effect_metadata_buffer.id(),
@@ -5008,10 +5100,9 @@ impl EffectBindGroups {
                 render_device.create_bind_group("hanabi:bg:init:metadata@3", layout, &entries[..]);
 
             trace!(
-                    "Created new metadata@3 bind group for init pass and buffer index {}: effect_metadata=#{}",
-                    effect_batch.slab_id.index(),
-                    effect_batch.metadata_table_id.0,
-                );
+                "Created new metadata@3 bind group for init pass and buffer index {}",
+                effect_batch.slab_id.index(),
+            );
 
             bind_group
         };
@@ -5051,8 +5142,6 @@ impl EffectBindGroups {
         child_info_buffer: Option<&Buffer>,
         event_buffers: &[(Entity, BufferBindingSource)],
     ) -> Result<&BindGroup, ()> {
-        assert!(effect_batch.metadata_table_id.is_valid());
-
         // Check arguments consistency
         assert_eq!(effect_batch.child_event_buffers.len(), event_buffers.len());
         let emits_gpu_spawn_events = !event_buffers.is_empty();
@@ -5124,9 +5213,8 @@ impl EffectBindGroups {
             );
 
             trace!(
-                "Created new metadata@3 bind group for update pass and slab ID {}: effect_metadata={}",
+                "Created new metadata@3 bind group for update pass and slab ID {}",
                 effect_batch.slab_id.index(),
-                effect_batch.metadata_table_id.0,
             );
 
             bind_group
@@ -5261,9 +5349,9 @@ fn emit_sorted_draw<T, F>(
             #[cfg(feature = "trace")]
             let _span_check_vis = bevy::log::info_span!("check_visibility").entered();
             let has_visible_entity = effect_batch
-                .entities
+                .effect_data
                 .iter()
-                .any(|index| view_entities.contains(*index as usize));
+                .any(|effect_data| view_entities.contains(effect_data.entity as usize));
             if !has_visible_entity {
                 trace!("No visible entity for view, not emitting any draw call.");
                 continue;
@@ -5467,9 +5555,9 @@ fn emit_binned_draw<T, F, G>(
             #[cfg(feature = "trace")]
             let _span_check_vis = bevy::log::info_span!("check_visibility").entered();
             let has_visible_entity = effect_batch
-                .entities
+                .effect_data
                 .iter()
-                .any(|index| view_entities.contains(*index as usize));
+                .any(|effect_data| view_entities.contains(effect_data.entity as usize));
             if !has_visible_entity {
                 trace!("No visible entity for view, not emitting any draw call.");
                 continue;
@@ -6250,8 +6338,8 @@ pub(crate) fn prepare_bind_groups(
                         &dispatch_indirect_pipeline.effect_metadata_bind_group_layout_desc,
                     ),
                     &BindGroupEntries::sequential((
-                        // @group(1) @binding(0) var<storage, read_write> effect_metadata_buffer :
-                        // array<u32>;
+                        // @group(1) @binding(0) var<storage, read_write> effect_metadatas :
+                        // array<EffectMetadata>;
                         effect_metadata_buffer.as_entire_binding(),
                         // @group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer
                         // : array<DispatchIndirectArgs>;
@@ -6732,11 +6820,12 @@ fn draw<'w>(
             // );
             trace!(
                 "Emitting {} draw batches (indexed)",
-                effect_batch.draw_indirect_buffer_row_index.len()
+                effect_batch.effect_data.len()
             );
             for (index, draw_indirect_index) in effect_batch
-                .draw_indirect_buffer_row_index
+                .effect_data
                 .iter()
+                .map(|effect_data| effect_data.draw_indirect_buffer_row_index)
                 .enumerate()
             {
                 let draw_indirect_index = draw_indirect_index.0;
@@ -6783,11 +6872,12 @@ fn draw<'w>(
             // );
             trace!(
                 "Emitting {} draw batches (non indexed)",
-                effect_batch.draw_indirect_buffer_row_index.len()
+                effect_batch.effect_data.len()
             );
             for (index, draw_indirect_index) in effect_batch
-                .draw_indirect_buffer_row_index
+                .effect_data
                 .iter()
+                .map(|effect_data| effect_data.draw_indirect_buffer_row_index)
                 .enumerate()
             {
                 let draw_indirect_index = draw_indirect_index.0;
@@ -7151,7 +7241,54 @@ impl Node for VfxSimulateNode {
             return Ok(());
         };
 
-        // Compute init pass
+        // FIXME - need here (or end of last frame) to copy the number of GPU spawn
+        // events into the prefix_sum buffer, before we do the prefix sum pass below.
+        // Currently without this, GPU events are broken.
+
+        // Init prefix sum compute pass
+        //
+        // Calculate the prefix sum of the number of particles to spawn in the init
+        // pass, which is equal to the number of compute threads dispatched.
+        {
+            // Only start a compute pass if there's an effect; makes things clearer in
+            // debugger.
+            let mut compute_pass =
+                self.begin_compute_pass("hanabi:init_prefix_sum", pipeline_cache, render_context);
+
+            trace!("record commands for init prefix sum pass...");
+
+            if compute_pass
+                .set_cached_compute_pipeline(effects_meta.prefix_sum_pipeline_id)
+                .is_err()
+            {
+                // FIXME - Bevy doesn't allow returning custom errors here...
+                trace!("ERROR - Failed to set prefix sum compute pipeline. Simulation aborted.");
+                return Ok(());
+            }
+
+            // Dispatch one thread per init effect batch.
+            const WORKGROUP_SIZE: u32 = 64;
+            // Note: This only works because we use the same batches for the init and update
+            // passes. A priori there's no reason why we couldn't split them, since likely
+            // the batches would be different.
+            let total_batch_count = effects_meta.batch_info_buffer.len() as u32;
+            let workgroup_count = total_batch_count.div_ceil(WORKGROUP_SIZE);
+
+            // Setup vfx_prefix_sum pass
+            compute_pass.set_bind_group(0, prefix_sum_bind_group, &[]);
+            compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
+            trace!(
+                "prefix sum dispatched: total_batch_count={} workgroup_count={}",
+                total_batch_count,
+                workgroup_count
+            );
+        }
+
+        // Init compute pass
+        //
+        // Spawn new particles by recycling entries from the particle buffer of each
+        // effect instance, up to the requested (either from CPU or from GPU events)
+        // spawn count, or capacity of the effect, whichever is smaller.
         {
             trace!("init: loop over effect batches...");
 
@@ -7485,11 +7622,14 @@ impl Node for VfxSimulateNode {
 
         // Do sorting for ribbons
         if needs_sort {
-            // Copy alive counts for sort prefix sum compute pass
-            //
-            // After the update pass (atomically) updated the particle alive count per
-            // effect instance, copy that number into the prefix sum buffer, so that
-            // the prefix sum pass can calculate the prefix sum for sorting.
+            // FIXME - without segmented sort, we can't sort multiple effect instances in a
+            // single compute pass, otherwise we'll mix particles from different instances.
+
+            // // Copy alive counts for sort prefix sum compute pass
+            // //
+            // // After the update pass (atomically) updated the particle alive count per
+            // // effect instance, copy that number into the prefix sum buffer, so that
+            // // the prefix sum pass can calculate the prefix sum for sorting.
             // if let Some(queue_index) = sorted_effect_batches
             //     .sort_fill_prefix_sum_queue_index
             //     .as_ref()
@@ -7502,55 +7642,58 @@ impl Node for VfxSimulateNode {
             //     );
             // }
 
-            // Sort prefix sum compute pass
-            //
-            // Calculate the prefix sum of the number of alive particles to sort.
-            {
-                // Only start a compute pass if there's an effect; makes things clearer in
-                // debugger.
-                let mut compute_pass = self.begin_compute_pass(
-                    "hanabi:sort_prefix_sum",
-                    pipeline_cache,
-                    render_context,
-                );
+            // // Sort prefix sum compute pass
+            // //
+            // // Calculate the prefix sum of the number of alive particles to sort.
+            // {
+            //     // Only start a compute pass if there's an effect; makes things clearer
+            // in     // debugger.
+            //     let mut compute_pass = self.begin_compute_pass(
+            //         "hanabi:sort_prefix_sum",
+            //         pipeline_cache,
+            //         render_context,
+            //     );
 
-                trace!("record commands for sort prefix sum pass...");
+            //     trace!("record commands for sort prefix sum pass...");
 
-                if compute_pass
-                    .set_cached_compute_pipeline(effects_meta.prefix_sum_pipeline_id)
-                    .is_err()
-                {
-                    // FIXME - Bevy doesn't allow returning custom errors here...
-                    trace!(
-                        "ERROR - Failed to set prefix sum compute pipeline. Simulation aborted."
-                    );
-                    return Ok(());
-                }
+            //     if compute_pass
+            //         .set_cached_compute_pipeline(effects_meta.prefix_sum_pipeline_id)
+            //         .is_err()
+            //     {
+            //         // FIXME - Bevy doesn't allow returning custom errors here...
+            //         trace!(
+            //             "ERROR - Failed to set prefix sum compute pipeline. Simulation
+            // aborted."         );
+            //         return Ok(());
+            //     }
 
-                // Dispatch one thread per init effect batch.
-                const WORKGROUP_SIZE: u32 = 64;
-                // Note: This only works because we use the same batches for the init and update
-                // passes. A priori there's no reason why we couldn't split them, since likely
-                // the batches would be different.
-                let total_batch_count = effects_meta.batch_info_buffer.len() as u32;
-                let workgroup_count = total_batch_count.div_ceil(WORKGROUP_SIZE);
+            //     // Dispatch one thread per init effect batch.
+            //     const WORKGROUP_SIZE: u32 = 64;
+            //     // Note: This only works because we use the same batches for the init and
+            // update     // passes. A priori there's no reason why we couldn't
+            // split them, since likely     // the batches would be different.
+            //     let total_batch_count = effects_meta.batch_info_buffer.len() as u32;
+            //     let workgroup_count = total_batch_count.div_ceil(WORKGROUP_SIZE);
 
-                // Setup vfx_prefix_sum pass
-                compute_pass.set_bind_group(0, prefix_sum_bind_group, &[]);
-                compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
-                trace!(
-                    "prefix sum dispatched: total_batch_count={} workgroup_count={}",
-                    total_batch_count,
-                    workgroup_count
-                );
-            }
+            //     // Setup vfx_prefix_sum pass
+            //     compute_pass.set_bind_group(0, prefix_sum_bind_group, &[]);
+            //     compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
+            //     trace!(
+            //         "prefix sum dispatched: total_batch_count={} workgroup_count={}",
+            //         total_batch_count,
+            //         workgroup_count
+            //     );
+            // }
 
             // Compute sort fill dispatch pass - Fill the indirect dispatch structs for any
-            // batch of particles which needs sorting, based on the actual number of alive
-            // particles in the batch after their update in the compute update pass. Since
-            // particles may die during update, this may be different from the number of
-            // particles updated.
-            if let Some(queue_index) = sorted_effect_batches.dispatch_queue_index.as_ref() {
+            // effect instance which needs sorting, based on the actual number of alive
+            // particles of the effect instance after their update in the compute update
+            // pass. Since particles may die during update, this may be different from the
+            // number of particles updated.
+            if let Some(queue_index) = sorted_effect_batches
+                .sort_fill_indirect_args_queue_index
+                .as_ref()
+            {
                 gpu_buffer_operations.dispatch(
                     *queue_index,
                     render_context,
@@ -7565,7 +7708,7 @@ impl Node for VfxSimulateNode {
                     self.begin_compute_pass("hanabi:sort", pipeline_cache, render_context);
 
                 let effect_metadata_buffer = effects_meta.effect_metadata_buffer.buffer().unwrap();
-                let indirect_buffer = sort_bind_groups.indirect_buffer().unwrap();
+                let indirect_buffer = sort_bind_groups.indirect_args_buffer().unwrap();
 
                 // Loop on batches and find those which need sorting
                 for effect_batch in sorted_effect_batches.iter() {
@@ -7583,152 +7726,144 @@ impl Node for VfxSimulateNode {
                     assert!(effect_batch.particle_layout.contains(Attribute::RIBBON_ID));
                     assert!(effect_batch.particle_layout.contains(Attribute::AGE)); // or is that optional?
 
-                    let Some(effect_buffer) = effect_cache.get_slab(&effect_batch.slab_id) else {
-                        warn!("Missing sort-fill effect buffer.");
-                        compute_pass.insert_debug_marker("ERROR:MissingEffectBatchBuffer");
+                    let Some(particle_slab) = effect_cache.get_slab(&effect_batch.slab_id) else {
+                        warn!("Missing particle slab buffer for sort-fill pass.");
+                        compute_pass.insert_debug_marker("ERROR:Sort:MissingParticleSlabBuffer");
                         continue;
                     };
 
-                    let indirect_dispatch_index = *effect_batch
-                        .sort_fill_indirect_dispatch_index
-                        .as_ref()
-                        .unwrap();
-                    let indirect_offset =
-                        sort_bind_groups.get_indirect_dispatch_byte_offset(indirect_dispatch_index);
+                    let Some(sort_fill_pipeline_id) =
+                        sort_bind_groups.get_sort_fill_pipeline_id(&effect_batch.particle_layout)
+                    else {
+                        warn!("Missing sort-fill pipeline.");
+                        compute_pass.insert_debug_marker("ERROR:Sort:MissingSortFillPipeline");
+                        continue;
+                    };
 
-                    // Fill the sort buffer with the key-value pairs to sort
-                    {
-                        compute_pass.push_debug_group("hanabi:sort_fill");
+                    // Without segmented sort (yet), we have to sort the particles of each instance
+                    // separately, to prevent mixing together particles from different effect
+                    // instances.
+                    for (effect_index, effect_data) in effect_batch.effect_data.iter().enumerate() {
+                        // Find the GpuDispatchIndirectArgs struct for this effect instance
+                        let indirect_dispatch_index =
+                            effect_data.sort_indirect_args_index.clone().unwrap();
+                        let indirect_offset =
+                            sort_bind_groups.get_indirect_args_byte_offset(indirect_dispatch_index);
 
-                        // Fetch compute pipeline
-                        let Some(pipeline_id) = sort_bind_groups
-                            .get_sort_fill_pipeline_id(&effect_batch.particle_layout)
-                        else {
-                            warn!("Missing sort-fill pipeline.");
-                            compute_pass.insert_debug_marker("ERROR:MissingSortFillPipeline");
-                            continue;
-                        };
-                        if compute_pass
-                            .set_cached_compute_pipeline(pipeline_id)
-                            .is_err()
+                        // Fill the sort buffer with the key-value pairs to sort
                         {
-                            compute_pass.insert_debug_marker("ERROR:FailedToSetSortFillPipeline");
+                            compute_pass.push_debug_group("hanabi:sort_fill");
+
+                            // Set compute pipeline
+                            if compute_pass
+                                .set_cached_compute_pipeline(sort_fill_pipeline_id)
+                                .is_err()
+                            {
+                                compute_pass
+                                    .insert_debug_marker("ERROR:FailedToSetSortFillPipeline");
+                                compute_pass.pop_debug_group();
+                                // FIXME - Bevy doesn't allow returning custom errors here...
+                                return Ok(());
+                            }
+
+                            let spawner_index = effect_batch.spawner_base + effect_index as u32;
+                            let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
+                            assert!(
+                                spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize
+                            );
+                            let spawner_offset = spawner_index * spawner_aligned_size as u32;
+
+                            // Bind group sort_fill@0
+                            let particle_buffer = particle_slab.particle_buffer();
+                            let indirect_index_buffer = particle_slab.indirect_index_buffer();
+                            let Some(bind_group) = sort_bind_groups.sort_fill_bind_group(
+                                particle_buffer.id(),
+                                indirect_index_buffer.id(),
+                                effect_metadata_buffer.id(),
+                            ) else {
+                                warn!("Missing sort-fill bind group.");
+                                compute_pass.insert_debug_marker("ERROR:MissingSortFillBindGroup");
+                                continue;
+                            };
+                            compute_pass.set_bind_group(0, bind_group, &[spawner_offset]);
+
+                            compute_pass
+                                .dispatch_workgroups_indirect(indirect_buffer, indirect_offset);
+                            trace!("Dispatched sort-fill with indirect offset +{indirect_offset}");
+
                             compute_pass.pop_debug_group();
-                            // FIXME - Bevy doesn't allow returning custom errors here...
-                            return Ok(());
                         }
 
-                        let spawner_base = effect_batch.spawner_base;
-                        let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
-                        assert!(
-                            spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize
-                        );
-                        let spawner_offset = spawner_base * spawner_aligned_size as u32;
-
-                        // Bind group sort_fill@0
-                        let particle_buffer = effect_buffer.particle_buffer();
-                        let indirect_index_buffer = effect_buffer.indirect_index_buffer();
-                        let Some(bind_group) = sort_bind_groups.sort_fill_bind_group(
-                            particle_buffer.id(),
-                            indirect_index_buffer.id(),
-                            effect_metadata_buffer.id(),
-                        ) else {
-                            warn!("Missing sort-fill bind group.");
-                            compute_pass.insert_debug_marker("ERROR:MissingSortFillBindGroup");
-                            continue;
-                        };
-                        let effect_metadata_offset = effects_meta
-                            .gpu_limits
-                            .effect_metadata_offset(effect_batch.metadata_table_id.0)
-                            as u32;
-                        compute_pass.set_bind_group(
-                            0,
-                            bind_group,
-                            &[effect_metadata_offset, spawner_offset],
-                        );
-
-                        compute_pass
-                            .dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
-                        trace!("Dispatched sort-fill with indirect offset +{indirect_offset}");
-
-                        compute_pass.pop_debug_group();
-                    }
-
-                    // Do the actual sort
-                    {
-                        compute_pass.push_debug_group("hanabi:sort");
-
-                        if compute_pass
-                            .set_cached_compute_pipeline(sort_bind_groups.sort_pipeline_id())
-                            .is_err()
+                        // Do the actual sort
                         {
-                            compute_pass.insert_debug_marker("ERROR:FailedToSetSortPipeline");
+                            compute_pass.push_debug_group("hanabi:sort");
+
+                            if compute_pass
+                                .set_cached_compute_pipeline(sort_bind_groups.sort_pipeline_id())
+                                .is_err()
+                            {
+                                compute_pass.insert_debug_marker("ERROR:FailedToSetSortPipeline");
+                                compute_pass.pop_debug_group();
+                                // FIXME - Bevy doesn't allow returning custom errors here...
+                                return Ok(());
+                            }
+
+                            let Some(bind_group) = sort_bind_groups.sort_bind_group() else {
+                                warn!("Missing sort bind group.");
+                                compute_pass.insert_debug_marker("ERROR:MissingSortBindGroup");
+                                continue;
+                            };
+                            compute_pass.set_bind_group(0, bind_group, &[]);
+                            compute_pass
+                                .dispatch_workgroups_indirect(indirect_buffer, indirect_offset);
+                            trace!("Dispatched sort with indirect offset +{indirect_offset}");
+
                             compute_pass.pop_debug_group();
-                            // FIXME - Bevy doesn't allow returning custom errors here...
-                            return Ok(());
                         }
 
-                        let Some(bind_group) = sort_bind_groups.sort_bind_group() else {
-                            warn!("Missing sort bind group.");
-                            compute_pass.insert_debug_marker("ERROR:MissingSortBindGroup");
-                            continue;
-                        };
-                        compute_pass.set_bind_group(0, bind_group, &[]);
-                        compute_pass
-                            .dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
-                        trace!("Dispatched sort with indirect offset +{indirect_offset}");
-
-                        compute_pass.pop_debug_group();
-                    }
-
-                    // Copy the sorted particle indices back into the indirect index buffer, where
-                    // the render pass will read them.
-                    {
-                        compute_pass.push_debug_group("hanabi:copy_sorted_indices");
-
-                        // Fetch compute pipeline
-                        let pipeline_id = sort_bind_groups.get_sort_copy_pipeline_id();
-                        if compute_pass
-                            .set_cached_compute_pipeline(pipeline_id)
-                            .is_err()
+                        // Copy the sorted particle indices back into the indirect index buffer,
+                        // where the render pass will read them.
                         {
-                            compute_pass.insert_debug_marker("ERROR:FailedToSetSortCopyPipeline");
+                            compute_pass.push_debug_group("hanabi:copy_sorted_indices");
+
+                            // Fetch compute pipeline
+                            let pipeline_id = sort_bind_groups.get_sort_copy_pipeline_id();
+                            if compute_pass
+                                .set_cached_compute_pipeline(pipeline_id)
+                                .is_err()
+                            {
+                                compute_pass
+                                    .insert_debug_marker("ERROR:FailedToSetSortCopyPipeline");
+                                compute_pass.pop_debug_group();
+                                // FIXME - Bevy doesn't allow returning custom errors here...
+                                return Ok(());
+                            }
+
+                            let spawner_index = effect_batch.spawner_base + effect_index as u32;
+                            let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
+                            assert!(
+                                spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize
+                            );
+                            let spawner_offset = spawner_index * spawner_aligned_size as u32;
+
+                            // Bind group sort_copy@0
+                            let indirect_index_buffer = particle_slab.indirect_index_buffer();
+                            let Some(bind_group) = sort_bind_groups.sort_copy_bind_group(
+                                indirect_index_buffer.id(),
+                                effect_metadata_buffer.id(),
+                            ) else {
+                                warn!("Missing sort-copy bind group.");
+                                compute_pass.insert_debug_marker("ERROR:MissingSortCopyBindGroup");
+                                continue;
+                            };
+                            compute_pass.set_bind_group(0, bind_group, &[spawner_offset]);
+
+                            compute_pass
+                                .dispatch_workgroups_indirect(indirect_buffer, indirect_offset);
+                            trace!("Dispatched sort-copy with indirect offset +{indirect_offset}");
+
                             compute_pass.pop_debug_group();
-                            // FIXME - Bevy doesn't allow returning custom errors here...
-                            return Ok(());
                         }
-
-                        let spawner_base = effect_batch.spawner_base;
-                        let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
-                        assert!(
-                            spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize
-                        );
-                        let spawner_offset = spawner_base * spawner_aligned_size as u32;
-
-                        // Bind group sort_copy@0
-                        let indirect_index_buffer = effect_buffer.indirect_index_buffer();
-                        let Some(bind_group) = sort_bind_groups.sort_copy_bind_group(
-                            indirect_index_buffer.id(),
-                            effect_metadata_buffer.id(),
-                        ) else {
-                            warn!("Missing sort-copy bind group.");
-                            compute_pass.insert_debug_marker("ERROR:MissingSortCopyBindGroup");
-                            continue;
-                        };
-                        let effect_metadata_offset = effects_meta
-                            .effect_metadata_buffer
-                            .dynamic_offset(effect_batch.metadata_table_id);
-                        compute_pass.set_bind_group(
-                            0,
-                            bind_group,
-                            &[effect_metadata_offset, spawner_offset],
-                        );
-
-                        compute_pass
-                            .dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
-                        trace!("Dispatched sort-copy with indirect offset +{indirect_offset}");
-
-                        compute_pass.pop_debug_group();
                     }
                 }
             }
@@ -7760,18 +7895,18 @@ mod tests {
         assert_eq!(flags, LayoutFlags::NONE);
     }
 
-    #[cfg(feature = "gpu_tests")]
-    #[test]
-    fn gpu_limits() {
-        use crate::test_utils::MockRenderer;
+    // #[cfg(feature = "gpu_tests")]
+    // #[test]
+    // fn gpu_limits() {
+    //     use crate::test_utils::MockRenderer;
 
-        let renderer = MockRenderer::new();
-        let device = renderer.device();
-        let limits = GpuLimits::from_device(&device);
+    //     let renderer = MockRenderer::new();
+    //     let device = renderer.device();
+    //     let limits = GpuLimits::from_device(&device);
 
-        // assert!(limits.storage_buffer_align().get() >= 1);
-        assert!(limits.effect_metadata_offset(256) >= 256 * GpuEffectMetadata::min_size().get());
-    }
+    //     // assert!(limits.storage_buffer_align().get() >= 1);
+    //     assert!(limits.effect_metadata_offset(256) >= 256 *
+    // GpuEffectMetadata::min_size().get()); }
 
     #[cfg(feature = "gpu_tests")]
     #[test]

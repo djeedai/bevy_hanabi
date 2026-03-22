@@ -112,6 +112,29 @@ impl BatchSpawnInfo {
     }
 }
 
+/// Data for a single effect as part of a batch.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BatchEffectData {
+    /// Entities holding the source [`ParticleEffect`] instance. Used to
+    /// determine visibility per view.
+    ///
+    /// This is the [`Entity::index()`] of the [`MainEntity`] from the main
+    /// world.
+    ///
+    /// [`ParticleEffect`]: crate::ParticleEffect
+    pub entity: u32,
+    /// Indirect draw args for each effect instance.
+    pub draw_indirect_buffer_row_index: BufferTableId,
+    /// Metadata table row index.
+    pub metadata_table_id: BufferTableId,
+    /// Allocated [`GpuDispatchIndirectArgs`] for this effect. Without segmented
+    /// sort (yet), we have to sort each effect instance separately, so need an
+    /// indirect compute dispatch for each effect instance.
+    ///
+    /// [`GpuDispatchIndirectArgs`]: super::GpuDispatchIndirectArgs
+    pub sort_indirect_args_index: Option<u32>,
+}
+
 /// Batch of effects dispatched and rendered together.
 #[derive(Debug, Clone)]
 pub(crate) struct EffectBatch {
@@ -152,11 +175,8 @@ pub(crate) struct EffectBatch {
     pub spawner_base: u32,
     /// Total number of effect instances batched together in this batch.
     pub effect_count: u32,
-    /// Indirect draw args for each effect instance.
-    pub draw_indirect_buffer_row_index: Vec<BufferTableId>,
-    /// Metadata table row index.
-    // FIXME - this is per-effect not per-batch
-    pub metadata_table_id: BufferTableId,
+    /// Per-effect data.
+    pub effect_data: Vec<BatchEffectData>,
     /// Particle layout shared by all batched effects and groups.
     pub particle_layout: ParticleLayout,
     /// Flags describing the render layout.
@@ -169,13 +189,7 @@ pub(crate) struct EffectBatch {
     pub textures: Vec<Handle<Image>>,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
-    /// Entities holding the source [`ParticleEffect`] instances which were
-    /// batched into this single batch. Used to determine visibility per view.
-    ///
-    /// [`ParticleEffect`]: crate::ParticleEffect
-    pub entities: Vec<u32>,
     pub cached_effect_events: Option<CachedEffectEvents>,
-    pub sort_fill_indirect_dispatch_index: Option<u32>,
 }
 
 impl EffectBatch {
@@ -218,15 +232,9 @@ impl EffectBatch {
         }
 
         // OK, merge!
-        self.entities.extend(effect_batch.entities);
-        self.draw_indirect_buffer_row_index
-            .extend(effect_batch.draw_indirect_buffer_row_index);
-        assert_eq!(
-            self.entities.len(),
-            self.draw_indirect_buffer_row_index.len(),
-        );
+        self.effect_data.extend(effect_batch.effect_data);
         self.effect_count += effect_batch.effect_count;
-        assert_eq!(self.entities.len(), self.effect_count as usize);
+        assert_eq!(self.effect_data.len(), self.effect_count as usize);
         assert_eq!(
             self.spawn_info.is_cpu(),
             effect_batch.spawn_info.is_cpu(),
@@ -256,20 +264,20 @@ pub(crate) struct SortedEffectBatches {
     /// the returned [`EffectBatchIndex`].
     ///
     /// [`push()`]: Self::push
-    batches: Vec<EffectBatch>,
+    pub batches: Vec<EffectBatch>,
     /// Index of the sort queue used for copying `alive_count` to the prefix sum
     /// buffer, and submitted to [`GpuBufferOperations`].
-    pub(super) sort_fill_prefix_sum_queue_index: Option<u32>,
-    /// Index of the dispatch queue used for indirect fill dispatch and
-    /// submitted to [`GpuBufferOperations`].
-    pub(super) dispatch_queue_index: Option<u32>,
+    //pub(super) sort_fill_prefix_sum_queue_index: Option<u32>,
+    /// Index of the operation queue used for filling indirect args, submitted
+    /// to [`GpuBufferOperations`].
+    pub(super) sort_fill_indirect_args_queue_index: Option<u32>,
 }
 
 impl SortedEffectBatches {
     pub fn clear(&mut self) {
         self.batches.clear();
-        self.sort_fill_prefix_sum_queue_index = None;
-        self.dispatch_queue_index = None;
+        //self.sort_fill_prefix_sum_queue_index = None;
+        self.sort_fill_indirect_args_queue_index = None;
     }
 
     /// Insert a new batch into the collection.
@@ -558,16 +566,18 @@ impl EffectBatch {
             spawner_base: spawner_index,
             effect_count: 1,
             particle_layout: input.effect_slice.particle_layout.clone(),
-            draw_indirect_buffer_row_index: vec![draw_indirect_buffer_row_index],
-            metadata_table_id,
+            effect_data: vec![BatchEffectData {
+                entity: main_entity.index_u32(),
+                draw_indirect_buffer_row_index,
+                metadata_table_id,
+                sort_indirect_args_index: None, // set later as needed
+            }],
             layout_flags: extracted_effect.layout_flags,
             mesh: cached_mesh.mesh,
             texture_layout: extracted_effect.texture_layout.clone(),
             textures: extracted_effect.textures.clone(),
             alpha_mode: extracted_effect.alpha_mode,
-            entities: vec![main_entity.index_u32()],
             cached_effect_events: cached_effect_events.cloned(),
-            sort_fill_indirect_dispatch_index: None, // set later as needed
         }
     }
 }

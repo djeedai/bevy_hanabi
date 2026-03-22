@@ -1,8 +1,13 @@
+/// Key-value pair to sort, with optional secondary key.
+///
+/// Sorting operates on the key (and the secondary key as discriminant, if present,
+/// and if the primary keys are equal). The value is carried over alongside the key(s),
+/// unmodified. It generally represents or indexes the payload associated with the key(s).
 struct KeyValuePair {
     /// Sorting key.
     key: u32,
 #ifdef HAS_DUAL_KEY
-    /// Secondary sorting key. Sorts value with the same primary key.
+    /// Secondary sorting key. Used for values with equal primary key.
     key2: u32,
 #endif
     /// Value associated with the sort key(s), generally an index to some other data.
@@ -10,8 +15,11 @@ struct KeyValuePair {
     value: u32,
 }
 
+/// Buffer of key-value pairs to sort.
 struct SortBuffer {
+    /// Number of items in the buffer.
     count: i32,
+    /// Pairs to sort. On output, contains the pairs in sorted order.
     pairs: array<KeyValuePair>,
 }
 

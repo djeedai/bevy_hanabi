@@ -159,17 +159,6 @@ struct BatchInfo {
     {{BATCH_INFO_PADDING}}
 }
 
-// Effect metadata offsets. Used when accessing a tightly packed array of EffectMetadata
-// as a raw array<u32>, so that we can avoid WGSL struct padding and keep data more compact
-// in the GPU buffer. Each offset corresponds to a field in the EffectMetadata struct.
-// Note that all fields are 4 bytes, so we can index by "number of 4-byte field".
-const EM_OFFSET_CAPACITY: u32 = 0u;
-const EM_OFFSET_ALIVE_COUNT: u32 = 1u;
-const EM_OFFSET_MAX_UPDATE: u32 = 2u;
-const EM_OFFSET_MAX_SPAWN: u32 = 3u;
-const EM_OFFSET_INDIRECT_WRITE_INDEX: u32 = 4u;
-const EM_OFFSET_INDIRECT_DISPATCH_INDEX: u32 = 5u;
-
 /// Metadata describing a single effect instance.
 ///
 /// The metadata describes various effect settings, as well we the location in
@@ -236,16 +225,7 @@ struct EffectMetadata {
     /// The value loops back after some time, but unless some particle lives
     /// forever there's little chance of repetition.
     particle_counter: atomic<u32>,
-
-    /// Padding for storage buffer alignment. This struct is sometimes bound as part
-    /// of an array, or sometimes individually as a single unit. In the later case,
-    /// we need it to be aligned to the GPU limits of the device. That limit is only
-    /// known at runtime when initializing the WebGPU device.
-    {{EFFECT_METADATA_PADDING}}
 }
-
-/// Stride, in u32 count, between elements of an array<EffectMetadata>.
-const EFFECT_METADATA_STRIDE: u32 = {{EFFECT_METADATA_STRIDE}} / 4u;
 
 var<private> seed : u32 = 0u;
 

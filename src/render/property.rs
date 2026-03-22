@@ -567,7 +567,8 @@ impl PropertyBindGroups {
         let align = render_device.limits().min_storage_buffer_offset_alignment;
         trace!("Creating new spawner@2 bind group for no-property variant");
 
-        // Variant with prefix sum (for init/update batched passes, and multi-draw rendering)
+        // Variant with prefix sum (for init/update batched passes, and multi-draw
+        // rendering)
         let Some(layout_desc) = property_cache.bind_group_layout_desc(None, true) else {
             error!(
                 "Missing property bind group layout for no-property variant (w/ prefix), referenced by effect batch.",

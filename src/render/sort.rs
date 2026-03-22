@@ -20,7 +20,9 @@ use bevy::{
     utils::default,
 };
 use bytemuck::{Pod, Zeroable};
-use wgpu::{BufferBinding, BufferDescriptor, BufferUsages, CommandEncoder, ShaderStages};
+use wgpu::{
+    BufferAddress, BufferBinding, BufferDescriptor, BufferUsages, CommandEncoder, ShaderStages,
+};
 
 use super::{gpu_buffer::GpuBuffer, GpuDispatchIndirectArgs, GpuEffectMetadata, StorageType};
 use crate::{
@@ -91,7 +93,7 @@ pub struct SortBindGroups {
     sort_buffer: Buffer,
     /// GPU buffer containing the [`GpuDispatchIndirect`] structs for the
     /// sort-fill and sort passes.
-    indirect_buffer: GpuBuffer<GpuDispatchIndirectArgs>,
+    indirect_args_buffer: GpuBuffer<GpuDispatchIndirectArgs>,
     /// Bind group layouts for group #0 of the sort-fill compute pass.
     sort_fill_bind_group_layout_descs:
         HashMap<SortFillBindGroupLayoutKey, (BindGroupLayoutDescriptor, CachedComputePipelineId)>,
@@ -173,9 +175,9 @@ impl SortBindGroups {
                     storage_buffer::<GpuIndirectIndex>(false),
                     // @group(0) @binding(1) var<storage, read> sort_buffer : SortBuffer;
                     storage_buffer_read_only::<GpuSortBufferSingleEntry>(false),
-                    // @group(0) @binding(2) var<storage, read_write> effect_metadata :
-                    // EffectMetadata;
-                    storage_buffer_sized(true, Some(GpuEffectMetadata::aligned_size(alignment))),
+                    // @group(0) @binding(2) var<storage, read_write> effect_metadatas :
+                    // array<EffectMetadata>;
+                    storage_buffer::<GpuEffectMetadata>(false),
                     // @group(0) @binding(3) var<storage, read> spawner : Spawner;
                     storage_buffer_read_only_sized(
                         true,
@@ -200,7 +202,7 @@ impl SortBindGroups {
             render_device: render_device.clone(),
             sort_fill_shader,
             sort_buffer,
-            indirect_buffer,
+            indirect_args_buffer: indirect_buffer,
             sort_fill_bind_group_layout_descs: default(),
             sort_fill_bind_groups: default(),
             sort_bind_group_layout_desc,
@@ -219,18 +221,19 @@ impl SortBindGroups {
     }
 
     #[inline]
-    pub fn clear_indirect_dispatch_buffer(&mut self) {
-        self.indirect_buffer.clear();
+    pub fn clear_indirect_args_buffer(&mut self) {
+        self.indirect_args_buffer.clear();
+    }
+
+    /// Allocate a [`GpuDispatchIndirectArgs`] slot in the global shared buffer.
+    #[inline]
+    pub fn allocate_indirect_args(&mut self) -> u32 {
+        self.indirect_args_buffer.allocate()
     }
 
     #[inline]
-    pub fn allocate_indirect_dispatch(&mut self) -> u32 {
-        self.indirect_buffer.allocate()
-    }
-
-    #[inline]
-    pub fn get_indirect_dispatch_byte_offset(&self, index: u32) -> u32 {
-        self.indirect_buffer.item_size() as u32 * index
+    pub fn get_indirect_args_byte_offset(&self, index: u32) -> BufferAddress {
+        self.indirect_args_buffer.item_size() as BufferAddress * index as BufferAddress
     }
 
     #[inline]
@@ -240,8 +243,8 @@ impl SortBindGroups {
     }
 
     #[inline]
-    pub fn indirect_buffer(&self) -> Option<&Buffer> {
-        self.indirect_buffer.buffer()
+    pub fn indirect_args_buffer(&self) -> Option<&Buffer> {
+        self.indirect_args_buffer.buffer()
     }
 
     #[inline]
@@ -297,17 +300,17 @@ impl SortBindGroups {
 
     #[inline]
     pub fn prepare_buffers(&mut self, render_device: &RenderDevice) {
-        self.indirect_buffer.prepare_buffers(render_device);
+        self.indirect_args_buffer.prepare_buffers(render_device);
     }
 
     #[inline]
     pub fn write_buffers(&self, command_encoder: &mut CommandEncoder) {
-        self.indirect_buffer.write_buffers(command_encoder);
+        self.indirect_args_buffer.write_buffers(command_encoder);
     }
 
     #[inline]
     pub fn clear_previous_frame_resizes(&mut self) {
-        self.indirect_buffer.clear_previous_frame_resizes();
+        self.indirect_args_buffer.clear_previous_frame_resizes();
     }
 
     pub fn ensure_sort_fill_bind_group_layout_desc(
@@ -341,12 +344,9 @@ impl SortBindGroups {
                             // @group(0) @binding(2) var<storage, read> indirect_index_buffer :
                             // array<u32>;
                             storage_buffer_read_only::<GpuIndirectIndex>(false),
-                            // @group(0) @binding(3) var<storage, read_write> effect_metadata :
-                            // EffectMetadata;
-                            storage_buffer_sized(
-                                true,
-                                Some(GpuEffectMetadata::aligned_size(alignment)),
-                            ),
+                            // @group(0) @binding(3) var<storage, read_write> effect_metadatas :
+                            // array<EffectMetadata>;
+                            storage_buffer::<GpuEffectMetadata>(false),
                             // @group(0) @binding(4) var<storage, read> spawner : Spawner;
                             storage_buffer_read_only_sized(
                                 true,
@@ -439,17 +439,9 @@ impl SortBindGroups {
                             // @group(0) @binding(2) var<storage, read> indirect_index_buffer :
                             // array<u32>;
                             indirect_index.as_entire_binding(),
-                            // @group(0) @binding(3) var<storage, read> effect_metadata :
-                            // EffectMetadata;
-                            BufferBinding {
-                                buffer: effect_metadata,
-                                offset: 0,
-                                size: Some(GpuEffectMetadata::aligned_size(
-                                    self.render_device
-                                        .limits()
-                                        .min_storage_buffer_offset_alignment,
-                                )),
-                            },
+                            // @group(0) @binding(3) var<storage, read_write> effect_metadatas :
+                            // array<EffectMetadata>;
+                            effect_metadata.as_entire_binding(),
                             // @group(0) @binding(4) var<storage, read> spawner : Spawner;
                             BufferBinding {
                                 buffer: spawner_buffer,
@@ -531,17 +523,9 @@ impl SortBindGroups {
                             indirect_index_buffer.as_entire_binding(),
                             // @group(0) @binding(1) var<storage, read> sort_buffer : SortBuffer;
                             self.sort_buffer.as_entire_binding(),
-                            // @group(0) @binding(2) var<storage, read> effect_metadata :
-                            // EffectMetadata;
-                            BufferBinding {
-                                buffer: effect_metadata_buffer,
-                                offset: 0,
-                                size: Some(GpuEffectMetadata::aligned_size(
-                                    self.render_device
-                                        .limits()
-                                        .min_storage_buffer_offset_alignment,
-                                )),
-                            },
+                            // @group(0) @binding(2) var<storage, read_write> effect_metadatas :
+                            // array<EffectMetadata>;
+                            effect_metadata_buffer.as_entire_binding(),
                             // @group(0) @binding(3) var<storage, read> spawner : Spawner;
                             BufferBinding {
                                 buffer: spawner_buffer,

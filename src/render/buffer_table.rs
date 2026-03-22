@@ -410,6 +410,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
     ///
     /// [`aligned_size()`]: Self::aligned_size
     #[inline]
+    #[allow(dead_code)]
     pub fn dynamic_offset(&self, id: BufferTableId) -> u32 {
         let offset = self.aligned_size * id.0 as usize;
         assert!(offset <= u32::MAX as usize);

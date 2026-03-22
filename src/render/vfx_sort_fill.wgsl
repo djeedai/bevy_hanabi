@@ -26,14 +26,15 @@ struct RawParticleBuffer {
 @group(0) @binding(1) var<storage, read> particle_buffer : RawParticleBuffer;
 @group(0) @binding(2) var<storage, read> indirect_index_buffer : array<u32>;
 // Technically read-only, but the type contains atomic<> fields and wasm is strict about it
-@group(0) @binding(3) var<storage, read_write> effect_metadata : EffectMetadata;
+@group(0) @binding(3) var<storage, read_write> effect_metadatas : array<EffectMetadata>;
 @group(0) @binding(4) var<storage, read> spawner : Spawner;
 
 /// Fill the sorting key-value pair buffer with data to prepare for actual sorting.
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let thread_index = global_invocation_id.x;
-    let count = atomicLoad(&effect_metadata.alive_count); // TODO - atomic not needed
+    let effect_metadata_index = spawner.effect_metadata_index;
+    let count = atomicLoad(&effect_metadatas[effect_metadata_index].alive_count); // TODO - atomic not needed
     if (thread_index >= count) {
         return;
     }
@@ -43,12 +44,12 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Read the particle index from the ping-pong column index written this frame by vfx_update.
     // After sorting we will write back into that same column, so that the sorting effectively
     // sorted the column in-place (no ping-pong column swap here).
-    let read_index = effect_metadata.indirect_write_index;
+    let read_index = effect_metadatas[effect_metadata_index].indirect_write_index;
     let particle_index = indirect_index_buffer[(base_particle + thread_index) * 3u + read_index];
 
-    let particle_offset = (base_particle + particle_index) * effect_metadata.particle_stride;
-    let key_offset = particle_offset + effect_metadata.sort_key_offset;
-    let key2_offset = particle_offset + effect_metadata.sort_key2_offset;
+    let particle_offset = (base_particle + particle_index) * effect_metadatas[effect_metadata_index].particle_stride;
+    let key_offset = particle_offset + effect_metadatas[effect_metadata_index].sort_key_offset;
+    let key2_offset = particle_offset + effect_metadatas[effect_metadata_index].sort_key2_offset;
 
     let pair_index = atomicAdd(&sort_buffer.count, 1);
     sort_buffer.pairs[pair_index].key = particle_buffer.data[key_offset];

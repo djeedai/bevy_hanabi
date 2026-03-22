@@ -26,7 +26,7 @@ use crate::{
     asset::EffectAsset,
     render::{
         calc_hash, event::GpuChildInfo, GpuDrawIndexedIndirectArgs, GpuDrawIndirectArgs,
-        GpuEffectMetadata, GpuIndirectIndex, StorageType as _,
+        GpuEffectMetadata, GpuIndirectIndex,
     },
     ParticleLayout,
 };
@@ -983,7 +983,6 @@ impl EffectCache {
             &mut self.metadata_init_bind_group_layout_desc[consume_gpu_spawn_events as usize];
         if layout.is_none() {
             *layout = Some(create_metadata_init_bind_group_layout_desc(
-                &self.render_device,
                 consume_gpu_spawn_events,
             ));
         }
@@ -1003,12 +1002,7 @@ impl EffectCache {
     pub fn ensure_metadata_update_bind_group_layout_desc(&mut self, num_event_buffers: u32) {
         self.metadata_update_bind_group_layout_descs
             .entry(num_event_buffers)
-            .or_insert_with(|| {
-                create_metadata_update_bind_group_layout_desc(
-                    &self.render_device,
-                    num_event_buffers,
-                )
-            });
+            .or_insert_with(|| create_metadata_update_bind_group_layout_desc(num_event_buffers));
     }
 
     /// Get the bind group layout for the metadata@3 bind group of the
@@ -1122,12 +1116,8 @@ fn create_particle_sim_bind_group_layout_desc(
 
 /// Create the bind group layout for the metadata@3 bind group of the init pass.
 fn create_metadata_init_bind_group_layout_desc(
-    render_device: &RenderDevice,
     consume_gpu_spawn_events: bool,
 ) -> BindGroupLayoutDescriptor {
-    let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
-    let effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
-
     let mut entries = Vec::with_capacity(3);
 
     // @group(3) @binding(0) var<storage, read_write> effect_metadata :
@@ -1138,9 +1128,7 @@ fn create_metadata_init_bind_group_layout_desc(
         ty: BindingType::Buffer {
             ty: BufferBindingType::Storage { read_only: false },
             has_dynamic_offset: false,
-            // This WGSL struct is manually padded, so the Rust type GpuEffectMetadata doesn't
-            // reflect its true min size.
-            min_binding_size: Some(effect_metadata_size),
+            min_binding_size: Some(GpuEffectMetadata::SHADER_SIZE),
         },
         count: None,
     });
@@ -1193,12 +1181,8 @@ fn create_metadata_init_bind_group_layout_desc(
 /// Create the bind group layout for the metadata@3 bind group of the update
 /// pass.
 fn create_metadata_update_bind_group_layout_desc(
-    render_device: &RenderDevice,
     num_event_buffers: u32,
 ) -> BindGroupLayoutDescriptor {
-    let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
-    let effect_metadata_size = GpuEffectMetadata::aligned_size(storage_alignment);
-
     let mut entries = Vec::with_capacity(num_event_buffers as usize + 2);
 
     // @group(3) @binding(0) var<storage, read_write> effect_metadata :
@@ -1209,9 +1193,7 @@ fn create_metadata_update_bind_group_layout_desc(
         ty: BindingType::Buffer {
             ty: BufferBindingType::Storage { read_only: false },
             has_dynamic_offset: false,
-            // This WGSL struct is manually padded, so the Rust type GpuEffectMetadata doesn't
-            // reflect its true min size.
-            min_binding_size: Some(effect_metadata_size),
+            min_binding_size: Some(GpuEffectMetadata::SHADER_SIZE),
         },
         count: None,
     });
