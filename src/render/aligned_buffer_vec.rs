@@ -261,11 +261,12 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
             self.capacity = capacity;
             if let Some(old_buffer) = self.buffer.take() {
                 trace!(
-                    "reserve['{}']: destroying old buffer #{:?}",
+                    "reserve['{}']: forgetting old buffer #{:?}",
                     self.safe_label(),
                     old_buffer.id()
                 );
-                old_buffer.destroy();
+                // Do not explicitly destroy the old buffer here; let the
+                // backend drop it safely.
             }
             let new_buffer = device.create_buffer(&BufferDescriptor {
                 label: self.label.as_ref().map(|s| &s[..]),
@@ -826,8 +827,10 @@ impl HybridAlignedBufferVec {
                 capacity,
             );
             self.capacity = capacity;
-            if let Some(buffer) = self.buffer.take() {
-                buffer.destroy();
+            if let Some(old_buffer) = self.buffer.take() {
+                trace!("reserve: forgetting old buffer #{:?}", old_buffer.id());
+                // Do not explicitly destroy the old buffer here; let the
+                // backend drop it safely.
             }
             self.buffer = Some(device.create_buffer(&BufferDescriptor {
                 label: self.label.as_ref().map(|s| &s[..]),
