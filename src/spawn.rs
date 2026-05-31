@@ -324,13 +324,11 @@ impl SpawnerSettings {
         cycle_count: u32,
     ) -> Result<Self, SpawnerSettingsError> {
         let range = period.range();
-        if cycle_count != 1 {
-            if range[0] < 0. || range[1] <= 0. {
-                return Err(SpawnerSettingsError::InvalidPeriod {
-                    min: range[0],
-                    max: range[1],
-                });
-            }
+        if (cycle_count != 1) && (range[0] < 0. || range[1] <= 0.) {
+            return Err(SpawnerSettingsError::InvalidPeriod {
+                min: range[0],
+                max: range[1],
+            });
         }
         if !range[0].is_finite() || !range[1].is_finite() {
             return Err(SpawnerSettingsError::InfinitePeriod);
