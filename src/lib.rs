@@ -1043,11 +1043,11 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
                 &init_sim_space_transform_code,
             );
-        trace!(
-            "Configured init shader for '{}':\n{}",
-            asset.name,
-            init_shader_source
-        );
+        // trace!(
+        //     "Configured init shader for '{}':\n{}",
+        //     asset.name,
+        //     init_shader_source
+        // );
 
         // Generate the shader code for the update shader
         let (mut update_code, update_extra, emit_gpu_spawn_events) = {
@@ -1276,11 +1276,11 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                 "{{EMIT_EVENT_BUFFER_APPEND_FUNCS}}",
                 &emit_event_buffer_append_funcs_code,
             );
-        trace!(
-            "Configured update shader for '{}':\n{}",
-            asset.name,
-            update_shader_source
-        );
+        // trace!(
+        //     "Configured update shader for '{}':\n{}",
+        //     asset.name,
+        //     update_shader_source
+        // );
 
         // Configure the render shader template, and make sure a corresponding shader
         // asset exists
@@ -1296,11 +1296,11 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             .replace("{{ALPHA_CUTOFF}}", &alpha_cutoff_code)
             .replace("{{FLIPBOOK_SCALE}}", &flipbook_scale_code)
             .replace("{{FLIPBOOK_ROW_COUNT}}", &flipbook_row_count_code);
-        trace!(
-            "Configured render shader for '{}':\n{}",
-            asset.name,
-            render_shader_source
-        );
+        // trace!(
+        //     "Configured render shader for '{}':\n{}",
+        //     asset.name,
+        //     render_shader_source
+        // );
 
         Ok(EffectShaderSource {
             init_shader_source,

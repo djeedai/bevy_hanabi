@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use std::num::NonZeroU8;
+use std::{num::NonZeroU8, time::Duration};
 
 use bevy::{
     camera::{visibility::RenderLayers, CameraOutputMode},
@@ -108,7 +108,7 @@ impl DemoApp {
                 desc_position: self.desc_position,
             })
             .add_systems(Startup, spawn_demo_ui)
-            .add_systems(Update, close_on_esc);
+            .add_systems(Update, (demo_menu, close_on_esc));
 
         app
     }
@@ -225,4 +225,22 @@ fn spawn_demo_ui(mut cmd: Commands, demo: Res<Demo>) {
         ],
         UiTargetCamera(ui_camera),
     ));
+}
+
+fn demo_menu(
+    mut sim_time: ResMut<Time<EffectSimulation>>,
+    input: Res<ButtonInput<KeyCode>>,
+    mut contexts: bevy_egui::EguiContexts,
+) {
+    // ENTER: pause/unpause time
+    if input.just_pressed(KeyCode::Enter) {
+        let is_paused = sim_time.is_paused();
+        sim_time.set_paused(!is_paused);
+    }
+
+    // SPACE: step a single frame forward
+    if sim_time.is_paused() && input.just_pressed(KeyCode::Space) {
+        let delta = sim_time.delta();
+        sim_time.advance_by(delta);
+    }
 }

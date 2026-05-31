@@ -265,7 +265,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
                     self.safe_label(),
                     old_buffer.id()
                 );
-                old_buffer.destroy();
+                //old_buffer.destroy();
             }
             let new_buffer = device.create_buffer(&BufferDescriptor {
                 label: self.label.as_ref().map(|s| &s[..]),
@@ -305,23 +305,42 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
         let buffer_changed = self.reserve(self.values.len(), device);
         if let Some(buffer) = &self.buffer {
             let aligned_size = self.aligned_size * self.values.len();
-            trace!(
-                "aligned_buffer['{}']: size={} buffer={:?}",
-                self.safe_label(),
-                aligned_size,
-                buffer.id(),
-            );
-            let mut aligned_buffer: Vec<u8> = vec![0; aligned_size];
-            for i in 0..self.values.len() {
-                let src: &[u8] = cast_slice(std::slice::from_ref(&self.values[i]));
-                let dst_offset = i * self.aligned_size;
-                let dst_range = dst_offset..dst_offset + self.item_size;
-                trace!("+ copy: src={:?} dst={:?}", src.as_ptr(), dst_range);
-                let dst = &mut aligned_buffer[dst_range];
-                dst.copy_from_slice(src);
+            if self.aligned_size == self.item_size {
+                // The CPU storage already contains aligned items; directly write to GPU buffer.
+                trace!(
+                    "+ direct-write['{}']: size={}B buffer={:?}",
+                    self.safe_label(),
+                    aligned_size,
+                    buffer.id(),
+                );
+                let src: &[u8] = cast_slice(&self.values[..]);
+                queue.write_buffer(buffer, 0, src);
+            } else {
+                // The CPU storage contains items smaller than the aligned size; copy with
+                // padding into a temporary storage to align items, then write from that
+                // temporary to the GPU buffer.
+                trace!(
+                    "+ aligned_buffer['{}']: size={}B buffer={:?}",
+                    self.safe_label(),
+                    aligned_size,
+                    buffer.id(),
+                );
+                let mut aligned_buffer: Vec<u8> = vec![0; aligned_size];
+                for i in 0..self.values.len() {
+                    let src: &[u8] = cast_slice(std::slice::from_ref(&self.values[i]));
+                    let dst_offset = i * self.aligned_size;
+                    let dst_range = dst_offset..dst_offset + self.item_size;
+                    trace!(
+                        "+ copy: src={:?} ({}B) dst={:?}",
+                        src.as_ptr(),
+                        self.item_size,
+                        dst_range
+                    );
+                    let dst = &mut aligned_buffer[dst_range];
+                    dst.copy_from_slice(src);
+                }
+                queue.write_buffer(buffer, 0, &aligned_buffer[..]);
             }
-            let bytes: &[u8] = cast_slice(&aligned_buffer);
-            queue.write_buffer(buffer, 0, bytes);
         }
         buffer_changed
     }

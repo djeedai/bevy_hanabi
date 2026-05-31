@@ -1239,6 +1239,51 @@ fn create_metadata_update_bind_group_layout_desc(
     BindGroupLayoutDescriptor::new(label, &entries)
 }
 
+// #[derive(Debug, Resource)]
+// pub struct EffectMetadatas {
+//     /// Global shared GPU buffer storing the various [`GpuEffectMetadata`]
+//     /// structs for the active effect instances.
+//     buffer: BufferTable<GpuEffectMetadata>,
+// }
+
+// impl FromWorld for EffectMetadatas {
+//     fn from_world(world: &mut World) -> Self {
+//         let render_device = world.resource::<RenderDevice>();
+//         let storage_align =
+// render_device.limits().min_storage_buffer_offset_alignment;         Self {
+//             buffer: BufferTable::new(
+//                 BufferUsages::STORAGE | BufferUsages::INDIRECT,
+//                 Some(NonZeroU64::new(storage_align as u64).unwrap()),
+//                 Some("hanabi:buffer:effect_metadata".to_string()),
+//             ),
+//         }
+//     }
+// }
+
+// impl EffectMetadatas {
+//     pub fn ensure_allocated(&mut self, mut cached_metadata:
+// Mut<CachedEffectMetadata>) {         if !cached_metadata.table_id.is_valid()
+// {             cached_metadata.table_id =
+// self.buffer.insert(cached_metadata.metadata);         } else {
+//             // Unless this is the first time we allocate the GPU entry
+// (above),             // we should never reach the beginning of this frame
+//             // with a changed metadata which has not
+//             // been re-uploaded last frame.
+//             // WRONG! We can only detect the change *since last run of THIS
+//             // system* so won't see that a latter system mutated the
+//             // data. assert!(!metadata.is_changed());
+//         }
+//     }
+
+//     pub fn free(&mut self, cached_metadata: &CachedEffectMetadata) {
+//         if cached_metadata.table_id.is_valid() {
+//             self.buffer.remove(cached_metadata.table_id);
+//         }
+//     }
+
+//     //pub fn submit_store_prefix_sum()
+// }
+
 #[cfg(all(test, feature = "gpu_tests"))]
 mod gpu_tests {
     use std::borrow::Cow;

@@ -14,6 +14,7 @@
 
 use bevy::math::vec4;
 use bevy::prelude::*;
+use bevy::render::settings::WgpuSettings;
 use bevy::render::view::Hdr;
 use bevy::{core_pipeline::tonemapping::Tonemapping, math::vec3, post_process::bloom::Bloom};
 use bevy_hanabi::prelude::*;
@@ -68,8 +69,13 @@ const PARTICLE_CAPACITY: u32 = 100;
 const DEMO_DESC: &str = include_str!("ribbon.txt");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let wgpu_settings = WgpuSettings {
+        //backends: Some(wgpu::Backends::VULKAN),
+        ..default()
+    };
     let app_exit = utils::DemoApp::new("ribbon")
         .with_desc(DEMO_DESC)
+        .with_wgpu_settings(wgpu_settings)
         .build()
         .add_systems(Startup, setup)
         .add_systems(Update, move_head)
@@ -77,7 +83,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app_exit.into_result()
 }
 
-fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
+fn setup(
+    mut commands: Commands,
+    mut effects: ResMut<Assets<EffectAsset>>,
+    mut debug_settings: ResMut<DebugSettings>,
+) {
+    debug_settings.capture_frame_count = 50;
+    debug_settings.start_capture_on_new_effect = true;
+
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 50.)),
         Camera {
@@ -126,7 +139,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     let render_color = ColorOverLifetimeModifier::new(bevy_hanabi::Gradient::linear(
         vec4(3.0, 0.0, 0.0, 1.0),
-        vec4(3.0, 0.0, 0.0, 0.0),
+        vec4(3.0, 3.0, 0.0, 0.0),
     ));
 
     let spawner = SpawnerSettings::rate(RIBBON_SPAWN_RATE.into());
@@ -176,7 +189,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
 fn move_head(
     mut query: Query<(&mut Shape, &mut Transform), With<ParticleEffect>>,
-    timer: Res<Time>,
+    timer: Res<Time<EffectSimulation>>,
 ) {
     for (mut shape, mut transform) in query.iter_mut() {
         let time = timer.elapsed_secs();

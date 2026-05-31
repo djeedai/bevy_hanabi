@@ -100,6 +100,9 @@ pub trait EffectSimulationTime {
     /// Resumes the clock if paused.
     fn unpause(&mut self);
 
+    /// Pause or unpause the clock.
+    fn set_paused(&mut self, paused: bool);
+
     /// Returns `true` if the clock is currently paused.
     fn is_paused(&self) -> bool;
 
@@ -138,6 +141,11 @@ impl EffectSimulationTime for Time<EffectSimulation> {
         assert!(ratio.is_finite(), "tried to go infinitely fast");
         assert!(ratio >= 0.0, "tried to go back in time");
         self.context_mut().relative_speed = ratio;
+    }
+
+    #[inline]
+    fn set_paused(&mut self, paused: bool) {
+        self.context_mut().paused = paused;
     }
 
     #[inline]

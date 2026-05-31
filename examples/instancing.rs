@@ -205,9 +205,13 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut my_effect: ResMut<InstanceManager>,
+    mut debug_settings: ResMut<DebugSettings>,
     asset_server: Res<AssetServer>,
 ) {
     info!("Usage: Press the SPACE key to spawn more instances, and the DELETE key to remove an existing instance.");
+
+    debug_settings.capture_frame_count = 20;
+    debug_settings.start_capture_on_new_effect = true;
 
     commands.spawn((
         Transform::from_translation(Vec3::Z * 180.),
