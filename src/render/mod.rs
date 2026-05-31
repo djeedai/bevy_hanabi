@@ -762,6 +762,8 @@ pub(crate) struct DispatchIndirectPipeline {
 
 impl FromWorld for DispatchIndirectPipeline {
     fn from_world(world: &mut World) -> Self {
+        let render_device = world.get_resource::<RenderDevice>().unwrap();
+
         // Copy the indirect pipeline shaders to self, because we can't access anything
         // else during pipeline specialization.
         let (indirect_shader_noevent, indirect_shader_events) = {
@@ -771,6 +773,9 @@ impl FromWorld for DispatchIndirectPipeline {
                 effects_meta.indirect_shader_events.clone(),
             )
         };
+
+        let storage_alignment = render_device.limits().min_storage_buffer_offset_alignment;
+        let spawner_min_binding_size = GpuSpawnerParams::aligned_size(storage_alignment);
 
         // @group(0) @binding(0) var<uniform> sim_params : SimParams;
         trace!("GpuSimParams: min_size={}", GpuSimParams::min_size());
@@ -805,8 +810,9 @@ impl FromWorld for DispatchIndirectPipeline {
         );
 
         trace!(
-            "GpuSpawnerParams: min_size={}",
-            GpuSpawnerParams::min_size()
+            "GpuSpawnerParams: min_size={} spawner_min_binding_size={}",
+            GpuSpawnerParams::min_size(),
+            spawner_min_binding_size
         );
         let spawner_bind_group_layout_desc = BindGroupLayoutDescriptor::new(
             "hanabi:bgl:dispatch_indirect:spawner@2",
@@ -815,7 +821,9 @@ impl FromWorld for DispatchIndirectPipeline {
                 (
                     // @group(2) @binding(0) var<storage, read_write> spawner_buffer :
                     // array<Spawner>;
-                    storage_buffer::<GpuSpawnerParams>(false),
+                    //storage_buffer::<GpuSpawnerParams>(false), // TODO - vfx_sort_fill still
+                    // needs aligned
+                    storage_buffer_sized(false, Some(spawner_min_binding_size)),
                     // @group(2) @binding(1) var<storage, read_write> prefix_sum : array<u32>;
                     storage_buffer::<u32>(false),
                 ),
@@ -2742,6 +2750,7 @@ pub struct EffectsMeta {
     sim_params_uniforms: UniformBuffer<GpuSimParams>,
     /// Global shared GPU buffer storing the various spawner parameter structs
     /// for the active effect instances.
+    // Note: we're still binding individual spawners in vfx_sort_fill.
     spawner_buffer: AlignedBufferVec<GpuSpawnerParams>,
     /// Global shared GPU buffer storing the various indirect dispatch structs
     /// for the indirect dispatch of the Update pass.

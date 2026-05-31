@@ -156,6 +156,7 @@ pub struct PropertyCache {
 impl PropertyCache {
     pub fn new(device: RenderDevice) -> Self {
         let align = device.limits().min_storage_buffer_offset_alignment;
+        let spawner_min_binding_size = GpuSpawnerParams::aligned_size(align);
 
         // Create the default bind group layout when no properties are present
         let bgl = BindGroupLayoutDescriptor::new(
@@ -164,7 +165,9 @@ impl PropertyCache {
                 ShaderStages::COMPUTE | ShaderStages::VERTEX,
                 (
                     // @group(2) @binding(0) var<storage, read> spawners : array<Spawner>;
-                    storage_buffer_read_only::<GpuSpawnerParams>(false),
+                    //storage_buffer_read_only::<GpuSpawnerParams>(false), // TODO - vfx_sort_fill
+                    // still needs align
+                    storage_buffer_read_only_sized(false, Some(spawner_min_binding_size)),
                     // @group(2) @binding(1) var<storage, read> prefix_sum : array<u32>;
                     storage_buffer_read_only::<u32>(false),
                     // @group(2) @binding(2) var<storage, read> batch_info : BatchInfo;

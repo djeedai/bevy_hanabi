@@ -48,6 +48,12 @@ struct Spawner {
     /// slab (if the effect has a parent effect), in number of particles (row index).
     /// This is ignored if the effect has no parent.
     parent_slab_offset: u32,
+
+    // Keep this field here separate from auto-padding below, so that the WGSL and Rust
+    // struct definitions match.
+    unused: u32,
+
+    {{SPAWNER_PADDING}}
 }
 
 const SPAWNER_OFFSET_PONG: u32 = 27u;

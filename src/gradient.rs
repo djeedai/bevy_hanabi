@@ -243,7 +243,7 @@ impl<T: Lerp + FromReflect> Gradient<T> {
             .into_iter()
             .map(|(ratio, value)| GradientKey { ratio, value })
             .collect::<Vec<_>>();
-        keys.sort_by(|a, b| FloatOrd(a.ratio).cmp(&FloatOrd(b.ratio)));
+        keys.sort_by_key(|a| FloatOrd(a.ratio));
         Self { keys }
     }
 
