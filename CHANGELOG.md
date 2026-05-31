@@ -5,6 +5,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added a fallible alternative `SpawnerSettings::try_new()` to the existing `new()`, to prevent panics
+  in editing context where inputs are not always validated.
+- Added `ParticleLayout::attributes()` returning an exact-size iterator over the `AttributeLayout` elements
+  forming the particle layout. This allows introspection of existing particle layouts.
+
 ### Changed
 
 - Spawners and properties are now bound as arrays in the various GPU passes.
