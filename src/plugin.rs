@@ -28,6 +28,7 @@ use crate::{
     asset::{DefaultMesh, EffectAsset},
     compile_effects,
     properties::EffectProperties,
+    register_modifiers,
     render::{
         allocate_effects, allocate_events, allocate_metadata, allocate_parent_child_infos,
         allocate_properties, batch_effects, clear_previous_frame_resizes,
@@ -229,6 +230,9 @@ impl HanabiPlugin {
 
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
+        // Register modifiers
+        register_modifiers(app);
+
         // Register asset
         app.init_asset::<EffectAsset>()
             .insert_resource(Random(spawn::new_rng()))

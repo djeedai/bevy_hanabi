@@ -47,7 +47,9 @@ use std::{
 };
 
 use bevy::{
+    app::App,
     asset::Handle,
+    ecs::reflect::AppTypeRegistry,
     image::Image,
     math::{UVec2, Vec3, Vec4},
     platform::collections::HashMap,
@@ -62,6 +64,7 @@ pub mod force;
 pub mod kill;
 pub mod output;
 pub mod position;
+pub mod registry;
 pub mod velocity;
 
 pub use accel::*;
@@ -70,6 +73,7 @@ pub use force::*;
 pub use kill::*;
 pub use output::*;
 pub use position::*;
+pub use registry::*;
 pub use velocity::*;
 
 use crate::{
@@ -706,6 +710,189 @@ impl Modifier for EmitSpawnEventModifier {
         context.set_emits_gpu_spawn_events(true)?;
         Ok(())
     }
+}
+
+/// Register all built-in modifiers.
+///
+/// This registers all built-in modifiers with the [`AppTypeRegistry`] of the
+/// given app, by both calling [`App::register_type()`] and inserting a
+/// [`ReflectModifier`] type data for the modifier type.
+pub fn register_modifiers(app: &mut App) {
+    // accel.rs
+    app.register_type::<AccelModifier>();
+    app.register_type::<RadialAccelModifier>();
+    app.register_type::<TangentAccelModifier>();
+    // attr.rs
+    app.register_type::<SetAttributeModifier>();
+    app.register_type::<InheritAttributeModifier>();
+    // force.rs
+    app.register_type::<ConformToSphereModifier>();
+    app.register_type::<LinearDragModifier>();
+    // kill.rs
+    app.register_type::<KillSphereModifier>();
+    app.register_type::<KillAabbModifier>();
+    // output.rs
+    app.register_type::<ParticleTextureModifier>();
+    app.register_type::<SetColorModifier>();
+    app.register_type::<ColorOverLifetimeModifier>();
+    app.register_type::<SetSizeModifier>();
+    app.register_type::<SizeOverLifetimeModifier>();
+    app.register_type::<OrientModifier>();
+    app.register_type::<FlipbookModifier>();
+    app.register_type::<ScreenSpaceSizeModifier>();
+    app.register_type::<RoundModifier>();
+    // position.rs
+    app.register_type::<SetPositionCircleModifier>();
+    app.register_type::<SetPositionSphereModifier>();
+    app.register_type::<SetPositionCone3dModifier>();
+    // velocity.rs
+    app.register_type::<SetVelocityCircleModifier>();
+    app.register_type::<SetVelocitySphereModifier>();
+    app.register_type::<SetVelocityTangentModifier>();
+
+    let type_registry = app.world().resource::<AppTypeRegistry>();
+
+    // accel.rs
+    register_reflect_modifier::<AccelModifier>(type_registry, |module| {
+        let accel = module.lit(Vec3::X);
+        Box::new(AccelModifier::new(accel))
+    });
+    register_reflect_modifier::<RadialAccelModifier>(type_registry, |module| {
+        let origin = module.lit(Vec3::ZERO);
+        let accel = module.lit(1.0);
+        Box::new(RadialAccelModifier::new(origin, accel))
+    });
+    register_reflect_modifier::<TangentAccelModifier>(type_registry, |module| {
+        let origin = module.lit(Vec3::ZERO);
+        let axis = module.lit(Vec3::X);
+        let accel = module.lit(1.0);
+        Box::new(TangentAccelModifier::new(origin, axis, accel))
+    });
+
+    // attr.rs
+    register_reflect_modifier::<SetAttributeModifier>(type_registry, |module| {
+        let value = module.lit(1.0);
+        Box::new(SetAttributeModifier::new(Attribute::LIFETIME, value))
+    });
+    register_reflect_modifier::<InheritAttributeModifier>(type_registry, |_| {
+        Box::new(InheritAttributeModifier::new(Attribute::LIFETIME))
+    });
+
+    // force.rs
+    register_reflect_modifier::<ConformToSphereModifier>(type_registry, |module| {
+        let origin = module.lit(Vec3::ZERO);
+        let radius = module.lit(1.0);
+        let influence_dist = module.lit(10.0);
+        let attraction_accel = module.lit(1.0);
+        let max_attraction_speed = module.lit(1.0);
+        Box::new(ConformToSphereModifier::new(
+            origin,
+            radius,
+            influence_dist,
+            attraction_accel,
+            max_attraction_speed,
+        ))
+    });
+    register_reflect_modifier::<LinearDragModifier>(type_registry, |module| {
+        let drag = module.lit(1.0);
+        Box::new(LinearDragModifier::new(drag))
+    });
+
+    // kill.rs
+    register_reflect_modifier::<KillSphereModifier>(type_registry, |module| {
+        let center = module.lit(Vec3::ZERO);
+        let sqr_radius = module.lit(1.0);
+        Box::new(KillSphereModifier::new(center, sqr_radius))
+    });
+    register_reflect_modifier::<KillAabbModifier>(type_registry, |module| {
+        let center = module.lit(Vec3::ZERO);
+        let sqr_radius = module.lit(1.0);
+        Box::new(KillAabbModifier::new(center, sqr_radius))
+    });
+
+    // output.rs
+    register_reflect_modifier::<ParticleTextureModifier>(type_registry, |module| {
+        let slot = module.lit(0u32);
+        Box::new(ParticleTextureModifier::new(slot))
+    });
+    register_reflect_modifier::<SetColorModifier>(type_registry, |_| {
+        Box::new(SetColorModifier::new(Vec4::ONE))
+    });
+    register_reflect_modifier::<ColorOverLifetimeModifier>(type_registry, |_| {
+        Box::new(ColorOverLifetimeModifier::new(Gradient::constant(
+            Vec4::ONE,
+        )))
+    });
+    register_reflect_modifier::<SetSizeModifier>(type_registry, |_| {
+        Box::new(SetSizeModifier {
+            size: Vec3::ONE.into(),
+        })
+    });
+    register_reflect_modifier::<SizeOverLifetimeModifier>(type_registry, |_| {
+        Box::new(SizeOverLifetimeModifier {
+            gradient: Gradient::constant(Vec3::ONE),
+            screen_space_size: false,
+        })
+    });
+    register_reflect_modifier::<OrientModifier>(type_registry, |_| {
+        Box::new(OrientModifier::new(OrientMode::default()))
+    });
+    register_reflect_modifier::<FlipbookModifier>(type_registry, |_| {
+        Box::new(FlipbookModifier::default())
+    });
+    register_reflect_modifier::<ScreenSpaceSizeModifier>(type_registry, |_| {
+        Box::new(ScreenSpaceSizeModifier)
+    });
+    register_reflect_modifier::<RoundModifier>(type_registry, |module| {
+        Box::new(RoundModifier::constant(module, 1.0))
+    });
+
+    // position.rs
+    register_reflect_modifier::<SetPositionCircleModifier>(type_registry, |module| {
+        Box::new(SetPositionCircleModifier {
+            center: module.lit(Vec3::ZERO),
+            axis: module.lit(Vec3::Z),
+            radius: module.lit(1.0),
+            dimension: ShapeDimension::Surface,
+        })
+    });
+    register_reflect_modifier::<SetPositionSphereModifier>(type_registry, |module| {
+        Box::new(SetPositionSphereModifier {
+            center: module.lit(Vec3::ZERO),
+            radius: module.lit(1.0),
+            dimension: ShapeDimension::Surface,
+        })
+    });
+    register_reflect_modifier::<SetPositionCone3dModifier>(type_registry, |module| {
+        Box::new(SetPositionCone3dModifier {
+            height: module.lit(1.0),
+            base_radius: module.lit(1.0),
+            top_radius: module.lit(0.0),
+            dimension: ShapeDimension::Surface,
+        })
+    });
+
+    // velocity.rs
+    register_reflect_modifier::<SetVelocityCircleModifier>(type_registry, |module| {
+        Box::new(SetVelocityCircleModifier {
+            center: module.lit(Vec3::ZERO),
+            axis: module.lit(Vec3::Z),
+            speed: module.lit(1.0),
+        })
+    });
+    register_reflect_modifier::<SetVelocitySphereModifier>(type_registry, |module| {
+        Box::new(SetVelocitySphereModifier {
+            center: module.lit(Vec3::ZERO),
+            speed: module.lit(1.0),
+        })
+    });
+    register_reflect_modifier::<SetVelocityTangentModifier>(type_registry, |module| {
+        Box::new(SetVelocityTangentModifier {
+            origin: module.lit(Vec3::ZERO),
+            axis: module.lit(Vec3::X),
+            speed: module.lit(1.0),
+        })
+    });
 }
 
 #[cfg(test)]
