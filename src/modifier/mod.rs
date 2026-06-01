@@ -151,7 +151,6 @@ impl std::fmt::Display for ModifierContext {
 }
 
 /// Trait describing a modifier customizing an effect pipeline.
-#[cfg_attr(feature = "serde", typetag::serde)]
 pub trait Modifier: Reflect + Send + Sync + 'static {
     /// Get the context this modifier applies to.
     fn context(&self) -> ModifierContext;
@@ -551,7 +550,6 @@ impl EvalContext for RenderContext<'_> {
 }
 
 /// Trait to customize the rendering of alive particles each frame.
-#[cfg_attr(feature = "serde", typetag::serde)]
 pub trait RenderModifier: Modifier {
     /// Apply the rendering code.
     fn apply_render(
@@ -576,7 +574,6 @@ impl Clone for Box<dyn RenderModifier> {
 /// Macro to implement the [`Modifier`] trait for a render modifier.
 macro_rules! impl_mod_render {
     ($t:ty, $attrs:expr) => {
-        #[cfg_attr(feature = "serde", typetag::serde)]
         impl $crate::Modifier for $t {
             fn context(&self) -> $crate::ModifierContext {
                 $crate::ModifierContext::Render
@@ -689,7 +686,6 @@ impl EmitSpawnEventModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for EmitSpawnEventModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update
@@ -957,15 +953,55 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn serde() {
+        use serde::de::DeserializeSeed as _;
+
         let m = make_test_modifier();
         let bm: BoxedModifier = Box::new(m);
 
-        // Ser
-        let s = ron::to_string(&bm).unwrap();
+        // Use reflect-based serialization with a TypeRegistry so the boxed trait
+        // object can be serialized via the registered ReflectModifier factories.
+        let type_registry = AppTypeRegistry::new_with_derived_types();
+        register_modifiers(&type_registry);
+        let registry = type_registry.read();
+
+        // Serialize via ReflectSerializer
+        let serializer = bevy::reflect::serde::ReflectSerializer::new(bm.as_reflect(), &registry);
+        let s = ron::to_string(&serializer).unwrap();
         println!("modifier: {:?}", s);
 
-        // De
-        let m_serde: BoxedModifier = ron::from_str(&s).unwrap();
+        // Deserialize via ReflectDeserializer and construct a concrete instance using
+        // the ReflectModifier factory (same approach as in registry serde_impl).
+        let mut de = ron::de::Deserializer::from_str(&s).unwrap();
+        let reflect_deser = bevy::reflect::serde::ReflectDeserializer::new(&registry);
+        let boxed_partial = reflect_deser.deserialize(&mut de).unwrap();
+
+        let type_info = boxed_partial
+            .get_represented_type_info()
+            .expect("reflected value has no represented type info");
+        let type_id = type_info.type_id();
+
+        // Lookup ReflectModifier type data to build default instance
+        let reflect_modifier = registry
+            .get_type_data::<crate::modifier::registry::ReflectModifier>(type_id)
+            .expect("no ReflectModifier type data for type");
+
+        // Convert PartialReflect -> concrete Reflect
+        let rfr = registry
+            .get_type_data::<bevy::reflect::ReflectFromReflect>(type_id)
+            .expect("no ReflectFromReflect data for type");
+        let concrete_reflect = rfr
+            .from_reflect(boxed_partial.as_partial_reflect())
+            .expect("from_reflect failed");
+
+        // Build default instance and assign the deserialized data
+        let mut module = Module::default();
+        let mut modifier: BoxedModifier = (reflect_modifier.factory)(&mut module);
+        let reflect_mut: &mut dyn Reflect = Reflect::as_reflect_mut(&mut *modifier);
+        reflect_mut
+            .set(concrete_reflect)
+            .expect("failed to assign reflect value to modifier instance");
+
+        let m_serde = modifier;
 
         let rm: &dyn Reflect = m.as_reflect();
         let rm_serde: &dyn Reflect = m_serde.as_reflect();

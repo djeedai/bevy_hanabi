@@ -114,7 +114,6 @@ impl SetAttributeModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for SetAttributeModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update
@@ -186,7 +185,6 @@ impl InheritAttributeModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for InheritAttributeModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init
