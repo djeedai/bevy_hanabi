@@ -1451,8 +1451,10 @@ impl Attribute {
 
 /// Layout for a single [`Attribute`] inside a [`ParticleLayout`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct AttributeLayout {
+pub struct AttributeLayout {
+    /// The particle attribute.
     pub attribute: Attribute,
+    /// Offset, in bytes, from the start of the particle.
     pub offset: u32,
 }
 
@@ -1838,8 +1840,9 @@ impl ParticleLayout {
         NonZeroU32::new(size.next_multiple_of(self.align)).unwrap()
     }
 
-    pub(crate) fn attributes(&self) -> &[AttributeLayout] {
-        &self.layout
+    /// Get the list of attributes forming this layout.
+    pub fn attributes(&self) -> impl ExactSizeIterator<Item = &AttributeLayout> {
+        self.layout.iter()
     }
 
     /// Check if the layout contains the specified [`Attribute`].
