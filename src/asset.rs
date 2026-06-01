@@ -356,7 +356,7 @@ impl bevy::reflect::serde::SerializeWithRegistry for EffectAsset {
         map.serialize_entry("name", &self.name)?;
         map.serialize_entry("capacity", &self.capacity)?;
         // Use TypedReflectSerializer for reflect-aware nested types so registry-driven
-        // serializers (e.g. Modifiers) are invoked.
+        // serializers are invoked for simple reflect types.
         map.serialize_entry(
             "spawner",
             &TypedReflectSerializer::new(Reflect::as_reflect(&self.spawner), registry),
@@ -371,18 +371,56 @@ impl bevy::reflect::serde::SerializeWithRegistry for EffectAsset {
             &TypedReflectSerializer::new(Reflect::as_reflect(&self.simulation_condition), registry),
         )?;
         map.serialize_entry("prng_seed", &self.prng_seed)?;
+
+        // For the modifiers, delegate to the Modifiers SerializeWithRegistry
+        // implementation by using a small wrapper that can call it with the
+        // registry.
+
+        // FIXME - this is likely useless, we can direclt use ReflectSerializer, it will invoke SerializeWithRegistry automatically.
+        // The previous code used *Typed*ReflectSerializer which is why that didn't work!
+        
+        struct RegistrySer<'a, T: ?Sized> {
+            value: &'a T,
+            registry: &'a bevy::reflect::TypeRegistry,
+        }
+        impl<'a, T> serde::Serialize for RegistrySer<'a, T>
+        where
+            T: bevy::reflect::serde::SerializeWithRegistry,
+        {
+            fn serialize<S2>(&self, serializer: S2) -> Result<S2::Ok, S2::Error>
+            where
+                S2: serde::Serializer,
+            {
+                bevy::reflect::serde::SerializeWithRegistry::serialize(
+                    self.value,
+                    serializer,
+                    self.registry,
+                )
+            }
+        }
+
         map.serialize_entry(
             "init_modifiers",
-            &TypedReflectSerializer::new(Reflect::as_reflect(&self.init_modifiers), registry),
+            &RegistrySer {
+                value: &self.init_modifiers,
+                registry,
+            },
         )?;
         map.serialize_entry(
             "update_modifiers",
-            &TypedReflectSerializer::new(Reflect::as_reflect(&self.update_modifiers), registry),
+            &RegistrySer {
+                value: &self.update_modifiers,
+                registry,
+            },
         )?;
         map.serialize_entry(
             "render_modifiers",
-            &TypedReflectSerializer::new(Reflect::as_reflect(&self.render_modifiers), registry),
+            &RegistrySer {
+                value: &self.render_modifiers,
+                registry,
+            },
         )?;
+
         map.serialize_entry(
             "motion_integration",
             &TypedReflectSerializer::new(Reflect::as_reflect(&self.motion_integration), registry),
@@ -395,8 +433,8 @@ impl bevy::reflect::serde::SerializeWithRegistry for EffectAsset {
             "alpha_mode",
             &TypedReflectSerializer::new(Reflect::as_reflect(&self.alpha_mode), registry),
         )?;
-        // mesh is optional and in the original serde it's skipped; only serialize it when present
-        // if let Some(mesh) = &self.mesh {
+        // mesh is optional and in the original serde it's skipped; only serialize it
+        // when present if let Some(mesh) = &self.mesh {
         //     map.serialize_entry("mesh", mesh)?;
         // }
         map.end()
