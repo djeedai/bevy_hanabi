@@ -1841,7 +1841,7 @@ impl ParticleLayout {
     }
 
     /// Get the list of attributes forming this layout.
-    pub fn attributes(&self) -> impl Iterator<Item = &AttributeLayout> + ExactSizeIterator {
+    pub fn attributes(&self) -> impl ExactSizeIterator<Item = &AttributeLayout> {
         self.layout.iter()
     }
 
