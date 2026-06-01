@@ -231,7 +231,10 @@ impl HanabiPlugin {
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
         // Register modifiers
-        register_modifiers(app);
+        {
+            let type_registry = app.world().resource::<AppTypeRegistry>();
+            register_modifiers(type_registry);
+        }
 
         // Register asset
         app.init_asset::<EffectAsset>()

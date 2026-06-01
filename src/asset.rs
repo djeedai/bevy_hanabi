@@ -1,7 +1,11 @@
+
 #[cfg(feature = "serde")]
 use bevy::asset::{io::Reader, AssetLoader, LoadContext};
+use bevy::ecs::reflect::AppTypeRegistry;
 #[cfg(feature = "serde")]
-use bevy::reflect::TypePath;
+use bevy::reflect::serde::ReflectDeserializer;
+#[cfg(feature = "serde")]
+use bevy::reflect::{TypePath, TypeRegistryArc};
 use bevy::{
     asset::{Asset, Assets, Handle},
     log::trace,
@@ -11,15 +15,18 @@ use bevy::{
     reflect::Reflect,
     utils::default,
 };
+#[cfg(feature = "serde")]
+use serde::de::DeserializeSeed as _;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "serde")]
 use thiserror::Error;
 use wgpu::{BlendComponent, BlendFactor, BlendOperation, BlendState};
 
+use crate::Modifiers;
 use crate::{
     modifier::{Modifier, RenderModifier},
-    BoxedModifier, ExprHandle, ModifierContext, Module, ParticleLayout, Property, PropertyLayout,
-    SimulationSpace, SpawnerSettings, TextureLayout,
+    ExprHandle, ModifierContext, Module, ParticleLayout, Property, PropertyLayout, SimulationSpace,
+    SpawnerSettings, TextureLayout,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -266,7 +273,7 @@ impl FromWorld for DefaultMesh {
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`EffectAsset`]: crate::EffectAsset
 #[derive(Asset, Default, Clone, Reflect)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+//#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[reflect(from_reflect = false)]
 pub struct EffectAsset {
     /// Display name of the effect.
@@ -310,17 +317,17 @@ pub struct EffectAsset {
     /// [`ParticleEffect::prng_seed`]: crate::ParticleEffect::prng_seed
     pub prng_seed: u32,
     /// Init modifier defining the effect.
-    #[reflect(ignore)]
+    //#[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    init_modifiers: Vec<BoxedModifier>,
+    init_modifiers: Modifiers,
     /// update modifiers defining the effect.
-    #[reflect(ignore)]
+    //#[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    update_modifiers: Vec<BoxedModifier>,
+    update_modifiers: Modifiers,
     /// Render modifiers defining the effect.
-    #[reflect(ignore)]
+    //#[reflect(ignore)]
     // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    render_modifiers: Vec<BoxedModifier>,
+    render_modifiers: Modifiers,
     /// Type of motion integration applied to the particles of a system.
     pub motion_integration: MotionIntegration,
     /// Expression module for this effect.
@@ -330,7 +337,7 @@ pub struct EffectAsset {
     /// The mesh that each particle renders.
     ///
     /// If `None`, the effect uses the [`DefaultMesh`].
-    #[cfg_attr(feature = "serde", serde(skip))]
+    //#[cfg_attr(feature = "serde", serde(skip))]
     pub mesh: Option<Handle<Mesh>>,
 }
 
@@ -646,9 +653,19 @@ impl EffectAsset {
 /// Asset loader for [`EffectAsset`].
 ///
 /// Effet assets take the `.effect` extension.
-#[cfg(feature = "serde")]
-#[derive(Default, TypePath)]
-pub struct EffectAssetLoader;
+#[derive(Debug, TypePath)]
+pub struct EffectAssetLoader {
+    pub type_registry: TypeRegistryArc,
+}
+
+impl FromWorld for EffectAssetLoader {
+    fn from_world(world: &mut World) -> Self {
+        let type_registry = world.resource::<AppTypeRegistry>();
+        EffectAssetLoader {
+            type_registry: type_registry.0.clone(),
+        }
+    }
+}
 
 /// Error for the [`EffectAssetLoader`] loading an [`EffectAsset`].
 #[cfg(feature = "serde")]
@@ -679,8 +696,21 @@ impl AssetLoader for EffectAssetLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let custom_asset = ron::de::from_bytes::<EffectAsset>(&bytes)?;
-        Ok(custom_asset)
+
+        // 1. Deserialize ron bytes into generic data
+        let mut deserializer = ron::de::Deserializer::from_bytes(&bytes)?;
+
+        // 2. Reflect-based deserialize into a dynamic type
+        let type_registry = &self.type_registry.read();
+        let reflect_deserializer = ReflectDeserializer::new(type_registry);
+        let reflect_value = reflect_deserializer.deserialize(&mut deserializer).unwrap();
+
+        // 3. Build concrete type
+        if let Ok(custom_asset) = reflect_value.try_downcast::<EffectAsset>() {
+            Ok(*custom_asset)
+        } else {
+            panic!();
+        }
     }
 
     fn extensions(&self) -> &[&str] {

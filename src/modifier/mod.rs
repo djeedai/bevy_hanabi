@@ -47,7 +47,6 @@ use std::{
 };
 
 use bevy::{
-    app::App,
     asset::Handle,
     ecs::reflect::AppTypeRegistry,
     image::Image,
@@ -717,40 +716,46 @@ impl Modifier for EmitSpawnEventModifier {
 /// This registers all built-in modifiers with the [`AppTypeRegistry`] of the
 /// given app, by both calling [`App::register_type()`] and inserting a
 /// [`ReflectModifier`] type data for the modifier type.
-pub fn register_modifiers(app: &mut App) {
-    // accel.rs
-    app.register_type::<AccelModifier>();
-    app.register_type::<RadialAccelModifier>();
-    app.register_type::<TangentAccelModifier>();
-    // attr.rs
-    app.register_type::<SetAttributeModifier>();
-    app.register_type::<InheritAttributeModifier>();
-    // force.rs
-    app.register_type::<ConformToSphereModifier>();
-    app.register_type::<LinearDragModifier>();
-    // kill.rs
-    app.register_type::<KillSphereModifier>();
-    app.register_type::<KillAabbModifier>();
-    // output.rs
-    app.register_type::<ParticleTextureModifier>();
-    app.register_type::<SetColorModifier>();
-    app.register_type::<ColorOverLifetimeModifier>();
-    app.register_type::<SetSizeModifier>();
-    app.register_type::<SizeOverLifetimeModifier>();
-    app.register_type::<OrientModifier>();
-    app.register_type::<FlipbookModifier>();
-    app.register_type::<ScreenSpaceSizeModifier>();
-    app.register_type::<RoundModifier>();
-    // position.rs
-    app.register_type::<SetPositionCircleModifier>();
-    app.register_type::<SetPositionSphereModifier>();
-    app.register_type::<SetPositionCone3dModifier>();
-    // velocity.rs
-    app.register_type::<SetVelocityCircleModifier>();
-    app.register_type::<SetVelocitySphereModifier>();
-    app.register_type::<SetVelocityTangentModifier>();
+pub fn register_modifiers(type_registry: &AppTypeRegistry) {
+    {
+        let mut type_registry = type_registry.write();
 
-    let type_registry = app.world().resource::<AppTypeRegistry>();
+        // accel.rs
+        type_registry.register::<AccelModifier>();
+        type_registry.register::<RadialAccelModifier>();
+        type_registry.register::<TangentAccelModifier>();
+        // attr.rs
+        type_registry.register::<SetAttributeModifier>();
+        type_registry.register::<InheritAttributeModifier>();
+        // force.rs
+        type_registry.register::<ConformToSphereModifier>();
+        type_registry.register::<LinearDragModifier>();
+        // kill.rs
+        type_registry.register::<KillSphereModifier>();
+        type_registry.register::<KillAabbModifier>();
+        // output.rs
+        type_registry.register::<ParticleTextureModifier>();
+        type_registry.register::<SetColorModifier>();
+        type_registry.register::<ColorOverLifetimeModifier>();
+        type_registry.register::<SetSizeModifier>();
+        type_registry.register::<SizeOverLifetimeModifier>();
+        type_registry.register::<OrientModifier>();
+        type_registry.register::<FlipbookModifier>();
+        type_registry.register::<ScreenSpaceSizeModifier>();
+        type_registry.register::<RoundModifier>();
+        // position.rs
+        type_registry.register::<SetPositionCircleModifier>();
+        type_registry.register::<SetPositionSphereModifier>();
+        type_registry.register::<SetPositionCone3dModifier>();
+        // velocity.rs
+        type_registry.register::<SetVelocityCircleModifier>();
+        type_registry.register::<SetVelocitySphereModifier>();
+        type_registry.register::<SetVelocityTangentModifier>();
+
+        // Register Modifiers wrapper for serde-aware boxed modifiers
+        #[cfg(feature = "serde")]
+        type_registry.register::<crate::modifier::registry::Modifiers>();
+    }
 
     // accel.rs
     register_reflect_modifier::<AccelModifier>(type_registry, |module| {
