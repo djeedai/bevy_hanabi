@@ -149,14 +149,13 @@ pub mod serde_impl {
 
             // Apply the deserialized partial reflect value into the instance.
             let reflect_mut: &mut dyn Reflect = Reflect::as_reflect_mut(&mut *modifier);
-            reflect_mut
-                .apply(boxed_partial.as_partial_reflect());
-                // .map_err(|e| {
-                //     de::Error::custom(format!(
-                //         "failed to apply reflect value to modifier instance: {:?}",
-                //         e
-                //     ))
-                // })?;
+            reflect_mut.apply(boxed_partial.as_partial_reflect());
+            // .map_err(|e| {
+            //     de::Error::custom(format!(
+            //         "failed to apply reflect value to modifier instance: {:?}",
+            //         e
+            //     ))
+            // })?;
 
             Ok(modifier)
         }
@@ -200,11 +199,12 @@ pub mod serde_impl {
         where
             S: Serializer,
         {
-            use bevy::reflect::Reflect;
-            use serde::ser::SerializeMap;
+            //use bevy::reflect::Reflect;
+            //use serde::ser::SerializeMap;
 
             struct Elem<'a> {
-                reflect: &'a dyn Reflect,
+                boxed: &'a BoxedModifier,
+                //reflect: &'a dyn Reflect,
                 registry: &'a TypeRegistry,
             }
 
@@ -213,28 +213,36 @@ pub mod serde_impl {
                 where
                     S2: serde::Serializer,
                 {
-                    let type_path = self
-                        .reflect
-                        .get_represented_type_info()
-                        .ok_or_else(|| {
-                            S2::Error::custom(
-                                "cannot serialize dynamic value without represented type",
-                            )
-                        })?
-                        .type_path();
-                    let mut map = serializer.serialize_map(Some(1))?;
-                    map.serialize_entry(
-                        type_path,
-                        &TypedReflectSerializer::new(self.reflect, self.registry),
-                    )?;
-                    map.end()
+                    use bevy::reflect::serde::SerializeWithRegistry;
+
+                    // let type_path = self
+                    //     .reflect
+                    //     .get_represented_type_info()
+                    //     .ok_or_else(|| {
+                    //         S2::Error::custom(
+                    //             "cannot serialize dynamic value without represented type",
+                    //         )
+                    //     })?
+                    //     .type_path();
+                    // let mut map = serializer.serialize_map(Some(1))?;
+                    // In theory yes, but BoxedModifier is a type alias, and we don't register its
+                    // SerializeWithRegistry as a proper type data, so
+                    // TypedReflectSerializer won't find it. Invoke directly instead.
+                    // map.serialize_entry(
+                    //     type_path,
+                    //     &TypedReflectSerializer::new(self.reflect, self.registry),
+                    // )?;
+                    // Directly invoke SerializeWithRegistry::serialize()
+                    self.boxed.serialize(serializer, self.registry)
+                    //map.end()
                 }
             }
 
             let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
             for m in &self.0 {
                 seq.serialize_element(&Elem {
-                    reflect: m.as_reflect(),
+                    boxed: m,
+                    //reflect: m.as_reflect(),
                     registry,
                 })?;
             }
@@ -278,44 +286,56 @@ pub mod serde_impl {
                         where
                             D2: de::Deserializer<'de2>,
                         {
-                            // Use the reflect deserializer to parse the single-entry map
-                            // into a Box<dyn PartialReflect> and then construct the concrete
-                            // modifier using the ReflectModifier factory + ReflectFromReflect.
-                            let reflect_seed = ReflectDeserializer::new(self.registry);
-                            let boxed_partial: Box<dyn PartialReflect> = reflect_seed
-                                .deserialize(deserializer)
-                                .map_err(de::Error::custom)?;
+                            use bevy::reflect::serde::DeserializeWithRegistry;
 
-                            let type_info =
-                                boxed_partial.get_represented_type_info().ok_or_else(|| {
-                                    de::Error::custom(
-                                        "reflected value has no represented type info",
-                                    )
-                                })?;
-                            let type_id = type_info.type_id();
+                            BoxedModifier::deserialize(deserializer, self.registry)
 
-                            let reflect_modifier = self
-                                .registry
-                                .get_type_data::<ReflectModifier>(type_id)
-                                .ok_or_else(|| {
-                                    de::Error::custom("no ReflectModifier type data for type")
-                                })?;
+                            // // Use the reflect deserializer to parse the
+                            // single-entry map // into
+                            // a Box<dyn PartialReflect> and then construct the
+                            // concrete // modifier
+                            // using the ReflectModifier factory +
+                            // ReflectFromReflect.
+                            // let reflect_seed =
+                            // ReflectDeserializer::new(self.registry);
+                            // let boxed_partial: Box<dyn PartialReflect> =
+                            // reflect_seed
+                            //     .deserialize(deserializer)
+                            //     .map_err(de::Error::custom)?;
 
-                            let mut module = Module::default();
-                            let mut modifier: BoxedModifier =
-                                (reflect_modifier.factory)(&mut module);
-                            let reflect_mut: &mut dyn Reflect =
-                                Reflect::as_reflect_mut(&mut *modifier);
-                            reflect_mut
-                                .apply(boxed_partial.as_partial_reflect());
-                                // .map_err(|e| {
-                                //     de::Error::custom(format!(
-                                //         "failed to apply reflect value to modifier instance: {:?}",
-                                //         e
-                                //     ))
-                                // })?;
+                            // let type_info =
+                            //     boxed_partial.get_represented_type_info().
+                            // ok_or_else(|| {
+                            //         de::Error::custom(
+                            //             "reflected value has no represented
+                            // type info",         )
+                            //     })?;
+                            // let type_id = type_info.type_id();
 
-                            Ok(modifier)
+                            // let reflect_modifier = self
+                            //     .registry
+                            //     .get_type_data::<ReflectModifier>(type_id)
+                            //     .ok_or_else(|| {
+                            //         de::Error::custom("no ReflectModifier
+                            // type data for type")
+                            //     })?;
+
+                            // let mut module = Module::default();
+                            // let mut modifier: BoxedModifier =
+                            //     (reflect_modifier.factory)(&mut module);
+                            // let reflect_mut: &mut dyn Reflect =
+                            //     Reflect::as_reflect_mut(&mut *modifier);
+                            // reflect_mut
+                            //     .apply(boxed_partial.as_partial_reflect());
+                            //     // .map_err(|e| {
+                            //     //     de::Error::custom(format!(
+                            //     //         "failed to apply reflect value to
+                            // modifier instance: {:?}",
+                            //     //         e
+                            //     //     ))
+                            //     // })?;
+
+                            // Ok(modifier)
                         }
                     }
 
@@ -345,25 +365,28 @@ pub use serde_impl::Modifiers;
 
 #[cfg(test)]
 mod tests {
-    use bevy::math::Vec3;
-    use bevy::reflect::serde::{ReflectDeserializer, ReflectSerializer};
+    use bevy::reflect::serde::TypedReflectSerializer;
+    use bevy::reflect::PartialReflect;
+    use bevy::{math::Vec3, reflect::serde::TypedReflectDeserializer};
     use serde::de::DeserializeSeed;
 
-    //use super::serde_impl::*;
     use super::*;
-    use crate::{register_modifiers, AccelModifier, EffectAsset, SpawnerSettings};
+    use crate::{register_modifiers, AccelModifier, EffectAsset, RenderModifier, SpawnerSettings};
 
+    /// Serialize and deserialize a [`Modifiers`] container.
     #[cfg(feature = "serde")]
     #[test]
-    fn serde_aaa() {
-        use bevy::reflect::TypeRegistry;
-        //use serde::de::DeserializeSeed as _;
+    fn serde_modifiers() {
+        use bevy::reflect::{
+            serde::{TypedReflectDeserializer, TypedReflectSerializer},
+            Reflect,
+        };
 
         use crate::{Attribute, SetAttributeModifier, SetPositionSphereModifier, ShapeDimension};
 
         let mut module = Module::default();
 
-        // Create a Modifiers object
+        // Create a Modifiers container with 2 different modifiers
         let mut modifiers = vec![];
         let m1 = SetAttributeModifier::new(Attribute::SIZE, module.lit(2.));
         let bm1: BoxedModifier = Box::new(m1);
@@ -377,99 +400,90 @@ mod tests {
         modifiers.push(bm2);
         let modifiers = Modifiers(modifiers);
 
-        // Use reflect-based serialization with a TypeRegistry so the boxed trait
-        // object can be serialized via the registered ReflectModifier factories.
+        // Prepare a type registry with all known modifiers registered.
         let type_registry = AppTypeRegistry::new_with_derived_types();
         register_modifiers(&type_registry);
         let registry = type_registry.read();
 
-        // Serialize via the registry-aware SerializeWithRegistry impl directly so
-        // we produce the inner representation expected by DeserializeWithRegistry.
-        struct RegistrySer<'a, T: ?Sized> {
-            value: &'a T,
-            registry: &'a TypeRegistry,
-        }
-        impl<'a, T> serde::Serialize for RegistrySer<'a, T>
-        where
-            T: bevy::reflect::serde::SerializeWithRegistry,
-        {
-            fn serialize<S2>(&self, serializer: S2) -> Result<S2::Ok, S2::Error>
-            where
-                S2: serde::Serializer,
-            {
-                bevy::reflect::serde::SerializeWithRegistry::serialize(
-                    self.value,
-                    serializer,
-                    self.registry,
-                )
-            }
-        }
-
-        let s = ron::to_string(&RegistrySer {
-            value: &modifiers,
-            registry: &registry,
-        })
+        // Serialize via reflection, so that the SerializeWithRegistry impl of Modifiers
+        // get automatically picked up and used.
+        let s = ron::to_string(&TypedReflectSerializer::new(
+            modifiers.as_reflect(),
+            &registry,
+        ))
         .unwrap();
         println!("{s}");
 
-        // The serialized string must contain the type names of Modifiers and all
-        // modifiers, because they use dynamic dispatching. The Modifiers wrapper
-        // itself does not necessarily appear in the serialized form here because
-        // we're serializing the inner representation directly.
+        // The serialized string must contain the type names of all modifiers, because
+        // they use dynamic dispatching.
         assert!(s.contains(std::any::type_name::<SetAttributeModifier>()));
         assert!(s.contains(std::any::type_name::<SetPositionSphereModifier>()));
+        // The Modifiers wrapper itself does not necessarily appear in the serialized
+        // form here because we're serializing the inner representation
+        // directly.
+        assert!(!s.contains(std::any::type_name::<Modifiers>()));
 
-        // Deserialize via ReflectDeserializer and construct a concrete instance using
-        // the ReflectModifier factory (same approach as in registry serde_impl).
+        // Deserialize via reflection again. This also picks up the
+        // DeserializeWithRegistry impl of Modifiers automatically, which recovers the
+        // concrete object via the ReflectModifier type data factory.
         let mut de = ron::de::Deserializer::from_str(&s).unwrap();
-        // Use registry-aware deserialization directly for Modifiers
-        let mods: Modifiers =
-            bevy::reflect::serde::DeserializeWithRegistry::deserialize(&mut de, &registry).unwrap();
+        let type_registration = registry.get(std::any::TypeId::of::<Modifiers>()).unwrap();
+        let deserializer = TypedReflectDeserializer::new(type_registration, &registry);
+        let mods = deserializer.deserialize(&mut de).unwrap();
 
-        // Ensure we deserialized the 2 modifiers back
-        assert_eq!(mods.0.len(), 2);
-        assert!(mods.0[0].as_reflect().is::<SetAttributeModifier>());
-        assert!(mods.0[1].as_reflect().is::<SetPositionSphereModifier>());
+        // Recover and check the deserialized Modifiers
+        assert!(mods.represents::<Modifiers>());
+        let mods = mods.try_downcast::<Modifiers>().unwrap();
+        assert_eq!(mods.0.len(), modifiers.0.len());
+        for (mi, smi) in mods.0.iter().zip(modifiers.0.iter()) {
+            use std::any::Any;
 
-        // let type_info = boxed_partial
-        //     .get_represented_type_info()
-        //     .expect("reflected value has no represented type info");
-        // let type_id = type_info.type_id();
+            assert_eq!(
+                mi.get_represented_type_info().type_id(),
+                smi.get_represented_type_info().type_id()
+            );
+        }
 
-        // // Convert PartialReflect -> concrete Reflect
-        // let rfr = registry
-        //     .get_type_data::<bevy::reflect::ReflectFromReflect>(type_id)
-        //     .expect("no ReflectFromReflect data for type");
-        // let concrete_reflect = rfr
-        //     .from_reflect(boxed_partial.as_partial_reflect())
-        //     .expect("from_reflect failed");
-
-        // // Build default instance and assign the deserialized data
-        // let mut module = Module::default();
-        // let mut modifier: BoxedModifier = (reflect_modifier.factory)(&mut
-        // module); let reflect_mut: &mut dyn Reflect =
-        // Reflect::as_reflect_mut(&mut *modifier); reflect_mut
-        //     .set(concrete_reflect)
-        //     .expect("failed to assign reflect value to modifier instance");
-
-        // let m_serde = modifier;
-
-        // let rm: &dyn Reflect = m.as_reflect();
-        // let rm_serde: &dyn Reflect = m_serde.as_reflect();
-        // assert_eq!(
-        //     rm.get_represented_type_info().unwrap().type_id(),
-        //     rm_serde.get_represented_type_info().unwrap().type_id()
-        // );
-
-        // assert!(rm_serde.is::<SetPositionSphereModifier>());
-        // let rm_reflect = rm_serde
-        //     .downcast_ref::<SetPositionSphereModifier>()
-        //     .unwrap();
-        // assert_eq!(*rm_reflect, m);
+        // Recover and check the individual modifiers
+        let serde_m1 = mods.0[0]
+            .as_reflect()
+            .downcast_ref::<SetAttributeModifier>()
+            .unwrap();
+        let serde_m2 = mods.0[1]
+            .as_reflect()
+            .downcast_ref::<SetPositionSphereModifier>()
+            .unwrap();
+        assert_eq!(m1, *serde_m1);
+        assert_eq!(m2, *serde_m2);
     }
 
+    fn cmp_modifiers<'a>(
+        a: impl Iterator<Item = &'a dyn Modifier>,
+        b: impl Iterator<Item = &'a dyn Modifier>,
+    ) {
+        let a = a.collect::<Vec<_>>();
+        let b = b.collect::<Vec<_>>();
+        assert_eq!(a.len(), b.len());
+        for (a, b) in a.iter().zip(b.iter()) {
+            assert_eq!(a.context(), b.context());
+        }
+    }
+
+    fn cmp_render_modifiers<'a>(
+        a: impl Iterator<Item = &'a dyn RenderModifier>,
+        b: impl Iterator<Item = &'a dyn RenderModifier>,
+    ) {
+        let a = a.collect::<Vec<_>>();
+        let b = b.collect::<Vec<_>>();
+        assert_eq!(a.len(), b.len());
+        for (a, b) in a.iter().zip(b.iter()) {
+            assert_eq!(a.context(), b.context());
+        }
+    }
+
+    /// Serialize and deserialize a full [`EffectAsset`].
     #[test]
-    fn ser() {
+    fn serde_asset() {
         let mut module = Module::default();
         let accel_mod = AccelModifier::new(module.lit(Vec3::X));
         let asset =
@@ -480,14 +494,35 @@ mod tests {
 
         // ser
         let registry = type_registry.read();
-        let serializer = ReflectSerializer::new(&asset, &registry);
+        let serializer = TypedReflectSerializer::new(&asset, &registry);
         let json = ron::to_string(&serializer).unwrap();
         println!("{json}");
 
         // de
         let mut deserializer = ron::de::Deserializer::from_str(&json).unwrap();
-        let reflect_deserializer = ReflectDeserializer::new(&registry);
+        let type_registration = registry.get(std::any::TypeId::of::<EffectAsset>()).unwrap();
+        let reflect_deserializer = TypedReflectDeserializer::new(&type_registration, &registry);
         let reflect_value = reflect_deserializer.deserialize(&mut deserializer).unwrap();
-        println!("{:?}", reflect_value.is_dynamic());
+        assert!(reflect_value.represents::<EffectAsset>());
+
+        // Note: reflection-based deserializer produces a DynamicStruct, not an
+        // EffectAsset (because FromReflect is not available). Manually apply the
+        // data of the DynamicStruct to a real EffectAsset instance for convenience.
+        let mut serde_asset = EffectAsset::default();
+        serde_asset.try_apply(&*reflect_value).unwrap();
+
+        // Validate what can be
+        assert_eq!(asset.name, serde_asset.name);
+        assert_eq!(asset.capacity(), serde_asset.capacity());
+        assert_eq!(asset.spawner, serde_asset.spawner);
+        assert_eq!(asset.z_layer_2d, serde_asset.z_layer_2d);
+        assert_eq!(asset.simulation_space, serde_asset.simulation_space);
+        assert_eq!(asset.simulation_condition, serde_asset.simulation_condition);
+        assert_eq!(asset.prng_seed, serde_asset.prng_seed);
+        assert_eq!(asset.motion_integration, serde_asset.motion_integration);
+        assert_eq!(asset.alpha_mode, serde_asset.alpha_mode);
+        cmp_modifiers(asset.init_modifiers(), serde_asset.init_modifiers());
+        cmp_modifiers(asset.update_modifiers(), serde_asset.update_modifiers());
+        cmp_render_modifiers(asset.render_modifiers(), serde_asset.render_modifiers());
     }
 }

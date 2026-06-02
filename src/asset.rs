@@ -1,10 +1,8 @@
 #[cfg(feature = "serde")]
 use bevy::asset::{io::Reader, AssetLoader, LoadContext};
-use bevy::ecs::reflect::AppTypeRegistry;
 #[cfg(feature = "serde")]
-use bevy::reflect::serde::{
-    ReflectDeserializeWithRegistry, ReflectDeserializer, ReflectSerializeWithRegistry,
-};
+use bevy::reflect::serde::ReflectDeserializer;
+use bevy::reflect::TypeRegistry;
 #[cfg(feature = "serde")]
 use bevy::reflect::{TypePath, TypeRegistryArc};
 use bevy::{
@@ -16,6 +14,7 @@ use bevy::{
     reflect::Reflect,
     utils::default,
 };
+use bevy::{ecs::reflect::AppTypeRegistry, reflect::serde::TypedReflectSerializer};
 #[cfg(feature = "serde")]
 use serde::de::DeserializeSeed as _;
 use serde::{Deserialize, Serialize};
@@ -275,10 +274,7 @@ impl FromWorld for DefaultMesh {
 /// [`EffectAsset`]: crate::EffectAsset
 #[derive(Asset, Default, Clone, Reflect)]
 //#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    reflect(SerializeWithRegistry, DeserializeWithRegistry, from_reflect = false)
-)]
+#[cfg_attr(feature = "serde", reflect(from_reflect = false))]
 pub struct EffectAsset {
     /// Display name of the effect.
     ///
@@ -335,267 +331,274 @@ pub struct EffectAsset {
     /// The mesh that each particle renders.
     ///
     /// If `None`, the effect uses the [`DefaultMesh`].
-    //#[cfg_attr(feature = "serde", serde(skip))]
     pub mesh: Option<Handle<Mesh>>,
 }
 
-impl bevy::reflect::serde::SerializeWithRegistry for EffectAsset {
-    fn serialize<S>(
-        &self,
-        serializer: S,
-        registry: &bevy::reflect::TypeRegistry,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use bevy::reflect::serde::TypedReflectSerializer;
-        use bevy::reflect::Reflect;
-        use serde::ser::SerializeMap as _;
+// impl bevy::reflect::serde::SerializeWithRegistry for EffectAsset {
+//     fn serialize<S>(
+//         &self,
+//         serializer: S,
+//         registry: &bevy::reflect::TypeRegistry,
+//     ) -> Result<S::Ok, S::Error>
+//     where
+//         S: serde::Serializer,
+//     {
+//         use bevy::reflect::serde::TypedReflectSerializer;
+//         use bevy::reflect::Reflect;
+//         use serde::ser::SerializeMap as _;
 
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("name", &self.name)?;
-        map.serialize_entry("capacity", &self.capacity)?;
-        // Use TypedReflectSerializer for reflect-aware nested types so registry-driven
-        // serializers are invoked for simple reflect types.
-        map.serialize_entry(
-            "spawner",
-            &TypedReflectSerializer::new(Reflect::as_reflect(&self.spawner), registry),
-        )?;
-        map.serialize_entry("z_layer_2d", &self.z_layer_2d)?;
-        map.serialize_entry(
-            "simulation_space",
-            &TypedReflectSerializer::new(Reflect::as_reflect(&self.simulation_space), registry),
-        )?;
-        map.serialize_entry(
-            "simulation_condition",
-            &TypedReflectSerializer::new(Reflect::as_reflect(&self.simulation_condition), registry),
-        )?;
-        map.serialize_entry("prng_seed", &self.prng_seed)?;
+//         let mut map = serializer.serialize_map(None)?;
+//         map.serialize_entry("name", &self.name)?;
+//         map.serialize_entry("capacity", &self.capacity)?;
+//         // Use TypedReflectSerializer for reflect-aware nested types so
+// registry-driven         // serializers are invoked for simple reflect types.
+//         map.serialize_entry(
+//             "spawner",
+//             &TypedReflectSerializer::new(Reflect::as_reflect(&self.spawner),
+// registry),         )?;
+//         map.serialize_entry("z_layer_2d", &self.z_layer_2d)?;
+//         map.serialize_entry(
+//             "simulation_space",
+//
+// &TypedReflectSerializer::new(Reflect::as_reflect(&self.simulation_space),
+// registry),         )?;
+//         map.serialize_entry(
+//             "simulation_condition",
+//
+// &TypedReflectSerializer::new(Reflect::as_reflect(&self.simulation_condition),
+// registry),         )?;
+//         map.serialize_entry("prng_seed", &self.prng_seed)?;
 
-        // For the modifiers, delegate to the Modifiers SerializeWithRegistry
-        // implementation by using a small wrapper that can call it with the
-        // registry.
+//         // For the modifiers, delegate to the Modifiers SerializeWithRegistry
+//         // implementation by using a small wrapper that can call it with the
+//         // registry.
 
-        // FIXME - this is likely useless, we can direclt use ReflectSerializer, it will invoke SerializeWithRegistry automatically.
-        // The previous code used *Typed*ReflectSerializer which is why that didn't work!
-        
-        struct RegistrySer<'a, T: ?Sized> {
-            value: &'a T,
-            registry: &'a bevy::reflect::TypeRegistry,
-        }
-        impl<'a, T> serde::Serialize for RegistrySer<'a, T>
-        where
-            T: bevy::reflect::serde::SerializeWithRegistry,
-        {
-            fn serialize<S2>(&self, serializer: S2) -> Result<S2::Ok, S2::Error>
-            where
-                S2: serde::Serializer,
-            {
-                bevy::reflect::serde::SerializeWithRegistry::serialize(
-                    self.value,
-                    serializer,
-                    self.registry,
-                )
-            }
-        }
+//         // FIXME - this is likely useless, we can direclt use
+// ReflectSerializer, it will invoke SerializeWithRegistry automatically.
+//         // The previous code used *Typed*ReflectSerializer which is why that
+// didn't work!
 
-        map.serialize_entry(
-            "init_modifiers",
-            &RegistrySer {
-                value: &self.init_modifiers,
-                registry,
-            },
-        )?;
-        map.serialize_entry(
-            "update_modifiers",
-            &RegistrySer {
-                value: &self.update_modifiers,
-                registry,
-            },
-        )?;
-        map.serialize_entry(
-            "render_modifiers",
-            &RegistrySer {
-                value: &self.render_modifiers,
-                registry,
-            },
-        )?;
+//         struct RegistrySer<'a, T: ?Sized> {
+//             value: &'a T,
+//             registry: &'a bevy::reflect::TypeRegistry,
+//         }
+//         impl<'a, T> serde::Serialize for RegistrySer<'a, T>
+//         where
+//             T: bevy::reflect::serde::SerializeWithRegistry,
+//         {
+//             fn serialize<S2>(&self, serializer: S2) -> Result<S2::Ok,
+// S2::Error>             where
+//                 S2: serde::Serializer,
+//             {
+//                 bevy::reflect::serde::SerializeWithRegistry::serialize(
+//                     self.value,
+//                     serializer,
+//                     self.registry,
+//                 )
+//             }
+//         }
 
-        map.serialize_entry(
-            "motion_integration",
-            &TypedReflectSerializer::new(Reflect::as_reflect(&self.motion_integration), registry),
-        )?;
-        map.serialize_entry(
-            "module",
-            &TypedReflectSerializer::new(Reflect::as_reflect(&self.module), registry),
-        )?;
-        map.serialize_entry(
-            "alpha_mode",
-            &TypedReflectSerializer::new(Reflect::as_reflect(&self.alpha_mode), registry),
-        )?;
-        // mesh is optional and in the original serde it's skipped; only serialize it
-        // when present if let Some(mesh) = &self.mesh {
-        //     map.serialize_entry("mesh", mesh)?;
-        // }
-        map.end()
-    }
-}
+//         map.serialize_entry(
+//             "init_modifiers",
+//             &RegistrySer {
+//                 value: &self.init_modifiers,
+//                 registry,
+//             },
+//         )?;
+//         map.serialize_entry(
+//             "update_modifiers",
+//             &RegistrySer {
+//                 value: &self.update_modifiers,
+//                 registry,
+//             },
+//         )?;
+//         map.serialize_entry(
+//             "render_modifiers",
+//             &RegistrySer {
+//                 value: &self.render_modifiers,
+//                 registry,
+//             },
+//         )?;
 
-impl<'de> bevy::reflect::serde::DeserializeWithRegistry<'de> for EffectAsset {
-    fn deserialize<D>(
-        deserializer: D,
-        registry: &bevy::reflect::TypeRegistry,
-    ) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::{DeserializeSeed, MapAccess, Visitor};
+//         map.serialize_entry(
+//             "motion_integration",
+//
+// &TypedReflectSerializer::new(Reflect::as_reflect(&self.motion_integration),
+// registry),         )?;
+//         map.serialize_entry(
+//             "module",
+//             &TypedReflectSerializer::new(Reflect::as_reflect(&self.module),
+// registry),         )?;
+//         map.serialize_entry(
+//             "alpha_mode",
+//
+// &TypedReflectSerializer::new(Reflect::as_reflect(&self.alpha_mode),
+// registry),         )?;
+//         // mesh is optional and in the original serde it's skipped; only
+// serialize it         // when present if let Some(mesh) = &self.mesh {
+//         //     map.serialize_entry("mesh", mesh)?;
+//         // }
+//         map.end()
+//     }
+// }
 
-        struct Seed<'a> {
-            registry: &'a bevy::reflect::TypeRegistry,
-        }
+// impl<'de> bevy::reflect::serde::DeserializeWithRegistry<'de> for EffectAsset
+// {     fn deserialize<D>(
+//         deserializer: D,
+//         registry: &bevy::reflect::TypeRegistry,
+//     ) -> Result<Self, D::Error>
+//     where
+//         D: serde::Deserializer<'de>,
+//     {
+//         use serde::de::{DeserializeSeed, MapAccess, Visitor};
 
-        impl<'de2, 'a> Visitor<'de2> for Seed<'a> {
-            type Value = EffectAsset;
+//         struct Seed<'a> {
+//             registry: &'a bevy::reflect::TypeRegistry,
+//         }
 
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(formatter, "EffectAsset map")
-            }
+//         impl<'de2, 'a> Visitor<'de2> for Seed<'a> {
+//             type Value = EffectAsset;
 
-            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
-            where
-                M: MapAccess<'de2>,
-            {
-                // Start from defaults
-                let default = EffectAsset::default();
+//             fn expecting(&self, formatter: &mut std::fmt::Formatter) ->
+// std::fmt::Result {                 write!(formatter, "EffectAsset map")
+//             }
 
-                let mut name: Option<String> = None;
-                let mut capacity: Option<u32> = None;
-                let mut spawner: Option<SpawnerSettings> = None;
-                let mut z_layer_2d: Option<f32> = None;
-                let mut simulation_space: Option<SimulationSpace> = None;
-                let mut simulation_condition: Option<SimulationCondition> = None;
-                let mut prng_seed: Option<u32> = None;
-                let mut init_modifiers: Option<Modifiers> = None;
-                let mut update_modifiers: Option<Modifiers> = None;
-                let mut render_modifiers: Option<Modifiers> = None;
-                let mut motion_integration: Option<MotionIntegration> = None;
-                let mut module: Option<Module> = None;
-                let mut alpha_mode: Option<AlphaMode> = None;
-                let mesh: Option<Option<Handle<Mesh>>> = None;
+//             fn visit_map<M>(self, mut map: M) -> Result<Self::Value,
+// M::Error>             where
+//                 M: MapAccess<'de2>,
+//             {
+//                 // Start from defaults
+//                 let default = EffectAsset::default();
 
-                while let Some(key) = map.next_key::<String>()? {
-                    match &*key {
-                        "name" => name = Some(map.next_value()?),
-                        "capacity" => capacity = Some(map.next_value()?),
-                        "spawner" => spawner = Some(map.next_value()?),
-                        "z_layer_2d" => z_layer_2d = Some(map.next_value()?),
-                        "simulation_space" => simulation_space = Some(map.next_value()?),
-                        "simulation_condition" => simulation_condition = Some(map.next_value()?),
-                        "prng_seed" => prng_seed = Some(map.next_value()?),
-                        "init_modifiers" => {
-                            struct ModSeed<'b> {
-                                registry: &'b bevy::reflect::TypeRegistry,
-                            }
-                            impl<'de3, 'b> DeserializeSeed<'de3> for ModSeed<'b> {
-                                type Value = Modifiers;
-                                fn deserialize<D2>(
-                                    self,
-                                    deserializer: D2,
-                                ) -> Result<Self::Value, D2::Error>
-                                where
-                                    D2: serde::Deserializer<'de3>,
-                                {
-                                    bevy::reflect::serde::DeserializeWithRegistry::deserialize(
-                                        deserializer,
-                                        self.registry,
-                                    )
-                                }
-                            }
-                            init_modifiers = Some(map.next_value_seed(ModSeed {
-                                registry: self.registry,
-                            })?);
-                        }
-                        "update_modifiers" => {
-                            struct ModSeed<'b> {
-                                registry: &'b bevy::reflect::TypeRegistry,
-                            }
-                            impl<'de3, 'b> DeserializeSeed<'de3> for ModSeed<'b> {
-                                type Value = Modifiers;
-                                fn deserialize<D2>(
-                                    self,
-                                    deserializer: D2,
-                                ) -> Result<Self::Value, D2::Error>
-                                where
-                                    D2: serde::Deserializer<'de3>,
-                                {
-                                    bevy::reflect::serde::DeserializeWithRegistry::deserialize(
-                                        deserializer,
-                                        self.registry,
-                                    )
-                                }
-                            }
-                            update_modifiers = Some(map.next_value_seed(ModSeed {
-                                registry: self.registry,
-                            })?);
-                        }
-                        "render_modifiers" => {
-                            struct ModSeed<'b> {
-                                registry: &'b bevy::reflect::TypeRegistry,
-                            }
-                            impl<'de3, 'b> DeserializeSeed<'de3> for ModSeed<'b> {
-                                type Value = Modifiers;
-                                fn deserialize<D2>(
-                                    self,
-                                    deserializer: D2,
-                                ) -> Result<Self::Value, D2::Error>
-                                where
-                                    D2: serde::Deserializer<'de3>,
-                                {
-                                    bevy::reflect::serde::DeserializeWithRegistry::deserialize(
-                                        deserializer,
-                                        self.registry,
-                                    )
-                                }
-                            }
-                            render_modifiers = Some(map.next_value_seed(ModSeed {
-                                registry: self.registry,
-                            })?);
-                        }
-                        "motion_integration" => motion_integration = Some(map.next_value()?),
-                        "module" => module = Some(map.next_value()?),
-                        "alpha_mode" => alpha_mode = Some(map.next_value()?),
-                        //"mesh" => mesh = Some(map.next_value()?),
-                        _ => {
-                            // Unknown key: skip
-                            let _: serde::de::IgnoredAny = map.next_value()?;
-                        }
-                    }
-                }
+//                 let mut name: Option<String> = None;
+//                 let mut capacity: Option<u32> = None;
+//                 let mut spawner: Option<SpawnerSettings> = None;
+//                 let mut z_layer_2d: Option<f32> = None;
+//                 let mut simulation_space: Option<SimulationSpace> = None;
+//                 let mut simulation_condition: Option<SimulationCondition> =
+// None;                 let mut prng_seed: Option<u32> = None;
+//                 let mut init_modifiers: Option<Modifiers> = None;
+//                 let mut update_modifiers: Option<Modifiers> = None;
+//                 let mut render_modifiers: Option<Modifiers> = None;
+//                 let mut motion_integration: Option<MotionIntegration> = None;
+//                 let mut module: Option<Module> = None;
+//                 let mut alpha_mode: Option<AlphaMode> = None;
+//                 let mesh: Option<Option<Handle<Mesh>>> = None;
 
-                Ok(EffectAsset {
-                    name: name.unwrap_or(default.name),
-                    capacity: capacity.unwrap_or(default.capacity),
-                    spawner: spawner.unwrap_or(default.spawner),
-                    z_layer_2d: z_layer_2d.unwrap_or(default.z_layer_2d),
-                    simulation_space: simulation_space.unwrap_or(default.simulation_space),
-                    simulation_condition: simulation_condition
-                        .unwrap_or(default.simulation_condition),
-                    prng_seed: prng_seed.unwrap_or(default.prng_seed),
-                    init_modifiers: init_modifiers.unwrap_or(default.init_modifiers),
-                    update_modifiers: update_modifiers.unwrap_or(default.update_modifiers),
-                    render_modifiers: render_modifiers.unwrap_or(default.render_modifiers),
-                    motion_integration: motion_integration.unwrap_or(default.motion_integration),
-                    module: module.unwrap_or(default.module),
-                    alpha_mode: alpha_mode.unwrap_or(default.alpha_mode),
-                    mesh: mesh.unwrap_or(default.mesh),
-                })
-            }
-        }
+//                 while let Some(key) = map.next_key::<String>()? {
+//                     match &*key {
+//                         "name" => name = Some(map.next_value()?),
+//                         "capacity" => capacity = Some(map.next_value()?),
+//                         "spawner" => spawner = Some(map.next_value()?),
+//                         "z_layer_2d" => z_layer_2d = Some(map.next_value()?),
+//                         "simulation_space" => simulation_space =
+// Some(map.next_value()?),                         "simulation_condition" =>
+// simulation_condition = Some(map.next_value()?),
+// "prng_seed" => prng_seed = Some(map.next_value()?),
+// "init_modifiers" => {                             struct ModSeed<'b> {
+//                                 registry: &'b bevy::reflect::TypeRegistry,
+//                             }
+//                             impl<'de3, 'b> DeserializeSeed<'de3> for
+// ModSeed<'b> {                                 type Value = Modifiers;
+//                                 fn deserialize<D2>(
+//                                     self,
+//                                     deserializer: D2,
+//                                 ) -> Result<Self::Value, D2::Error>
+//                                 where
+//                                     D2: serde::Deserializer<'de3>,
+//                                 {
+//
+// bevy::reflect::serde::DeserializeWithRegistry::deserialize(
+// deserializer,                                         self.registry,
+//                                     )
+//                                 }
+//                             }
+//                             init_modifiers = Some(map.next_value_seed(ModSeed
+// {                                 registry: self.registry,
+//                             })?);
+//                         }
+//                         "update_modifiers" => {
+//                             struct ModSeed<'b> {
+//                                 registry: &'b bevy::reflect::TypeRegistry,
+//                             }
+//                             impl<'de3, 'b> DeserializeSeed<'de3> for
+// ModSeed<'b> {                                 type Value = Modifiers;
+//                                 fn deserialize<D2>(
+//                                     self,
+//                                     deserializer: D2,
+//                                 ) -> Result<Self::Value, D2::Error>
+//                                 where
+//                                     D2: serde::Deserializer<'de3>,
+//                                 {
+//
+// bevy::reflect::serde::DeserializeWithRegistry::deserialize(
+// deserializer,                                         self.registry,
+//                                     )
+//                                 }
+//                             }
+//                             update_modifiers =
+// Some(map.next_value_seed(ModSeed {                                 registry:
+// self.registry,                             })?);
+//                         }
+//                         "render_modifiers" => {
+//                             struct ModSeed<'b> {
+//                                 registry: &'b bevy::reflect::TypeRegistry,
+//                             }
+//                             impl<'de3, 'b> DeserializeSeed<'de3> for
+// ModSeed<'b> {                                 type Value = Modifiers;
+//                                 fn deserialize<D2>(
+//                                     self,
+//                                     deserializer: D2,
+//                                 ) -> Result<Self::Value, D2::Error>
+//                                 where
+//                                     D2: serde::Deserializer<'de3>,
+//                                 {
+//
+// bevy::reflect::serde::DeserializeWithRegistry::deserialize(
+// deserializer,                                         self.registry,
+//                                     )
+//                                 }
+//                             }
+//                             render_modifiers =
+// Some(map.next_value_seed(ModSeed {                                 registry:
+// self.registry,                             })?);
+//                         }
+//                         "motion_integration" => motion_integration =
+// Some(map.next_value()?),                         "module" => module =
+// Some(map.next_value()?),                         "alpha_mode" => alpha_mode =
+// Some(map.next_value()?),                         //"mesh" => mesh =
+// Some(map.next_value()?),                         _ => {
+//                             // Unknown key: skip
+//                             let _: serde::de::IgnoredAny = map.next_value()?;
+//                         }
+//                     }
+//                 }
 
-        deserializer.deserialize_map(Seed { registry })
-    }
-}
+//                 Ok(EffectAsset {
+//                     name: name.unwrap_or(default.name),
+//                     capacity: capacity.unwrap_or(default.capacity),
+//                     spawner: spawner.unwrap_or(default.spawner),
+//                     z_layer_2d: z_layer_2d.unwrap_or(default.z_layer_2d),
+//                     simulation_space:
+// simulation_space.unwrap_or(default.simulation_space),
+// simulation_condition: simulation_condition
+// .unwrap_or(default.simulation_condition),                     prng_seed:
+// prng_seed.unwrap_or(default.prng_seed),                     init_modifiers:
+// init_modifiers.unwrap_or(default.init_modifiers),
+// update_modifiers: update_modifiers.unwrap_or(default.update_modifiers),
+//                     render_modifiers:
+// render_modifiers.unwrap_or(default.render_modifiers),
+// motion_integration: motion_integration.unwrap_or(default.motion_integration),
+//                     module: module.unwrap_or(default.module),
+//                     alpha_mode: alpha_mode.unwrap_or(default.alpha_mode),
+//                     mesh: mesh.unwrap_or(default.mesh),
+//                 })
+//             }
+//         }
+
+//         deserializer.deserialize_map(Seed { registry })
+//     }
+// }
 
 impl EffectAsset {
     /// Create a new effect asset.
@@ -903,6 +906,123 @@ impl EffectAsset {
     pub fn mesh(mut self, mesh: Handle<Mesh>) -> Self {
         self.mesh = Some(mesh);
         self
+    }
+
+    /// Serialize this effect asset.
+    pub fn serialize(&self, type_registry: &TypeRegistry) -> Result<String, ron::Error> {
+        let serializer = EffectAssetSerializer::new(self, type_registry);
+        let pretty_config = ron::ser::PrettyConfig::default()
+            .indentor("  ".to_string())
+            .new_line("\n".to_string());
+        ron::ser::to_string_pretty(&serializer, pretty_config)
+    }
+}
+
+/// Serializer for an [`EffectAsset`].
+pub struct EffectAssetSerializer<'a> {
+    pub asset: &'a EffectAsset,
+    pub type_registry: &'a TypeRegistry,
+}
+
+impl<'a> EffectAssetSerializer<'a> {
+    pub fn new(asset: &'a EffectAsset, type_registry: &'a TypeRegistry) -> Self {
+        Self {
+            asset,
+            type_registry,
+        }
+    }
+}
+
+/// Name of the serialized effect asset struct type.
+pub const EFFECT_ASSET_STRUCT: &str = "EffectAsset";
+
+impl<'a> serde::Serialize for EffectAssetSerializer<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct as _;
+
+        let mut state = serializer.serialize_struct(EFFECT_ASSET_STRUCT, 10)?;
+
+        state.serialize_field("name", &self.asset.name)?;
+        state.serialize_field("capacity", &self.asset.capacity)?;
+
+        // Use TypedReflectSerializer for reflect-aware nested types so registry-driven
+        // serializers are invoked for simple reflect types. This includes enums.
+        state.serialize_field(
+            "spawner",
+            &TypedReflectSerializer::new(
+                Reflect::as_reflect(&self.asset.spawner),
+                self.type_registry,
+            ),
+        )?;
+        state.serialize_field("z_layer_2d", &self.asset.z_layer_2d)?;
+        state.serialize_field(
+            "simulation_space",
+            &TypedReflectSerializer::new(
+                Reflect::as_reflect(&self.asset.simulation_space),
+                self.type_registry,
+            ),
+        )?;
+        state.serialize_field(
+            "simulation_condition",
+            &TypedReflectSerializer::new(
+                Reflect::as_reflect(&self.asset.simulation_condition),
+                self.type_registry,
+            ),
+        )?;
+        state.serialize_field("prng_seed", &self.asset.prng_seed)?;
+
+        state.serialize_field(
+            "init_modifiers",
+            &TypedReflectSerializer::new(
+                Reflect::as_reflect(&self.asset.init_modifiers),
+                self.type_registry,
+            ),
+        )?;
+        state.serialize_field(
+            "update_modifiers",
+            &TypedReflectSerializer::new(
+                Reflect::as_reflect(&self.asset.update_modifiers),
+                self.type_registry,
+            ),
+        )?;
+        state.serialize_field(
+            "render_modifiers",
+            &TypedReflectSerializer::new(
+                Reflect::as_reflect(&self.asset.render_modifiers),
+                self.type_registry,
+            ),
+        )?;
+
+        state.serialize_field(
+            "motion_integration",
+            &TypedReflectSerializer::new(
+                Reflect::as_reflect(&self.asset.motion_integration),
+                self.type_registry,
+            ),
+        )?;
+        state.serialize_field(
+            "module",
+            &TypedReflectSerializer::new(
+                Reflect::as_reflect(&self.asset.module),
+                self.type_registry,
+            ),
+        )?;
+        state.serialize_field(
+            "alpha_mode",
+            &TypedReflectSerializer::new(
+                Reflect::as_reflect(&self.asset.alpha_mode),
+                self.type_registry,
+            ),
+        )?;
+        // mesh is optional and in the original serde it's skipped; only serialize it
+        // when present if let Some(mesh) = &self.asset.mesh {
+        //     state.serialize_field("mesh", mesh)?;
+        // }
+
+        state.end()
     }
 }
 
