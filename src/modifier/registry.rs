@@ -66,9 +66,6 @@ pub fn register_reflect_modifier<T: Modifier>(
 // ReflectModifier type-data (registered via register_reflect_modifier) and then
 // construct a default instance using the registered factory and apply the
 // deserialized reflect data into that instance via Reflect::set.
-//
-// This keeps a single source of truth (bevy's TypeRegistry) and avoids the old
-// typetag hack.
 #[cfg(feature = "serde")]
 #[allow(missing_docs)]
 pub mod serde_impl {
@@ -114,6 +111,8 @@ pub mod serde_impl {
         where
             D: de::Deserializer<'de>,
         {
+            eprintln!("BoxedModifier::DeserializeWithRegistry");
+
             // First, use the generic reflect deserializer which expects a single-entry map
             // { "full::type::Path": <value> } and returns a Box<dyn PartialReflect> (e.g.
             // DynamicStruct).
@@ -288,6 +287,9 @@ pub mod serde_impl {
                         {
                             use bevy::reflect::serde::DeserializeWithRegistry;
 
+                            eprintln!(
+                                "Calling BoxedModifier::DeserializeWithRegistry from Modifiers"
+                            );
                             BoxedModifier::deserialize(deserializer, self.registry)
 
                             // // Use the reflect deserializer to parse the
@@ -346,11 +348,18 @@ pub mod serde_impl {
                         vec.push(modifier);
                     }
 
+                    eprintln!("Deserialized {} modifiers into Modifiers", vec.len());
                     Ok(Modifiers(vec))
                 }
             }
 
-            deserializer.deserialize_seq(ModifiersVisitor { registry })
+            eprintln!("Modifiers: deserialize seq[] with visitor...");
+            let modifiers: Self = deserializer.deserialize_seq(ModifiersVisitor { registry })?;
+            eprintln!(
+                "Modifiers: deserialized seq[] => {} items",
+                modifiers.0.len()
+            );
+            Ok(modifiers)
         }
     }
 }
@@ -365,13 +374,15 @@ pub use serde_impl::Modifiers;
 
 #[cfg(test)]
 mod tests {
-    use bevy::reflect::serde::TypedReflectSerializer;
-    use bevy::reflect::PartialReflect;
-    use bevy::{math::Vec3, reflect::serde::TypedReflectDeserializer};
+    use bevy::math::Vec3;
+    use ron::ser::PrettyConfig;
     use serde::de::DeserializeSeed;
 
     use super::*;
-    use crate::{register_modifiers, AccelModifier, EffectAsset, RenderModifier, SpawnerSettings};
+    use crate::{
+        register_modifiers, AccelModifier, EffectAsset, EffectAssetDeserializer,
+        EffectAssetSerializer, RenderModifier, SpawnerSettings,
+    };
 
     /// Serialize and deserialize a [`Modifiers`] container.
     #[cfg(feature = "serde")]
@@ -407,10 +418,10 @@ mod tests {
 
         // Serialize via reflection, so that the SerializeWithRegistry impl of Modifiers
         // get automatically picked up and used.
-        let s = ron::to_string(&TypedReflectSerializer::new(
-            modifiers.as_reflect(),
-            &registry,
-        ))
+        let s = ron::ser::to_string_pretty(
+            &TypedReflectSerializer::new(modifiers.as_reflect(), &registry),
+            PrettyConfig::default(),
+        )
         .unwrap();
         println!("{s}");
 
@@ -494,22 +505,14 @@ mod tests {
 
         // ser
         let registry = type_registry.read();
-        let serializer = TypedReflectSerializer::new(&asset, &registry);
-        let json = ron::to_string(&serializer).unwrap();
+        let serializer = EffectAssetSerializer::new(&asset, &registry);
+        let json = ron::ser::to_string_pretty(&serializer, PrettyConfig::default()).unwrap();
         println!("{json}");
 
         // de
         let mut deserializer = ron::de::Deserializer::from_str(&json).unwrap();
-        let type_registration = registry.get(std::any::TypeId::of::<EffectAsset>()).unwrap();
-        let reflect_deserializer = TypedReflectDeserializer::new(&type_registration, &registry);
-        let reflect_value = reflect_deserializer.deserialize(&mut deserializer).unwrap();
-        assert!(reflect_value.represents::<EffectAsset>());
-
-        // Note: reflection-based deserializer produces a DynamicStruct, not an
-        // EffectAsset (because FromReflect is not available). Manually apply the
-        // data of the DynamicStruct to a real EffectAsset instance for convenience.
-        let mut serde_asset = EffectAsset::default();
-        serde_asset.try_apply(&*reflect_value).unwrap();
+        let deserialize = EffectAssetDeserializer::new(&registry);
+        let serde_asset = deserialize.deserialize(&mut deserializer).unwrap();
 
         // Validate what can be
         assert_eq!(asset.name, serde_asset.name);

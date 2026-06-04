@@ -11,11 +11,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in editing context where inputs are not always validated.
 - Added `ParticleLayout::attributes()` returning an exact-size iterator over the `AttributeLayout` elements
   forming the particle layout. This allows introspection of existing particle layouts.
+- Added a `ReflectModifier` type data to register a factory function able to create a concrete instance
+  of the modifier type. This is used by deserialization to rebuild an `EffectAsset`'s modifier lists.
+- Added the `Modifiers` container, which wraps a `Vec<BoxedModifier>` and provides serialization
+  and deserialization support, with the help of `ReflectModifier`.
 
 ### Changed
 
 - Spawners and properties are now bound as arrays in the various GPU passes.
   If you had custom shader code accessing those, you need to update your code.
+- `EffectAsset` now directly serializes and deserializes with Bevy's own `TypeRegistry`.
+  All effect modifiers (`Modifier` trait) registered in the type registry
+  are automatically supported, including custom user modifiers.
+- `ExprHandle` now serializes as a string `"#<id>"` where `<id>` is the 1-based index
+  of the expression in the `Module` of the `EffectAsset`.
+
+### Removed
+
+- Removed the `typetag` dependency.
 
 ## [0.18.0] 2026-02-01
 

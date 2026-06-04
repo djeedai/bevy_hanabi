@@ -463,6 +463,8 @@ pub struct EffectAsset {
 // std::fmt::Result {                 write!(formatter, "EffectAsset map")
 //             }
 
+//             fn visit
+
 //             fn visit_map<M>(self, mut map: M) -> Result<Self::Value,
 // M::Error>             where
 //                 M: MapAccess<'de2>,
@@ -596,8 +598,24 @@ pub struct EffectAsset {
 //             }
 //         }
 
-//         deserializer.deserialize_map(Seed { registry })
-//     }
+//         let fields = [
+//             "name",
+//             "capacity",
+//             "spawner",
+//             "z_layer_2d",
+//             "simulation_space",
+//             "simulation_condition",
+//             "prng_seed",
+//             "init_modifiers",
+//             "update_modifiers",
+//             "render_modifiers",
+//             "motion_integration",
+//             "module",
+//             "alpha_mode",
+//             "mesh",
+//         ];
+//         deserializer.deserialize_struct("EffectAsset", &fields, Seed {
+// registry })     }
 // }
 
 impl EffectAsset {
@@ -659,6 +677,22 @@ impl EffectAsset {
             spawner,
             module,
             ..default()
+        }
+    }
+
+    /// Build an [`EffectAsset`] from serialized parts.
+    fn from_serialized(
+        settings: SerializedEffectSettings,
+        init_modifiers: Modifiers,
+        update_modifiers: Modifiers,
+        render_modifiers: Modifiers,
+    ) -> Self {
+        let asset = settings.into();
+        Self {
+            init_modifiers,
+            update_modifiers,
+            render_modifiers,
+            ..asset
         }
     }
 
@@ -918,13 +952,243 @@ impl EffectAsset {
     }
 }
 
+///
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SerializedEffectSettings {
+    pub name: String,
+    pub capacity: u32,
+    pub spawner: SpawnerSettings,
+    pub z_layer_2d: f32,
+    pub simulation_space: SimulationSpace,
+    pub simulation_condition: SimulationCondition,
+    pub prng_seed: u32,
+    pub motion_integration: MotionIntegration,
+    pub module: Module,
+    pub alpha_mode: AlphaMode,
+}
+
+impl From<&EffectAsset> for SerializedEffectSettings {
+    fn from(asset: &EffectAsset) -> Self {
+        SerializedEffectSettings {
+            name: asset.name.clone(),
+            capacity: asset.capacity,
+            spawner: asset.spawner,
+            z_layer_2d: asset.z_layer_2d,
+            simulation_space: asset.simulation_space,
+            simulation_condition: asset.simulation_condition,
+            prng_seed: asset.prng_seed,
+            motion_integration: asset.motion_integration,
+            module: asset.module.clone(),
+            alpha_mode: asset.alpha_mode,
+        }
+    }
+}
+
+impl From<SerializedEffectSettings> for EffectAsset {
+    fn from(value: SerializedEffectSettings) -> Self {
+        EffectAsset {
+            name: value.name,
+            capacity: value.capacity,
+            spawner: value.spawner,
+            z_layer_2d: value.z_layer_2d,
+            simulation_space: value.simulation_space,
+            simulation_condition: value.simulation_condition,
+            prng_seed: value.prng_seed,
+            motion_integration: value.motion_integration,
+            module: value.module,
+            alpha_mode: value.alpha_mode,
+            //mesh: value.mesh,
+            ..default()
+        }
+    }
+}
+
+///
+pub struct SerializedEffectAsset<'a> {
+    pub settings: SerializedEffectSettings,
+    pub init_modifiers: &'a Modifiers,
+    pub update_modifiers: &'a Modifiers,
+    pub render_modifiers: &'a Modifiers,
+}
+
+impl<'a> From<&'a EffectAsset> for SerializedEffectAsset<'a> {
+    fn from(asset: &'a EffectAsset) -> Self {
+        SerializedEffectAsset {
+            settings: asset.into(),
+            init_modifiers: &asset.init_modifiers,
+            update_modifiers: &asset.update_modifiers,
+            render_modifiers: &asset.render_modifiers,
+        }
+    }
+}
+
+impl<'a> bevy::reflect::serde::SerializeWithRegistry for SerializedEffectAsset<'a> {
+    fn serialize<S>(&self, serializer: S, registry: &TypeRegistry) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct as _;
+
+        let mut s = serializer.serialize_struct("EffectAsset", 4)?;
+        s.serialize_field("settings", &self.settings)?;
+        s.serialize_field(
+            "init_modifiers",
+            &TypedReflectSerializer::new(self.init_modifiers, registry),
+        )?;
+        s.serialize_field(
+            "update_modifiers",
+            &TypedReflectSerializer::new(self.update_modifiers, registry),
+        )?;
+        s.serialize_field(
+            "render_modifiers",
+            &TypedReflectSerializer::new(self.render_modifiers, registry),
+        )?;
+        s.end()
+    }
+}
+
+impl<'de> bevy::reflect::serde::DeserializeWithRegistry<'de> for EffectAsset {
+    fn deserialize<D>(deserializer: D, registry: &TypeRegistry) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            Settings,
+            InitModifiers,
+            UpdateModifiers,
+            RenderModifiers,
+        }
+
+        struct SerializedEffectAssetVisitor<'a> {
+            pub registry: &'a TypeRegistry,
+        }
+
+        impl<'a, 'de> serde::de::Visitor<'de> for SerializedEffectAssetVisitor<'a> {
+            type Value = EffectAsset;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct EffectAsset")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<EffectAsset, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let modifiers = self
+                    .registry
+                    .get(std::any::TypeId::of::<Modifiers>())
+                    .ok_or_else(|| {
+                        serde::de::Error::custom("Failed to find type registration for Modifiers.")
+                    })?;
+
+                // Deserialize the struct
+                let mut settings = None;
+                let mut init_modifiers = None;
+                let mut update_modifiers = None;
+                let mut render_modifiers = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Settings => {
+                            if settings.is_some() {
+                                return Err(serde::de::Error::duplicate_field("settings"));
+                            }
+                            settings = Some(map.next_value()?);
+                        }
+                        Field::InitModifiers => {
+                            if init_modifiers.is_some() {
+                                return Err(serde::de::Error::duplicate_field("init_modifiers"));
+                            }
+                            init_modifiers = Some(map.next_value_seed(
+                                bevy::reflect::serde::TypedReflectDeserializer::new(
+                                    modifiers,
+                                    self.registry,
+                                ),
+                            )?);
+                        }
+                        Field::UpdateModifiers => {
+                            if update_modifiers.is_some() {
+                                return Err(serde::de::Error::duplicate_field("update_modifiers"));
+                            }
+                            update_modifiers = Some(map.next_value_seed(
+                                bevy::reflect::serde::TypedReflectDeserializer::new(
+                                    modifiers,
+                                    self.registry,
+                                ),
+                            )?);
+                        }
+                        Field::RenderModifiers => {
+                            if render_modifiers.is_some() {
+                                return Err(serde::de::Error::duplicate_field("render_modifiers"));
+                            }
+                            render_modifiers = Some(map.next_value_seed(
+                                bevy::reflect::serde::TypedReflectDeserializer::new(
+                                    modifiers,
+                                    self.registry,
+                                ),
+                            )?);
+                        }
+                    }
+                }
+
+                // Recover the concrete field objects
+                let settings =
+                    settings.ok_or_else(|| serde::de::Error::missing_field("settings"))?;
+                // Modifiers uses ReflectModifier type data to construct a concrete type. So we
+                // can directly try_take() here from the PartialReflect to recover that concrete
+                // object. This should always succeed.
+                let init_modifiers = init_modifiers
+                    .map(|m| m.try_take::<Modifiers>())
+                    .transpose()
+                    .map_err(|_| serde::de::Error::custom("Failed to get Modifiers"))?
+                    .unwrap_or_default();
+                let update_modifiers = update_modifiers
+                    .map(|m| m.try_take::<Modifiers>())
+                    .transpose()
+                    .map_err(|_| serde::de::Error::custom("Failed to get Modifiers"))?
+                    .unwrap_or_default();
+                let render_modifiers = render_modifiers
+                    .map(|m| m.try_take::<Modifiers>())
+                    .transpose()
+                    .map_err(|_| serde::de::Error::custom("Failed to get Modifiers"))?
+                    .unwrap_or_default();
+
+                // Rebuild the concrete EffectAsset object
+                Ok(EffectAsset::from_serialized(
+                    settings,
+                    init_modifiers,
+                    update_modifiers,
+                    render_modifiers,
+                ))
+            }
+        }
+
+        const FIELDS: &[&str] = &[
+            "settings",
+            "init_modifiers",
+            "update_modifiers",
+            "render_modifiers",
+        ];
+        deserializer.deserialize_struct(
+            "EffectAsset",
+            FIELDS,
+            SerializedEffectAssetVisitor { registry },
+        )
+    }
+}
+
 /// Serializer for an [`EffectAsset`].
 pub struct EffectAssetSerializer<'a> {
-    pub asset: &'a EffectAsset,
-    pub type_registry: &'a TypeRegistry,
+    asset: &'a EffectAsset,
+    type_registry: &'a TypeRegistry,
 }
 
 impl<'a> EffectAssetSerializer<'a> {
+    /// Create a new serializer for a given [`EffectAsset`].
+    ///
+    /// The `type_registry` must contain all types referenced by the
+    /// [`EffectAsset`], and in particular all concrete [`Modifier`] types.
     pub fn new(asset: &'a EffectAsset, type_registry: &'a TypeRegistry) -> Self {
         Self {
             asset,
@@ -933,98 +1197,140 @@ impl<'a> EffectAssetSerializer<'a> {
     }
 }
 
-/// Name of the serialized effect asset struct type.
-pub const EFFECT_ASSET_STRUCT: &str = "EffectAsset";
-
 impl<'a> serde::Serialize for EffectAssetSerializer<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        use serde::ser::SerializeStruct as _;
+        use bevy::reflect::serde::SerializeWithRegistry as _;
 
-        let mut state = serializer.serialize_struct(EFFECT_ASSET_STRUCT, 10)?;
-
-        state.serialize_field("name", &self.asset.name)?;
-        state.serialize_field("capacity", &self.asset.capacity)?;
-
-        // Use TypedReflectSerializer for reflect-aware nested types so registry-driven
-        // serializers are invoked for simple reflect types. This includes enums.
-        state.serialize_field(
-            "spawner",
-            &TypedReflectSerializer::new(
-                Reflect::as_reflect(&self.asset.spawner),
-                self.type_registry,
-            ),
-        )?;
-        state.serialize_field("z_layer_2d", &self.asset.z_layer_2d)?;
-        state.serialize_field(
-            "simulation_space",
-            &TypedReflectSerializer::new(
-                Reflect::as_reflect(&self.asset.simulation_space),
-                self.type_registry,
-            ),
-        )?;
-        state.serialize_field(
-            "simulation_condition",
-            &TypedReflectSerializer::new(
-                Reflect::as_reflect(&self.asset.simulation_condition),
-                self.type_registry,
-            ),
-        )?;
-        state.serialize_field("prng_seed", &self.asset.prng_seed)?;
-
-        state.serialize_field(
-            "init_modifiers",
-            &TypedReflectSerializer::new(
-                Reflect::as_reflect(&self.asset.init_modifiers),
-                self.type_registry,
-            ),
-        )?;
-        state.serialize_field(
-            "update_modifiers",
-            &TypedReflectSerializer::new(
-                Reflect::as_reflect(&self.asset.update_modifiers),
-                self.type_registry,
-            ),
-        )?;
-        state.serialize_field(
-            "render_modifiers",
-            &TypedReflectSerializer::new(
-                Reflect::as_reflect(&self.asset.render_modifiers),
-                self.type_registry,
-            ),
-        )?;
-
-        state.serialize_field(
-            "motion_integration",
-            &TypedReflectSerializer::new(
-                Reflect::as_reflect(&self.asset.motion_integration),
-                self.type_registry,
-            ),
-        )?;
-        state.serialize_field(
-            "module",
-            &TypedReflectSerializer::new(
-                Reflect::as_reflect(&self.asset.module),
-                self.type_registry,
-            ),
-        )?;
-        state.serialize_field(
-            "alpha_mode",
-            &TypedReflectSerializer::new(
-                Reflect::as_reflect(&self.asset.alpha_mode),
-                self.type_registry,
-            ),
-        )?;
-        // mesh is optional and in the original serde it's skipped; only serialize it
-        // when present if let Some(mesh) = &self.asset.mesh {
-        //     state.serialize_field("mesh", mesh)?;
-        // }
-
-        state.end()
+        let serialized_asset: SerializedEffectAsset = self.asset.into();
+        serialized_asset.serialize(serializer, self.type_registry)
     }
 }
+
+/// Deserializer for an [`EffectAsset`].
+pub struct EffectAssetDeserializer<'a> {
+    type_registry: &'a TypeRegistry,
+}
+
+impl<'a> EffectAssetDeserializer<'a> {
+    /// Create a new deserializer for [`EffectAsset`].
+    ///
+    /// The `type_registry` must contain all types that could be referenced by
+    /// the [`EffectAsset`] to deserialize, and in particular all concrete
+    /// [`Modifier`] types.
+    pub fn new(type_registry: &'a TypeRegistry) -> Self {
+        Self { type_registry }
+    }
+}
+
+impl<'a, 'de> serde::de::DeserializeSeed<'de> for EffectAssetDeserializer<'a> {
+    type Value = EffectAsset;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use bevy::reflect::serde::DeserializeWithRegistry as _;
+
+        EffectAsset::deserialize(deserializer, self.type_registry)
+    }
+}
+
+// /// Name of the serialized effect asset struct type.
+// pub const EFFECT_ASSET_STRUCT: &str = "EffectAsset";
+
+// impl<'a> serde::Serialize for EffectAssetSerializer<'a> {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: serde::Serializer,
+//     {
+//         use serde::ser::SerializeStruct as _;
+
+//         let mut state = serializer.serialize_struct(EFFECT_ASSET_STRUCT,
+// 10)?;
+
+//         state.serialize_field("name", &self.asset.name)?;
+//         state.serialize_field("capacity", &self.asset.capacity)?;
+
+//         // Use TypedReflectSerializer for reflect-aware nested types so
+// registry-driven         // serializers are invoked for simple reflect types.
+// This includes enums.         state.serialize_field(
+//             "spawner",
+//             &TypedReflectSerializer::new(
+//                 Reflect::as_reflect(&self.asset.spawner),
+//                 self.type_registry,
+//             ),
+//         )?;
+//         state.serialize_field("z_layer_2d", &self.asset.z_layer_2d)?;
+//         state.serialize_field(
+//             "simulation_space",
+//             &TypedReflectSerializer::new(
+//                 Reflect::as_reflect(&self.asset.simulation_space),
+//                 self.type_registry,
+//             ),
+//         )?;
+//         state.serialize_field(
+//             "simulation_condition",
+//             &TypedReflectSerializer::new(
+//                 Reflect::as_reflect(&self.asset.simulation_condition),
+//                 self.type_registry,
+//             ),
+//         )?;
+//         state.serialize_field("prng_seed", &self.asset.prng_seed)?;
+
+//         state.serialize_field(
+//             "init_modifiers",
+//             &TypedReflectSerializer::new(
+//                 Reflect::as_reflect(&self.asset.init_modifiers),
+//                 self.type_registry,
+//             ),
+//         )?;
+//         state.serialize_field(
+//             "update_modifiers",
+//             &TypedReflectSerializer::new(
+//                 Reflect::as_reflect(&self.asset.update_modifiers),
+//                 self.type_registry,
+//             ),
+//         )?;
+//         state.serialize_field(
+//             "render_modifiers",
+//             &TypedReflectSerializer::new(
+//                 Reflect::as_reflect(&self.asset.render_modifiers),
+//                 self.type_registry,
+//             ),
+//         )?;
+
+//         state.serialize_field(
+//             "motion_integration",
+//             &TypedReflectSerializer::new(
+//                 Reflect::as_reflect(&self.asset.motion_integration),
+//                 self.type_registry,
+//             ),
+//         )?;
+//         state.serialize_field(
+//             "module",
+//             &TypedReflectSerializer::new(
+//                 Reflect::as_reflect(&self.asset.module),
+//                 self.type_registry,
+//             ),
+//         )?;
+//         state.serialize_field(
+//             "alpha_mode",
+//             &TypedReflectSerializer::new(
+//                 Reflect::as_reflect(&self.asset.alpha_mode),
+//                 self.type_registry,
+//             ),
+//         )?;
+//         // mesh is optional and in the original serde it's skipped; only
+// serialize it         // when present if let Some(mesh) = &self.asset.mesh {
+//         //     state.serialize_field("mesh", mesh)?;
+//         // }
+
+//         state.end()
+//     }
+// }
 
 /// Asset loader for [`EffectAsset`].
 ///

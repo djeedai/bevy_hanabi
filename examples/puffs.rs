@@ -211,7 +211,6 @@ impl LambertianLightingModifier {
 }
 
 // Boilerplate implementation of `Modifier` for our lighting modifier.
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for LambertianLightingModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Render
@@ -239,7 +238,6 @@ impl Modifier for LambertianLightingModifier {
 }
 
 // The implementation of Lambertian lighting.
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for LambertianLightingModifier {
     fn apply_render(&self, _: &mut Module, context: &mut RenderContext) -> Result<(), ExprError> {
         // We need the vertex normals to light the mesh.

@@ -104,7 +104,11 @@
 
 use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
 
-use bevy::{platform::collections::HashSet, prelude::default, reflect::Reflect};
+use bevy::{
+    platform::collections::HashSet,
+    prelude::default,
+    reflect::{Reflect, ReflectDeserialize, ReflectSerialize},
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -124,13 +128,88 @@ type Id = NonZeroU32;
 /// reason, it's easily copyable. However it's also lacking any kind of error
 /// checking, and mixing handles to different modules produces undefined
 /// behaviors (like an index does when indexing the wrong array).
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect, Serialize, Deserialize,
-)]
+///
+/// # Serialization
+///
+/// [`ExprHandle`] is serialized as a string `#<id>`, where `<id>` is the
+/// 1-based integer index of the expression in the implicitly associated
+/// [`Module`]'s expression array. Valid `<id>` values are in the range
+/// `1..=u32::MAX`.
+///
+/// Note that during deserialization, there is no validation that the index
+/// actually refers to a valid entry in the expression array.
+///
+/// Examples of valid values:
+/// - `"#1"`
+/// - `"#42"`
+/// - `"#4000"` -- deserializes OK, but unlikely there are 4000 expressions in
+///   the Module
+///
+/// Examples of **invalid** values:
+/// - `"#0"` -- 0 is a reserved value
+/// - `"#-1"` -- must be positive
+/// - `"#4294967296"` -- out of bounds (> u32::MAX)
+/// - `33` -- not a string
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
+#[reflect(Serialize, Deserialize)]
 #[repr(transparent)]
-#[serde(transparent)]
 pub struct ExprHandle {
     id: Id,
+}
+
+impl serde::Serialize for ExprHandle {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&format!("#{}", self.id.get()))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ExprHandle {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct IdVisitor;
+
+        impl<'de2> serde::de::Visitor<'de2> for IdVisitor {
+            type Value = ExprHandle;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str(
+                    "a string of the form \"#<N>\" where <N> is a non-zero expression index",
+                )
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                if v.len() > 1 && v.chars().nth(0) == Some('#') {
+                    let id = v[1..]
+                        .parse::<u32>()
+                        .map_err(|_| serde::de::Error::custom("Failed to parse ID value"))?;
+                    NonZeroU32::try_from(id)
+                        .map(|id| ExprHandle { id })
+                        .map_err(|_| serde::de::Error::custom("Invalid ID value"))
+                } else {
+                    Err(serde::de::Error::custom(
+                        "Invalid ID format (expected '#N')",
+                    ))
+                }
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                self.visit_str(&v[..])
+            }
+        }
+
+        deserializer.deserialize_any(IdVisitor)
+    }
 }
 
 impl ExprHandle {
@@ -4050,6 +4129,7 @@ impl std::ops::Rem<WriterExpr> for WriterExpr {
 #[cfg(test)]
 mod tests {
     use bevy::{platform::collections::HashSet, prelude::*};
+    use ron::ser::PrettyConfig;
 
     use super::*;
     use crate::{MatrixType, ScalarValue, ShaderWriter, VectorType};
@@ -4740,4 +4820,71 @@ mod tests {
     //     assert_eq!(a_serde.left.to_wgsl_string(), l0.to_wgsl_string());
     //     assert_eq!(a_serde.right.to_wgsl_string(), l1.to_wgsl_string());
     // }
+
+    #[test]
+    fn expr_handle_serde() {
+        let handle = ExprHandle {
+            id: NonZeroU32::new(42).unwrap(),
+        };
+
+        // ser
+        let s = ron::ser::to_string_pretty(&handle, PrettyConfig::default()).unwrap();
+        eprintln!("{}", s);
+
+        // de
+        {
+            let mut de = ron::de::Deserializer::from_str(&s).unwrap();
+            let serde_handle = ExprHandle::deserialize(&mut de).unwrap();
+            assert_eq!(handle, serde_handle);
+        }
+
+        // de -- literatl string
+        {
+            let mut de = ron::de::Deserializer::from_str("\"#42\"").unwrap();
+            let serde_handle = ExprHandle::deserialize(&mut de).unwrap();
+            assert_eq!(handle, serde_handle);
+        }
+
+        // de -- invalid string
+        {
+            let mut de = ron::de::Deserializer::from_str("\"invalid\"").unwrap();
+            let ret = ExprHandle::deserialize(&mut de);
+            assert!(ret.is_err());
+        }
+
+        // de -- literal (not supported)
+        {
+            let mut de = ron::de::Deserializer::from_str("33").unwrap();
+            let ret = ExprHandle::deserialize(&mut de);
+            assert!(ret.is_err());
+        }
+
+        // de -- invalid ID (zero)
+        {
+            let mut de = ron::de::Deserializer::from_str("\"#0\"").unwrap();
+            let ret = ExprHandle::deserialize(&mut de);
+            assert!(ret.is_err());
+        }
+
+        // de -- invalid ID (negative)
+        {
+            let mut de = ron::de::Deserializer::from_str("\"#-5\"").unwrap();
+            let ret = ExprHandle::deserialize(&mut de);
+            assert!(ret.is_err());
+        }
+
+        // de -- valid ID (u32::MAX)
+        {
+            let mut de = ron::de::Deserializer::from_str("\"#4294967295\"").unwrap();
+            let serde_handle = ExprHandle::deserialize(&mut de).unwrap();
+            assert_eq!(serde_handle.id.get(), u32::MAX);
+        }
+
+        // de -- invalid ID (u32::MAX + 1; out of bounds)
+        {
+            let mut de = ron::de::Deserializer::from_str("\"#4294967296\"").unwrap();
+            let ret = ExprHandle::deserialize(&mut de);
+            assert!(ret.is_err());
+        }
+    }
 }
