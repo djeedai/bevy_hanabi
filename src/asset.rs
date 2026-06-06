@@ -1432,7 +1432,8 @@ mod tests {
         // assert_eq!(effect.render_layout, render_layout);
     }
 
-    /// Round-trip EffectAsset through its own functions serialize() and deserialize().
+    /// Round-trip EffectAsset through its own functions serialize() and
+    /// deserialize().
     #[test]
     fn serde_asset() {
         let w = ExprWriter::new();

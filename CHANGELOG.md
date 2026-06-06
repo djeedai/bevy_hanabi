@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `EffectAsset::serialize(&self)` and `EffectAsset::deserialize()`,
   which serialize and deserialize the `EffectAsset` using the canonical Hanabi format
   corresponding to the `EffectAssetLoader` (`*.effect` files).
+- Added a new `EffectMesh` optional component holding a reference (`Handle<Mesh>`)
+  to the mesh used to render the particles of a `ParticleEffect`.
+  If absent (default), the asset referenced by `EffectAsset::mesh` is used,
+  or the `DefaultMesh` as a fallback.
 - Added a fallible alternative `SpawnerSettings::try_new()` to the existing `new()`, to prevent panics
   in editing context where inputs are not always validated.
 - Added `ParticleLayout::attributes()` returning an exact-size iterator over the `AttributeLayout` elements
@@ -40,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The field now holds the asset path of the mesh, instead of a runtime handle.
   This enables serializing the asset path alongside the rest of the effect.
   At runtime, the asset path is used to load the mesh.
+  Use the `EffectMesh` component instead if you want to override the `Mesh` for an instance.
 
 ### Removed
 
