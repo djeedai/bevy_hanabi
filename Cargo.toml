@@ -29,7 +29,7 @@ exclude = [
 autoexamples = false
 
 [features]
-default = ["2d", "3d", "serde", "gpu_tests"]
+default = ["2d", "3d", "gpu_tests"]
 
 # Enable support for rendering through a 2D camera (Camera2d).
 # You need to activate either the 2d or 3d feature at least (or both).
@@ -38,9 +38,6 @@ default = ["2d", "3d", "serde", "gpu_tests"]
 # Enable support for rendering through a 3D camera (Camera3d).
 # You need to activate either the 2d or 3d feature at least (or both).
 3d = []
-
-# Enable serializing and deserializing of assets.
-serde = []
 
 # Enable tracing annotations. This is disabled by default for performance.
 trace = []
