@@ -7,6 +7,7 @@ set RUSTFLAGS=--cfg web_sys_unstable_apis --cfg getrandom_backend="wasm_js"
 
 echo Build all examples for WASM...
 REM 3D
+cargo b --release --example lightning --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example firework --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example portal --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example expr --target wasm32-unknown-unknown --features="bevy/webgpu"
@@ -31,6 +32,7 @@ cargo b --release --example puffs --target wasm32-unknown-unknown --features="be
 REM 2D
 cargo b --release --example 2d --target wasm32-unknown-unknown --features="bevy/webgpu"
 
+wasm-bindgen --out-name wasm_lightning --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lightning.wasm
 wasm-bindgen --out-name wasm_firework --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/firework.wasm
 wasm-bindgen --out-name wasm_portal --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/portal.wasm
 wasm-bindgen --out-name wasm_expr --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/expr.wasm
@@ -54,3 +56,5 @@ wasm-bindgen --out-name wasm_puffs --out-dir examples/wasm/target --target web t
 wasm-bindgen --out-name wasm_2d --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/2d.wasm
 
 echo Done. See docs/wasm.md for help on running the examples locally.
+
+set RUSTFLAGS=
