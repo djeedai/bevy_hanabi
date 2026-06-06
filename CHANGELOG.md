@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a new `EffectMesh` optional component holding a reference (`Handle<Mesh>`)
   to the mesh used to render the particles of a `ParticleEffect`.
   If absent (default), the asset referenced by `EffectAsset::mesh` is used,
-  or the `DefaultMesh` as a fallback.
+  or the `DefaultMesh` as a fallback. See the updated `puffs` example.
 - Added a fallible alternative `SpawnerSettings::try_new()` to the existing `new()`, to prevent panics
   in editing context where inputs are not always validated.
 - Added `ParticleLayout::attributes()` returning an exact-size iterator over the `AttributeLayout` elements
