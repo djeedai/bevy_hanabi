@@ -943,12 +943,72 @@ impl EffectAsset {
     }
 
     /// Serialize this effect asset.
+    ///
+    /// This uses the canonical Hanabi serialization format, which is internally
+    /// based on RON (implementation detail). The type registry must contain all
+    /// types this [`EffectAsset`] references, including all concrete types of
+    /// [`Modifier`] objects. In general, you should pass the app's own
+    /// [`TypeRegistry`] found in the [`AppTypeRegistry`] resource.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy::prelude::*;
+    /// # use bevy_hanabi::*;
+    /// fn serialize_effect(type_registry: Res<AppTypeRegistry>) {
+    ///     let asset = EffectAsset::default();
+    ///     // [...]
+    ///     let type_registry = type_registry.read();
+    ///     let s = asset.serialize(&type_registry).unwrap();
+    ///     // [...]
+    /// }
+    /// ```
+    ///
+    /// # Advanced
+    ///
+    /// For more advanced serialization, for example to another format, see also
+    /// the [`EffectAssetSerializer`] which implements [`serde::Serialize`].
     pub fn serialize(&self, type_registry: &TypeRegistry) -> Result<String, ron::Error> {
         let serializer = EffectAssetSerializer::new(self, type_registry);
         let pretty_config = ron::ser::PrettyConfig::default()
             .indentor("  ".to_string())
             .new_line("\n".to_string());
         ron::ser::to_string_pretty(&serializer, pretty_config)
+    }
+
+    /// Deserialize an effect asset from string.
+    ///
+    /// This uses the canonical Hanabi serialization format, which is internally
+    /// based on RON (implementation detail). The type registry must contain all
+    /// types the serialized [`EffectAsset`] references, including all concrete
+    /// types of [`Modifier`] objects. In general, you should pass the app's
+    /// own [`TypeRegistry`] found in the [`AppTypeRegistry`] resource.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy::prelude::*;
+    /// # use bevy_hanabi::*;
+    /// # fn get_asset_string() -> String { unimplemented!() }
+    /// fn deserialize_effect(type_registry: Res<AppTypeRegistry>) {
+    ///     // [...]
+    ///     let s: String = get_asset_string();
+    ///     let type_registry = type_registry.read();
+    ///     let asset = EffectAsset::deserialize_from_str(&s[..], &type_registry).unwrap();
+    ///     // [...]
+    /// }
+    /// ```
+    ///
+    /// # Advanced
+    ///
+    /// For more advanced deserialization, for example to another format, see
+    /// also the [`EffectAssetDeserializer`] which implements
+    /// [`serde::de::DeserializeSeed`].
+    pub fn deserialize_from_str(s: &str, type_registry: &TypeRegistry) -> Result<Self, ron::Error> {
+        let mut deserializer = ron::de::Deserializer::from_str(s)?;
+        let deserialize = EffectAssetDeserializer::new(&type_registry);
+        let asset = deserialize.deserialize(&mut deserializer)?;
+        Ok(asset)
     }
 }
 
@@ -1443,9 +1503,6 @@ pub struct ParticleTrails {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "serde")]
-    use ron::ser::PrettyConfig;
-
     use super::*;
     use crate::*;
 
@@ -1559,9 +1616,11 @@ mod tests {
         // assert_eq!(effect.render_layout, render_layout);
     }
 
+    /// Round-trip EffectAsset through its own functions serialize() and
+    /// deserialize_from_str().
     #[cfg(feature = "serde")]
     #[test]
-    fn test_serde_ron() {
+    fn serde_asset() {
         let w = ExprWriter::new();
 
         let pos = w.lit(Vec3::new(1.2, -3.45, 87.54485));
@@ -1579,39 +1638,24 @@ mod tests {
             capacity: 4096,
             spawner: SpawnerSettings::rate(30.0.into()),
             module,
+            z_layer_2d: 1.5,
+            simulation_space: SimulationSpace::Local,
+            simulation_condition: SimulationCondition::Always,
+            prng_seed: 4284,
+            motion_integration: MotionIntegration::PreUpdate,
+            alpha_mode: AlphaMode::Multiply,
             ..Default::default()
         }
         .init(mod_pos);
 
-        // Use reflect-based serialization with a TypeRegistry so modifiers (boxed trait
-        // objects) are serialized via the registered ReflectModifier factories.
         let type_registry = AppTypeRegistry::new_with_derived_types();
         register_modifiers(&type_registry);
         let registry = type_registry.read();
 
-        let serializer = bevy::reflect::serde::ReflectSerializer::new(&effect, &registry);
-        let s =
-            ron::ser::to_string_pretty(&serializer, PrettyConfig::new().new_line("\n".to_string()))
-                .unwrap();
+        // Round-trip
+        let s = effect.serialize(&registry).unwrap();
         eprintln!("{}", s);
-
-        // Deserialize back using the reflect deserializer and convert to EffectAsset
-        let mut de = ron::de::Deserializer::from_str(&s).unwrap();
-        let reflect_deser = bevy::reflect::serde::ReflectDeserializer::new(&registry);
-        let boxed_partial = reflect_deser.deserialize(&mut de).unwrap();
-        let type_info = boxed_partial
-            .get_represented_type_info()
-            .expect("reflected value has no represented type info");
-        let type_id = type_info.type_id();
-        let rfr = registry
-            .get_type_data::<bevy::reflect::ReflectFromReflect>(type_id)
-            .expect("no ReflectFromReflect data");
-        let concrete_reflect = rfr
-            .from_reflect(boxed_partial.as_partial_reflect())
-            .expect("from_reflect failed");
-        let effect_serde: EffectAsset = *concrete_reflect
-            .downcast::<EffectAsset>()
-            .expect("failed to downcast reflect value to EffectAsset");
+        let effect_serde = EffectAsset::deserialize_from_str(&s, &registry).unwrap();
 
         assert_eq!(effect.name, effect_serde.name);
         assert_eq!(effect.capacity, effect_serde.capacity);

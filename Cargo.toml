@@ -39,9 +39,8 @@ default = ["2d", "3d", "serde", "gpu_tests"]
 # You need to activate either the 2d or 3d feature at least (or both).
 3d = []
 
-# Enable serializing and deserializing of assets. This doesn't work on WASM,
-# because typetag is not available for the wasm target.
-serde = ["typetag"]
+# Enable serializing and deserializing of assets.
+serde = []
 
 # Enable tracing annotations. This is disabled by default for performance.
 trace = []
@@ -60,7 +59,6 @@ serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 ron = "0.8"
 bitflags = "2.3"
-typetag = { version = "0.2", optional = true }
 thiserror = "2"
 # Same versions as Bevy 0.18 (bevy_render)
 wgpu = { version = "27", default-features = false, features = [

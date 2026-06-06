@@ -1,4 +1,39 @@
 //! Type registration for modifiers.
+//!
+//! This module contains utilities used to reflect and serialize
+//! [`EffectAsset`]. In general, you don't need to directly interact with those;
+//! instead, use [`EffectAsset::serialize`], as well as the
+//! [`EffectAssetSerializer`] and [`EffectAssetDeserializer`].
+//!
+//! _Modifiers_ are objects implementing the [`Modifier`] trait. Because a trait
+//! abstracts the concrete object type, it cannot be used as is with the Bevy
+//! reflection and serialization infrastructure. Bevy does allow reflecting
+//! traits with `#[reflect_trait]`, but due to other limitations (notably,
+//! `Box<T>` not being reflected), this is not sufficient to easily make
+//! modifiers reflected and serializable.
+//!
+//! This module contains some utilities to enable reflecting and serializing
+//! modifiers. At the core, we register for each conrete modifier type some
+//! [`ReflectModifier`] type data, which essentially contains a factory function
+//! used to construct an instance of that type during deserialization. We also
+//! define [`Modifiers`], an ordered collection (`Vec`) of [`BoxedModifier`]
+//! objects, and provide some implementation of Bevy's [`SerializeWithRegistry`]
+//! and [`DeserializeWithRegistry`]. Those trait are automatically picked up by
+//! Bevy's reflect-based serialization utilities like [`TypedReflectSerializer`]
+//! and [`TypedReflectDeserializer`]. They are in turn used by
+//! [`EffectAssetSerializer`] and [`EffectAssetDeserializer`], which are custom
+//! de/serializer implementations for [`EffectAsset`] which handle the
+//! collections of modifiers for the init, update, and render passes of each
+//! effect.
+//!
+//! [`EffectAsset`]: crate::EffectAsset
+//! [`EffectAsset::serialize`]: crate::EffectAsset::serialize
+//! [`EffectAssetSerializer`]: crate::EffectAssetSerializer
+//! [`EffectAssetDeserializer`]: crate::EffectAssetDeserializer
+//! [`SerializeWithRegistry`]: bevy::reflect::serde::SerializeWithRegistry
+//! [`DeserializeWithRegistry`]: bevy::reflect::serde::DeserializeWithRegistry
+//! [`TypedReflectSerializer`]: bevy::reflect::serde::TypedReflectSerializer
+//! [`TypedReflectDeserializer`]: bevy::reflect::serde::TypedReflectDeserializer
 
 use std::any::TypeId;
 
@@ -58,14 +93,6 @@ pub fn register_reflect_modifier<T: Modifier>(
     }
 }
 
-// Serde helpers: serialize/deserialize BoxedModifier via Bevy's TypeRegistry +
-// reflect serde The approach below uses Bevy's ReflectSerializer /
-// ReflectDeserializer which emit a single-entry map keyed by the full type path
-// (e.g. "my_crate::mod::MyModifier": { ... }). On deserialization we use the
-// type information produced by the reflect deserializer to lookup the
-// ReflectModifier type-data (registered via register_reflect_modifier) and then
-// construct a default instance using the registered factory and apply the
-// deserialized reflect data into that instance via Reflect::set.
 #[cfg(feature = "serde")]
 #[allow(missing_docs)]
 pub mod serde_impl {
@@ -111,8 +138,6 @@ pub mod serde_impl {
         where
             D: de::Deserializer<'de>,
         {
-            eprintln!("BoxedModifier::DeserializeWithRegistry");
-
             // First, use the generic reflect deserializer which expects a single-entry map
             // { "full::type::Path": <value> } and returns a Box<dyn PartialReflect> (e.g.
             // DynamicStruct).
@@ -149,25 +174,10 @@ pub mod serde_impl {
             // Apply the deserialized partial reflect value into the instance.
             let reflect_mut: &mut dyn Reflect = Reflect::as_reflect_mut(&mut *modifier);
             reflect_mut.apply(boxed_partial.as_partial_reflect());
-            // .map_err(|e| {
-            //     de::Error::custom(format!(
-            //         "failed to apply reflect value to modifier instance: {:?}",
-            //         e
-            //     ))
-            // })?;
 
             Ok(modifier)
         }
     }
-
-    // Note: for this to be used automatically by the reflect-powered
-    // serializers/deserializers the TypeRegistry must register the
-    // ReflectSerializeWithRegistry / ReflectDeserializeWithRegistry
-    // type data for BoxedModifier (or the surrounding asset type that contains it)
-    // so that reflection knows to call these impls. In practice this is done by
-    // registering the type information for the asset and ensuring your
-    // AppTypeRegistry contains the ReflectModifier entries for every concrete
-    // modifier type.
 
     use std::fmt::Formatter;
     use std::ops::{Deref, DerefMut};
@@ -198,12 +208,8 @@ pub mod serde_impl {
         where
             S: Serializer,
         {
-            //use bevy::reflect::Reflect;
-            //use serde::ser::SerializeMap;
-
             struct Elem<'a> {
                 boxed: &'a BoxedModifier,
-                //reflect: &'a dyn Reflect,
                 registry: &'a TypeRegistry,
             }
 
@@ -213,37 +219,13 @@ pub mod serde_impl {
                     S2: serde::Serializer,
                 {
                     use bevy::reflect::serde::SerializeWithRegistry;
-
-                    // let type_path = self
-                    //     .reflect
-                    //     .get_represented_type_info()
-                    //     .ok_or_else(|| {
-                    //         S2::Error::custom(
-                    //             "cannot serialize dynamic value without represented type",
-                    //         )
-                    //     })?
-                    //     .type_path();
-                    // let mut map = serializer.serialize_map(Some(1))?;
-                    // In theory yes, but BoxedModifier is a type alias, and we don't register its
-                    // SerializeWithRegistry as a proper type data, so
-                    // TypedReflectSerializer won't find it. Invoke directly instead.
-                    // map.serialize_entry(
-                    //     type_path,
-                    //     &TypedReflectSerializer::new(self.reflect, self.registry),
-                    // )?;
-                    // Directly invoke SerializeWithRegistry::serialize()
                     self.boxed.serialize(serializer, self.registry)
-                    //map.end()
                 }
             }
 
             let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
             for m in &self.0 {
-                seq.serialize_element(&Elem {
-                    boxed: m,
-                    //reflect: m.as_reflect(),
-                    registry,
-                })?;
+                seq.serialize_element(&Elem { boxed: m, registry })?;
             }
             seq.end()
         }
@@ -286,58 +268,7 @@ pub mod serde_impl {
                             D2: de::Deserializer<'de2>,
                         {
                             use bevy::reflect::serde::DeserializeWithRegistry;
-
-                            eprintln!(
-                                "Calling BoxedModifier::DeserializeWithRegistry from Modifiers"
-                            );
                             BoxedModifier::deserialize(deserializer, self.registry)
-
-                            // // Use the reflect deserializer to parse the
-                            // single-entry map // into
-                            // a Box<dyn PartialReflect> and then construct the
-                            // concrete // modifier
-                            // using the ReflectModifier factory +
-                            // ReflectFromReflect.
-                            // let reflect_seed =
-                            // ReflectDeserializer::new(self.registry);
-                            // let boxed_partial: Box<dyn PartialReflect> =
-                            // reflect_seed
-                            //     .deserialize(deserializer)
-                            //     .map_err(de::Error::custom)?;
-
-                            // let type_info =
-                            //     boxed_partial.get_represented_type_info().
-                            // ok_or_else(|| {
-                            //         de::Error::custom(
-                            //             "reflected value has no represented
-                            // type info",         )
-                            //     })?;
-                            // let type_id = type_info.type_id();
-
-                            // let reflect_modifier = self
-                            //     .registry
-                            //     .get_type_data::<ReflectModifier>(type_id)
-                            //     .ok_or_else(|| {
-                            //         de::Error::custom("no ReflectModifier
-                            // type data for type")
-                            //     })?;
-
-                            // let mut module = Module::default();
-                            // let mut modifier: BoxedModifier =
-                            //     (reflect_modifier.factory)(&mut module);
-                            // let reflect_mut: &mut dyn Reflect =
-                            //     Reflect::as_reflect_mut(&mut *modifier);
-                            // reflect_mut
-                            //     .apply(boxed_partial.as_partial_reflect());
-                            //     // .map_err(|e| {
-                            //     //     de::Error::custom(format!(
-                            //     //         "failed to apply reflect value to
-                            // modifier instance: {:?}",
-                            //     //         e
-                            //     //     ))
-                            //     // })?;
-
-                            // Ok(modifier)
                         }
                     }
 
@@ -348,17 +279,11 @@ pub mod serde_impl {
                         vec.push(modifier);
                     }
 
-                    eprintln!("Deserialized {} modifiers into Modifiers", vec.len());
                     Ok(Modifiers(vec))
                 }
             }
 
-            eprintln!("Modifiers: deserialize seq[] with visitor...");
             let modifiers: Self = deserializer.deserialize_seq(ModifiersVisitor { registry })?;
-            eprintln!(
-                "Modifiers: deserialized seq[] => {} items",
-                modifiers.0.len()
-            );
             Ok(modifiers)
         }
     }
