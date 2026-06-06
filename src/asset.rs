@@ -1,5 +1,4 @@
 use bevy::asset::{io::Reader, AssetLoader, LoadContext};
-use bevy::reflect::serde::ReflectDeserializer;
 use bevy::reflect::TypeRegistry;
 use bevy::reflect::{TypePath, TypeRegistryArc};
 use bevy::{
@@ -1405,14 +1404,23 @@ impl FromWorld for EffectAssetLoader {
 
 /// Error for the [`EffectAssetLoader`] loading an [`EffectAsset`].
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum EffectAssetLoaderError {
     /// I/O error reading the asset source.
     #[error("An IO error occurred during loading of a particle effect")]
     Io(#[from] std::io::Error),
 
+    /// UTF-8 error converting the asset serialized content.
+    #[error("An encoding error occurred during loading of a particle effect")]
+    Encoding(#[from] std::string::FromUtf8Error),
+
     /// Error during RON format parsing.
     #[error("A RON format error occurred during loading of a particle effect")]
-    Ron(#[from] ron::error::SpannedError),
+    RonSpan(#[from] ron::error::SpannedError),
+
+    /// Error during RON format parsing.
+    #[error("A RON error occurred during loading of a particle effect")]
+    Ron(#[from] ron::error::Error),
 }
 
 impl AssetLoader for EffectAssetLoader {
@@ -1430,21 +1438,10 @@ impl AssetLoader for EffectAssetLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-
-        // 1. Deserialize ron bytes into generic data
-        let mut deserializer = ron::de::Deserializer::from_bytes(&bytes)?;
-
-        // 2. Reflect-based deserialize into a dynamic type
-        let type_registry = &self.type_registry.read();
-        let reflect_deserializer = ReflectDeserializer::new(type_registry);
-        let reflect_value = reflect_deserializer.deserialize(&mut deserializer).unwrap();
-
-        // 3. Build concrete type
-        if let Ok(custom_asset) = reflect_value.try_downcast::<EffectAsset>() {
-            Ok(*custom_asset)
-        } else {
-            panic!();
-        }
+        let s = String::from_utf8(bytes)?;
+        let type_registry = self.type_registry.read();
+        let asset = EffectAsset::deserialize_from_str(&s, &type_registry)?;
+        Ok(asset)
     }
 
     fn extensions(&self) -> &[&str] {
@@ -1494,6 +1491,19 @@ pub struct ParticleTrails {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
+    use bevy::{
+        asset::{
+            io::{
+                memory::{Dir, MemoryAssetReader, MemoryAssetWriter},
+                AssetSourceBuilder, AssetSourceId,
+            },
+            LoadState,
+        },
+        diagnostic::DiagnosticsPlugin,
+    };
+
     use super::*;
     use crate::*;
 
@@ -1719,5 +1729,80 @@ mod tests {
         let particle_layout = asset.particle_layout();
         assert!(particle_layout.contains(Attribute::AGE)); // direct
         assert!(particle_layout.contains(Attribute::F32_0)); // transitive
+    }
+
+    /// Creates a basic asset app and an in-memory file system.
+    fn create_app() -> (App, Dir) {
+        let mut app = App::new();
+        let dir = Dir::default();
+        let dir1 = dir.clone();
+        let dir2 = dir.clone();
+        app.register_asset_source(
+            AssetSourceId::Default,
+            AssetSourceBuilder::new(move || Box::new(MemoryAssetReader { root: dir1.clone() }))
+                .with_writer(move |_| Some(Box::new(MemoryAssetWriter { root: dir2.clone() }))),
+        )
+        .add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin {
+                watch_for_changes_override: Some(false),
+                use_asset_processor_override: Some(false),
+                ..Default::default()
+            },
+            DiagnosticsPlugin,
+        ));
+        (app, dir)
+    }
+
+    fn run_app_until(app: &mut App, mut predicate: impl FnMut(&mut World) -> Option<()>) {
+        for _ in 0..10_000 {
+            app.update();
+            if predicate(app.world_mut()).is_some() {
+                return;
+            }
+        }
+        panic!("Ran out of loops to return `Some` from `predicate`");
+    }
+
+    /// Check that the [`EffectAssetLoader`] can load an asset.
+    #[test]
+    fn loader() {
+        let (mut app, dir) = create_app();
+        app.init_asset::<EffectAsset>()
+            .init_asset_loader::<EffectAssetLoader>();
+
+        // Create an effect, serialize it, and write it to the in-memory file system
+        let asset_ref = {
+            let type_registry = app.world().resource::<AppTypeRegistry>().clone();
+            let type_registry = type_registry.read();
+            let spawner = SpawnerSettings::rate(3.0.into());
+            let module = Module::default();
+            let effect = EffectAsset::new(256, spawner, module);
+            let s = effect.serialize(&type_registry).unwrap();
+            dir.insert_asset_text(Path::new("test.effect"), &s[..]);
+            effect
+        };
+
+        // Load the asset through the AssetServer
+        let asset_server = app.world().resource::<AssetServer>().clone();
+        let handle = asset_server.load::<EffectAsset>("test.effect");
+        run_app_until(&mut app, |world| {
+            let asset_server = world.resource::<AssetServer>();
+            match asset_server.get_load_state(&handle).unwrap() {
+                LoadState::NotLoaded | LoadState::Loading => None,
+                LoadState::Loaded => Some(()),
+                LoadState::Failed(err) => panic!("Failed to load asset: {err:?}"),
+            }
+        });
+
+        // Compare the loaded asset deserialized from (in-memory) "disk", to the
+        // original reference asset.
+        let asset = app
+            .world()
+            .resource::<Assets<EffectAsset>>()
+            .get(&handle)
+            .unwrap();
+        assert_eq!(asset.capacity(), asset_ref.capacity());
+        assert_eq!(asset.spawner, asset_ref.spawner);
     }
 }

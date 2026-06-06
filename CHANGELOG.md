@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are automatically supported, including custom user modifiers.
 - `ExprHandle` now serializes as a string `"#<id>"` where `<id>` is the 1-based index
   of the expression in the `Module` of the `EffectAsset`.
+- `EffectAssetLoaderError` is now `#[non_exhaustive]`. Its `Ron` variant was renamed `RonSpan`,
+  and it gained a more generic `Ron` variant for (non-spanned) RON errors, as well as an
+  `Encoding` error for UTF-8 decoding.
 
 ### Removed
 
