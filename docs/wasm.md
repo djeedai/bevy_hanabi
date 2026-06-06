@@ -33,21 +33,6 @@ For more information about WebAssembly support, see also:
 - The [WebAssembly section](https://bevy-cheatbook.github.io/platforms/wasm.html)
   of the Unofficial Bevy Cheat Book.
 
-## Limitations
-
-The `serde` feature,
-which allows deriving the `Serialize` and `Deserialize` traits on asset-related types,
-is not compatible with the `wasm` target.
-This is due to the use of the `typetag` dependency to handle trait objects,
-which itself is not available for `wasm`.
-
-To disable the `serde` feature,
-simply disable default features and explicitly list the features you need:
-
-```sh
-cargo b --target wasm32-unknown-unknown --no-default-features --features="2d 3d bevy/webgpu"
-```
-
 ## Running the examples
 
 The simplest way is to make use of the `http-server` NPM package,

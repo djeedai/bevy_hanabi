@@ -63,7 +63,6 @@ impl AccelModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for AccelModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update
@@ -147,7 +146,6 @@ impl RadialAccelModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for RadialAccelModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update
@@ -267,7 +265,6 @@ impl TangentAccelModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for TangentAccelModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update

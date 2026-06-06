@@ -7,15 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `EffectAsset::serialize(&self)` and `EffectAsset::deserialize()`,
+  which serialize and deserialize the `EffectAsset` using the canonical Hanabi format
+  corresponding to the `EffectAssetLoader` (`*.effect` files).
+- Added a new `EffectMesh` optional component holding a reference (`Handle<Mesh>`)
+  to the mesh used to render the particles of a `ParticleEffect`.
+  If absent (default), the asset referenced by `EffectAsset::mesh` is used,
+  or the `DefaultMesh` as a fallback. See the updated `puffs` example.
 - Added a fallible alternative `SpawnerSettings::try_new()` to the existing `new()`, to prevent panics
   in editing context where inputs are not always validated.
 - Added `ParticleLayout::attributes()` returning an exact-size iterator over the `AttributeLayout` elements
   forming the particle layout. This allows introspection of existing particle layouts.
+- Added a `ReflectModifier` type data to register a factory function able to create a concrete instance
+  of the modifier type. This is used by deserialization to rebuild an `EffectAsset`'s modifier lists.
+- Added the `Modifiers` container, which wraps a `Vec<BoxedModifier>` and provides serialization
+  and deserialization support.
+- Added the `EffectAssetSerializer` and `EffectAssetDeserializer` which provide custom implementations
+  of `serde::Serialize` and `serde::de::DeserializeSeed`, respectively, for `EffectAsset`.
+  This allows serializing and deserializing an `EffectAsset` to any serde format,
+  and provides an advanced alternaative to the built-in `EffectAsset::serialize()`
+  and `EffectAsset::deserialize()` utilities.
 
 ### Changed
 
 - Spawners and properties are now bound as arrays in the various GPU passes.
   If you had custom shader code accessing those, you need to update your code.
+- `EffectAsset` now directly serializes and deserializes with Bevy's own `TypeRegistry`.
+  All effect modifiers (`Modifier` trait) registered in the type registry
+  are automatically supported, including custom user modifiers.
+- `ExprHandle` now serializes as a string `"#<id>"` where `<id>` is the 1-based index
+  of the expression in the `Module` of the `EffectAsset`.
+- `EffectAssetLoaderError` is now `#[non_exhaustive]`. Its `Ron` variant was renamed `RonSpan`,
+  and it gained a more generic `Ron` variant for (non-spanned) RON errors, as well as an
+  `Encoding` error for UTF-8 decoding.
+- `EffectAsset::mesh` changed from `Option<Handle<Mesh>>` to `Option<AssetPath<'static>>`.
+  The field now holds the asset path of the mesh, instead of a runtime handle.
+  This enables serializing the asset path alongside the rest of the effect.
+  At runtime, the asset path is used to load the mesh.
+  Use the `EffectMesh` component instead if you want to override the `Mesh` for an instance.
+
+### Removed
+
+- Removed the `typetag` dependency.
+- Removed the `serde` feature. Serialization is always available.
 
 ## [0.18.0] 2026-02-01
 

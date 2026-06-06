@@ -206,7 +206,8 @@ mod time;
 mod test_utils;
 
 pub use asset::{
-    AlphaMode, DefaultMesh, EffectAsset, EffectParent, MotionIntegration, SimulationCondition,
+    AlphaMode, DefaultMesh, EffectAsset, EffectAssetDeserializer, EffectAssetSerializer,
+    EffectParent, MotionIntegration, SimulationCondition,
 };
 pub use attributes::*;
 pub use gradient::{Gradient, GradientKey};
@@ -735,6 +736,13 @@ impl TextureLayout {
         self.layout.iter().position(|slot| slot.name == name)
     }
 }
+
+/// Optional mesh override for a particle effect.
+///
+/// Add this component to the same entity as a [`ParticleEffect`] to override
+/// the [`Mesh`] used to render the particles.
+#[derive(Debug, Default, Clone, PartialEq, Hash, Component)]
+pub struct EffectMesh(pub Handle<Mesh>);
 
 /// Effect shaders.
 ///
@@ -1398,10 +1406,12 @@ impl CompiledParticleEffect {
         rebuild: bool,
         instance: &ParticleEffect,
         material: Option<&EffectMaterial>,
+        mesh: Option<&EffectMesh>,
         asset: &EffectAsset,
         parent_entity: Option<Entity>,
         child_entities: Vec<Entity>,
         parent_layout: Option<ParticleLayout>,
+        asset_server: &AssetServer,
         shaders: &mut ResMut<Assets<Shader>>,
         shader_cache: &mut ResMut<ShaderCache>,
     ) {
@@ -1501,7 +1511,14 @@ impl CompiledParticleEffect {
             self.layout_flags,
         );
 
-        self.mesh = asset.mesh.clone();
+        if let Some(mesh) = mesh {
+            self.mesh = Some(mesh.0.clone());
+        } else {
+            self.mesh = asset
+                .mesh
+                .as_ref()
+                .map(|path: &bevy::asset::AssetPath<'_>| asset_server.load::<Mesh>(path));
+        }
 
         self.textures = material.map(|mat| &mat.images).cloned().unwrap_or_default();
     }
@@ -1659,6 +1676,7 @@ impl ShaderCode for Gradient<Vec4> {
 /// becoming visible later need to be special casing. If you want to avoid
 /// compiling an effect, don't spawn it.
 fn compile_effects(
+    asset_server: Res<AssetServer>,
     effects: Res<Assets<EffectAsset>>,
     mut shaders: ResMut<Assets<Shader>>,
     mut shader_cache: ResMut<ShaderCache>,
@@ -1666,6 +1684,7 @@ fn compile_effects(
         Entity,
         Ref<ParticleEffect>,
         Option<Ref<EffectMaterial>>,
+        Option<Ref<EffectMesh>>,
         Option<Ref<EffectParent>>,
         &mut CompiledParticleEffect,
     )>,
@@ -1678,7 +1697,7 @@ fn compile_effects(
     // a declared parent but unresolved parent asset.
     let particle_layouts_and_parents: HashMap<Entity, (ParticleLayout, Option<Entity>)> = q_effects
         .iter()
-        .filter_map(|(entity, effect, _, parent, _)| {
+        .filter_map(|(entity, effect, _, _, parent, _)| {
             effects
                 .get(&effect.handle)
                 .map(|asset| (entity, (asset.particle_layout(), parent.map(|p| p.entity))))
@@ -1695,40 +1714,48 @@ fn compile_effects(
     }
 
     // Loop over all existing effects to update them, including invisible ones
-    for (asset, entity, effect, material, parent_entity, parent_layout, mut compiled_effect) in
-        q_effects
-            .iter_mut()
-            .filter_map(|(entity, effect, material, parent, compiled_effect)| {
-                // Check if asset is available, otherwise silently ignore as we can't check for
-                // changes, and conceptually it makes no sense to render a particle effect whose
-                // asset was unloaded.
-                let asset = effects.get(&effect.handle)?;
+    for (
+        asset,
+        entity,
+        effect,
+        material,
+        mesh,
+        parent_entity,
+        parent_layout,
+        mut compiled_effect,
+    ) in q_effects.iter_mut().filter_map(
+        |(entity, effect, material, mesh, parent, compiled_effect)| {
+            // Check if asset is available, otherwise silently ignore as we can't check for
+            // changes, and conceptually it makes no sense to render a particle effect whose
+            // asset was unloaded.
+            let asset = effects.get(&effect.handle)?;
 
-                // Same for the parent asset, if any.
-                let (parent_entity, parent_layout) = if let Some(parent) = &parent {
-                    let Some((parent_layout, _)) = particle_layouts_and_parents.get(&parent.entity)
-                    else {
-                        // There's a parent declared, but not found. Skip the current asset.
-                        return None;
-                    };
-                    // Declared parent with found parent asset, child asset is valid.
-                    (Some(parent.entity), Some(parent_layout.clone()))
-                } else {
-                    // No declared parent, asset is valid.
-                    (None, None)
+            // Same for the parent asset, if any.
+            let (parent_entity, parent_layout) = if let Some(parent) = &parent {
+                let Some((parent_layout, _)) = particle_layouts_and_parents.get(&parent.entity)
+                else {
+                    // There's a parent declared, but not found. Skip the current asset.
+                    return None;
                 };
+                // Declared parent with found parent asset, child asset is valid.
+                (Some(parent.entity), Some(parent_layout.clone()))
+            } else {
+                // No declared parent, asset is valid.
+                (None, None)
+            };
 
-                Some((
-                    asset,
-                    entity,
-                    effect,
-                    material,
-                    parent_entity,
-                    parent_layout,
-                    compiled_effect,
-                ))
-            })
-    {
+            Some((
+                asset,
+                entity,
+                effect,
+                material,
+                mesh,
+                parent_entity,
+                parent_layout,
+                compiled_effect,
+            ))
+        },
+    ) {
         let child_entities = children
             .get_mut(&entity)
             .map(std::mem::take)
@@ -1748,10 +1775,12 @@ fn compile_effects(
                 need_rebuild,
                 &effect,
                 material.map(|r| r.into_inner()),
+                mesh.map(|r| r.into_inner()),
                 asset,
                 parent_entity,
                 child_entities,
                 parent_layout,
+                &asset_server,
                 &mut shaders,
                 &mut shader_cache,
             );
@@ -1767,7 +1796,7 @@ fn compile_effects(
     }
 
     // Clear removed effects, to allow them to be released by the asset server
-    for (_, effect, _, parent, mut compiled_effect) in q_effects.iter_mut() {
+    for (_, effect, _, _, parent, mut compiled_effect) in q_effects.iter_mut() {
         // If the effect has no asset, clear its compilation
         if effects.get(&effect.handle).is_none() {
             compiled_effect.clear();

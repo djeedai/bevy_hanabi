@@ -101,14 +101,18 @@ fn setup(
     let mesh = meshes.add(SphereMeshBuilder::new(0.5, SphereKind::Ico { subdivisions: 4 }).build());
 
     // Create the effect asset.
-    let effect = create_effect(mesh, &mut effects);
+    let effect = create_effect(&mut effects);
 
     // Spawn the effect.
-    commands.spawn((Name::new("cartoon explosion"), ParticleEffect::new(effect)));
+    commands.spawn((
+        Name::new("cartoon explosion"),
+        ParticleEffect::new(effect),
+        EffectMesh(mesh),
+    ));
 }
 
 // Builds the smoke puffs.
-fn create_effect(mesh: Handle<Mesh>, effects: &mut Assets<EffectAsset>) -> Handle<EffectAsset> {
+fn create_effect(effects: &mut Assets<EffectAsset>) -> Handle<EffectAsset> {
     let writer = ExprWriter::new();
 
     // Position the particle laterally within a small radius.
@@ -180,8 +184,7 @@ fn create_effect(mesh: Handle<Mesh>, effects: &mut Assets<EffectAsset>) -> Handl
         .init(init_size)
         .init(init_velocity)
         .update(update_size)
-        .render(render_lambertian)
-        .mesh(mesh),
+        .render(render_lambertian),
     )
 }
 
@@ -211,7 +214,6 @@ impl LambertianLightingModifier {
 }
 
 // Boilerplate implementation of `Modifier` for our lighting modifier.
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for LambertianLightingModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Render
@@ -239,7 +241,6 @@ impl Modifier for LambertianLightingModifier {
 }
 
 // The implementation of Lambertian lighting.
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for LambertianLightingModifier {
     fn apply_render(&self, _: &mut Module, context: &mut RenderContext) -> Result<(), ExprError> {
         // We need the vertex normals to light the mesh.
