@@ -709,9 +709,25 @@ impl Modifier for EmitSpawnEventModifier {
 
 /// Register all built-in modifiers.
 ///
-/// This registers all built-in modifiers with the [`AppTypeRegistry`] of the
-/// given app, by both calling [`App::register_type()`] and inserting a
-/// [`ReflectModifier`] type data for the modifier type.
+/// This registers all built-in modifiers with the given [`AppTypeRegistry`], by
+/// both calling [`TypeRegistry::register::<T>()`] and inserting a
+/// [`ReflectModifier`] type data for the modifier type `T`.
+///
+/// This is automatically called by the [`HanabiPlugin`]. In general you don't
+/// need to call this.
+///
+/// # Example
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_hanabi::*;
+/// fn register(type_registry: Res<AppTypeRegistry>) {
+///     register_modifiers(&type_registry);
+/// }
+/// ```
+///
+/// [`TypeRegistry::register::<T>()`]: bevy::reflect::TypeRegistry::register
+/// [`HanabiPlugin`]: crate::HanabiPlugin
 pub fn register_modifiers(type_registry: &AppTypeRegistry) {
     {
         let mut type_registry = type_registry.write();
