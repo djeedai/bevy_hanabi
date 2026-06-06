@@ -93,7 +93,6 @@ pub fn register_reflect_modifier<T: Modifier>(
     }
 }
 
-#[cfg(feature = "serde")]
 #[allow(missing_docs)]
 pub mod serde_impl {
     use bevy::reflect::serde::{ReflectDeserializer, TypedReflectSerializer};
@@ -291,7 +290,6 @@ pub mod serde_impl {
 
 // Re-export Modifiers at module root so other modules can refer to
 // crate::modifier::registry::Modifiers
-#[cfg(feature = "serde")]
 pub use serde_impl::Modifiers;
 
 // The Modifiers wrapper type — declared/implemented inside the serde_impl
@@ -310,7 +308,6 @@ mod tests {
     };
 
     /// Serialize and deserialize a [`Modifiers`] container.
-    #[cfg(feature = "serde")]
     #[test]
     fn serde_modifiers() {
         use bevy::reflect::{

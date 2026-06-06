@@ -749,7 +749,6 @@ pub fn register_modifiers(type_registry: &AppTypeRegistry) {
         type_registry.register::<SetVelocityTangentModifier>();
 
         // Register Modifiers wrapper for serde-aware boxed modifiers
-        #[cfg(feature = "serde")]
         type_registry.register::<crate::modifier::registry::Modifiers>();
     }
 
@@ -950,7 +949,6 @@ mod tests {
         assert_eq!(*m_reflect, m);
     }
 
-    #[cfg(feature = "serde")]
     #[test]
     fn serde() {
         use serde::de::DeserializeSeed as _;

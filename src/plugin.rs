@@ -22,7 +22,6 @@ use bevy::{
     time::{time_system, TimeSystems},
 };
 
-#[cfg(feature = "serde")]
 use crate::asset::EffectAssetLoader;
 use crate::{
     asset::{DefaultMesh, EffectAsset},
@@ -273,7 +272,6 @@ impl Plugin for HanabiPlugin {
                 ),
             );
 
-        #[cfg(feature = "serde")]
         app.init_asset_loader::<EffectAssetLoader>();
 
         // Register types with reflection

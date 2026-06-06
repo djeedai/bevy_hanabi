@@ -1,9 +1,6 @@
-#[cfg(feature = "serde")]
 use bevy::asset::{io::Reader, AssetLoader, LoadContext};
-#[cfg(feature = "serde")]
 use bevy::reflect::serde::ReflectDeserializer;
 use bevy::reflect::TypeRegistry;
-#[cfg(feature = "serde")]
 use bevy::reflect::{TypePath, TypeRegistryArc};
 use bevy::{
     asset::{Asset, Assets, Handle},
@@ -15,10 +12,8 @@ use bevy::{
     utils::default,
 };
 use bevy::{ecs::reflect::AppTypeRegistry, reflect::serde::TypedReflectSerializer};
-#[cfg(feature = "serde")]
 use serde::de::DeserializeSeed as _;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "serde")]
 use thiserror::Error;
 use wgpu::{BlendComponent, BlendFactor, BlendOperation, BlendState};
 
@@ -273,8 +268,7 @@ impl FromWorld for DefaultMesh {
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`EffectAsset`]: crate::EffectAsset
 #[derive(Asset, Default, Clone, Reflect)]
-//#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", reflect(from_reflect = false))]
+#[reflect(from_reflect = false)]
 pub struct EffectAsset {
     /// Display name of the effect.
     ///
@@ -1410,7 +1404,6 @@ impl FromWorld for EffectAssetLoader {
 }
 
 /// Error for the [`EffectAssetLoader`] loading an [`EffectAsset`].
-#[cfg(feature = "serde")]
 #[derive(Error, Debug)]
 pub enum EffectAssetLoaderError {
     /// I/O error reading the asset source.
@@ -1422,7 +1415,6 @@ pub enum EffectAssetLoaderError {
     Ron(#[from] ron::error::SpannedError),
 }
 
-#[cfg(feature = "serde")]
 impl AssetLoader for EffectAssetLoader {
     type Asset = EffectAsset;
 
@@ -1495,8 +1487,7 @@ impl EffectParent {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct ParticleTrails {
     pub spawn_period: f32,
 }
@@ -1618,7 +1609,6 @@ mod tests {
 
     /// Round-trip EffectAsset through its own functions serialize() and
     /// deserialize_from_str().
-    #[cfg(feature = "serde")]
     #[test]
     fn serde_asset() {
         let w = ExprWriter::new();
