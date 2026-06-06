@@ -162,21 +162,21 @@ jobs:
       - name: Build & run examples (macOS)
         run: |
           for example in .github/example-run/3d/*.ron; do
-            example_name=`basename $example .ron`
-            echo "running $example_name - "`date`
-            time CI_TESTING_CONFIG=$example cargo run --example $example_name"
+            example_name=$(basename "$example" .ron)
+            echo "running $example_name - $(date)"
+            time CI_TESTING_CONFIG="$example" cargo run --example "$example_name"
             sleep 1
           done
           for example in .github/example-run/3dpng/*.ron; do
-            example_name=`basename $example .ron`
-            echo "running $example_name - "`date`
-            time CI_TESTING_CONFIG=$example cargo run --example $example_name"
+            example_name=$(basename "$example" .ron)
+            echo "running $example_name - $(date)"
+            time CI_TESTING_CONFIG="$example" cargo run --example "$example_name"
             sleep 1
           done
           for example in .github/example-run/2d/*.ron; do
-            example_name=`basename $example .ron`
-            echo "running $example_name - "`date`
-            time CI_TESTING_CONFIG=$example cargo run --example $example_name"
+            example_name=$(basename "$example" .ron)
+            echo "running $example_name - $(date)"
+            time CI_TESTING_CONFIG="$example" cargo run --example "$example_name"
             sleep 1
           done
         env:
