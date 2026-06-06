@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Removed the `typetag` dependency.
+- Removed the `serde` feature. Serialization is always available.
 
 ## [0.18.0] 2026-02-01
 
