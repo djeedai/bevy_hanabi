@@ -715,57 +715,6 @@ impl EffectAsset {
     }
 }
 
-///
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SerializedEffectSettings {
-    pub name: String,
-    pub capacity: u32,
-    pub spawner: SpawnerSettings,
-    pub z_layer_2d: f32,
-    pub simulation_space: SimulationSpace,
-    pub simulation_condition: SimulationCondition,
-    pub prng_seed: u32,
-    pub motion_integration: MotionIntegration,
-    pub module: Module,
-    pub alpha_mode: AlphaMode,
-}
-
-impl From<&EffectAsset> for SerializedEffectSettings {
-    fn from(asset: &EffectAsset) -> Self {
-        SerializedEffectSettings {
-            name: asset.name.clone(),
-            capacity: asset.capacity,
-            spawner: asset.spawner,
-            z_layer_2d: asset.z_layer_2d,
-            simulation_space: asset.simulation_space,
-            simulation_condition: asset.simulation_condition,
-            prng_seed: asset.prng_seed,
-            motion_integration: asset.motion_integration,
-            module: asset.module.clone(),
-            alpha_mode: asset.alpha_mode,
-        }
-    }
-}
-
-impl From<SerializedEffectSettings> for EffectAsset {
-    fn from(value: SerializedEffectSettings) -> Self {
-        EffectAsset {
-            name: value.name,
-            capacity: value.capacity,
-            spawner: value.spawner,
-            z_layer_2d: value.z_layer_2d,
-            simulation_space: value.simulation_space,
-            simulation_condition: value.simulation_condition,
-            prng_seed: value.prng_seed,
-            motion_integration: value.motion_integration,
-            module: value.module,
-            alpha_mode: value.alpha_mode,
-            //mesh: value.mesh,
-            ..default()
-        }
-    }
-}
-
 impl bevy::reflect::serde::SerializeWithRegistry for EffectAsset {
     fn serialize<S>(&self, serializer: S, registry: &TypeRegistry) -> Result<S::Ok, S::Error>
     where
