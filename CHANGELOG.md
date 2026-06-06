@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `EffectAsset::serialize(&self)` and `EffectAsset::deserialize()`,
+  which serialize and deserialize the `EffectAsset` using the canonical Hanabi format
+  corresponding to the `EffectAssetLoader` (`*.effect` files).
 - Added a fallible alternative `SpawnerSettings::try_new()` to the existing `new()`, to prevent panics
   in editing context where inputs are not always validated.
 - Added `ParticleLayout::attributes()` returning an exact-size iterator over the `AttributeLayout` elements
@@ -17,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and deserialization support.
 - Added the `EffectAssetSerializer` and `EffectAssetDeserializer` which provide custom implementations
   of `serde::Serialize` and `serde::de::DeserializeSeed`, respectively, for `EffectAsset`.
+  This allows serializing and deserializing an `EffectAsset` to any serde format,
+  and provides an advanced alternaative to the built-in `EffectAsset::serialize()`
+  and `EffectAsset::deserialize()` utilities.
 
 ### Changed
 
@@ -30,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `EffectAssetLoaderError` is now `#[non_exhaustive]`. Its `Ron` variant was renamed `RonSpan`,
   and it gained a more generic `Ron` variant for (non-spanned) RON errors, as well as an
   `Encoding` error for UTF-8 decoding.
+- `EffectAsset::mesh` changed from `Option<Handle<Mesh>>` to `Option<AssetPath<'static>>`.
+  The field now holds the asset path of the mesh, instead of a runtime handle.
+  This enables serializing the asset path alongside the rest of the effect.
+  At runtime, the asset path is used to load the mesh.
 
 ### Removed
 

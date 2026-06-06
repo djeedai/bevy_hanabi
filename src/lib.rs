@@ -1403,6 +1403,7 @@ impl CompiledParticleEffect {
         parent_entity: Option<Entity>,
         child_entities: Vec<Entity>,
         parent_layout: Option<ParticleLayout>,
+        asset_server: &AssetServer,
         shaders: &mut ResMut<Assets<Shader>>,
         shader_cache: &mut ResMut<ShaderCache>,
     ) {
@@ -1502,7 +1503,10 @@ impl CompiledParticleEffect {
             self.layout_flags,
         );
 
-        self.mesh = asset.mesh.clone();
+        self.mesh = asset
+            .mesh
+            .as_ref()
+            .map(|path: &bevy::asset::AssetPath<'_>| asset_server.load::<Mesh>(path));
 
         self.textures = material.map(|mat| &mat.images).cloned().unwrap_or_default();
     }
@@ -1660,6 +1664,7 @@ impl ShaderCode for Gradient<Vec4> {
 /// becoming visible later need to be special casing. If you want to avoid
 /// compiling an effect, don't spawn it.
 fn compile_effects(
+    asset_server: Res<AssetServer>,
     effects: Res<Assets<EffectAsset>>,
     mut shaders: ResMut<Assets<Shader>>,
     mut shader_cache: ResMut<ShaderCache>,
@@ -1753,6 +1758,7 @@ fn compile_effects(
                 parent_entity,
                 child_entities,
                 parent_layout,
+                &asset_server,
                 &mut shaders,
                 &mut shader_cache,
             );
