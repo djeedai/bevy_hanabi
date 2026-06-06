@@ -709,7 +709,7 @@ impl EffectAsset {
     /// [`serde::de::DeserializeSeed`].
     pub fn deserialize(s: &str, type_registry: &TypeRegistry) -> Result<Self, ron::Error> {
         let mut deserializer = ron::de::Deserializer::from_str(s)?;
-        let deserialize = EffectAssetDeserializer::new(&type_registry);
+        let deserialize = EffectAssetDeserializer::new(type_registry);
         let asset = deserialize.deserialize(&mut deserializer)?;
         Ok(asset)
     }
@@ -1018,7 +1018,7 @@ impl<'a> serde::Serialize for EffectAssetSerializer<'a> {
         use bevy::reflect::serde::SerializeWithRegistry;
 
         <EffectAsset as SerializeWithRegistry>::serialize(
-            &self.asset,
+            self.asset,
             serializer,
             self.type_registry,
         )
