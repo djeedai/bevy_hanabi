@@ -978,10 +978,20 @@ impl<'de> bevy::reflect::serde::DeserializeWithRegistry<'de> for EffectAsset {
         }
 
         const FIELDS: &[&str] = &[
-            "settings",
+            "name",
+            "capacity",
+            "spawner",
+            "z_layer_2d",
+            "simulation_space",
+            "simulation_condition",
+            "prng_seed",
             "init_modifiers",
             "update_modifiers",
             "render_modifiers",
+            "motion_integration",
+            "module",
+            "alpha_mode",
+            "mesh",
         ];
         deserializer.deserialize_struct(
             "EffectAsset",
