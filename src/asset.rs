@@ -1056,26 +1056,7 @@ impl From<SerializedEffectSettings> for EffectAsset {
     }
 }
 
-///
-pub struct SerializedEffectAsset<'a> {
-    pub settings: SerializedEffectSettings,
-    pub init_modifiers: &'a Modifiers,
-    pub update_modifiers: &'a Modifiers,
-    pub render_modifiers: &'a Modifiers,
-}
-
-impl<'a> From<&'a EffectAsset> for SerializedEffectAsset<'a> {
-    fn from(asset: &'a EffectAsset) -> Self {
-        SerializedEffectAsset {
-            settings: asset.into(),
-            init_modifiers: &asset.init_modifiers,
-            update_modifiers: &asset.update_modifiers,
-            render_modifiers: &asset.render_modifiers,
-        }
-    }
-}
-
-impl<'a> bevy::reflect::serde::SerializeWithRegistry for SerializedEffectAsset<'a> {
+impl bevy::reflect::serde::SerializeWithRegistry for EffectAsset {
     fn serialize<S>(&self, serializer: S, registry: &TypeRegistry) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -1083,18 +1064,19 @@ impl<'a> bevy::reflect::serde::SerializeWithRegistry for SerializedEffectAsset<'
         use serde::ser::SerializeStruct as _;
 
         let mut s = serializer.serialize_struct("EffectAsset", 4)?;
-        s.serialize_field("settings", &self.settings)?;
+        let settings: SerializedEffectSettings = self.into();
+        s.serialize_field("settings", &settings)?;
         s.serialize_field(
             "init_modifiers",
-            &TypedReflectSerializer::new(self.init_modifiers, registry),
+            &TypedReflectSerializer::new(&self.init_modifiers, registry),
         )?;
         s.serialize_field(
             "update_modifiers",
-            &TypedReflectSerializer::new(self.update_modifiers, registry),
+            &TypedReflectSerializer::new(&self.update_modifiers, registry),
         )?;
         s.serialize_field(
             "render_modifiers",
-            &TypedReflectSerializer::new(self.render_modifiers, registry),
+            &TypedReflectSerializer::new(&self.render_modifiers, registry),
         )?;
         s.end()
     }
@@ -1255,10 +1237,13 @@ impl<'a> serde::Serialize for EffectAssetSerializer<'a> {
     where
         S: serde::Serializer,
     {
-        use bevy::reflect::serde::SerializeWithRegistry as _;
+        use bevy::reflect::serde::SerializeWithRegistry;
 
-        let serialized_asset: SerializedEffectAsset = self.asset.into();
-        serialized_asset.serialize(serializer, self.type_registry)
+        <EffectAsset as SerializeWithRegistry>::serialize(
+            &self.asset,
+            serializer,
+            self.type_registry,
+        )
     }
 }
 

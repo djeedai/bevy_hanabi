@@ -14,7 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a `ReflectModifier` type data to register a factory function able to create a concrete instance
   of the modifier type. This is used by deserialization to rebuild an `EffectAsset`'s modifier lists.
 - Added the `Modifiers` container, which wraps a `Vec<BoxedModifier>` and provides serialization
-  and deserialization support, with the help of `ReflectModifier`.
+  and deserialization support.
+- Added the `EffectAssetSerializer` and `EffectAssetDeserializer` which provide custom implementations
+  of `serde::Serialize` and `serde::de::DeserializeSeed`, respectively, for `EffectAsset`.
 
 ### Changed
 
