@@ -86,6 +86,7 @@ _This version is compatible with Bevy 0.17_
 
 ### Fixed
 
+- Fixed a crash (wgpu validation error about a dynamic offset overrunning the buffer) when growing the effect metadata buffer while a ribbon effect was alive, caused by the ribbon sort fill-dispatch binding a stale, too-small metadata buffer. (#493)
 - Fixed a bug in `ColorBlendMask::to_component()` which ignored the last (alpha) component. (#479)
 - Fixed a codegen bug in `ColorOverLifetimeModifier` when values other than `ColorBlendMask::RGBA` are used. (#479)
 - Fixed a bug where `PropertyLayout` was misaligning `vec3` properties, leading to incorrect values on GPU. (#478)
