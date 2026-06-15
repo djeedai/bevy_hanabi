@@ -7629,10 +7629,17 @@ impl Node for VfxSimulateNode {
                         // Bind group sort_fill@0
                         let particle_buffer = effect_buffer.particle_buffer();
                         let indirect_index_buffer = effect_buffer.indirect_index_buffer();
+                        // Part of the bind group key; reallocates as effects grow.
+                        let Some(spawner_buffer) = effects_meta.spawner_buffer.buffer() else {
+                            warn!("Missing spawner buffer for sort-fill.");
+                            compute_pass.insert_debug_marker("ERROR:MissingSortFillSpawnerBuffer");
+                            continue;
+                        };
                         let Some(bind_group) = sort_bind_groups.sort_fill_bind_group(
                             particle_buffer.id(),
                             indirect_index_buffer.id(),
                             effect_metadata_buffer.id(),
+                            spawner_buffer.id(),
                         ) else {
                             warn!("Missing sort-fill bind group.");
                             compute_pass.insert_debug_marker("ERROR:MissingSortFillBindGroup");
@@ -7708,9 +7715,16 @@ impl Node for VfxSimulateNode {
 
                         // Bind group sort_copy@0
                         let indirect_index_buffer = effect_buffer.indirect_index_buffer();
+                        // Part of the bind group key; reallocates as effects grow.
+                        let Some(spawner_buffer) = effects_meta.spawner_buffer.buffer() else {
+                            warn!("Missing spawner buffer for sort-copy.");
+                            compute_pass.insert_debug_marker("ERROR:MissingSortCopySpawnerBuffer");
+                            continue;
+                        };
                         let Some(bind_group) = sort_bind_groups.sort_copy_bind_group(
                             indirect_index_buffer.id(),
                             effect_metadata_buffer.id(),
+                            spawner_buffer.id(),
                         ) else {
                             warn!("Missing sort-copy bind group.");
                             compute_pass.insert_debug_marker("ERROR:MissingSortCopyBindGroup");
