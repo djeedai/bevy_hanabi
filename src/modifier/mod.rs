@@ -165,6 +165,11 @@ pub trait Modifier: Reflect + Send + Sync + 'static {
         None
     }
 
+    /// Try to convert this modifier to a [`RenderModifier`].
+    fn into_boxed_render(self: Box<Self>) -> Option<Box<dyn RenderModifier>> {
+        None
+    }
+
     /// Get the list of attributes required for this modifier to be used.
     fn attributes(&self) -> &[Attribute];
 
@@ -587,6 +592,10 @@ macro_rules! impl_mod_render {
                 Some(self)
             }
 
+            fn into_boxed_render(self: Box<Self>) -> Option<Box<dyn RenderModifier>> {
+                Some(self)
+            }
+
             fn attributes(&self) -> &[$crate::Attribute] {
                 $attrs
             }
@@ -928,6 +937,28 @@ mod tests {
             radius: m.lit(1.),
             dimension: ShapeDimension::Surface,
         }
+    }
+
+    #[test]
+    fn modifier_into_render() {
+        let original = SetSizeModifier {
+            size: Vec3::ONE.into(),
+        };
+        let original = Box::new(original);
+        let before: *const dyn RenderModifier = &*original;
+        let modifier: Box<dyn Modifier> = original;
+
+        // into_boxed_render() casts the same object
+        let modifier = modifier.into_boxed_render();
+        assert!(modifier.is_some());
+        let modifier = modifier.unwrap();
+        let after: *const dyn RenderModifier = &*modifier;
+        assert_eq!(before.addr(), after.addr());
+
+        // boxed_render_clone() creates a different object
+        let modifier = modifier.boxed_render_clone();
+        let after: *const dyn RenderModifier = &*modifier;
+        assert_ne!(before.addr(), after.addr());
     }
 
     #[test]
