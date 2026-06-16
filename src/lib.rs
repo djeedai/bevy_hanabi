@@ -206,8 +206,8 @@ mod time;
 mod test_utils;
 
 pub use asset::{
-    AlphaMode, DefaultMesh, EffectAsset, EffectAssetDeserializer, EffectAssetSerializer,
-    EffectParent, MotionIntegration, SimulationCondition,
+    AlphaMode, DefaultMesh, EffectAsset, EffectAssetDeserializer, EffectAssetLoader,
+    EffectAssetSerializer, EffectParent, MotionIntegration, SimulationCondition,
 };
 pub use attributes::*;
 pub use gradient::{Gradient, GradientKey};

@@ -1070,6 +1070,7 @@ impl<'a, 'de> serde::de::DeserializeSeed<'de> for EffectAssetDeserializer<'a> {
 /// Effet assets take the `.effect` extension.
 #[derive(Debug, TypePath)]
 pub struct EffectAssetLoader {
+    /// The type registry passed to [`EffectAsset::deserialize()`].
     pub type_registry: TypeRegistryArc,
 }
 
