@@ -53,9 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Fixed the sort indirect-dispatch buffer never growing past its initial 256 entries,
-  which caused an indirect buffer overrun and a render-thread crash in scenes with
-  many sorted (e.g. ribbon) effects alive at once (#493).
+- Fixed the sort indirect-dispatch buffer never growing past its initial 256 entries, causing
+  an indirect buffer overrun and crash with many sorted (e.g. ribbon) effects alive at once. (#493)
 
 ## [0.18.0] 2026-02-01
 
