@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the `typetag` dependency.
 - Removed the `serde` feature. Serialization is always available.
 
+### Fixed
+
+- Fixed a crash when growing the effect metadata buffer while a ribbon effect was alive, caused by the ribbon sort fill-dispatch binding a stale, too-small metadata buffer. (#537)
+
 ## [0.18.0] 2026-02-01
 
 _This version is compatible with Bevy 0.18_
@@ -86,7 +90,6 @@ _This version is compatible with Bevy 0.17_
 
 ### Fixed
 
-- Fixed a crash (wgpu validation error about a dynamic offset overrunning the buffer) when growing the effect metadata buffer while a ribbon effect was alive, caused by the ribbon sort fill-dispatch binding a stale, too-small metadata buffer. (#537)
 - Fixed a bug in `ColorBlendMask::to_component()` which ignored the last (alpha) component. (#479)
 - Fixed a codegen bug in `ColorOverLifetimeModifier` when values other than `ColorBlendMask::RGBA` are used. (#479)
 - Fixed a bug where `PropertyLayout` was misaligning `vec3` properties, leading to incorrect values on GPU. (#478)
