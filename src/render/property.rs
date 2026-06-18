@@ -12,14 +12,17 @@ use bevy::{
         render_resource::{
             binding_types::{storage_buffer_read_only, storage_buffer_read_only_sized},
             BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, Buffer,
-            PipelineCache,
+            PipelineCache, ShaderSize,
         },
         renderer::{RenderDevice, RenderQueue},
     },
 };
-use wgpu::{BufferBinding, BufferUsages, ShaderStages};
+use bytemuck::{cast_slice, Pod};
+use wgpu::{
+    BindingResource, BufferAddress, BufferBinding, BufferDescriptor, BufferUsages, ShaderStages,
+};
 
-use super::{aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::SlabState};
+use super::effect_cache::SlabState;
 use crate::{
     render::{ExtractedProperties, GpuBatchInfo, GpuSpawnerParams, StorageType},
     PropertyLayout,
@@ -33,17 +36,19 @@ pub struct CachedEffectProperties {
     pub property_layout: PropertyLayout,
     /// Index of the [`PropertyBuffer`] inside the [`PropertyCache`].
     pub buffer_index: u32,
-    /// Slice of GPU buffer where the storage for properties is allocated.
-    pub range: Range<u32>,
+    /// Array index inside the GPU buffer where the properties struct with the
+    /// current layout is allocated.
+    pub array_index: u32,
 }
 
 impl CachedEffectProperties {
     /// Convert this allocation into a bind group key, used for bind group
     /// re-creation when a change is detected in the key.
     pub fn to_key(&self) -> PropertyBindGroupKey {
+        let binding_size = self.property_layout.min_binding_size().get() as u32;
         PropertyBindGroupKey {
             buffer_index: self.buffer_index,
-            binding_size: self.range.len() as u32,
+            binding_size,
         }
     }
 }
@@ -59,58 +64,453 @@ pub enum CachedPropertiesError {
     BufferDeallocated(u32),
 }
 
+/// Single free byte range inside a [`PropertyBuffer`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FreeRange(pub Range<u32>);
+
+impl PartialOrd for FreeRange {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for FreeRange {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.start.cmp(&other.0.start)
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct PropertyBuffer {
-    /// GPU buffer holding the properties of some effect(s).
-    buffer: HybridAlignedBufferVec,
-    // Layout of properties of the effect(s), if using properties.
-    //property_layout: PropertyLayout,
+    /// Pending values accumulated on CPU and not yet written to GPU.
+    values: Vec<u8>,
+    /// GPU buffer if already allocated, or `None` otherwise.
+    buffer: Option<Buffer>,
+    /// Capacity of the buffer, in bytes.
+    capacity: usize,
+    /// GPU buffer name, for debugging.
+    label: String,
+    /// Free ranges available for re-allocation (in bytes).
+    free_ranges: Vec<FreeRange>,
+    /// Is the GPU buffer stale and the CPU one need to be re-uploaded?
+    is_stale: bool,
+    buffer_usages: BufferUsages,
 }
 
 impl PropertyBuffer {
-    pub fn new(align: u32, label: Option<String>) -> Self {
-        let align = NonZeroU64::new(align as u64).unwrap();
+    /// Create a new property buffer.
+    ///
+    /// The GPU resources are not yet allocated.
+    pub fn new(label: Option<String>, buffer_usages: BufferUsages) -> Self {
         let label = label.unwrap_or("hanabi:buffer:properties".to_string());
+        trace!("PropertyBuffer['{}']::new()", label);
         Self {
-            buffer: HybridAlignedBufferVec::new(BufferUsages::STORAGE, align, Some(label)),
+            values: vec![],
+            buffer: None,
+            capacity: 0,
+            label,
+            free_ranges: vec![],
+            is_stale: true,
+            buffer_usages,
         }
     }
 
+    /// Get the GPU buffer, if allocated.
     #[inline]
     pub fn buffer(&self) -> Option<&Buffer> {
-        self.buffer.buffer()
+        self.buffer.as_ref()
+    }
+
+    /// Get a binding for the entire buffer.
+    #[allow(dead_code)]
+    #[inline]
+    pub fn max_binding(&self) -> Option<BindingResource<'_>> {
+        // FIXME - Return a Buffer wrapper first, which can be unwrapped, then from that
+        // wrapper implement all the xxx_binding() helpers. That avoids a bunch of "if
+        // let Some()" everywhere when we know the buffer is valid. The only reason the
+        // buffer might not be valid is if it was not created, and in that case
+        // we wouldn't be calling the xxx_bindings() helpers, we'd have earlied out
+        // before.
+        let buffer = self.buffer()?;
+        Some(BindingResource::Buffer(BufferBinding {
+            buffer,
+            offset: 0,
+            size: None, // entire buffer
+        }))
+    }
+
+    /// Get a binding for a subset of the elements of the buffer.
+    ///
+    /// Returns a binding for the elements in the range `offset..offset+count`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `offset` is not a multiple of the alignment specified on
+    /// construction.
+    ///
+    /// Panics if `size` is zero.
+    // #[allow(dead_code)]
+    // #[inline]
+    // pub fn range_binding(&self, offset: u32, size: u32) -> Option<BindingResource<'_>> {
+    //     assert!((offset as usize).is_multiple_of(self.item_align));
+    //     let buffer = self.buffer()?;
+    //     let size = NonZeroU64::new(size as u64).unwrap();
+    //     Some(BindingResource::Buffer(BufferBinding {
+    //         buffer,
+    //         offset: offset as u64,
+    //         size: Some(size),
+    //     }))
+    // }
+
+    /// Capacity of the allocated GPU buffer, in bytes.
+    ///
+    /// This may be zero if the buffer was not allocated yet. In general, this
+    /// can differ from the actual data size cached on CPU and waiting to be
+    /// uploaded to GPU.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Current buffer size, in bytes.
+    ///
+    /// This represents the size of the CPU data uploaded to GPU. Pending a GPU
+    /// buffer re-allocation or re-upload, this size might differ from the
+    /// actual GPU buffer size. But they're eventually consistent.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.values.len()
     }
 
     #[inline]
-    pub fn allocate(&mut self, layout: &PropertyLayout) -> Range<u32> {
-        // Note: allocate with min_binding_size() and not cpu_size(), because the buffer
-        // needs to be large enough to host at least one struct when bound to a shader,
-        // and in WGSL the struct is padded to its align size.
-        let size = layout.min_binding_size().get() as usize;
-        // FIXME - allocate(size) instead of push(data) so we don't need to allocate an
-        // empty vector just to read its size.
-        self.buffer.push_raw(&vec![0u8; size][..])
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    /// Allocate storage for a property struct of the given size.
+    ///
+    /// The allocation is guaranteed to be aligned to the size itself. That
+    /// means that the returned byte offset is such that `offset % size == 0`.
+    /// This ensures `offset / size` forms a valid integral array index.
+    fn alloc_aligned(&mut self, size: u32) -> u32 {
+        self.is_stale = true;
+
+        // Try to find a free block which can accomodate it, and pick the
+        // smallest one in order to limit wasted space.
+        let mut best_slot: Option<(u32, usize)> = None;
+        for (index, range) in self.free_ranges.iter().enumerate() {
+            // Align the expected alloc start
+            let aligned_start = range.0.start.next_multiple_of(size);
+            if aligned_start >= range.0.end {
+                continue;
+            }
+            let align_padding = aligned_start - range.0.start;
+
+            // Check the remaining size
+            let free_size = range.0.end - aligned_start;
+            if free_size < size {
+                continue;
+            }
+
+            // If we found a slot with the exact size, just use it already
+            let wasted_size = (free_size - size) + align_padding;
+            if wasted_size == 0 {
+                best_slot = Some((0, index));
+                break;
+            }
+
+            // Otherwise try to find the smallest oversized slot to reduce wasted space
+            if let Some(best_slot) = best_slot.as_mut() {
+                if wasted_size < best_slot.0 {
+                    *best_slot = (wasted_size, index);
+                }
+            } else {
+                best_slot = Some((wasted_size, index));
+            }
+        }
+
+        // Insert into existing space
+        if let Some((_, index)) = best_slot {
+            let range = self.free_ranges[index].0.clone();
+
+            let aligned_start = range.start.next_multiple_of(size);
+            let free_size = range.end - aligned_start;
+            assert!(size <= free_size);
+
+            let padding_bytes = aligned_start - range.start;
+            if padding_bytes > 0 {
+                // If the allocation doesn't span the entire free space, splice it.
+                self.free_ranges[index].0.end = aligned_start;
+            } else if size < free_size {
+                self.free_ranges[index].0.start += size;
+            } else {
+                // Otherwise, steal the entire block
+                self.free_ranges.remove(index);
+            }
+
+            debug_assert!(aligned_start % size == 0);
+            aligned_start
+        }
+        // Insert at end of vector, after resizing it
+        else {
+            // Calculate new aligned insertion offset and new capacity
+            let old_len = self.values.len() as u32;
+            let aligned_start = old_len.next_multiple_of(size);
+            let new_capacity = aligned_start + size;
+            if new_capacity > old_len {
+                self.values.resize(new_capacity as usize, 0);
+            }
+
+            // Insert padding if needed (and mark as free)
+            if aligned_start > old_len {
+                self.free_ranges.push(FreeRange(old_len..aligned_start));
+            }
+
+            aligned_start
+        }
+    }
+
+    /// Remove a range of bytes previously added.
+    ///
+    /// Remove a range of bytes previously returned by adding one or more
+    /// elements with [`push()`] or [`push_many()`].
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if the range was valid and the corresponding data was
+    /// removed, or `false` otherwise. In that case, the buffer is not modified.
+    ///
+    /// [`push()`]: Self::push
+    /// [`push_many()`]: Self::push_many
+    fn remove(&mut self, range: Range<u32>) -> bool {
+        // Check for out of bounds argument
+        let end = self.values.len() as u32;
+        if range.start >= end || range.end > end {
+            return false;
+        }
+
+        if range.end == end {
+            // Walk the (sorted) free list to also dequeue any range which is now at the end
+            // of the buffer
+            let mut new_end = range.start;
+            while let Some(free_range) = self.free_ranges.pop() {
+                if free_range.0.end == new_end {
+                    new_end = free_range.0.start;
+                } else {
+                    self.free_ranges.push(free_range);
+                    break;
+                }
+            }
+
+            // Note: we can't really recover any padding here because we don't know the
+            // exact size of that allocation, only its row-aligned size.
+            if new_end > 0 {
+                self.values.truncate(new_end as usize);
+            } else {
+                self.values.clear();
+            }
+        } else {
+            // Otherwise, save the row into the free list.
+            let free_range = FreeRange(range);
+
+            // Insert as sorted
+            if self.free_ranges.is_empty() {
+                // Special case to simplify below, and to avoid binary_search()
+                self.free_ranges.push(free_range);
+            } else if let Err(index) = self.free_ranges.binary_search(&free_range) {
+                if index >= self.free_ranges.len() {
+                    // insert at end
+                    let prev = self.free_ranges.last_mut().unwrap(); // known
+                    if prev.0.end == free_range.0.start {
+                        // merge with last value
+                        prev.0.end = free_range.0.end;
+                    } else {
+                        // insert last, with gap
+                        self.free_ranges.push(free_range);
+                    }
+                } else if index == 0 {
+                    // insert at start
+                    let next = &mut self.free_ranges[0];
+                    if free_range.0.end == next.0.start {
+                        // merge with next
+                        next.0.start = free_range.0.start;
+                    } else {
+                        // insert first, with gap
+                        self.free_ranges.insert(0, free_range);
+                    }
+                } else {
+                    // insert between 2 existing elements
+                    let prev = &mut self.free_ranges[index - 1];
+                    if prev.0.end == free_range.0.start {
+                        // merge with previous value
+                        prev.0.end = free_range.0.end;
+
+                        let prev = self.free_ranges[index - 1].clone();
+                        let next = &mut self.free_ranges[index];
+                        if prev.0.end == next.0.start {
+                            // also merge prev with next, and remove prev
+                            next.0.start = prev.0.start;
+                            self.free_ranges.remove(index - 1);
+                        }
+                    } else {
+                        let next = &mut self.free_ranges[index];
+                        if free_range.0.end == next.0.start {
+                            // merge with next value
+                            next.0.start = free_range.0.start;
+                        } else {
+                            // insert between 2 values, with gaps on both sides
+                            self.free_ranges.insert(0, free_range);
+                        }
+                    }
+                }
+            } else {
+                // The range exists in the free list, this means it's already removed. This is a
+                // duplicate; ignore it.
+                return false;
+            }
+        }
+        self.is_stale = true;
+        true
+    }
+
+    /// Update an allocated entry with a new value.
+    #[allow(dead_code)]
+    #[inline]
+    pub fn update<T: Pod + ShaderSize>(&mut self, offset: u32, value: &T) {
+        let data: &[u8] = cast_slice(std::slice::from_ref(value));
+        assert_eq!(value.size().get() as usize, data.len());
+        self.update_raw(offset, data);
+    }
+
+    /// Update an allocated entry with new data.
+    pub fn update_raw(&mut self, offset: u32, data: &[u8]) {
+        // Check for out of bounds argument
+        let end = self.values.len() as u32;
+        let data_end = offset + data.len() as u32;
+        if offset >= end || data_end > end {
+            return;
+        }
+
+        let dst: &mut [u8] = &mut self.values[offset as usize..data_end as usize];
+        dst.copy_from_slice(data);
+
+        self.is_stale = true;
+    }
+
+    /// Reserve some capacity into the buffer.
+    ///
+    /// If the buffer is reallocated, the old content (on the GPU) is lost, and
+    /// needs to be re-uploaded to the newly-created buffer. This is done with
+    /// [`write_buffer()`].
+    ///
+    /// # Returns
+    ///
+    /// `true` if the buffer was (re)allocated, or `false` if an existing buffer
+    /// was reused which already had enough capacity.
+    ///
+    /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
+    pub fn reserve(&mut self, capacity: usize, device: &RenderDevice) -> bool {
+        if capacity > self.capacity {
+            trace!(
+                "reserve: increase capacity from {} to {} bytes",
+                self.capacity,
+                capacity,
+            );
+            self.capacity = capacity;
+            if let Some(old_buffer) = self.buffer.take() {
+                trace!("reserve: forgetting old buffer #{:?}", old_buffer.id());
+                // Do not explicitly destroy the old buffer here; let the
+                // backend drop it safely.
+            }
+            self.buffer = Some(device.create_buffer(&BufferDescriptor {
+                label: Some(&self.label[..]),
+                size: capacity as BufferAddress,
+                usage: BufferUsages::COPY_DST | self.buffer_usages,
+                mapped_at_creation: false,
+            }));
+            self.is_stale = !self.values.is_empty();
+            // FIXME - this discards the old content if any!!!
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Schedule the buffer write to GPU.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the buffer was (re)allocated, `false` otherwise. If the buffer
+    /// was reallocated, all bind groups referencing the old buffer should be
+    /// destroyed.
+    pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
+        if self.values.is_empty() || !self.is_stale {
+            return false;
+        }
+        // Round GPU allocations to 256 bytes; we don't want to keep doing
+        // micro-allocations all the time.
+        let size = self.values.len();
+        let capacity = size.next_multiple_of(256);
+        trace!(
+            "property buffer: write_buffer: size={}B capacity={}B",
+            size,
+            capacity
+        );
+        let buffer_changed = self.reserve(capacity, device);
+        if let Some(buffer) = &self.buffer {
+            queue.write_buffer(buffer, 0, self.values.as_slice());
+            self.is_stale = false;
+        }
+        buffer_changed
     }
 
     #[allow(dead_code)]
+    pub fn clear(&mut self) {
+        if !self.values.is_empty() {
+            self.is_stale = true;
+        }
+        self.values.clear();
+    }
+
+    /// Allocate storage for a single property struct with the given layout.
+    ///
+    /// # Returns
+    ///
+    /// On success, this returns the index in the GPU buffer where the struct
+    /// was allocated. On failure, this returns `None`.
     #[inline]
-    pub fn free(&mut self, range: Range<u32>) -> SlabState {
+    pub fn allocate(&mut self, layout: &PropertyLayout) -> Option<u32> {
+        // Note: allocate with min_binding_size() and not cpu_size(), because the buffer
+        // needs to be large enough to host at least one struct when bound to a shader,
+        // and in WGSL the struct is padded to its align size.
+        let size = layout.min_binding_size().get() as u32;
+
+        // For now, we expand a single buffer infinitely. TODO to add a limit...
+        let offset = self.alloc_aligned(size);
+        assert!(offset % size == 0); // by design of alloc_aligned()
+        Some(offset / size) // array index
+    }
+
+    #[inline]
+    pub fn free(&mut self, offset: u32, size: u32) -> SlabState {
         let id = self
             .buffer
-            .buffer()
+            .as_ref()
             .map(|buf| {
                 let id: NonZeroU32 = buf.id().into();
                 id.get()
             })
             .unwrap_or(u32::MAX);
-        let size = self.buffer.len();
-        if self.buffer.remove(range) {
-            if self.buffer.is_empty() {
+        let buffer_size = self.len();
+        if self.remove(offset..(offset + size)) {
+            if self.is_empty() {
                 SlabState::Free
-            } else if self.buffer.len() != size
+            } else if self.len() != buffer_size
                 || self
                     .buffer
-                    .buffer()
+                    .as_ref()
                     .map(|buf| {
                         let id: NonZeroU32 = buf.id().into();
                         id.get()
@@ -128,20 +528,13 @@ impl PropertyBuffer {
     }
 
     pub fn write(&mut self, offset: u32, data: &[u8]) {
-        self.buffer.update_raw(offset, data);
-    }
-
-    #[inline]
-    pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
-        self.buffer.write_buffer(device, queue)
+        self.update_raw(offset, data);
     }
 }
 
 /// Cache for effect properties.
 #[derive(Resource)]
 pub struct PropertyCache {
-    /// Render device to allocate GPU buffers and bind group layouts as needed.
-    device: RenderDevice,
     /// Collection of property buffers managed by this cache. Some buffers might
     /// be `None` if the entry is not used. Since the buffers are referenced
     /// by index, we cannot move them once they're allocated.
@@ -154,7 +547,7 @@ pub struct PropertyCache {
 }
 
 impl PropertyCache {
-    pub fn new(device: RenderDevice) -> Self {
+    pub fn new(device: &RenderDevice) -> Self {
         let align = device.limits().min_storage_buffer_offset_alignment;
         let spawner_min_binding_size = GpuSpawnerParams::aligned_size(align);
 
@@ -183,7 +576,6 @@ impl PropertyCache {
         bind_group_layout_descs.insert(0, bgl);
 
         Self {
-            device,
             buffers: vec![],
             bind_group_layout_descs,
         }
@@ -212,10 +604,14 @@ impl PropertyCache {
     pub fn allocate(&mut self, property_layout: &PropertyLayout) -> CachedEffectProperties {
         assert!(!property_layout.is_empty());
 
-        // Ensure there's a bind group layout for the property variant with that binding
-        // size
-        let properties_min_binding_size = property_layout.min_binding_size();
+        // Use the no-property layout descriptor as the base, that we'll customize. It's
+        // always available. But since it's stored inside the hash map, we need to
+        // eagerly clone in advance, for the borrow checker.
         let mut bgl = self.bind_group_layout_descs.get(&0).unwrap().clone();
+
+        // Ensure there's a bind group layout for the property variant with that binding
+        // size.
+        let properties_min_binding_size = property_layout.min_binding_size();
         self.bind_group_layout_descs
             .entry(properties_min_binding_size.get() as u32)
             .or_insert_with(|| {
@@ -228,7 +624,7 @@ impl PropertyCache {
                     label,
                     properties_min_binding_size.get()
                 );
-                // Clone the entry without properties, and append the Properties array binding
+                // Append the Properties array binding
                 bgl.label = label.into();
                 bgl.entries.push(
                     storage_buffer_read_only_sized(false, Some(properties_min_binding_size))
@@ -246,20 +642,14 @@ impl PropertyCache {
             .iter_mut()
             .enumerate()
             .find_map(|(buffer_index, buffer)| {
-                if let Some(buffer) = buffer {
-                    // Try to allocate a slice into the buffer
-                    // FIXME - Currently PropertyBuffer::allocate() always succeeds and
-                    // grows indefinitely
-                    let range = buffer.allocate(property_layout);
-                    trace!("Allocate new slice in property buffer #{buffer_index} for layout {property_layout:?}: range={range:?}");
-                    Some(CachedEffectProperties {
-                        property_layout: property_layout.clone(),
-                        buffer_index: buffer_index as u32,
-                        range,
-                    })
-                } else {
-                    None
-                }
+                let buffer = buffer.as_mut()?;
+                let array_index= buffer.allocate(property_layout)?;
+                trace!("Allocated new slice in property buffer #{buffer_index} for layout {property_layout:?}: array_index={array_index}");
+                Some(CachedEffectProperties {
+                    property_layout: property_layout.clone(),
+                    buffer_index: buffer_index as u32,
+                    array_index,
+                })
             })
             .unwrap_or_else(|| {
                 // Cannot find any suitable buffer; allocate a new one
@@ -270,11 +660,10 @@ impl PropertyCache {
                     .unwrap_or(self.buffers.len());
                 let label = format!("hanabi:buffer:properties{buffer_index}");
                 trace!("Creating new property buffer #{buffer_index} '{label}'");
-                let align = self.device.limits().min_storage_buffer_offset_alignment;
-                let mut buffer = PropertyBuffer::new(align, Some(label));
+                let mut buffer = PropertyBuffer::new(Some(label), BufferUsages::STORAGE);
                 // FIXME - Currently PropertyBuffer::allocate() always succeeds and grows
                 // indefinitely
-                let range = buffer.allocate(property_layout);
+                let array_index = buffer.allocate(property_layout).unwrap();
                 if buffer_index >= self.buffers.len() {
                     self.buffers.push(Some(buffer));
                 } else {
@@ -284,7 +673,7 @@ impl PropertyCache {
                 CachedEffectProperties {
                     property_layout: property_layout.clone(),
                     buffer_index: buffer_index as u32,
-                    range,
+                    array_index,
                 }
             })
     }
@@ -316,7 +705,12 @@ impl PropertyCache {
             .ok_or(CachedPropertiesError::BufferDeallocated(
                 cached_effect_properties.buffer_index,
             ))?;
-        Ok(buffer.free(cached_effect_properties.range.clone()))
+        let size = cached_effect_properties
+            .property_layout
+            .min_binding_size()
+            .get() as u32;
+        let offset = cached_effect_properties.array_index * size;
+        Ok(buffer.free(offset, size))
     }
 }
 
@@ -463,22 +857,26 @@ fn upload_properties(
     mut property_cache: Mut<'_, PropertyCache>,
 ) {
     if let Some(property_data) = &extracted_properties.property_data {
+        let size = cached_effect_properties
+            .property_layout
+            .min_binding_size()
+            .get() as u32;
         trace!(
             "Properties changed; (re-)uploading to GPU... New data: {} bytes. Capacity: {} bytes.",
             property_data.len(),
-            cached_effect_properties.range.len(),
+            size,
         );
-        if property_data.len() <= cached_effect_properties.range.len() {
+        if property_data.len() <= size as usize {
             let property_buffer = property_cache.buffers_mut()
                 [cached_effect_properties.buffer_index as usize]
                 .as_mut()
                 .unwrap();
-            property_buffer.write(cached_effect_properties.range.start, property_data);
+            property_buffer.write(cached_effect_properties.array_index * size, property_data);
         } else {
             error!(
                 "Cannot upload properties: existing property slice in property buffer #{} is too small ({} bytes) for the new data ({} bytes).",
                 cached_effect_properties.buffer_index,
-                cached_effect_properties.range.len(),
+                size,
                 property_data.len()
             );
         }
@@ -608,5 +1006,224 @@ pub(crate) fn prepare_property_buffers(
                 .property_bind_groups
                 .retain(|&k, _| k.buffer_index != buffer_index as u32);
         }
+    }
+}
+
+#[cfg(all(test, feature = "gpu_tests"))]
+mod gpu_tests {
+    use bevy::math::Vec3;
+    use wgpu::BufferView;
+
+    use super::*;
+    use crate::{test_utils::MockRenderer, Property};
+
+    fn submit_and_wait(device: &RenderDevice, queue: &RenderQueue) {
+        // Create a dummy CommandBuffer to force the write_buffer() call to have any
+        // effect.
+        let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("test"),
+        });
+        let command_buffer = encoder.finish();
+
+        queue.submit([command_buffer]);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        queue.on_submitted_work_done(move || {
+            tx.send(()).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+        let _ = futures::executor::block_on(rx);
+    }
+
+    fn gpu_read_back_and_wait(device: &RenderDevice, buffer: &Buffer) -> BufferView {
+        let buffer = buffer.slice(..);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        buffer.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+        futures::executor::block_on(rx).unwrap().unwrap();
+        buffer.get_mapped_range()
+    }
+
+    #[test]
+    fn pb_alloc_free() {
+        let mut pb = PropertyBuffer::new(None, BufferUsages::STORAGE | BufferUsages::MAP_READ);
+
+        let layout16 = PropertyLayout::new(&[
+            Property::new("my_property", Vec3::new(1., 4., 9.)),
+            Property::new("other_property", 3.4_f32),
+        ]);
+        let size16 = layout16.min_binding_size().get() as u32;
+        let layout4 = PropertyLayout::new(&[Property::new("prop", 3.4_f32)]);
+        let size4 = layout4.min_binding_size().get() as u32;
+
+        // Alloc 16 + 4
+        let index1 = pb.allocate(&layout16).unwrap();
+        let index2 = pb.allocate(&layout4).unwrap();
+        assert_eq!(index1, 0);
+        assert_eq!(index2, size16 / size4);
+        assert!(pb.free_ranges.is_empty());
+
+        // [1111][2]
+
+        // Alloc 16; makes a gap
+        let index3 = pb.allocate(&layout16).unwrap();
+        assert_eq!(index3, (size16 + size4).next_multiple_of(size16) / size16);
+        assert_eq!(pb.free_ranges.len(), 1);
+
+        // [1111][2---][3333]
+
+        // Free first; buffer stay in full use (with a gap)
+        let slab_state = pb.free(index1 * size16, size16);
+        assert_eq!(slab_state, SlabState::Used);
+
+        // [----][2---][3333]
+
+        // Alloc 4 (x2); fit inside start of buffer (16B), but gap after #2 is smaller (12B)
+        let index4 = pb.allocate(&layout4).unwrap();
+        let index5 = pb.allocate(&layout4).unwrap();
+        let end2 = (index2 + 1) * size4;
+        assert_eq!(index4, end2.next_multiple_of(size4) / size4);
+        assert_eq!(index5, index4 + 1);
+
+        // [----][245-][3333]
+
+        // Free #2 and #4; should merge with start
+        assert_eq!(pb.free(index2 * size4, size4), SlabState::Used);
+        assert_eq!(pb.free(index4 * size4, size4), SlabState::Used);
+        assert_eq!(pb.free_ranges.len(), 2);
+
+        // [----][--5-][3333]
+
+        // Free #5; merge 2 free ranges
+        assert_eq!(pb.free(index5 * size4, size4), SlabState::Used);
+        assert_eq!(pb.free_ranges.len(), 1);
+
+        // [----][----][3333]
+
+        // Free last
+        assert_eq!(pb.free(index3 * size16, size16), SlabState::Free);
+        assert!(pb.free_ranges.is_empty());
+        assert!(pb.is_empty());
+
+        // []
+
+        // Alloc 16 + 16
+        let index6 = pb.allocate(&layout16).unwrap();
+        let index7 = pb.allocate(&layout16).unwrap();
+        assert_eq!(index6, 0);
+        assert_eq!(index7, 1);
+        assert!(pb.free_ranges.is_empty());
+
+        // [6666][7777]
+
+        // Free #75; resize
+        assert_eq!(pb.free(index7 * size16, size16), SlabState::Resized);
+        assert!(pb.free_ranges.is_empty());
+
+        // [6666]
+    }
+
+    #[test]
+    fn pb_write() {
+        let renderer = MockRenderer::new();
+        let device = renderer.device();
+        let queue = renderer.queue();
+
+        let mut pb = PropertyBuffer::new(None, BufferUsages::STORAGE | BufferUsages::MAP_READ);
+        assert!(pb.is_empty());
+        assert_eq!(pb.len(), 0);
+        assert!(pb.buffer().is_none());
+        assert_eq!(pb.capacity(), 0);
+
+        let layout1 = PropertyLayout::new(&[
+            Property::new("my_property", Vec3::new(1., 4., 9.)),
+            Property::new("other_property", 3.4_f32),
+        ]);
+        assert_eq!(layout1.min_binding_size().get(), 16);
+        let offset1 = pb.allocate(&layout1).unwrap();
+        assert_eq!(offset1, 0);
+        assert!(!pb.is_empty());
+        assert_eq!(pb.len(), 16);
+        // GPU buffer not yet allocated
+        assert!(pb.buffer().is_none());
+        assert_eq!(pb.capacity(), 0);
+
+        let layout2 = PropertyLayout::new(&[Property::new("prop", 3.4_f32)]);
+        let offset2 = pb.allocate(&layout2).unwrap();
+        assert_eq!(offset2, 4); // 16 B / size == 4
+        assert!(!pb.is_empty());
+        assert_eq!(pb.len(), 20);
+        // GPU buffer not yet allocated
+        assert!(pb.buffer().is_none());
+        assert_eq!(pb.capacity(), 0);
+
+        pb.write(offset2 * 4, bytemuck::cast_slice(&[24.99f32; 1]));
+        pb.write(
+            offset1 * 16,
+            bytemuck::cast_slice(&[55.2f32, -32.1f32, 99.07f32, 34.5f32]),
+        );
+        // GPU buffer not yet allocated
+        assert!(pb.buffer().is_none());
+        assert_eq!(pb.capacity(), 0);
+
+        let buffer_changed = pb.write_buffer(&device, &queue);
+        // GPU buffer now allocated
+        assert!(buffer_changed);
+        assert!(pb.buffer().is_some());
+        assert!(pb.capacity() >= 20);
+
+        submit_and_wait(&device, &queue);
+        println!("Buffer written");
+
+        // Read back (GPU -> CPU)
+        let buffer = pb.buffer().unwrap();
+        let view = gpu_read_back_and_wait(&device, buffer);
+
+        // Validate content
+        assert!(view.len() >= 20);
+        let v: &[f32] = bytemuck::cast_slice(&view[..256]);
+        assert_eq!(v[0], 55.2f32);
+        assert_eq!(v[1], -32.1f32);
+        assert_eq!(v[2], 99.07f32);
+        assert_eq!(v[3], 34.5f32);
+        assert_eq!(v[4], 24.99f32);
+        drop(view);
+        buffer.unmap();
+
+        pb.write(offset1 * 16, bytemuck::cast_slice(&[0f32, 1f32, 2f32]));
+        // GPU buffer still allocated
+        assert!(pb.buffer().is_some());
+        assert!(pb.capacity() >= 20);
+
+        let buffer_changed = pb.write_buffer(&device, &queue);
+        // GPU buffer NOT re-allocated (only content changed)
+        assert!(!buffer_changed);
+        assert!(pb.buffer().is_some());
+        assert!(pb.capacity() >= 20);
+
+        submit_and_wait(&device, &queue);
+        println!("Buffer written");
+
+        // Read back (GPU -> CPU)
+        let buffer = pb.buffer().unwrap();
+        let view = gpu_read_back_and_wait(&device, buffer);
+
+        // Validate content
+        assert!(view.len() >= 20);
+        let v: &[f32] = bytemuck::cast_slice(&view[..256]);
+        assert_eq!(v[0], 0f32);
+        assert_eq!(v[1], 1f32);
+        assert_eq!(v[2], 2f32);
+        assert_eq!(v[3], 34.5f32);
+        assert_eq!(v[4], 24.99f32);
+        drop(view);
+        buffer.unmap();
     }
 }

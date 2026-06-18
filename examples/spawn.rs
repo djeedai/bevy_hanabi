@@ -39,9 +39,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app_exit.into_result()
 }
 
+/// A simple marker component to identify the effect using a swaying
+/// property-based acceleration that the `update_accel()` system will control at
+/// runtime. This is attached to the first effect.
+#[derive(Component)]
+struct SwayingRuntimeAccel;
+
 /// A simple marker component to identify the effect using a dynamic
 /// property-based acceleration that the `update_accel()` system will control at
-/// runtime.
+/// runtime. This is attached to the third effect.
 #[derive(Component)]
 struct DynamicRuntimeAccel;
 
@@ -90,8 +96,9 @@ fn setup(
     let lifetime1 = writer1.lit(5.).expr();
     let init_lifetime1 = SetAttributeModifier::new(Attribute::LIFETIME, lifetime1);
 
-    // Add constant downward acceleration to simulate gravity
-    let accel1 = writer1.lit(Vec3::Y * -3.).expr();
+    // Add dynamically-varying acceleration controlled by CPU
+    let my_accel = writer1.add_property("my_accel", (Vec3::Y * 3.).into());
+    let accel1 = writer1.prop(my_accel).expr();
     let update_accel1 = AccelModifier::new(accel1);
 
     let init_pos1 = SetPositionCone3dModifier {
@@ -126,8 +133,10 @@ fn setup(
         .spawn((
             Name::new("emit:rate"),
             ParticleEffect::new(effect1),
+            EffectProperties::default(),
             Transform::from_translation(Vec3::new(-30., 0., 0.))
                 .with_rotation(Quat::from_rotation_z(1.)),
+            SwayingRuntimeAccel,
         ))
         .with_children(|p| {
             // Reference cube to visualize the emit origin
@@ -256,9 +265,17 @@ fn setup(
 
 fn update_accel(
     time: Res<Time>,
-    mut query: Query<&mut EffectProperties, With<DynamicRuntimeAccel>>,
+    mut q1: Query<&mut EffectProperties, (With<SwayingRuntimeAccel>, Without<DynamicRuntimeAccel>)>,
+    mut q3: Query<&mut EffectProperties, (With<DynamicRuntimeAccel>, Without<SwayingRuntimeAccel>)>,
 ) {
-    if let Ok(mut properties) = query.single_mut() {
+    if let Ok(mut properties) = q1.single_mut() {
+        let accel0 = 10.;
+        let (s, c) = (time.elapsed_secs() * 0.8).sin_cos();
+        let accel = Vec3::new(c * accel0, s * accel0, 0.);
+        properties.set("my_accel", accel.into());
+    }
+
+    if let Ok(mut properties) = q3.single_mut() {
         let accel0 = 10.;
         let (s, c) = (time.elapsed_secs() * 0.3).sin_cos();
         let accel = Vec3::new(c * accel0, s * accel0, 0.);

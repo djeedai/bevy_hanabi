@@ -192,7 +192,7 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
 var<private> effect_location : EffectLocation;
 
 var<private> effect_metadata_index: u32;
-// var<private> properties_offset: u32;
+// var<private> properties_array_index: u32;
 
 @vertex
 fn vertex(

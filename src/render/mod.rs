@@ -559,9 +559,9 @@ pub struct GpuEffectMetadata {
     /// buffer. This avoids having to align those 16-byte structs to the GPU
     /// alignment (at least 32 bytes, even 256 bytes on some).
     pub init_indirect_dispatch_index: u32,
-    /// Offset (in u32 count) of the start of the property block for this
+    /// Array index of the property block for this
     /// effect. This is ignored if the effect doesn't use properties.
-    pub properties_offset: u32,
+    pub properties_array_index: u32,
     /// Index of this effect into its parent's ChildInfo array
     /// ([`EffectChildren::effect_cache_ids`] and its associated GPU
     /// array). This starts at zero for the first child of each effect, and is
@@ -6038,8 +6038,8 @@ pub(crate) fn prepare_effect_metadata(
             init_indirect_dispatch_index: maybe_cached_effect_events
                 .map(|cee| cee.init_indirect_dispatch_index)
                 .unwrap_or(u32::MAX),
-            properties_offset: maybe_cached_effect_properties
-                .map(|cep| cep.range.start / 4)
+            properties_array_index: maybe_cached_effect_properties
+                .map(|cep| cep.array_index)
                 .unwrap_or(u32::MAX),
             local_child_index,
             global_child_index,
