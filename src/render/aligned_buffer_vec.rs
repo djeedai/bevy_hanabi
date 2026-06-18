@@ -485,6 +485,7 @@ impl HybridAlignedBufferVec {
     /// This represents the size of the CPU data uploaded to GPU. Pending a GPU
     /// buffer re-allocation or re-upload, this size might differ from the
     /// actual GPU buffer size. But they're eventually consistent.
+    #[allow(dead_code)]
     #[inline]
     pub fn len(&self) -> usize {
         self.values.len()

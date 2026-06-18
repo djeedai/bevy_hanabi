@@ -100,7 +100,7 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
 #endif
 
 var<private> effect_metadata_index: u32;
-var<private> properties_offset: u32;
+var<private> properties_array_index: u32;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
@@ -120,7 +120,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     if (location.update_index >= (*effect_metadata).max_update) {
         return;
     }
-    properties_offset = (*effect_metadata).properties_offset;
+    properties_array_index = (*effect_metadata).properties_array_index;
 
     let write_index = effect_metadata.indirect_write_index;
     let read_index = 1u - write_index;

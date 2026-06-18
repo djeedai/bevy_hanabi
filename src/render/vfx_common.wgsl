@@ -223,7 +223,7 @@ struct EffectMetadata {
     //spawner_index: u32,
     /// Offset (in u32 count) of the start of the property block for this
     /// effect. This is ignored if the effect doesn't use properties.
-    properties_offset: u32,
+    properties_array_index: u32,
     /// Index of this effect into its parent's ChildInfo array
     /// ([`EffectChildren::effect_cache_ids`] and its associated GPU
     /// array). This starts at zero for the first child of each effect, and is

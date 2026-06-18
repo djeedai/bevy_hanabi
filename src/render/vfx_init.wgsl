@@ -96,7 +96,7 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
 {{INIT_EXTRA}}
 
 var<private> effect_metadata_index: u32;
-var<private> properties_offset: u32;
+var<private> properties_array_index: u32;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
@@ -118,7 +118,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     if (location.update_index >= max_spawn) {
         return;
     }
-    properties_offset = (*effect_metadata).properties_offset;
+    properties_array_index = (*effect_metadata).properties_array_index;
 
     // Cap to the actual number of spawning requested by CPU or GPU, since compute shaders run
     // in workgroup_size(64) so more threads than needed are launched (rounded up to 64).

@@ -382,7 +382,7 @@ impl Plugin for HanabiPlugin {
         );
 
         let effect_cache = EffectCache::new(render_device.clone());
-        let property_cache = PropertyCache::new(render_device.clone());
+        let property_cache = PropertyCache::new(&render_device);
         let event_cache = EventCache::new(render_device);
 
         let render_app = app.sub_app_mut(RenderApp);
