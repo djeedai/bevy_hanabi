@@ -139,29 +139,6 @@ impl PropertyBuffer {
         }))
     }
 
-    /// Get a binding for a subset of the elements of the buffer.
-    ///
-    /// Returns a binding for the elements in the range `offset..offset+count`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `offset` is not a multiple of the alignment specified on
-    /// construction.
-    ///
-    /// Panics if `size` is zero.
-    // #[allow(dead_code)]
-    // #[inline]
-    // pub fn range_binding(&self, offset: u32, size: u32) -> Option<BindingResource<'_>> {
-    //     assert!((offset as usize).is_multiple_of(self.item_align));
-    //     let buffer = self.buffer()?;
-    //     let size = NonZeroU64::new(size as u64).unwrap();
-    //     Some(BindingResource::Buffer(BufferBinding {
-    //         buffer,
-    //         offset: offset as u64,
-    //         size: Some(size),
-    //     }))
-    // }
-
     /// Capacity of the allocated GPU buffer, in bytes.
     ///
     /// This may be zero if the buffer was not allocated yet. In general, this
