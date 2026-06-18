@@ -250,7 +250,7 @@ impl PropertyBuffer {
                 self.free_ranges.remove(index);
             }
 
-            debug_assert!(aligned_start % size == 0);
+            debug_assert!(aligned_start.is_multiple_of(size));
             aligned_start
         }
         // Insert at end of vector, after resizing it
@@ -489,7 +489,7 @@ impl PropertyBuffer {
 
         // For now, we expand a single buffer infinitely. TODO to add a limit...
         let offset = self.alloc_aligned(size);
-        assert!(offset % size == 0); // by design of alloc_aligned()
+        assert!(offset.is_multiple_of(size)); // by design of alloc_aligned()
         Some(offset / size) // array index
     }
 
@@ -1074,7 +1074,7 @@ mod gpu_tests {
 
         // Alloc 16; makes a gap
         let index3 = pb.allocate(&layout16).unwrap();
-        assert_eq!(index3, (size16 + size4).next_multiple_of(size16) / size16);
+        assert_eq!(index3, (size16 + size4).div_ceil(size16));
         assert_eq!(pb.free_ranges.len(), 1);
 
         // [1111][2---][3333]
@@ -1089,7 +1089,7 @@ mod gpu_tests {
         let index4 = pb.allocate(&layout4).unwrap();
         let index5 = pb.allocate(&layout4).unwrap();
         let end2 = (index2 + 1) * size4;
-        assert_eq!(index4, end2.next_multiple_of(size4) / size4);
+        assert_eq!(index4, end2.div_ceil(size4));
         assert_eq!(index5, index4 + 1);
 
         // [----][245-][3333]
