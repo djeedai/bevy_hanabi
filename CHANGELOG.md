@@ -51,6 +51,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed the `typetag` dependency.
 - Removed the `serde` feature. Serialization is always available.
 
+### Fixed
+
+- Fixed the sort indirect-dispatch buffer never growing past its initial 256 entries, causing
+  an indirect buffer overrun and crash with many sorted (e.g. ribbon) effects alive at once. (#493)
+
 ## [0.18.0] 2026-02-01
 
 _This version is compatible with Bevy 0.18_

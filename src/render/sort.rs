@@ -12,7 +12,7 @@ use bevy::{
             },
             BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, Buffer,
             BufferId, CachedComputePipelineId, CachedPipelineState, ComputePipelineDescriptor,
-            PipelineCache, ShaderType,
+            PipelineCache, ShaderSize, ShaderType,
         },
         renderer::RenderDevice,
     },
@@ -127,10 +127,11 @@ impl SortBindGroups {
             mapped_at_creation: false,
         });
 
-        let indirect_buffer_size = 3 * 1024;
+        // Initial room for 256 ribbon sort dispatches; the GpuBuffer grows on demand.
+        let indirect_item_size = GpuDispatchIndirectArgs::SHADER_SIZE.get();
         let indirect_buffer = render_device.create_buffer(&BufferDescriptor {
             label: Some("hanabi:buffer:sort:indirect"),
-            size: indirect_buffer_size,
+            size: 256 * indirect_item_size,
             usage: BufferUsages::COPY_SRC
                 | BufferUsages::COPY_DST
                 | BufferUsages::STORAGE
@@ -139,7 +140,6 @@ impl SortBindGroups {
         });
         let indirect_buffer = GpuBuffer::new_allocated(
             indirect_buffer,
-            indirect_buffer_size as u32,
             Some("hanabi:buffer:sort:indirect".to_string()),
         );
 

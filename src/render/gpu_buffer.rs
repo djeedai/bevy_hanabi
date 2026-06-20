@@ -114,9 +114,9 @@ impl<T: Pod + ShaderType + ShaderSize> GpuBuffer<T> {
     /// [`ShaderType::assert_uniform_compat()`].
     ///
     /// [`BufferUsages::UNIFORM`]: bevy::render::render_resource::BufferUsages::UNIFORM
-    pub fn new_allocated(buffer: Buffer, size: u32, label: Option<String>) -> Self {
-        // GPU-aligned item size, compatible with WGSL rules
-        let item_size = <T as ShaderSize>::SHADER_SIZE.get() as u32;
+    pub fn new_allocated(buffer: Buffer, label: Option<String>) -> Self {
+        // GPU-aligned item size, compatible with WGSL rules.
+        let item_size = <T as ShaderSize>::SHADER_SIZE.get();
         let buffer_usage = buffer.usage();
         assert!(
             buffer_usage.contains(BufferUsages::COPY_SRC | BufferUsages::COPY_DST),
@@ -125,7 +125,16 @@ impl<T: Pod + ShaderType + ShaderSize> GpuBuffer<T> {
         if buffer_usage.contains(BufferUsages::UNIFORM) {
             <T as ShaderType>::assert_uniform_compat();
         }
-        trace!("GpuBuffer: item_size={}", item_size);
+        // Capacity is derived from the physical buffer so the two can't disagree.
+        debug_assert_eq!(
+            buffer.size() % item_size,
+            0,
+            "GpuBuffer physical size ({} bytes) is not a multiple of the element size ({} bytes)",
+            buffer.size(),
+            item_size,
+        );
+        let size = (buffer.size() / item_size) as u32;
+        trace!("GpuBuffer: item_size={item_size} capacity={size}");
         Self {
             buffer: Some(BufferAndSize { buffer, size }),
             buffer_usage,
