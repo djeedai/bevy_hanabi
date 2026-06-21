@@ -481,8 +481,10 @@ impl<T: Lerp + FromReflect> Gradient<T> {
 mod tests {
     use std::collections::hash_map::DefaultHasher;
 
-    use bevy::reflect::{PartialReflect, ReflectRef, Struct};
-    use rand::{distr::StandardUniform, prelude::Distribution, rng, rngs::ThreadRng, Rng};
+    use bevy::reflect::{structs::Struct, PartialReflect, ReflectRef};
+    use rand::{
+        distr::StandardUniform, prelude::Distribution, rng, rngs::ThreadRng, Rng, RngExt,
+    };
 
     use super::*;
     use crate::test_utils::*;

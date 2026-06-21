@@ -13,7 +13,7 @@ use bevy::{
     math::{vec3, vec4},
     post_process::bloom::Bloom,
     prelude::*,
-    render::view::Hdr,
+    camera::Hdr,
 };
 use bevy_hanabi::prelude::*;
 

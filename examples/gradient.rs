@@ -2,7 +2,7 @@ use std::f32::consts::PI;
 
 use bevy::{
     camera::visibility::RenderLayers, core_pipeline::tonemapping::Tonemapping, prelude::*,
-    render::view::Hdr,
+    camera::Hdr,
 };
 use bevy_hanabi::prelude::*;
 

@@ -187,7 +187,7 @@ use bevy::{
     prelude::*,
     render::{extract_component::ExtractComponent, sync_world::SyncToRenderWorld},
 };
-use rand::{Rng, SeedableRng as _};
+use rand::{RngExt as _, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

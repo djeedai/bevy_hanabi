@@ -19,7 +19,7 @@
 
 use bevy::math::vec4;
 use bevy::prelude::*;
-use bevy::render::view::Hdr;
+use bevy::camera::Hdr;
 use bevy::{core_pipeline::tonemapping::Tonemapping, math::vec3, post_process::bloom::Bloom};
 use bevy_hanabi::prelude::*;
 

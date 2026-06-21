@@ -150,7 +150,7 @@ fn setup(
         },
         Text::new("Active"),
         TextFont {
-            font_size: 60.0,
+            font_size: FontSize::Px(60.0),
             ..default()
         },
         TextColor(Color::WHITE),

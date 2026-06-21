@@ -164,7 +164,7 @@ impl SortBindGroups {
             shader: sort_shader,
             shader_defs: vec!["HAS_DUAL_KEY".into()],
             entry_point: Some("main".into()),
-            push_constant_ranges: vec![],
+            immediate_size: 0,
             zero_initialize_workgroup_memory: false,
         });
 
@@ -198,7 +198,7 @@ impl SortBindGroups {
                 shader: sort_copy_shader,
                 shader_defs: vec![],
                 entry_point: Some("main".into()),
-                push_constant_ranges: vec![],
+                immediate_size: 0,
                 zero_initialize_workgroup_memory: false,
             });
 
@@ -368,7 +368,7 @@ impl SortBindGroups {
                         shader: self.sort_fill_shader.clone(),
                         shader_defs: vec!["HAS_DUAL_KEY".into()],
                         entry_point: Some("main".into()),
-                        push_constant_ranges: vec![],
+                        immediate_size: 0,
                         zero_initialize_workgroup_memory: false,
                     });
                 (bind_group_layout_desc, pipeline_id)

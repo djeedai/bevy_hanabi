@@ -11,7 +11,7 @@
 //! do not overlap the bounding box of the effect itself.
 use bevy::{
     core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
-    render::view::Hdr,
+    camera::Hdr,
 };
 use bevy_hanabi::prelude::*;
 

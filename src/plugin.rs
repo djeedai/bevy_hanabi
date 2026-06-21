@@ -11,7 +11,6 @@ use bevy::{
     render::{
         extract_component::ExtractComponentPlugin,
         render_asset::prepare_assets,
-        render_graph::RenderGraph,
         render_phase::DrawFunctions,
         render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
         renderer::{RenderAdapterInfo, RenderDevice},
@@ -41,11 +40,11 @@ use crate::{
         start_stop_gpu_debug_capture, update_mesh_locations, DebugSettings,
         DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache,
         EffectsMeta, EventCache, GpuBatchInfo, GpuBufferOperations, GpuEffectMetadata,
-        GpuSpawnerParams, InitFillDispatchQueue, ParticlesInitPipeline, ParticlesRenderPipeline,
-        ParticlesUpdatePipeline, PrefixSumPipeline, PropertyBindGroups, PropertyCache,
-        RenderDebugSettings, ShaderCache, SimParams, SortBindGroups, SortFillDispatchQueue,
-        SortedEffectBatches, StorageType as _, UtilsPipeline, VfxSimulateDriverNode,
-        VfxSimulateNode,
+        GpuSpawnerParams, HanabiRenderPlugin, InitFillDispatchQueue, ParticlesInitPipeline,
+        ParticlesRenderPipeline, ParticlesUpdatePipeline, PrefixSumPipeline, PropertyBindGroups,
+        PropertyCache, RenderDebugSettings, ShaderCache, SimParams, SortBindGroups,
+        SortFillDispatchQueue, SortedEffectBatches, StorageType as _, UtilsPipeline,
+        VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,
@@ -107,33 +106,6 @@ pub enum EffectSystems {
     ///
     /// Part of Bevy's own [`RenderSystems::PrepareBindGroups`].
     PrepareBindGroups,
-}
-
-pub mod main_graph {
-    pub mod node {
-        use bevy::render::render_graph::RenderLabel;
-
-        /// Label for the simulation driver node running the simulation graph.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, RenderLabel)]
-        pub struct HanabiDriverNode;
-    }
-}
-
-pub mod simulate_graph {
-    use bevy::render::render_graph::RenderSubGraph;
-
-    /// Name of the simulation sub-graph.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, RenderSubGraph)]
-    pub struct HanabiSimulateGraph;
-
-    pub mod node {
-        use bevy::render::render_graph::RenderLabel;
-
-        /// Label for the simulation node (init and update compute passes;
-        /// view-independent).
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, RenderLabel)]
-        pub struct HanabiSimulateNode;
-    }
 }
 
 const HANABI_COMMON_TEMPLATE_HANDLE: Handle<Shader> =
@@ -239,6 +211,7 @@ impl Plugin for HanabiPlugin {
         // Register asset
         app.init_asset::<EffectAsset>()
             .insert_resource(Random(spawn::new_rng()))
+            .add_plugins(HanabiRenderPlugin)
             .add_plugins(ExtractComponentPlugin::<EffectVisibilityClass>::default())
             .init_resource::<DefaultMesh>()
             .init_resource::<ShaderCache>()
@@ -618,25 +591,5 @@ impl Plugin for HanabiPlugin {
                 .write()
                 .add(draw_particles);
         }
-
-        // Add the simulation sub-graph. This render graph runs once per frame no matter
-        // how many cameras/views are active (view-independent).
-        let mut simulate_graph = RenderGraph::default();
-        let simulate_node = VfxSimulateNode::new(render_app.world_mut());
-        simulate_graph.add_node(simulate_graph::node::HanabiSimulateNode, simulate_node);
-        let mut graph = render_app
-            .world_mut()
-            .get_resource_mut::<RenderGraph>()
-            .unwrap();
-        graph.add_sub_graph(simulate_graph::HanabiSimulateGraph, simulate_graph);
-
-        // Add the simulation driver node which executes the simulation sub-graph. It
-        // runs before the camera driver, since rendering needs to access simulated
-        // particles.
-        graph.add_node(main_graph::node::HanabiDriverNode, VfxSimulateDriverNode {});
-        graph.add_node_edge(
-            main_graph::node::HanabiDriverNode,
-            bevy::render::graph::CameraDriverLabel,
-        );
     }
 }

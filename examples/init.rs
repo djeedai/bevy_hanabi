@@ -99,7 +99,7 @@ fn setup(
         color: Color::WHITE,
         // Crank the illuminance way (too) high to make the reference cube clearly visible
         illuminance: 1000.,
-        shadows_enabled: false,
+        shadow_maps_enabled: false,
         ..Default::default()
     });
 
