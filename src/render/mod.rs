@@ -5450,7 +5450,7 @@ fn emit_sorted_draw<T, F>(
             );
             render_phase.add_transient(make_phase_item(
                 render_pipeline_id,
-                (draw_entity, MainEntity::from(Entity::PLACEHOLDER)),
+                (draw_entity, draw_batch.main_entity),
                 draw_batch,
                 view,
             ));
