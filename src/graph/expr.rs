@@ -4239,7 +4239,7 @@ mod tests {
         let x = m.try_get(x).unwrap();
         let s = x.eval(&m, &mut context).unwrap();
         assert_eq!(
-            "(max(abs(3.), (particle.position) * (2.))) + (min(-4., properties[properties_offset].my_prop))"
+            "(max(abs(3.), (particle.position) * (2.))) + (min(-4., properties[properties_array_index].my_prop))"
                 .to_string(),
             s
         );

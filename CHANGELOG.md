@@ -54,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fixed a crash when growing the effect metadata buffer while a ribbon effect was alive, caused by the ribbon sort fill-dispatch binding a stale, too-small metadata buffer. (#537)
+- Fixed the sort indirect-dispatch buffer never growing past its initial 256 entries, causing
+  an indirect buffer overrun and crash with many sorted (e.g. ribbon) effects alive at once. (#493)
 
 ## [0.18.0] 2026-02-01
 
@@ -464,6 +466,7 @@ _This version is compatible with Bevy 0.12_
 - Added the `ImageSampleMapping` enum to determine how samples of the image of a `ParticleTextureModifier` are mapped to and modulated with the particle's base color. The new default behavior is `ImageSampleMapping::Modulate`, corresponding to a full modulate of all RGBA components. To restore the previous behavior, and use the Red channel of the texture as an opacity mask, set `ParticleTextureModifier::sample_mapping` to `ImageSampleMapping::ModulateOpacityFromR`.
 - Added new `FlipbookModifier` to treat the image of a `ParticleTextureModifier` as a grid sprite sheet, and allow rendering a sprite from that sheet. By animating the selected sprite, this creates a flipbook animation for the particle.
 - Added new `Attribute::SPRITE_INDEX` holding the `i32` index of a sprite inside a sprite sheet texture. This is used with the `FlipbookModifier` to render sprite-based animated particles.
+- Added `Modifier::into_boxed_render()` to cast `Box<dyn Modifier>` to `Box<dyn RenderModifier>` without cloning.
 
 ### Changed
 
