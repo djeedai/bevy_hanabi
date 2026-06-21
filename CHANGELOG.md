@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This allows serializing and deserializing an `EffectAsset` to any serde format,
   and provides an advanced alternaative to the built-in `EffectAsset::serialize()`
   and `EffectAsset::deserialize()` utilities.
+- Exposed publicly the `EffectShaders` and `EffectShaderSources`,
+  as well as `CompiledParticleEffect::get_configured_shaders()`.
+  This allows debugging and inspection (editor) tools to peek at generated shaders.
 
 ### Changed
 

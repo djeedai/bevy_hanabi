@@ -1062,7 +1062,8 @@ mod gpu_tests {
 
         // [----][2---][3333]
 
-        // Alloc 4 (x2); fit inside start of buffer (16B), but gap after #2 is smaller (12B)
+        // Alloc 4 (x2); fit inside start of buffer (16B), but gap after #2 is smaller
+        // (12B)
         let index4 = pb.allocate(&layout4).unwrap();
         let index5 = pb.allocate(&layout4).unwrap();
         let end2 = (index2 + 1) * size4;

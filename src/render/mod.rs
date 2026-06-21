@@ -73,9 +73,9 @@ use crate::{
         batch::{BatchInput, EffectDrawBatch, EffectSorter, InitAndUpdatePipelineIds},
         effect_cache::{AnyDrawIndirectArgs, CachedDrawIndirectArgs, SlabId},
     },
-    AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShader, EffectSimulation,
-    EffectSpawner, EffectVisibilityClass, ParticleLayout, PropertyLayout, SimulationCondition,
-    TextureLayout,
+    AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShaders,
+    EffectSimulation, EffectSpawner, EffectVisibilityClass, ParticleLayout, PropertyLayout,
+    SimulationCondition, TextureLayout,
 };
 
 mod aligned_buffer_vec;
@@ -2128,7 +2128,7 @@ pub(crate) struct ExtractedEffect {
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
     /// Effect shaders.
-    pub effect_shaders: EffectShader,
+    pub effect_shaders: EffectShaders,
     /// Condition under which the effect is simulated.
     pub simulation_condition: SimulationCondition,
 }
