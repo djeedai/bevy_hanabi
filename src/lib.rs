@@ -746,11 +746,17 @@ pub struct EffectMesh(pub Handle<Mesh>);
 
 /// Effect shaders.
 ///
-/// Contains the configured shaders for the init, update, and render passes.
-#[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct EffectShader {
+/// Contains the final shaders for the init, update, and render passes of a
+/// single effect type.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EffectShaders {
+    /// The init compute shader, which runs on each newly spawned particle to
+    /// initialize its data once.
     pub init: Handle<Shader>,
+    /// The update compute shader, which runs every frame to simulate all alive
+    /// particles.
     pub update: Handle<Shader>,
+    /// The render graphics shader, which actually renders alive particles.
     pub render: Handle<Shader>,
 }
 
@@ -760,11 +766,21 @@ pub(crate) struct EffectShader {
 /// modifiers. The resulting source code is _configured_ (the Hanabi variables
 /// `{{VARIABLE}}` are replaced with the relevant WGSL code) but is not
 /// _specialized_ (the conditional directives like `#if` are still present).
-#[derive(Debug)]
-struct EffectShaderSource {
+///
+/// This is mainly used internally by Hanabi as an intermediate step toward
+/// generating the final [`EffectShaders`], and is exposed mainly for debugging
+/// and inspection (editor). In general, you don't need to use this type
+/// directly.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EffectShaderSources {
+    /// WGSL source code for the init compute shader.
     pub init_shader_source: String,
+    /// WGSL source code for the update compute shader.
     pub update_shader_source: String,
+    /// WGSL source code for the render graphics shader (both vertex and
+    /// fragment).
     pub render_shader_source: String,
+    /// Effect flags the source codes were generated with.
     pub layout_flags: LayoutFlags,
 }
 
@@ -781,7 +797,7 @@ pub enum ShaderGenerateError {
     Validate(String),
 }
 
-impl EffectShaderSource {
+impl EffectShaderSources {
     /// Generate the effect shader WGSL source code.
     ///
     /// This takes a base asset effect and generate the WGSL code for the
@@ -792,7 +808,7 @@ impl EffectShaderSource {
         // relationship and GPU event one are not encoded in assets.
         parent_layout: Option<&ParticleLayout>,
         num_event_bindings: u32,
-    ) -> Result<EffectShaderSource, ShaderGenerateError> {
+    ) -> Result<EffectShaderSources, ShaderGenerateError> {
         trace!(
             "Generating shader sources for asset '{}' with {} event bindings",
             asset.name,
@@ -1310,7 +1326,7 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             render_shader_source
         );
 
-        Ok(EffectShaderSource {
+        Ok(EffectShaderSources {
             init_shader_source,
             update_shader_source,
             render_shader_source,
@@ -1346,7 +1362,7 @@ pub struct CompiledParticleEffect {
     /// A custom mesh for this effect, if specified.
     mesh: Option<Handle<Mesh>>,
     /// Handle to the effect shaders for his effect instance, if configured.
-    effect_shader: Option<EffectShader>,
+    effect_shader: Option<EffectShaders>,
     /// Textures used by the effect, if any.
     textures: Vec<Handle<Image>>,
     /// Layout flags.
@@ -1455,17 +1471,20 @@ impl CompiledParticleEffect {
         self.children = child_entities;
 
         let num_event_bindings = self.children.len() as u32;
-        let shader_source =
-            match EffectShaderSource::generate(asset, parent_layout.as_ref(), num_event_bindings) {
-                Ok(shader_source) => shader_source,
-                Err(err) => {
-                    error!(
-                        "Failed to generate shaders for effect asset '{}': {}",
-                        asset.name, err
-                    );
-                    return;
-                }
-            };
+        let shader_source = match EffectShaderSources::generate(
+            asset,
+            parent_layout.as_ref(),
+            num_event_bindings,
+        ) {
+            Ok(shader_source) => shader_source,
+            Err(err) => {
+                error!(
+                    "Failed to generate shaders for effect asset '{}': {}",
+                    asset.name, err
+                );
+                return;
+            }
+        };
 
         self.layout_flags = shader_source.layout_flags;
         self.alpha_mode = asset.alpha_mode;
@@ -1483,7 +1502,7 @@ impl CompiledParticleEffect {
         // to avoid hash collisions, an index into a shader cache). The only
         // use is to be able to compare 2 instances and see if they can be
         // batched together.
-        self.effect_shader = Some(EffectShader {
+        self.effect_shader = Some(EffectShaders {
             init: shader_cache.get_or_insert(
                 &asset.name,
                 "init",
@@ -1524,7 +1543,13 @@ impl CompiledParticleEffect {
     }
 
     /// Get the effect shader if configured, or `None` otherwise.
-    pub(crate) fn get_configured_shaders(&self) -> Option<&EffectShader> {
+    ///
+    /// The returned assets are the shaders actually compiled and used. You
+    /// should never mutate those shader assets directly; changing them without
+    /// updating the rest of the effect will cause discrepancies in the render
+    /// pipeline and most likely panics and crashes. This getter is provided
+    /// mainly for debugging and inspection (editor).
+    pub fn get_configured_shaders(&self) -> Option<&EffectShaders> {
         self.effect_shader.as_ref()
     }
 }
@@ -2132,7 +2157,7 @@ else { return c1; }
         let asset = EffectAsset::new(256, SpawnerSettings::rate(32.0.into()), module)
             .with_simulation_space(SimulationSpace::Local);
         assert_eq!(asset.simulation_space, SimulationSpace::Local);
-        let res = EffectShaderSource::generate(&asset, None, 0);
+        let res = EffectShaderSources::generate(&asset, None, 0);
         assert!(res.is_err());
         let err = res.err().unwrap();
         assert!(matches!(err, ShaderGenerateError::Validate(_)));
@@ -2143,7 +2168,7 @@ else { return c1; }
         let asset = EffectAsset::new(256, SpawnerSettings::rate(32.0.into()), module)
             .init(SetAttributeModifier::new(Attribute::VELOCITY, zero));
         assert!(asset.particle_layout().size() > 0);
-        let res = EffectShaderSource::generate(&asset, None, 0);
+        let res = EffectShaderSources::generate(&asset, None, 0);
         assert!(res.is_err());
         let err = res.err().unwrap();
         assert!(matches!(err, ShaderGenerateError::Validate(_)));
@@ -2155,7 +2180,7 @@ else { return c1; }
             .with_simulation_space(SimulationSpace::Local)
             .init(SetAttributeModifier::new(Attribute::POSITION, zero));
         assert_eq!(asset.simulation_space, SimulationSpace::Local);
-        let res = EffectShaderSource::generate(&asset, None, 0);
+        let res = EffectShaderSources::generate(&asset, None, 0);
         assert!(res.is_ok());
         let shader_source = res.unwrap();
         for (name, code) in [
