@@ -1,5 +1,6 @@
 echo Run all examples
 # 3D
+cargo r --example lightning
 cargo r --example firework
 cargo r --example portal
 cargo r --example expr
