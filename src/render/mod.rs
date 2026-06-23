@@ -742,6 +742,123 @@ impl InitFillDispatchQueue {
     }
 }
 
+/// Single sort fill dispatch item in a [`SortFillDispatchQueue`].
+#[derive(Debug)]
+pub(super) struct SortFillDispatchItem {
+    /// Metadata table entry of the ribbon effect batch to read the
+    /// [`GpuEffectMetadata::alive_count`] from.
+    pub metadata_table_id: BufferTableId,
+    /// Index of the [`GpuDispatchIndirect`] entry to write the workgroup count
+    /// to.
+    pub sort_fill_indirect_dispatch_index: u32,
+}
+
+/// Queue of fill dispatch operations for the ribbon particle sort pass.
+///
+/// The queue stores the sort fill dispatch operations for the current frame,
+/// without the reference to the effect metadata buffer, which may be reallocated
+/// later in the frame. This allows enqueuing operations during batching, while
+/// deferring the buffer capture to after the metadata buffer is (re-)allocated.
+/// Mirrors [`InitFillDispatchQueue`].
+#[derive(Debug, Default, Resource)]
+pub(super) struct SortFillDispatchQueue {
+    queue: Vec<SortFillDispatchItem>,
+}
+
+impl SortFillDispatchQueue {
+    /// Clear the queue.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.queue.clear();
+    }
+
+    /// Enqueue a new operation.
+    #[inline]
+    pub fn enqueue(
+        &mut self,
+        metadata_table_id: BufferTableId,
+        sort_fill_indirect_dispatch_index: u32,
+    ) {
+        self.queue.push(SortFillDispatchItem {
+            metadata_table_id,
+            sort_fill_indirect_dispatch_index,
+        });
+    }
+
+    /// Submit the queued operations, returning the index of the submitted queue
+    /// (or `None` if there was nothing to submit). Must be called after
+    /// `effect_metadata_buffer` has been (re-)allocated for the frame.
+    pub fn submit(
+        &self,
+        effect_metadata_buffer: &BufferTable<GpuEffectMetadata>,
+        effect_metadata_aligned_size: NonZeroU32,
+        sort_bind_groups: &SortBindGroups,
+        gpu_buffer_operations: &mut GpuBufferOperations,
+    ) -> Option<u32> {
+        if self.queue.is_empty() {
+            return None;
+        }
+
+        let Some(src_buffer) = effect_metadata_buffer.buffer() else {
+            error!("Failed to find effect metadata buffer. This is a bug.");
+            return None;
+        };
+        let Some(dst_buffer) = sort_bind_groups.indirect_buffer() else {
+            error!("Missing indirect dispatch buffer for sorting, cannot schedule particle sort for ribbons. This is a bug.");
+            return None;
+        };
+
+        let src_offset = std::mem::offset_of!(GpuEffectMetadata, alive_count) as u32 / 4;
+        debug_assert_eq!(
+            src_offset, 1,
+            "GpuEffectMetadata changed, update this assert."
+        );
+        let src_stride = effect_metadata_aligned_size.get() / 4;
+        let dst_stride = GpuDispatchIndirectArgs::SHADER_SIZE.get() as u32 / 4;
+
+        let mut fill_queue = GpuBufferOperationQueue::new();
+        for item in &self.queue {
+            let src_binding_offset = effect_metadata_buffer.dynamic_offset(item.metadata_table_id);
+            // We bind the entire destination buffer (size `None`) and fold the row offset into
+            // `dst_offset`, because the indirect dispatch structs are only 12 bytes and so are not
+            // aligned to `min_storage_buffer_offset_alignment` for use as a dynamic binding offset.
+            let dst_offset = sort_bind_groups
+                .get_indirect_dispatch_byte_offset(item.sort_fill_indirect_dispatch_index)
+                / 4;
+            trace!(
+                "queue_sort_fill_dispatch(): src#{:?}@+{}B ({}B) -> dst#{:?}@+{}B (whole)",
+                src_buffer.id(),
+                src_binding_offset,
+                effect_metadata_aligned_size.get(),
+                dst_buffer.id(),
+                dst_offset * 4,
+            );
+            fill_queue.enqueue(
+                GpuBufferOperationType::FillDispatchArgs,
+                GpuBufferOperationArgs {
+                    src_offset,
+                    src_stride,
+                    dst_offset,
+                    dst_stride,
+                    count: 1,
+                },
+                src_buffer.clone(),
+                src_binding_offset,
+                Some(effect_metadata_aligned_size),
+                dst_buffer.clone(),
+                0,
+                None,
+            );
+        }
+
+        if fill_queue.operation_queue.is_empty() {
+            None
+        } else {
+            Some(gpu_buffer_operations.submit(fill_queue))
+        }
+    }
+}
+
 /// Compute pipeline to run the `vfx_indirect` dispatch workgroup calculation
 /// shader.
 #[derive(Resource)]
@@ -1203,6 +1320,24 @@ impl GpuBufferOperations {
         );
         for queue in &self.queues {
             for qop in queue {
+                // For dynamic-offset operations the dynamic offset is applied at dispatch time on
+                // top of the bound binding. Validate here that offset + size fits the source
+                // buffer, to turn a stale/too-small buffer capture into an actionable panic rather
+                // than a deep wgpu validation error at set_bind_group time.
+                #[cfg(debug_assertions)]
+                if matches!(qop.op, GpuBufferOperationType::FillDispatchArgs) {
+                    if let Some(size) = qop.src_binding_size {
+                        debug_assert!(
+                            qop.src_binding_offset as u64 + size.get() as u64
+                                <= qop.src_buffer.size(),
+                            "FillDispatchArgs src binding [{}..{}] overruns source buffer #{:?} of size {}.",
+                            qop.src_binding_offset,
+                            qop.src_binding_offset as u64 + size.get() as u64,
+                            qop.src_buffer.id(),
+                            qop.src_buffer.size(),
+                        );
+                    }
+                }
                 let key: QueuedOperationBindGroupKey = qop.into();
                 self.bind_groups.entry(key).or_insert_with(|| {
                     let src_id: NonZeroU32 = qop.src_buffer.id().into();
@@ -3109,12 +3244,14 @@ pub(crate) fn clear_previous_frame_resizes(
     mut effects_meta: ResMut<EffectsMeta>,
     mut sort_bind_groups: ResMut<SortBindGroups>,
     mut init_fill_dispatch_queue: ResMut<InitFillDispatchQueue>,
+    mut sort_fill_dispatch_queue: ResMut<SortFillDispatchQueue>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("clear_previous_frame_resizes").entered();
     trace!("clear_previous_frame_resizes");
 
     init_fill_dispatch_queue.clear();
+    sort_fill_dispatch_queue.clear();
 
     // Clear last frame's buffer resizes which may have occured during last frame,
     // during `Node::run()` while the `BufferTable` could not be mutated. This is
@@ -4436,6 +4573,7 @@ pub(crate) fn batch_effects(
     mut gpu_buffer_operations: ResMut<GpuBufferOperations>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
     mut property_bind_groups: ResMut<PropertyBindGroups>,
+    mut sort_fill_dispatch_queue: ResMut<SortFillDispatchQueue>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("batch_effects").entered();
@@ -4462,8 +4600,6 @@ pub(crate) fn batch_effects(
     // For now we re-create that buffer each frame. Since there's no CPU -> GPU
     // transfer, this is pretty cheap in practice.
     sort_bind_groups.clear_indirect_dispatch_buffer();
-
-    let mut sort_queue = GpuBufferOperationQueue::new();
 
     effects_meta.prefix_sum_buffer.clear();
     effects_meta.batch_info_buffer.clear();
@@ -4524,77 +4660,19 @@ pub(crate) fn batch_effects(
         // of the ribbon die (since we can't guarantee a linear lifetime through the
         // ribbon).
         if extracted_effect.layout_flags.contains(LayoutFlags::RIBBONS) {
-            // This buffer is allocated in prepare_effects(), so should always be available
-            let Some(effect_metadata_buffer) = effects_meta.effect_metadata_buffer.buffer() else {
-                error!("Failed to find effect metadata buffer. This is a bug.");
-                continue;
-            };
-
             // Allocate a GpuDispatchIndirect entry
             let sort_fill_indirect_dispatch_index = sort_bind_groups.allocate_indirect_dispatch();
             effect_batch.sort_fill_indirect_dispatch_index =
                 Some(sort_fill_indirect_dispatch_index);
 
-            // Enqueue a fill dispatch operation which reads GpuEffectMetadata::alive_count,
-            // compute a number of workgroups to dispatch based on that particle count, and
-            // store the result into a GpuDispatchIndirect struct which will be used to
-            // dispatch the fill-sort pass.
-            {
-                let src_buffer = effect_metadata_buffer.clone();
-                let src_binding_offset = effects_meta
-                    .effect_metadata_buffer
-                    .dynamic_offset(effect_batch.metadata_table_id);
-                let src_binding_size = effects_meta.gpu_limits.effect_metadata_aligned_size;
-                let Some(dst_buffer) = sort_bind_groups.indirect_buffer() else {
-                    error!("Missing indirect dispatch buffer for sorting, cannot schedule particle sort for ribbon. This is a bug.");
-                    continue;
-                };
-                let dst_buffer = dst_buffer.clone();
-                let dst_binding_offset = 0; // see dst_offset below
-                                            //let dst_binding_size = NonZeroU32::new(12).unwrap();
-                trace!(
-                    "queue_fill_dispatch(): src#{:?}@+{}B ({}B) -> dst#{:?}@+{}B ({}B)",
-                    src_buffer.id(),
-                    src_binding_offset,
-                    src_binding_size.get(),
-                    dst_buffer.id(),
-                    dst_binding_offset,
-                    -1, //dst_binding_size.get(),
-                );
-                let src_offset = std::mem::offset_of!(GpuEffectMetadata, alive_count) as u32 / 4;
-                debug_assert_eq!(
-                    src_offset, 1,
-                    "GpuEffectMetadata changed, update this assert."
-                );
-                // FIXME - This is a quick fix to get 0.15 out. The previous code used the
-                // dynamic binding offset, but the indirect dispatch structs are only 12 bytes,
-                // so are not aligned to min_storage_buffer_offset_alignment. The fix uses a
-                // binding offset of 0 and binds the entire destination buffer,
-                // then use the dst_offset value embedded inside the GpuBufferOperationArgs to
-                // index the proper offset in the buffer. This requires of
-                // course binding the entire buffer, or at least enough to index all operations
-                // (hence the None below). This is not really a general solution, so should be
-                // reviewed.
-                let dst_offset = sort_bind_groups
-                    .get_indirect_dispatch_byte_offset(sort_fill_indirect_dispatch_index)
-                    / 4;
-                sort_queue.enqueue(
-                    GpuBufferOperationType::FillDispatchArgs,
-                    GpuBufferOperationArgs {
-                        src_offset,
-                        src_stride: effects_meta.gpu_limits.effect_metadata_aligned_size.get() / 4,
-                        dst_offset,
-                        dst_stride: GpuDispatchIndirectArgs::SHADER_SIZE.get() as u32 / 4,
-                        count: 1,
-                    },
-                    src_buffer,
-                    src_binding_offset,
-                    Some(src_binding_size),
-                    dst_buffer,
-                    dst_binding_offset,
-                    None, //Some(dst_binding_size),
-                );
-            }
+            // Queue a fill dispatch op which reads GpuEffectMetadata::alive_count and computes the
+            // workgroup count for the fill-sort pass. The op is built later, in
+            // queue_sort_fill_dispatch_ops(), once the metadata buffer is resized; see
+            // SortFillDispatchQueue.
+            sort_fill_dispatch_queue.enqueue(
+                effect_batch.metadata_table_id,
+                sort_fill_indirect_dispatch_index,
+            );
         }
 
         // Append the batch to the (sorted) set of batches to render. If that batch
@@ -4645,11 +4723,11 @@ pub(crate) fn batch_effects(
             .insert(TemporaryRenderEntity);
     }
 
+    // Begin the GpuBufferOperations frame here; the matching submit()s happen in
+    // queue_sort_fill_dispatch_ops() and queue_init_fill_dispatch_ops(), and end_frame() at the
+    // tail of the latter. Render set ordering guarantees this begin precedes all submits.
     gpu_buffer_operations.begin_frame();
     debug_assert!(sorted_effect_batches.dispatch_queue_index.is_none());
-    if !sort_queue.operation_queue.is_empty() {
-        sorted_effect_batches.dispatch_queue_index = Some(gpu_buffer_operations.submit(sort_queue));
-    }
 
     // Write the entire spawner buffer for this frame, for all effects combined
     if effects_meta
@@ -6082,6 +6160,34 @@ pub(crate) fn prepare_effect_metadata(
     }
 }
 
+/// Read the queued ribbon sort fill dispatch operations and enqueue the
+/// corresponding GPU buffer fill dispatch operations.
+///
+/// This system runs after [`prepare_effect_metadata()`] has (re-)allocated the
+/// effect metadata buffer to this frame's effect count, so that it captures the
+/// correctly-sized buffer and computes in-bounds dynamic offsets. It must run
+/// before [`queue_init_fill_dispatch_ops()`], which uploads the shared
+/// [`GpuBufferOperations`] args buffer to the GPU at the end of the frame.
+pub(crate) fn queue_sort_fill_dispatch_ops(
+    effects_meta: Res<EffectsMeta>,
+    sort_bind_groups: Res<SortBindGroups>,
+    sort_fill_dispatch_queue: Res<SortFillDispatchQueue>,
+    mut gpu_buffer_operations: ResMut<GpuBufferOperations>,
+    mut sorted_effect_batches: ResMut<SortedEffectBatches>,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("queue_sort_fill_dispatch_ops").entered();
+    trace!("queue_sort_fill_dispatch_ops");
+
+    debug_assert!(sorted_effect_batches.dispatch_queue_index.is_none());
+    sorted_effect_batches.dispatch_queue_index = sort_fill_dispatch_queue.submit(
+        &effects_meta.effect_metadata_buffer,
+        effects_meta.gpu_limits.effect_metadata_aligned_size,
+        &sort_bind_groups,
+        &mut gpu_buffer_operations,
+    );
+}
+
 /// Read the queued init fill dispatch operations, batch them together by
 /// contiguous source and destination entries in the buffers, and enqueue
 /// corresponding GPU buffer fill dispatch operations for all batches.
@@ -6112,7 +6218,9 @@ pub(crate) fn queue_init_fill_dispatch_ops(
         }
     }
 
-    // Once all GPU operations for this frame are enqueued, upload them to GPU
+    // End the GpuBufferOperations frame and upload the args buffer to GPU, after every submit() for
+    // the frame (the sort submit in queue_sort_fill_dispatch_ops() is ordered before this system,
+    // the init submit is just above). See begin_frame() in batch_effects() for the full lifecycle.
     gpu_buffer_operations.end_frame(&render_device, &render_queue);
 }
 
@@ -7521,10 +7629,17 @@ impl Node for VfxSimulateNode {
                         // Bind group sort_fill@0
                         let particle_buffer = effect_buffer.particle_buffer();
                         let indirect_index_buffer = effect_buffer.indirect_index_buffer();
+                        // Part of the bind group key; reallocates as effects grow.
+                        let Some(spawner_buffer) = effects_meta.spawner_buffer.buffer() else {
+                            warn!("Missing spawner buffer for sort-fill.");
+                            compute_pass.insert_debug_marker("ERROR:MissingSortFillSpawnerBuffer");
+                            continue;
+                        };
                         let Some(bind_group) = sort_bind_groups.sort_fill_bind_group(
                             particle_buffer.id(),
                             indirect_index_buffer.id(),
                             effect_metadata_buffer.id(),
+                            spawner_buffer.id(),
                         ) else {
                             warn!("Missing sort-fill bind group.");
                             compute_pass.insert_debug_marker("ERROR:MissingSortFillBindGroup");
@@ -7600,9 +7715,16 @@ impl Node for VfxSimulateNode {
 
                         // Bind group sort_copy@0
                         let indirect_index_buffer = effect_buffer.indirect_index_buffer();
+                        // Part of the bind group key; reallocates as effects grow.
+                        let Some(spawner_buffer) = effects_meta.spawner_buffer.buffer() else {
+                            warn!("Missing spawner buffer for sort-copy.");
+                            compute_pass.insert_debug_marker("ERROR:MissingSortCopySpawnerBuffer");
+                            continue;
+                        };
                         let Some(bind_group) = sort_bind_groups.sort_copy_bind_group(
                             indirect_index_buffer.id(),
                             effect_metadata_buffer.id(),
+                            spawner_buffer.id(),
                         ) else {
                             warn!("Missing sort-copy bind group.");
                             compute_pass.insert_debug_marker("ERROR:MissingSortCopyBindGroup");
