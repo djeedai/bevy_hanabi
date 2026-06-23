@@ -44,7 +44,6 @@ use crate::{
         ParticlesRenderPipeline, ParticlesUpdatePipeline, PrefixSumPipeline, PropertyBindGroups,
         PropertyCache, RenderDebugSettings, ShaderCache, SimParams, SortBindGroups,
         SortFillDispatchQueue, SortedEffectBatches, StorageType as _, UtilsPipeline,
-        VfxSimulateDriverNode, VfxSimulateNode,
     },
     spawn::{self, Random},
     tick_spawners,
