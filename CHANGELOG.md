@@ -5,6 +5,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+_This version is compatible with Bevy 0.19_
+
 ### Added
 
 - Added `EffectAsset::serialize(&self)` and `EffectAsset::deserialize()`,
