@@ -7085,7 +7085,7 @@ fn simulate(
         gpu_buffer_operations.dispatch(
             *queue_index,
             &mut render_context,
-            &*utils_pipeline,
+            &utils_pipeline,
             Some("hanabi:init_indirect_fill_dispatch"),
         );
     }
@@ -7545,7 +7545,7 @@ fn simulate(
             gpu_buffer_operations.dispatch(
                 *queue_index,
                 &mut render_context,
-                &*utils_pipeline,
+                &utils_pipeline,
                 Some("hanabi:sort_fill_dispatch"),
             );
         }
