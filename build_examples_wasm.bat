@@ -1,6 +1,6 @@
 @echo on
 
-echo Check that wasm-bindgen -V returns 0.2.108, otherwise cargo install wasm-bindgen-cli --version 0.2.108
+echo Check that wasm-bindgen -V returns 0.2.125, otherwise cargo install wasm-bindgen-cli --version 0.2.125
 
 echo Setting RUSTFLAGS to enable unstable web_sys APIs...
 set RUSTFLAGS=--cfg web_sys_unstable_apis --cfg getrandom_backend="wasm_js"

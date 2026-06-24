@@ -5,12 +5,12 @@
 use std::{error::Error, f32::consts::FRAC_PI_2};
 
 use bevy::{
+    camera::Hdr,
     color::palettes::css::FOREST_GREEN,
     core_pipeline::tonemapping::Tonemapping,
     math::vec3,
     mesh::{SphereKind, SphereMeshBuilder},
     prelude::*,
-    render::view::Hdr,
 };
 use bevy_hanabi::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -72,7 +72,7 @@ fn setup(
 
     // Spawn the fox.
     commands.spawn((
-        SceneRoot(asset_server.load("Fox.glb#Scene0")),
+        WorldAssetRoot(asset_server.load("Fox.glb#Scene0")),
         Transform::from_scale(Vec3::splat(0.1)),
     ));
 
@@ -92,7 +92,7 @@ fn setup(
         DirectionalLight {
             color: Color::WHITE,
             illuminance: 2000.0,
-            shadows_enabled: true,
+            shadow_maps_enabled: true,
             ..default()
         },
     ));

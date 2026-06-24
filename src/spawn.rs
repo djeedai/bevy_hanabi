@@ -1315,6 +1315,7 @@ mod test {
         app.insert_resource(asset_server);
         // app.add_plugins(DefaultPlugins);
         app.init_asset::<Mesh>();
+        app.init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
         app.add_plugins(VisibilityPlugin);
         app.init_resource::<Time<EffectSimulation>>();
         app.insert_resource(Random(new_rng()));

@@ -40,7 +40,7 @@
 //!
 //! ```toml
 //! # Example: enable only 3D integration
-//! bevy_hanabi = { version = "0.18", default-features = false, features = ["3d"] }
+//! bevy_hanabi = { version = "0.19", default-features = false, features = ["3d"] }
 //! ```
 //!
 //! # Example
@@ -187,7 +187,7 @@ use bevy::{
     prelude::*,
     render::{extract_component::ExtractComponent, sync_world::SyncToRenderWorld},
 };
-use rand::{Rng, SeedableRng as _};
+use rand::{RngExt as _, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -2124,6 +2124,7 @@ else { return c1; }
         app.insert_resource(asset_server);
         // app.add_plugins(DefaultPlugins);
         app.init_asset::<Mesh>();
+        app.init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
         app.init_asset::<Shader>();
         app.add_plugins(VisibilityPlugin);
         app.init_resource::<ShaderCache>();

@@ -11,7 +11,7 @@
 
 use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
 use bevy_hanabi::prelude::*;
-use rand::Rng;
+use rand::RngExt;
 
 mod utils;
 use utils::*;
@@ -206,7 +206,7 @@ fn setup(
         color: Color::WHITE,
         // Crank the illuminance way (too) high to make the reference cube clearly visible
         illuminance: 100000.,
-        shadows_enabled: false,
+        shadow_maps_enabled: false,
         ..Default::default()
     });
 

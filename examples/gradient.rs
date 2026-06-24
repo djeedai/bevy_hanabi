@@ -1,8 +1,8 @@
 use std::f32::consts::PI;
 
 use bevy::{
-    camera::visibility::RenderLayers, core_pipeline::tonemapping::Tonemapping, prelude::*,
-    render::view::Hdr,
+    camera::visibility::RenderLayers, camera::Hdr, core_pipeline::tonemapping::Tonemapping,
+    prelude::*,
 };
 use bevy_hanabi::prelude::*;
 

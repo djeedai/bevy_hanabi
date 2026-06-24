@@ -8,6 +8,9 @@ use utils::*;
 
 const DEMO_DESC: &str = include_str!("2d.txt");
 
+#[derive(Component)]
+struct ReferenceSquare;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_exit = utils::DemoApp::new("2d")
         .with_desc(DEMO_DESC)
@@ -38,10 +41,8 @@ fn setup(
         Mesh2d(meshes.add(Rectangle {
             half_size: Vec2::splat(0.1),
         })),
-        MeshMaterial2d(materials.add(ColorMaterial {
-            color: Color::WHITE,
-            ..Default::default()
-        })),
+        MeshMaterial2d(materials.add(ColorMaterial::from(Color::WHITE))),
+        ReferenceSquare,
         Name::new("square"),
     ));
 
@@ -99,7 +100,7 @@ fn setup(
     commands.spawn((ParticleEffect::new(effect), Name::new("effect:2d")));
 }
 
-fn update_plane(time: Res<Time>, mut query: Query<&mut Transform, With<Mesh2d>>) {
+fn update_plane(time: Res<Time>, mut query: Query<&mut Transform, With<ReferenceSquare>>) {
     if let Ok(mut transform) = query.single_mut() {
         // Move the plane back and forth to show particles ordering relative to it
         transform.translation.z = (time.elapsed_secs() * 2.5).sin() * 0.045;

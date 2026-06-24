@@ -8,8 +8,7 @@
 //! based on [`ExprWriter::time()`] then assigned to the [`AccelModifier`].
 
 use bevy::{
-    core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
-    render::view::Hdr,
+    camera::Hdr, core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
 };
 use bevy_hanabi::prelude::*;
 
