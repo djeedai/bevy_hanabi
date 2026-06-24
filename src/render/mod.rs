@@ -21,7 +21,10 @@ use bevy::{
         },
         prepass::{OpaqueNoLightmap3dBatchSetKey, OpaqueNoLightmap3dBinKey},
     },
-    render::render_phase::{BinnedPhaseItem, ViewBinnedRenderPhases},
+    render::{
+        mesh::allocator::MeshSlabs,
+        render_phase::{BinnedPhaseItem, ViewBinnedRenderPhases},
+    },
 };
 use bevy::{
     ecs::{
@@ -34,10 +37,7 @@ use bevy::{
     platform::collections::HashMap,
     prelude::*,
     render::{
-        mesh::{
-            allocator::{MeshAllocator, MeshSlabs},
-            RenderMesh, RenderMeshBufferInfo,
-        },
+        mesh::{allocator::MeshAllocator, RenderMesh, RenderMeshBufferInfo},
         render_asset::RenderAssets,
         render_phase::{
             Draw, DrawError, DrawFunctions, PhaseItemExtraIndex, SortedPhaseItem,
@@ -780,10 +780,10 @@ pub(super) struct SortFillDispatchItem {
 /// Queue of fill dispatch operations for the ribbon particle sort pass.
 ///
 /// The queue stores the sort fill dispatch operations for the current frame,
-/// without the reference to the effect metadata buffer, which may be reallocated
-/// later in the frame. This allows enqueuing operations during batching, while
-/// deferring the buffer capture to after the metadata buffer is (re-)allocated.
-/// Mirrors [`InitFillDispatchQueue`].
+/// without the reference to the effect metadata buffer, which may be
+/// reallocated later in the frame. This allows enqueuing operations during
+/// batching, while deferring the buffer capture to after the metadata buffer is
+/// (re-)allocated. Mirrors [`InitFillDispatchQueue`].
 #[derive(Debug, Default, Resource)]
 pub(super) struct SortFillDispatchQueue {
     queue: Vec<SortFillDispatchItem>,
@@ -843,9 +843,10 @@ impl SortFillDispatchQueue {
         let mut fill_queue = GpuBufferOperationQueue::new();
         for item in &self.queue {
             let src_binding_offset = effect_metadata_buffer.dynamic_offset(item.metadata_table_id);
-            // We bind the entire destination buffer (size `None`) and fold the row offset into
-            // `dst_offset`, because the indirect dispatch structs are only 12 bytes and so are not
-            // aligned to `min_storage_buffer_offset_alignment` for use as a dynamic binding offset.
+            // We bind the entire destination buffer (size `None`) and fold the row offset
+            // into `dst_offset`, because the indirect dispatch structs are only
+            // 12 bytes and so are not aligned to
+            // `min_storage_buffer_offset_alignment` for use as a dynamic binding offset.
             let dst_offset = sort_bind_groups
                 .get_indirect_dispatch_byte_offset(item.sort_fill_indirect_dispatch_index)
                 / 4;
@@ -1344,10 +1345,11 @@ impl GpuBufferOperations {
         );
         for queue in &self.queues {
             for qop in queue {
-                // For dynamic-offset operations the dynamic offset is applied at dispatch time on
-                // top of the bound binding. Validate here that offset + size fits the source
-                // buffer, to turn a stale/too-small buffer capture into an actionable panic rather
-                // than a deep wgpu validation error at set_bind_group time.
+                // For dynamic-offset operations the dynamic offset is applied at dispatch time
+                // on top of the bound binding. Validate here that offset + size
+                // fits the source buffer, to turn a stale/too-small buffer
+                // capture into an actionable panic rather than a deep wgpu
+                // validation error at set_bind_group time.
                 #[cfg(debug_assertions)]
                 if matches!(qop.op, GpuBufferOperationType::FillDispatchArgs) {
                     if let Some(size) = qop.src_binding_size {
@@ -4685,10 +4687,10 @@ pub(crate) fn batch_effects(
             effect_batch.sort_fill_indirect_dispatch_index =
                 Some(sort_fill_indirect_dispatch_index);
 
-            // Queue a fill dispatch op which reads GpuEffectMetadata::alive_count and computes the
-            // workgroup count for the fill-sort pass. The op is built later, in
-            // queue_sort_fill_dispatch_ops(), once the metadata buffer is resized; see
-            // SortFillDispatchQueue.
+            // Queue a fill dispatch op which reads GpuEffectMetadata::alive_count and
+            // computes the workgroup count for the fill-sort pass. The op is
+            // built later, in queue_sort_fill_dispatch_ops(), once the metadata
+            // buffer is resized; see SortFillDispatchQueue.
             sort_fill_dispatch_queue.enqueue(
                 effect_batch.metadata_table_id,
                 sort_fill_indirect_dispatch_index,
@@ -4744,8 +4746,9 @@ pub(crate) fn batch_effects(
     }
 
     // Begin the GpuBufferOperations frame here; the matching submit()s happen in
-    // queue_sort_fill_dispatch_ops() and queue_init_fill_dispatch_ops(), and end_frame() at the
-    // tail of the latter. Render set ordering guarantees this begin precedes all submits.
+    // queue_sort_fill_dispatch_ops() and queue_init_fill_dispatch_ops(), and
+    // end_frame() at the tail of the latter. Render set ordering guarantees
+    // this begin precedes all submits.
     gpu_buffer_operations.begin_frame();
     debug_assert!(sorted_effect_batches.dispatch_queue_index.is_none());
 
@@ -5678,7 +5681,7 @@ pub(crate) fn queue_effects(
     effect_draw_batches: Query<(Entity, &mut EffectDrawBatch)>,
     events: Res<EffectAssetEvents>,
     render_meshes: Res<RenderAssets<RenderMesh>>,
-    mesh_allocator: Res<MeshAllocator>,
+    #[cfg(feature = "3d")] mesh_allocator: Res<MeshAllocator>,
     read_params: QueueEffectsReadOnlyParams,
     mut view_entities: Local<FixedBitSet>,
     #[cfg(feature = "2d")] mut transparent_2d_render_phases: ResMut<
@@ -6251,9 +6254,11 @@ pub(crate) fn queue_init_fill_dispatch_ops(
         }
     }
 
-    // End the GpuBufferOperations frame and upload the args buffer to GPU, after every submit() for
-    // the frame (the sort submit in queue_sort_fill_dispatch_ops() is ordered before this system,
-    // the init submit is just above). See begin_frame() in batch_effects() for the full lifecycle.
+    // End the GpuBufferOperations frame and upload the args buffer to GPU, after
+    // every submit() for the frame (the sort submit in
+    // queue_sort_fill_dispatch_ops() is ordered before this system,
+    // the init submit is just above). See begin_frame() in batch_effects() for the
+    // full lifecycle.
     gpu_buffer_operations.end_frame(&render_device, &render_queue);
 }
 

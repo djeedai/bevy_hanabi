@@ -134,9 +134,9 @@ use bevy::{
     reflect::{
         structs::{FieldIter, Struct, StructInfo},
         utility::{GenericTypePathCell, NonGenericTypeInfoCell},
-        ApplyError, FromReflect, FromType, GetTypeRegistration, NamedField,
-        PartialReflect, Reflect, ReflectDeserialize, ReflectFromReflect, ReflectMut, ReflectOwned,
-        ReflectRef, ReflectSerialize, TypeInfo, TypePath, TypeRegistration, Typed,
+        ApplyError, FromReflect, FromType, GetTypeRegistration, NamedField, PartialReflect,
+        Reflect, ReflectDeserialize, ReflectFromReflect, ReflectMut, ReflectOwned, ReflectRef,
+        ReflectSerialize, TypeInfo, TypePath, TypeRegistration, Typed,
     },
 };
 use serde::{Deserialize, Serialize};

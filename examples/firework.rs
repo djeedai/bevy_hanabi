@@ -18,8 +18,7 @@
 //! to form an arc using [`EffectAsset::with_ribbons`].
 
 use bevy::{
-    core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
-    camera::Hdr,
+    camera::Hdr, core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
 };
 use bevy_hanabi::prelude::*;
 

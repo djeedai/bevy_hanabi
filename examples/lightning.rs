@@ -12,8 +12,7 @@
 //! An impact burst effect spawns radial sparks when the lightning strikes.
 
 use bevy::{
-    core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
-    camera::Hdr,
+    camera::Hdr, core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
 };
 use bevy_hanabi::prelude::*;
 
