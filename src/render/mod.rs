@@ -4600,9 +4600,6 @@ pub(crate) fn batch_effects(
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("batch_effects").entered();
     trace!("batch_effects");
-    let supports_indirect_first_instance = render_device
-        .features()
-        .contains(wgpu::Features::INDIRECT_FIRST_INSTANCE);
 
     // Sort effects in batching order, so that we can batch by simply doing a linear
     // scan of the effects in this order. Currently compatible effects mean:
@@ -4701,15 +4698,8 @@ pub(crate) fn batch_effects(
             );
         }
 
-        // Append to sorted batches. On backends without indirect first_instance
-        // support (notably DX12), keep one effect per batch so rendering stays
-        // correct.
-        let maybe_effect_batch_index = if supports_indirect_first_instance {
-            sorted_effect_batches.push(effect_batch)
-        } else {
-            Some(sorted_effect_batches.push_unmerged(effect_batch))
-        };
-        if let Some(effect_batch_index) = maybe_effect_batch_index {
+        // Append to sorted compute batches; this may merge with the previous one.
+        if let Some(effect_batch_index) = sorted_effect_batches.push(effect_batch) {
             if has_open_batch {
                 effects_meta.end_batch();
             }
@@ -4740,25 +4730,37 @@ pub(crate) fn batch_effects(
 
         effects_meta.add_effect_to_batch(effect_slab_offset);
 
-        // Keep draw args aligned with merged batch indexing only on backends
-        // supporting indirect first_instance.
-        if supports_indirect_first_instance {
-            let batch_base_particle = effects_meta.batch_info_buffer.last().unwrap().base_particle;
-            let first_instance = effect_slab_offset - batch_base_particle;
-            let mut draw_args = cached_draw_indirect_args.args;
-            match &mut draw_args {
-                AnyDrawIndirectArgs::NonIndexed(args) => args.first_instance = first_instance,
-                AnyDrawIndirectArgs::Indexed(args) => args.first_instance = first_instance,
-            }
-            effects_meta.draw_indirect_buffer.update(
-                cached_draw_indirect_args.row,
-                draw_args.bitcast_to_row_entry(),
-            );
+        // Ensure first_instance remains zero (required without
+        // INDIRECT_FIRST_INSTANCE support).
+        let mut draw_args = cached_draw_indirect_args.args;
+        match &mut draw_args {
+            AnyDrawIndirectArgs::NonIndexed(args) => args.first_instance = 0,
+            AnyDrawIndirectArgs::Indexed(args) => args.first_instance = 0,
         }
+        effects_meta.draw_indirect_buffer.update(
+            cached_draw_indirect_args.row,
+            draw_args.bitcast_to_row_entry(),
+        );
     }
 
     if has_open_batch {
         effects_meta.end_batch();
+    }
+
+    // Allocate one render batch-info entry per effect instance after compute
+    // batching is finalized, to avoid nesting begin_batch()/end_batch() calls.
+    for effect_batch in sorted_effect_batches.iter_mut() {
+        for (effect_index, effect_data) in effect_batch.effect_data.iter_mut().enumerate() {
+            if effect_data.render_batch_info_id != u32::MAX {
+                continue;
+            }
+            let spawner_index = effect_batch.spawner_base + effect_index as u32;
+            let render_batch_info_id =
+                effects_meta.begin_batch(effect_data.slab_offset, spawner_index);
+            effects_meta.add_effect_to_batch(effect_data.slab_offset);
+            effects_meta.end_batch();
+            effect_data.render_batch_info_id = render_batch_info_id;
+        }
     }
 
     // Begin the GpuBufferOperations frame here; the matching submit()s happen in
@@ -6804,16 +6806,7 @@ fn draw<'w>(
         &[],
     );
 
-    //
     let batch_info_aligned_size = effects_meta.batch_info_buffer.aligned_size();
-    let batch_info_offset = effect_batch.batch_info_id * batch_info_aligned_size as u32;
-    pass.set_bind_group(
-        2,
-        property_bind_groups
-            .get(effect_batch.property_key.as_ref())
-            .unwrap(),
-        &[batch_info_offset],
-    );
 
     // Effect materials (textures and samplers)
     // TODO = move
@@ -6855,6 +6848,15 @@ fn draw<'w>(
 
             pass.set_index_buffer(index_buffer_slice.buffer.slice(..), index_format);
             for effect_data in &effect_batch.effect_data {
+                let batch_info_offset =
+                    effect_data.render_batch_info_id * batch_info_aligned_size as u32;
+                pass.set_bind_group(
+                    2,
+                    property_bind_groups
+                        .get(effect_batch.property_key.as_ref())
+                        .unwrap(),
+                    &[batch_info_offset],
+                );
                 let draw_indirect_index = effect_data.draw_indirect_buffer_row_index.0;
                 assert_eq!(GpuDrawIndexedIndirectArgs::SHADER_SIZE.get(), 20);
                 let draw_indirect_offset =
@@ -6864,6 +6866,15 @@ fn draw<'w>(
         }
         RenderMeshBufferInfo::NonIndexed => {
             for effect_data in &effect_batch.effect_data {
+                let batch_info_offset =
+                    effect_data.render_batch_info_id * batch_info_aligned_size as u32;
+                pass.set_bind_group(
+                    2,
+                    property_bind_groups
+                        .get(effect_batch.property_key.as_ref())
+                        .unwrap(),
+                    &[batch_info_offset],
+                );
                 let draw_indirect_index = effect_data.draw_indirect_buffer_row_index.0;
                 assert_eq!(GpuDrawIndexedIndirectArgs::SHADER_SIZE.get(), 20);
                 let draw_indirect_offset =
@@ -7384,7 +7395,7 @@ fn simulate(
 
         // Dispatch one thread per effect batch
         const WORKGROUP_SIZE: u32 = 64;
-        let total_batch_count = effects_meta.batch_info_buffer.len() as u32;
+        let total_batch_count = sorted_effect_batches.len() as u32;
         let workgroup_count = total_batch_count.div_ceil(WORKGROUP_SIZE);
 
         // Setup vfx_prefix_sum pass
@@ -7539,7 +7550,7 @@ fn simulate(
             // Note: This only works because we use the same batches for the init and update
             // passes. A priori there's no reason why we couldn't split them, since likely
             // the batches would be different.
-            let total_batch_count = effects_meta.batch_info_buffer.len() as u32;
+            let total_batch_count = sorted_effect_batches.len() as u32;
             let workgroup_count = total_batch_count.div_ceil(WORKGROUP_SIZE);
 
             // Setup vfx_prefix_sum pass

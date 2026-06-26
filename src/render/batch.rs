@@ -68,9 +68,11 @@ impl BatchSpawnInfo {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BatchEffectData {
     pub entity: u32,
+    pub slab_offset: u32,
     pub draw_indirect_buffer_row_index: BufferTableId,
     pub metadata_table_id: BufferTableId,
     pub sort_fill_indirect_dispatch_index: Option<u32>,
+    pub render_batch_info_id: u32,
 }
 
 /// Batch of effects dispatched and rendered together.
@@ -217,13 +219,6 @@ impl SortedEffectBatches {
         Some(EffectBatchIndex(index))
     }
 
-    /// Insert a new batch without attempting to merge with the previous one.
-    pub fn push_unmerged(&mut self, effect_batch: EffectBatch) -> EffectBatchIndex {
-        let index = self.batches.len() as u32;
-        self.batches.push(effect_batch);
-        EffectBatchIndex(index)
-    }
-
     #[inline]
     pub fn last(&self) -> Option<&EffectBatch> {
         self.batches.last()
@@ -232,6 +227,11 @@ impl SortedEffectBatches {
     #[inline]
     pub fn last_mut(&mut self) -> Option<&mut EffectBatch> {
         self.batches.last_mut()
+    }
+
+    #[inline]
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, EffectBatch> {
+        self.batches.iter_mut()
     }
 
     #[allow(dead_code)]
@@ -485,9 +485,11 @@ impl EffectBatch {
             effect_count: 1,
             effect_data: vec![BatchEffectData {
                 entity: main_entity.index_u32(),
+                slab_offset: input.effect_slice.slice.start,
                 draw_indirect_buffer_row_index,
                 metadata_table_id,
                 sort_fill_indirect_dispatch_index: None,
+                render_batch_info_id: u32::MAX,
             }],
             particle_layout: input.effect_slice.particle_layout.clone(),
             layout_flags: extracted_effect.layout_flags,

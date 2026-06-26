@@ -65,7 +65,7 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
             return EffectLocation(0xDEADBEEFu, 0xDEADBEEFu, 0xDEADBEEFu);
         }
     }
-    let base_particle = prefix_sum[lo - 1u];
+    let base_particle = batch_info.base_particle + prefix_sum[lo - 1u];
     let effect_index = lo - 1u - batch_info.prefix_sum_offset;
     let update_index = slab_particle_index - base_particle;
     return EffectLocation(effect_index, base_particle, update_index);
