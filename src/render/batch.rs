@@ -1,4 +1,4 @@
-use std::{fmt::Debug, num::NonZeroU32, ops::Range};
+use std::{fmt::Debug, num::NonZeroU32};
 
 use bevy::{
     ecs::entity::EntityHashMap,
@@ -46,6 +46,33 @@ pub(crate) enum BatchSpawnInfo {
     },
 }
 
+impl BatchSpawnInfo {
+    #[inline]
+    #[must_use]
+    pub fn is_cpu(&self) -> bool {
+        matches!(self, Self::CpuSpawner { .. })
+    }
+
+    #[inline]
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn cpu_spawn_count(&self) -> u32 {
+        if let Self::CpuSpawner { total_spawn_count } = self {
+            *total_spawn_count
+        } else {
+            u32::MAX
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BatchEffectData {
+    pub entity: u32,
+    pub draw_indirect_buffer_row_index: BufferTableId,
+    pub metadata_table_id: BufferTableId,
+    pub sort_fill_indirect_dispatch_index: Option<u32>,
+}
+
 /// Batch of effects dispatched and rendered together.
 #[derive(Debug, Clone)]
 pub(crate) struct EffectBatch {
@@ -58,9 +85,6 @@ pub(crate) struct EffectBatch {
     ///
     /// [`EffectBuffer`]: super::effect_cache::EffectBuffer
     pub slab_id: SlabId,
-    /// Slice of particles in the GPU effect buffer referenced by
-    /// [`EffectBatch::slab_id`].
-    pub slice: Range<u32>,
     /// Spawn info for this batch
     pub spawn_info: BatchSpawnInfo,
     /// Specialized init and update compute pipelines.
@@ -86,11 +110,10 @@ pub(crate) struct EffectBatch {
     ///
     /// [`GpuSpawnerParams`]: super::GpuSpawnerParams
     pub spawner_base: u32,
-    /// Indirect draw args.
-    pub draw_indirect_buffer_row_index: BufferTableId,
-    /// Metadata table row index.
-    // FIXME - this is per-effect not per-batch
-    pub metadata_table_id: BufferTableId,
+    /// Total number of effect instances batched together.
+    pub effect_count: u32,
+    /// Per-effect metadata used for draw and sorting.
+    pub effect_data: Vec<BatchEffectData>,
     /// Particle layout shared by all batched effects and groups.
     pub particle_layout: ParticleLayout,
     /// Flags describing the render layout.
@@ -103,13 +126,51 @@ pub(crate) struct EffectBatch {
     pub textures: Vec<Handle<Image>>,
     /// Alpha mode.
     pub alpha_mode: AlphaMode,
-    /// Entities holding the source [`ParticleEffect`] instances which were
-    /// batched into this single batch. Used to determine visibility per view.
-    ///
-    /// [`ParticleEffect`]: crate::ParticleEffect
-    pub entities: Vec<u32>,
     pub cached_effect_events: Option<CachedEffectEvents>,
-    pub sort_fill_indirect_dispatch_index: Option<u32>,
+}
+
+impl EffectBatch {
+    /// Try to merge another batch into this one.
+    ///
+    /// Returns `None` if merged successfully. Returns `Some(input)` if the
+    /// input couldn't be merged.
+    pub fn try_merge(&mut self, input: EffectBatch) -> Option<EffectBatch> {
+        // Keep merging conservative; parent/child/event-linked effects require
+        // additional per-effect bindings and aren't safe to merge yet.
+        if self.handle != input.handle
+            || self.slab_id != input.slab_id
+            || self.init_and_update_pipeline_ids != input.init_and_update_pipeline_ids
+            || self.mesh != input.mesh
+            || self.alpha_mode != input.alpha_mode
+            || self.texture_layout != input.texture_layout
+            || self.textures != input.textures
+            || self.property_key != input.property_key
+            || self.parent_slab_id != input.parent_slab_id
+            || self.parent_binding_source != input.parent_binding_source
+            || self.child_event_buffers != input.child_event_buffers
+            || self.cached_effect_events.is_some()
+            || input.cached_effect_events.is_some()
+            || !self.spawn_info.is_cpu()
+            || !input.spawn_info.is_cpu()
+        {
+            return Some(input);
+        }
+
+        self.effect_count += input.effect_count;
+        self.effect_data.extend(input.effect_data);
+        if let (
+            BatchSpawnInfo::CpuSpawner {
+                total_spawn_count: self_count,
+            },
+            BatchSpawnInfo::CpuSpawner {
+                total_spawn_count: input_count,
+            },
+        ) = (&mut self.spawn_info, input.spawn_info)
+        {
+            *self_count += input_count;
+        }
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -141,10 +202,36 @@ impl SortedEffectBatches {
     /// merged with a previous batch. Otherwise the input batch was merged with
     /// an existing one, and therefore share its index; in that case `None` is
     /// returned.
-    pub fn push(&mut self, effect_batch: EffectBatch) -> EffectBatchIndex {
+    pub fn push(&mut self, effect_batch: EffectBatch) -> Option<EffectBatchIndex> {
+        let effect_batch = if let Some(batch) = self.batches.last_mut() {
+            let Some(effect_batch) = batch.try_merge(effect_batch) else {
+                return None;
+            };
+            effect_batch
+        } else {
+            effect_batch
+        };
+
+        let index = self.batches.len() as u32;
+        self.batches.push(effect_batch);
+        Some(EffectBatchIndex(index))
+    }
+
+    /// Insert a new batch without attempting to merge with the previous one.
+    pub fn push_unmerged(&mut self, effect_batch: EffectBatch) -> EffectBatchIndex {
         let index = self.batches.len() as u32;
         self.batches.push(effect_batch);
         EffectBatchIndex(index)
+    }
+
+    #[inline]
+    pub fn last(&self) -> Option<&EffectBatch> {
+        self.batches.last()
+    }
+
+    #[inline]
+    pub fn last_mut(&mut self) -> Option<&mut EffectBatch> {
+        self.batches.last_mut()
     }
 
     #[allow(dead_code)]
@@ -384,7 +471,6 @@ impl EffectBatch {
             batch_info_id: u32::MAX, // allocated later once the batch is completed
             handle: extracted_effect.handle.clone(),
             slab_id: input.effect_slice.slab_id,
-            slice: input.effect_slice.slice.clone(),
             spawn_info,
             init_and_update_pipeline_ids: input.init_and_update_pipeline_ids,
             render_shader: extracted_effect.effect_shaders.render.clone(),
@@ -396,17 +482,20 @@ impl EffectBatch {
             child_event_buffers: input.child_effects.clone(),
             property_key,
             spawner_base: spawner_index,
+            effect_count: 1,
+            effect_data: vec![BatchEffectData {
+                entity: main_entity.index_u32(),
+                draw_indirect_buffer_row_index,
+                metadata_table_id,
+                sort_fill_indirect_dispatch_index: None,
+            }],
             particle_layout: input.effect_slice.particle_layout.clone(),
-            draw_indirect_buffer_row_index,
-            metadata_table_id,
             layout_flags: extracted_effect.layout_flags,
             mesh: cached_mesh.mesh,
             texture_layout: extracted_effect.texture_layout.clone(),
             textures: extracted_effect.textures.clone(),
             alpha_mode: extracted_effect.alpha_mode,
-            entities: vec![main_entity.index_u32()],
             cached_effect_events: cached_effect_events.cloned(),
-            sort_fill_indirect_dispatch_index: None, // set later as needed
         }
     }
 }
