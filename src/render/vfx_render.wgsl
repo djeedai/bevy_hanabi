@@ -168,7 +168,7 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
     var num_iter = 0;  // avoid deadlocking the GPU by capping the iteration count
     while (lo < hi) {
         let mid = (hi + lo) >> 1u;
-        let base_particle = prefix_sum[mid];
+        let base_particle = batch_info.base_particle + prefix_sum[mid];
         if (slab_particle_index >= base_particle) {
             lo = mid + 1u;
         } else if (slab_particle_index < base_particle) {

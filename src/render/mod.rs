@@ -88,6 +88,8 @@ mod gpu_buffer;
 mod property;
 mod shader_cache;
 mod sort;
+#[cfg(test)]
+mod headless_batching_tests;
 
 use aligned_buffer_vec::AlignedBufferVec;
 use batch::BatchSpawnInfo;
@@ -4757,7 +4759,9 @@ pub(crate) fn batch_effects(
             let spawner_index = effect_batch.spawner_base + effect_index as u32;
             let render_batch_info_id =
                 effects_meta.begin_batch(effect_data.slab_offset, spawner_index);
-            effects_meta.add_effect_to_batch(effect_data.slab_offset);
+            // Render-only batch infos are not processed by vfx_prefix_sum; keep
+            // a relative offset of 0 for the single effect in that batch.
+            effects_meta.add_effect_to_batch(0);
             effects_meta.end_batch();
             effect_data.render_batch_info_id = render_batch_info_id;
         }
@@ -6848,8 +6852,14 @@ fn draw<'w>(
 
             pass.set_index_buffer(index_buffer_slice.buffer.slice(..), index_format);
             for effect_data in &effect_batch.effect_data {
-                let batch_info_offset =
-                    effect_data.render_batch_info_id * batch_info_aligned_size as u32;
+                let Some(batch_info_offset) =
+                    effect_data
+                        .render_batch_info_id
+                        .checked_mul(batch_info_aligned_size as u32)
+                else {
+                    warn!("Invalid render_batch_info_id={}, skipping draw call for effect in batch {}.", effect_data.render_batch_info_id, effect_batch.batch_info_id);
+                    continue;
+                };
                 pass.set_bind_group(
                     2,
                     property_bind_groups
@@ -6866,8 +6876,14 @@ fn draw<'w>(
         }
         RenderMeshBufferInfo::NonIndexed => {
             for effect_data in &effect_batch.effect_data {
-                let batch_info_offset =
-                    effect_data.render_batch_info_id * batch_info_aligned_size as u32;
+                let Some(batch_info_offset) =
+                    effect_data
+                        .render_batch_info_id
+                        .checked_mul(batch_info_aligned_size as u32)
+                else {
+                    warn!("Invalid render_batch_info_id={}, skipping draw call for effect in batch {}.", effect_data.render_batch_info_id, effect_batch.batch_info_id);
+                    continue;
+                };
                 pass.set_bind_group(
                     2,
                     property_bind_groups
