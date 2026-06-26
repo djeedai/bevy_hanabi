@@ -455,6 +455,361 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let out_effect = readback_u32(&device, &queue, &out_buffer, (slab_indices.len() * 4) as u64);
         assert_eq!(out_effect, vec![0, 0, 1, 1, 2, 2], "effect index mapping mismatch");
 
+        // ------------------------------------------------------------------
+        // Test 3: indirect + prefix-sum + update-style routing across instances
+        // ------------------------------------------------------------------
+        let indirect_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("indirect_stage_shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                r#"
+struct Spawner {
+    effect_metadata_index: u32,
+    draw_indirect_index: u32,
+}
+struct EffectMetadata {
+    alive_count: u32,
+    max_update: u32,
+    indirect_dispatch_index: u32,
+}
+struct DispatchIndirectArgs {
+    x: u32, y: u32, z: u32,
+}
+@group(0) @binding(0) var<storage, read_write> spawner_buffer : array<Spawner>;
+@group(0) @binding(1) var<storage, read_write> effect_metadata_buffer : array<EffectMetadata>;
+@group(0) @binding(2) var<storage, read_write> prefix_sum : array<u32>;
+@group(0) @binding(3) var<storage, read_write> dispatch_buffer : array<DispatchIndirectArgs>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    if (i >= arrayLength(&spawner_buffer)) { return; }
+    let sp = spawner_buffer[i];
+    let em = effect_metadata_buffer[sp.effect_metadata_index];
+    prefix_sum[i] = em.alive_count;
+    effect_metadata_buffer[sp.effect_metadata_index].max_update = em.alive_count;
+    let ddi = em.indirect_dispatch_index;
+    dispatch_buffer[ddi].x = (em.alive_count + 63u) >> 6u;
+    dispatch_buffer[ddi].y = 1u;
+    dispatch_buffer[ddi].z = 1u;
+}
+"#
+                    .into(),
+            ),
+        });
+        let update_route_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("update_route_shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                r#"
+struct BatchInfo {
+    total_update_count: u32,
+    base_effect: u32,
+    base_particle: u32,
+    prefix_sum_offset: u32,
+    prefix_sum_count: u32,
+}
+@group(0) @binding(0) var<storage, read> prefix_sum : array<u32>;
+@group(0) @binding(1) var<storage, read> batch_info : BatchInfo;
+@group(0) @binding(2) var<storage, read_write> routed_count : array<atomic<u32>>;
+
+fn find_effect(slab_particle_index: u32) -> u32 {
+    var lo = batch_info.prefix_sum_offset;
+    var hi = lo + batch_info.prefix_sum_count;
+    while (lo < hi) {
+        let mid = (hi + lo) >> 1u;
+        let base_particle = batch_info.base_particle + prefix_sum[mid];
+        if (slab_particle_index >= base_particle) {
+            lo = mid + 1u;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo - 1u - batch_info.prefix_sum_offset;
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    if (i >= batch_info.total_update_count) { return; }
+    let slab_particle_index = batch_info.base_particle + i;
+    let effect_index = find_effect(slab_particle_index);
+    atomicAdd(&routed_count[effect_index], 1u);
+}
+"#
+                    .into(),
+            ),
+        });
+
+        #[repr(C)]
+        #[derive(Clone, Copy, Pod, Zeroable)]
+        struct SpawnerLite {
+            effect_metadata_index: u32,
+            draw_indirect_index: u32,
+        }
+        #[repr(C)]
+        #[derive(Clone, Copy, Pod, Zeroable)]
+        struct EffectMetadataLite {
+            alive_count: u32,
+            max_update: u32,
+            indirect_dispatch_index: u32,
+        }
+        #[repr(C)]
+        #[derive(Clone, Copy, Pod, Zeroable)]
+        struct BatchInfoLite {
+            total_update_count: u32,
+            base_effect: u32,
+            base_particle: u32,
+            prefix_sum_offset: u32,
+            prefix_sum_count: u32,
+        }
+
+        let spawners = vec![
+            SpawnerLite {
+                effect_metadata_index: 0,
+                draw_indirect_index: 0,
+            },
+            SpawnerLite {
+                effect_metadata_index: 1,
+                draw_indirect_index: 1,
+            },
+        ];
+        let em = vec![
+            EffectMetadataLite {
+                alive_count: 7,
+                max_update: 0,
+                indirect_dispatch_index: 0,
+            },
+            EffectMetadataLite {
+                alive_count: 5,
+                max_update: 0,
+                indirect_dispatch_index: 1,
+            },
+        ];
+        let mut prefix = vec![0_u32; 2];
+        let ddi_zero = vec![DispatchIndirectArgs { x: 0, y: 0, z: 0 }; 2];
+
+        let sp_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("spawners_lite"),
+            contents: cast_slice(&spawners),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let em_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("effect_meta_lite"),
+            contents: cast_slice(&em),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        });
+        let prefix_buffer2 = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("prefix_lite"),
+            contents: cast_slice(&prefix),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        });
+        let ddi_buffer2 = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("ddi_lite"),
+            contents: cast_slice(&ddi_zero),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        });
+
+        let bgl_i = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("indirect_lite_bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let bg_i = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("indirect_lite_bg"),
+            layout: &bgl_i,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: sp_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: em_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: prefix_buffer2.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: ddi_buffer2.as_entire_binding(),
+                },
+            ],
+        });
+        let pl_i = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("indirect_lite_pl"),
+            bind_group_layouts: &[Some(&bgl_i)],
+            immediate_size: 0,
+        });
+        let pipe_i = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("indirect_lite_pipe"),
+            layout: Some(&pl_i),
+            module: &indirect_shader,
+            entry_point: Some("main"),
+            cache: None,
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("indirect_lite_enc"),
+        });
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("indirect_lite_pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&pipe_i);
+            pass.set_bind_group(0, &bg_i, &[]);
+            pass.dispatch_workgroups(1, 1, 1);
+        }
+        submit_and_wait(&device, &queue, encoder.finish());
+
+        prefix = readback_u32(&device, &queue, &prefix_buffer2, 8);
+        assert_eq!(prefix, vec![7, 5], "indirect stage did not write per-instance alive counts");
+
+        // CPU-side emulation of vfx_prefix_sum for this single batch: [7,5] -> [0,7]
+        let prefix_after = vec![0_u32, 7_u32];
+        queue.write_buffer(&prefix_buffer2, 0, cast_slice(&prefix_after));
+        let batch_lite = BatchInfoLite {
+            total_update_count: 12,
+            base_effect: 0,
+            base_particle: 100,
+            prefix_sum_offset: 0,
+            prefix_sum_count: 2,
+        };
+        let batch_lite_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("batch_lite"),
+            contents: cast_slice(&[batch_lite]),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let routed_zero = vec![0_u32; 2];
+        let routed_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("routed"),
+            contents: cast_slice(&routed_zero),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        });
+
+        let bgl_u = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("update_route_bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let bg_u = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("update_route_bg"),
+            layout: &bgl_u,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: prefix_buffer2.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: batch_lite_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: routed_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let pl_u = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("update_route_pl"),
+            bind_group_layouts: &[Some(&bgl_u)],
+            immediate_size: 0,
+        });
+        let pipe_u = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("update_route_pipe"),
+            layout: Some(&pl_u),
+            module: &update_route_shader,
+            entry_point: Some("main"),
+            cache: None,
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("update_route_enc"),
+        });
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("update_route_pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&pipe_u);
+            pass.set_bind_group(0, &bg_u, &[]);
+            pass.dispatch_workgroups(1, 1, 1);
+        }
+        submit_and_wait(&device, &queue, encoder.finish());
+
+        let routed = readback_u32(&device, &queue, &routed_buffer, 8);
+        assert_eq!(routed, vec![7, 5], "update routing collapsed instances unexpectedly");
+
         Ok::<(), Box<dyn std::error::Error>>(())
     })?;
 
