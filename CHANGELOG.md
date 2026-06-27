@@ -3,7 +3,7 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.19.0] 2026-06-27
 
 _This version is compatible with Bevy 0.19_
 
@@ -58,7 +58,8 @@ _This version is compatible with Bevy 0.19_
 
 ### Fixed
 
-- Fixed a crash when growing the effect metadata buffer while a ribbon effect was alive, caused by the ribbon sort fill-dispatch binding a stale, too-small metadata buffer. (#537)
+- Fixed a crash when growing the effect metadata buffer while a ribbon effect was alive,
+  caused by the ribbon sort fill-dispatch binding a stale, too-small metadata buffer. (#537)
 - Fixed the sort indirect-dispatch buffer never growing past its initial 256 entries, causing
   an indirect buffer overrun and crash with many sorted (e.g. ribbon) effects alive at once. (#493)
 

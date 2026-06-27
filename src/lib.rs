@@ -100,7 +100,7 @@
 //!     // Create the effect asset
 //!     let effect = EffectAsset::new(
 //!         // Maximum number of particles alive at a time
-//!         32768,
+//!         1024,
 //!         // Spawn at a rate of 5 particles per second
 //!         SpawnerSettings::rate(5.0.into()),
 //!         // Move the expression module into the asset

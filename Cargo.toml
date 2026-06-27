@@ -1,9 +1,9 @@
 [package]
 name = "bevy_hanabi"
-version = "0.19.0-dev"
+version = "0.19.0"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
-rust-version = "1.89.0"
+rust-version = "1.95.0"
 description = "Hanabi GPU particle system for the Bevy game engine"
 repository = "https://github.com/djeedai/bevy_hanabi"
 homepage = "https://github.com/djeedai/bevy_hanabi"
