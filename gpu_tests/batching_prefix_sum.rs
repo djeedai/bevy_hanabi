@@ -25,6 +25,81 @@ struct DispatchIndirectArgs {
     z: u32,
 }
 
+/// Local copy of test_utils::MockRenderer::new() adapted for this headless test.
+struct MockRenderer {
+    _instance: wgpu::Instance,
+    _adapter: wgpu::Adapter,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+}
+
+impl MockRenderer {
+    async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        #[cfg(debug_assertions)]
+        let flags = wgpu::InstanceFlags::DEBUG | wgpu::InstanceFlags::VALIDATION;
+        #[cfg(not(debug_assertions))]
+        let flags = wgpu::InstanceFlags::empty();
+
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            flags,
+            backend_options: wgpu::BackendOptions::default(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+            display: None,
+        });
+
+        #[cfg(feature = "gpu_tests")]
+        let request_options = wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+        };
+        #[cfg(not(feature = "gpu_tests"))]
+        let request_options = wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+        };
+
+        #[cfg(feature = "gpu_tests")]
+        eprintln!("Requesting real GPU adapter.");
+        #[cfg(not(feature = "gpu_tests"))]
+        eprintln!("Requesting headless adapter.");
+
+        let adapter = instance.request_adapter(&request_options).await?;
+        let adapter_info = adapter.get_info();
+        #[cfg(feature = "gpu_tests")]
+        if matches!(
+            adapter_info.device_type,
+            wgpu::DeviceType::Cpu | wgpu::DeviceType::Other
+        ) {
+            return Err(format!(
+                "gpu_tests requires a real GPU adapter, got {:?} ({})",
+                adapter_info.device_type, adapter_info.name
+            )
+            .into());
+        }
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                label: Some("batching_prefix_sum_device"),
+                trace: wgpu::Trace::Off,
+            })
+            .await?;
+
+        Ok(Self {
+            _instance: instance,
+            _adapter: adapter,
+            device,
+            queue,
+        })
+    }
+}
+
 async fn submit_and_wait(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -112,32 +187,21 @@ fn create_real_shader_module(
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     block_on(async move {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = match instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::LowPower,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-            })
-            .await
-        {
-            Ok(adapter) => adapter,
-            Err(_) => {
-                eprintln!("No adapter available; skipping headless batching GPU test.");
-                return Ok(());
+        let renderer = match MockRenderer::new().await {
+            Ok(renderer) => renderer,
+            Err(err) => {
+                #[cfg(feature = "gpu_tests")]
+                return Err(err);
+                #[cfg(not(feature = "gpu_tests"))]
+                {
+                    eprintln!("No adapter available; skipping headless batching GPU test.");
+                    let _ = err;
+                    return Ok(());
+                }
             }
         };
-
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
-                experimental_features: wgpu::ExperimentalFeatures::disabled(),
-                memory_hints: wgpu::MemoryHints::Performance,
-                label: Some("batching_prefix_sum_device"),
-                trace: wgpu::Trace::Off,
-            })
-            .await?;
+        let device = renderer.device;
+        let queue = renderer.queue;
 
         // ------------------------------------------------------------------
         // Test 1: Prefix sum pass dataflow
