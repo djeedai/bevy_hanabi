@@ -48,20 +48,22 @@ mod tests {
     }
 
     fn find_location_from_particle(batch: BatchInfo, prefix_sum: &[u32], slab_particle_index: u32) -> EffectLocation {
+        // Compute passes use packed indices (alive-count domain), not slab indices.
+        let update_particle_index = slab_particle_index;
         let mut lo = batch.prefix_sum_offset;
         let mut hi = lo + batch.prefix_sum_count;
         while lo < hi {
             let mid = (hi + lo) >> 1;
-            let base_particle = batch.base_particle + prefix_sum[mid as usize];
-            if slab_particle_index >= base_particle {
+            let base_particle = prefix_sum[mid as usize];
+            if update_particle_index >= base_particle {
                 lo = mid + 1;
             } else {
                 hi = mid;
             }
         }
-        let base_particle = batch.base_particle + prefix_sum[(lo - 1) as usize];
+        let base_particle = prefix_sum[(lo - 1) as usize];
         let effect_index = lo - 1 - batch.prefix_sum_offset;
-        let update_index = slab_particle_index - base_particle;
+        let update_index = update_particle_index - base_particle;
         EffectLocation {
             effect_index,
             base_particle,
@@ -111,7 +113,7 @@ mod tests {
         let prefix_sum = vec![0, 10, 15];
         let batch = BatchInfo {
             base_effect: 7,
-            base_particle: 100,
+            base_particle: 0,
             prefix_sum_offset: 0,
             prefix_sum_count: 3,
             total_update_count: 23,
@@ -119,30 +121,30 @@ mod tests {
 
         // First effect
         assert_eq!(
-            find_location_from_particle(batch, &prefix_sum, 100),
+            find_location_from_particle(batch, &prefix_sum, 0),
             EffectLocation {
                 effect_index: 0,
-                base_particle: 100,
+                base_particle: 0,
                 update_index: 0
             }
         );
 
-        // Second effect starts at 100 + 10
+        // Second effect starts at packed index 10
         assert_eq!(
-            find_location_from_particle(batch, &prefix_sum, 110),
+            find_location_from_particle(batch, &prefix_sum, 10),
             EffectLocation {
                 effect_index: 1,
-                base_particle: 110,
+                base_particle: 10,
                 update_index: 0
             }
         );
 
-        // Third effect starts at 100 + 15
+        // Third effect starts at packed index 15
         assert_eq!(
-            find_location_from_particle(batch, &prefix_sum, 120),
+            find_location_from_particle(batch, &prefix_sum, 20),
             EffectLocation {
                 effect_index: 2,
-                base_particle: 115,
+                base_particle: 15,
                 update_index: 5
             }
         );
