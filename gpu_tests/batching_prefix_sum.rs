@@ -1,6 +1,10 @@
 //! Headless GPU regression tests for batching dataflow contracts.
 
 use bytemuck::{Pod, Zeroable, cast_slice};
+use bevy::prelude::Vec3;
+use bevy_hanabi::prelude::{
+    Attribute, EffectAsset, EffectShaderSources, ExprWriter, SetAttributeModifier, SpawnerSettings,
+};
 use futures::channel::oneshot;
 use futures::executor::block_on;
 use naga_oil::compose::{ComposableModuleDescriptor, Composer, NagaModuleDescriptor};
@@ -23,6 +27,77 @@ struct DispatchIndirectArgs {
     x: u32,
     y: u32,
     z: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct SimParamsGpu {
+    delta_time: f32,
+    time: f32,
+    virtual_delta_time: f32,
+    virtual_time: f32,
+    real_delta_time: f32,
+    real_time: f32,
+    num_effects: u32,
+    _pad0: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct DrawIndexedIndirectArgsGpu {
+    index_count: u32,
+    instance_count: u32,
+    first_index: u32,
+    base_vertex: i32,
+    first_instance: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct SpawnerGpu {
+    transform: [[f32; 4]; 3],
+    inverse_transform: [[f32; 4]; 3],
+    spawn: i32,
+    seed: u32,
+    render_indirect_read_index: u32,
+    effect_metadata_index: u32,
+    draw_indirect_index: u32,
+    slab_offset: u32,
+    parent_slab_offset: u32,
+    unused: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct EffectMetadataGpu {
+    capacity: u32,
+    alive_count: u32,
+    max_update: u32,
+    max_spawn: u32,
+    indirect_write_index: u32,
+    indirect_render_index: u32,
+    init_indirect_dispatch_index: u32,
+    properties_array_index: u32,
+    local_child_index: u32,
+    global_child_index: u32,
+    base_child_index: u32,
+    particle_stride: u32,
+    sort_key_offset: u32,
+    sort_key2_offset: u32,
+    particle_counter: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct ParticleGpu {
+    position: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct IndirectEntryGpu {
+    particle_index: [u32; 2],
+    dead_index: u32,
 }
 
 /// Local copy of test_utils::MockRenderer::new() adapted for this headless test.
@@ -83,7 +158,7 @@ impl MockRenderer {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
+                required_limits: wgpu::Limits::defaults(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 memory_hints: wgpu::MemoryHints::Performance,
                 label: Some("batching_prefix_sum_device"),
@@ -877,6 +952,376 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         let routed = readback_u32(&device, &queue, &routed_buffer, 8).await;
         assert_eq!(routed, vec![7, 5], "update routing collapsed instances unexpectedly");
+
+        // ------------------------------------------------------------------
+        // Test 4: real generated vfx_update shader routes and counts instances
+        // ------------------------------------------------------------------
+        let writer = ExprWriter::new();
+        let init_pos = SetAttributeModifier::new(Attribute::POSITION, writer.lit(Vec3::ZERO).expr());
+        let module = writer.finish();
+        let asset = EffectAsset::new(8, SpawnerSettings::rate(0.0.into()), module).init(init_pos);
+        let sources = EffectShaderSources::generate(&asset, None, 0)?;
+        let update_shader = create_real_shader_module(
+            &device,
+            &sources.update_shader_source,
+            "bevy_hanabi::generated_vfx_update",
+        )?;
+
+        let sim_params = SimParamsGpu {
+            delta_time: 1.0,
+            time: 0.0,
+            virtual_delta_time: 1.0,
+            virtual_time: 0.0,
+            real_delta_time: 1.0,
+            real_time: 0.0,
+            num_effects: 2,
+            _pad0: 0,
+        };
+        let draw_indirect_init = vec![
+            DrawIndexedIndirectArgsGpu {
+                index_count: 0,
+                instance_count: 0,
+                first_index: 0,
+                base_vertex: 0,
+                first_instance: 0,
+            },
+            DrawIndexedIndirectArgsGpu {
+                index_count: 0,
+                instance_count: 0,
+                first_index: 0,
+                base_vertex: 0,
+                first_instance: 0,
+            },
+        ];
+        let particles = vec![ParticleGpu::zeroed(); 8];
+        let mut indirect_rows = vec![IndirectEntryGpu::zeroed(); 8];
+        indirect_rows[0].particle_index = [0, 0];
+        indirect_rows[1].particle_index = [0, 1];
+        indirect_rows[4].particle_index = [0, 0];
+        let spawners = vec![
+            SpawnerGpu {
+                transform: [[0.0; 4]; 3],
+                inverse_transform: [[0.0; 4]; 3],
+                spawn: 0,
+                seed: 1,
+                render_indirect_read_index: 0,
+                effect_metadata_index: 0,
+                draw_indirect_index: 0,
+                slab_offset: 0,
+                parent_slab_offset: u32::MAX,
+                unused: 0,
+            },
+            SpawnerGpu {
+                transform: [[0.0; 4]; 3],
+                inverse_transform: [[0.0; 4]; 3],
+                spawn: 0,
+                seed: 2,
+                render_indirect_read_index: 0,
+                effect_metadata_index: 1,
+                draw_indirect_index: 1,
+                slab_offset: 4,
+                parent_slab_offset: u32::MAX,
+                unused: 0,
+            },
+        ];
+        let prefix_sum_update = vec![0_u32, 2_u32];
+        let batch_info_update = BatchInfo {
+            total_spawn_count: 0,
+            total_update_count: 3,
+            base_effect: 0,
+            base_particle: 0,
+            prefix_sum_offset: 0,
+            prefix_sum_count: 2,
+        };
+        let effect_metadata = vec![
+            EffectMetadataGpu {
+                capacity: 8,
+                alive_count: 2,
+                max_update: 2,
+                max_spawn: 0,
+                indirect_write_index: 0,
+                indirect_render_index: 0,
+                init_indirect_dispatch_index: 0,
+                properties_array_index: 0,
+                local_child_index: 0,
+                global_child_index: 0,
+                base_child_index: 0,
+                particle_stride: 4,
+                sort_key_offset: 0,
+                sort_key2_offset: 0,
+                particle_counter: 0,
+            },
+            EffectMetadataGpu {
+                capacity: 8,
+                alive_count: 1,
+                max_update: 1,
+                max_spawn: 0,
+                indirect_write_index: 0,
+                indirect_render_index: 1,
+                init_indirect_dispatch_index: 0,
+                properties_array_index: 0,
+                local_child_index: 0,
+                global_child_index: 0,
+                base_child_index: 0,
+                particle_stride: 4,
+                sort_key_offset: 0,
+                sort_key2_offset: 0,
+                particle_counter: 0,
+            },
+        ];
+
+        let sim_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("sim_params_update"),
+            contents: cast_slice(&[sim_params]),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let draw_indirect_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("draw_indirect_update"),
+            contents: cast_slice(&draw_indirect_init),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        });
+        let particle_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("particle_update"),
+            contents: cast_slice(&particles),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let indirect_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("indirect_update"),
+            contents: cast_slice(&indirect_rows),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        });
+        let spawner_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("spawner_update"),
+            contents: cast_slice(&spawners),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let prefix_buffer_update = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("prefix_update"),
+            contents: cast_slice(&prefix_sum_update),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let batch_info_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("batch_info_update"),
+            contents: cast_slice(&[batch_info_update]),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let metadata_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("effect_meta_update"),
+            contents: cast_slice(&effect_metadata),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+
+        let bgl0 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("update_bgl0"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let bgl1 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("update_bgl1"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let bgl2 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("update_bgl2"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let bgl3 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("update_bgl3"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        let bg0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("update_bg0"),
+            layout: &bgl0,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: sim_params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: draw_indirect_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let bg1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("update_bg1"),
+            layout: &bgl1,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: particle_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: indirect_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let bg2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("update_bg2"),
+            layout: &bgl2,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: spawner_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: prefix_buffer_update.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: batch_info_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let bg3 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("update_bg3"),
+            layout: &bgl3,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: metadata_buffer.as_entire_binding(),
+            }],
+        });
+
+        let update_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("real_update_pl"),
+            bind_group_layouts: &[Some(&bgl0), Some(&bgl1), Some(&bgl2), Some(&bgl3)],
+            immediate_size: 0,
+        });
+        let update_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("real_update_pipe"),
+            layout: Some(&update_pipeline_layout),
+            module: &update_shader,
+            entry_point: Some("main"),
+            cache: None,
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("real_update_enc"),
+        });
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("real_update_pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&update_pipeline);
+            pass.set_bind_group(0, &bg0, &[]);
+            pass.set_bind_group(1, &bg1, &[]);
+            pass.set_bind_group(2, &bg2, &[]);
+            pass.set_bind_group(3, &bg3, &[]);
+            pass.dispatch_workgroups(1, 1, 1);
+        }
+        submit_and_wait(&device, &queue, encoder.finish()).await;
+
+        let draw_out = readback_u32(
+            &device,
+            &queue,
+            &draw_indirect_buffer,
+            (draw_indirect_init.len() * std::mem::size_of::<DrawIndexedIndirectArgsGpu>()) as u64,
+        )
+        .await;
+        assert_eq!(
+            draw_out[1], 2,
+            "real vfx_update did not accumulate instance_count for effect 0"
+        );
+        assert_eq!(
+            draw_out[6], 1,
+            "real vfx_update did not accumulate instance_count for effect 1"
+        );
+
+        let indirect_out = readback_u32(
+            &device,
+            &queue,
+            &indirect_buffer,
+            (indirect_rows.len() * std::mem::size_of::<IndirectEntryGpu>()) as u64,
+        )
+        .await;
+        assert_eq!(indirect_out[0], 0, "effect 0 particle[0] write index mismatch");
+        assert_eq!(indirect_out[3], 1, "effect 0 particle[1] write index mismatch");
+        assert_eq!(indirect_out[12], 0, "effect 1 particle[0] write index mismatch");
 
         Ok::<(), Box<dyn std::error::Error>>(())
     })?;
