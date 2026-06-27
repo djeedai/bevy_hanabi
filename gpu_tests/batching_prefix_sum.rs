@@ -3,6 +3,8 @@
 use bytemuck::{Pod, Zeroable, cast_slice};
 use futures::channel::oneshot;
 use futures::executor::block_on;
+use naga_oil::compose::{ComposableModuleDescriptor, Composer, NagaModuleDescriptor};
+use std::borrow::Cow;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -23,7 +25,11 @@ struct DispatchIndirectArgs {
     z: u32,
 }
 
-fn submit_and_wait(device: &wgpu::Device, queue: &wgpu::Queue, command_buffer: wgpu::CommandBuffer) {
+async fn submit_and_wait(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    command_buffer: wgpu::CommandBuffer,
+) {
     queue.submit([command_buffer]);
     let (tx, rx) = oneshot::channel();
     queue.on_submitted_work_done(move || {
@@ -33,10 +39,10 @@ fn submit_and_wait(device: &wgpu::Device, queue: &wgpu::Queue, command_buffer: w
         submission_index: None,
         timeout: None,
     });
-    let _ = block_on(rx);
+    let _ = rx.await;
 }
 
-fn readback_u32(
+async fn readback_u32(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     src: &wgpu::Buffer,
@@ -52,7 +58,7 @@ fn readback_u32(
         label: Some("readback_encoder"),
     });
     encoder.copy_buffer_to_buffer(src, 0, &staging, 0, bytes);
-    submit_and_wait(device, queue, encoder.finish());
+    submit_and_wait(device, queue, encoder.finish()).await;
 
     let slice = staging.slice(..);
     let (tx, rx) = oneshot::channel();
@@ -63,12 +69,45 @@ fn readback_u32(
         submission_index: None,
         timeout: None,
     });
-    block_on(rx).unwrap().unwrap();
+    rx.await.unwrap().unwrap();
     let data = slice.get_mapped_range();
     let out = cast_slice::<u8, u32>(&data).to_vec();
     drop(data);
     staging.unmap();
     out
+}
+
+fn create_real_shader_module(
+    device: &wgpu::Device,
+    shader_source: &str,
+    file_path: &str,
+) -> Result<wgpu::ShaderModule, Box<dyn std::error::Error>> {
+    // vfx_common is templated in the crate and normally materialized by the plugin
+    // with runtime alignment-dependent padding. For this headless test we only need
+    // symbols imported by vfx_prefix_sum, so make the template parseable directly.
+    let common_code = include_str!("../src/render/vfx_common.wgsl")
+        .replace("{{SPAWNER_PADDING}}", "")
+        .replace("{{BATCH_INFO_PADDING}}", "")
+        .replace("{{EFFECT_METADATA_PADDING}}", "")
+        .replace("{{EFFECT_METADATA_STRIDE}}", "64");
+
+    let mut composer = Composer::default();
+    composer.add_composable_module(ComposableModuleDescriptor {
+        source: &common_code,
+        file_path: "bevy_hanabi::vfx_common",
+        ..Default::default()
+    })?;
+    let module = composer.make_naga_module(NagaModuleDescriptor {
+        source: shader_source,
+        file_path,
+        shader_defs: Default::default(),
+        ..Default::default()
+    })?;
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(file_path),
+        source: wgpu::ShaderSource::Naga(Cow::Owned(module)),
+    });
+    Ok(shader)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -103,49 +142,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // ------------------------------------------------------------------
         // Test 1: Prefix sum pass dataflow
         // ------------------------------------------------------------------
-        let prefix_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("batching_prefix_sum_shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                r#"
-struct BatchInfo {
-    total_spawn_count: u32,
-    total_update_count: u32,
-    base_effect: u32,
-    base_particle: u32,
-    prefix_sum_offset: u32,
-    prefix_sum_count: u32,
-}
-struct DispatchIndirectArgs {
-    x: u32,
-    y: u32,
-    z: u32,
-}
-@group(0) @binding(0) var<storage, read_write> batch_infos : array<BatchInfo>;
-@group(0) @binding(1) var<storage, read_write> prefix_sum : array<u32>;
-@group(0) @binding(2) var<storage, read_write> dispatch_indirect_buffer : array<DispatchIndirectArgs>;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let batch_index = gid.x;
-    if (batch_index >= arrayLength(&batch_infos)) { return; }
-    let offset = batch_infos[batch_index].prefix_sum_offset;
-    let count = batch_infos[batch_index].prefix_sum_count;
-    let end = offset + count;
-    var sum = 0u;
-    for (var i = offset; i < end; i += 1u) {
-        let c = prefix_sum[i];
-        prefix_sum[i] = sum;
-        sum = sum + c;
-    }
-    batch_infos[batch_index].total_update_count = sum;
-    dispatch_indirect_buffer[batch_index].x = (sum + 63u) >> 6u;
-    dispatch_indirect_buffer[batch_index].y = 1u;
-    dispatch_indirect_buffer[batch_index].z = 1u;
-}
-"#
-                    .into(),
-            ),
-        });
+        let prefix_shader = create_real_shader_module(
+            &device,
+            include_str!("../src/render/vfx_prefix_sum.wgsl"),
+            "bevy_hanabi::vfx_prefix_sum",
+        )?;
 
         let batches = vec![
             BatchInfo {
@@ -264,9 +265,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
-        submit_and_wait(&device, &queue, encoder.finish());
+        submit_and_wait(&device, &queue, encoder.finish()).await;
 
-        let prefix_out = readback_u32(&device, &queue, &prefix_buffer, (prefix_init.len() * 4) as u64);
+        let prefix_out =
+            readback_u32(&device, &queue, &prefix_buffer, (prefix_init.len() * 4) as u64).await;
         assert_eq!(prefix_out, vec![0, 10, 15, 0], "prefix sum output mismatch");
 
         let dispatch_out = readback_u32(
@@ -274,7 +276,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             &queue,
             &dispatch_buffer,
             (dispatch_init.len() * std::mem::size_of::<DispatchIndirectArgs>()) as u64,
-        );
+        )
+        .await;
         assert_eq!(dispatch_out[0], 1);
         assert_eq!(dispatch_out[3], 1);
 
@@ -451,8 +454,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             pass.set_bind_group(0, &locate_bg, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
-        submit_and_wait(&device, &queue, encoder.finish());
-        let out_effect = readback_u32(&device, &queue, &out_buffer, (slab_indices.len() * 4) as u64);
+        submit_and_wait(&device, &queue, encoder.finish()).await;
+        let out_effect =
+            readback_u32(&device, &queue, &out_buffer, (slab_indices.len() * 4) as u64).await;
         assert_eq!(out_effect, vec![0, 0, 1, 1, 2, 2], "effect index mapping mismatch");
 
         // ------------------------------------------------------------------
@@ -600,7 +604,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let prefix_buffer2 = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("prefix_lite"),
             contents: cast_slice(&prefix),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         });
         let ddi_buffer2 = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("ddi_lite"),
@@ -700,9 +704,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             pass.set_bind_group(0, &bg_i, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
-        submit_and_wait(&device, &queue, encoder.finish());
+        submit_and_wait(&device, &queue, encoder.finish()).await;
 
-        prefix = readback_u32(&device, &queue, &prefix_buffer2, 8);
+        prefix = readback_u32(&device, &queue, &prefix_buffer2, 8).await;
         assert_eq!(prefix, vec![7, 5], "indirect stage did not write per-instance alive counts");
 
         // CPU-side emulation of vfx_prefix_sum for this single batch: [7,5] -> [0,7]
@@ -805,9 +809,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             pass.set_bind_group(0, &bg_u, &[]);
             pass.dispatch_workgroups(1, 1, 1);
         }
-        submit_and_wait(&device, &queue, encoder.finish());
+        submit_and_wait(&device, &queue, encoder.finish()).await;
 
-        let routed = readback_u32(&device, &queue, &routed_buffer, 8);
+        let routed = readback_u32(&device, &queue, &routed_buffer, 8).await;
         assert_eq!(routed, vec![7, 5], "update routing collapsed instances unexpectedly");
 
         Ok::<(), Box<dyn std::error::Error>>(())
