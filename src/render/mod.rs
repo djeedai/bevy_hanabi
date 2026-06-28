@@ -87,6 +87,8 @@ mod event;
 mod gpu_buffer;
 #[cfg(test)]
 mod headless_batching_tests;
+#[cfg(all(test, feature = "gpu_tests"))]
+mod shader_contract_tests;
 mod property;
 mod shader_cache;
 mod sort;
