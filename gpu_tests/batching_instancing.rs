@@ -67,4 +67,3 @@ fn timeout(mut frame: ResMut<Frame>, mut ev_app_exit: MessageWriter<AppExit>) {
         ev_app_exit.write(AppExit::Success);
     }
 }
-

@@ -47,7 +47,11 @@ mod tests {
         }
     }
 
-    fn find_location_from_particle(batch: BatchInfo, prefix_sum: &[u32], slab_particle_index: u32) -> EffectLocation {
+    fn find_location_from_particle(
+        batch: BatchInfo,
+        prefix_sum: &[u32],
+        slab_particle_index: u32,
+    ) -> EffectLocation {
         // Compute passes use packed indices (alive-count domain), not slab indices.
         let update_particle_index = slab_particle_index;
         let mut lo = batch.prefix_sum_offset;

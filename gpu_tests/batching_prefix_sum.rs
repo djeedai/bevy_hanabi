@@ -1,14 +1,15 @@
 //! Headless GPU regression tests for batching dataflow contracts.
 
-use bytemuck::{Pod, Zeroable, cast_slice};
+use std::borrow::Cow;
+
 use bevy::prelude::Vec3;
 use bevy_hanabi::prelude::{
     Attribute, EffectAsset, EffectShaderSources, ExprWriter, SetAttributeModifier, SpawnerSettings,
 };
+use bytemuck::{cast_slice, Pod, Zeroable};
 use futures::channel::oneshot;
 use futures::executor::block_on;
 use naga_oil::compose::{ComposableModuleDescriptor, Composer, NagaModuleDescriptor};
-use std::borrow::Cow;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -100,16 +101,21 @@ struct IndirectEntryGpu {
     dead_index: u32,
 }
 
-/// Local copy of test_utils::MockRenderer::new() adapted for this headless test.
+/// Local copy of test_utils::MockRenderer::new() adapted for this headless
+/// test.
 struct MockRenderer {
-    _instance: wgpu::Instance,
-    _adapter: wgpu::Adapter,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    pub instance: wgpu::Instance,
+    pub adapter: wgpu::Adapter,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
 }
 
 impl MockRenderer {
-    async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    /// Create a new mock renderer.
+    ///
+    /// If the `gpu_tests` feature is enabled, this creates a real GPU adapter
+    /// and device. Otherwise this can create any kind of adapter and device.
+    pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
         #[cfg(debug_assertions)]
         let flags = wgpu::InstanceFlags::DEBUG | wgpu::InstanceFlags::VALIDATION;
         #[cfg(not(debug_assertions))]
@@ -124,6 +130,11 @@ impl MockRenderer {
         });
 
         #[cfg(feature = "gpu_tests")]
+        eprintln!("Requesting real GPU adapter.");
+        #[cfg(not(feature = "gpu_tests"))]
+        eprintln!("Requesting headless adapter.");
+
+        #[cfg(feature = "gpu_tests")]
         let request_options = wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             force_fallback_adapter: false,
@@ -136,23 +147,21 @@ impl MockRenderer {
             compatible_surface: None,
         };
 
-        #[cfg(feature = "gpu_tests")]
-        eprintln!("Requesting real GPU adapter.");
-        #[cfg(not(feature = "gpu_tests"))]
-        eprintln!("Requesting headless adapter.");
-
         let adapter = instance.request_adapter(&request_options).await?;
-        let adapter_info = adapter.get_info();
+
         #[cfg(feature = "gpu_tests")]
-        if matches!(
-            adapter_info.device_type,
-            wgpu::DeviceType::Cpu | wgpu::DeviceType::Other
-        ) {
-            return Err(format!(
-                "gpu_tests requires a real GPU adapter, got {:?} ({})",
-                adapter_info.device_type, adapter_info.name
-            )
-            .into());
+        {
+            let adapter_info = adapter.get_info();
+            if matches!(
+                adapter_info.device_type,
+                wgpu::DeviceType::Cpu | wgpu::DeviceType::Other
+            ) {
+                return Err(format!(
+                    "gpu_tests requires a real GPU adapter, got {:?} ({})",
+                    adapter_info.device_type, adapter_info.name
+                )
+                .into());
+            }
         }
 
         let (device, queue) = adapter
@@ -161,20 +170,21 @@ impl MockRenderer {
                 required_limits: wgpu::Limits::defaults(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 memory_hints: wgpu::MemoryHints::Performance,
-                label: Some("batching_prefix_sum_device"),
+                label: Some("hanabi_test_device"),
                 trace: wgpu::Trace::Off,
             })
             .await?;
 
         Ok(Self {
-            _instance: instance,
-            _adapter: adapter,
+            instance,
+            adapter,
             device,
             queue,
         })
     }
 }
 
+/// Submit the given command buffer and wait for completion.
 async fn submit_and_wait(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -227,7 +237,8 @@ async fn readback_u32(
     out
 }
 
-fn create_real_shader_module(
+/// Create a WGPU shader module from the given source code.
+fn create_shader_module(
     device: &wgpu::Device,
     shader_source: &str,
     file_path: &str,
@@ -281,7 +292,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // ------------------------------------------------------------------
         // Test 1: Prefix sum pass dataflow
         // ------------------------------------------------------------------
-        let prefix_shader = create_real_shader_module(
+        let prefix_shader = create_shader_module(
             &device,
             include_str!("../src/render/vfx_prefix_sum.wgsl"),
             "bevy_hanabi::vfx_prefix_sum",
@@ -406,8 +417,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         submit_and_wait(&device, &queue, encoder.finish()).await;
 
-        let prefix_out =
-            readback_u32(&device, &queue, &prefix_buffer, (prefix_init.len() * 4) as u64).await;
+        let prefix_out = readback_u32(
+            &device,
+            &queue,
+            &prefix_buffer,
+            (prefix_init.len() * 4) as u64,
+        )
+        .await;
         assert_eq!(prefix_out, vec![0, 10, 15, 0], "prefix sum output mismatch");
 
         let dispatch_out = readback_u32(
@@ -458,7 +474,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     out_effect_index[i] = effect_index;
 }
 "#
-                    .into(),
+                .into(),
             ),
         });
 
@@ -594,9 +610,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             pass.dispatch_workgroups(1, 1, 1);
         }
         submit_and_wait(&device, &queue, encoder.finish()).await;
-        let out_effect =
-            readback_u32(&device, &queue, &out_buffer, (slab_indices.len() * 4) as u64).await;
-        assert_eq!(out_effect, vec![0, 0, 1, 1, 2, 2], "effect index mapping mismatch");
+        let out_effect = readback_u32(
+            &device,
+            &queue,
+            &out_buffer,
+            (slab_indices.len() * 4) as u64,
+        )
+        .await;
+        assert_eq!(
+            out_effect,
+            vec![0, 0, 1, 1, 2, 2],
+            "effect index mapping mismatch"
+        );
 
         // ------------------------------------------------------------------
         // Test 3: indirect + prefix-sum + update-style routing across instances
@@ -636,7 +661,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     dispatch_buffer[ddi].z = 1u;
 }
 "#
-                    .into(),
+                .into(),
             ),
         });
         let update_route_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -678,7 +703,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     atomicAdd(&routed_count[effect_index], 1u);
 }
 "#
-                    .into(),
+                .into(),
             ),
         });
 
@@ -743,7 +768,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let prefix_buffer2 = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("prefix_lite"),
             contents: cast_slice(&prefix),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
         });
         let ddi_buffer2 = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("ddi_lite"),
@@ -846,7 +873,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         submit_and_wait(&device, &queue, encoder.finish()).await;
 
         prefix = readback_u32(&device, &queue, &prefix_buffer2, 8).await;
-        assert_eq!(prefix, vec![7, 5], "indirect stage did not write per-instance alive counts");
+        assert_eq!(
+            prefix,
+            vec![7, 5],
+            "indirect stage did not write per-instance alive counts"
+        );
 
         // CPU-side emulation of vfx_prefix_sum for this single batch: [7,5] -> [0,7]
         let prefix_after = vec![0_u32, 7_u32];
@@ -951,17 +982,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         submit_and_wait(&device, &queue, encoder.finish()).await;
 
         let routed = readback_u32(&device, &queue, &routed_buffer, 8).await;
-        assert_eq!(routed, vec![7, 5], "update routing collapsed instances unexpectedly");
+        assert_eq!(
+            routed,
+            vec![7, 5],
+            "update routing collapsed instances unexpectedly"
+        );
 
         // ------------------------------------------------------------------
         // Test 4: real generated vfx_update shader routes and counts instances
         // ------------------------------------------------------------------
         let writer = ExprWriter::new();
-        let init_pos = SetAttributeModifier::new(Attribute::POSITION, writer.lit(Vec3::ZERO).expr());
+        let init_pos =
+            SetAttributeModifier::new(Attribute::POSITION, writer.lit(Vec3::ZERO).expr());
         let module = writer.finish();
         let asset = EffectAsset::new(8, SpawnerSettings::rate(0.0.into()), module).init(init_pos);
         let sources = EffectShaderSources::generate(&asset, None, 0)?;
-        let update_shader = create_real_shader_module(
+        let update_shader = create_shader_module(
             &device,
             &sources.update_shader_source,
             "bevy_hanabi::generated_vfx_update",
@@ -1265,11 +1301,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             }],
         });
 
-        let update_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("real_update_pl"),
-            bind_group_layouts: &[Some(&bgl0), Some(&bgl1), Some(&bgl2), Some(&bgl3)],
-            immediate_size: 0,
-        });
+        let update_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("real_update_pl"),
+                bind_group_layouts: &[Some(&bgl0), Some(&bgl1), Some(&bgl2), Some(&bgl3)],
+                immediate_size: 0,
+            });
         let update_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("real_update_pipe"),
             layout: Some(&update_pipeline_layout),
@@ -1319,9 +1356,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             (indirect_rows.len() * std::mem::size_of::<IndirectEntryGpu>()) as u64,
         )
         .await;
-        assert_eq!(indirect_out[0], 0, "effect 0 particle[0] write index mismatch");
-        assert_eq!(indirect_out[3], 1, "effect 0 particle[1] write index mismatch");
-        assert_eq!(indirect_out[12], 0, "effect 1 particle[0] write index mismatch");
+        assert_eq!(
+            indirect_out[0], 0,
+            "effect 0 particle[0] write index mismatch"
+        );
+        assert_eq!(
+            indirect_out[3], 1,
+            "effect 0 particle[1] write index mismatch"
+        );
+        assert_eq!(
+            indirect_out[12], 0,
+            "effect 1 particle[0] write index mismatch"
+        );
 
         Ok::<(), Box<dyn std::error::Error>>(())
     })?;
