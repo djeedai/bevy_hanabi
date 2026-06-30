@@ -27,7 +27,8 @@ use wgpu::{BufferUsages, CommandEncoder, ShaderStages};
 
 use super::{
     aligned_buffer_vec::HybridAlignedBufferVec, effect_cache::SlabState, gpu_buffer::GpuBuffer,
-    BufferBindingSource, EffectBindGroups, GpuDispatchIndirectArgs,
+    BufferBindingSource, CachedPipelines, CachedReadyState, EffectBindGroups, ExtractedEffect,
+    ExtractedEffectMesh, ExtractedSpawner, GpuDispatchIndirectArgs,
 };
 use crate::{
     render::{effect_cache::SlabId, ChildEffectOf},
@@ -272,7 +273,15 @@ pub(crate) fn allocate_events(
     // Remove the component from effects which are not a child anymore. This should
     // be pretty rare; in general the effect is just despawned.
     for entity in &q_old_child_effects {
-        commands.entity(entity).remove::<CachedEffectEvents>();
+        commands.entity(entity).remove::<(
+            CachedEffectEvents,
+            CachedChildInfo,
+            ExtractedEffect,
+            ExtractedSpawner,
+            ExtractedEffectMesh,
+            CachedPipelines,
+            CachedReadyState,
+        )>();
     }
 }
 

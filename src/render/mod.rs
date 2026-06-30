@@ -2722,7 +2722,12 @@ pub(crate) fn extract_effects(
                     "Failed to resolve render entity of parent with main entity {:?}.",
                     main_entity
                 );
-                cmd.remove::<ChildEffectOf>();
+                cmd.remove::<(
+                    ChildEffectOf,
+                    ExtractedEffect,
+                    ExtractedSpawner,
+                    ExtractedEffectMesh,
+                )>();
                 // TODO - prevent extraction altogether here, instead of just de-parenting?
                 continue;
             };
@@ -3158,11 +3163,9 @@ pub(crate) fn on_remove_cached_effect(
         &CachedEffect,
         Option<&CachedEffectProperties>,
         Option<&CachedParentInfo>,
-        Option<&CachedEffectEvents>,
     )>,
     mut effect_cache: ResMut<EffectCache>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
-    mut event_cache: ResMut<EventCache>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("on_remove_cached_effect").entered();
@@ -3172,33 +3175,11 @@ pub(crate) fn on_remove_cached_effect(
 
     // Fecth the components of the effect being destroyed. Note that the despawn
     // command above is not yet applied, so this query should always succeed.
-    let Ok((
-        render_entity,
-        main_entity,
-        cached_effect,
-        _opt_props,
-        _opt_parent,
-        opt_cached_effect_events,
-    )) = query.get(trigger.event().entity)
+    let Ok((render_entity, main_entity, cached_effect, _opt_props, _opt_parent)) =
+        query.get(trigger.event().entity)
     else {
         return;
     };
-
-    // Dealllocate the effect slice in the event buffer, if any.
-    if let Some(cached_effect_events) = opt_cached_effect_events {
-        match event_cache.free(cached_effect_events) {
-            Err(err) => {
-                error!("Error while freeing effect event slice: {err:?}");
-            }
-            Ok(buffer_state) => {
-                if buffer_state != SlabState::Used {
-                    // Clear bind groups associated with the old buffer
-                    effect_bind_groups.init_metadata_bind_groups.clear();
-                    effect_bind_groups.update_metadata_bind_groups.clear();
-                }
-            }
-        }
-    }
 
     // Deallocate the effect slice in the GPU effect buffer, and if this was the
     // last slice, also deallocate the GPU buffer itself.
@@ -3609,9 +3590,9 @@ pub fn allocate_parent_child_infos(
             q_parent_effects.get(parent_entity)
         else {
             warn!("Unknown parent #{parent_entity:?} on child entity {child_entity:?}, removing CachedChildInfo.");
-            if maybe_cached_child_info.is_some() {
-                commands.entity(child_entity).remove::<CachedChildInfo>();
-            }
+            commands
+                .entity(child_entity)
+                .remove::<(CachedChildInfo, CachedEffectEvents)>();
             continue;
         };
 
@@ -3619,9 +3600,9 @@ pub fn allocate_parent_child_infos(
         let Some(local_child_index) = children_effects.0.iter().position(|e| *e == child_entity)
         else {
             warn!("Cannot find child entity {child_entity:?} in the children collection of parent entity {parent_entity:?}. Relationship desync?");
-            if maybe_cached_child_info.is_some() {
-                commands.entity(child_entity).remove::<CachedChildInfo>();
-            }
+            commands
+                .entity(child_entity)
+                .remove::<(CachedChildInfo, CachedEffectEvents)>();
             continue;
         };
         let local_child_index = local_child_index as u32;
@@ -3636,9 +3617,9 @@ pub fn allocate_parent_child_infos(
                 parent_cached_effect.slab_id.index(),
                 parent_entity
             );
-            if maybe_cached_child_info.is_some() {
-                commands.entity(child_entity).remove::<CachedChildInfo>();
-            }
+            commands
+                .entity(child_entity)
+                .remove::<(CachedChildInfo, CachedEffectEvents)>();
             continue;
         };
 
