@@ -1214,7 +1214,7 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
     const EM_OFFSET_MAX_UPDATE: usize = 2;
     const EM_OFFSET_MAX_SPAWN: usize = 3;
     const EM_OFFSET_INDIRECT_WRITE_INDEX: usize = 4;
-    const EM_OFFSET_INDIRECT_DISPATCH_INDEX: usize = 5;
+    const EM_OFFSET_INDIRECT_DRAW_INDEX: usize = 5;
 
     let renderer = MockRenderer::new();
     let device = renderer.device();
@@ -1249,12 +1249,12 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
     metadata_u32[EM_OFFSET_CAPACITY] = 200;
     metadata_u32[EM_OFFSET_ALIVE_COUNT] = 130;
     metadata_u32[EM_OFFSET_INDIRECT_WRITE_INDEX] = 0;
-    metadata_u32[EM_OFFSET_INDIRECT_DISPATCH_INDEX] = 0;
+    metadata_u32[EM_OFFSET_INDIRECT_DRAW_INDEX] = 0;
     let em1 = effect_stride_u32;
     metadata_u32[em1 + EM_OFFSET_CAPACITY] = 5;
     metadata_u32[em1 + EM_OFFSET_ALIVE_COUNT] = 1;
     metadata_u32[em1 + EM_OFFSET_INDIRECT_WRITE_INDEX] = 1;
-    metadata_u32[em1 + EM_OFFSET_INDIRECT_DISPATCH_INDEX] = 1;
+    metadata_u32[em1 + EM_OFFSET_INDIRECT_DRAW_INDEX] = 1;
     let metadata_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:indirect:metadata"),
         contents: cast_slice(&metadata_u32),

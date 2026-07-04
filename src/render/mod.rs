@@ -945,10 +945,7 @@ impl FromWorld for DispatchIndirectPipeline {
                     // @group(1) @binding(0) var<storage, read_write> effect_metadata_buffer :
                     // array<u32>;
                     storage_buffer::<GpuEffectMetadata>(false),
-                    // @group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer :
-                    // array<u32>;
-                    storage_buffer::<GpuIndirectIndex>(false),
-                    // @group(1) @binding(2) var<storage, read_write> draw_indirect_buffer :
+                    // @group(1) @binding(1) var<storage, read_write> draw_indirect_buffer :
                     // array<u32>;
                     storage_buffer::<GpuDrawIndexedIndirectArgs>(false),
                 ),
@@ -6417,10 +6414,7 @@ pub(crate) fn prepare_bind_groups(
                         // @group(1) @binding(0) var<storage, read_write> effect_metadata_buffer :
                         // array<u32>;
                         effect_metadata_buffer.as_entire_binding(),
-                        // @group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer
-                        // : array<DispatchIndirectArgs>;
-                        dispatch_indirect_buffer.as_entire_binding(),
-                        // @group(1) @binding(2) var<storage, read_write> draw_indirect_buffer :
+                        // @group(1) @binding(1) var<storage, read_write> draw_indirect_buffer :
                         // array<u32>;
                         draw_indirect_buffer.as_entire_binding(),
                     )),
@@ -7051,7 +7045,18 @@ impl DerefMut for HanabiComputePass<'_> {
 }
 
 impl<'a> HanabiComputePass<'a> {
-    pub fn new(pipeline_cache: &'a PipelineCache, compute_pass: ComputePass<'a>) -> Self {
+    pub fn new(
+        label: &str,
+        pipeline_cache: &'a PipelineCache,
+        render_context: &'a mut RenderContext,
+    ) -> Self {
+        let compute_pass =
+            render_context
+                .command_encoder()
+                .begin_compute_pass(&ComputePassDescriptor {
+                    label: Some(label),
+                    timestamp_writes: None,
+                });
         Self {
             pipeline_cache,
             compute_pass,
@@ -7085,21 +7090,6 @@ impl<'a> HanabiComputePass<'a> {
         self.pipeline_id = HanabiPipelineId::Cached(pipeline_id);
         Ok(())
     }
-}
-
-fn begin_hanabi_compute_pass<'encoder>(
-    label: &str,
-    pipeline_cache: &'encoder PipelineCache,
-    render_context: &'encoder mut RenderContext,
-) -> HanabiComputePass<'encoder> {
-    let compute_pass =
-        render_context
-            .command_encoder()
-            .begin_compute_pass(&ComputePassDescriptor {
-                label: Some(label),
-                timestamp_writes: None,
-            });
-    HanabiComputePass::new(pipeline_cache, compute_pass)
 }
 
 fn simulate(
@@ -7189,7 +7179,7 @@ fn simulate(
         trace!("init: loop over effect batches...");
 
         let mut compute_pass =
-            begin_hanabi_compute_pass("hanabi:init", &pipeline_cache, &mut render_context);
+            HanabiComputePass::new("hanabi:init", &pipeline_cache, &mut render_context);
 
         // Bind group simparams@0 is common to everything, only set once per init pass
         compute_pass.set_bind_group(
@@ -7345,7 +7335,7 @@ fn simulate(
     {
         // Only start a compute pass if there's an effect; makes things clearer in
         // debugger.
-        let mut compute_pass = begin_hanabi_compute_pass(
+        let mut compute_pass = HanabiComputePass::new(
             "hanabi:indirect_dispatch",
             &pipeline_cache,
             &mut render_context,
@@ -7406,7 +7396,7 @@ fn simulate(
     {
         // Only start a compute pass if there's an effect; makes things clearer in
         // debugger.
-        let mut compute_pass = begin_hanabi_compute_pass(
+        let mut compute_pass = HanabiComputePass::new(
             "hanabi:update_prefix_sum",
             &pipeline_cache,
             &mut render_context,
@@ -7444,7 +7434,7 @@ fn simulate(
     let mut needs_sort = false;
     {
         let mut compute_pass =
-            begin_hanabi_compute_pass("hanabi:update", &pipeline_cache, &mut render_context);
+            HanabiComputePass::new("hanabi:update", &pipeline_cache, &mut render_context);
 
         // Bind group simparams@0 is common to everything, only set once per update pass
         compute_pass.set_bind_group(
@@ -7556,9 +7546,7 @@ fn simulate(
         //
         // Calculate the prefix sum of the number of alive particles to sort.
         {
-            // Only start a compute pass if there's an effect; makes things clearer in
-            // debugger.
-            let mut compute_pass = begin_hanabi_compute_pass(
+            let mut compute_pass = HanabiComputePass::new(
                 "hanabi:sort_prefix_sum",
                 &pipeline_cache,
                 &mut render_context,
@@ -7610,7 +7598,7 @@ fn simulate(
         // Compute sort pass
         {
             let mut compute_pass =
-                begin_hanabi_compute_pass("hanabi:sort", &pipeline_cache, &mut render_context);
+                HanabiComputePass::new("hanabi:sort", &pipeline_cache, &mut render_context);
 
             let effect_metadata_buffer = effects_meta.effect_metadata_buffer.buffer().unwrap();
             let indirect_buffer = sort_bind_groups.indirect_buffer().unwrap();

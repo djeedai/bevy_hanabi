@@ -178,7 +178,6 @@ const EM_OFFSET_ALIVE_COUNT: u32 = 1u;
 const EM_OFFSET_MAX_UPDATE: u32 = 2u;
 const EM_OFFSET_MAX_SPAWN: u32 = 3u;
 const EM_OFFSET_INDIRECT_WRITE_INDEX: u32 = 4u;
-const EM_OFFSET_INDIRECT_DISPATCH_INDEX: u32 = 5u;
 
 /// Metadata describing a single effect instance.
 ///
