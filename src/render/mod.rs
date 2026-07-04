@@ -87,10 +87,10 @@ mod event;
 mod gpu_buffer;
 #[cfg(test)]
 mod headless_batching_tests;
-#[cfg(all(test, feature = "gpu_tests"))]
-mod shader_contract_tests;
 mod property;
 mod shader_cache;
+#[cfg(all(test, feature = "gpu_tests"))]
+mod shader_contract_tests;
 mod sort;
 
 use aligned_buffer_vec::AlignedBufferVec;
@@ -4709,11 +4709,13 @@ pub(crate) fn batch_effects(
         }
 
         // Append to sorted compute batches; this may merge with the previous one.
-        if let Some(effect_batch_index) = sorted_effect_batches.push(effect_batch) {
+        if let Some(new_effect_batch_index) = sorted_effect_batches.push(effect_batch) {
+            // Close the previous batch if any
             if has_open_batch {
                 effects_meta.end_batch();
             }
 
+            // Begin a new batch with this new effect instance
             let batch_info_id = effects_meta.begin_batch(
                 effect_slab_offset,
                 sorted_effect_batches.last().unwrap().spawner_base,
@@ -4723,16 +4725,19 @@ pub(crate) fn batch_effects(
             batch_spawn_prefix = 0;
 
             trace!(
-                "Spawned effect batch #{:?} with batch-info-id {} from cached instance on entity {:?}.",
-                effect_batch_index,
+                "Spawned new effect batch #{:?} with batch-info-id {} from cached instance on entity {:?}.",
+                new_effect_batch_index,
                 batch_info_id,
                 entity,
             );
 
-            // Spawn an EffectDrawBatch to drive rendering for that batch.
+            // Spawn an EffectDrawBatch to drive rendering for that batch. Note that
+            // technically nothing imposes we use the same batching for compute init/update
+            // and for rendering, so we could (and probably should) re-batch specifically
+            // for rendering. For now we just use the same batches.
             commands
                 .spawn(EffectDrawBatch {
-                    effect_batch_index,
+                    effect_batch_index: new_effect_batch_index,
                     translation,
                     main_entity: *main_entity,
                 })
@@ -4742,13 +4747,14 @@ pub(crate) fn batch_effects(
         effects_meta.add_effect_to_batch(batch_spawn_prefix);
         batch_spawn_prefix += instance_spawn_count;
 
-        // Ensure first_instance remains zero (required without
-        // INDIRECT_FIRST_INSTANCE support).
+        // Ensure first_instance remains zero (required without INDIRECT_FIRST_INSTANCE
+        // support).
         let mut draw_args = cached_draw_indirect_args.args;
         match &mut draw_args {
             AnyDrawIndirectArgs::NonIndexed(args) => args.first_instance = 0,
             AnyDrawIndirectArgs::Indexed(args) => args.first_instance = 0,
         }
+
         effects_meta.draw_indirect_buffer.update(
             cached_draw_indirect_args.row,
             draw_args.bitcast_to_row_entry(),
@@ -4759,7 +4765,7 @@ pub(crate) fn batch_effects(
         effects_meta.end_batch();
     }
 
-    // Allocate one render batch-info entry per effect instance after compute
+    // Allocate one render batch info entry per effect instance after compute
     // batching is finalized, to avoid nesting begin_batch()/end_batch() calls.
     for effect_batch in sorted_effect_batches.iter_mut() {
         for (effect_index, effect_data) in effect_batch.effect_data.iter_mut().enumerate() {

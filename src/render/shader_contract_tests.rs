@@ -1,6 +1,9 @@
 use std::{borrow::Cow, num::NonZeroU64};
 
-use bevy::{prelude::Vec3, render::{render_resource::*, renderer::RenderQueue}};
+use bevy::{
+    prelude::Vec3,
+    render::{render_resource::*, renderer::RenderQueue},
+};
 use bytemuck::{cast_slice, Pod, Zeroable};
 use futures::channel::oneshot;
 use naga_oil::compose::{ComposableModuleDescriptor, Composer, NagaModuleDescriptor};
@@ -8,8 +11,8 @@ use wgpu::util::DeviceExt;
 
 use super::*;
 use crate::{
-    Attribute, EffectAsset, EffectShaderSources, ExprWriter, SetAttributeModifier, SpawnerSettings,
-    test_utils::MockRenderer,
+    test_utils::MockRenderer, Attribute, EffectAsset, EffectShaderSources, ExprWriter,
+    SetAttributeModifier, SpawnerSettings,
 };
 
 #[repr(C)]
@@ -34,7 +37,11 @@ struct LocateBatch {
     _pad0: u32,
 }
 
-fn submit_and_wait(device: &RenderDevice, queue: &RenderQueue, command_buffer: wgpu::CommandBuffer) {
+fn submit_and_wait(
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    command_buffer: wgpu::CommandBuffer,
+) {
     queue.submit([command_buffer]);
     let (tx, rx) = oneshot::channel();
     queue.on_submitted_work_done(move || {
@@ -113,12 +120,12 @@ fn create_composed_shader_module(
         shader_defs: Default::default(),
         ..Default::default()
     })?;
-    Ok(device.wgpu_device().create_shader_module(
-        wgpu::ShaderModuleDescriptor {
+    Ok(device
+        .wgpu_device()
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(file_path),
             source: wgpu::ShaderSource::Naga(Cow::Owned(module)),
-        },
-    ))
+        }))
 }
 
 fn pack_effect_metadata_rows(rows: &[GpuEffectMetadata], storage_alignment: u32) -> Vec<u32> {
@@ -192,7 +199,10 @@ fn real_vfx_prefix_sum_contracts() -> Result<(), Box<dyn std::error::Error>> {
         },
     ];
     let prefix_init = [10_u32, 5, 8, 6];
-    let dispatch_init = [GpuDispatchIndirectArgs::default(), GpuDispatchIndirectArgs::default()];
+    let dispatch_init = [
+        GpuDispatchIndirectArgs::default(),
+        GpuDispatchIndirectArgs::default(),
+    ];
 
     let batch_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:prefix:batch"),
@@ -291,7 +301,12 @@ fn real_vfx_prefix_sum_contracts() -> Result<(), Box<dyn std::error::Error>> {
     }
     submit_and_wait(&device, &queue, encoder.finish());
 
-    let prefix_out = readback_vec::<u32>(&device, &queue, &prefix_buffer, (prefix_init.len() * 4) as u64);
+    let prefix_out = readback_vec::<u32>(
+        &device,
+        &queue,
+        &prefix_buffer,
+        (prefix_init.len() * 4) as u64,
+    );
     assert_eq!(prefix_out, vec![0, 10, 15, 0]);
 
     let dispatch_out = readback_vec::<GpuDispatchIndirectArgs>(
@@ -480,7 +495,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         pass.dispatch_workgroups(1, 1, 1);
     }
     submit_and_wait(&device, &queue, encoder.finish());
-    let out = readback_vec::<u32>(&device, &queue, &out_buffer, (slab_indices.len() * 4) as u64);
+    let out = readback_vec::<u32>(
+        &device,
+        &queue,
+        &out_buffer,
+        (slab_indices.len() * 4) as u64,
+    );
     assert_eq!(out, vec![0, 0, 1, 1, 2, 2]);
 }
 
@@ -618,7 +638,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         },
     ];
     let prefix_init = [0_u32, 0];
-    let ddi_init = [GpuDispatchIndirectArgs::default(), GpuDispatchIndirectArgs::default()];
+    let ddi_init = [
+        GpuDispatchIndirectArgs::default(),
+        GpuDispatchIndirectArgs::default(),
+    ];
 
     let sp_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:routing:spawner"),
@@ -633,7 +656,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let prefix_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:routing:prefix"),
         contents: cast_slice(&prefix_init),
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_SRC
+            | wgpu::BufferUsages::COPY_DST,
     });
     let ddi_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:routing:ddi"),
@@ -647,25 +672,41 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
                 count: None,
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
                 visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
                 count: None,
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
                 visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
                 count: None,
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 3,
                 visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
                 count: None,
             },
         ],
@@ -674,10 +715,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         label: Some("hanabi:test:routing:indirect:bg"),
         layout: &bgl_i,
         entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: sp_buffer.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 1, resource: em_buffer.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: prefix_buffer.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 3, resource: ddi_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: sp_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: em_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: prefix_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: ddi_buffer.as_entire_binding(),
+            },
         ],
     });
     let pl_i = wgpu_device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -736,19 +789,31 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
                 count: None,
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
                 visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
                 count: None,
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
                 visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None },
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
                 count: None,
             },
         ],
@@ -757,9 +822,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         label: Some("hanabi:test:routing:update:bg"),
         layout: &bgl_u,
         entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: prefix_buffer.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 1, resource: batch_buffer.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: routed_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: prefix_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: batch_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: routed_buffer.as_entire_binding(),
+            },
         ],
     });
     let pl_u = wgpu_device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1187,7 +1261,10 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
     });
 
-    let dispatch_init = [GpuDispatchIndirectArgs::default(), GpuDispatchIndirectArgs::default()];
+    let dispatch_init = [
+        GpuDispatchIndirectArgs::default(),
+        GpuDispatchIndirectArgs::default(),
+    ];
     let dispatch_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:indirect:dispatch"),
         contents: cast_slice(&dispatch_init),
@@ -1379,8 +1456,12 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
     let prefix_out = readback_vec::<u32>(&device, &queue, &prefix_buffer, 8);
     assert_eq!(prefix_out, vec![130, 1]);
 
-    let metadata_out =
-        readback_vec::<u32>(&device, &queue, &metadata_buffer, (metadata_u32.len() * 4) as u64);
+    let metadata_out = readback_vec::<u32>(
+        &device,
+        &queue,
+        &metadata_buffer,
+        (metadata_u32.len() * 4) as u64,
+    );
     assert_eq!(metadata_out[EM_OFFSET_MAX_UPDATE], 130);
     assert_eq!(metadata_out[EM_OFFSET_MAX_SPAWN], 70);
     assert_eq!(metadata_out[em1 + EM_OFFSET_MAX_UPDATE], 1);
@@ -1417,10 +1498,7 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
     let spawner_stride_u32 = spawners.aligned_size() / 4;
     let render_pong_offset_u32 = std::mem::offset_of!(GpuSpawnerParams, render_pong) / 4;
     assert_eq!(spawner_out[render_pong_offset_u32], 1);
-    assert_eq!(
-        spawner_out[spawner_stride_u32 + render_pong_offset_u32],
-        0
-    );
+    assert_eq!(spawner_out[spawner_stride_u32 + render_pong_offset_u32], 0);
 
     Ok(())
 }

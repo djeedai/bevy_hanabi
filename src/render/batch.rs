@@ -134,9 +134,11 @@ pub(crate) struct EffectBatch {
 impl EffectBatch {
     /// Try to merge another batch into this one.
     ///
-    /// Returns `None` if merged successfully. Returns `Some(input)` if the
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if merged successfully. Returns `Err(input)` if the
     /// input couldn't be merged.
-    pub fn try_merge(&mut self, input: EffectBatch) -> Option<EffectBatch> {
+    pub fn try_merge(&mut self, input: EffectBatch) -> Result<(), EffectBatch> {
         // Keep merging conservative; parent/child/event-linked effects require
         // additional per-effect bindings and aren't safe to merge yet.
         if self.handle != input.handle
@@ -155,7 +157,7 @@ impl EffectBatch {
             || !self.spawn_info.is_cpu()
             || !input.spawn_info.is_cpu()
         {
-            return Some(input);
+            return Err(input);
         }
 
         self.effect_count += input.effect_count;
@@ -171,7 +173,7 @@ impl EffectBatch {
         {
             *self_count += input_count;
         }
-        None
+        Ok(())
     }
 }
 
@@ -206,14 +208,18 @@ impl SortedEffectBatches {
     /// returned.
     pub fn push(&mut self, effect_batch: EffectBatch) -> Option<EffectBatchIndex> {
         let effect_batch = if let Some(batch) = self.batches.last_mut() {
-            let Some(effect_batch) = batch.try_merge(effect_batch) else {
+            let Err(effect_batch) = batch.try_merge(effect_batch) else {
+                // Successfully batched
                 return None;
             };
+            // Failed to merge incompatible batches
             effect_batch
         } else {
+            // No prior batch to merge with
             effect_batch
         };
 
+        // Start a new batch
         let index = self.batches.len() as u32;
         self.batches.push(effect_batch);
         Some(EffectBatchIndex(index))

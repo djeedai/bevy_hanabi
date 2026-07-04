@@ -3,6 +3,16 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- Batch same-effect instances. This greatly improves performance when using many instances
+  of the same effect, by reducing the number of compute jobs dispatched to the GPU, and instead
+  taking full advantage of all GPU threads to process the init/update of all particles in parallel.
+  Batching is still limited to same-effect instances (same `EffectAsset`), and is currently not
+  available for GPU particle spawning.
+
 ## [0.19.0] 2026-06-27
 
 _This version is compatible with Bevy 0.19_
