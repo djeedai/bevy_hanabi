@@ -3045,13 +3045,13 @@ impl EffectsMeta {
         batch_info_base
     }
 
-    /// Add a single effect instance to the current batch.
-    pub fn add_effect_to_batch(&mut self, slab_offset: u32) {
+    /// Add a single effect instance entry to the current batch prefix array.
+    pub fn add_effect_to_batch(&mut self, prefix_value: u32) {
         assert!(
             self.is_batch_open,
             "Cannot add effect before calling begin_batch()"
         );
-        self.prefix_sum_buffer.push(slab_offset);
+        self.prefix_sum_buffer.push(prefix_value);
     }
 
     /// End the current batch.
@@ -4635,6 +4635,7 @@ pub(crate) fn batch_effects(
     trace!("Batching {} effects...", q_cached_effects.iter().len());
     sorted_effect_batches.clear();
     let mut has_open_batch = false;
+    let mut batch_spawn_prefix = 0_u32;
     for entity in effect_sorter.effects.iter().map(|e| e.entity) {
         let Ok((
             entity,
@@ -4655,6 +4656,11 @@ pub(crate) fn batch_effects(
         };
 
         let translation = extracted_spawner.transform.translation();
+        let instance_spawn_count = if input.event_buffer_index.is_some() {
+            0
+        } else {
+            extracted_spawner.spawn_count
+        };
 
         // Now that the effects are sorted in batching order, we can allocate the
         // GpuSpawnerParams in the GPU buffer, such that they're contiguous for a single
@@ -4714,6 +4720,7 @@ pub(crate) fn batch_effects(
             );
             sorted_effect_batches.last_mut().unwrap().batch_info_id = batch_info_id;
             has_open_batch = true;
+            batch_spawn_prefix = 0;
 
             trace!(
                 "Spawned effect batch #{:?} with batch-info-id {} from cached instance on entity {:?}.",
@@ -4732,7 +4739,8 @@ pub(crate) fn batch_effects(
                 .insert(TemporaryRenderEntity);
         }
 
-        effects_meta.add_effect_to_batch(effect_slab_offset);
+        effects_meta.add_effect_to_batch(batch_spawn_prefix);
+        batch_spawn_prefix += instance_spawn_count;
 
         // Ensure first_instance remains zero (required without
         // INDIRECT_FIRST_INSTANCE support).

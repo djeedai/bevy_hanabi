@@ -55,9 +55,9 @@ mod tests {
             batch_info_base
         }
 
-        fn add_effect_to_batch(&mut self, slab_offset: u32) {
+        fn add_effect_to_batch(&mut self, prefix_value: u32) {
             assert!(self.is_batch_open, "Cannot add effect before calling begin_batch()");
-            self.prefix_sum_buffer.push(slab_offset);
+            self.prefix_sum_buffer.push(prefix_value);
         }
 
         fn end_batch(&mut self) {
