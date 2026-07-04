@@ -112,9 +112,8 @@ pub(crate) struct EffectBatch {
     ///
     /// [`GpuSpawnerParams`]: super::GpuSpawnerParams
     pub spawner_base: u32,
-    /// Total number of effect instances batched together.
-    pub effect_count: u32,
-    /// Per-effect metadata used for draw and sorting.
+    /// Per-effect metadata used for draw and sorting. The number of elements
+    /// equals the number of effects batched together inside this batch.
     pub effect_data: Vec<BatchEffectData>,
     /// Particle layout shared by all batched effects and groups.
     pub particle_layout: ParticleLayout,
@@ -160,7 +159,6 @@ impl EffectBatch {
             return Err(input);
         }
 
-        self.effect_count += input.effect_count;
         self.effect_data.extend(input.effect_data);
         if let (
             BatchSpawnInfo::CpuSpawner {
@@ -488,7 +486,6 @@ impl EffectBatch {
             child_event_buffers: input.child_effects.clone(),
             property_key,
             spawner_base: spawner_index,
-            effect_count: 1,
             effect_data: vec![BatchEffectData {
                 entity: main_entity.index_u32(),
                 slab_offset: input.effect_slice.slice.start,
