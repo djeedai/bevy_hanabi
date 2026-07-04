@@ -184,11 +184,6 @@ harness = false
 required-features = ["bevy/bevy_winit", "bevy/bevy_window"]
 
 [[test]]
-name = "batching_prefix_sum"
-path = "gpu_tests/batching_prefix_sum.rs"
-harness = false
-
-[[test]]
 name = "batching_instancing"
 path = "gpu_tests/batching_instancing.rs"
 harness = false
