@@ -109,7 +109,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Find the index of the effect this particle is part of.
     let location = find_location_from_particle(update_particle_index);
-    let spawner = &spawners[batch_info.base_effect + location.effect_index];
+    let spawner = &spawners[batch_info.spawner_base + location.effect_index];
     effect_metadata_index = (*spawner).effect_metadata_index;
     let base_particle = (*spawner).slab_offset;
     let slab_particle_index = base_particle + location.update_index;

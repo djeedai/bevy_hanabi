@@ -3,9 +3,14 @@ use std::{fmt::Debug, num::NonZeroU32};
 use bevy::{
     ecs::entity::EntityHashMap,
     prelude::*,
-    render::{render_resource::CachedComputePipelineId, sync_world::MainEntity},
+    render::{
+        render_resource::{Buffer, BufferVec, CachedComputePipelineId},
+        renderer::{RenderDevice, RenderQueue},
+        sync_world::MainEntity,
+    },
 };
 use fixedbitset::FixedBitSet;
+use wgpu::BufferUsages;
 
 use super::{
     effect_cache::EffectSlice,
@@ -14,8 +19,8 @@ use super::{
 };
 use crate::{
     render::{
-        buffer_table::BufferTableId, effect_cache::SlabId, ExtractedEffect, ExtractedSpawner,
-        GpuSpawnerParams,
+        aligned_buffer_vec::AlignedBufferVec, buffer_table::BufferTableId, effect_cache::SlabId,
+        ExtractedEffect, ExtractedSpawner, GpuBatchInfo, GpuSpawnerParams,
     },
     AlphaMode, EffectAsset, ParticleLayout, TextureLayout,
 };
@@ -67,12 +72,19 @@ impl BatchSpawnInfo {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BatchEffectData {
+    /// Main [`Entity`] this effect instance was extracted from.
     pub entity: u32,
+    /// Offset into the GPU buffer where the particles for this effect instance
+    /// are located. This is uploaded to GPU as [`GpuBatchInfo::base_particle`].
     pub slab_offset: u32,
     pub draw_indirect_buffer_row_index: BufferTableId,
     pub metadata_table_id: BufferTableId,
     pub sort_fill_indirect_dispatch_index: Option<u32>,
-    pub render_batch_info_id: u32,
+    /// Offset in bytes of the [`GpuBatchInfo`] into the
+    /// [`Batcher::batch_info_buffer`], which contains the location of the
+    /// particles to render for this effect instance. Ready for bind group
+    /// dynamic offset usage.
+    pub render_batch_info_offset: u32,
 }
 
 /// Batch of effects dispatched and rendered together.
@@ -178,8 +190,8 @@ impl EffectBatch {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct EffectBatchIndex(pub u32);
 
-#[derive(Debug, Default, Resource)]
-pub(crate) struct SortedEffectBatches {
+#[derive(Resource)]
+pub(crate) struct Batcher {
     /// Effect batches in the order they were inserted by [`push()`], indexed by
     /// the returned [`EffectBatchIndex`].
     ///
@@ -188,15 +200,143 @@ pub(crate) struct SortedEffectBatches {
     /// Index of the dispatch queue used for indirect fill dispatch and
     /// submitted to [`GpuBufferOperations`].
     pub(super) dispatch_queue_index: Option<u32>,
+    /// Global shared GPU buffer storing the various `BatchInfo` structs for the
+    /// active batches. This is dynamically updated each frame based on current
+    /// batching, with one entry per batch (= one entry per dispatch/draw).
+    batch_info_buffer: AlignedBufferVec<GpuBatchInfo>,
+    /// Debug: was begin_batch() called without end_batch()?
+    is_batch_open: bool,
+    /// Buffer containing the prefix sums for all batches.
+    prefix_sum_buffer: BufferVec<u32>,
+    /// Current running prefix sum counter of CPU values passed to
+    /// [`Self::push()`], and used to initialize the prefix sum of each batch
+    /// for the next init pass.
+    cpu_prefix_sum_value: u32,
 }
 
-impl SortedEffectBatches {
+impl FromWorld for Batcher {
+    fn from_world(world: &mut World) -> Self {
+        let device = world.resource::<RenderDevice>();
+        let item_align =
+            NonZeroU32::new(device.limits().min_storage_buffer_offset_alignment).unwrap();
+        let batch_info_buffer = AlignedBufferVec::new(
+            BufferUsages::STORAGE,
+            Some(item_align.into()),
+            Some("hanabi:buffer:batch_info".to_string()),
+        );
+        let mut prefix_sum_buffer = BufferVec::new(BufferUsages::STORAGE);
+        prefix_sum_buffer.set_label(Some("prefix_sum_buffer"));
+        Self {
+            batches: vec![],
+            dispatch_queue_index: None,
+            batch_info_buffer,
+            is_batch_open: false,
+            prefix_sum_buffer,
+            cpu_prefix_sum_value: 0,
+        }
+    }
+}
+
+impl Batcher {
+    #[inline]
+    pub fn batch_info_buffer(&self) -> Option<&Buffer> {
+        self.batch_info_buffer.buffer()
+    }
+
+    #[inline]
+    pub fn batch_info_buffer_aligned_size(&self) -> u32 {
+        self.batch_info_buffer.aligned_size() as u32
+    }
+
+    #[inline]
+    pub fn prefix_sum_buffer(&self) -> Option<&Buffer> {
+        self.prefix_sum_buffer.buffer()
+    }
+
     pub fn clear(&mut self) {
         self.batches.clear();
         self.dispatch_queue_index = None;
+        self.prefix_sum_buffer.clear();
+        self.batch_info_buffer.clear();
+    }
+
+    /// Begin a new batch of effects.
+    fn begin_batch(&mut self, base_particle: u32, spawner_base: u32) -> u32 {
+        assert!(!self.is_batch_open, "Duplicate call to begin_batch()");
+
+        let prefix_sum_offset = self.prefix_sum_buffer.len() as u32;
+
+        let batch_info_base = self.batch_info_buffer.len() as u32;
+        let batch_info = GpuBatchInfo {
+            total_spawn_count: 0,
+            total_update_count: 0,
+            spawner_base,
+            base_particle,
+            prefix_sum_offset,
+            prefix_sum_count: u32::MAX, // invalid; set in end_batch()
+        };
+        trace!("batch info = {:?}", batch_info);
+        self.batch_info_buffer.push(batch_info);
+        self.is_batch_open = true;
+
+        batch_info_base
+    }
+
+    /// Add a single effect instance entry to the current batch prefix array.
+    fn add_effect_to_batch(&mut self, prefix_value: u32) {
+        assert!(
+            self.is_batch_open,
+            "Cannot add effect before calling begin_batch()"
+        );
+        self.prefix_sum_buffer.push(prefix_value);
+    }
+
+    /// Try to end the current batch, if any. Does nothing if no batch is
+    /// pending.
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if a batch was closed, or `false` otherwise.
+    pub fn try_end_batch(&mut self) -> bool {
+        if self.is_batch_open {
+            self.end_batch();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// End the current batch.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no batch is pending.
+    fn end_batch(&mut self) {
+        assert!(
+            self.is_batch_open,
+            "Call to end_batch() without begin_batch()"
+        );
+
+        let batch = self
+            .batch_info_buffer
+            .last_mut()
+            .expect("No open batch. Missing begin_batch() call?");
+        let end = self.prefix_sum_buffer.len() as u32;
+        assert!(end >= batch.prefix_sum_offset);
+        batch.prefix_sum_count = end - batch.prefix_sum_offset;
+
+        self.is_batch_open = false;
     }
 
     /// Insert a new batch into the collection.
+    ///
+    /// Try to merge the `effect_batch` into the last pushed batch, or create a
+    /// new standalone batch if not possible (incompatible effects, or first
+    /// one). The `instance_spawn_count` is the number of particles to spawn
+    /// from CPU, and is used to initialize the prefix sum buffer, for use by
+    /// the init pass (CPU spawn). The update pass' prefix sum is recomputed
+    /// inside the same buffer between the init and update passes, directly on
+    /// GPU.
     ///
     /// # Returns
     ///
@@ -204,10 +344,18 @@ impl SortedEffectBatches {
     /// merged with a previous batch. Otherwise the input batch was merged with
     /// an existing one, and therefore share its index; in that case `None` is
     /// returned.
-    pub fn push(&mut self, effect_batch: EffectBatch) -> Option<EffectBatchIndex> {
+    pub fn push(
+        &mut self,
+        effect_batch: EffectBatch,
+        instance_spawn_count: u32,
+    ) -> Option<EffectBatchIndex> {
+        assert!(effect_batch.effect_data.len() == 1);
+
         let effect_batch = if let Some(batch) = self.batches.last_mut() {
             let Err(effect_batch) = batch.try_merge(effect_batch) else {
                 // Successfully batched
+                self.add_effect_to_batch(self.cpu_prefix_sum_value);
+                self.cpu_prefix_sum_value += instance_spawn_count;
                 return None;
             };
             // Failed to merge incompatible batches
@@ -217,9 +365,22 @@ impl SortedEffectBatches {
             effect_batch
         };
 
+        // Close the previous batch if any
+        self.try_end_batch();
+
         // Start a new batch
         let index = self.batches.len() as u32;
+        let base_particle = effect_batch.effect_data[0].slab_offset;
         self.batches.push(effect_batch);
+
+        // Begin a new batch with this new effect instance
+        let batch_info_id = self.begin_batch(base_particle, self.last().unwrap().spawner_base);
+        self.last_mut().unwrap().batch_info_id = batch_info_id;
+        self.cpu_prefix_sum_value = 0;
+
+        self.add_effect_to_batch(self.cpu_prefix_sum_value);
+        self.cpu_prefix_sum_value += instance_spawn_count;
+
         Some(EffectBatchIndex(index))
     }
 
@@ -233,12 +394,6 @@ impl SortedEffectBatches {
         self.batches.last_mut()
     }
 
-    #[inline]
-    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, EffectBatch> {
-        self.batches.iter_mut()
-    }
-
-    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.batches.len()
     }
@@ -259,6 +414,61 @@ impl SortedEffectBatches {
         } else {
             None
         }
+    }
+
+    /// Allocate the render batches.
+    ///
+    /// Allocate one render batch info entry per effect instance after compute
+    /// batching is finalized, to avoid nesting begin_batch()/end_batch() calls.
+    /// Currently there's no rendering batching, so we allocate one GpuBatchInfo
+    /// per effect instance.
+    pub fn allocate_render_batches(&mut self) {
+        let batch_info_aligned_size = self.batch_info_buffer_aligned_size();
+        let num_batches = self.batches.len();
+        for batch_index in 0..num_batches {
+            let num_effects = self.batches[batch_index].effect_data.len();
+            for effect_index in 0..num_effects {
+                let effect_batch = &self.batches[batch_index];
+                let effect_data = &effect_batch.effect_data[effect_index];
+                if effect_data.render_batch_info_offset != u32::MAX {
+                    continue;
+                }
+                let spawner_index = effect_batch.spawner_base + effect_index as u32;
+
+                let base_particle = effect_data.slab_offset;
+                let render_batch_info_id = self.begin_batch(base_particle, spawner_index);
+                // Render-only batch infos are not processed by vfx_prefix_sum; keep
+                // a relative offset of 0 for the single effect in that batch.
+                self.add_effect_to_batch(0);
+                self.end_batch();
+                let render_batch_info_offset = render_batch_info_id
+                    .checked_mul(batch_info_aligned_size)
+                    .unwrap();
+
+                self.batches[batch_index].effect_data[effect_index].render_batch_info_offset =
+                    render_batch_info_offset;
+            }
+        }
+    }
+
+    #[inline]
+    pub fn write_batch_info_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
+        self.batch_info_buffer.write_buffer(device, queue)
+    }
+
+    pub fn write_prefix_sum_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
+        let mut reallocated = false;
+        let cpu_len = self.prefix_sum_buffer.len();
+        if cpu_len > 0 {
+            let gpu_capacity = self.prefix_sum_buffer.capacity();
+            if cpu_len > gpu_capacity {
+                self.prefix_sum_buffer.reserve(cpu_len, device);
+                reallocated = true;
+            }
+            assert!(self.prefix_sum_buffer.buffer().is_some());
+            self.prefix_sum_buffer.write_buffer(device, queue);
+        }
+        reallocated
     }
 }
 
@@ -417,6 +627,13 @@ impl EffectSorter {
             ordering.push(effect_index);
         }
     }
+
+    /// Iterate over the effects. This only iterates in sorted order if
+    /// [`Self::sort()`] was called beforehand.
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = Entity> + use<'_> {
+        self.effects.iter().map(|e| e.entity)
+    }
 }
 
 /// Single effect batch to drive rendering.
@@ -492,7 +709,7 @@ impl EffectBatch {
                 draw_indirect_buffer_row_index,
                 metadata_table_id,
                 sort_fill_indirect_dispatch_index: None,
-                render_batch_info_id: u32::MAX,
+                render_batch_info_offset: u32::MAX,
             }],
             particle_layout: input.effect_slice.particle_layout.clone(),
             layout_flags: extracted_effect.layout_flags,

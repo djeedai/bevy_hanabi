@@ -176,6 +176,28 @@ impl<T: Pod + ShaderType + ShaderSize> GpuBuffer<T> {
         }
     }
 
+    /// Allocate a contiguous slice of new entries in the buffer.
+    ///
+    /// If the GPU buffer has not enough storage, or is not allocated yet, this
+    /// schedules a (re-)allocation, which must be applied by calling
+    /// [`allocate_gpu()`] once a frame after all [`allocate()`] calls were made
+    /// for that frame.
+    ///
+    /// # Returns
+    ///
+    /// The index of the first allocated entry.
+    ///
+    /// [`allocate_gpu()`]: Self::allocate_gpu
+    /// [`allocate()`]: Self::allocate
+    pub fn allocate_slice(&mut self, count: u32) -> u32 {
+        // FIXME - we bypass the free list to be sure to have a contiguous slice
+        // Note: we may return an index past the buffer capacity. This will instruct
+        // allocate_gpu() to re-allocate the buffer.
+        let base_index = self.used_size;
+        self.used_size += count;
+        base_index
+    }
+
     /// Free an existing entry.
     ///
     /// # Panics

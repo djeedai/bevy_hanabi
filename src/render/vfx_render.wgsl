@@ -54,7 +54,7 @@ var<private> effect_metadata_index: u32;
 // var<private> properties_array_index: u32;
 
 fn get_spawner_index() -> u32 {
-    return batch_info.base_effect + effect_location.effect_index;
+    return batch_info.spawner_base + effect_location.effect_index;
 }
 
 fn get_camera_position_effect_space() -> vec3<f32> {
@@ -216,7 +216,10 @@ fn vertex(
     // This is rarely useful on its own.
     let slab_particle_index = batch_info.base_particle + instance_index;
 
-    // Find the index of the effect this particle is part of.
+    // Find the index of the effect this particle is part of. Note that currently
+    // rendering is not yet batched, so this really derives into (effect_index = 0,
+    // base_particle = batch_info.base_particle), and the binary search is a bit useless
+    // until an actual batching is set up.
     effect_location = find_location_from_particle(slab_particle_index);
     let spawner = &spawners[get_spawner_index()];
     effect_metadata_index = (*spawner).effect_metadata_index;

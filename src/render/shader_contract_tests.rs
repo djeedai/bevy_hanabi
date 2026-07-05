@@ -191,7 +191,7 @@ fn real_vfx_prefix_sum_contracts() -> Result<(), Box<dyn std::error::Error>> {
             ..default()
         },
         GpuBatchInfo {
-            base_effect: 3,
+            spawner_base: 3,
             base_particle: 500,
             prefix_sum_offset: 3,
             prefix_sum_count: 1,
@@ -523,7 +523,7 @@ fn indirect_plus_update_routing_contracts() {
     #[derive(Clone, Copy, Pod, Zeroable)]
     struct BatchInfoLite {
         total_update_count: u32,
-        base_effect: u32,
+        spawner_base: u32,
         base_particle: u32,
         prefix_sum_offset: u32,
         prefix_sum_count: u32,
@@ -578,7 +578,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             r#"
 struct BatchInfo {
     total_update_count: u32,
-    base_effect: u32,
+    spawner_base: u32,
     base_particle: u32,
     prefix_sum_offset: u32,
     prefix_sum_count: u32,
@@ -767,7 +767,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     queue.write_buffer(&prefix_buffer, 0, cast_slice(&prefix_after));
     let batch_lite = BatchInfoLite {
         total_update_count: 12,
-        base_effect: 0,
+        spawner_base: 0,
         base_particle: 100,
         prefix_sum_offset: 0,
         prefix_sum_count: 2,

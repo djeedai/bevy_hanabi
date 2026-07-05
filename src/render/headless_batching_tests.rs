@@ -1,20 +1,15 @@
 #![cfg(test)]
 
 mod tests {
+    use crate::render::GpuDispatchIndirectArgs;
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct BatchInfo {
-        base_effect: u32,
+        spawner_base: u32,
         base_particle: u32,
         prefix_sum_offset: u32,
         prefix_sum_count: u32,
         total_update_count: u32,
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct DispatchIndirectArgs {
-        x: u32,
-        y: u32,
-        z: u32,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,7 +22,7 @@ mod tests {
     fn run_prefix_sum_pass(
         batch_infos: &mut [BatchInfo],
         prefix_sum: &mut [u32],
-        dispatch: &mut [DispatchIndirectArgs],
+        dispatch: &mut [GpuDispatchIndirectArgs],
     ) {
         for (batch_index, batch) in batch_infos.iter_mut().enumerate() {
             let offset = batch.prefix_sum_offset as usize;
@@ -39,7 +34,7 @@ mod tests {
                 sum += count;
             }
             batch.total_update_count = sum;
-            dispatch[batch_index] = DispatchIndirectArgs {
+            dispatch[batch_index] = GpuDispatchIndirectArgs {
                 x: sum.div_ceil(64),
                 y: 1,
                 z: 1,
@@ -81,14 +76,14 @@ mod tests {
         let mut prefix_sum = vec![10, 5, 8, 6];
         let mut batches = vec![
             BatchInfo {
-                base_effect: 0,
+                spawner_base: 0,
                 base_particle: 100,
                 prefix_sum_offset: 0,
                 prefix_sum_count: 3,
                 total_update_count: 0,
             },
             BatchInfo {
-                base_effect: 3,
+                spawner_base: 3,
                 base_particle: 500,
                 prefix_sum_offset: 3,
                 prefix_sum_count: 1,
@@ -96,8 +91,8 @@ mod tests {
             },
         ];
         let mut dispatch = vec![
-            DispatchIndirectArgs { x: 0, y: 0, z: 0 },
-            DispatchIndirectArgs { x: 0, y: 0, z: 0 },
+            GpuDispatchIndirectArgs { x: 0, y: 0, z: 0 },
+            GpuDispatchIndirectArgs { x: 0, y: 0, z: 0 },
         ];
 
         run_prefix_sum_pass(&mut batches, &mut prefix_sum, &mut dispatch);
@@ -107,8 +102,8 @@ mod tests {
         assert_eq!(prefix_sum, vec![0, 10, 15, 0]);
         assert_eq!(batches[0].total_update_count, 23);
         assert_eq!(batches[1].total_update_count, 6);
-        assert_eq!(dispatch[0], DispatchIndirectArgs { x: 1, y: 1, z: 1 });
-        assert_eq!(dispatch[1], DispatchIndirectArgs { x: 1, y: 1, z: 1 });
+        assert_eq!(dispatch[0], GpuDispatchIndirectArgs { x: 1, y: 1, z: 1 });
+        assert_eq!(dispatch[1], GpuDispatchIndirectArgs { x: 1, y: 1, z: 1 });
     }
 
     #[test]
@@ -116,7 +111,7 @@ mod tests {
         // Exclusive prefix sums for 3 effects in a batch.
         let prefix_sum = vec![0, 10, 15];
         let batch = BatchInfo {
-            base_effect: 7,
+            spawner_base: 7,
             base_particle: 0,
             prefix_sum_offset: 0,
             prefix_sum_count: 3,
