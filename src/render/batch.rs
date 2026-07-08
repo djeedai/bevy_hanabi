@@ -149,6 +149,7 @@ impl EffectBatch {
     ///
     /// Returns `Ok(())` if merged successfully. Returns `Err(input)` if the
     /// input couldn't be merged.
+    #[allow(clippy::result_large_err)]
     pub fn try_merge(&mut self, input: EffectBatch) -> Result<(), EffectBatch> {
         // Keep merging conservative; parent/child/event-linked effects require
         // additional per-effect bindings and aren't safe to merge yet.
