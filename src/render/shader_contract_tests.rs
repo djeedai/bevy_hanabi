@@ -168,6 +168,20 @@ fn write_aligned_spawners(
     buffer
 }
 
+/// Create an array containing the input slice content padded to the given alignment.
+fn padded_slice_content<T: ShaderType + Pod>(arr: &[T], align: u32) -> Vec<u8> {
+    let aligned_size = (T::min_size().get() as usize).next_multiple_of(align as usize);
+    let total_size = arr.len() * aligned_size;
+    let mut data = vec![0u8; total_size];
+    let cpu_size = size_of::<T>();
+    for (index, item) in arr.iter().enumerate() {
+        let offset = index * aligned_size;
+        let item_bytes = cast_slice(std::slice::from_ref(item));
+        data[offset..offset + cpu_size].copy_from_slice(item_bytes);
+    }
+    data
+}
+
 #[test]
 fn real_vfx_prefix_sum_contracts() -> Result<(), Box<dyn std::error::Error>> {
     let renderer = MockRenderer::new();
@@ -204,9 +218,13 @@ fn real_vfx_prefix_sum_contracts() -> Result<(), Box<dyn std::error::Error>> {
         GpuDispatchIndirectArgs::default(),
     ];
 
+    let batch_content = padded_slice_content(
+        &batches,
+        wgpu_device.limits().min_storage_buffer_offset_alignment,
+    );
     let batch_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:prefix:batch"),
-        contents: cast_slice(&batches),
+        contents: &batch_content,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
     });
     let prefix_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -985,13 +1003,17 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
         contents: cast_slice(&[0_u32, 2_u32]),
         usage: wgpu::BufferUsages::STORAGE,
     });
-    let batch_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("hanabi:test:update:batch"),
-        contents: cast_slice(&[GpuBatchInfo {
+    let batch_content = padded_slice_content(
+        &[GpuBatchInfo {
             total_update_count: 3,
             prefix_sum_count: 2,
             ..default()
-        }]),
+        }],
+        wgpu_device.limits().min_storage_buffer_offset_alignment,
+    );
+    let batch_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("hanabi:test:update:batch"),
+        contents: &batch_content,
         usage: wgpu::BufferUsages::STORAGE,
     });
     let metadata_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1261,16 +1283,6 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
     });
 
-    let dispatch_init = [
-        GpuDispatchIndirectArgs::default(),
-        GpuDispatchIndirectArgs::default(),
-    ];
-    let dispatch_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("hanabi:test:indirect:dispatch"),
-        contents: cast_slice(&dispatch_init),
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-    });
-
     let mut draw_init = [GpuDrawIndexedIndirectArgs::default(); 2];
     draw_init[0].instance_count = 9;
     draw_init[1].instance_count = 4;
@@ -1345,16 +1357,6 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 count: None,
             },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
         ],
     });
     let bgl2 = wgpu_device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1400,10 +1402,6 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: dispatch_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
                 resource: draw_buffer.as_entire_binding(),
             },
         ],
@@ -1466,19 +1464,6 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(metadata_out[EM_OFFSET_MAX_SPAWN], 70);
     assert_eq!(metadata_out[em1 + EM_OFFSET_MAX_UPDATE], 1);
     assert_eq!(metadata_out[em1 + EM_OFFSET_MAX_SPAWN], 4);
-
-    let dispatch_out = readback_vec::<GpuDispatchIndirectArgs>(
-        &device,
-        &queue,
-        &dispatch_buffer,
-        (std::mem::size_of::<GpuDispatchIndirectArgs>() * 2) as u64,
-    );
-    assert_eq!(dispatch_out[0].x, 3);
-    assert_eq!(dispatch_out[0].y, 1);
-    assert_eq!(dispatch_out[0].z, 1);
-    assert_eq!(dispatch_out[1].x, 1);
-    assert_eq!(dispatch_out[1].y, 1);
-    assert_eq!(dispatch_out[1].z, 1);
 
     let draw_out = readback_vec::<GpuDrawIndexedIndirectArgs>(
         &device,
