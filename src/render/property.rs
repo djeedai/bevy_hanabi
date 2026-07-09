@@ -697,6 +697,15 @@ pub struct PropertyBindGroupKey {
     pub binding_size: u32,
 }
 
+impl From<&CachedEffectProperties> for PropertyBindGroupKey {
+    fn from(value: &CachedEffectProperties) -> Self {
+        Self {
+            buffer_index: value.buffer_index,
+            binding_size: value.property_layout.min_binding_size().get() as u32,
+        }
+    }
+}
+
 #[derive(Default, Resource)]
 pub struct PropertyBindGroups {
     /// Map from a [`PropertyBuffer`] index and a binding size to the

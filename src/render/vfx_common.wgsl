@@ -149,7 +149,7 @@ const DRAW_INDEXED_INDIRECT_STRIDE: u32 = 5u;
 struct BatchInfo {
     total_spawn_count: u32,
     total_update_count: u32,
-    base_effect: u32,
+    spawner_base: u32,
     /// Offset to apply to the workgroup thread index to determine the global
     /// particle index in the currently bound slab. This is often (and ideally)
     /// zero, but may be > 0 if the entire slab cannot be processed with a
@@ -178,7 +178,6 @@ const EM_OFFSET_ALIVE_COUNT: u32 = 1u;
 const EM_OFFSET_MAX_UPDATE: u32 = 2u;
 const EM_OFFSET_MAX_SPAWN: u32 = 3u;
 const EM_OFFSET_INDIRECT_WRITE_INDEX: u32 = 4u;
-const EM_OFFSET_INDIRECT_DISPATCH_INDEX: u32 = 5u;
 
 /// Metadata describing a single effect instance.
 ///

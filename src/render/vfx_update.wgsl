@@ -48,16 +48,16 @@ struct EffectLocation {
 /// Requirements:
 /// - var<storage, read> batch_info : BatchInfo
 /// - var<storage, read> prefix_sum : array<u32>
-fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
+fn find_location_from_particle(update_particle_index: u32) -> EffectLocation {
     var lo = batch_info.prefix_sum_offset;
     var hi = lo + batch_info.prefix_sum_count;
     var num_iter = 0;  // avoid deadlocking the GPU by capping the iteration count
     while (lo < hi) {
         let mid = (hi + lo) >> 1u;
         let base_particle = prefix_sum[mid];
-        if (slab_particle_index >= base_particle) {
+        if (update_particle_index >= base_particle) {
             lo = mid + 1u;
-        } else if (slab_particle_index < base_particle) {
+        } else if (update_particle_index < base_particle) {
             hi = mid;
         }
         num_iter += 1;
@@ -65,9 +65,9 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
             return EffectLocation(0xDEADBEEFu, 0xDEADBEEFu, 0xDEADBEEFu);
         }
     }
-    let base_particle = batch_info.base_particle + prefix_sum[lo - 1u];
+    let base_particle = prefix_sum[lo - 1u];
     let effect_index = lo - 1u - batch_info.prefix_sum_offset;
-    let update_index = slab_particle_index - base_particle;
+    let update_index = update_particle_index - base_particle;
     return EffectLocation(effect_index, base_particle, update_index);
 }
 
@@ -104,16 +104,15 @@ var<private> properties_array_index: u32;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    // Global particle index into the slab, including those particles from other
-    // effect instances in the same batch, as well as possibly from other batches.
-    // This is rarely useful on its own.
-    let slab_particle_index = batch_info.base_particle + global_invocation_id.x;
+    // Particle index in the packed update space of this batch.
+    let update_particle_index = global_invocation_id.x;
 
     // Find the index of the effect this particle is part of.
-    let location = find_location_from_particle(slab_particle_index);
-    let spawner = &spawners[batch_info.base_effect + location.effect_index];
+    let location = find_location_from_particle(update_particle_index);
+    let spawner = &spawners[batch_info.spawner_base + location.effect_index];
     effect_metadata_index = (*spawner).effect_metadata_index;
-    let base_particle = location.base_particle;
+    let base_particle = (*spawner).slab_offset;
+    let slab_particle_index = base_particle + location.update_index;
 
     // Cap at maximum number of alive particles for the current effect
     let effect_metadata = &effect_metadatas[effect_metadata_index];

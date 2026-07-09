@@ -8,7 +8,7 @@
 ///
 /// This is invoked once per effect batch each frame, before the update pass, to recalculate
 /// the prefix sum of the alive particle counts per instance in that batch. Before this pass,
-/// the prefix sum buffer contins the number of alive particles for each instance. After it,
+/// the prefix sum buffer contains the number of alive particles for each instance. After it,
 /// it contains a prefix sum of that number.
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {

@@ -1,13 +1,9 @@
 # Rust
 target/
 Cargo.lock
-.cargo/config.toml
 
-# IDEs
-.vs*
-
-# OS
-.DS_Store
+# Local configs
+.*
 
 # Perf
 profiling/

@@ -37,13 +37,13 @@ use crate::{
         prepare_indirect_pipeline, prepare_init_update_pipelines, prepare_property_buffers,
         propagate_ready_state, queue_effects, queue_init_fill_dispatch_ops,
         queue_init_indirect_workgroup_update, queue_sort_fill_dispatch_ops, report_ready_state,
-        start_stop_gpu_debug_capture, update_mesh_locations, DebugSettings,
+        start_stop_gpu_debug_capture, update_mesh_locations, Batcher, DebugSettings,
         DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache,
         EffectsMeta, EventCache, GpuBatchInfo, GpuBufferOperations, GpuEffectMetadata,
         GpuSpawnerParams, HanabiRenderPlugin, InitFillDispatchQueue, ParticlesInitPipeline,
         ParticlesRenderPipeline, ParticlesUpdatePipeline, PrefixSumPipeline, PropertyBindGroups,
         PropertyCache, RenderDebugSettings, ShaderCache, SimParams, SortBindGroups,
-        SortFillDispatchQueue, SortedEffectBatches, StorageType as _, UtilsPipeline,
+        SortFillDispatchQueue, StorageType as _, UtilsPipeline,
     },
     spawn::{self, Random},
     tick_spawners,
@@ -393,7 +393,7 @@ impl Plugin for HanabiPlugin {
             .init_resource::<SpecializedRenderPipelines<ParticlesRenderPipeline>>()
             .init_resource::<EffectAssetEvents>()
             .init_resource::<SimParams>()
-            .init_resource::<SortedEffectBatches>()
+            .init_resource::<Batcher>()
             .configure_sets(
                 Render,
                 (

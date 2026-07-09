@@ -44,14 +44,27 @@ struct VertexOutput {
 
 {{MATERIAL_BINDINGS}}
 
+/// The resolved effect and particle location.
+///
+/// This is calculated at the start of the thread execution, and used after that
+/// in various functions.
+var<private> effect_location : EffectLocation;
+
+var<private> effect_metadata_index: u32;
+// var<private> properties_array_index: u32;
+
+fn get_spawner_index() -> u32 {
+    return batch_info.spawner_base + effect_location.effect_index;
+}
+
 fn get_camera_position_effect_space() -> vec3<f32> {
     let view_pos = view.world_from_view[3].xyz;
 #ifdef LOCAL_SPACE_SIMULATION
     let inverse_transform = transpose(
         mat3x3(
-            spawners[batch_info.base_effect + effect_location.effect_index].inverse_transform[0].xyz,
-            spawners[batch_info.base_effect + effect_location.effect_index].inverse_transform[1].xyz,
-            spawners[batch_info.base_effect + effect_location.effect_index].inverse_transform[2].xyz,
+            spawners[get_spawner_index()].inverse_transform[0].xyz,
+            spawners[get_spawner_index()].inverse_transform[1].xyz,
+            spawners[get_spawner_index()].inverse_transform[2].xyz,
         )
     );
     return inverse_transform * view_pos;
@@ -65,9 +78,9 @@ fn get_camera_rotation_effect_space() -> mat3x3<f32> {
 #ifdef LOCAL_SPACE_SIMULATION
     let inverse_transform = transpose(
         mat3x3(
-            spawners[batch_info.base_effect + effect_location.effect_index].inverse_transform[0].xyz,
-            spawners[batch_info.base_effect + effect_location.effect_index].inverse_transform[1].xyz,
-            spawners[batch_info.base_effect + effect_location.effect_index].inverse_transform[2].xyz,
+            spawners[get_spawner_index()].inverse_transform[0].xyz,
+            spawners[get_spawner_index()].inverse_transform[1].xyz,
+            spawners[get_spawner_index()].inverse_transform[2].xyz,
         )
     );
     return inverse_transform * view_rot;
@@ -103,7 +116,7 @@ fn unpack_compressed_transform_3x3_transpose(compressed_transform: mat3x4<f32>) 
 /// the effect space (SimulationSpace::Local) or the world space (SimulationSpace::Global).
 fn transform_position_simulation_to_world(sim_position: vec3<f32>) -> vec4<f32> {
 #ifdef LOCAL_SPACE_SIMULATION
-    let transform = unpack_compressed_transform(spawners[batch_info.base_effect + effect_location.effect_index].transform);
+    let transform = unpack_compressed_transform(spawners[get_spawner_index()].transform);
     return transform * vec4<f32>(sim_position, 1.0);
 #else
     return vec4<f32>(sim_position, 1.0);
@@ -115,7 +128,7 @@ fn transform_normal_simulation_to_world(sim_normal: vec3<f32>) -> vec3<f32> {
     // We use the inverse transpose transform to transform normals.
     // The inverse transpose is the same as the transposed inverse, so we can
     // safely use the inverse transform.
-    let transform = unpack_compressed_transform_3x3_transpose(spawners[batch_info.base_effect + effect_location.effect_index].inverse_transform);
+    let transform = unpack_compressed_transform_3x3_transpose(spawners[get_spawner_index()].inverse_transform);
     return transform * sim_normal;
 #else
     return sim_normal;
@@ -168,7 +181,7 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
     var num_iter = 0;  // avoid deadlocking the GPU by capping the iteration count
     while (lo < hi) {
         let mid = (hi + lo) >> 1u;
-        let base_particle = prefix_sum[mid];
+        let base_particle = batch_info.base_particle + prefix_sum[mid];
         if (slab_particle_index >= base_particle) {
             lo = mid + 1u;
         } else if (slab_particle_index < base_particle) {
@@ -184,15 +197,6 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
     let update_index = slab_particle_index - base_particle;
     return EffectLocation(effect_index, base_particle, update_index);
 }
-
-/// The resolved effect and particle location.
-///
-/// This is calculated at the start of the thread execution, and used after that
-/// in various functions.
-var<private> effect_location : EffectLocation;
-
-var<private> effect_metadata_index: u32;
-// var<private> properties_array_index: u32;
 
 @vertex
 fn vertex(
@@ -212,9 +216,12 @@ fn vertex(
     // This is rarely useful on its own.
     let slab_particle_index = batch_info.base_particle + instance_index;
 
-    // Find the index of the effect this particle is part of.
+    // Find the index of the effect this particle is part of. Note that currently
+    // rendering is not yet batched, so this really derives into (effect_index = 0,
+    // base_particle = batch_info.base_particle), and the binary search is a bit useless
+    // until an actual batching is set up.
     effect_location = find_location_from_particle(slab_particle_index);
-    let spawner = &spawners[batch_info.base_effect + effect_location.effect_index];
+    let spawner = &spawners[get_spawner_index()];
     effect_metadata_index = (*spawner).effect_metadata_index;
     let base_particle = effect_location.base_particle;
 
