@@ -207,7 +207,7 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
     }
     let effect_index = lo - 1u - batch_info.prefix_sum_offset;
     let update_index = slab_particle_index - prefix_sum[lo - 1u];
-    let base_particle = spawners[batch_info.base_effect + effect_offset + effect_index].slab_offset;
+    let base_particle = spawners[batch_info.spawner_base + effect_offset + effect_index].slab_offset;
     return EffectLocation(effect_index, base_particle, update_index);
 }
 #else
@@ -252,7 +252,7 @@ fn vertex(
     // until an actual batching is set up.
     effect_location = find_location_from_particle(slab_particle_index);
 #ifdef HAS_BATCHED_DRAW
-    spawner_index = batch_info.base_effect + effect_offset + effect_index;
+    spawner_index = batch_info.spawner_base + effect_offset + effect_index;
 #else
     spawner_index = 0u;
 #endif

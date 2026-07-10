@@ -108,6 +108,7 @@ impl BatchSpawnInfo {
     /// which should be ignored.
     #[inline]
     #[must_use]
+    #[allow(unused)]
     pub fn cpu_spawn_count(&self) -> u32 {
         if let Self::CpuSpawner { total_spawn_count } = self {
             *total_spawn_count

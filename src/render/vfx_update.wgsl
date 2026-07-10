@@ -3,8 +3,7 @@
     EffectMetadata, RenderGroupIndirect, SimParams, Spawner, DrawIndexedIndirectArgs, BatchInfo,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
-    rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj,
-    find_effect_from_particle
+    rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
 }
 
 struct Particle {
@@ -66,14 +65,10 @@ fn find_location_from_particle(update_particle_index: u32) -> EffectLocation {
             return EffectLocation(0xDEADBEEFu, 0xDEADBEEFu, 0xDEADBEEFu);
         }
     }
-    // origin/main:
-    let base_particle = prefix_sum[lo - 1u];
+    let base_index = prefix_sum[lo - 1u];
+    let update_index = update_particle_index - base_index;
     let effect_index = lo - 1u - batch_info.prefix_sum_offset;
-    let update_index = update_particle_index - base_particle;
-    // u/gpu-sort
-    // let effect_index = lo - 1u - batch_info.prefix_sum_offset;
-    // let update_index = global_update_index - prefix_sum[lo - 1u];
-    // let base_particle = spawners[batch_info.base_effect + effect_index].slab_offset;
+    let base_particle = spawners[batch_info.spawner_base + effect_index].slab_offset;
     return EffectLocation(effect_index, base_particle, update_index);
 }
 
@@ -121,7 +116,6 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let spawner = &spawners[batch_info.spawner_base + location.effect_index];
     effect_metadata_index = (*spawner).effect_metadata_index;
     let base_particle = (*spawner).slab_offset;
-    let slab_particle_index = base_particle + location.update_index;
 
     // Cap at maximum number of alive particles for the current effect
     let effect_metadata = &effect_metadatas[effect_metadata_index];

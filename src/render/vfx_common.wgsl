@@ -147,8 +147,17 @@ const DRAW_INDEXED_INDIRECT_STRIDE: u32 = 5u;
 
 /// Shared info for a single batch (single shader invocation).
 struct BatchInfo {
+    /// Total number of CPU particles to spawn. This is the sum of all `spawn`
+    /// counts of all effect instances in this batch which spawn CPU-based
+    /// particles. This is uploaded from CPU each frame.
     total_spawn_count: u32,
+    /// Total number of CPU particles to update. This is the sum of all
+    /// `alive_count` of all effect instances in this batch. This is calculated
+    /// on GPU each frame, between the init and update passes.
     total_update_count: u32,
+    /// Start index of the slice of [`GpuSpawnerInfo`] for this batch, into the
+    /// [`EffectsMeta::spawner_buffer`]. The slice length is equal to the number
+    /// of effects instances batched together.
     spawner_base: u32,
     /// Offset to apply to the workgroup thread index to determine the global
     /// particle index in the currently bound slab. This is often (and ideally)

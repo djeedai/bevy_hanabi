@@ -640,11 +640,6 @@ impl PropertyCache {
     pub fn allocate(&mut self, property_layout: &PropertyLayout) -> CachedEffectProperties {
         assert!(!property_layout.is_empty());
 
-        // Use the no-property layout descriptor as the base, that we'll customize. It's
-        // always available. But since it's stored inside the hash map, we need to
-        // eagerly clone in advance, for the borrow checker.
-        let mut bgl = self.bind_group_layout_descs.get(&0).unwrap().clone();
-
         // Ensure there's a bind group layout for the property variant with that binding
         // size.
         let properties_min_binding_size = property_layout.min_binding_size();

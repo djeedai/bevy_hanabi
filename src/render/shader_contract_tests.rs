@@ -162,7 +162,8 @@ fn write_aligned_spawners(
     buffer
 }
 
-/// Create an array containing the input slice content padded to the given alignment.
+/// Create an array containing the input slice content padded to the given
+/// alignment.
 fn padded_slice_content<T: ShaderType + Pod>(arr: &[T], align: u32) -> Vec<u8> {
     let aligned_size = (T::min_size().get() as usize).next_multiple_of(align as usize);
     let total_size = arr.len() * aligned_size;

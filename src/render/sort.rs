@@ -428,36 +428,32 @@ impl SortBindGroups {
                     .get(&key)
                     .ok_or(())?
                     .0;
-                entry.insert(
-                    self.render_device.create_bind_group(
-                        "hanabi:bg:sort_fill",
-                        &pipeline_cache.get_bind_group_layout(layout_desc),
-                        &BindGroupEntries::sequential((
-                            // @group(0) @binding(0) var<storage, read_write> pairs:
-                            // array<KeyValuePair>;
-                            self.sort_buffer.as_entire_binding(),
-                            // @group(0) @binding(1) var<storage, read> particle_buffer:
-                            // ParticleBuffer;
-                            particle.as_entire_binding(),
-                            // @group(0) @binding(2) var<storage, read> indirect_index_buffer :
-                            // array<u32>;
-                            indirect_index.as_entire_binding(),
-                            // @group(0) @binding(3) var<storage, read_write> effect_metadatas :
-                            // array<EffectMetadata>;
-                            effect_metadata.as_entire_binding(),
-                            // @group(0) @binding(4) var<storage, read> spawner : Spawner;
-                            BufferBinding {
-                                buffer: spawner_buffer,
-                                offset: 0,
-                                size: Some(GpuSpawnerParams::aligned_size(
-                                    self.render_device
-                                        .limits()
-                                        .min_storage_buffer_offset_alignment,
-                                )),
-                            },
-                        )),
-                    ),
-                )
+                entry.insert(render_device.create_bind_group(
+                    "hanabi:bg:sort_fill",
+                    &pipeline_cache.get_bind_group_layout(layout_desc),
+                    &BindGroupEntries::sequential((
+                        // @group(0) @binding(0) var<storage, read_write> pairs:
+                        // array<KeyValuePair>;
+                        self.sort_buffer.as_entire_binding(),
+                        // @group(0) @binding(1) var<storage, read> particle_buffer:
+                        // ParticleBuffer;
+                        particle.as_entire_binding(),
+                        // @group(0) @binding(2) var<storage, read> indirect_index_buffer :
+                        // array<u32>;
+                        indirect_index.as_entire_binding(),
+                        // @group(0) @binding(3) var<storage, read_write> effect_metadatas :
+                        // array<EffectMetadata>;
+                        effect_metadata.as_entire_binding(),
+                        // @group(0) @binding(4) var<storage, read> spawner : Spawner;
+                        BufferBinding {
+                            buffer: spawner_buffer,
+                            offset: 0,
+                            size: Some(GpuSpawnerParams::aligned_size(
+                                render_device.limits().min_storage_buffer_offset_alignment,
+                            )),
+                        },
+                    )),
+                ))
             }
         };
         Ok(bind_group)
@@ -520,33 +516,28 @@ impl SortBindGroups {
         let bind_group = match entry {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                entry.insert(
-                    self.render_device.create_bind_group(
-                        "hanabi:bg:sort_copy",
-                        &pipeline_cache
-                            .get_bind_group_layout(&self.sort_copy_bind_group_layout_desc),
-                        &BindGroupEntries::sequential((
-                            // @group(0) @binding(0) var<storage, read_write> indirect_index_buffer
-                            // : IndirectIndexBuffer;
-                            indirect_index_buffer.as_entire_binding(),
-                            // @group(0) @binding(1) var<storage, read> sort_buffer : SortBuffer;
-                            self.sort_buffer.as_entire_binding(),
-                            // @group(0) @binding(2) var<storage, read_write> effect_metadatas :
-                            // array<EffectMetadata>;
-                            effect_metadata_buffer.as_entire_binding(),
-                            // @group(0) @binding(3) var<storage, read> spawner : Spawner;
-                            BufferBinding {
-                                buffer: spawner_buffer,
-                                offset: 0,
-                                size: Some(GpuSpawnerParams::aligned_size(
-                                    self.render_device
-                                        .limits()
-                                        .min_storage_buffer_offset_alignment,
-                                )),
-                            },
-                        )),
-                    ),
-                )
+                entry.insert(render_device.create_bind_group(
+                    "hanabi:bg:sort_copy",
+                    &pipeline_cache.get_bind_group_layout(&self.sort_copy_bind_group_layout_desc),
+                    &BindGroupEntries::sequential((
+                        // @group(0) @binding(0) var<storage, read_write> indirect_index_buffer
+                        // : IndirectIndexBuffer;
+                        indirect_index_buffer.as_entire_binding(),
+                        // @group(0) @binding(1) var<storage, read> sort_buffer : SortBuffer;
+                        self.sort_buffer.as_entire_binding(),
+                        // @group(0) @binding(2) var<storage, read_write> effect_metadatas :
+                        // array<EffectMetadata>;
+                        effect_metadata_buffer.as_entire_binding(),
+                        // @group(0) @binding(3) var<storage, read> spawner : Spawner;
+                        BufferBinding {
+                            buffer: spawner_buffer,
+                            offset: 0,
+                            size: Some(GpuSpawnerParams::aligned_size(
+                                render_device.limits().min_storage_buffer_offset_alignment,
+                            )),
+                        },
+                    )),
+                ))
             }
         };
         Ok(bind_group)
