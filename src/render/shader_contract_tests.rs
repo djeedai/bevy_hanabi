@@ -98,15 +98,9 @@ fn create_composed_shader_module(
 ) -> Result<wgpu::ShaderModule, Box<dyn std::error::Error>> {
     let spawner_padding_code = GpuSpawnerParams::padding_code(storage_alignment);
     let batch_info_padding_code = GpuBatchInfo::padding_code(storage_alignment);
-    let effect_metadata_padding_code = GpuEffectMetadata::padding_code(storage_alignment);
-    let effect_metadata_stride_code = GpuEffectMetadata::aligned_size(storage_alignment)
-        .get()
-        .to_string();
     let common_code = include_str!("vfx_common.wgsl")
         .replace("{{SPAWNER_PADDING}}", &spawner_padding_code)
-        .replace("{{BATCH_INFO_PADDING}}", &batch_info_padding_code)
-        .replace("{{EFFECT_METADATA_PADDING}}", &effect_metadata_padding_code)
-        .replace("{{EFFECT_METADATA_STRIDE}}", &effect_metadata_stride_code);
+        .replace("{{BATCH_INFO_PADDING}}", &batch_info_padding_code);
 
     let mut composer = Composer::default();
     composer.add_composable_module(ComposableModuleDescriptor {

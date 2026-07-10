@@ -673,17 +673,21 @@ mod gpu_tests {
         {
             // Scope get_mapped_range_mut() to force a drop before unmap()
             {
-                let slice: &mut [u8] = &mut sort_buffer.slice(..).get_mapped_range_mut();
-                let header: &mut [u32] = cast_slice_mut(slice);
-                header[0] = num_kv;
-                let values: &mut [DualKeyValuePair] = cast_slice_mut(&mut slice[4..]);
-                for (i, kv) in values.iter_mut().enumerate() {
-                    kv.key = byte_size as u32 - i as u32;
-                    kv.key2 = i as f32 * 0.1;
-                    kv.value = i as u32;
-                    //println!("[#{}] k={} k2={} v={}", i, kv.key, kv.key2,
-                    // kv.value);
-                }
+                let mut mapped = sort_buffer.slice(..).get_mapped_range_mut();
+                mapped
+                    .slice(..4)
+                    .copy_from_slice(cast_slice(slice::from_ref(num_kv)));
+                let values_size = num_kv as usize * size_of::<DualKeyValuePair>();
+                let end = 4 + values_size;
+                mapped
+                    .slice(4..end)
+                    .write_iter((0..num_kv).iter().enumerate().map(|i, kv| {
+                        kv.key = byte_size as u32 - i as u32;
+                        kv.key2 = i as f32 * 0.1;
+                        kv.value = i as u32;
+                        //println!("[#{}] k={} k2={} v={}", i, kv.key, kv.key2,
+                        // kv.value);
+                    }));
             }
             sort_buffer.unmap();
         }
@@ -703,8 +707,8 @@ mod gpu_tests {
         );
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("pipeline_layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
         let src = VFX_SORT_WGSL
             .replace("#ifdef HAS_DUAL_KEY", "")
@@ -881,8 +885,8 @@ mod gpu_tests {
         );
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("pipeline_layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
         let src = VFX_SORT_WGSL
             .replace("#ifdef HAS_DUAL_KEY", "")
@@ -1128,8 +1132,8 @@ mod gpu_tests {
         );
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("pipeline_layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
         let src = VFX_SORT_WGSL
             .replace("#ifdef HAS_DUAL_KEY", "")

@@ -843,7 +843,7 @@ impl SortFillDispatchQueue {
             error!("Failed to find effect metadata buffer. This is a bug.");
             return None;
         };
-        let Some(dst_buffer) = sort_bind_groups.indirect_buffer() else {
+        let Some(dst_buffer) = sort_bind_groups.indirect_args_buffer() else {
             error!("Missing indirect dispatch buffer for sorting, cannot schedule particle sort for ribbons. This is a bug.");
             return None;
         };
@@ -4655,7 +4655,7 @@ pub(crate) fn batch_effects(
         // ribbon).
         if extracted_effect.layout_flags.contains(LayoutFlags::RIBBONS) {
             // Allocate a GpuDispatchIndirect entry
-            let sort_fill_indirect_dispatch_index = sort_bind_groups.allocate_indirect_dispatch();
+            let sort_fill_indirect_dispatch_index = sort_bind_groups.allocate_indirect_args();
             effect_batch.effect_data[0].sort_fill_indirect_dispatch_index =
                 Some(sort_fill_indirect_dispatch_index);
 
@@ -4728,12 +4728,6 @@ pub(crate) fn batch_effects(
     gpu_buffer_operations.begin_frame();
     debug_assert!(batcher.dispatch_queue_index.is_none());
 
-    // End the last batch. It's safe to call even if no batch was created.
-    let batch_spawn_count = sorted_effect_batches
-        .last()
-        .map(|effect_batch| effect_batch.spawn_info.cpu_spawn_count());
-    effects_meta.end_batch(batch_spawn_count);
-
     // Write the entire spawner buffer for this frame, for all effects combined
     if effects_meta
         .spawner_buffer
@@ -4761,156 +4755,6 @@ pub(crate) fn batch_effects(
         property_bind_groups.clear(true);
         effects_meta.indirect_spawner_bind_group = None;
         effects_meta.prefix_sum_bind_group = None;
-    }
-
-    // Now that all buffers are written (or at least the ones we care about), we can
-    // record all the copy commands, which reference those buffers.
-    if num_effects_to_sort > 0 {
-        trace!("Recording copy commands for {num_effects_to_sort} effects requiring sorting");
-
-        // Given a list of effects in a batch, or even a list of batches, each with an
-        // updated alive_count, we need to calculate the prefix sum of those
-        // alive_count per batch, for sorting.
-        // - for each effect instance, copy its alive_count into the prefix_buffer
-        // - run the prefix_sum pass
-        // We also need to copy all sort pairs from all instances, for a total copy of
-        // sum(alive_count)
-        // - we could do one pass per batch; -or- we could use the prefix sum
-        // - the prefix sum binary search per particle is costly compared to the actual
-        //   pair copy, so we could block-process, say, 8 particles per thread, to
-        //   amortize the cost of the binary search.
-        // For the sort itself, we can for now do one dispatch per effect. Later with
-        // segmented sort, we can process a batch at once, or even the entire sort
-        // buffer is the prefix sum covers it all.
-
-        // This buffer is allocated in prepare_effects(), so should always be available
-        let Some(effect_metadata_buffer) = effects_meta.effect_metadata_buffer.buffer() else {
-            error!("Failed to find effect metadata buffer (for sorting pass). This is a bug.");
-            return;
-        };
-
-        for effect_batch in &mut sorted_effect_batches.batches {
-            // Skip batches without ribbons; we only need sorting for ribbons.
-            if !effect_batch.layout_flags.contains(LayoutFlags::RIBBONS) {
-                continue;
-            }
-
-            // Loop on all effects in this batch
-            for effect_data in &mut effect_batch.effect_data {
-                // Allocate an indirect compute dispatch entry for this effect instance, for
-                // sorting.
-                assert!(effect_data.sort_indirect_args_index.is_none());
-                let indirect_args_index = sort_bind_groups.allocate_indirect_args();
-                effect_data.sort_indirect_args_index = Some(indirect_args_index);
-
-                // // Enqueue a copy operation which reads GpuEffectMetadata::alive_count, and
-                // // store it into the prefix_sum buffer.
-                // {
-                //     let src_buffer = effect_metadata_buffer.clone();
-                //     let Some(dst_buffer) = effects_meta.prefix_sum_buffer.buffer() else {
-                //         error!("Missing prefix sum buffer for sorting, cannot schedule
-                // particle sort for ribbon. This is a bug.");         continue;
-                //     };
-                //     let dst_buffer = dst_buffer.clone();
-                //     trace!(
-                //         "queue_fill_sort_prefix_sum(): src#{:?} -> dst#{:?}",
-                //         src_buffer.id(),
-                //         dst_buffer.id()
-                //     );
-                //     let alive_count_offset = std::mem::offset_of!(GpuEffectMetadata,
-                // alive_count);     debug_assert_eq!(
-                //         alive_count_offset, 4,
-                //         "GpuEffectMetadata changed, update this assert."
-                //     );
-                //     let src_stride = GpuEffectMetadata::SHADER_SIZE.get() as usize;
-                //     let src_offset =
-                //         effect_data.metadata_table_id.0 as usize * src_stride +
-                // alive_count_offset;     // By convention, copy at the same
-                // index into the prefix_sum than it's at in the     // metadata
-                // buffer. And since prefix sum values are packed u32, the table ID is
-                //     // the offset.
-                //     let dst_offset_u32 = effect_data.metadata_table_id.0;
-                //     sort_fill_prefix_sum_queue.enqueue(
-                //         GpuBufferOperationType::Copy,
-                //         GpuBufferOperationArgs {
-                //             src_offset: (src_offset / 4) as u32,
-                //             src_stride: (src_stride / 4) as u32,
-                //             dst_offset: dst_offset_u32,
-                //             dst_stride: 1, // tightly packed prefix_sum values
-                //             count: 1,
-                //         },
-                //         src_buffer,
-                //         0,
-                //         None,
-                //         dst_buffer,
-                //         0,
-                //         None,
-                //     );
-                // }
-
-                // Enqueue a fill dispatch operation which reads GpuEffectMetadata::alive_count,
-                // compute a number of workgroups to dispatch based on that particle count, and
-                // store the result into a GpuDispatchIndirectArgs struct which will be used to
-                // dispatch the various sort passes (sort-fill, sort, sort-copy).
-                {
-                    let src_buffer = effect_metadata_buffer.clone();
-                    let Some(dst_buffer) = sort_bind_groups.indirect_args_buffer() else {
-                        error!("Missing indirect args buffer for sorting, cannot schedule particle sort for ribbon. This is a bug.");
-                        continue;
-                    };
-                    let dst_buffer = dst_buffer.clone();
-                    trace!(
-                        "queue_fill_dispatch(): src#{:?} -> dst#{:?}",
-                        src_buffer.id(),
-                        dst_buffer.id()
-                    );
-                    let alive_count_offset = std::mem::offset_of!(GpuEffectMetadata, alive_count);
-                    debug_assert_eq!(
-                        alive_count_offset, 4,
-                        "GpuEffectMetadata changed, update this assert."
-                    );
-                    let src_stride = GpuEffectMetadata::SHADER_SIZE.get() as usize;
-                    let src_offset =
-                        effect_data.metadata_table_id.0 as usize * src_stride + alive_count_offset;
-                    let dst_offset =
-                        sort_bind_groups.get_indirect_args_byte_offset(indirect_args_index);
-                    let dst_stride = GpuDispatchIndirectArgs::SHADER_SIZE.get() as usize;
-                    sort_queue.enqueue(
-                        GpuBufferOperationType::FillDispatchArgs,
-                        GpuBufferOperationArgs {
-                            src_offset: (src_offset / 4) as u32,
-                            src_stride: (src_stride / 4) as u32,
-                            dst_offset: (dst_offset / 4) as u32,
-                            dst_stride: (dst_stride / 4) as u32,
-                            count: 1,
-                        },
-                        src_buffer,
-                        0,
-                        None,
-                        dst_buffer,
-                        0,
-                        None,
-                    );
-                }
-            }
-        }
-
-        // Submit the recorded operations
-        gpu_buffer_operations.begin_frame();
-        debug_assert!(sorted_effect_batches
-            .sort_fill_indirect_args_queue_index
-            .is_none());
-        if !sort_queue.operation_queue.is_empty() {
-            sorted_effect_batches.sort_fill_indirect_args_queue_index =
-                Some(gpu_buffer_operations.submit(sort_queue));
-        }
-        // debug_assert!(sorted_effect_batches
-        //     .sort_fill_prefix_sum_queue_index
-        //     .is_none());
-        // if !sort_fill_prefix_sum_queue.operation_queue.is_empty() {
-        //     sorted_effect_batches.sort_fill_prefix_sum_queue_index =
-        //         Some(gpu_buffer_operations.
-        // submit(sort_fill_prefix_sum_queue)); }
     }
 }
 
@@ -5323,7 +5167,6 @@ impl EffectBindGroups {
             trace!(
                 "Created new metadata@3 bind group for update pass and slab ID {}",
                 effect_batch.slab_id.index(),
-                effect_batch.effect_data[0].metadata_table_id.0,
             );
 
             bind_group
@@ -7821,78 +7664,70 @@ fn simulate(
                         compute_pass.pop_debug_group();
                     }
 
-                            compute_pass
-                                .dispatch_workgroups_indirect(indirect_buffer, indirect_offset);
-                            trace!("Dispatched sort-fill with indirect offset +{indirect_offset}");
+                    compute_pass.dispatch_workgroups_indirect(indirect_buffer, indirect_offset);
+                    trace!("Dispatched sort-fill with indirect offset +{indirect_offset}");
 
-                            compute_pass.pop_debug_group();
-                            return;
-                        }
-
-                        let Some(bind_group) = sort_bind_groups.sort_bind_group() else {
-                            warn!("Missing sort bind group.");
-                            compute_pass.insert_debug_marker("ERROR:MissingSortBindGroup");
-                            continue;
-                        };
-                        compute_pass.set_bind_group(0, bind_group, &[]);
-                        compute_pass
-                            .dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
-
-                        compute_pass.pop_debug_group();
-                    }
-
-                    // Copy the sorted indices back into the indirect index buffer.
-                    {
-                        compute_pass.push_debug_group("hanabi:copy_sorted_indices");
-
-                        let pipeline_id = sort_bind_groups.get_sort_copy_pipeline_id();
-                        if compute_pass
-                            .set_cached_compute_pipeline(pipeline_id)
-                            .is_err()
-                        {
-                            compute_pass.insert_debug_marker("ERROR:FailedToSetSortCopyPipeline");
-                            compute_pass.pop_debug_group();
-                            return;
-                        }
-
-                        let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
-                        assert!(
-                            spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize
-                        );
-                        let spawner_offset = (effect_batch.spawner_base + effect_index as u32)
-                            * spawner_aligned_size as u32;
-
-                        let indirect_index_buffer = effect_buffer.indirect_index_buffer();
-                        let Some(spawner_buffer) = effects_meta.spawner_buffer.buffer() else {
-                            warn!("Missing spawner buffer for sort-copy.");
-                            compute_pass.insert_debug_marker("ERROR:MissingSortCopySpawnerBuffer");
-                            continue;
-                        };
-                        let Some(bind_group) = sort_bind_groups.sort_copy_bind_group(
-                            indirect_index_buffer.id(),
-                            effect_metadata_buffer.id(),
-                            spawner_buffer.id(),
-                        ) else {
-                            warn!("Missing sort-copy bind group.");
-                            compute_pass.insert_debug_marker("ERROR:MissingSortCopyBindGroup");
-                            continue;
-                        };
-                        let effect_metadata_offset = effects_meta
-                            .effect_metadata_buffer
-                            .dynamic_offset(effect_data.metadata_table_id);
-                        compute_pass.set_bind_group(
-                            0,
-                            bind_group,
-                            &[effect_metadata_offset, spawner_offset],
-                        );
-
-                        compute_pass
-                            .dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
-
-                            compute_pass.pop_debug_group();
-                        }
-                    }
+                    compute_pass.pop_debug_group();
+                    return;
                 }
+
+                let Some(bind_group) = sort_bind_groups.sort_bind_group() else {
+                    warn!("Missing sort bind group.");
+                    compute_pass.insert_debug_marker("ERROR:MissingSortBindGroup");
+                    continue;
+                };
+                compute_pass.set_bind_group(0, bind_group, &[]);
+                compute_pass.dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
+
+                compute_pass.pop_debug_group();
+            }
+
+            // Copy the sorted indices back into the indirect index buffer.
+            {
+                compute_pass.push_debug_group("hanabi:copy_sorted_indices");
+
+                let pipeline_id = sort_bind_groups.get_sort_copy_pipeline_id();
+                if compute_pass
+                    .set_cached_compute_pipeline(pipeline_id)
+                    .is_err()
+                {
+                    compute_pass.insert_debug_marker("ERROR:FailedToSetSortCopyPipeline");
+                    compute_pass.pop_debug_group();
+                    return;
+                }
+
+                let spawner_aligned_size = effects_meta.spawner_buffer.aligned_size();
+                assert!(spawner_aligned_size >= GpuSpawnerParams::min_size().get() as usize);
+                let spawner_offset =
+                    (effect_batch.spawner_base + effect_index as u32) * spawner_aligned_size as u32;
+
+                let indirect_index_buffer = effect_buffer.indirect_index_buffer();
+                let Some(spawner_buffer) = effects_meta.spawner_buffer.buffer() else {
+                    warn!("Missing spawner buffer for sort-copy.");
+                    compute_pass.insert_debug_marker("ERROR:MissingSortCopySpawnerBuffer");
+                    continue;
+                };
+                let Some(bind_group) = sort_bind_groups.sort_copy_bind_group(
+                    indirect_index_buffer.id(),
+                    effect_metadata_buffer.id(),
+                    spawner_buffer.id(),
+                ) else {
+                    warn!("Missing sort-copy bind group.");
+                    compute_pass.insert_debug_marker("ERROR:MissingSortCopyBindGroup");
+                    continue;
+                };
+                let effect_metadata_offset = effects_meta
+                    .effect_metadata_buffer
+                    .dynamic_offset(effect_data.metadata_table_id);
+                compute_pass.set_bind_group(
+                    0,
+                    bind_group,
+                    &[effect_metadata_offset, spawner_offset],
+                );
+
+                compute_pass.dispatch_workgroups_indirect(indirect_buffer, indirect_offset as u64);
+
+                compute_pass.pop_debug_group();
             }
         }
     }
