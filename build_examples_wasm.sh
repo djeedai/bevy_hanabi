@@ -1,10 +1,11 @@
-echo Check that wasm-bindgen -V returns 0.2.100, otherwise cargo install wasm-bindgen-cli --version 0.2.100
+echo Check that wasm-bindgen -V returns 0.2.125, otherwise cargo install wasm-bindgen-cli --version 0.2.125
 
 echo Setting RUSTFLAGS to enable unstable web_sys APIs...
 export RUSTFLAGS=--cfg=web_sys_unstable_apis
 
 echo Build all examples for WASM...
 # 3D
+cargo b --release --example lightning --target wasm32-unknown-unknown
 cargo b --release --example firework --target wasm32-unknown-unknown
 cargo b --release --example portal --target wasm32-unknown-unknown
 cargo b --release --example expr --target wasm32-unknown-unknown
@@ -30,6 +31,7 @@ cargo b --release --example puffs --target wasm32-unknown-unknown
 cargo b --release --example 2d --target wasm32-unknown-unknown
 
 echo Bindgen all examples...
+wasm-bindgen --out-name wasm_lightning --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lightning.wasm
 wasm-bindgen --out-name wasm_firework --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/firework.wasm
 wasm-bindgen --out-name wasm_portal --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/portal.wasm
 wasm-bindgen --out-name wasm_expr --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/expr.wasm
@@ -53,3 +55,5 @@ wasm-bindgen --out-name wasm_puffs --out-dir examples/wasm/target --target web t
 wasm-bindgen --out-name wasm_2d --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/2d.wasm
 
 echo Done. See docs/wasm.md for help on running the examples locally.
+
+export RUSTFLAGS=

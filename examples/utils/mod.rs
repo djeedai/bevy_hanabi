@@ -156,11 +156,11 @@ pub const COLOR_CYAN: Color = Color::linear_rgb(0., 1., 1.);
 pub const COLOR_OLIVE: Color = Color::linear_rgb(0.5, 0.5, 0.);
 pub const COLOR_PURPLE: Color = Color::linear_rgb(0.5, 0., 0.5);
 
-fn spawn_demo_ui(mut cmd: Commands, demo: Res<Demo>) {
+fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
     debug!("Spawning UI for demo {}", demo.name);
 
     // Camera
-    let ui_camera = cmd
+    let ui_camera = commands
         .spawn((
             Camera2d,
             Projection::Orthographic(OrthographicProjection::default_2d()),
@@ -183,7 +183,7 @@ fn spawn_demo_ui(mut cmd: Commands, demo: Res<Demo>) {
         DescPosition::LeftColumn => (Val::Vw(5.), Val::Vw(5.), Val::Auto, Val::Auto, Val::Vw(30.)),
         DescPosition::BottomRow => (Val::Vw(5.), Val::Auto, Val::Vw(5.), Val::Vw(5.), Val::Auto),
     };
-    cmd.spawn((
+    commands.spawn((
         Node {
             display: Display::Block,
             position_type: PositionType::Absolute,

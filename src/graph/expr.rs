@@ -104,7 +104,11 @@
 
 use std::{cell::RefCell, num::NonZeroU32, rc::Rc};
 
-use bevy::{platform::collections::HashSet, prelude::default, reflect::Reflect};
+use bevy::{
+    platform::collections::HashSet,
+    prelude::default,
+    reflect::{Reflect, ReflectDeserialize, ReflectSerialize},
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -124,13 +128,88 @@ type Id = NonZeroU32;
 /// reason, it's easily copyable. However it's also lacking any kind of error
 /// checking, and mixing handles to different modules produces undefined
 /// behaviors (like an index does when indexing the wrong array).
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect, Serialize, Deserialize,
-)]
+///
+/// # Serialization
+///
+/// [`ExprHandle`] is serialized as a string `#<id>`, where `<id>` is the
+/// 1-based integer index of the expression in the implicitly associated
+/// [`Module`]'s expression array. Valid `<id>` values are in the range
+/// `1..=u32::MAX`.
+///
+/// Note that during deserialization, there is no validation that the index
+/// actually refers to a valid entry in the expression array.
+///
+/// Examples of valid values:
+/// - `"#1"`
+/// - `"#42"`
+/// - `"#4000"` -- deserializes OK, but unlikely there are 4000 expressions in
+///   the Module
+///
+/// Examples of **invalid** values:
+/// - `"#0"` -- 0 is a reserved value
+/// - `"#-1"` -- must be positive
+/// - `"#4294967296"` -- out of bounds (> u32::MAX)
+/// - `33` -- not a string
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
+#[reflect(Serialize, Deserialize)]
 #[repr(transparent)]
-#[serde(transparent)]
 pub struct ExprHandle {
     id: Id,
+}
+
+impl serde::Serialize for ExprHandle {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&format!("#{}", self.id.get()))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ExprHandle {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct IdVisitor;
+
+        impl<'de2> serde::de::Visitor<'de2> for IdVisitor {
+            type Value = ExprHandle;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str(
+                    "a string of the form \"#<N>\" where <N> is a non-zero expression index",
+                )
+            }
+
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                if v.len() > 1 && v.chars().nth(0) == Some('#') {
+                    let id = v[1..]
+                        .parse::<u32>()
+                        .map_err(|_| serde::de::Error::custom("Failed to parse ID value"))?;
+                    NonZeroU32::try_from(id)
+                        .map(|id| ExprHandle { id })
+                        .map_err(|_| serde::de::Error::custom("Invalid ID value"))
+                } else {
+                    Err(serde::de::Error::custom(
+                        "Invalid ID format (expected '#N')",
+                    ))
+                }
+            }
+
+            fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                self.visit_str(&v[..])
+            }
+        }
+
+        deserializer.deserialize_any(IdVisitor)
+    }
 }
 
 impl ExprHandle {
@@ -151,7 +230,7 @@ impl ExprHandle {
     }
 
     /// Get the zero-based index into the array of the module.
-    fn index(&self) -> usize {
+    pub fn index(&self) -> usize {
         (self.id.get() - 1) as usize
     }
 }
@@ -190,7 +269,7 @@ impl PropertyHandle {
     }
 
     /// Get the zero-based index into the array of the module.
-    fn index(&self) -> usize {
+    pub fn index(&self) -> usize {
         (self.id.get() - 1) as usize
     }
 }
@@ -304,6 +383,30 @@ impl Module {
         }
     }
 
+    /// Get all the expressions in this module.
+    pub fn expressions(&self) -> impl Iterator<Item = (ExprHandle, &Expr)> {
+        self.expressions.iter().enumerate().map(|(index, expr)| {
+            (
+                // SAFETY - We directly iterate over the array with enumerate() so all indices are
+                // valid by design.
+                #[allow(unsafe_code)]
+                unsafe {
+                    ExprHandle::new_unchecked(index + 1)
+                },
+                expr,
+            )
+        })
+    }
+
+    /// Append a new expression to the module.
+    pub fn add_expr(&mut self, expr: impl Into<Expr>) -> ExprHandle {
+        self.expressions.push(expr.into());
+        #[allow(unsafe_code)]
+        unsafe {
+            ExprHandle::new_unchecked(self.expressions.len())
+        }
+    }
+
     /// Add a new property to the module.
     ///
     /// See [`Property`] for more details on what effect properties are.
@@ -394,20 +497,14 @@ impl Module {
 
     /// Insert into the given set all attributes referenced by any
     /// [`AttributeExpr`] present in the module.
+    ///
+    /// Note that this **excludes** the attributes from an
+    /// [`Expr::ParentAttribute`] expression.
     pub fn gather_attributes(&self, set: &mut HashSet<Attribute>) {
         for expr in &self.expressions {
             if let Expr::Attribute(attr) = expr {
                 set.insert(attr.attr);
             }
-        }
-    }
-
-    /// Append a new expression to the module.
-    fn push(&mut self, expr: impl Into<Expr>) -> ExprHandle {
-        self.expressions.push(expr.into());
-        #[allow(unsafe_code)]
-        unsafe {
-            ExprHandle::new_unchecked(self.expressions.len())
         }
     }
 
@@ -417,19 +514,19 @@ impl Module {
     where
         Value: From<V>,
     {
-        self.push(Expr::Literal(LiteralExpr::new(value)))
+        self.add_expr(Expr::Literal(LiteralExpr::new(value)))
     }
 
     /// Build an attribute expression and append it to the module.
     #[inline]
     pub fn attr(&mut self, attr: Attribute) -> ExprHandle {
-        self.push(Expr::Attribute(AttributeExpr::new(attr)))
+        self.add_expr(Expr::Attribute(AttributeExpr::new(attr)))
     }
 
     /// Build a parent attribute expression and append it to the module.
     #[inline]
     pub fn parent_attr(&mut self, attr: Attribute) -> ExprHandle {
-        self.push(Expr::ParentAttribute(AttributeExpr::new(attr)))
+        self.add_expr(Expr::ParentAttribute(AttributeExpr::new(attr)))
     }
 
     /// Build a property expression and append it to the module.
@@ -437,13 +534,13 @@ impl Module {
     /// A property expression retrieves the value of the given property.
     #[inline]
     pub fn prop(&mut self, property: PropertyHandle) -> ExprHandle {
-        self.push(Expr::Property(PropertyExpr::new(property)))
+        self.add_expr(Expr::Property(PropertyExpr::new(property)))
     }
 
     /// Build a built-in expression and append it to the module.
     #[inline]
     pub fn builtin(&mut self, op: BuiltInOperator) -> ExprHandle {
-        self.push(Expr::BuiltIn(BuiltInExpr::new(op)))
+        self.add_expr(Expr::BuiltIn(BuiltInExpr::new(op)))
     }
 
     /// Build a unary expression and append it to the module.
@@ -464,7 +561,7 @@ impl Module {
     #[inline]
     pub fn unary(&mut self, op: UnaryOperator, inner: ExprHandle) -> ExprHandle {
         assert!(inner.index() < self.expressions.len());
-        self.push(Expr::Unary { op, expr: inner })
+        self.add_expr(Expr::Unary { op, expr: inner })
     }
 
     impl_module_unary!(abs, Abs);
@@ -523,7 +620,7 @@ impl Module {
     ) -> ExprHandle {
         assert!(left.index() < self.expressions.len());
         assert!(right.index() < self.expressions.len());
-        self.push(Expr::Binary { op, left, right })
+        self.add_expr(Expr::Binary { op, left, right })
     }
 
     impl_module_binary!(add, Add);
@@ -573,7 +670,7 @@ impl Module {
         assert!(first.index() < self.expressions.len());
         assert!(second.index() < self.expressions.len());
         assert!(third.index() < self.expressions.len());
-        self.push(Expr::Ternary {
+        self.add_expr(Expr::Ternary {
             op,
             first,
             second,
@@ -611,7 +708,7 @@ impl Module {
         if let Some(valid) = expr.is_valid(self) {
             assert!(valid);
         }
-        self.push(Expr::Cast(expr))
+        self.add_expr(Expr::Cast(expr))
     }
 
     /// Get an existing expression from its handle.
@@ -1171,7 +1268,8 @@ impl Expr {
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct LiteralExpr {
-    value: Value,
+    /// The literal value of this expression.
+    pub value: Value,
 }
 
 impl LiteralExpr {
@@ -1225,7 +1323,11 @@ impl<T: Into<Value>> From<T> for LiteralExpr {
 /// Expression representing the value of an attribute of a particle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct AttributeExpr {
-    attr: Attribute,
+    /// The attribute this expression represents.
+    ///
+    /// The expression evaluates to the value of this attribute at the time of
+    /// evaluation.
+    pub attr: Attribute,
 }
 
 impl AttributeExpr {
@@ -1298,7 +1400,11 @@ impl From<Attribute> for AttributeExpr {
 #[repr(transparent)]
 #[serde(transparent)]
 pub struct PropertyExpr {
-    property: PropertyHandle,
+    /// The property this expression represents.
+    ///
+    /// The expression evaluates to the value of this property at the time of
+    /// evaluation.
+    pub property: PropertyHandle,
 }
 
 impl PropertyExpr {
@@ -1310,12 +1416,12 @@ impl PropertyExpr {
 
     /// Is the expression resulting in a compile-time constant which can be
     /// hard-coded into a shader's code?
-    fn is_const(&self) -> bool {
+    pub fn is_const(&self) -> bool {
         false
     }
 
     /// Evaluate the expression in the given context.
-    fn eval(&self, module: &Module, context: &dyn EvalContext) -> Result<String, ExprError> {
+    pub fn eval(&self, module: &Module, context: &dyn EvalContext) -> Result<String, ExprError> {
         let prop = module
             .get_property(self.property)
             .ok_or(ExprError::PropertyError(format!(
@@ -1337,9 +1443,9 @@ impl PropertyExpr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct CastExpr {
     /// The operand expression to cast.
-    inner: ExprHandle,
+    pub inner: ExprHandle,
     /// The target type to cast to.
-    target: ValueType,
+    pub target: ValueType,
 }
 
 impl CastExpr {
@@ -1353,6 +1459,8 @@ impl CastExpr {
     }
 
     /// Get the value type of the expression.
+    ///
+    /// This is the target type the cast converts to.
     pub fn value_type(&self) -> ValueType {
         self.target
     }
@@ -1360,13 +1468,25 @@ impl CastExpr {
     /// Try to evaluate if the cast expression is valid.
     ///
     /// The evaluation fails if the value type of the operand cannot be
-    /// determined. In that case, the function returns `None`.
+    /// determined. In that case, the function returns `None`. This doesn't mean
+    /// the cast expression is invalid, but rather that we cannot currently
+    /// evaluate it, as it likely depends on the runtime context in which it's
+    /// used.
     ///
     /// Valid cast expressions are:
     /// - scalar to scalar
     /// - scalar to vector
     /// - vector to vector
     /// - matrix to matrix
+    ///
+    /// # Returns
+    ///
+    /// - `Some(is_valid)` if the evaluation was successful in determining
+    ///   whether the expression is valid or not.
+    /// - `None` if the expression couldn't be evaluated, and so couldn't be
+    ///   validated. This generally happens when the inner expression has a
+    ///   value type unknown statically (depends on runtime context), which
+    ///   prevents evaluating whether the cast expression is valid.
     pub fn is_valid(&self, module: &Module) -> Option<bool> {
         let Some(inner) = module.get(self.inner) else {
             return Some(false);
@@ -1620,7 +1740,11 @@ impl ToWgslString for BuiltInOperator {
 /// Expression for getting built-in quantities related to the effect system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct BuiltInExpr {
-    operator: BuiltInOperator,
+    /// The built-in operator this expression represents.
+    ///
+    /// The expression evaluates to the value of this built-in operator at the
+    /// time of evaluation.
+    pub operator: BuiltInOperator,
 }
 
 impl BuiltInExpr {
@@ -2319,7 +2443,7 @@ impl ExprWriter {
     pub fn push(&self, expr: impl Into<Expr>) -> WriterExpr {
         let expr = {
             let mut m = self.module.borrow_mut();
-            m.push(expr.into())
+            m.add_expr(expr.into())
         };
         WriterExpr {
             expr,
@@ -2523,7 +2647,7 @@ pub struct WriterExpr {
 
 impl WriterExpr {
     fn unary_op(self, op: UnaryOperator) -> Self {
-        let expr = self.module.borrow_mut().push(Expr::Unary {
+        let expr = self.module.borrow_mut().add_expr(Expr::Unary {
             op,
             expr: self.expr,
         });
@@ -3257,7 +3381,7 @@ impl WriterExpr {
         let expr = self
             .module
             .borrow_mut()
-            .push(Expr::Binary { op, left, right });
+            .add_expr(Expr::Binary { op, left, right });
         WriterExpr {
             expr,
             module: self.module,
@@ -3762,7 +3886,7 @@ impl WriterExpr {
         let first = self.expr;
         let second = second.expr;
         let third = third.expr;
-        let expr = self.module.borrow_mut().push(Expr::Ternary {
+        let expr = self.module.borrow_mut().add_expr(Expr::Ternary {
             op,
             first,
             second,
@@ -3928,7 +4052,7 @@ impl WriterExpr {
         let expr = self
             .module
             .borrow_mut()
-            .push(Expr::Cast(CastExpr::new(self.expr, target)));
+            .add_expr(Expr::Cast(CastExpr::new(self.expr, target)));
         WriterExpr {
             expr,
             module: self.module,
@@ -4005,6 +4129,7 @@ impl std::ops::Rem<WriterExpr> for WriterExpr {
 #[cfg(test)]
 mod tests {
     use bevy::{platform::collections::HashSet, prelude::*};
+    use ron::ser::PrettyConfig;
 
     use super::*;
     use crate::{MatrixType, ScalarValue, ShaderWriter, VectorType};
@@ -4114,7 +4239,7 @@ mod tests {
         let x = m.try_get(x).unwrap();
         let s = x.eval(&m, &mut context).unwrap();
         assert_eq!(
-            "(max(abs(3.), (particle.position) * (2.))) + (min(-4., properties[properties_offset].my_prop))"
+            "(max(abs(3.), (particle.position) * (2.))) + (min(-4., properties[properties_array_index].my_prop))"
                 .to_string(),
             s
         );
@@ -4180,25 +4305,45 @@ mod tests {
         let mut m = Module::default();
 
         // Simulation parameters
-        for op in [
+        let builtin_ops = [
             BuiltInOperator::Time,
             BuiltInOperator::DeltaTime,
             BuiltInOperator::VirtualTime,
             BuiltInOperator::VirtualDeltaTime,
             BuiltInOperator::RealTime,
             BuiltInOperator::RealDeltaTime,
-        ] {
-            let value = m.builtin(op);
+        ];
+        for op in builtin_ops {
+            let handle = m.builtin(op);
+
+            {
+                let expr = m.get(handle);
+                assert!(expr.is_some());
+                let expr = expr.unwrap();
+                assert!(matches!(*expr, Expr::BuiltIn(_)));
+                if let Expr::BuiltIn(op) = expr {
+                    assert!(builtin_ops.contains(&op.operator));
+                }
+            }
 
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
             let mut ctx =
                 ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
 
-            let expr = ctx.eval(&m, value);
+            let expr = ctx.eval(&m, handle);
             assert!(expr.is_ok());
             let expr = expr.unwrap();
             assert_eq!(expr, format!("sim_params.{}", op.name()));
+        }
+
+        // Exercise the expression introspection
+        for (handle, expr) in m.expressions() {
+            assert!(handle.index() < m.expressions.len());
+            assert!(matches!(*expr, Expr::BuiltIn(_)));
+            if let Expr::BuiltIn(op) = expr {
+                assert!(builtin_ops.contains(&op.operator));
+            }
         }
 
         // is_alive
@@ -4675,4 +4820,71 @@ mod tests {
     //     assert_eq!(a_serde.left.to_wgsl_string(), l0.to_wgsl_string());
     //     assert_eq!(a_serde.right.to_wgsl_string(), l1.to_wgsl_string());
     // }
+
+    #[test]
+    fn expr_handle_serde() {
+        let handle = ExprHandle {
+            id: NonZeroU32::new(42).unwrap(),
+        };
+
+        // ser
+        let s = ron::ser::to_string_pretty(&handle, PrettyConfig::default()).unwrap();
+        eprintln!("{}", s);
+
+        // de
+        {
+            let mut de = ron::de::Deserializer::from_str(&s).unwrap();
+            let serde_handle = ExprHandle::deserialize(&mut de).unwrap();
+            assert_eq!(handle, serde_handle);
+        }
+
+        // de -- literatl string
+        {
+            let mut de = ron::de::Deserializer::from_str("\"#42\"").unwrap();
+            let serde_handle = ExprHandle::deserialize(&mut de).unwrap();
+            assert_eq!(handle, serde_handle);
+        }
+
+        // de -- invalid string
+        {
+            let mut de = ron::de::Deserializer::from_str("\"invalid\"").unwrap();
+            let ret = ExprHandle::deserialize(&mut de);
+            assert!(ret.is_err());
+        }
+
+        // de -- literal (not supported)
+        {
+            let mut de = ron::de::Deserializer::from_str("33").unwrap();
+            let ret = ExprHandle::deserialize(&mut de);
+            assert!(ret.is_err());
+        }
+
+        // de -- invalid ID (zero)
+        {
+            let mut de = ron::de::Deserializer::from_str("\"#0\"").unwrap();
+            let ret = ExprHandle::deserialize(&mut de);
+            assert!(ret.is_err());
+        }
+
+        // de -- invalid ID (negative)
+        {
+            let mut de = ron::de::Deserializer::from_str("\"#-5\"").unwrap();
+            let ret = ExprHandle::deserialize(&mut de);
+            assert!(ret.is_err());
+        }
+
+        // de -- valid ID (u32::MAX)
+        {
+            let mut de = ron::de::Deserializer::from_str("\"#4294967295\"").unwrap();
+            let serde_handle = ExprHandle::deserialize(&mut de).unwrap();
+            assert_eq!(serde_handle.id.get(), u32::MAX);
+        }
+
+        // de -- invalid ID (u32::MAX + 1; out of bounds)
+        {
+            let mut de = ron::de::Deserializer::from_str("\"#4294967296\"").unwrap();
+            let ret = ExprHandle::deserialize(&mut de);
+            assert!(ret.is_err());
+        }
+    }
 }

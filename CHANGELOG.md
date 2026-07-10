@@ -7,8 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Batch same-effect instances. This greatly improves performance when using many instances
+  of the same effect, by reducing the number of compute jobs dispatched to the GPU, and instead
+  taking full advantage of all GPU threads to process the init/update of all particles in parallel.
+  Batching is still limited to same-effect instances (same `EffectAsset`), and is currently not
+  available for GPU particle spawning.
+
+## [0.19.0] 2026-06-27
+
+_This version is compatible with Bevy 0.19_
+
+### Added
+
+- Added `EffectAsset::serialize(&self)` and `EffectAsset::deserialize()`,
+  which serialize and deserialize the `EffectAsset` using the canonical Hanabi format
+  corresponding to the `EffectAssetLoader` (`*.effect` files).
+- Added a new `EffectMesh` optional component holding a reference (`Handle<Mesh>`)
+  to the mesh used to render the particles of a `ParticleEffect`.
+  If absent (default), the asset referenced by `EffectAsset::mesh` is used,
+  or the `DefaultMesh` as a fallback. See the updated `puffs` example.
+- Added a fallible alternative `SpawnerSettings::try_new()` to the existing `new()`, to prevent panics
+  in editing context where inputs are not always validated.
+- Added `ParticleLayout::attributes()` returning an exact-size iterator over the `AttributeLayout` elements
+  forming the particle layout. This allows introspection of existing particle layouts.
+- Added a `ReflectModifier` type data to register a factory function able to create a concrete instance
+  of the modifier type. This is used by deserialization to rebuild an `EffectAsset`'s modifier lists.
+- Added the `Modifiers` container, which wraps a `Vec<BoxedModifier>` and provides serialization
+  and deserialization support.
+- Added the `EffectAssetSerializer` and `EffectAssetDeserializer` which provide custom implementations
+  of `serde::Serialize` and `serde::de::DeserializeSeed`, respectively, for `EffectAsset`.
+  This allows serializing and deserializing an `EffectAsset` to any serde format,
+  and provides an advanced alternaative to the built-in `EffectAsset::serialize()`
+  and `EffectAsset::deserialize()` utilities.
+- Exposed publicly the `EffectShaders` and `EffectShaderSources`,
+  as well as `CompiledParticleEffect::get_configured_shaders()`.
+  This allows debugging and inspection (editor) tools to peek at generated shaders.
+
+### Changed
+
 - Spawners and properties are now bound as arrays in the various GPU passes.
   If you had custom shader code accessing those, you need to update your code.
+- `EffectAsset` now directly serializes and deserializes with Bevy's own `TypeRegistry`.
+  All effect modifiers (`Modifier` trait) registered in the type registry
+  are automatically supported, including custom user modifiers.
+- `ExprHandle` now serializes as a string `"#<id>"` where `<id>` is the 1-based index
+  of the expression in the `Module` of the `EffectAsset`.
+- `EffectAssetLoaderError` is now `#[non_exhaustive]`. Its `Ron` variant was renamed `RonSpan`,
+  and it gained a more generic `Ron` variant for (non-spanned) RON errors, as well as an
+  `Encoding` error for UTF-8 decoding.
+- `EffectAsset::mesh` changed from `Option<Handle<Mesh>>` to `Option<AssetPath<'static>>`.
+  The field now holds the asset path of the mesh, instead of a runtime handle.
+  This enables serializing the asset path alongside the rest of the effect.
+  At runtime, the asset path is used to load the mesh.
+  Use the `EffectMesh` component instead if you want to override the `Mesh` for an instance.
+
+### Removed
+
+- Removed the `typetag` dependency.
+- Removed the `serde` feature. Serialization is always available.
+
+### Fixed
+
+- Fixed a crash when growing the effect metadata buffer while a ribbon effect was alive,
+  caused by the ribbon sort fill-dispatch binding a stale, too-small metadata buffer. (#537)
+- Fixed the sort indirect-dispatch buffer never growing past its initial 256 entries, causing
+  an indirect buffer overrun and crash with many sorted (e.g. ribbon) effects alive at once. (#493)
 
 ## [0.18.0] 2026-02-01
 
@@ -419,6 +482,7 @@ _This version is compatible with Bevy 0.12_
 - Added the `ImageSampleMapping` enum to determine how samples of the image of a `ParticleTextureModifier` are mapped to and modulated with the particle's base color. The new default behavior is `ImageSampleMapping::Modulate`, corresponding to a full modulate of all RGBA components. To restore the previous behavior, and use the Red channel of the texture as an opacity mask, set `ParticleTextureModifier::sample_mapping` to `ImageSampleMapping::ModulateOpacityFromR`.
 - Added new `FlipbookModifier` to treat the image of a `ParticleTextureModifier` as a grid sprite sheet, and allow rendering a sprite from that sheet. By animating the selected sprite, this creates a flipbook animation for the particle.
 - Added new `Attribute::SPRITE_INDEX` holding the `i32` index of a sprite inside a sprite sheet texture. This is used with the `FlipbookModifier` to render sprite-based animated particles.
+- Added `Modifier::into_boxed_render()` to cast `Box<dyn Modifier>` to `Box<dyn RenderModifier>` without cloning.
 
 ### Changed
 

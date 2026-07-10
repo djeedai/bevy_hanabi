@@ -1,7 +1,7 @@
-#[cfg(feature = "serde")]
+use bevy::asset::AssetPath;
 use bevy::asset::{io::Reader, AssetLoader, LoadContext};
-#[cfg(feature = "serde")]
-use bevy::reflect::TypePath;
+use bevy::reflect::TypeRegistry;
+use bevy::reflect::{TypePath, TypeRegistryArc};
 use bevy::{
     asset::{Asset, Assets, Handle},
     log::trace,
@@ -11,15 +11,17 @@ use bevy::{
     reflect::Reflect,
     utils::default,
 };
+use bevy::{ecs::reflect::AppTypeRegistry, reflect::serde::TypedReflectSerializer};
+use serde::de::DeserializeSeed as _;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "serde")]
 use thiserror::Error;
 use wgpu::{BlendComponent, BlendFactor, BlendOperation, BlendState};
 
+use crate::Modifiers;
 use crate::{
     modifier::{Modifier, RenderModifier},
-    BoxedModifier, ExprHandle, ModifierContext, Module, ParticleLayout, Property, PropertyLayout,
-    SimulationSpace, SpawnerSettings, TextureLayout,
+    ExprHandle, ModifierContext, Module, ParticleLayout, Property, PropertyLayout, SimulationSpace,
+    SpawnerSettings, TextureLayout,
 };
 
 /// Type of motion integration applied to the particles of a system.
@@ -266,7 +268,6 @@ impl FromWorld for DefaultMesh {
 /// [`ParticleEffect`]: crate::ParticleEffect
 /// [`EffectAsset`]: crate::EffectAsset
 #[derive(Asset, Default, Clone, Reflect)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[reflect(from_reflect = false)]
 pub struct EffectAsset {
     /// Display name of the effect.
@@ -310,17 +311,11 @@ pub struct EffectAsset {
     /// [`ParticleEffect::prng_seed`]: crate::ParticleEffect::prng_seed
     pub prng_seed: u32,
     /// Init modifier defining the effect.
-    #[reflect(ignore)]
-    // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    init_modifiers: Vec<BoxedModifier>,
-    /// update modifiers defining the effect.
-    #[reflect(ignore)]
-    // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    update_modifiers: Vec<BoxedModifier>,
+    init_modifiers: Modifiers,
+    /// Update modifiers defining the effect.
+    update_modifiers: Modifiers,
     /// Render modifiers defining the effect.
-    #[reflect(ignore)]
-    // TODO - Can't manage to implement FromReflect for BoxedModifier in a nice way yet
-    render_modifiers: Vec<BoxedModifier>,
+    render_modifiers: Modifiers,
     /// Type of motion integration applied to the particles of a system.
     pub motion_integration: MotionIntegration,
     /// Expression module for this effect.
@@ -329,9 +324,15 @@ pub struct EffectAsset {
     pub alpha_mode: AlphaMode,
     /// The mesh that each particle renders.
     ///
-    /// If `None`, the effect uses the [`DefaultMesh`].
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub mesh: Option<Handle<Mesh>>,
+    /// The asset path must reference a [`Mesh`] asset. If `None`, the effect
+    /// uses the [`DefaultMesh`].
+    ///
+    /// Unlike previous versions of Hanabi, you cannot anymore assign a runtime
+    /// [`Handle<Mesh>`] to an [`EffectAsset`]; although this might be
+    /// convenient, this prevents serializing the asset, because not all assets
+    /// in the [`Assets<Mesh>`] resource correspond to an actual asset with a
+    /// path.
+    pub mesh: Option<AssetPath<'static>>,
 }
 
 impl EffectAsset {
@@ -637,33 +638,472 @@ impl EffectAsset {
     }
 
     /// Sets the mesh that each particle will render.
-    pub fn mesh(mut self, mesh: Handle<Mesh>) -> Self {
+    ///
+    /// Note: this asset path must reference a [`Mesh`] asset.
+    pub fn mesh(mut self, mesh: AssetPath<'static>) -> Self {
         self.mesh = Some(mesh);
         self
+    }
+
+    /// Serialize this effect asset.
+    ///
+    /// This uses the canonical Hanabi serialization format, which is internally
+    /// based on RON (implementation detail). The type registry must contain all
+    /// types this [`EffectAsset`] references, including all concrete types of
+    /// [`Modifier`] objects. In general, you should pass the app's own
+    /// [`TypeRegistry`] found in the [`AppTypeRegistry`] resource.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy::prelude::*;
+    /// # use bevy_hanabi::*;
+    /// fn serialize_effect(type_registry: Res<AppTypeRegistry>) {
+    ///     let asset = EffectAsset::default();
+    ///     // [...]
+    ///     let type_registry = type_registry.read();
+    ///     let s = asset.serialize(&type_registry).unwrap();
+    ///     // [...]
+    /// }
+    /// ```
+    ///
+    /// # Advanced
+    ///
+    /// For more advanced serialization, for example to another format, see also
+    /// the [`EffectAssetSerializer`] which implements [`serde::Serialize`].
+    pub fn serialize(&self, type_registry: &TypeRegistry) -> Result<String, ron::Error> {
+        let serializer = EffectAssetSerializer::new(self, type_registry);
+        let pretty_config = ron::ser::PrettyConfig::default()
+            .indentor("  ".to_string())
+            .new_line("\n".to_string());
+        ron::ser::to_string_pretty(&serializer, pretty_config)
+    }
+
+    /// Deserialize an effect asset from string.
+    ///
+    /// This uses the canonical Hanabi serialization format, which is internally
+    /// based on RON (implementation detail). The type registry must contain all
+    /// types the serialized [`EffectAsset`] references, including all concrete
+    /// types of [`Modifier`] objects. In general, you should pass the app's
+    /// own [`TypeRegistry`] found in the [`AppTypeRegistry`] resource.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bevy::prelude::*;
+    /// # use bevy_hanabi::*;
+    /// # fn get_asset_string() -> String { unimplemented!() }
+    /// fn deserialize_effect(type_registry: Res<AppTypeRegistry>) {
+    ///     // [...]
+    ///     let s: String = get_asset_string();
+    ///     let type_registry = type_registry.read();
+    ///     let asset = EffectAsset::deserialize(&s[..], &type_registry).unwrap();
+    ///     // [...]
+    /// }
+    /// ```
+    ///
+    /// # Advanced
+    ///
+    /// For more advanced deserialization, for example to another format, see
+    /// also the [`EffectAssetDeserializer`] which implements
+    /// [`serde::de::DeserializeSeed`].
+    pub fn deserialize(s: &str, type_registry: &TypeRegistry) -> Result<Self, ron::Error> {
+        let mut deserializer = ron::de::Deserializer::from_str(s)?;
+        let deserialize = EffectAssetDeserializer::new(type_registry);
+        let asset = deserialize.deserialize(&mut deserializer)?;
+        Ok(asset)
+    }
+}
+
+impl bevy::reflect::serde::SerializeWithRegistry for EffectAsset {
+    fn serialize<S>(&self, serializer: S, registry: &TypeRegistry) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct as _;
+
+        let mut s = serializer.serialize_struct("EffectAsset", 14)?;
+        s.serialize_field("name", &self.name)?;
+        s.serialize_field("capacity", &self.capacity)?;
+        s.serialize_field("spawner", &self.spawner)?;
+        s.serialize_field("z_layer_2d", &self.z_layer_2d)?;
+        s.serialize_field("simulation_space", &self.simulation_space)?;
+        s.serialize_field("simulation_condition", &self.simulation_condition)?;
+        s.serialize_field("prng_seed", &self.prng_seed)?;
+        s.serialize_field(
+            "init_modifiers",
+            &TypedReflectSerializer::new(&self.init_modifiers, registry),
+        )?;
+        s.serialize_field(
+            "update_modifiers",
+            &TypedReflectSerializer::new(&self.update_modifiers, registry),
+        )?;
+        s.serialize_field(
+            "render_modifiers",
+            &TypedReflectSerializer::new(&self.render_modifiers, registry),
+        )?;
+        s.serialize_field("motion_integration", &self.motion_integration)?;
+        s.serialize_field("module", &self.module)?;
+        s.serialize_field("alpha_mode", &self.alpha_mode)?;
+        s.serialize_field("mesh", &self.mesh)?;
+        s.end()
+    }
+}
+
+impl<'de> bevy::reflect::serde::DeserializeWithRegistry<'de> for EffectAsset {
+    fn deserialize<D>(deserializer: D, registry: &TypeRegistry) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            Name,
+            Capacity,
+            Spawner,
+            #[serde(rename = "z_layer_2d")]
+            ZLayer2d,
+            SimulationSpace,
+            SimulationCondition,
+            PrngSeed,
+            InitModifiers,
+            UpdateModifiers,
+            RenderModifiers,
+            MotionIntegration,
+            Module,
+            AlphaMode,
+            Mesh,
+        }
+
+        struct SerializedEffectAssetVisitor<'a> {
+            pub registry: &'a TypeRegistry,
+        }
+
+        impl<'a, 'de> serde::de::Visitor<'de> for SerializedEffectAssetVisitor<'a> {
+            type Value = EffectAsset;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("struct EffectAsset")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<EffectAsset, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let modifiers = self
+                    .registry
+                    .get(std::any::TypeId::of::<Modifiers>())
+                    .ok_or_else(|| {
+                        serde::de::Error::custom("Failed to find type registration for Modifiers.")
+                    })?;
+
+                let mut name = None;
+                let mut capacity = None;
+                let mut spawner = None;
+                let mut z_layer_2d = None;
+                let mut simulation_space = None;
+                let mut simulation_condition = None;
+                let mut prng_seed = None;
+                let mut init_modifiers = None;
+                let mut update_modifiers = None;
+                let mut render_modifiers = None;
+                let mut motion_integration = None;
+                let mut module = None;
+                let mut alpha_mode = None;
+                let mut mesh = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Name => {
+                            if name.is_some() {
+                                return Err(serde::de::Error::duplicate_field("name"));
+                            }
+                            name = Some(map.next_value()?);
+                        }
+                        Field::Capacity => {
+                            if capacity.is_some() {
+                                return Err(serde::de::Error::duplicate_field("capacity"));
+                            }
+                            capacity = Some(map.next_value()?);
+                        }
+                        Field::Spawner => {
+                            if spawner.is_some() {
+                                return Err(serde::de::Error::duplicate_field("spawner"));
+                            }
+                            spawner = Some(map.next_value()?);
+                        }
+                        Field::ZLayer2d => {
+                            if z_layer_2d.is_some() {
+                                return Err(serde::de::Error::duplicate_field("z_layer_2d"));
+                            }
+                            z_layer_2d = Some(map.next_value()?);
+                        }
+                        Field::SimulationSpace => {
+                            if simulation_space.is_some() {
+                                return Err(serde::de::Error::duplicate_field("simulation_space"));
+                            }
+                            simulation_space = Some(map.next_value()?);
+                        }
+                        Field::SimulationCondition => {
+                            if simulation_condition.is_some() {
+                                return Err(serde::de::Error::duplicate_field(
+                                    "simulation_condition",
+                                ));
+                            }
+                            simulation_condition = Some(map.next_value()?);
+                        }
+                        Field::PrngSeed => {
+                            if prng_seed.is_some() {
+                                return Err(serde::de::Error::duplicate_field("prng_seed"));
+                            }
+                            prng_seed = Some(map.next_value()?);
+                        }
+                        Field::InitModifiers => {
+                            if init_modifiers.is_some() {
+                                return Err(serde::de::Error::duplicate_field("init_modifiers"));
+                            }
+                            init_modifiers = Some(map.next_value_seed(
+                                bevy::reflect::serde::TypedReflectDeserializer::new(
+                                    modifiers,
+                                    self.registry,
+                                ),
+                            )?);
+                        }
+                        Field::UpdateModifiers => {
+                            if update_modifiers.is_some() {
+                                return Err(serde::de::Error::duplicate_field("update_modifiers"));
+                            }
+                            update_modifiers = Some(map.next_value_seed(
+                                bevy::reflect::serde::TypedReflectDeserializer::new(
+                                    modifiers,
+                                    self.registry,
+                                ),
+                            )?);
+                        }
+                        Field::RenderModifiers => {
+                            if render_modifiers.is_some() {
+                                return Err(serde::de::Error::duplicate_field("render_modifiers"));
+                            }
+                            render_modifiers = Some(map.next_value_seed(
+                                bevy::reflect::serde::TypedReflectDeserializer::new(
+                                    modifiers,
+                                    self.registry,
+                                ),
+                            )?);
+                        }
+                        Field::MotionIntegration => {
+                            if motion_integration.is_some() {
+                                return Err(serde::de::Error::duplicate_field(
+                                    "motion_integration",
+                                ));
+                            }
+                            motion_integration = Some(map.next_value()?);
+                        }
+                        Field::Module => {
+                            if module.is_some() {
+                                return Err(serde::de::Error::duplicate_field("module"));
+                            }
+                            module = Some(map.next_value()?);
+                        }
+                        Field::AlphaMode => {
+                            if alpha_mode.is_some() {
+                                return Err(serde::de::Error::duplicate_field("alpha_mode"));
+                            }
+                            alpha_mode = Some(map.next_value()?);
+                        }
+                        Field::Mesh => {
+                            if mesh.is_some() {
+                                return Err(serde::de::Error::duplicate_field("mesh"));
+                            }
+                            mesh = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                // Recover the concrete field objects
+                let name = name.ok_or_else(|| serde::de::Error::missing_field("name"))?;
+                let capacity =
+                    capacity.ok_or_else(|| serde::de::Error::missing_field("capacity"))?;
+                let spawner = spawner.ok_or_else(|| serde::de::Error::missing_field("spawner"))?;
+                let z_layer_2d =
+                    z_layer_2d.ok_or_else(|| serde::de::Error::missing_field("z_layer_2d"))?;
+                let simulation_space = simulation_space
+                    .ok_or_else(|| serde::de::Error::missing_field("simulation_space"))?;
+                let simulation_condition = simulation_condition
+                    .ok_or_else(|| serde::de::Error::missing_field("simulation_condition"))?;
+                let prng_seed =
+                    prng_seed.ok_or_else(|| serde::de::Error::missing_field("prng_seed"))?;
+                let motion_integration = motion_integration
+                    .ok_or_else(|| serde::de::Error::missing_field("motion_integration"))?;
+                let module = module.ok_or_else(|| serde::de::Error::missing_field("module"))?;
+                let alpha_mode =
+                    alpha_mode.ok_or_else(|| serde::de::Error::missing_field("alpha_mode"))?;
+                let mesh = mesh.ok_or_else(|| serde::de::Error::missing_field("mesh"))?;
+                // Modifiers uses ReflectModifier type data to construct a concrete type. So we
+                // can directly try_take() here from the PartialReflect to recover that concrete
+                // object. This should always succeed.
+                let init_modifiers = init_modifiers
+                    .map(|m| m.try_take::<Modifiers>())
+                    .transpose()
+                    .map_err(|_| serde::de::Error::custom("Failed to get Modifiers"))?
+                    .unwrap_or_default();
+                let update_modifiers = update_modifiers
+                    .map(|m| m.try_take::<Modifiers>())
+                    .transpose()
+                    .map_err(|_| serde::de::Error::custom("Failed to get Modifiers"))?
+                    .unwrap_or_default();
+                let render_modifiers = render_modifiers
+                    .map(|m| m.try_take::<Modifiers>())
+                    .transpose()
+                    .map_err(|_| serde::de::Error::custom("Failed to get Modifiers"))?
+                    .unwrap_or_default();
+
+                // Rebuild the concrete EffectAsset object
+                Ok(EffectAsset {
+                    name,
+                    capacity,
+                    spawner,
+                    z_layer_2d,
+                    simulation_space,
+                    simulation_condition,
+                    prng_seed,
+                    init_modifiers,
+                    update_modifiers,
+                    render_modifiers,
+                    motion_integration,
+                    module,
+                    alpha_mode,
+                    mesh,
+                })
+            }
+        }
+
+        const FIELDS: &[&str] = &[
+            "name",
+            "capacity",
+            "spawner",
+            "z_layer_2d",
+            "simulation_space",
+            "simulation_condition",
+            "prng_seed",
+            "init_modifiers",
+            "update_modifiers",
+            "render_modifiers",
+            "motion_integration",
+            "module",
+            "alpha_mode",
+            "mesh",
+        ];
+        deserializer.deserialize_struct(
+            "EffectAsset",
+            FIELDS,
+            SerializedEffectAssetVisitor { registry },
+        )
+    }
+}
+
+/// Serializer for an [`EffectAsset`].
+pub struct EffectAssetSerializer<'a> {
+    asset: &'a EffectAsset,
+    type_registry: &'a TypeRegistry,
+}
+
+impl<'a> EffectAssetSerializer<'a> {
+    /// Create a new serializer for a given [`EffectAsset`].
+    ///
+    /// The `type_registry` must contain all types referenced by the
+    /// [`EffectAsset`], and in particular all concrete [`Modifier`] types.
+    pub fn new(asset: &'a EffectAsset, type_registry: &'a TypeRegistry) -> Self {
+        Self {
+            asset,
+            type_registry,
+        }
+    }
+}
+
+impl<'a> serde::Serialize for EffectAssetSerializer<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use bevy::reflect::serde::SerializeWithRegistry;
+
+        <EffectAsset as SerializeWithRegistry>::serialize(
+            self.asset,
+            serializer,
+            self.type_registry,
+        )
+    }
+}
+
+/// Deserializer for an [`EffectAsset`].
+pub struct EffectAssetDeserializer<'a> {
+    type_registry: &'a TypeRegistry,
+}
+
+impl<'a> EffectAssetDeserializer<'a> {
+    /// Create a new deserializer for [`EffectAsset`].
+    ///
+    /// The `type_registry` must contain all types that could be referenced by
+    /// the [`EffectAsset`] to deserialize, and in particular all concrete
+    /// [`Modifier`] types.
+    pub fn new(type_registry: &'a TypeRegistry) -> Self {
+        Self { type_registry }
+    }
+}
+
+impl<'a, 'de> serde::de::DeserializeSeed<'de> for EffectAssetDeserializer<'a> {
+    type Value = EffectAsset;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        <EffectAsset as bevy::reflect::serde::DeserializeWithRegistry>::deserialize(
+            deserializer,
+            self.type_registry,
+        )
     }
 }
 
 /// Asset loader for [`EffectAsset`].
 ///
 /// Effet assets take the `.effect` extension.
-#[cfg(feature = "serde")]
-#[derive(Default, TypePath)]
-pub struct EffectAssetLoader;
+#[derive(Debug, TypePath)]
+pub struct EffectAssetLoader {
+    /// The type registry passed to [`EffectAsset::deserialize()`].
+    pub type_registry: TypeRegistryArc,
+}
+
+impl FromWorld for EffectAssetLoader {
+    fn from_world(world: &mut World) -> Self {
+        let type_registry = world.resource::<AppTypeRegistry>();
+        EffectAssetLoader {
+            type_registry: type_registry.0.clone(),
+        }
+    }
+}
 
 /// Error for the [`EffectAssetLoader`] loading an [`EffectAsset`].
-#[cfg(feature = "serde")]
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum EffectAssetLoaderError {
     /// I/O error reading the asset source.
     #[error("An IO error occurred during loading of a particle effect")]
     Io(#[from] std::io::Error),
 
+    /// UTF-8 error converting the asset serialized content.
+    #[error("An encoding error occurred during loading of a particle effect")]
+    Encoding(#[from] std::string::FromUtf8Error),
+
     /// Error during RON format parsing.
     #[error("A RON format error occurred during loading of a particle effect")]
-    Ron(#[from] ron::error::SpannedError),
+    RonSpan(#[from] ron::error::SpannedError),
+
+    /// Error during RON format parsing.
+    #[error("A RON error occurred during loading of a particle effect")]
+    Ron(#[from] ron::error::Error),
 }
 
-#[cfg(feature = "serde")]
 impl AssetLoader for EffectAssetLoader {
     type Asset = EffectAsset;
 
@@ -679,8 +1119,10 @@ impl AssetLoader for EffectAssetLoader {
     ) -> Result<Self::Asset, Self::Error> {
         let mut bytes = Vec::new();
         reader.read_to_end(&mut bytes).await?;
-        let custom_asset = ron::de::from_bytes::<EffectAsset>(&bytes)?;
-        Ok(custom_asset)
+        let s = String::from_utf8(bytes)?;
+        let type_registry = self.type_registry.read();
+        let asset = EffectAsset::deserialize(&s, &type_registry)?;
+        Ok(asset)
     }
 
     fn extensions(&self) -> &[&str] {
@@ -723,16 +1165,25 @@ impl EffectParent {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct ParticleTrails {
     pub spawn_period: f32,
 }
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "serde")]
-    use ron::ser::PrettyConfig;
+    use std::path::Path;
+
+    use bevy::{
+        asset::{
+            io::{
+                memory::{Dir, MemoryAssetReader, MemoryAssetWriter},
+                AssetSourceBuilder, AssetSourceId,
+            },
+            LoadState,
+        },
+        diagnostic::DiagnosticsPlugin,
+    };
 
     use super::*;
     use crate::*;
@@ -847,9 +1298,10 @@ mod tests {
         // assert_eq!(effect.render_layout, render_layout);
     }
 
-    #[cfg(feature = "serde")]
+    /// Round-trip EffectAsset through its own functions serialize() and
+    /// deserialize().
     #[test]
-    fn test_serde_ron() {
+    fn serde_asset() {
         let w = ExprWriter::new();
 
         let pos = w.lit(Vec3::new(1.2, -3.45, 87.54485));
@@ -867,70 +1319,25 @@ mod tests {
             capacity: 4096,
             spawner: SpawnerSettings::rate(30.0.into()),
             module,
+            z_layer_2d: 1.5,
+            simulation_space: SimulationSpace::Local,
+            simulation_condition: SimulationCondition::Always,
+            prng_seed: 4284,
+            motion_integration: MotionIntegration::PreUpdate,
+            alpha_mode: AlphaMode::Multiply,
             ..Default::default()
         }
         .init(mod_pos);
 
-        let s = ron::ser::to_string_pretty(&effect, PrettyConfig::new().new_line("\n".to_string()))
-            .unwrap();
+        let type_registry = AppTypeRegistry::new_with_derived_types();
+        register_modifiers(&type_registry);
+        let registry = type_registry.read();
+
+        // Round-trip
+        let s = effect.serialize(&registry).unwrap();
         eprintln!("{}", s);
-        assert_eq!(
-            s,
-            r#"(
-    name: "Effect",
-    capacity: 4096,
-    spawner: (
-        count: Single(30.0),
-        spawn_duration: Single(1.0),
-        period: Single(1.0),
-        cycle_count: 0,
-        starts_active: true,
-        emit_on_start: true,
-    ),
-    z_layer_2d: 0.0,
-    simulation_space: Global,
-    simulation_condition: WhenVisible,
-    prng_seed: 0,
-    init_modifiers: [
-        {
-            "SetAttributeModifier": (
-                attribute: "position",
-                value: 1,
-            ),
-        },
-    ],
-    update_modifiers: [],
-    render_modifiers: [],
-    motion_integration: PostUpdate,
-    module: (
-        expressions: [
-            Literal(Vector(Vec3((1.2, -3.45, 87.54485)))),
-            Literal(Vector(BVec2((false, true)))),
-            Binary(
-                op: Add,
-                left: 2,
-                right: 1,
-            ),
-            Property(1),
-            Unary(
-                op: Abs,
-                expr: 4,
-            ),
-        ],
-        properties: [
-            (
-                name: "my_prop",
-                default_value: Vector(Vec3((1.2, -2.3, 55.32))),
-            ),
-        ],
-        texture_layout: (
-            layout: [],
-        ),
-    ),
-    alpha_mode: Blend,
-)"#
-        );
-        let effect_serde: EffectAsset = ron::from_str(&s).unwrap();
+        let effect_serde = EffectAsset::deserialize(&s, &registry).unwrap();
+
         assert_eq!(effect.name, effect_serde.name);
         assert_eq!(effect.capacity, effect_serde.capacity);
         assert_eq!(effect.spawner, effect_serde.spawner);
@@ -1003,5 +1410,80 @@ mod tests {
         let particle_layout = asset.particle_layout();
         assert!(particle_layout.contains(Attribute::AGE)); // direct
         assert!(particle_layout.contains(Attribute::F32_0)); // transitive
+    }
+
+    /// Creates a basic asset app and an in-memory file system.
+    fn create_app() -> (App, Dir) {
+        let mut app = App::new();
+        let dir = Dir::default();
+        let dir1 = dir.clone();
+        let dir2 = dir.clone();
+        app.register_asset_source(
+            AssetSourceId::Default,
+            AssetSourceBuilder::new(move || Box::new(MemoryAssetReader { root: dir1.clone() }))
+                .with_writer(move |_| Some(Box::new(MemoryAssetWriter { root: dir2.clone() }))),
+        )
+        .add_plugins((
+            TaskPoolPlugin::default(),
+            AssetPlugin {
+                watch_for_changes_override: Some(false),
+                use_asset_processor_override: Some(false),
+                ..Default::default()
+            },
+            DiagnosticsPlugin,
+        ));
+        (app, dir)
+    }
+
+    fn run_app_until(app: &mut App, mut predicate: impl FnMut(&mut World) -> Option<()>) {
+        for _ in 0..10_000 {
+            app.update();
+            if predicate(app.world_mut()).is_some() {
+                return;
+            }
+        }
+        panic!("Ran out of loops to return `Some` from `predicate`");
+    }
+
+    /// Check that the [`EffectAssetLoader`] can load an asset.
+    #[test]
+    fn loader() {
+        let (mut app, dir) = create_app();
+        app.init_asset::<EffectAsset>()
+            .init_asset_loader::<EffectAssetLoader>();
+
+        // Create an effect, serialize it, and write it to the in-memory file system
+        let asset_ref = {
+            let type_registry = app.world().resource::<AppTypeRegistry>().clone();
+            let type_registry = type_registry.read();
+            let spawner = SpawnerSettings::rate(3.0.into());
+            let module = Module::default();
+            let effect = EffectAsset::new(256, spawner, module);
+            let s = effect.serialize(&type_registry).unwrap();
+            dir.insert_asset_text(Path::new("test.effect"), &s[..]);
+            effect
+        };
+
+        // Load the asset through the AssetServer
+        let asset_server = app.world().resource::<AssetServer>().clone();
+        let handle = asset_server.load::<EffectAsset>("test.effect");
+        run_app_until(&mut app, |world| {
+            let asset_server = world.resource::<AssetServer>();
+            match asset_server.get_load_state(&handle).unwrap() {
+                LoadState::NotLoaded | LoadState::Loading => None,
+                LoadState::Loaded => Some(()),
+                LoadState::Failed(err) => panic!("Failed to load asset: {err:?}"),
+            }
+        });
+
+        // Compare the loaded asset deserialized from (in-memory) "disk", to the
+        // original reference asset.
+        let asset = app
+            .world()
+            .resource::<Assets<EffectAsset>>()
+            .get(&handle)
+            .unwrap();
+        assert_eq!(asset.capacity(), asset_ref.capacity());
+        assert_eq!(asset.spawner, asset_ref.spawner);
     }
 }

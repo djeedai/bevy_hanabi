@@ -108,7 +108,6 @@ impl SetPositionCircleModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for SetPositionCircleModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update
@@ -211,7 +210,6 @@ impl SetPositionSphereModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for SetPositionSphereModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update
@@ -326,7 +324,6 @@ impl SetPositionCone3dModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for SetPositionCone3dModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update

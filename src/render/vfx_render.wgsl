@@ -56,6 +56,19 @@ struct VertexOutput {
 {{MATERIAL_BINDINGS}}
 #endif
 
+/// The resolved effect and particle location.
+///
+/// This is calculated at the start of the thread execution, and used after that
+/// in various functions.
+var<private> effect_location : EffectLocation;
+
+var<private> effect_metadata_index: u32;
+// var<private> properties_array_index: u32;
+
+fn get_spawner_index() -> u32 {
+    return batch_info.spawner_base + effect_location.effect_index;
+}
+
 fn get_camera_position_effect_space() -> vec3<f32> {
     let view_pos = view.world_from_view[3].xyz;
 #ifdef LOCAL_SPACE_SIMULATION
@@ -181,7 +194,7 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
     var num_iter = 0;  // avoid deadlocking the GPU by capping the iteration count
     while (lo < hi) {
         let mid = (hi + lo) >> 1u;
-        let base_particle = prefix_sum[mid];
+        let base_particle = batch_info.base_particle + prefix_sum[mid];
         if (slab_particle_index >= base_particle) {
             lo = mid + 1u;
         } else if (slab_particle_index < base_particle) {
@@ -233,7 +246,10 @@ fn vertex(
     // This is rarely useful on its own.
     let slab_particle_index = /*batch_info.base_particle +*/ instance_index;
 
-    // Find the index of the effect this particle is part of.
+    // Find the index of the effect this particle is part of. Note that currently
+    // rendering is not yet batched, so this really derives into (effect_index = 0,
+    // base_particle = batch_info.base_particle), and the binary search is a bit useless
+    // until an actual batching is set up.
     effect_location = find_location_from_particle(slab_particle_index);
 #ifdef HAS_BATCHED_DRAW
     spawner_index = batch_info.base_effect + effect_offset + effect_index;

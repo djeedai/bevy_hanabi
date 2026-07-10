@@ -48,6 +48,11 @@ struct Spawner {
     /// slab (if the effect has a parent effect), in number of particles (row index).
     /// This is ignored if the effect has no parent.
     parent_slab_offset: u32,
+
+    // Keep this field here separate from auto-padding below, so that the WGSL and Rust
+    // struct definitions match.
+    unused: u32,
+
     {{SPAWNER_PADDING}}
 }
 
@@ -144,7 +149,12 @@ const DRAW_INDEXED_INDIRECT_STRIDE: u32 = 5u;
 struct BatchInfo {
     total_spawn_count: u32,
     total_update_count: u32,
-    base_effect: u32,
+    spawner_base: u32,
+    /// Offset to apply to the workgroup thread index to determine the global
+    /// particle index in the currently bound slab. This is often (and ideally)
+    /// zero, but may be > 0 if the entire slab cannot be processed with a
+    /// single invocation.
+    base_particle: u32,
     /// Offset into the prefix sum buffer of the sum for the first effect of
     /// this batch.
     prefix_sum_offset: u32,
@@ -201,7 +211,7 @@ struct EffectMetadata {
     init_indirect_dispatch_index: u32,
     /// Offset (in u32 count) of the start of the property block for this
     /// effect. This is ignored if the effect doesn't use properties.
-    properties_offset: u32,
+    properties_array_index: u32,
     /// Index of this effect into its parent's ChildInfo array
     /// ([`EffectChildren::effect_cache_ids`] and its associated GPU
     /// array). This starts at zero for the first child of each effect, and is

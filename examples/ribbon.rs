@@ -1,21 +1,25 @@
-//! Draw a "tracer" or a "trail" following an Entity.
+//! Draw "tracers" or "trails", each following an Entity.
 //!
-//! The emitter associated with the Entity is moved by the [move_head] system,
+//! The emitter associated with an Entity is moved by the [move_head] system,
 //! which simply assigns its [`Transform`]. Each frame some particle is spawned
 //! at that new position, in global space. By decreasing the particle size over
 //! its lifetime, and using a constant lifetime for all particles, the particles
 //! appear to create a trail following the emitter's Transform. This is just an
 //! illusion though; the particles don't move.
 //!
-//! To complete the illusion, all particles are assigned a same
+//! To complete the illusion, all particles of a same trail are assigned a same
 //! [`Attribute::RIBBON_ID`], which causes them to be rendered as a single
 //! continuous ribbon of quads, each linking the current particle to the
 //! previous one (the first particle is skipped in ribbon mode).
+//!
+//! This example also demonstrates managing several ribbon effects at runtime:
+//! ribbons are spawned and despawned continuously over time (see
+//! [spawn_ribbons] / [recycle_ribbons]) rather than once on startup, so several
+//! trails are alive at the same time.
 
+use bevy::camera::Hdr;
 use bevy::math::vec4;
 use bevy::prelude::*;
-use bevy::render::settings::WgpuSettings;
-use bevy::render::view::Hdr;
 use bevy::{core_pipeline::tonemapping::Tonemapping, math::vec3, post_process::bloom::Bloom};
 use bevy_hanabi::prelude::*;
 
@@ -27,21 +31,25 @@ use utils::*;
 const K: f32 = 0.64;
 const L: f32 = 0.384;
 
+#[derive(Clone)]
 enum ShapeConfig {
     Spirograph { k: f32, l: f32 },
     Lissajou { a: f32, b: f32 },
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 struct Shape {
     pub config: ShapeConfig,
     pub time_scale: f32,
     pub shape_scale: Vec3,
+    /// Per-instance offset along the curve, so each spawned ribbon starts at a
+    /// different position instead of on top of the previous one.
+    pub phase: f32,
 }
 
 impl Shape {
     pub fn tick(&mut self, time: f32) -> Vec3 {
-        let time = time * self.time_scale;
+        let time = (time + self.phase) * self.time_scale;
         let pos = match self.config {
             ShapeConfig::Spirograph { k, l } => vec3(
                 (1.0 - k) * (time.cos()) + (l * k) * (((1.0 - k) / k) * time).cos(),
@@ -68,6 +76,12 @@ const PARTICLE_CAPACITY: u32 = 100;
 
 const DEMO_DESC: &str = include_str!("ribbon.txt");
 
+const RIBBON_SPAWN_INTERVAL: f32 = 2.0;
+const RIBBON_DESPAWN_AFTER: f32 = 10.0;
+// Curve offset added per spawned ribbon, in seconds (before time_scale), so
+// successive ribbons appear at distinct positions instead of overlapping.
+const RIBBON_PHASE_STEP: f32 = 0.7;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wgpu_settings = WgpuSettings {
         //backends: Some(wgpu::Backends::VULKAN),
@@ -78,10 +92,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_wgpu_settings(wgpu_settings)
         .build()
         .add_systems(Startup, setup)
-        .add_systems(Update, move_head)
+        .add_systems(Update, (spawn_ribbons, recycle_ribbons, move_head))
         .run();
     app_exit.into_result()
 }
+
+/// Drives the continuous ribbon spawn/despawn cycle.
+#[derive(Resource)]
+struct RibbonSpawner {
+    effect: Handle<EffectAsset>,
+    shapes: Vec<Shape>,
+    timer: Timer,
+    next: usize,
+}
+
+#[derive(Component)]
+struct DespawnAfter(Timer);
 
 fn setup(
     mut commands: Commands,
@@ -129,9 +155,8 @@ fn setup(
         value: writer.lit(0.5).expr(),
     };
 
-    // In this example the entire effect is a single ribbon/trail, so all its
-    // particle are connected. This means they all share the same RIBBON_ID, which
-    // can be any value.
+    // Each effect is a single ribbon/trail, so all its particles are connected.
+    // This means they all share the same RIBBON_ID, which can be any value.
     let init_ribbon_id = SetAttributeModifier {
         attribute: Attribute::RIBBON_ID,
         value: writer.lit(0u32).expr(),
@@ -139,7 +164,7 @@ fn setup(
 
     let render_color = ColorOverLifetimeModifier::new(bevy_hanabi::Gradient::linear(
         vec4(3.0, 0.0, 0.0, 1.0),
-        vec4(3.0, 3.0, 0.0, 0.0),
+        vec4(0.0, 0.0, 3.0, 0.0),
     ));
 
     let spawner = SpawnerSettings::rate(RIBBON_SPAWN_RATE.into());
@@ -164,27 +189,70 @@ fn setup(
         })
         .render(render_color);
 
-    let effect = effects.add(effect);
+    // The ribbons share a single effect asset; each spawned instance is an
+    // independent effect, only the immutable asset is reused.
+    commands.insert_resource(RibbonSpawner {
+        effect: effects.add(effect),
+        timer: Timer::from_seconds(RIBBON_SPAWN_INTERVAL, TimerMode::Repeating),
+        next: 0,
+        shapes: vec![
+            Shape {
+                config: ShapeConfig::Spirograph { k: K, l: L },
+                time_scale: TIME_SCALE,
+                shape_scale: Vec3::ONE * SHAPE_SCALE,
+                phase: 0.0, // set per-instance in spawn_ribbons()
+            },
+            Shape {
+                config: ShapeConfig::Lissajou { a: 3., b: 4. },
+                time_scale: 2.,
+                shape_scale: Vec3::ONE * 18.,
+                phase: 0.0, // set per-instance in spawn_ribbons()
+            },
+        ],
+    });
+}
+
+/// Spawn one ribbon every [`RIBBON_SPAWN_INTERVAL`], cycling through the
+/// registered shapes. Each ribbon is despawned a few seconds later by
+/// [`recycle_ribbons`], keeping a rolling set of ribbons alive.
+fn spawn_ribbons(time: Res<Time>, mut commands: Commands, mut spawner: ResMut<RibbonSpawner>) {
+    if !spawner.timer.tick(time.delta()).just_finished() {
+        return;
+    }
+
+    let mut shape = spawner.shapes[spawner.next % spawner.shapes.len()].clone();
+    // Offset each spawn along the curve so successive ribbons don't land on top
+    // of the previous one (move_head() drives all ribbons from the same clock).
+    shape.phase = spawner.next as f32 * RIBBON_PHASE_STEP;
+    spawner.next = spawner.next.wrapping_add(1);
 
     commands.spawn((
-        ParticleEffect::new(effect.clone()),
-        Name::new("spirograph"),
-        Shape {
-            config: ShapeConfig::Spirograph { k: K, l: L },
-            time_scale: TIME_SCALE,
-            shape_scale: Vec3::ONE * SHAPE_SCALE,
-        },
+        ParticleEffect::new(spawner.effect.clone()),
+        shape,
+        DespawnAfter(Timer::from_seconds(RIBBON_DESPAWN_AFTER, TimerMode::Once)),
     ));
+}
 
-    commands.spawn((
-        ParticleEffect::new(effect),
-        Name::new("lissajou"),
-        Shape {
-            config: ShapeConfig::Lissajou { a: 3., b: 4. },
-            time_scale: 2.,
-            shape_scale: Vec3::ONE * 18.,
-        },
-    ));
+/// Recycle ribbons at the end of their [`DespawnAfter`] lifetime: stop emitting
+/// for the final [`RIBBON_LIFETIME`] so the existing particles age out and fade
+/// the tail away (via the size/color-over-lifetime modifiers), then despawn the
+/// now-empty entity.
+fn recycle_ribbons(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut DespawnAfter, Option<&mut EffectSpawner>)>,
+) {
+    for (entity, mut despawn_after, spawner) in query.iter_mut() {
+        despawn_after.0.tick(time.delta());
+        if despawn_after.0.just_finished() {
+            commands.entity(entity).despawn();
+        } else if despawn_after.0.remaining_secs() <= RIBBON_LIFETIME {
+            // Stop spawning new particles; the live ones keep aging and fade out.
+            if let Some(mut spawner) = spawner {
+                spawner.active = false;
+            }
+        }
+    }
 }
 
 fn move_head(

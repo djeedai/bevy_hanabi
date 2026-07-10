@@ -48,6 +48,7 @@ use std::{
 
 use bevy::{
     asset::Handle,
+    ecs::reflect::AppTypeRegistry,
     image::Image,
     math::{UVec2, Vec3, Vec4},
     platform::collections::HashMap,
@@ -62,6 +63,7 @@ pub mod force;
 pub mod kill;
 pub mod output;
 pub mod position;
+pub mod registry;
 pub mod velocity;
 
 pub use accel::*;
@@ -70,6 +72,7 @@ pub use force::*;
 pub use kill::*;
 pub use output::*;
 pub use position::*;
+pub use registry::*;
 pub use velocity::*;
 
 use crate::{
@@ -148,7 +151,6 @@ impl std::fmt::Display for ModifierContext {
 }
 
 /// Trait describing a modifier customizing an effect pipeline.
-#[cfg_attr(feature = "serde", typetag::serde)]
 pub trait Modifier: Reflect + Send + Sync + 'static {
     /// Get the context this modifier applies to.
     fn context(&self) -> ModifierContext;
@@ -160,6 +162,11 @@ pub trait Modifier: Reflect + Send + Sync + 'static {
 
     /// Try to cast this modifier to a [`RenderModifier`].
     fn as_render_mut(&mut self) -> Option<&mut dyn RenderModifier> {
+        None
+    }
+
+    /// Try to convert this modifier to a [`RenderModifier`].
+    fn into_boxed_render(self: Box<Self>) -> Option<Box<dyn RenderModifier>> {
         None
     }
 
@@ -548,7 +555,6 @@ impl EvalContext for RenderContext<'_> {
 }
 
 /// Trait to customize the rendering of alive particles each frame.
-#[cfg_attr(feature = "serde", typetag::serde)]
 pub trait RenderModifier: Modifier {
     /// Apply the rendering code.
     fn apply_render(
@@ -573,7 +579,6 @@ impl Clone for Box<dyn RenderModifier> {
 /// Macro to implement the [`Modifier`] trait for a render modifier.
 macro_rules! impl_mod_render {
     ($t:ty, $attrs:expr) => {
-        #[cfg_attr(feature = "serde", typetag::serde)]
         impl $crate::Modifier for $t {
             fn context(&self) -> $crate::ModifierContext {
                 $crate::ModifierContext::Render
@@ -584,6 +589,10 @@ macro_rules! impl_mod_render {
             }
 
             fn as_render_mut(&mut self) -> Option<&mut dyn $crate::RenderModifier> {
+                Some(self)
+            }
+
+            fn into_boxed_render(self: Box<Self>) -> Option<Box<dyn RenderModifier>> {
                 Some(self)
             }
 
@@ -686,7 +695,6 @@ impl EmitSpawnEventModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for EmitSpawnEventModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update
@@ -708,6 +716,210 @@ impl Modifier for EmitSpawnEventModifier {
     }
 }
 
+/// Register all built-in modifiers.
+///
+/// This registers all built-in modifiers with the given [`AppTypeRegistry`], by
+/// both calling [`TypeRegistry::register::<T>()`] and inserting a
+/// [`ReflectModifier`] type data for the modifier type `T`.
+///
+/// This is automatically called by the [`HanabiPlugin`]. In general you don't
+/// need to call this.
+///
+/// # Example
+///
+/// ```
+/// # use bevy::prelude::*;
+/// # use bevy_hanabi::*;
+/// fn register(type_registry: Res<AppTypeRegistry>) {
+///     register_modifiers(&type_registry);
+/// }
+/// ```
+///
+/// [`TypeRegistry::register::<T>()`]: bevy::reflect::TypeRegistry::register
+/// [`HanabiPlugin`]: crate::HanabiPlugin
+pub fn register_modifiers(type_registry: &AppTypeRegistry) {
+    {
+        let mut type_registry = type_registry.write();
+
+        // accel.rs
+        type_registry.register::<AccelModifier>();
+        type_registry.register::<RadialAccelModifier>();
+        type_registry.register::<TangentAccelModifier>();
+        // attr.rs
+        type_registry.register::<SetAttributeModifier>();
+        type_registry.register::<InheritAttributeModifier>();
+        // force.rs
+        type_registry.register::<ConformToSphereModifier>();
+        type_registry.register::<LinearDragModifier>();
+        // kill.rs
+        type_registry.register::<KillSphereModifier>();
+        type_registry.register::<KillAabbModifier>();
+        // output.rs
+        type_registry.register::<ParticleTextureModifier>();
+        type_registry.register::<SetColorModifier>();
+        type_registry.register::<ColorOverLifetimeModifier>();
+        type_registry.register::<SetSizeModifier>();
+        type_registry.register::<SizeOverLifetimeModifier>();
+        type_registry.register::<OrientModifier>();
+        type_registry.register::<FlipbookModifier>();
+        type_registry.register::<ScreenSpaceSizeModifier>();
+        type_registry.register::<RoundModifier>();
+        // position.rs
+        type_registry.register::<SetPositionCircleModifier>();
+        type_registry.register::<SetPositionSphereModifier>();
+        type_registry.register::<SetPositionCone3dModifier>();
+        // velocity.rs
+        type_registry.register::<SetVelocityCircleModifier>();
+        type_registry.register::<SetVelocitySphereModifier>();
+        type_registry.register::<SetVelocityTangentModifier>();
+
+        // Register Modifiers wrapper for serde-aware boxed modifiers
+        type_registry.register::<crate::modifier::registry::Modifiers>();
+    }
+
+    // accel.rs
+    register_reflect_modifier::<AccelModifier>(type_registry, |module| {
+        let accel = module.lit(Vec3::X);
+        Box::new(AccelModifier::new(accel))
+    });
+    register_reflect_modifier::<RadialAccelModifier>(type_registry, |module| {
+        let origin = module.lit(Vec3::ZERO);
+        let accel = module.lit(1.0);
+        Box::new(RadialAccelModifier::new(origin, accel))
+    });
+    register_reflect_modifier::<TangentAccelModifier>(type_registry, |module| {
+        let origin = module.lit(Vec3::ZERO);
+        let axis = module.lit(Vec3::X);
+        let accel = module.lit(1.0);
+        Box::new(TangentAccelModifier::new(origin, axis, accel))
+    });
+
+    // attr.rs
+    register_reflect_modifier::<SetAttributeModifier>(type_registry, |module| {
+        let value = module.lit(1.0);
+        Box::new(SetAttributeModifier::new(Attribute::LIFETIME, value))
+    });
+    register_reflect_modifier::<InheritAttributeModifier>(type_registry, |_| {
+        Box::new(InheritAttributeModifier::new(Attribute::LIFETIME))
+    });
+
+    // force.rs
+    register_reflect_modifier::<ConformToSphereModifier>(type_registry, |module| {
+        let origin = module.lit(Vec3::ZERO);
+        let radius = module.lit(1.0);
+        let influence_dist = module.lit(10.0);
+        let attraction_accel = module.lit(1.0);
+        let max_attraction_speed = module.lit(1.0);
+        Box::new(ConformToSphereModifier::new(
+            origin,
+            radius,
+            influence_dist,
+            attraction_accel,
+            max_attraction_speed,
+        ))
+    });
+    register_reflect_modifier::<LinearDragModifier>(type_registry, |module| {
+        let drag = module.lit(1.0);
+        Box::new(LinearDragModifier::new(drag))
+    });
+
+    // kill.rs
+    register_reflect_modifier::<KillSphereModifier>(type_registry, |module| {
+        let center = module.lit(Vec3::ZERO);
+        let sqr_radius = module.lit(1.0);
+        Box::new(KillSphereModifier::new(center, sqr_radius))
+    });
+    register_reflect_modifier::<KillAabbModifier>(type_registry, |module| {
+        let center = module.lit(Vec3::ZERO);
+        let sqr_radius = module.lit(1.0);
+        Box::new(KillAabbModifier::new(center, sqr_radius))
+    });
+
+    // output.rs
+    register_reflect_modifier::<ParticleTextureModifier>(type_registry, |module| {
+        let slot = module.lit(0u32);
+        Box::new(ParticleTextureModifier::new(slot))
+    });
+    register_reflect_modifier::<SetColorModifier>(type_registry, |_| {
+        Box::new(SetColorModifier::new(Vec4::ONE))
+    });
+    register_reflect_modifier::<ColorOverLifetimeModifier>(type_registry, |_| {
+        Box::new(ColorOverLifetimeModifier::new(Gradient::constant(
+            Vec4::ONE,
+        )))
+    });
+    register_reflect_modifier::<SetSizeModifier>(type_registry, |_| {
+        Box::new(SetSizeModifier {
+            size: Vec3::ONE.into(),
+        })
+    });
+    register_reflect_modifier::<SizeOverLifetimeModifier>(type_registry, |_| {
+        Box::new(SizeOverLifetimeModifier {
+            gradient: Gradient::constant(Vec3::ONE),
+            screen_space_size: false,
+        })
+    });
+    register_reflect_modifier::<OrientModifier>(type_registry, |_| {
+        Box::new(OrientModifier::new(OrientMode::default()))
+    });
+    register_reflect_modifier::<FlipbookModifier>(type_registry, |_| {
+        Box::new(FlipbookModifier::default())
+    });
+    register_reflect_modifier::<ScreenSpaceSizeModifier>(type_registry, |_| {
+        Box::new(ScreenSpaceSizeModifier)
+    });
+    register_reflect_modifier::<RoundModifier>(type_registry, |module| {
+        Box::new(RoundModifier::constant(module, 1.0))
+    });
+
+    // position.rs
+    register_reflect_modifier::<SetPositionCircleModifier>(type_registry, |module| {
+        Box::new(SetPositionCircleModifier {
+            center: module.lit(Vec3::ZERO),
+            axis: module.lit(Vec3::Z),
+            radius: module.lit(1.0),
+            dimension: ShapeDimension::Surface,
+        })
+    });
+    register_reflect_modifier::<SetPositionSphereModifier>(type_registry, |module| {
+        Box::new(SetPositionSphereModifier {
+            center: module.lit(Vec3::ZERO),
+            radius: module.lit(1.0),
+            dimension: ShapeDimension::Surface,
+        })
+    });
+    register_reflect_modifier::<SetPositionCone3dModifier>(type_registry, |module| {
+        Box::new(SetPositionCone3dModifier {
+            height: module.lit(1.0),
+            base_radius: module.lit(1.0),
+            top_radius: module.lit(0.0),
+            dimension: ShapeDimension::Surface,
+        })
+    });
+
+    // velocity.rs
+    register_reflect_modifier::<SetVelocityCircleModifier>(type_registry, |module| {
+        Box::new(SetVelocityCircleModifier {
+            center: module.lit(Vec3::ZERO),
+            axis: module.lit(Vec3::Z),
+            speed: module.lit(1.0),
+        })
+    });
+    register_reflect_modifier::<SetVelocitySphereModifier>(type_registry, |module| {
+        Box::new(SetVelocitySphereModifier {
+            center: module.lit(Vec3::ZERO),
+            speed: module.lit(1.0),
+        })
+    });
+    register_reflect_modifier::<SetVelocityTangentModifier>(type_registry, |module| {
+        Box::new(SetVelocityTangentModifier {
+            origin: module.lit(Vec3::ZERO),
+            axis: module.lit(Vec3::X),
+            speed: module.lit(1.0),
+        })
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use bevy::prelude::*;
@@ -725,6 +937,28 @@ mod tests {
             radius: m.lit(1.),
             dimension: ShapeDimension::Surface,
         }
+    }
+
+    #[test]
+    fn modifier_into_render() {
+        let original = SetSizeModifier {
+            size: Vec3::ONE.into(),
+        };
+        let original = Box::new(original);
+        let before: *const dyn RenderModifier = &*original;
+        let modifier: Box<dyn Modifier> = original;
+
+        // into_boxed_render() casts the same object
+        let modifier = modifier.into_boxed_render();
+        assert!(modifier.is_some());
+        let modifier = modifier.unwrap();
+        let after: *const dyn RenderModifier = &*modifier;
+        assert_eq!(before.addr(), after.addr());
+
+        // boxed_render_clone() creates a different object
+        let modifier = modifier.boxed_render_clone();
+        let after: *const dyn RenderModifier = &*modifier;
+        assert_ne!(before.addr(), after.addr());
     }
 
     #[test]
@@ -762,18 +996,57 @@ mod tests {
         assert_eq!(*m_reflect, m);
     }
 
-    #[cfg(feature = "serde")]
     #[test]
     fn serde() {
+        use serde::de::DeserializeSeed as _;
+
         let m = make_test_modifier();
         let bm: BoxedModifier = Box::new(m);
 
-        // Ser
-        let s = ron::to_string(&bm).unwrap();
+        // Use reflect-based serialization with a TypeRegistry so the boxed trait
+        // object can be serialized via the registered ReflectModifier factories.
+        let type_registry = AppTypeRegistry::new_with_derived_types();
+        register_modifiers(&type_registry);
+        let registry = type_registry.read();
+
+        // Serialize via ReflectSerializer
+        let serializer = bevy::reflect::serde::ReflectSerializer::new(bm.as_reflect(), &registry);
+        let s = ron::to_string(&serializer).unwrap();
         println!("modifier: {:?}", s);
 
-        // De
-        let m_serde: BoxedModifier = ron::from_str(&s).unwrap();
+        // Deserialize via ReflectDeserializer and construct a concrete instance using
+        // the ReflectModifier factory (same approach as in registry serde_impl).
+        let mut de = ron::de::Deserializer::from_str(&s).unwrap();
+        let reflect_deser = bevy::reflect::serde::ReflectDeserializer::new(&registry);
+        let boxed_partial = reflect_deser.deserialize(&mut de).unwrap();
+
+        let type_info = boxed_partial
+            .get_represented_type_info()
+            .expect("reflected value has no represented type info");
+        let type_id = type_info.type_id();
+
+        // Lookup ReflectModifier type data to build default instance
+        let reflect_modifier = registry
+            .get_type_data::<crate::modifier::registry::ReflectModifier>(type_id)
+            .expect("no ReflectModifier type data for type");
+
+        // Convert PartialReflect -> concrete Reflect
+        let rfr = registry
+            .get_type_data::<bevy::reflect::ReflectFromReflect>(type_id)
+            .expect("no ReflectFromReflect data for type");
+        let concrete_reflect = rfr
+            .from_reflect(boxed_partial.as_partial_reflect())
+            .expect("from_reflect failed");
+
+        // Build default instance and assign the deserialized data
+        let mut module = Module::default();
+        let mut modifier: BoxedModifier = (reflect_modifier.factory)(&mut module);
+        let reflect_mut: &mut dyn Reflect = Reflect::as_reflect_mut(&mut *modifier);
+        reflect_mut
+            .set(concrete_reflect)
+            .expect("failed to assign reflect value to modifier instance");
+
+        let m_serde = modifier;
 
         let rm: &dyn Reflect = m.as_reflect();
         let rm_serde: &dyn Reflect = m_serde.as_reflect();

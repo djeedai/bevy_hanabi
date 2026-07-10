@@ -7,6 +7,7 @@ use rand::{
 };
 use rand_pcg::Pcg32;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
     CompiledParticleEffect, EffectAsset, EffectSimulation, ParticleEffect, SimulationCondition,
@@ -162,6 +163,16 @@ impl<T: Copy + FromReflect + FloatHash> Hash for CpuValue<T> {
     }
 }
 
+/// Error type for [`SpawnerSettings::try_new()`].
+#[derive(Debug, Clone, Copy, Error)]
+pub enum SpawnerSettingsError {
+    #[error("Spawn period [{min}:{max}] is invalid")]
+    InvalidPeriod { min: f32, max: f32 },
+
+    #[error("Spawn period is infinite")]
+    InfinitePeriod,
+}
+
 /// Settings for an [`EffectSpawner`].
 ///
 /// A [`SpawnerSettings`] represents the settings of an [`EffectSpawner`].
@@ -285,30 +296,52 @@ impl SpawnerSettings {
         period: CpuValue<f32>,
         cycle_count: u32,
     ) -> Self {
-        assert!(
-            cycle_count == 1 || period.range()[0] >= 0.,
-            "`period` must not generate negative numbers (period.min was {}, expected >= 0).",
-            period.range()[0]
-        );
-        assert!(
-            cycle_count == 1 || period.range()[1] > 0.,
-            "`period` must be able to generate a positive number (period.max was {}, expected > 0).",
-            period.range()[1]
-        );
-        assert!(
-            period.range()[0].is_finite() && period.range()[1].is_finite(),
-            "`period` {:?} has an infinite bound. If upgrading from a previous version, use `cycle_count = 1` instead for a single-cycle burst.",
-            period
-        );
+        match Self::try_new(count, spawn_duration, period, cycle_count) {
+            Ok(s) => s,
+            Err(err) => match err {
+                SpawnerSettingsError::InvalidPeriod { min, max } => {
+                    if min < 0. {
+                        panic!("`period` must not generate negative numbers (period.min was {min}, expected >= 0).");
+                    } else {
+                        panic!("`period` must be able to generate a positive number (period.max was {max}, expected > 0).");
+                    }
+                }
+                SpawnerSettingsError::InfinitePeriod => panic!("`period` {period:?} has an infinite bound. If upgrading from a previous version, use `cycle_count = 1` instead for a single-cycle burst.",),
+            },
+        }
+    }
 
-        Self {
+    /// Try to create settings from individual values.
+    ///
+    /// Same as [`new()`], but fallible (returns an error) on invalid arugments
+    /// instead of panicking.
+    ///
+    /// [`new()`]: Self::new
+    pub fn try_new(
+        count: CpuValue<f32>,
+        spawn_duration: CpuValue<f32>,
+        period: CpuValue<f32>,
+        cycle_count: u32,
+    ) -> Result<Self, SpawnerSettingsError> {
+        let range = period.range();
+        if (cycle_count != 1) && (range[0] < 0. || range[1] <= 0.) {
+            return Err(SpawnerSettingsError::InvalidPeriod {
+                min: range[0],
+                max: range[1],
+            });
+        }
+        if !range[0].is_finite() || !range[1].is_finite() {
+            return Err(SpawnerSettingsError::InfinitePeriod);
+        }
+
+        Ok(Self {
             count,
             spawn_duration,
             period,
             cycle_count,
             starts_active: true,
             emit_on_start: true,
-        }
+        })
     }
 
     /// Set whether the [`EffectSpawner`] immediately starts to emit particle
@@ -329,6 +362,26 @@ impl SpawnerSettings {
     pub fn with_emit_on_start(mut self, emit_on_start: bool) -> Self {
         self.emit_on_start = emit_on_start;
         self
+    }
+
+    /// Set whether the [`EffectSpawner`] immediately starts to emit particle
+    /// when the [`ParticleEffect`] is spawned into the ECS world.
+    ///
+    /// See [with_emit_on_start()] for details.
+    ///
+    /// [with_emit_on_start()]: Self::with_emit_on_start
+    pub fn set_emit_on_start(&mut self, emit_on_start: bool) {
+        self.emit_on_start = emit_on_start;
+    }
+
+    /// Get whether the [`EffectSpawner`] immediately starts to emit particle
+    /// when the [`ParticleEffect`] is spawned into the ECS world.
+    ///
+    /// See [with_emit_on_start()] for details.
+    ///
+    /// [with_emit_on_start()]: Self::with_emit_on_start
+    pub fn emits_on_start(&self) -> bool {
+        self.emit_on_start
     }
 
     /// Create settings to spawn a burst of particles once.
@@ -1045,6 +1098,55 @@ mod test {
     }
 
     #[test]
+    #[should_panic]
+    fn test_new_panic_infinite_period() {
+        let _ = SpawnerSettings::new(
+            3.0.into(),
+            1.0.into(),
+            CpuValue::Uniform((0., f32::INFINITY)),
+            0,
+        );
+    }
+
+    #[test]
+    fn test_try_new_negative_period() {
+        assert!(matches!(
+            SpawnerSettings::try_new(3.0.into(), 1.0.into(), CpuValue::Uniform((-1., 1.)), 0),
+            Err(SpawnerSettingsError::InvalidPeriod { min: -1., max: 1. })
+        ));
+    }
+
+    #[test]
+    fn test_try_new_zero_period() {
+        assert!(matches!(
+            SpawnerSettings::try_new(3.0.into(), 1.0.into(), CpuValue::Uniform((0., 0.)), 0),
+            Err(SpawnerSettingsError::InvalidPeriod { min: 0., max: 0. })
+        ));
+    }
+
+    #[test]
+    fn test_try_new_infitie_period() {
+        assert!(matches!(
+            SpawnerSettings::try_new(
+                3.0.into(),
+                1.0.into(),
+                CpuValue::Uniform((0., f32::INFINITY)),
+                0
+            ),
+            Err(SpawnerSettingsError::InfinitePeriod)
+        ));
+        assert!(matches!(
+            SpawnerSettings::try_new(
+                3.0.into(),
+                1.0.into(),
+                CpuValue::Uniform((f32::INFINITY, f32::INFINITY)),
+                0
+            ),
+            Err(SpawnerSettingsError::InfinitePeriod)
+        ));
+    }
+
+    #[test]
     fn test_once() {
         let rng = &mut new_rng();
         let spawner = SpawnerSettings::once(5.0.into());
@@ -1213,6 +1315,7 @@ mod test {
         app.insert_resource(asset_server);
         // app.add_plugins(DefaultPlugins);
         app.init_asset::<Mesh>();
+        app.init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>();
         app.add_plugins(VisibilityPlugin);
         app.init_resource::<Time<EffectSimulation>>();
         app.insert_resource(Random(new_rng()));

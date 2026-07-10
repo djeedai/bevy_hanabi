@@ -19,7 +19,7 @@ use bevy::{
     },
     utils::default,
 };
-use bytemuck::cast_slice_mut;
+use bytemuck::cast_slice;
 
 use super::{buffer_table::BufferTableId, BufferBindingSource};
 use crate::{
@@ -285,11 +285,12 @@ impl ParticleSlab {
         {
             // Scope get_mapped_range_mut() to force a drop before unmap()
             {
-                let slice: &mut [u8] = &mut particle_buffer
+                let mut mapped = particle_buffer
                     .slice(..particle_capacity_bytes)
                     .get_mapped_range_mut();
-                let slice: &mut [u32] = cast_slice_mut(slice);
-                slice.fill(0xFFFFFFFF);
+                let particle_count_u32 = (particle_capacity_bytes / 4) as usize;
+                let values = vec![0xFFFF_FFFFu32; particle_count_u32];
+                mapped.copy_from_slice(cast_slice(values.as_slice()));
             }
             particle_buffer.unmap();
         }
@@ -308,13 +309,15 @@ impl ParticleSlab {
         {
             // Scope get_mapped_range_mut() to force a drop before unmap()
             {
-                let slice: &mut [u8] = &mut indirect_index_buffer
+                let mut mapped = indirect_index_buffer
                     .slice(..indirect_capacity_bytes)
                     .get_mapped_range_mut();
-                let slice: &mut [u32] = cast_slice_mut(slice);
+                let mut values = vec![0u32; capacity as usize * 3];
+                let slice: &mut [u32] = values.as_mut_slice();
                 for index in 0..capacity {
                     slice[3 * index as usize + 2] = index;
                 }
+                mapped.copy_from_slice(cast_slice(values.as_slice()));
             }
             indirect_index_buffer.unmap();
         }

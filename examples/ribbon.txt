@@ -1,5 +1,5 @@
 This example shows the use of ribbons.
 
-Two instances of the same particle effect are spawned, one where the emitter moves alongside a Lissajou curve, and the other alongside a Spirograph curve.
+Several instances of the same particle effect are spawned, where the emitter moves alongside a Lissajou curve or a Spirograph curve. Each instance stays alive for some time then disappear.
 
-The ribbon effect is created by spawning particles in-place in the world without moving them, and assigning all the particles the same Attribute::RIBBON_ID. By doing so, Hanabi will sort all particles in an instance by age, and will render a single linked mesh. The effect is completed by fadding out the particle size and opacity toward their life end.
+The ribbon effect is created by spawning particles in-place in the world without moving them, and assigning all the particles the same Attribute::RIBBON_ID. By doing so, Hanabi will sort all particles in an instance by age, and will render a single linked mesh. The effect is completed by fadding out the particle size and opacity toward their life end, and blending their color toward blue.

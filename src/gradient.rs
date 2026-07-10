@@ -243,7 +243,7 @@ impl<T: Lerp + FromReflect> Gradient<T> {
             .into_iter()
             .map(|(ratio, value)| GradientKey { ratio, value })
             .collect::<Vec<_>>();
-        keys.sort_by(|a, b| FloatOrd(a.ratio).cmp(&FloatOrd(b.ratio)));
+        keys.sort_by_key(|a| FloatOrd(a.ratio));
         Self { keys }
     }
 
@@ -481,8 +481,8 @@ impl<T: Lerp + FromReflect> Gradient<T> {
 mod tests {
     use std::collections::hash_map::DefaultHasher;
 
-    use bevy::reflect::{PartialReflect, ReflectRef, Struct};
-    use rand::{distr::StandardUniform, prelude::Distribution, rng, rngs::ThreadRng, Rng};
+    use bevy::reflect::{structs::Struct, PartialReflect, ReflectRef};
+    use rand::{distr::StandardUniform, prelude::Distribution, rng, rngs::ThreadRng, Rng, RngExt};
 
     use super::*;
     use crate::test_utils::*;

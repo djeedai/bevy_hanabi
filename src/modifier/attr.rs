@@ -53,7 +53,7 @@ use crate::{
 /// # Attributes
 ///
 /// This modifier requires the attribute specified in the `attribute` field.
-#[derive(Debug, Clone, Copy, Reflect, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize)]
 pub struct SetAttributeModifier {
     /// The attribute to initialize.
     ///
@@ -114,7 +114,6 @@ impl SetAttributeModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for SetAttributeModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init | ModifierContext::Update
@@ -186,7 +185,6 @@ impl InheritAttributeModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for InheritAttributeModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Init

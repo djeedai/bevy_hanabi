@@ -132,11 +132,11 @@ use std::{
 use bevy::{
     math::{Vec2, Vec3, Vec4},
     reflect::{
+        structs::{FieldIter, Struct, StructInfo},
         utility::{GenericTypePathCell, NonGenericTypeInfoCell},
-        ApplyError, FieldIter, FromReflect, FromType, GetTypeRegistration, NamedField,
-        PartialReflect, Reflect, ReflectDeserialize, ReflectFromReflect, ReflectMut, ReflectOwned,
-        ReflectRef, ReflectSerialize, Struct, StructInfo, TypeInfo, TypePath, TypeRegistration,
-        Typed,
+        ApplyError, FromReflect, FromType, GetTypeRegistration, NamedField, PartialReflect,
+        Reflect, ReflectDeserialize, ReflectFromReflect, ReflectMut, ReflectOwned, ReflectRef,
+        ReflectSerialize, TypeInfo, TypePath, TypeRegistration, Typed,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -791,6 +791,14 @@ impl Struct for Attribute {
         match index {
             0 => Some("name"),
             1 => Some("default_value"),
+            _ => None,
+        }
+    }
+
+    fn index_of_name(&self, name: &str) -> Option<usize> {
+        match name {
+            "name" => Some(0),
+            "default_value" => Some(1),
             _ => None,
         }
     }
@@ -1451,8 +1459,10 @@ impl Attribute {
 
 /// Layout for a single [`Attribute`] inside a [`ParticleLayout`].
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct AttributeLayout {
+pub struct AttributeLayout {
+    /// The particle attribute.
     pub attribute: Attribute,
+    /// Offset, in bytes, from the start of the particle.
     pub offset: u32,
 }
 
@@ -1838,8 +1848,9 @@ impl ParticleLayout {
         NonZeroU32::new(size.next_multiple_of(self.align)).unwrap()
     }
 
-    pub(crate) fn attributes(&self) -> &[AttributeLayout] {
-        &self.layout
+    /// Get the list of attributes forming this layout.
+    pub fn attributes(&self) -> impl ExactSizeIterator<Item = &AttributeLayout> {
+        self.layout.iter()
     }
 
     /// Check if the layout contains the specified [`Attribute`].
@@ -2237,7 +2248,7 @@ mod tests {
                 assert!(s.field("DUMMY").is_none());
                 assert!(s.field("").is_none());
 
-                for f in s.iter_fields() {
+                for (_, f) in s.iter_fields() {
                     let tp = f.get_represented_type_info().unwrap().type_path();
                     assert!(
                         tp.contains("alloc::borrow::Cow<str>")
@@ -2250,8 +2261,8 @@ mod tests {
                     TypeRegistration::of::<Attribute>().type_id(),
                     d.get_represented_type_info().unwrap().type_id()
                 );
-                assert_eq!(Some(0), d.index_of("name"));
-                assert_eq!(Some(1), d.index_of("default_value"));
+                assert_eq!(Some(0), d.index_of_name("name"));
+                assert_eq!(Some(1), d.index_of_name("default_value"));
             }
             _ => panic!("Attribute should be reflected as a Struct"),
         }

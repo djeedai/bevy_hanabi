@@ -11,7 +11,6 @@ use bevy::{
     render::{
         extract_component::ExtractComponentPlugin,
         render_asset::prepare_assets,
-        render_graph::RenderGraph,
         render_phase::DrawFunctions,
         render_resource::{SpecializedComputePipelines, SpecializedRenderPipelines},
         renderer::{RenderAdapterInfo, RenderDevice},
@@ -22,12 +21,12 @@ use bevy::{
     time::{time_system, TimeSystems},
 };
 
-#[cfg(feature = "serde")]
 use crate::asset::EffectAssetLoader;
 use crate::{
     asset::{DefaultMesh, EffectAsset},
     compile_effects,
     properties::EffectProperties,
+    register_modifiers,
     render::{
         allocate_effects, allocate_events, allocate_metadata, allocate_parent_child_infos,
         allocate_properties, batch_effects, clear_previous_frame_resizes,
@@ -37,14 +36,14 @@ use crate::{
         prepare_batch_inputs, prepare_bind_groups, prepare_effect_metadata, prepare_gpu_resources,
         prepare_indirect_pipeline, prepare_init_update_pipelines, prepare_property_buffers,
         propagate_ready_state, queue_effects, queue_init_fill_dispatch_ops,
-        queue_init_indirect_workgroup_update, report_ready_state, start_stop_gpu_debug_capture,
-        update_mesh_locations, DebugSettings, DispatchIndirectPipeline, DrawEffects,
-        EffectAssetEvents, EffectBindGroups, EffectCache, EffectsMeta, EventCache, GpuBatchInfo,
-        GpuBufferOperations, GpuSpawnerParams, InitFillDispatchQueue, ParticlesInitPipeline,
+        queue_init_indirect_workgroup_update, queue_sort_fill_dispatch_ops, report_ready_state,
+        start_stop_gpu_debug_capture, update_mesh_locations, Batcher, DebugSettings,
+        DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache,
+        EffectsMeta, EventCache, GpuBatchInfo, GpuBufferOperations, GpuEffectMetadata,
+        GpuSpawnerParams, HanabiRenderPlugin, InitFillDispatchQueue, ParticlesInitPipeline,
         ParticlesRenderPipeline, ParticlesUpdatePipeline, PrefixSumPipeline, PropertyBindGroups,
         PropertyCache, RenderDebugSettings, ShaderCache, SimParams, SortBindGroups,
-        SortedEffectBatches, StorageType as _, UtilsPipeline, VfxSimulateDriverNode,
-        VfxSimulateNode,
+        SortFillDispatchQueue, StorageType as _, UtilsPipeline,
     },
     spawn::{self, Random},
     tick_spawners,
@@ -106,33 +105,6 @@ pub enum EffectSystems {
     ///
     /// Part of Bevy's own [`RenderSystems::PrepareBindGroups`].
     PrepareBindGroups,
-}
-
-pub mod main_graph {
-    pub mod node {
-        use bevy::render::render_graph::RenderLabel;
-
-        /// Label for the simulation driver node running the simulation graph.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, RenderLabel)]
-        pub struct HanabiDriverNode;
-    }
-}
-
-pub mod simulate_graph {
-    use bevy::render::render_graph::RenderSubGraph;
-
-    /// Name of the simulation sub-graph.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, RenderSubGraph)]
-    pub struct HanabiSimulateGraph;
-
-    pub mod node {
-        use bevy::render::render_graph::RenderLabel;
-
-        /// Label for the simulation node (init and update compute passes;
-        /// view-independent).
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, RenderLabel)]
-        pub struct HanabiSimulateNode;
-    }
 }
 
 const HANABI_COMMON_TEMPLATE_HANDLE: Handle<Shader> =
@@ -214,9 +186,16 @@ impl HanabiPlugin {
 
 impl Plugin for HanabiPlugin {
     fn build(&self, app: &mut App) {
+        // Register modifiers
+        {
+            let type_registry = app.world().resource::<AppTypeRegistry>();
+            register_modifiers(type_registry);
+        }
+
         // Register asset
         app.init_asset::<EffectAsset>()
             .insert_resource(Random(spawn::new_rng()))
+            .add_plugins(HanabiRenderPlugin)
             .add_plugins(ExtractComponentPlugin::<EffectVisibilityClass>::default())
             .init_resource::<DefaultMesh>()
             .init_resource::<ShaderCache>()
@@ -251,7 +230,6 @@ impl Plugin for HanabiPlugin {
                 ),
             );
 
-        #[cfg(feature = "serde")]
         app.init_asset_loader::<EffectAssetLoader>();
 
         // Register types with reflection
@@ -362,7 +340,7 @@ impl Plugin for HanabiPlugin {
         );
 
         let effect_cache = EffectCache::new(render_device.clone());
-        let property_cache = PropertyCache::new(render_device.clone());
+        let property_cache = PropertyCache::new(&render_device);
         let event_cache = EventCache::new(render_device);
 
         let render_app = app.sub_app_mut(RenderApp);
@@ -383,6 +361,7 @@ impl Plugin for HanabiPlugin {
             .init_resource::<EffectBindGroups>()
             .init_resource::<PropertyBindGroups>()
             .init_resource::<InitFillDispatchQueue>()
+            .init_resource::<SortFillDispatchQueue>()
             .insert_resource(sort_bind_groups)
             .init_resource::<UtilsPipeline>()
             .init_resource::<GpuBufferOperations>()
@@ -399,7 +378,7 @@ impl Plugin for HanabiPlugin {
             .init_resource::<SpecializedRenderPipelines<ParticlesRenderPipeline>>()
             .init_resource::<EffectAssetEvents>()
             .init_resource::<SimParams>()
-            .init_resource::<SortedEffectBatches>()
+            .init_resource::<Batcher>()
             .configure_sets(
                 Render,
                 (
@@ -522,6 +501,18 @@ impl Plugin for HanabiPlugin {
                         .after(allocate_properties)
                         // This may invalidate some bind groups when resizing the metadata buffer
                         .before(prepare_bind_groups),
+                    // Queue the dispatch ops to fill the indirect dispatch args of the ribbon
+                    // particle sort pass. Deferred from batch_effects() so it runs after the
+                    // effect metadata buffer has been (re-)allocated to this frame's size.
+                    queue_sort_fill_dispatch_ops
+                        .in_set(EffectSystems::PrepareEffectGpuResources)
+                        // Need the metadata buffer (re-)allocated so the captured handle and
+                        // dynamic offsets are correct and in-bounds
+                        .after(prepare_effect_metadata)
+                        // Must submit into the shared GpuBufferOperations before
+                        // queue_init_fill_dispatch_ops uploads its args buffer (end_frame)
+                        .before(queue_init_fill_dispatch_ops)
+                        .before(prepare_bind_groups),
                     queue_init_fill_dispatch_ops
                         .in_set(EffectSystems::PrepareEffectGpuResources)
                         .after(prepare_gpu_resources)
@@ -584,25 +575,5 @@ impl Plugin for HanabiPlugin {
                 .write()
                 .add(draw_particles);
         }
-
-        // Add the simulation sub-graph. This render graph runs once per frame no matter
-        // how many cameras/views are active (view-independent).
-        let mut simulate_graph = RenderGraph::default();
-        let simulate_node = VfxSimulateNode::new(render_app.world_mut());
-        simulate_graph.add_node(simulate_graph::node::HanabiSimulateNode, simulate_node);
-        let mut graph = render_app
-            .world_mut()
-            .get_resource_mut::<RenderGraph>()
-            .unwrap();
-        graph.add_sub_graph(simulate_graph::HanabiSimulateGraph, simulate_graph);
-
-        // Add the simulation driver node which executes the simulation sub-graph. It
-        // runs before the camera driver, since rendering needs to access simulated
-        // particles.
-        graph.add_node(main_graph::node::HanabiDriverNode, VfxSimulateDriverNode {});
-        graph.add_node_edge(
-            main_graph::node::HanabiDriverNode,
-            bevy::render::graph::CameraDriverLabel,
-        );
     }
 }

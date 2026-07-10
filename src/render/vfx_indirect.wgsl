@@ -6,12 +6,11 @@
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 
 @group(1) @binding(0) var<storage, read_write> effect_metadatas : array<EffectMetadata>;
-@group(1) @binding(1) var<storage, read_write> dispatch_indirect_buffer : array<DispatchIndirectArgs>;
 // Tightly packed array of DrawIndexedIndirectArgs[], accessed as u32 array. This can contain
 // some DrawIndirectArgs[] instead, but in that case the stride is adjusted so all rows have
 // the same size. Since we access the instance_count, which is at the same position in both,
 // we ignore their size difference (the non-indexed one is padded).
-@group(1) @binding(2) var<storage, read_write> draw_indirect_buffer : array<u32>;
+@group(1) @binding(1) var<storage, read_write> draw_indirect_buffer : array<u32>;
 
 @group(2) @binding(0) var<storage, read_write> spawner_buffer : array<Spawner>;
 @group(2) @binding(1) var<storage, read_write> prefix_sum : array<u32>;

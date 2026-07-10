@@ -167,7 +167,7 @@ impl Property {
 
 impl ToWgslString for Property {
     fn to_wgsl_string(&self) -> String {
-        format!("properties[properties_offset].{}", self.name)
+        format!("properties[properties_array_index].{}", self.name)
     }
 }
 
@@ -897,7 +897,7 @@ mod tests {
         assert_eq!(p.size(), value.value_type().size());
         assert_eq!(
             p.to_wgsl_string(),
-            format!("properties[properties_offset].{}", p.name())
+            format!("properties[properties_array_index].{}", p.name())
         );
     }
 

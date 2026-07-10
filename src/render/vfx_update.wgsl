@@ -49,16 +49,16 @@ struct EffectLocation {
 /// Requirements:
 /// - var<storage, read> batch_info : BatchInfo
 /// - var<storage, read> prefix_sum : array<u32>
-fn find_location_from_particle(global_update_index: u32) -> EffectLocation {
+fn find_location_from_particle(update_particle_index: u32) -> EffectLocation {
     var lo = batch_info.prefix_sum_offset;
     var hi = lo + batch_info.prefix_sum_count;
     var num_iter = 0;  // avoid deadlocking the GPU by capping the iteration count
     while (lo < hi) {
         let mid = (hi + lo) >> 1u;
-        let base_update_index = prefix_sum[mid];
-        if (global_update_index >= base_update_index) {
+        let base_particle = prefix_sum[mid];
+        if (update_particle_index >= base_particle) {
             lo = mid + 1u;
-        } else if (global_update_index < base_update_index) {
+        } else if (update_particle_index < base_particle) {
             hi = mid;
         }
         num_iter += 1;
@@ -66,9 +66,14 @@ fn find_location_from_particle(global_update_index: u32) -> EffectLocation {
             return EffectLocation(0xDEADBEEFu, 0xDEADBEEFu, 0xDEADBEEFu);
         }
     }
+    // origin/main:
+    let base_particle = prefix_sum[lo - 1u];
     let effect_index = lo - 1u - batch_info.prefix_sum_offset;
-    let update_index = global_update_index - prefix_sum[lo - 1u];
-    let base_particle = spawners[batch_info.base_effect + effect_index].slab_offset;
+    let update_index = update_particle_index - base_particle;
+    // u/gpu-sort
+    // let effect_index = lo - 1u - batch_info.prefix_sum_offset;
+    // let update_index = global_update_index - prefix_sum[lo - 1u];
+    // let base_particle = spawners[batch_info.base_effect + effect_index].slab_offset;
     return EffectLocation(effect_index, base_particle, update_index);
 }
 
@@ -101,28 +106,29 @@ fn find_location_from_particle(global_update_index: u32) -> EffectLocation {
 #endif
 
 var<private> effect_metadata_index: u32;
-var<private> properties_offset: u32;
+var<private> properties_array_index: u32;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    // Cap the number of threads to the total number of alive particles
-    let global_update_index = global_invocation_id.x;
-    if (global_update_index >= batch_info.total_update_count) {
+    // Particle index in the packed update space of this batch.
+    let update_particle_index = global_invocation_id.x;
+    if (update_particle_index >= batch_info.total_update_count) {
         return;
     }
 
     // Find the index of the effect this particle is part of.
-    let location = find_location_from_particle(global_update_index);
-    let spawner = &spawners[batch_info.base_effect + location.effect_index];
+    let location = find_location_from_particle(update_particle_index);
+    let spawner = &spawners[batch_info.spawner_base + location.effect_index];
     effect_metadata_index = (*spawner).effect_metadata_index;
-    let base_particle = location.base_particle;
+    let base_particle = (*spawner).slab_offset;
+    let slab_particle_index = base_particle + location.update_index;
 
     // Cap at maximum number of alive particles for the current effect
     let effect_metadata = &effect_metadatas[effect_metadata_index];
     if (location.update_index >= (*effect_metadata).max_update) {
         return;
     }
-    properties_offset = (*effect_metadata).properties_offset;
+    properties_array_index = (*effect_metadata).properties_array_index;
 
     let write_index = effect_metadata.indirect_write_index;
     let read_index = 1u - write_index;
