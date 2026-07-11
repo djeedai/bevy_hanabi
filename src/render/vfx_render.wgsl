@@ -207,12 +207,6 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
     let base_particle = spawners[batch_info.spawner_base + effect_offset + effect_index].slab_offset;
     return EffectLocation(effect_index, base_particle, update_index);
 }
-#else
-fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
-    // Single draw call per effect, so effect index is always 0, and global
-    // particle index is same as local one.
-    return EffectLocation(0u, spawners[0].slab_offset, slab_particle_index);
-}
 #endif
 
 @vertex
@@ -237,10 +231,13 @@ fn vertex(
     // rendering is not yet batched, so this really derives into (effect_index = 0,
     // base_particle = batch_info.base_particle), and the binary search is a bit useless
     // until an actual batching is set up.
-    effect_location = find_location_from_particle(slab_particle_index);
 #ifdef HAS_BATCHED_DRAW
+    effect_location = find_location_from_particle(slab_particle_index);
     spawner_index = batch_info.spawner_base + effect_offset + effect_index;
 #else
+    effect_location.effect_index = 0u;
+    effect_location.base_particle = batch_info.base_particle;
+    effect_location.update_index = instance_index;
     spawner_index = batch_info.spawner_base;
 #endif
     let spawner = &spawners[spawner_index];

@@ -6810,11 +6810,6 @@ fn draw<'w>(
                 effect_batch.effect_data.len()
             );
             for effect_data in &effect_batch.effect_data {
-                trace!(
-                    "+ batch-info @+{}B (row #{})",
-                    effect_data.render_batch_info_offset,
-                    effect_data.render_batch_info_offset / GpuBatchInfo::SHADER_SIZE.get() as u32
-                );
                 pass.set_bind_group(
                     2,
                     property_bind_groups
@@ -6826,6 +6821,13 @@ fn draw<'w>(
                 assert_eq!(GpuDrawIndexedIndirectArgs::SHADER_SIZE.get(), 20);
                 let draw_indirect_offset =
                     draw_indirect_index as u64 * GpuDrawIndexedIndirectArgs::SHADER_SIZE.get();
+                trace!(
+                    "+ batch-info @+{}B (row #{}), draw_indirect_offset=+{}B (row #{})",
+                    effect_data.render_batch_info_offset,
+                    effect_data.render_batch_info_offset / GpuBatchInfo::SHADER_SIZE.get() as u32,
+                    draw_indirect_offset,
+                    draw_indirect_index,
+                );
                 pass.draw_indexed_indirect(indirect_buffer, draw_indirect_offset);
             }
         }

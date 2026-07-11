@@ -849,14 +849,7 @@ impl PropertyBindGroups {
                 ),
                 &pipeline_cache.get_bind_group_layout(layout_desc),
                 &BindGroupEntries::with_indices((
-                    (
-                        0,
-                        BufferBinding {
-                            buffer: spawner_buffer,
-                            offset: 0,
-                            size: Some(GpuSpawnerParams::aligned_size(align)),
-                        },
-                    ),
+                    (0, spawner_buffer.as_entire_binding()),
                     (
                         1,
                         BufferBinding {
@@ -972,11 +965,7 @@ impl PropertyBindGroups {
             Some("hanabi:bg:spawner@2:no-property"),
             &pipeline_cache.get_bind_group_layout(layout_desc),
             &BindGroupEntries::sequential((
-                BufferBinding {
-                    buffer: spawner_buffer,
-                    offset: 0,
-                    size: Some(GpuSpawnerParams::aligned_size(align)),
-                },
+                spawner_buffer.as_entire_binding(),
                 BufferBinding {
                     buffer: batch_info_buffer,
                     offset: 0,
