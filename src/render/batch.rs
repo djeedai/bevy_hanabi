@@ -320,8 +320,8 @@ impl Batcher {
 
         let batch_info_base = self.batch_info_buffer.len() as u32;
         let batch_info = GpuBatchInfo {
-            total_spawn_count: 0,
-            total_update_count: 0,
+            total_spawn_count: 0,  // set in end_batch()
+            total_update_count: 0, // calculated on GPU
             spawner_base,
             base_particle,
             prefix_sum_offset,
@@ -369,13 +369,19 @@ impl Batcher {
             "Call to end_batch() without begin_batch()"
         );
 
+        // Get the open batch
         let batch = self
             .batch_info_buffer
             .last_mut()
             .expect("No open batch. Missing begin_batch() call?");
+
+        // Record prefix sum
         let end = self.prefix_sum_buffer.len() as u32;
         assert!(end >= batch.prefix_sum_offset);
         batch.prefix_sum_count = end - batch.prefix_sum_offset;
+
+        // Record total number of CPU spawn, to clamp the number of GPU threads
+        batch.total_spawn_count = self.cpu_prefix_sum_value;
 
         self.is_batch_open = false;
     }

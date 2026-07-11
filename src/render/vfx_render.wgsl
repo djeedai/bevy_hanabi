@@ -46,7 +46,7 @@ struct VertexOutput {
 @group(2) @binding(2) var<storage, read> batch_info : BatchInfo;
 #else
 // Per-effect bindings
-@group(2) @binding(0) var<storage, read> spawners : array<Spawner, 1>;
+@group(2) @binding(0) var<storage, read> spawners : array<Spawner>;
 @group(2) @binding(1) var<storage, read> batch_info : BatchInfo;
 #endif
 {{PROPERTIES_BINDING}}
@@ -63,11 +63,8 @@ struct VertexOutput {
 var<private> effect_location : EffectLocation;
 
 var<private> effect_metadata_index: u32;
-// var<private> properties_array_index: u32;
-
-fn get_spawner_index() -> u32 {
-    return batch_info.spawner_base + effect_location.effect_index;
-}
+var<private> spawner_index: u32;
+// var<private> properties_offset: u32;
 
 fn get_camera_position_effect_space() -> vec3<f32> {
     let view_pos = view.world_from_view[3].xyz;
@@ -218,16 +215,6 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
 }
 #endif
 
-/// The resolved effect and particle location.
-///
-/// This is calculated at the start of the thread execution, and used after that
-/// in various functions.
-var<private> effect_location : EffectLocation;
-
-var<private> effect_metadata_index: u32;
-var<private> spawner_index: u32;
-// var<private> properties_offset: u32;
-
 @vertex
 fn vertex(
     @builtin(instance_index) instance_index: u32,
@@ -254,7 +241,7 @@ fn vertex(
 #ifdef HAS_BATCHED_DRAW
     spawner_index = batch_info.spawner_base + effect_offset + effect_index;
 #else
-    spawner_index = 0u;
+    spawner_index = batch_info.spawner_base;
 #endif
     let spawner = &spawners[spawner_index];
     effect_metadata_index = (*spawner).effect_metadata_index;

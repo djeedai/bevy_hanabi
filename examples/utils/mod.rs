@@ -227,11 +227,7 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
     ));
 }
 
-fn demo_menu(
-    mut sim_time: ResMut<Time<EffectSimulation>>,
-    input: Res<ButtonInput<KeyCode>>,
-    mut contexts: bevy_egui::EguiContexts,
-) {
+fn demo_menu(mut sim_time: ResMut<Time<EffectSimulation>>, input: Res<ButtonInput<KeyCode>>) {
     // ENTER: pause/unpause time
     if input.just_pressed(KeyCode::Enter) {
         let is_paused = sim_time.is_paused();

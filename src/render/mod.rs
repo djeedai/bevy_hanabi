@@ -6708,9 +6708,11 @@ fn draw<'w>(
     pass.set_render_pipeline(pipeline);
 
     let Some(render_mesh): Option<&RenderMesh> = meshes.get(effect_batch.mesh) else {
+        trace!("Missing render mesh; can't draw. Skipped.");
         return;
     };
     let Some(vertex_buffer_slice) = mesh_allocator.mesh_vertex_slice(&effect_batch.mesh) else {
+        trace!("Missing vertex buffer slice; can't draw. Skipped.");
         return;
     };
 
@@ -6803,7 +6805,16 @@ fn draw<'w>(
             //     effect_batch.effect_count,
             // );
             let with_prefix_sum = false; // per-effect, no draw batching
+            trace!(
+                "Emit non-batched draw_indexed_indirect() for {} effect instances...",
+                effect_batch.effect_data.len()
+            );
             for effect_data in &effect_batch.effect_data {
+                trace!(
+                    "+ batch-info @+{}B (row #{})",
+                    effect_data.render_batch_info_offset,
+                    effect_data.render_batch_info_offset / GpuBatchInfo::SHADER_SIZE.get() as u32
+                );
                 pass.set_bind_group(
                     2,
                     property_bind_groups
@@ -6829,6 +6840,10 @@ fn draw<'w>(
             //     effect_batch.effect_count,
             // );
             let with_prefix_sum = false; // per-effect, no draw batching
+            trace!(
+                "Emit non-batched draw_indirect() for {} effect instances...",
+                effect_batch.effect_data.len()
+            );
             for effect_data in &effect_batch.effect_data {
                 pass.set_bind_group(
                     2,
