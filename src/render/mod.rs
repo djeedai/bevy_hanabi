@@ -1444,35 +1444,41 @@ impl GpuBufferOperations {
                 });
 
         let mut prev_op = None;
+        let mut prev_key = None;
         for qop in queue {
             trace!("qop={:?}", qop);
 
-            if Some(qop.op) != prev_op {
+            let change_pipeline = Some(qop.op) != prev_op;
+            if change_pipeline {
                 compute_pass.set_pipeline(utils_pipeline.get_pipeline(qop.op));
                 prev_op = Some(qop.op);
             }
 
             let key: QueuedOperationBindGroupKey = qop.into();
-            if let Some(bind_group) = self.bind_groups.get(&key) {
-                let use_dynamic_offset = matches!(
-                    qop.op,
-                    GpuBufferOperationType::FillDispatchArgs | GpuBufferOperationType::Copy
-                );
-                if use_dynamic_offset {
-                    let args_offset = self.args_buffer.dynamic_offset(qop.args_index as usize);
-                    compute_pass.set_bind_group(0, bind_group, &[args_offset]);
-                    trace!(
-                        "set bind group with dynamic offsets: op={:?} args=+{}B",
+            let change_bind_group = change_pipeline || (Some(key) != prev_key);
+            if change_bind_group {
+                if let Some(bind_group) = self.bind_groups.get(&key) {
+                    let use_dynamic_offset = matches!(
                         qop.op,
-                        args_offset,
+                        GpuBufferOperationType::FillDispatchArgs | GpuBufferOperationType::Copy
                     );
+                    if use_dynamic_offset {
+                        let args_offset = self.args_buffer.dynamic_offset(qop.args_index as usize);
+                        compute_pass.set_bind_group(0, bind_group, &[args_offset]);
+                        trace!(
+                            "set bind group with dynamic offsets: op={:?} args=+{}B",
+                            qop.op,
+                            args_offset,
+                        );
+                    } else {
+                        compute_pass.set_bind_group(0, bind_group, &[]);
+                        trace!("set bind group without dynamic offsets: op={:?}", qop.op);
+                    }
                 } else {
-                    compute_pass.set_bind_group(0, bind_group, &[]);
-                    trace!("set bind group without dynamic offsets: op={:?}", qop.op);
+                    error!("GPU fill dispatch buffer operation bind group not found for buffers src#{:?} dst#{:?}", qop.src_buffer.id(), qop.dst_buffer.id());
+                    continue;
                 }
-            } else {
-                error!("GPU fill dispatch buffer operation bind group not found for buffers src#{:?} dst#{:?}", qop.src_buffer.id(), qop.dst_buffer.id());
-                continue;
+                prev_key = Some(key);
             }
 
             // Dispatch the operations for this buffer
