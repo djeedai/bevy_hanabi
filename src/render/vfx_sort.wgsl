@@ -40,7 +40,7 @@ fn compare_greater(kv1: KeyValuePair, kv2: KeyValuePair) -> bool {
 
 /// Size of a block of KeyValuePair in workgroup memory.
 //override blockSize = 1024;
-const blockSize: u32 = 1024;
+override blockSize: u32 = 512u;
 
 // Workgroup has at least 16kB memory (max_compute_workgroup_storage_size).
 // Note that Vulkan on Windows 11 report 16352, not 16384 (so, lower than
@@ -252,19 +252,18 @@ fn test_calc_merge_path(@builtin(global_invocation_id) global_invocation_id: vec
 
     workgroupBarrier();
 
-    // Each of the 64 threads calculates one merge path of length (blockSize / 64).
-    let path_len = u32(blockSize) / 64u;
-
     // The total path length is the sum of the lengths of the two lists, which here
     // because they're of the same size is (total_num_items * 2u).
     let total_path_len = total_num_items * 2u;
 
-    // The number of paths is the ratio
+    // Divide the entire merge into one interval per thread. The last interval can
+    // be shorter, which exercises the final partial merge tile.
+    let path_len = (total_path_len + 63u) / 64u;
     let num_paths = (total_path_len + path_len - 1) / path_len;
 
     // Calculate the merge path for each section
     if (tid < num_paths) {
-        let diag = min((tid + 1u) * path_len, total_num_items);
+        let diag = min((tid + 1u) * path_len, total_path_len);
         var a_i = 0xFFFFFFFFu;
         let num_a = total_num_items;
         let num_b = num_a;  // merging 2 lists of same size

@@ -569,8 +569,8 @@ mod gpu_tests {
         },
     };
     #[allow(unused_imports)]
-    use bytemuck::{cast_slice, cast_slice_mut, Pod, Zeroable};
-    use rand::Rng;
+    use bytemuck::{cast_slice, Pod, Zeroable};
+    use rand::RngExt;
     use wgpu::{
         BufferDescriptor, BufferUsages, ComputePassDescriptor, ComputePipelineDescriptor,
         PipelineCompilationOptions, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource,
@@ -650,7 +650,7 @@ mod gpu_tests {
 
         // Clamp max block size to the device's reported storage
         let max_block_size = device.limits().max_compute_workgroup_storage_size
-            / DualKeyValuePair::SHADER_SIZE.get() as u32;
+            / (2 * DualKeyValuePair::SHADER_SIZE.get() as u32);
         println!("max_block_size = {}", max_block_size);
         let num_kv = 1024.min(max_block_size);
 
@@ -661,27 +661,28 @@ mod gpu_tests {
             usage: BufferUsages::STORAGE | BufferUsages::MAP_READ,
             mapped_at_creation: true,
         });
+        let mut expected = Vec::with_capacity(num_kv as usize);
+        for i in 0..num_kv as usize {
+            // Repeat both keys within each local run to exercise secondary-key
+            // ordering and duplicate-key payload preservation.
+            expected.push(DualKeyValuePair {
+                key: (i % 4) as u32,
+                key2: ((i / 4) % 2) as f32,
+                value: i as u32,
+            });
+        }
         {
             // Scope get_mapped_range_mut() to force a drop before unmap()
             {
                 let mut mapped = sort_buffer.slice(..).get_mapped_range_mut();
+                mapped.slice(..4).copy_from_slice(cast_slice(&[num_kv]));
                 mapped
-                    .slice(..4)
-                    .copy_from_slice(cast_slice(slice::from_ref(num_kv)));
-                let values_size = num_kv as usize * size_of::<DualKeyValuePair>();
-                let end = 4 + values_size;
-                mapped
-                    .slice(4..end)
-                    .write_iter((0..num_kv).iter().enumerate().map(|i, kv| {
-                        kv.key = byte_size as u32 - i as u32;
-                        kv.key2 = i as f32 * 0.1;
-                        kv.value = i as u32;
-                        //println!("[#{}] k={} k2={} v={}", i, kv.key, kv.key2,
-                        // kv.value);
-                    }));
+                    .slice(4..)
+                    .copy_from_slice(cast_slice(expected.as_slice()));
             }
             sort_buffer.unmap();
         }
+        let num_items_per_thread = num_kv.div_ceil(64) as usize;
 
         // Create GPU resources
         let bind_group_layout = device.create_bind_group_layout(
@@ -775,14 +776,16 @@ mod gpu_tests {
         // Validate content
         assert_eq!(view.len(), byte_size as usize);
         let view_slice: &[DualKeyValuePair] = cast_slice(&view[4..]);
-        for i in 1..view_slice.len() {
-            //println!("[#{}] k={} k2={} v={}", i, kv.key, kv.key2, kv.value);
-
-            // Ordered within one block of 16 elements (1024 items / 64 threads = 16
-            // items/thread)
-            if (i - 1) / 16 == i / 16 {
-                assert!(view_slice[i] >= view_slice[i - 1])
-            }
+        for (chunk_index, actual) in view_slice.chunks(num_items_per_thread).enumerate() {
+            assert!(
+                actual.windows(2).all(|pair| pair[0] <= pair[1]),
+                "local run {chunk_index} is not sorted"
+            );
+            let mut values: Vec<_> = actual.iter().map(|pair| pair.value).collect();
+            values.sort_unstable();
+            let first = chunk_index * num_items_per_thread;
+            let expected: Vec<_> = (first..first + actual.len()).map(|i| i as u32).collect();
+            assert_eq!(values, expected, "local run {chunk_index} lost a payload");
         }
     }
 
@@ -811,9 +814,9 @@ mod gpu_tests {
         println!("max_block_size = {}", max_block_size);
         let block_size = 1024.min(max_block_size); // total input buffer size
         let block_size = block_size / 2; // actual block size in shader
-        let num_kv = block_size * 2; // ensure we don't have an odd size
+        let list_len = block_size - 3;
+        let num_kv = list_len * 2; // ensure we don't have an odd size
         println!("block_size = {} (x2)", block_size);
-        let list_len = 1024.min(block_size);
         println!("list_len = {}", list_len);
 
         let byte_size = 4 + num_kv as u64 * DualKeyValuePair::SHADER_SIZE.get();
@@ -824,39 +827,41 @@ mod gpu_tests {
             mapped_at_creation: true,
         });
         let mut expected = Vec::with_capacity(num_kv as usize);
+        let mut values = vec![
+            DualKeyValuePair {
+                key: 0,
+                key2: 0.0,
+                value: 0,
+            };
+            num_kv as usize
+        ];
+        assert_eq!(num_kv % 2, 0);
+        assert_eq!(num_kv / 2, list_len);
+        let (values_a, values_b) = values.split_at_mut(list_len as usize);
+        let mut thread_rng = rand::rng();
+        let max_value = list_len - 30; // limit the range to force duplicate values
+        for i in 0..list_len {
+            values_a[i as usize].key = thread_rng.random_range(0..max_value);
+            values_a[i as usize].key2 = i as f32 * 0.1;
+            values_a[i as usize].value = i;
+
+            values_b[i as usize].key = thread_rng.random_range(0..max_value);
+            values_b[i as usize].key2 = i as f32 * 0.1;
+            values_b[i as usize].value = list_len + i;
+
+            expected.push(values_a[i as usize]);
+            expected.push(values_b[i as usize]);
+        }
+        values_a.sort();
+        values_b.sort();
         {
             // Scope get_mapped_range_mut() to force a drop before unmap()
             {
-                let slice: &mut [u8] = &mut sort_buffer.slice(..).get_mapped_range_mut();
-                let header: &mut [u32] = cast_slice_mut(slice);
-                header[0] = num_kv;
-                let values: &mut [DualKeyValuePair] = cast_slice_mut(&mut slice[4..]);
-
-                assert_eq!(num_kv % 2, 0);
-                assert_eq!(num_kv / 2, list_len);
-                let (values_a, values_b) = values.split_at_mut(list_len as usize);
-                let mut thread_rng = rand::rng();
-                let max_value = list_len - 30; // limit the range to force duplicate values
-                for i in 0..list_len {
-                    values_a[i as usize].key = thread_rng.random_range(0..max_value);
-                    values_a[i as usize].key2 = i as f32 * 0.1;
-                    values_a[i as usize].value = i;
-
-                    values_b[i as usize].key = thread_rng.random_range(0..max_value);
-                    values_b[i as usize].key2 = i as f32 * 0.1;
-                    values_b[i as usize].value = list_len + i;
-
-                    expected.push(values_a[i as usize]);
-                    expected.push(values_b[i as usize]);
-                }
-                values_a.sort();
-                values_b.sort();
-                // for (i, kv) in values_a.iter().enumerate() {
-                //     println!("A [#{}] k={} k2={} v={}", i, kv.key, kv.key2,
-                // kv.value); }
-                // for (i, kv) in values_b.iter().enumerate() {
-                //     println!("B [#{}] k={} k2={} v={}", i, kv.key, kv.key2,
-                // kv.value); }
+                let mut mapped = sort_buffer.slice(..).get_mapped_range_mut();
+                mapped.slice(..4).copy_from_slice(cast_slice(&[num_kv]));
+                mapped
+                    .slice(4..)
+                    .copy_from_slice(cast_slice(values.as_slice()));
             }
             sort_buffer.unmap();
         }
@@ -953,14 +958,15 @@ mod gpu_tests {
         // Calculate the expected result by doing the actual merge sort, and deriving
         // all the merge paths from it.
         expected.sort();
-        let path_len = list_len.div_ceil(64);
-        let num_paths = list_len.div_ceil(path_len);
+        let total_path_len = list_len * 2;
+        let path_len = total_path_len.div_ceil(64);
+        let num_paths = total_path_len.div_ceil(path_len);
         println!("path_len = {path_len}");
         println!("num_paths = {num_paths}");
         let mut paths: Vec<_> = (0..num_paths)
             .map(|ipath| {
                 let start = (ipath * path_len) as usize;
-                let end = (start + path_len as usize).min(list_len as usize);
+                let end = (start + path_len as usize).min(total_path_len as usize);
                 let slice = &expected[start..end];
                 let mut ia = 0;
                 for kv in slice {
@@ -1010,7 +1016,7 @@ mod gpu_tests {
             // field.
 
             let calc_diag = view_slice[i].key;
-            let exp_diag = (i as u32 + 1) * path_len;
+            let exp_diag = ((i as u32 + 1) * path_len).min(total_path_len);
             assert_eq!(calc_diag, exp_diag);
 
             let calc_ia = view_slice[i].value;
@@ -1072,9 +1078,8 @@ mod gpu_tests {
 
         // Clamp max block size to the device's reported storage
         let max_block_size = device.limits().max_compute_workgroup_storage_size
-            / DualKeyValuePair::SHADER_SIZE.get() as u32;
+            / (2 * DualKeyValuePair::SHADER_SIZE.get() as u32);
         println!("max_block_size = {}", max_block_size);
-        let max_block_size = 1024;
         let num_particle = 1024.min(max_block_size);
 
         let byte_size = 4 + num_particle as u64 * DualKeyValuePair::SHADER_SIZE.get();
@@ -1086,24 +1091,23 @@ mod gpu_tests {
         });
         let effects = [0, 35, 399, 1000];
         assert!((effects.len() as u32) < num_particle);
+        let values: Vec<_> = (0..num_particle as usize)
+            .map(|i| DualKeyValuePair {
+                key: effects.get(i).copied().unwrap_or(0xDEAD0000),
+                key2: i as f32 * 0.1,
+                value: i as u32,
+            })
+            .collect();
         {
             // Scope get_mapped_range_mut() to force a drop before unmap()
             {
-                let slice: &mut [u8] = &mut sort_buffer.slice(..).get_mapped_range_mut();
-                let header: &mut [u32] = cast_slice_mut(slice);
-                header[0] = effects.len() as u32;
-                let values: &mut [DualKeyValuePair] = cast_slice_mut(&mut slice[4..]);
-                for (i, kv) in values.iter_mut().enumerate() {
-                    if i < effects.len() {
-                        kv.key = effects[i];
-                    } else {
-                        kv.key = 0xDEAD0000;
-                    }
-                    kv.key2 = i as f32 * 0.1;
-                    kv.value = i as u32;
-                    //println!("[#{}] k={} k2={} v={}", i, kv.key, kv.key2,
-                    // kv.value);
-                }
+                let mut mapped = sort_buffer.slice(..).get_mapped_range_mut();
+                mapped
+                    .slice(..4)
+                    .copy_from_slice(cast_slice(&[effects.len() as u32]));
+                mapped
+                    .slice(4..)
+                    .copy_from_slice(cast_slice(values.as_slice()));
             }
             sort_buffer.unmap();
         }
