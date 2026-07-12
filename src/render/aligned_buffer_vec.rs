@@ -248,6 +248,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     /// was reused which already had enough capacity.
     ///
     /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
+    #[must_use]
     pub fn reserve(&mut self, capacity: usize, device: &RenderDevice) -> bool {
         if capacity > self.capacity {
             let size = self.aligned_size * capacity;
@@ -291,7 +292,9 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     ///
     /// # Returns
     ///
-    /// `true` if the buffer was (re)allocated, `false` otherwise.
+    /// `true` if the buffer was (re)allocated, `false` otherwise. This
+    /// indicates whether bind groups need to be re-created.
+    #[must_use]
     pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
         if self.values.is_empty() {
             return false;
@@ -1222,8 +1225,8 @@ mod gpu_tests {
             tag: 3,
             ..Default::default()
         });
-        abv.reserve(CAPACITY, &device);
-        abv.write_buffer(&device, &queue);
+        assert!(abv.reserve(CAPACITY, &device));
+        assert!(!abv.write_buffer(&device, &queue));
         // need a submit() for write_buffer() to be processed
         queue.submit([command_buffer]);
         let (tx, rx) = futures::channel::oneshot::channel();

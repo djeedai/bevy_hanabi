@@ -60,6 +60,7 @@ fn readback_vec<T: Pod>(
     src: &wgpu::Buffer,
     bytes: u64,
 ) -> Vec<T> {
+    assert!(bytes.is_multiple_of(size_of::<T>() as u64));
     let wgpu_device = device.wgpu_device();
     let staging = wgpu_device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("hanabi:test:staging"),
@@ -122,18 +123,6 @@ fn create_composed_shader_module(
         }))
 }
 
-fn pack_effect_metadata_rows(rows: &[GpuEffectMetadata], storage_alignment: u32) -> Vec<u32> {
-    let stride_u32 = (GpuEffectMetadata::aligned_size(storage_alignment).get() / 4) as usize;
-    let row_u32 = std::mem::size_of::<GpuEffectMetadata>() / 4;
-    let mut packed = vec![0_u32; rows.len() * stride_u32];
-    for (i, row) in rows.iter().enumerate() {
-        let src: &[u32] = cast_slice(std::slice::from_ref(row));
-        let dst = &mut packed[i * stride_u32..i * stride_u32 + row_u32];
-        dst.copy_from_slice(src);
-    }
-    packed
-}
-
 fn write_aligned_spawners(
     device: &RenderDevice,
     queue: &RenderQueue,
@@ -148,7 +137,7 @@ fn write_aligned_spawners(
     for row in rows {
         buffer.push(*row);
     }
-    buffer.write_buffer(device, queue);
+    assert!(buffer.write_buffer(device, queue));
     submit_and_wait(
         device,
         queue,
@@ -1276,6 +1265,12 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
     let wgpu_device = device.wgpu_device();
     let storage_alignment = device.limits().min_storage_buffer_offset_alignment;
 
+    // #[allow(unsafe_code)]
+    // unsafe {
+    //     wgpu_device.start_graphics_debugger_capture();
+    // }
+
+    // POSITION-only particle effect (see ParticleGpu)
     let writer = ExprWriter::new();
     let init_pos = SetAttributeModifier::new(Attribute::POSITION, writer.lit(Vec3::ZERO).expr());
     let module = writer.finish();
@@ -1297,24 +1292,26 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
         real_time: 0.0,
         num_effects: 2,
     };
-    let draw_init = [
-        GpuDrawIndexedIndirectArgs {
-            index_count: 0,
-            instance_count: 0,
-            first_index: 0,
-            base_vertex: 0,
-            first_instance: 0,
-        },
-        GpuDrawIndexedIndirectArgs {
-            index_count: 0,
-            instance_count: 0,
-            first_index: 0,
-            base_vertex: 0,
-            first_instance: 0,
-        },
-    ];
-    let particles = [ParticleGpu::zeroed(); 8];
-    let mut indirect_rows = [IndirectEntryGpu::zeroed(); 8];
+    let draw_placeholder = GpuDrawIndexedIndirectArgs {
+        index_count: u32::MAX,
+        instance_count: 0, // atomically incremented, need a valid 0 start value
+        first_index: u32::MAX,
+        base_vertex: i32::MAX,
+        first_instance: u32::MAX,
+    };
+    let draw_init = [draw_placeholder; 2];
+    let particle_placeholder = ParticleGpu {
+        position: [f32::INFINITY; 4],
+    };
+    let mut particles = [particle_placeholder; 8];
+    particles[0].position = [1.0, 2.0, 3.0, f32::MAX];
+    particles[1].position = [4.0, 5.0, 6.0, f32::MAX];
+    particles[4].position = [7.0, 8.0, 9.0, f32::MAX];
+    let indirect_placeholder = IndirectEntryGpu {
+        particle_index: [u32::MAX; 2],
+        dead_index: u32::MAX,
+    };
+    let mut indirect_rows = [indirect_placeholder; 8];
     indirect_rows[0].particle_index = [0, 0];
     indirect_rows[1].particle_index = [0, 1];
     indirect_rows[4].particle_index = [0, 0];
@@ -1360,14 +1357,13 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
             ..default()
         },
     ];
-    let metadata_packed = pack_effect_metadata_rows(&metadata_rows, storage_alignment);
 
     let sim_params_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:update:sim_params"),
         contents: cast_slice(&[sim_params]),
         usage: wgpu::BufferUsages::UNIFORM,
     });
-    let draw_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    let draw_indirect_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:update:draw"),
         contents: cast_slice(&draw_init),
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
@@ -1375,7 +1371,7 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
     let particle_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:update:particles"),
         contents: cast_slice(&particles),
-        usage: wgpu::BufferUsages::STORAGE,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
     });
     let indirect_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:update:indirect"),
@@ -1385,7 +1381,7 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
     let prefix_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:update:prefix"),
         contents: cast_slice(&[0_u32, 2_u32]),
-        usage: wgpu::BufferUsages::STORAGE,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
     });
     let batch_content = padded_slice_content(
         &[GpuBatchInfo {
@@ -1402,7 +1398,7 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
     });
     let metadata_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:update:metadata"),
-        contents: cast_slice(&metadata_packed),
+        contents: cast_slice(&metadata_rows),
         usage: wgpu::BufferUsages::STORAGE,
     });
 
@@ -1515,7 +1511,7 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: draw_buffer.as_entire_binding(),
+                resource: draw_indirect_buffer.as_entire_binding(),
             },
         ],
     });
@@ -1561,12 +1557,12 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let pl = wgpu_device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("hanabi:test:update:pl"),
+        label: Some("hanabi:test:update:pipeline_layout"),
         bind_group_layouts: &[Some(&bgl0), Some(&bgl1), Some(&bgl2), Some(&bgl3)],
         immediate_size: 0,
     });
     let pipeline = wgpu_device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("hanabi:test:update:pipe"),
+        label: Some("hanabi:test:update:pipeline"),
         layout: Some(&pl),
         module: &shader,
         entry_point: Some("main"),
@@ -1591,14 +1587,18 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
     }
     submit_and_wait(&device, &queue, encoder.finish());
 
-    let draw_out = readback_vec::<u32>(
+    // #[allow(unsafe_code)]
+    // unsafe {
+    //     wgpu_device.stop_graphics_debugger_capture();
+    // }
+
+    let particle_out = readback_vec::<f32>(
         &device,
         &queue,
-        &draw_buffer,
-        (std::mem::size_of::<GpuDrawIndexedIndirectArgs>() * draw_init.len()) as u64,
+        &particle_buffer,
+        size_of::<ParticleGpu>() as u64 * 8,
     );
-    assert_eq!(draw_out[1], 2);
-    assert_eq!(draw_out[6], 1);
+    assert_ne!(particle_out[0], f32::INFINITY); // particles[0].position.x
 
     let indirect_out = readback_vec::<u32>(
         &device,
@@ -1606,22 +1606,31 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
         &indirect_buffer,
         (std::mem::size_of::<IndirectEntryGpu>() * indirect_rows.len()) as u64,
     );
-    assert_eq!(indirect_out[0], 0);
-    assert_eq!(indirect_out[3], 1);
+    // Write order inside an effect is non-deterministic, as GPU threads race on
+    // atomic increment.
+    if indirect_out[0] == 0 {
+        assert_eq!(indirect_out[3], 1);
+    } else {
+        assert_eq!(indirect_out[0], 1);
+        assert_eq!(indirect_out[3], 0);
+    }
+    // Inside the second effect though there's a single particle alive.
     assert_eq!(indirect_out[12], 0);
+
+    let draw_out = readback_vec::<u32>(
+        &device,
+        &queue,
+        &draw_indirect_buffer,
+        (std::mem::size_of::<GpuDrawIndexedIndirectArgs>() * draw_init.len()) as u64,
+    );
+    assert_eq!(draw_out[1], 2); // args[0].instance_count
+    assert_eq!(draw_out[6], 1); // args[1].instance_count
 
     Ok(())
 }
 
 #[test]
 fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
-    const EM_OFFSET_CAPACITY: usize = 0;
-    const EM_OFFSET_ALIVE_COUNT: usize = 1;
-    const EM_OFFSET_MAX_UPDATE: usize = 2;
-    const EM_OFFSET_MAX_SPAWN: usize = 3;
-    const EM_OFFSET_INDIRECT_WRITE_INDEX: usize = 4;
-    const EM_OFFSET_INDIRECT_DRAW_INDEX: usize = 5;
-
     let renderer = MockRenderer::new();
     let device = renderer.device();
     let queue = renderer.queue();
@@ -1650,20 +1659,32 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
         usage: wgpu::BufferUsages::UNIFORM,
     });
 
-    let effect_stride_u32 = (GpuEffectMetadata::aligned_size(storage_alignment).get() / 4) as usize;
-    let mut metadata_u32 = vec![0_u32; 2 * effect_stride_u32];
-    metadata_u32[EM_OFFSET_CAPACITY] = 200;
-    metadata_u32[EM_OFFSET_ALIVE_COUNT] = 130;
-    metadata_u32[EM_OFFSET_INDIRECT_WRITE_INDEX] = 0;
-    metadata_u32[EM_OFFSET_INDIRECT_DRAW_INDEX] = 0;
-    let em1 = effect_stride_u32;
-    metadata_u32[em1 + EM_OFFSET_CAPACITY] = 5;
-    metadata_u32[em1 + EM_OFFSET_ALIVE_COUNT] = 1;
-    metadata_u32[em1 + EM_OFFSET_INDIRECT_WRITE_INDEX] = 1;
-    metadata_u32[em1 + EM_OFFSET_INDIRECT_DRAW_INDEX] = 1;
+    let metadata_placeholder = GpuEffectMetadata {
+        max_update: u32::MAX,
+        max_spawn: u32::MAX,
+        init_indirect_dispatch_index: u32::MAX,
+        properties_array_index: u32::MAX,
+        local_child_index: u32::MAX,
+        global_child_index: u32::MAX,
+        base_child_index: u32::MAX,
+        particle_stride: u32::MAX,
+        sort_key_offset: u32::MAX,
+        sort_key2_offset: u32::MAX,
+        particle_counter: u32::MAX,
+        ..default()
+    };
+    let mut metadata_content = [metadata_placeholder; 2];
+    metadata_content[0].capacity = 200;
+    metadata_content[0].alive_count = 130;
+    metadata_content[0].indirect_write_index = 0;
+    metadata_content[0].indirect_draw_index = 0;
+    metadata_content[1].capacity = 5;
+    metadata_content[1].alive_count = 1;
+    metadata_content[1].indirect_write_index = 1;
+    metadata_content[1].indirect_draw_index = 1;
     let metadata_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:indirect:metadata"),
-        contents: cast_slice(&metadata_u32),
+        contents: cast_slice(&metadata_content),
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
     });
 
@@ -1838,16 +1859,16 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
     let prefix_out = readback_vec::<u32>(&device, &queue, &prefix_buffer, 8);
     assert_eq!(prefix_out, vec![130, 1]);
 
-    let metadata_out = readback_vec::<u32>(
+    let metadata_out = readback_vec::<GpuEffectMetadata>(
         &device,
         &queue,
         &metadata_buffer,
-        (metadata_u32.len() * 4) as u64,
+        (metadata_content.len() * size_of::<GpuEffectMetadata>()) as u64,
     );
-    assert_eq!(metadata_out[EM_OFFSET_MAX_UPDATE], 130);
-    assert_eq!(metadata_out[EM_OFFSET_MAX_SPAWN], 70);
-    assert_eq!(metadata_out[em1 + EM_OFFSET_MAX_UPDATE], 1);
-    assert_eq!(metadata_out[em1 + EM_OFFSET_MAX_SPAWN], 4);
+    assert_eq!(metadata_out[0].max_update, 130); // copied from alive_count
+    assert_eq!(metadata_out[0].max_spawn, 70); // copied from dead_count = capacity - alive_count
+    assert_eq!(metadata_out[1].max_update, 1);
+    assert_eq!(metadata_out[1].max_spawn, 4);
 
     let draw_out = readback_vec::<GpuDrawIndexedIndirectArgs>(
         &device,
