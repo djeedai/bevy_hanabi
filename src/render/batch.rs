@@ -252,6 +252,9 @@ pub(crate) struct Batcher {
     /// Index of the dispatch queue used for indirect fill dispatch and
     /// submitted to [`GpuBufferOperations`].
     pub(super) dispatch_queue_index: Option<u32>,
+    /// Index of the queue which copies post-update alive counts into the prefix
+    /// sum buffer before the ribbon sort prefix sum pass.
+    pub(super) sort_fill_prefix_sum_queue_index: Option<u32>,
     /// Global shared GPU buffer storing the various `BatchInfo` structs for the
     /// active batches. This is dynamically updated each frame based on current
     /// batching, with one entry per batch (= one entry per dispatch/draw).
@@ -281,6 +284,7 @@ impl FromWorld for Batcher {
         Self {
             batches: vec![],
             dispatch_queue_index: None,
+            sort_fill_prefix_sum_queue_index: None,
             batch_info_buffer,
             is_batch_open: false,
             prefix_sum_buffer,
@@ -305,9 +309,18 @@ impl Batcher {
         self.prefix_sum_buffer.buffer()
     }
 
+    /// Return the prefix sum buffer slot that the next pushed effect instance
+    /// will occupy.
+    #[inline]
+    pub fn next_effect_prefix_sum_index(&self) -> u32 {
+        u32::try_from(self.prefix_sum_buffer.len())
+            .expect("Prefix sum buffer contains more than u32::MAX entries")
+    }
+
     pub fn clear(&mut self) {
         self.batches.clear();
         self.dispatch_queue_index = None;
+        self.sort_fill_prefix_sum_queue_index = None;
         self.prefix_sum_buffer.clear();
         self.batch_info_buffer.clear();
     }

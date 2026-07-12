@@ -652,7 +652,7 @@ mod gpu_tests {
         let max_block_size = device.limits().max_compute_workgroup_storage_size
             / (2 * DualKeyValuePair::SHADER_SIZE.get() as u32);
         println!("max_block_size = {}", max_block_size);
-        let num_kv = 1024.min(max_block_size);
+        let num_kv = 512.min(max_block_size);
 
         let byte_size = 4 + num_kv as u64 * DualKeyValuePair::SHADER_SIZE.get();
         let sort_buffer = device.create_buffer(&BufferDescriptor {
@@ -716,7 +716,7 @@ mod gpu_tests {
             module: &shader_module,
             entry_point: Some("test_batcher_odd_even_mergesort"),
             compilation_options: PipelineCompilationOptions {
-                constants: &[("blockSize", max_block_size as f64)],
+                constants: &[],
                 // Ensure the shader behaves even if memory is not zero-initialized
                 zero_initialize_workgroup_memory: false,
             },
@@ -787,6 +787,117 @@ mod gpu_tests {
             let expected: Vec<_> = (first..first + actual.len()).map(|i| i as u32).collect();
             assert_eq!(values, expected, "local run {chunk_index} lost a payload");
         }
+    }
+
+    #[test]
+    fn test_serial_insertion_sort() {
+        let renderer = MockRenderer::new();
+        let device = renderer.device();
+        let queue = renderer.queue();
+        let num_kv = 257u32;
+        let byte_size = 4 + num_kv as u64 * DualKeyValuePair::SHADER_SIZE.get();
+        let sort_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("sort_buffer"),
+            size: byte_size,
+            usage: BufferUsages::STORAGE | BufferUsages::MAP_READ,
+            mapped_at_creation: true,
+        });
+
+        let mut expected = Vec::with_capacity(num_kv as usize);
+        for i in 0..num_kv {
+            expected.push(DualKeyValuePair {
+                key: i % 4,
+                key2: ((i / 4) % 3) as f32,
+                value: i,
+            });
+        }
+        {
+            let mut mapped = sort_buffer.slice(..).get_mapped_range_mut();
+            mapped.slice(..4).copy_from_slice(cast_slice(&[num_kv]));
+            mapped
+                .slice(4..)
+                .copy_from_slice(cast_slice(expected.as_slice()));
+        }
+        sort_buffer.unmap();
+        expected.sort();
+
+        let bind_group_layout = device.create_bind_group_layout(
+            "bind_group_layout",
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                storage_buffer_sized(false, None),
+            ),
+        );
+        let bind_group = device.create_bind_group(
+            None,
+            &bind_group_layout,
+            &BindGroupEntries::single(sort_buffer.as_entire_binding()),
+        );
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("pipeline_layout"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+        let src = VFX_SORT_WGSL
+            .replace("#ifdef HAS_DUAL_KEY", "")
+            .replace("#ifdef TEST", "")
+            .replace("#endif", "");
+        let shader_module = device.create_and_validate_shader_module(ShaderModuleDescriptor {
+            label: Some("vfx_sort"),
+            source: ShaderSource::Wgsl(src.into()),
+        });
+        let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("test_serial_insertion_sort"),
+            layout: Some(&pipeline_layout),
+            module: &shader_module,
+            entry_point: Some("main"),
+            compilation_options: PipelineCompilationOptions {
+                constants: &[],
+                zero_initialize_workgroup_memory: false,
+            },
+            cache: None,
+        });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("test"),
+        });
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("test_serial_insertion_sort"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&pipeline);
+            compute_pass.set_bind_group(0, &bind_group, &[]);
+            compute_pass.dispatch_workgroups(1, 1, 1);
+        }
+        queue.submit([encoder.finish()]);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        queue.on_submitted_work_done(move || {
+            tx.send(()).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+        let _ = futures::executor::block_on(rx);
+
+        let buffer_slice = sort_buffer.slice(..);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+        let _ = futures::executor::block_on(rx);
+        let view = buffer_slice.get_mapped_range();
+        assert_eq!(view.len(), byte_size as usize);
+        assert_eq!(cast_slice::<_, u32>(&view[..4]), &[0]);
+        assert_eq!(
+            cast_slice::<_, DualKeyValuePair>(&view[4..]),
+            expected.as_slice()
+        );
     }
 
     /// Calculate the merge path for a parallel merge.
@@ -898,7 +1009,7 @@ mod gpu_tests {
             module: &shader_module,
             entry_point: Some("test_calc_merge_path"),
             compilation_options: PipelineCompilationOptions {
-                constants: &[("blockSize", block_size as f64)],
+                constants: &[],
                 // Ensure the shader behaves even if memory is not zero-initialized
                 zero_initialize_workgroup_memory: false,
             },
@@ -1144,7 +1255,7 @@ mod gpu_tests {
             module: &shader_module,
             entry_point: Some("test_find_effect_from_particle"),
             compilation_options: PipelineCompilationOptions {
-                constants: &[("blockSize", max_block_size as f64)],
+                constants: &[],
                 // Ensure the shader behaves even if memory is not zero-initialized
                 zero_initialize_workgroup_memory: false,
             },

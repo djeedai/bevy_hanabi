@@ -506,9 +506,13 @@ impl Plugin for HanabiPlugin {
                     // effect metadata buffer has been (re-)allocated to this frame's size.
                     queue_sort_fill_dispatch_ops
                         .in_set(EffectSystems::PrepareEffectGpuResources)
+                        // The prefix sum buffer is allocated and uploaded while batching.
+                        .after(batch_effects)
                         // Need the metadata buffer (re-)allocated so the captured handle and
                         // dynamic offsets are correct and in-bounds
                         .after(prepare_effect_metadata)
+                        // Keep this aligned with other queue submissions that capture GPU buffers.
+                        .after(prepare_gpu_resources)
                         // Must submit into the shared GpuBufferOperations before
                         // queue_init_fill_dispatch_ops uploads its args buffer (end_frame)
                         .before(queue_init_fill_dispatch_ops)

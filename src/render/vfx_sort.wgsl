@@ -39,8 +39,7 @@ fn compare_greater(kv1: KeyValuePair, kv2: KeyValuePair) -> bool {
 @group(0) @binding(0) var<storage, read_write> sort_buffer : SortBuffer;
 
 /// Size of a block of KeyValuePair in workgroup memory.
-//override blockSize = 1024;
-override blockSize: u32 = 512u;
+const blockSize: u32 = 512u;
 
 // Workgroup has at least 16kB memory (max_compute_workgroup_storage_size).
 // Note that Vulkan on Windows 11 report 16352, not 16384 (so, lower than
