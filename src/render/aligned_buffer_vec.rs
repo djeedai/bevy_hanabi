@@ -248,6 +248,7 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     /// was reused which already had enough capacity.
     ///
     /// [`write_buffer()`]: crate::AlignedBufferVec::write_buffer
+    #[must_use]
     pub fn reserve(&mut self, capacity: usize, device: &RenderDevice) -> bool {
         if capacity > self.capacity {
             let size = self.aligned_size * capacity;
@@ -291,7 +292,9 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
     ///
     /// # Returns
     ///
-    /// `true` if the buffer was (re)allocated, `false` otherwise.
+    /// `true` if the buffer was (re)allocated, `false` otherwise. This
+    /// indicates whether bind groups need to be re-created.
+    #[must_use]
     pub fn write_buffer(&mut self, device: &RenderDevice, queue: &RenderQueue) -> bool {
         if self.values.is_empty() {
             return false;
@@ -306,23 +309,42 @@ impl<T: Pod + ShaderSize> AlignedBufferVec<T> {
         let buffer_changed = self.reserve(self.values.len(), device);
         if let Some(buffer) = &self.buffer {
             let aligned_size = self.aligned_size * self.values.len();
-            trace!(
-                "aligned_buffer['{}']: size={} buffer={:?}",
-                self.safe_label(),
-                aligned_size,
-                buffer.id(),
-            );
-            let mut aligned_buffer: Vec<u8> = vec![0; aligned_size];
-            for i in 0..self.values.len() {
-                let src: &[u8] = cast_slice(std::slice::from_ref(&self.values[i]));
-                let dst_offset = i * self.aligned_size;
-                let dst_range = dst_offset..dst_offset + self.item_size;
-                trace!("+ copy: src={:?} dst={:?}", src.as_ptr(), dst_range);
-                let dst = &mut aligned_buffer[dst_range];
-                dst.copy_from_slice(src);
+            if self.aligned_size == self.item_size {
+                // The CPU storage already contains aligned items; directly write to GPU buffer.
+                trace!(
+                    "+ direct-write['{}']: size={}B buffer={:?}",
+                    self.safe_label(),
+                    aligned_size,
+                    buffer.id(),
+                );
+                let src: &[u8] = cast_slice(&self.values[..]);
+                queue.write_buffer(buffer, 0, src);
+            } else {
+                // The CPU storage contains items smaller than the aligned size; copy with
+                // padding into a temporary storage to align items, then write from that
+                // temporary to the GPU buffer.
+                trace!(
+                    "+ aligned_buffer['{}']: size={}B buffer={:?}",
+                    self.safe_label(),
+                    aligned_size,
+                    buffer.id(),
+                );
+                let mut aligned_buffer: Vec<u8> = vec![0; aligned_size];
+                for i in 0..self.values.len() {
+                    let src: &[u8] = cast_slice(std::slice::from_ref(&self.values[i]));
+                    let dst_offset = i * self.aligned_size;
+                    let dst_range = dst_offset..dst_offset + self.item_size;
+                    trace!(
+                        "+ copy: src={:?} ({}B) dst={:?}",
+                        src.as_ptr(),
+                        self.item_size,
+                        dst_range
+                    );
+                    let dst = &mut aligned_buffer[dst_range];
+                    dst.copy_from_slice(src);
+                }
+                queue.write_buffer(buffer, 0, &aligned_buffer[..]);
             }
-            let bytes: &[u8] = cast_slice(&aligned_buffer);
-            queue.write_buffer(buffer, 0, bytes);
         }
         buffer_changed
     }
@@ -1203,8 +1225,8 @@ mod gpu_tests {
             tag: 3,
             ..Default::default()
         });
-        abv.reserve(CAPACITY, &device);
-        abv.write_buffer(&device, &queue);
+        assert!(abv.reserve(CAPACITY, &device));
+        assert!(!abv.write_buffer(&device, &queue));
         // need a submit() for write_buffer() to be processed
         queue.submit([command_buffer]);
         let (tx, rx) = futures::channel::oneshot::channel();
