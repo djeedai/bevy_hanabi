@@ -103,9 +103,11 @@ var<private> properties_array_index: u32;
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Particle index in the packed init space of this batch.
     let update_particle_index = global_invocation_id.x;
+#ifndef CONSUME_GPU_SPAWN_EVENTS
     if (update_particle_index >= batch_info.total_spawn_count) {
         return;
     }
+#endif
 
     // Find the index of the effect this particle is part of.
     let location = find_location_from_particle(update_particle_index);
