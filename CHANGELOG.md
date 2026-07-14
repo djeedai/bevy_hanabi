@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Batching is still limited to same-effect instances (same `EffectAsset`), and is currently not
   available for GPU particle spawning.
 
+### Fixed
+
+- Fixed a bug where some GPU operations queued with a buffer reference could be reused
+  after the buffer was reallocated, leading to use-after-free (stale data) on GPU.
+
 ## [0.19.0] 2026-06-27
 
 _This version is compatible with Bevy 0.19_

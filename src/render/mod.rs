@@ -1334,7 +1334,10 @@ impl GpuBufferOperations {
         );
 
         // Upload to GPU buffer
-        self.args_buffer.write_buffer(device, render_queue);
+        if self.args_buffer.write_buffer(device, render_queue) {
+            // Buffer was reallocated; clear all bind groups depending on it
+            self.bind_groups.clear();
+        }
     }
 
     /// Create all necessary bind groups for all queued operations.
