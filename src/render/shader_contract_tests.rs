@@ -154,7 +154,7 @@ fn write_aligned_spawners(
     for row in rows {
         buffer.push(*row);
     }
-    buffer.write_buffer(device, queue);
+    assert!(buffer.write_buffer(device, queue));
     submit_and_wait(
         device,
         queue,
