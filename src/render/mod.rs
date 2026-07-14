@@ -724,10 +724,8 @@ impl InitFillDispatchQueue {
                     GpuBufferOperationType::FillDispatchArgs,
                     args,
                     src_buffer.clone(),
-                    0,
                     None,
                     dst_buffer.clone(),
-                    0,
                     None,
                 );
                 src_start = src;
@@ -758,10 +756,8 @@ impl InitFillDispatchQueue {
                 GpuBufferOperationType::FillDispatchArgs,
                 args,
                 src_buffer.clone(),
-                0,
                 None,
                 dst_buffer.clone(),
-                0,
                 None,
             );
         }
@@ -850,10 +846,12 @@ impl SortFillDispatchQueue {
         let mut fill_queue = GpuBufferOperationQueue::new();
         for item in &self.queue {
             let src_binding_offset = effect_metadata_buffer.dynamic_offset(item.metadata_table_id);
-            // We bind the entire destination buffer (size `None`) and fold the row offset
-            // into `dst_offset`, because the indirect dispatch structs are only
-            // 12 bytes and so are not aligned to
-            // `min_storage_buffer_offset_alignment` for use as a dynamic binding offset.
+            debug_assert_eq!(
+                src_binding_offset % 4,
+                0,
+                "Effect metadata offset must be u32-aligned."
+            );
+            let src_offset = src_binding_offset / 4 + src_offset;
             let dst_offset = sort_bind_groups
                 .get_indirect_dispatch_byte_offset(item.sort_fill_indirect_dispatch_index)
                 / 4;
@@ -875,10 +873,8 @@ impl SortFillDispatchQueue {
                     count: 1,
                 },
                 src_buffer.clone(),
-                src_binding_offset,
                 Some(effect_metadata_aligned_size),
                 dst_buffer.clone(),
-                0,
                 None,
             );
         }
@@ -1180,16 +1176,47 @@ struct QueuedOperationBindGroupKey {
     dst_binding_size: Option<NonZeroU32>,
 }
 
+/// A single GPU operation queued on the CPU.
+///
+/// The operation may involve multiple reads/writes; see
+/// [`GpuBufferOperationArgs::count`]. However it is guaranteed to be performed
+/// as a single transactional compute dispatch.
 #[derive(Debug, Clone)]
 struct QueuedOperation {
+    /// Type of GPU operation. This determines which compute shader is running.
     op: GpuBufferOperationType,
+    /// Index into the shared arguments buffer of the arguments for this single
+    /// operation.
     args_index: u32,
+    /// Source buffer the operation reads from.
     src_buffer: Buffer,
-    src_binding_offset: u32,
+    /// Binding size of the source buffer, or `None` to bind the whole buffer.
     src_binding_size: Option<NonZeroU32>,
+    /// Destination buffer the operation writes to.
     dst_buffer: Buffer,
-    dst_binding_offset: u32,
+    /// Binding size of the destination buffer, or `None` to bind the whole
+    /// buffer.
     dst_binding_size: Option<NonZeroU32>,
+}
+
+impl QueuedOperation {
+    /// Get the buffer binding for the source buffer.
+    pub fn src_binding(&self) -> BindingResource<'_> {
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.src_buffer,
+            offset: 0,
+            size: self.src_binding_size.map(Into::into),
+        })
+    }
+
+    /// Get the buffer binding for the destination buffer.
+    pub fn dst_binding(&self) -> BindingResource<'_> {
+        BindingResource::Buffer(BufferBinding {
+            buffer: &self.dst_buffer,
+            offset: 0,
+            size: self.dst_binding_size.map(Into::into),
+        })
+    }
 }
 
 impl From<&QueuedOperation> for QueuedOperationBindGroupKey {
@@ -1210,7 +1237,8 @@ impl From<&QueuedOperation> for QueuedOperationBindGroupKey {
 /// subsequently dispatched as a compute pass via
 /// [`GpuBufferOperations::dispatch()`].
 pub struct GpuBufferOperationQueue {
-    /// Operation arguments.
+    /// Operation arguments, one per queued operation. The meaning depends on
+    /// the [`GpuBufferOperationType`].
     args: Vec<GpuBufferOperationArgs>,
     /// Queued operations.
     operation_queue: Vec<QueuedOperation>,
@@ -1231,21 +1259,17 @@ impl GpuBufferOperationQueue {
         op: GpuBufferOperationType,
         args: GpuBufferOperationArgs,
         src_buffer: Buffer,
-        src_binding_offset: u32,
         src_binding_size: Option<NonZeroU32>,
         dst_buffer: Buffer,
-        dst_binding_offset: u32,
         dst_binding_size: Option<NonZeroU32>,
     ) -> u32 {
         trace!(
-            "Queue {:?} op: args={:?} src_buffer={:?} src_binding_offset={} src_binding_size={:?} dst_buffer={:?} dst_binding_offset={} dst_binding_size={:?}",
+            "Queue {:?} op: args={:?} src_buffer={:?} src_binding_size={:?} dst_buffer={:?} dst_binding_size={:?}",
             op,
             args,
             src_buffer,
-            src_binding_offset,
             src_binding_size,
             dst_buffer,
-            dst_binding_offset,
             dst_binding_size,
         );
         let args_index = self.args.len() as u32;
@@ -1254,10 +1278,8 @@ impl GpuBufferOperationQueue {
             op,
             args_index,
             src_buffer,
-            src_binding_offset,
             src_binding_size,
             dst_buffer,
-            dst_binding_offset,
             dst_binding_size,
         });
         args_index
@@ -1352,81 +1374,46 @@ impl GpuBufferOperations {
         );
         for queue in &self.queues {
             for qop in queue {
-                // For dynamic-offset operations the dynamic offset is applied at dispatch time
-                // on top of the bound binding. Validate here that offset + size
-                // fits the source buffer, to turn a stale/too-small buffer
-                // capture into an actionable panic rather than a deep wgpu
-                // validation error at set_bind_group time.
-                #[cfg(debug_assertions)]
-                if matches!(qop.op, GpuBufferOperationType::FillDispatchArgs) {
-                    if let Some(size) = qop.src_binding_size {
-                        debug_assert!(
-                            qop.src_binding_offset as u64 + size.get() as u64
-                                <= qop.src_buffer.size(),
-                            "FillDispatchArgs src binding [{}..{}] overruns source buffer #{:?} of size {}.",
-                            qop.src_binding_offset,
-                            qop.src_binding_offset as u64 + size.get() as u64,
-                            qop.src_buffer.id(),
-                            qop.src_buffer.size(),
-                        );
-                    }
-                }
                 let key: QueuedOperationBindGroupKey = qop.into();
                 self.bind_groups.entry(key).or_insert_with(|| {
                     let src_id: NonZeroU32 = qop.src_buffer.id().into();
                     let dst_id: NonZeroU32 = qop.dst_buffer.id().into();
-                    let label = format!("hanabi:bg:util_{}_{}", src_id.get(), dst_id.get());
-                    let use_dynamic_offset = matches!(qop.op, GpuBufferOperationType::FillDispatchArgs);
-                    let bind_group_layout =
+                    let label = format!(
+                        "hanabi:bg:util_{:?}_{}_{}",
+                        qop.op,
+                        src_id.get(),
+                        dst_id.get()
+                    );
+                    let use_dynamic_offset = matches!(
+                        qop.op,
+                        GpuBufferOperationType::FillDispatchArgs | GpuBufferOperationType::Copy
+                    );
+                    let bind_group_layout: &BindGroupLayout =
                         utils_pipeline.bind_group_layout(qop.op, use_dynamic_offset);
-                    let (src_offset, dst_offset) = if use_dynamic_offset {
-                        (0, 0)
-                    } else {
-                        (qop.src_binding_offset as u64, qop.dst_binding_offset as u64)
-                    };
                     trace!(
-                        "-> Creating new bind group '{}': src#{} (@+{}B:{:?}B) dst#{} (@+{}B:{:?}B)",
+                        "-> Creating new bind group '{}': src#{} ({:?}B) -> dst#{} ({:?}B)",
                         label,
                         src_id,
-                        src_offset,
                         qop.src_binding_size,
                         dst_id,
-                        dst_offset,
                         qop.dst_binding_size,
                     );
                     render_device.create_bind_group(
                         Some(&label[..]),
                         bind_group_layout,
-                        &[
-                            BindGroupEntry {
-                                binding: 0,
-                                resource: BindingResource::Buffer(BufferBinding {
-                                    buffer: self.args_buffer.buffer().unwrap(),
-                                    offset: 0,
-                                    // We always bind exactly 1 row of arguments
-                                    size: Some(
-                                        NonZeroU64::new(self.args_buffer.aligned_size() as u64)
-                                            .unwrap(),
-                                    ),
-                                }),
-                            },
-                            BindGroupEntry {
-                                binding: 1,
-                                resource: BindingResource::Buffer(BufferBinding {
-                                    buffer: &qop.src_buffer,
-                                    offset: src_offset,
-                                    size: qop.src_binding_size.map(Into::into),
-                                }),
-                            },
-                            BindGroupEntry {
-                                binding: 2,
-                                resource: BindingResource::Buffer(BufferBinding {
-                                    buffer: &qop.dst_buffer,
-                                    offset: dst_offset,
-                                    size: qop.dst_binding_size.map(Into::into),
-                                }),
-                            },
-                        ],
+                        &BindGroupEntries::sequential((
+                            BindingResource::Buffer(BufferBinding {
+                                buffer: self.args_buffer.buffer().unwrap(),
+                                offset: 0,
+                                // We always bind exactly 1 row of arguments
+                                size: Some(
+                                    NonZeroU64::new(self.args_buffer.aligned_size() as u64)
+                                        .unwrap(),
+                                ),
+                            }),
+                            qop.src_binding(),
+                            qop.dst_binding(),
+                        )),
                     )
                 });
             }
@@ -1469,33 +1456,46 @@ impl GpuBufferOperations {
                 });
 
         let mut prev_op = None;
+        let mut prev_key = None;
+        let mut prev_dynamic_args_index = None;
         for qop in queue {
             trace!("qop={:?}", qop);
 
-            if Some(qop.op) != prev_op {
+            let pipeline_changed = Some(qop.op) != prev_op;
+            if pipeline_changed {
                 compute_pass.set_pipeline(utils_pipeline.get_pipeline(qop.op));
                 prev_op = Some(qop.op);
             }
 
             let key: QueuedOperationBindGroupKey = qop.into();
-            if let Some(bind_group) = self.bind_groups.get(&key) {
-                let args_offset = self.args_buffer.dynamic_offset(qop.args_index as usize);
-                let use_dynamic_offset = matches!(qop.op, GpuBufferOperationType::FillDispatchArgs);
-                let (src_offset, dst_offset) = if use_dynamic_offset {
-                    (qop.src_binding_offset, qop.dst_binding_offset)
+            let use_dynamic_offset = matches!(
+                qop.op,
+                GpuBufferOperationType::FillDispatchArgs | GpuBufferOperationType::Copy
+            );
+            let bind_group_changed = Some(key) != prev_key;
+            let requires_bind_group_rebind = pipeline_changed
+                || bind_group_changed
+                || (use_dynamic_offset && Some(qop.args_index) != prev_dynamic_args_index);
+            if requires_bind_group_rebind {
+                if let Some(bind_group) = self.bind_groups.get(&key) {
+                    if use_dynamic_offset {
+                        let args_offset = self.args_buffer.dynamic_offset(qop.args_index as usize);
+                        compute_pass.set_bind_group(0, bind_group, &[args_offset]);
+                        trace!(
+                            "set bind group with dynamic offsets: op={:?} args=+{}B",
+                            qop.op,
+                            args_offset,
+                        );
+                    } else {
+                        compute_pass.set_bind_group(0, bind_group, &[]);
+                        trace!("set bind group without dynamic offsets: op={:?}", qop.op);
+                    }
                 } else {
-                    (0, 0)
-                };
-                compute_pass.set_bind_group(0, bind_group, &[args_offset, src_offset, dst_offset]);
-                trace!(
-                    "set bind group with args_offset=+{}B src_offset=+{}B dst_offset=+{}B",
-                    args_offset,
-                    src_offset,
-                    dst_offset
-                );
-            } else {
-                error!("GPU fill dispatch buffer operation bind group not found for buffers src#{:?} dst#{:?}", qop.src_buffer.id(), qop.dst_buffer.id());
-                continue;
+                    error!("GPU fill dispatch buffer operation bind group not found for buffers src#{:?} dst#{:?}", qop.src_buffer.id(), qop.dst_buffer.id());
+                    continue;
+                }
+                prev_key = Some(key);
+                prev_dynamic_args_index = use_dynamic_offset.then_some(qop.args_index);
             }
 
             // Dispatch the operations for this buffer
@@ -1550,8 +1550,8 @@ impl FromWorld for UtilsPipeline {
                 ShaderStages::COMPUTE,
                 (
                     uniform_buffer::<GpuBufferOperationArgs>(true),
-                    storage_buffer_read_only::<u32>(true),
-                    storage_buffer::<u32>(true),
+                    storage_buffer_read_only::<u32>(false),
+                    storage_buffer::<u32>(false),
                 ),
             ),
         );
@@ -1564,29 +1564,13 @@ impl FromWorld for UtilsPipeline {
 
         let bind_group_layout_no_src = render_device.create_bind_group_layout(
             "hanabi:bind_group_layout:utils_no_src",
-            &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: Some(GpuBufferOperationArgs::min_size()),
-                    },
-                    count: None,
-                },
-                // (no binding #1)
-                BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(4),
-                    },
-                    count: None,
-                },
-            ],
+            &BindGroupLayoutEntries::with_indices(
+                ShaderStages::COMPUTE,
+                (
+                    (0, uniform_buffer::<GpuBufferOperationArgs>(false)),
+                    (2, storage_buffer::<u32>(false)),
+                ),
+            ),
         );
 
         let pipeline_layout_no_src =
@@ -7257,8 +7241,6 @@ fn simulate(
     // copied into the prefix sum buffer during the indirect dispatch pass just
     // before.
     {
-        // Only start a compute pass if there's an effect; makes things clearer in
-        // debugger.
         let mut compute_pass = HanabiComputePass::new(
             "hanabi:update_prefix_sum",
             &pipeline_cache,
@@ -7276,7 +7258,8 @@ fn simulate(
             return;
         }
 
-        // Dispatch one thread per effect batch
+        // Dispatch one thread per effect batch, to calculate the prefix sum of the
+        // number of particles to update per effect in that batch.
         const WORKGROUP_SIZE: u32 = 64;
         let total_batch_count = batcher.len() as u32;
         let workgroup_count = total_batch_count.div_ceil(WORKGROUP_SIZE);
