@@ -535,7 +535,13 @@ impl Default for GpuDrawIndexedIndirectArgs {
 #[repr(C)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Pod, Zeroable, ShaderType)]
 pub struct GpuBatchInfo {
+    /// Total number of CPU particles to spawn. This is the sum of all `spawn`
+    /// counts of all effect instances in this batch which spawn CPU-based
+    /// particles. This is uploaded from CPU each frame.
     pub total_spawn_count: u32,
+    /// Total number of CPU particles to update. This is the sum of all
+    /// `alive_count` of all effect instances in this batch. This is calculated
+    /// on GPU each frame, between the init and update passes.
     pub total_update_count: u32,
     /// Start index of the slice of [`GpuSpawnerInfo`] for this batch, into the
     /// [`EffectsMeta::spawner_buffer`]. The slice length is equal to the number
@@ -6648,6 +6654,7 @@ fn draw<'w>(
     let effect_batch = batcher.get(effect_draw_batch.effect_batch_index).unwrap();
 
     let Some(pipeline) = pipeline_cache.into_inner().get_render_pipeline(pipeline_id) else {
+        trace!("ERROR: Failed to find render pipeline ID {:?}", pipeline_id);
         return;
     };
 
@@ -6656,9 +6663,11 @@ fn draw<'w>(
     pass.set_render_pipeline(pipeline);
 
     let Some(render_mesh): Option<&RenderMesh> = meshes.get(effect_batch.mesh) else {
+        trace!("Missing render mesh; can't draw. Skipped.");
         return;
     };
     let Some(vertex_buffer_slice) = mesh_allocator.mesh_vertex_slice(&effect_batch.mesh) else {
+        trace!("Missing vertex buffer slice; can't draw. Skipped.");
         return;
     };
 

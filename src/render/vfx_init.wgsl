@@ -65,9 +65,10 @@ fn find_location_from_particle(update_particle_index: u32) -> EffectLocation {
             return EffectLocation(0xDEADBEEFu, 0xDEADBEEFu, 0xDEADBEEFu);
         }
     }
-    let base_particle = prefix_sum[lo - 1u];
+    let base_index = prefix_sum[lo - 1u];
+    let update_index = update_particle_index - base_index;
     let effect_index = lo - 1u - batch_info.prefix_sum_offset;
-    let update_index = update_particle_index - base_particle;
+    let base_particle = spawners[batch_info.spawner_base + effect_index].slab_offset;
     return EffectLocation(effect_index, base_particle, update_index);
 }
 
@@ -102,6 +103,11 @@ var<private> properties_array_index: u32;
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // Particle index in the packed init space of this batch.
     let update_particle_index = global_invocation_id.x;
+#ifndef CONSUME_GPU_SPAWN_EVENTS
+    if (update_particle_index >= batch_info.total_spawn_count) {
+        return;
+    }
+#endif
 
     // Find the index of the effect this particle is part of.
     let location = find_location_from_particle(update_particle_index);
@@ -111,8 +117,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Cap to max number of dead particles, copied from (capacity - alive_count) at the end
     // of the previous iteration, and constant during this pass (unlike alive_count).
-    let effect_metadata = &effect_metadatas[(*spawner).effect_metadata_index];
-    let max_spawn = atomicLoad(&(*effect_metadata).max_spawn);
+    let effect_metadata = &effect_metadatas[effect_metadata_index];
+    let max_spawn = atomicLoad(&(*effect_metadata).max_spawn);  // Not atomic
     if (location.update_index >= max_spawn) {
         return;
     }
