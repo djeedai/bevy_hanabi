@@ -64,6 +64,7 @@ pub mod kill;
 pub mod output;
 pub mod position;
 pub mod registry;
+mod rotate_over_time;
 pub mod velocity;
 
 pub use accel::*;
@@ -73,6 +74,7 @@ pub use kill::*;
 pub use output::*;
 pub use position::*;
 pub use registry::*;
+pub use rotate_over_time::*;
 pub use velocity::*;
 
 use crate::{
