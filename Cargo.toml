@@ -67,7 +67,9 @@ wgpu = { version = "29.0.3", default-features = false, features = [
   "fragile-send-sync-non-atomic-wasm",
 ] }
 naga = { version = "29.0.3", features = ["wgsl-in"] }
-naga_oil = { version = "0.22", default-features = false, features = ["test_shader"] }
+naga_oil = { version = "0.22", default-features = false, features = [
+  "test_shader",
+] }
 
 # getrandom requires both 'wasm_js' as a feature AND as a RUSTFLAGS to work on wasm
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -164,6 +166,9 @@ name = "puffs"
 
 [[example]]
 name = "lightning"
+
+[[example]]
+name = "box"
 
 [[test]]
 name = "empty_effect"
