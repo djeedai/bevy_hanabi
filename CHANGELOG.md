@@ -5,6 +5,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+- Added `RotateOverTimeModifier`
+
 ### Changed
 
 - Batch same-effect instances. This greatly improves performance when using many instances
