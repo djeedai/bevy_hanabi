@@ -3,12 +3,14 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
-use bevy_hanabi::{prelude::*, Gradient};
+use bevy_hanabi::prelude::*;
 
 mod utils;
 use utils::*;
 
 const DEMO_DESC: &str = include_str!("rotate_over_time.txt");
+const COLOR: Vec4 = Vec4::new(0.7, 0.7, 1.0, 1.0);
+const SIZE: Vec3 = Vec3::splat(0.1);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_exit = utils::DemoApp::new("box")
@@ -49,23 +51,11 @@ fn setup(
 
     let writer = ExprWriter::new();
 
-    let age = writer.lit(0.).expr();
-    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
-
-    let lifetime = writer.lit(3.).expr();
-    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
-
     let init_pos = SetPositionCircleModifier {
         center: writer.lit(Vec3::Y * 0.1).expr(),
         axis: writer.lit(Vec3::Y).expr(),
         radius: writer.lit(1.).expr(),
         dimension: ShapeDimension::Volume,
-    };
-
-    let init_vel = SetVelocityCircleModifier {
-        center: writer.lit(Vec3::ZERO).expr(),
-        axis: writer.lit(Vec3::Y).expr(),
-        speed: (writer.lit(0.5) + writer.lit(0.2) * writer.rand(ScalarType::Float)).expr(),
     };
 
     let init_axis_x = SetAttributeModifier::new(Attribute::AXIS_X, writer.lit(Vec3::X).expr());
@@ -75,47 +65,26 @@ fn setup(
     // Particle will complete 3/4 of a rotation around Y axis per second
     let rotate_over_time = RotateOverTimeModifier {
         rotation: writer
-            .lit(MatrixValue::from(
-                Transform::from_rotation(Quat::from_euler(
-                    EulerRot::XYZ,
-                    0.,
-                    270.0f32.to_radians(),
-                    0.,
-                ))
-                .to_matrix(),
-            ))
+            .lit(Vec3::new(0., 270.0f32.to_radians(), 190.0f32.to_radians()))
             .expr(),
     };
-
-    // To give some visual diversity, we initialize each spawned particle with a
-    // random per-particle color. The COLOR attribute is read back in the vertex
-    // shader to initialize the particle's base color, which is later modulated
-    // in this example with the texture of the ParticleTextureModifier.
-    // Note that the ParticleTextureModifier uses
-    // ImageSampleMapping::ModulateOpacityFromR so it will override
-    // the alpha component of the color. Therefore we don't need to care about
-    // rand() assigning a transparent value and making the particle invisible.
-    let color = writer.rand(VectorType::VEC4F).pack4x8unorm();
-    let init_color = SetAttributeModifier::new(Attribute::COLOR, color.expr());
 
     let module = writer.finish();
 
     let effect = effects.add(
-        EffectAsset::new(32768, SpawnerSettings::rate(64.0.into()), module)
-            .with_name("box")
+        EffectAsset::new(32768, SpawnerSettings::once(64.0.into()), module)
+            .with_name("rotate_over_time")
+            // Disable motion integration; in this demo particles don't move. This silences some warning
+            // about missing the VELOCITY attribute.
+            .with_motion_integration(MotionIntegration::None)
+            .with_simulation_space(SimulationSpace::Local)
             .init(init_pos)
-            .init(init_vel)
             .init(init_axis_x)
             .init(init_axis_y)
             .init(init_axis_z)
-            .init(init_age)
-            .init(init_lifetime)
-            .init(init_color)
             .update(rotate_over_time)
-            .render(SizeOverLifetimeModifier {
-                gradient: Gradient::constant(Vec3::splat(0.2)),
-                screen_space_size: false,
-            }),
+            .render(SetColorModifier::new(COLOR))
+            .render(SetSizeModifier { size: SIZE.into() }),
     );
 
     commands.spawn((
