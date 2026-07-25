@@ -165,7 +165,7 @@ fn setup(
         Transform::from_translation(Vec3::new(0., 10., 0.)),
         effects.add(base_effect("SetPositionBoxModifier", |writer| {
             SetPositionBoxModifier {
-                scale: writer.lit(Vec3::splat(5.)).expr(),
+                extent: writer.lit(Vec3::splat(5.)).expr(),
                 dimension: ShapeDimension::Volume,
             }
         })),

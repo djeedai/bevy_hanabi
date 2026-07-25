@@ -357,10 +357,10 @@ impl Modifier for SetPositionCone3dModifier {
 /// - [`Attribute::POSITION`]
 #[derive(Clone, Copy, Hash, Reflect)]
 pub struct SetPositionBoxModifier {
-    /// The scale of the box.
+    /// The extent of the box.
     ///
     /// Expression type: `Vec3`
-    pub scale: ExprHandle,
+    pub extent: ExprHandle,
     /// The shape dimension to set the position to.
     pub dimension: ShapeDimension,
 }
@@ -379,12 +379,12 @@ impl SetPositionBoxModifier {
             "particle: ptr<function, Particle>",
             module,
             &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
-                let scale = ctx.eval(m, self.scale)?;
+                let extent = ctx.eval(m, self.extent)?;
 
                 let code = match self.dimension {
                     ShapeDimension::Surface => {
                         format!(
-                            r#"    let scale = {};
+                            r#"    let extent = {};
 
     let face = frand();
     let rand1 = frand() - 0.5;
@@ -396,42 +396,42 @@ impl SetPositionBoxModifier {
     var z: f32;
 
     if face < (1. / 6.) {{
-        x = rand1 * scale.x;
-        y = fixed * scale.y;
-        z = rand2 * scale.z;
+        x = rand1 * extent.x;
+        y = fixed * extent.y;
+        z = rand2 * extent.z;
     }} else if face < (2. / 6.) {{
-        x = rand1 * scale.x;
-        y = -fixed * scale.y;
-        z = rand2 * scale.z;
+        x = rand1 * extent.x;
+        y = -fixed * extent.y;
+        z = rand2 * extent.z;
     }} else if face < (3. / 6.) {{
-        x = fixed * scale.x;
-        y = rand1 * scale.y;
-        z = rand2 * scale.z;
+        x = fixed * extent.x;
+        y = rand1 * extent.y;
+        z = rand2 * extent.z;
     }} else if face < (4. / 6.) {{
-        x = -fixed * scale.x;
-        y = rand1 * scale.y;
-        z = rand2 * scale.z;
+        x = -fixed * extent.x;
+        y = rand1 * extent.y;
+        z = rand2 * extent.z;
     }} else if face < (5. / 6.) {{
-        x = rand1 * scale.x;
-        y = rand2 * scale.y;
-        z = fixed * scale.z;
+        x = rand1 * extent.x;
+        y = rand2 * extent.y;
+        z = fixed * extent.z;
     }} else {{
-        x = rand1 * scale.x;
-        y = rand2 * scale.y;
-        z = -fixed * scale.z;
+        x = rand1 * extent.x;
+        y = rand2 * extent.y;
+        z = -fixed * extent.z;
     }}
     (*particle).{} = vec3(x, y, z);
 "#,
-                            scale,
+                            extent,
                             Attribute::POSITION.name()
                         )
                     }
                     ShapeDimension::Volume => format!(
-                        r#"    let scale = {};
+                        r#"    let extent = {};
     let mult = vec3(frand(), frand(), frand()) - 0.5;
-    (*particle).{} = scale * mult;
+    (*particle).{} = extent * mult;
 "#,
-                        scale,
+                        extent,
                         Attribute::POSITION.name()
                     ),
                 };
