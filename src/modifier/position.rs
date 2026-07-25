@@ -357,6 +357,10 @@ impl Modifier for SetPositionCone3dModifier {
 /// - [`Attribute::POSITION`]
 #[derive(Clone, Copy, Hash, Reflect)]
 pub struct SetPositionBoxModifier {
+    /// The box center, relative to the emitter position.
+    ///
+    /// Expression type: `Vec3`
+    pub center: ExprHandle,
     /// The extent of the box.
     ///
     /// Expression type: `Vec3`
@@ -379,12 +383,14 @@ impl SetPositionBoxModifier {
             "particle: ptr<function, Particle>",
             module,
             &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
+                let center = ctx.eval(m, self.center)?;
                 let extent = ctx.eval(m, self.extent)?;
 
                 let code = match self.dimension {
                     ShapeDimension::Surface => {
                         format!(
-                            r#"    let extent = {};
+                            r#"    let center = {};
+    let extent = {};
 
     let face = frand();
     let rand1 = frand() - 0.5;
@@ -420,17 +426,20 @@ impl SetPositionBoxModifier {
         y = rand2 * extent.y;
         z = -fixed * extent.z;
     }}
-    (*particle).{} = vec3(x, y, z);
+    (*particle).{} = center + vec3(x, y, z);
 "#,
+                            center,
                             extent,
                             Attribute::POSITION.name()
                         )
                     }
                     ShapeDimension::Volume => format!(
-                        r#"    let extent = {};
+                        r#"    let center = {};
+    let extent = {};
     let mult = frand3() - 0.5;
-    (*particle).{} = extent * mult;
+    (*particle).{} = center + extent * mult;
 "#,
+                        center,
                         extent,
                         Attribute::POSITION.name()
                     ),
