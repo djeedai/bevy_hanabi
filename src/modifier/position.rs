@@ -428,7 +428,7 @@ impl SetPositionBoxModifier {
                     }
                     ShapeDimension::Volume => format!(
                         r#"    let extent = {};
-    let mult = vec3(frand(), frand(), frand()) - 0.5;
+    let mult = frand3() - 0.5;
     (*particle).{} = extent * mult;
 "#,
                         extent,
