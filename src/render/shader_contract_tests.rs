@@ -11,8 +11,8 @@ use wgpu::util::DeviceExt;
 
 use super::*;
 use crate::{
-    test_utils::MockRenderer, Attribute, EffectAsset, EffectShaderSources, ExprWriter,
-    SetAttributeModifier, SpawnerSettings,
+    plugin::VFX_SORT_WGSL, test_utils::MockRenderer, Attribute, EffectAsset, EffectShaderSources,
+    ExprWriter, SetAttributeModifier, SpawnerSettings,
 };
 
 #[repr(C)]
@@ -98,15 +98,9 @@ fn create_composed_shader_module(
 ) -> Result<wgpu::ShaderModule, Box<dyn std::error::Error>> {
     let spawner_padding_code = GpuSpawnerParams::padding_code(storage_alignment);
     let batch_info_padding_code = GpuBatchInfo::padding_code(storage_alignment);
-    let effect_metadata_padding_code = GpuEffectMetadata::padding_code(storage_alignment);
-    let effect_metadata_stride_code = GpuEffectMetadata::aligned_size(storage_alignment)
-        .get()
-        .to_string();
     let common_code = include_str!("vfx_common.wgsl")
         .replace("{{SPAWNER_PADDING}}", &spawner_padding_code)
-        .replace("{{BATCH_INFO_PADDING}}", &batch_info_padding_code)
-        .replace("{{EFFECT_METADATA_PADDING}}", &effect_metadata_padding_code)
-        .replace("{{EFFECT_METADATA_STRIDE}}", &effect_metadata_stride_code);
+        .replace("{{BATCH_INFO_PADDING}}", &batch_info_padding_code);
 
     let mut composer = Composer::default();
     composer.add_composable_module(ComposableModuleDescriptor {
@@ -126,18 +120,6 @@ fn create_composed_shader_module(
             label: Some(file_path),
             source: wgpu::ShaderSource::Naga(Cow::Owned(module)),
         }))
-}
-
-fn pack_effect_metadata_rows(rows: &[GpuEffectMetadata], storage_alignment: u32) -> Vec<u32> {
-    let stride_u32 = (GpuEffectMetadata::aligned_size(storage_alignment).get() / 4) as usize;
-    let row_u32 = std::mem::size_of::<GpuEffectMetadata>() / 4;
-    let mut packed = vec![0_u32; rows.len() * stride_u32];
-    for (i, row) in rows.iter().enumerate() {
-        let src: &[u32] = cast_slice(std::slice::from_ref(row));
-        let dst = &mut packed[i * stride_u32..i * stride_u32 + row_u32];
-        dst.copy_from_slice(src);
-    }
-    packed
 }
 
 fn write_aligned_spawners(
@@ -168,7 +150,8 @@ fn write_aligned_spawners(
     buffer
 }
 
-/// Create an array containing the input slice content padded to the given alignment.
+/// Create an array containing the input slice content padded to the given
+/// alignment.
 fn padded_slice_content<T: ShaderType + Pod>(arr: &[T], align: u32) -> Vec<u8> {
     let aligned_size = (T::min_size().get() as usize).next_multiple_of(align as usize);
     let total_size = arr.len() * aligned_size;
@@ -180,6 +163,395 @@ fn padded_slice_content<T: ShaderType + Pod>(arr: &[T], align: u32) -> Vec<u8> {
         data[offset..offset + cpu_size].copy_from_slice(item_bytes);
     }
     data
+}
+
+fn create_sort_pipeline(
+    wgpu_device: &wgpu::Device,
+    sort_buffer: &wgpu::Buffer,
+) -> (wgpu::ComputePipeline, wgpu::BindGroup) {
+    let bgl = wgpu_device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("hanabi:test:sort:bgl"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+    let bg = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("hanabi:test:sort:bg"),
+        layout: &bgl,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: sort_buffer.as_entire_binding(),
+        }],
+    });
+    let pl = wgpu_device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("hanabi:test:sort:pl"),
+        bind_group_layouts: &[Some(&bgl)],
+        immediate_size: 0,
+    });
+    let source = VFX_SORT_WGSL
+        .replace("#ifdef HAS_DUAL_KEY", "")
+        .replace("#ifdef TEST", "")
+        .replace("#endif", "");
+    let shader = wgpu_device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("hanabi:test:vfx_sort"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    let pipeline = wgpu_device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("hanabi:test:sort:pipe"),
+        layout: Some(&pl),
+        module: &shader,
+        entry_point: Some("main"),
+        cache: None,
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+    });
+    (pipeline, bg)
+}
+
+#[test]
+fn real_ribbon_sort_chain_isolated_per_instance() -> Result<(), Box<dyn std::error::Error>> {
+    let renderer = MockRenderer::new();
+    let device = renderer.device();
+    let queue = renderer.queue();
+    let wgpu_device = device.wgpu_device();
+    let storage_alignment = device.limits().min_storage_buffer_offset_alignment;
+
+    let fill_shader = create_composed_shader_module(
+        &device,
+        storage_alignment,
+        include_str!("vfx_sort_fill.wgsl"),
+        "bevy_hanabi::vfx_sort_fill",
+    )?;
+    let copy_shader = create_composed_shader_module(
+        &device,
+        storage_alignment,
+        include_str!("vfx_sort_copy.wgsl"),
+        "bevy_hanabi::vfx_sort_copy",
+    )?;
+
+    let metadatas = [
+        GpuEffectMetadata {
+            capacity: 4,
+            alive_count: 4,
+            indirect_write_index: 0,
+            particle_stride: 2,
+            sort_key_offset: 0,
+            sort_key2_offset: 1,
+            ..default()
+        },
+        GpuEffectMetadata {
+            capacity: 4,
+            alive_count: 4,
+            indirect_write_index: 0,
+            particle_stride: 2,
+            sort_key_offset: 0,
+            sort_key2_offset: 1,
+            ..default()
+        },
+    ];
+    let spawners = [
+        GpuSpawnerParams {
+            effect_metadata_index: 0,
+            slab_offset: 0,
+            ..default()
+        },
+        GpuSpawnerParams {
+            effect_metadata_index: 1,
+            slab_offset: 4,
+            ..default()
+        },
+    ];
+    let particles = [
+        1_u32,
+        3.0_f32.to_bits(),
+        0,
+        1.0_f32.to_bits(),
+        1,
+        2.0_f32.to_bits(),
+        0,
+        4.0_f32.to_bits(), // Instance 0
+        2,
+        1.0_f32.to_bits(),
+        1,
+        4.0_f32.to_bits(),
+        2,
+        3.0_f32.to_bits(),
+        1,
+        2.0_f32.to_bits(), // Instance 1
+    ];
+    let indirect_indices = [
+        3_u32,
+        0,
+        u32::MAX,
+        2,
+        0,
+        u32::MAX,
+        1,
+        0,
+        u32::MAX,
+        0,
+        0,
+        u32::MAX,
+        2,
+        0,
+        u32::MAX,
+        0,
+        0,
+        u32::MAX,
+        3,
+        0,
+        u32::MAX,
+        1,
+        0,
+        u32::MAX,
+    ];
+    let particle_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("hanabi:test:ribbon:particles"),
+        contents: cast_slice(&particles),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let indirect_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("hanabi:test:ribbon:indirect"),
+        contents: cast_slice(&indirect_indices),
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+    });
+    let metadata_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("hanabi:test:ribbon:metadata"),
+        contents: cast_slice(&metadatas),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let spawner_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("hanabi:test:ribbon:spawners"),
+        contents: &padded_slice_content(&spawners, storage_alignment),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let sort_buffer = wgpu_device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("hanabi:test:ribbon:sort"),
+        size: 4 + 4 * 12,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let dispatch_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("hanabi:test:ribbon:dispatch"),
+        contents: cast_slice(&[
+            GpuDispatchIndirectArgs { x: 1, y: 1, z: 1 },
+            GpuDispatchIndirectArgs { x: 1, y: 1, z: 1 },
+        ]),
+        usage: wgpu::BufferUsages::INDIRECT,
+    });
+
+    let storage = |binding, read_only, dynamic| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only },
+            has_dynamic_offset: dynamic,
+            min_binding_size: None,
+        },
+        count: None,
+    };
+    let fill_bgl = wgpu_device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("hanabi:test:ribbon:fill:bgl"),
+        entries: &[
+            storage(0, false, false),
+            storage(1, true, false),
+            storage(2, true, false),
+            storage(3, false, false),
+            storage(4, true, true),
+        ],
+    });
+    let copy_bgl = wgpu_device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("hanabi:test:ribbon:copy:bgl"),
+        entries: &[
+            storage(0, false, false),
+            storage(1, true, false),
+            storage(2, false, false),
+            storage(3, true, true),
+        ],
+    });
+    let fill_bg = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("hanabi:test:ribbon:fill:bg"),
+        layout: &fill_bgl,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: sort_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: particle_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: indirect_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: metadata_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &spawner_buffer,
+                    offset: 0,
+                    size: NonZeroU64::new(storage_alignment as u64),
+                }),
+            },
+        ],
+    });
+    let copy_bg = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("hanabi:test:ribbon:copy:bg"),
+        layout: &copy_bgl,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: indirect_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: sort_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: metadata_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &spawner_buffer,
+                    offset: 0,
+                    size: NonZeroU64::new(storage_alignment as u64),
+                }),
+            },
+        ],
+    });
+    let fill_pl = wgpu_device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("hanabi:test:ribbon:fill:pl"),
+        bind_group_layouts: &[Some(&fill_bgl)],
+        immediate_size: 0,
+    });
+    let copy_pl = wgpu_device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("hanabi:test:ribbon:copy:pl"),
+        bind_group_layouts: &[Some(&copy_bgl)],
+        immediate_size: 0,
+    });
+    let fill_pipeline = wgpu_device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("hanabi:test:ribbon:fill"),
+        layout: Some(&fill_pl),
+        module: &fill_shader,
+        entry_point: Some("main"),
+        cache: None,
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+    });
+    let copy_pipeline = wgpu_device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("hanabi:test:ribbon:copy"),
+        layout: Some(&copy_pl),
+        module: &copy_shader,
+        entry_point: Some("main"),
+        cache: None,
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+    });
+    let (sort_pipeline, sort_bg) = create_sort_pipeline(wgpu_device, &sort_buffer);
+
+    let mut encoder = wgpu_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("hanabi:test:ribbon:chain"),
+    });
+    for instance in 0..2 {
+        encoder.clear_buffer(&sort_buffer, 0, Some(4));
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("hanabi:test:ribbon:fill"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&fill_pipeline);
+            pass.set_bind_group(
+                0,
+                &fill_bg,
+                &[(instance * storage_alignment as usize) as u32],
+            );
+            pass.dispatch_workgroups_indirect(
+                &dispatch_buffer,
+                instance as u64 * std::mem::size_of::<GpuDispatchIndirectArgs>() as u64,
+            );
+        }
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("hanabi:test:ribbon:sort"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&sort_pipeline);
+            pass.set_bind_group(0, &sort_bg, &[]);
+            pass.dispatch_workgroups_indirect(
+                &dispatch_buffer,
+                instance as u64 * std::mem::size_of::<GpuDispatchIndirectArgs>() as u64,
+            );
+        }
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("hanabi:test:ribbon:copy"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&copy_pipeline);
+            pass.set_bind_group(
+                0,
+                &copy_bg,
+                &[(instance * storage_alignment as usize) as u32],
+            );
+            pass.dispatch_workgroups_indirect(
+                &dispatch_buffer,
+                instance as u64 * std::mem::size_of::<GpuDispatchIndirectArgs>() as u64,
+            );
+        }
+    }
+    submit_and_wait(&device, &queue, encoder.finish());
+
+    let indirect_out = readback_vec::<u32>(
+        &device,
+        &queue,
+        &indirect_buffer,
+        (indirect_indices.len() * std::mem::size_of::<u32>()) as u64,
+    );
+    assert_eq!(
+        &indirect_out[0..12],
+        &[
+            1,
+            0,
+            u32::MAX,
+            3,
+            0,
+            u32::MAX,
+            2,
+            0,
+            u32::MAX,
+            0,
+            0,
+            u32::MAX
+        ]
+    );
+    assert_eq!(
+        &indirect_out[12..24],
+        &[
+            3,
+            0,
+            u32::MAX,
+            1,
+            0,
+            u32::MAX,
+            0,
+            0,
+            u32::MAX,
+            2,
+            0,
+            u32::MAX
+        ]
+    );
+    Ok(())
 }
 
 #[test]
@@ -976,7 +1348,6 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
             ..default()
         },
     ];
-    let metadata_packed = pack_effect_metadata_rows(&metadata_rows, storage_alignment);
 
     let sim_params_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:update:sim_params"),
@@ -1018,7 +1389,7 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
     });
     let metadata_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:update:metadata"),
-        contents: cast_slice(&metadata_packed),
+        contents: cast_slice(&metadata_rows),
         usage: wgpu::BufferUsages::STORAGE,
     });
 
@@ -1231,13 +1602,6 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
-    const EM_OFFSET_CAPACITY: usize = 0;
-    const EM_OFFSET_ALIVE_COUNT: usize = 1;
-    const EM_OFFSET_MAX_UPDATE: usize = 2;
-    const EM_OFFSET_MAX_SPAWN: usize = 3;
-    const EM_OFFSET_INDIRECT_WRITE_INDEX: usize = 4;
-    const EM_OFFSET_INDIRECT_DRAW_INDEX: usize = 5;
-
     let renderer = MockRenderer::new();
     let device = renderer.device();
     let queue = renderer.queue();
@@ -1266,20 +1630,29 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
         usage: wgpu::BufferUsages::UNIFORM,
     });
 
-    let effect_stride_u32 = (GpuEffectMetadata::aligned_size(storage_alignment).get() / 4) as usize;
-    let mut metadata_u32 = vec![0_u32; 2 * effect_stride_u32];
-    metadata_u32[EM_OFFSET_CAPACITY] = 200;
-    metadata_u32[EM_OFFSET_ALIVE_COUNT] = 130;
-    metadata_u32[EM_OFFSET_INDIRECT_WRITE_INDEX] = 0;
-    metadata_u32[EM_OFFSET_INDIRECT_DRAW_INDEX] = 0;
-    let em1 = effect_stride_u32;
-    metadata_u32[em1 + EM_OFFSET_CAPACITY] = 5;
-    metadata_u32[em1 + EM_OFFSET_ALIVE_COUNT] = 1;
-    metadata_u32[em1 + EM_OFFSET_INDIRECT_WRITE_INDEX] = 1;
-    metadata_u32[em1 + EM_OFFSET_INDIRECT_DRAW_INDEX] = 1;
+    let metadata_rows = [
+        GpuEffectMetadata {
+            capacity: 200,
+            alive_count: 130,
+            max_update: u32::MAX,
+            max_spawn: u32::MAX,
+            indirect_draw_index: 0,
+            indirect_write_index: 0,
+            ..default()
+        },
+        GpuEffectMetadata {
+            capacity: 5,
+            alive_count: 1,
+            max_update: u32::MAX,
+            max_spawn: u32::MAX,
+            indirect_draw_index: 1,
+            indirect_write_index: 1,
+            ..default()
+        },
+    ];
     let metadata_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:indirect:metadata"),
-        contents: cast_slice(&metadata_u32),
+        contents: cast_slice(&metadata_rows),
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
     });
 
@@ -1454,16 +1827,17 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
     let prefix_out = readback_vec::<u32>(&device, &queue, &prefix_buffer, 8);
     assert_eq!(prefix_out, vec![130, 1]);
 
-    let metadata_out = readback_vec::<u32>(
+    let metadata_raw_out = readback_vec::<u32>(
         &device,
         &queue,
         &metadata_buffer,
-        (metadata_u32.len() * 4) as u64,
+        (metadata_rows.len() * size_of::<GpuEffectMetadata>()) as u64,
     );
-    assert_eq!(metadata_out[EM_OFFSET_MAX_UPDATE], 130);
-    assert_eq!(metadata_out[EM_OFFSET_MAX_SPAWN], 70);
-    assert_eq!(metadata_out[em1 + EM_OFFSET_MAX_UPDATE], 1);
-    assert_eq!(metadata_out[em1 + EM_OFFSET_MAX_SPAWN], 4);
+    let metadata_out: &[GpuEffectMetadata] = cast_slice(&metadata_raw_out);
+    assert_eq!(metadata_out[0].max_update, 130);
+    assert_eq!(metadata_out[0].max_spawn, 70);
+    assert_eq!(metadata_out[1].max_update, 1);
+    assert_eq!(metadata_out[1].max_spawn, 4);
 
     let draw_out = readback_vec::<GpuDrawIndexedIndirectArgs>(
         &device,

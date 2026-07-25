@@ -20,7 +20,9 @@ use bevy::{
     utils::default,
 };
 use bytemuck::{Pod, Zeroable};
-use wgpu::{BufferBinding, BufferDescriptor, BufferUsages, CommandEncoder, ShaderStages};
+use wgpu::{
+    BufferAddress, BufferBinding, BufferDescriptor, BufferUsages, CommandEncoder, ShaderStages,
+};
 
 use super::{gpu_buffer::GpuBuffer, GpuDispatchIndirectArgs, GpuEffectMetadata, StorageType};
 use crate::{
@@ -95,7 +97,7 @@ pub struct SortBindGroups {
     sort_buffer: Buffer,
     /// GPU buffer containing the [`GpuDispatchIndirect`] structs for the
     /// sort-fill and sort passes.
-    indirect_buffer: GpuBuffer<GpuDispatchIndirectArgs>,
+    indirect_args_buffer: GpuBuffer<GpuDispatchIndirectArgs>,
     /// Bind group layouts for group #0 of the sort-fill compute pass.
     sort_fill_bind_group_layout_descs:
         HashMap<SortFillBindGroupLayoutKey, (BindGroupLayoutDescriptor, CachedComputePipelineId)>,
@@ -177,9 +179,9 @@ impl SortBindGroups {
                     storage_buffer::<GpuIndirectIndex>(false),
                     // @group(0) @binding(1) var<storage, read> sort_buffer : SortBuffer;
                     storage_buffer_read_only::<GpuSortBufferSingleEntry>(false),
-                    // @group(0) @binding(2) var<storage, read_write> effect_metadata :
-                    // EffectMetadata;
-                    storage_buffer_sized(true, Some(GpuEffectMetadata::aligned_size(alignment))),
+                    // @group(0) @binding(2) var<storage, read_write> effect_metadatas :
+                    // array<EffectMetadata>;
+                    storage_buffer::<GpuEffectMetadata>(false),
                     // @group(0) @binding(3) var<storage, read> spawner : Spawner;
                     storage_buffer_read_only_sized(
                         true,
@@ -203,7 +205,7 @@ impl SortBindGroups {
         Self {
             sort_fill_shader,
             sort_buffer,
-            indirect_buffer,
+            indirect_args_buffer: indirect_buffer,
             sort_fill_bind_group_layout_descs: default(),
             sort_fill_bind_groups: default(),
             sort_bind_group_layout_desc,
@@ -222,18 +224,19 @@ impl SortBindGroups {
     }
 
     #[inline]
-    pub fn clear_indirect_dispatch_buffer(&mut self) {
-        self.indirect_buffer.clear();
+    pub fn clear_indirect_args_buffer(&mut self) {
+        self.indirect_args_buffer.clear();
+    }
+
+    /// Allocate a [`GpuDispatchIndirectArgs`] slot in the global shared buffer.
+    #[inline]
+    pub fn allocate_indirect_args(&mut self) -> u32 {
+        self.indirect_args_buffer.allocate()
     }
 
     #[inline]
-    pub fn allocate_indirect_dispatch(&mut self) -> u32 {
-        self.indirect_buffer.allocate()
-    }
-
-    #[inline]
-    pub fn get_indirect_dispatch_byte_offset(&self, index: u32) -> u32 {
-        self.indirect_buffer.item_size() as u32 * index
+    pub fn get_indirect_args_byte_offset(&self, index: u32) -> BufferAddress {
+        self.indirect_args_buffer.item_size() as BufferAddress * index as BufferAddress
     }
 
     #[inline]
@@ -243,8 +246,8 @@ impl SortBindGroups {
     }
 
     #[inline]
-    pub fn indirect_buffer(&self) -> Option<&Buffer> {
-        self.indirect_buffer.buffer()
+    pub fn indirect_args_buffer(&self) -> Option<&Buffer> {
+        self.indirect_args_buffer.buffer()
     }
 
     #[inline]
@@ -300,17 +303,17 @@ impl SortBindGroups {
 
     #[inline]
     pub fn prepare_buffers(&mut self, render_device: &RenderDevice) {
-        self.indirect_buffer.prepare_buffers(render_device);
+        self.indirect_args_buffer.prepare_buffers(render_device);
     }
 
     #[inline]
     pub fn write_buffers(&self, command_encoder: &mut CommandEncoder) {
-        self.indirect_buffer.write_buffers(command_encoder);
+        self.indirect_args_buffer.write_buffers(command_encoder);
     }
 
     #[inline]
     pub fn clear_previous_frame_resizes(&mut self) {
-        self.indirect_buffer.clear_previous_frame_resizes();
+        self.indirect_args_buffer.clear_previous_frame_resizes();
     }
 
     pub fn ensure_sort_fill_bind_group_layout_desc(
@@ -342,12 +345,9 @@ impl SortBindGroups {
                             // @group(0) @binding(2) var<storage, read> indirect_index_buffer :
                             // array<u32>;
                             storage_buffer_read_only::<GpuIndirectIndex>(false),
-                            // @group(0) @binding(3) var<storage, read_write> effect_metadata :
-                            // EffectMetadata;
-                            storage_buffer_sized(
-                                true,
-                                Some(GpuEffectMetadata::aligned_size(alignment)),
-                            ),
+                            // @group(0) @binding(3) var<storage, read_write> effect_metadatas :
+                            // array<EffectMetadata>;
+                            storage_buffer::<GpuEffectMetadata>(false),
                             // @group(0) @binding(4) var<storage, read> spawner : Spawner;
                             storage_buffer_read_only_sized(
                                 true,
@@ -428,7 +428,6 @@ impl SortBindGroups {
                     .get(&key)
                     .ok_or(())?
                     .0;
-                let align = render_device.limits().min_storage_buffer_offset_alignment;
                 entry.insert(render_device.create_bind_group(
                     "hanabi:bg:sort_fill",
                     &pipeline_cache.get_bind_group_layout(layout_desc),
@@ -442,18 +441,16 @@ impl SortBindGroups {
                         // @group(0) @binding(2) var<storage, read> indirect_index_buffer :
                         // array<u32>;
                         indirect_index.as_entire_binding(),
-                        // @group(0) @binding(3) var<storage, read> effect_metadata :
-                        // EffectMetadata;
-                        BufferBinding {
-                            buffer: effect_metadata,
-                            offset: 0,
-                            size: Some(GpuEffectMetadata::aligned_size(align)),
-                        },
+                        // @group(0) @binding(3) var<storage, read_write> effect_metadatas :
+                        // array<EffectMetadata>;
+                        effect_metadata.as_entire_binding(),
                         // @group(0) @binding(4) var<storage, read> spawner : Spawner;
                         BufferBinding {
                             buffer: spawner_buffer,
                             offset: 0,
-                            size: Some(GpuSpawnerParams::aligned_size(align)),
+                            size: Some(GpuSpawnerParams::aligned_size(
+                                render_device.limits().min_storage_buffer_offset_alignment,
+                            )),
                         },
                     )),
                 ))
@@ -519,7 +516,6 @@ impl SortBindGroups {
         let bind_group = match entry {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let align = render_device.limits().min_storage_buffer_offset_alignment;
                 entry.insert(render_device.create_bind_group(
                     "hanabi:bg:sort_copy",
                     &pipeline_cache.get_bind_group_layout(&self.sort_copy_bind_group_layout_desc),
@@ -529,18 +525,16 @@ impl SortBindGroups {
                         indirect_index_buffer.as_entire_binding(),
                         // @group(0) @binding(1) var<storage, read> sort_buffer : SortBuffer;
                         self.sort_buffer.as_entire_binding(),
-                        // @group(0) @binding(2) var<storage, read> effect_metadata :
-                        // EffectMetadata;
-                        BufferBinding {
-                            buffer: effect_metadata_buffer,
-                            offset: 0,
-                            size: Some(GpuEffectMetadata::aligned_size(align)),
-                        },
+                        // @group(0) @binding(2) var<storage, read_write> effect_metadatas :
+                        // array<EffectMetadata>;
+                        effect_metadata_buffer.as_entire_binding(),
                         // @group(0) @binding(3) var<storage, read> spawner : Spawner;
                         BufferBinding {
                             buffer: spawner_buffer,
                             offset: 0,
-                            size: Some(GpuSpawnerParams::aligned_size(align)),
+                            size: Some(GpuSpawnerParams::aligned_size(
+                                render_device.limits().min_storage_buffer_offset_alignment,
+                            )),
                         },
                     )),
                 ))
@@ -562,5 +556,329 @@ impl SortBindGroups {
             spawner,
         };
         self.sort_copy_bind_groups.get(&key)
+    }
+}
+
+#[cfg(all(test, feature = "gpu_tests"))]
+mod gpu_tests {
+    use bevy::{
+        math::FloatOrd,
+        render::render_resource::{
+            binding_types::storage_buffer_sized, BindGroupEntries, BindGroupLayoutEntries,
+            ShaderSize, ShaderType,
+        },
+    };
+    #[allow(unused_imports)]
+    use bytemuck::{cast_slice, Pod, Zeroable};
+    use wgpu::{
+        BufferDescriptor, BufferUsages, ComputePassDescriptor, ComputePipelineDescriptor,
+        PipelineCompilationOptions, PipelineLayoutDescriptor, ShaderModuleDescriptor, ShaderSource,
+        ShaderStages,
+    };
+
+    use crate::{plugin::VFX_SORT_WGSL, test_utils::*};
+
+    #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable, ShaderType)]
+    #[repr(C)]
+    struct DualKeyValuePair {
+        pub key: u32,
+        pub key2: f32,
+        pub value: u32,
+    }
+
+    // Ignore weirdnesses with f32 NaN etc. here, we should never have a key with
+    // such values.
+    impl std::cmp::Eq for DualKeyValuePair {}
+
+    impl std::cmp::PartialOrd for DualKeyValuePair {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl std::cmp::Ord for DualKeyValuePair {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            if self.key != other.key {
+                return self.key.cmp(&other.key);
+            }
+            FloatOrd(self.key2).cmp(&FloatOrd(other.key2))
+        }
+    }
+
+    #[test]
+    fn test_serial_insertion_sort() {
+        let renderer = MockRenderer::new();
+        let device = renderer.device();
+        let queue = renderer.queue();
+        let num_kv = 257u32;
+        let byte_size = 4 + num_kv as u64 * DualKeyValuePair::SHADER_SIZE.get();
+        let sort_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("sort_buffer"),
+            size: byte_size,
+            usage: BufferUsages::STORAGE | BufferUsages::MAP_READ,
+            mapped_at_creation: true,
+        });
+
+        let mut expected = Vec::with_capacity(num_kv as usize);
+        for i in 0..num_kv {
+            expected.push(DualKeyValuePair {
+                key: i % 4,
+                key2: ((i / 4) % 3) as f32,
+                value: i,
+            });
+        }
+        {
+            let mut mapped = sort_buffer.slice(..).get_mapped_range_mut();
+            mapped.slice(..4).copy_from_slice(cast_slice(&[num_kv]));
+            mapped
+                .slice(4..)
+                .copy_from_slice(cast_slice(expected.as_slice()));
+        }
+        sort_buffer.unmap();
+        expected.sort();
+
+        let bind_group_layout = device.create_bind_group_layout(
+            "bind_group_layout",
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                storage_buffer_sized(false, None),
+            ),
+        );
+        let bind_group = device.create_bind_group(
+            None,
+            &bind_group_layout,
+            &BindGroupEntries::single(sort_buffer.as_entire_binding()),
+        );
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("pipeline_layout"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+        let src = VFX_SORT_WGSL
+            .replace("#ifdef HAS_DUAL_KEY", "")
+            .replace("#ifdef TEST", "")
+            .replace("#endif", "");
+        let shader_module = device.create_and_validate_shader_module(ShaderModuleDescriptor {
+            label: Some("vfx_sort"),
+            source: ShaderSource::Wgsl(src.into()),
+        });
+        let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("test_serial_insertion_sort"),
+            layout: Some(&pipeline_layout),
+            module: &shader_module,
+            entry_point: Some("main"),
+            compilation_options: PipelineCompilationOptions {
+                constants: &[],
+                zero_initialize_workgroup_memory: false,
+            },
+            cache: None,
+        });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("test"),
+        });
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("test_serial_insertion_sort"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&pipeline);
+            compute_pass.set_bind_group(0, &bind_group, &[]);
+            compute_pass.dispatch_workgroups(1, 1, 1);
+        }
+        queue.submit([encoder.finish()]);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        queue.on_submitted_work_done(move || {
+            tx.send(()).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+        let _ = futures::executor::block_on(rx);
+
+        let buffer_slice = sort_buffer.slice(..);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+        let _ = futures::executor::block_on(rx);
+        let view = buffer_slice.get_mapped_range();
+        assert_eq!(view.len(), byte_size as usize);
+        assert_eq!(cast_slice::<_, u32>(&view[..4]), &[0]);
+        assert_eq!(
+            cast_slice::<_, DualKeyValuePair>(&view[4..]),
+            expected.as_slice()
+        );
+    }
+
+    /// Calculate the effect index from a particle index using a binary search
+    /// of the base particle prefix sum.
+    #[test]
+    fn test_binary_search_prefix_sum() {
+        let renderer = MockRenderer::new();
+        let device = renderer.device();
+        let queue = renderer.queue();
+
+        println!(
+            "max_compute_workgroup_storage_size = {}",
+            device.limits().max_compute_workgroup_storage_size
+        );
+
+        // SAFETY : for debugging only
+        #[allow(unsafe_code)]
+        unsafe {
+            device.wgpu_device().start_graphics_debugger_capture()
+        };
+
+        // Clamp max block size to the device's reported storage
+        let max_block_size = device.limits().max_compute_workgroup_storage_size
+            / (2 * DualKeyValuePair::SHADER_SIZE.get() as u32);
+        println!("max_block_size = {}", max_block_size);
+        let num_particle = 1024.min(max_block_size);
+
+        let byte_size = 4 + num_particle as u64 * DualKeyValuePair::SHADER_SIZE.get();
+        let sort_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("sort_buffer"),
+            size: byte_size,
+            usage: BufferUsages::STORAGE | BufferUsages::MAP_READ,
+            mapped_at_creation: true,
+        });
+        let effects = [0, 35, 399, 1000];
+        assert!((effects.len() as u32) < num_particle);
+        let values: Vec<_> = (0..num_particle as usize)
+            .map(|i| DualKeyValuePair {
+                key: effects.get(i).copied().unwrap_or(0xDEAD0000),
+                key2: i as f32 * 0.1,
+                value: i as u32,
+            })
+            .collect();
+        {
+            // Scope get_mapped_range_mut() to force a drop before unmap()
+            {
+                let mut mapped = sort_buffer.slice(..).get_mapped_range_mut();
+                mapped
+                    .slice(..4)
+                    .copy_from_slice(cast_slice(&[effects.len() as u32]));
+                mapped
+                    .slice(4..)
+                    .copy_from_slice(cast_slice(values.as_slice()));
+            }
+            sort_buffer.unmap();
+        }
+
+        // Create GPU resources
+        let bind_group_layout = device.create_bind_group_layout(
+            "bind_group_layout",
+            &BindGroupLayoutEntries::single(
+                ShaderStages::COMPUTE,
+                storage_buffer_sized(false, None),
+            ),
+        );
+        let bind_group = device.create_bind_group(
+            None,
+            &bind_group_layout,
+            &BindGroupEntries::single(sort_buffer.as_entire_binding()),
+        );
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("pipeline_layout"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+        let src = VFX_SORT_WGSL
+            .replace("#ifdef HAS_DUAL_KEY", "")
+            .replace("#ifdef TEST", "")
+            .replace("#endif", "");
+        let shader_module = device.create_and_validate_shader_module(ShaderModuleDescriptor {
+            label: Some("vfx_sort"),
+            source: ShaderSource::Wgsl(src.into()),
+        });
+        let pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("test_binary_search_prefix_sum"),
+            layout: Some(&pipeline_layout),
+            module: &shader_module,
+            entry_point: Some("test_find_effect_from_particle"),
+            compilation_options: PipelineCompilationOptions {
+                constants: &[],
+                // Ensure the shader behaves even if memory is not zero-initialized
+                zero_initialize_workgroup_memory: false,
+            },
+            cache: None,
+        });
+
+        // Dispatch test
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("test"),
+        });
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("test_binary_search_prefix_sum"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&pipeline);
+            compute_pass.set_bind_group(0, &bind_group, &[]);
+            compute_pass.dispatch_workgroups(1, 1, 1);
+        }
+
+        // Submit command queue and wait for execution
+        println!("Executing pipeline...");
+        let command_buffer = encoder.finish();
+        queue.submit([command_buffer]);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        queue.on_submitted_work_done(move || {
+            tx.send(()).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+        let _ = futures::executor::block_on(rx);
+        println!("Pipeline executed");
+
+        // SAFETY : for debugging only
+        #[allow(unsafe_code)]
+        unsafe {
+            device.wgpu_device().stop_graphics_debugger_capture()
+        };
+
+        // Read back (GPU -> CPU)
+        println!("Downloading result buffer from GPU to CPU...");
+        let buffer_slice = sort_buffer.slice(..);
+        let (tx, rx) = futures::channel::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+        let _result = futures::executor::block_on(rx);
+        let view = buffer_slice.get_mapped_range();
+        println!("Result buffer downloaded to CPU");
+
+        // Validate content
+        assert_eq!(view.len(), byte_size as usize);
+        let view_slice: &[DualKeyValuePair] = cast_slice(&view[4..]);
+        for (i, kv) in view_slice.iter().enumerate() {
+            //println!("[#{}] k={} k2={} v={}", i, kv.key, kv.key2, kv.value);
+
+            let mut effect_index = usize::MAX;
+            for (idx, base_particle) in effects.iter().enumerate().rev() {
+                if i as u32 >= *base_particle {
+                    effect_index = idx;
+                    break;
+                }
+            }
+            assert!(effect_index <= effects.len());
+            assert_eq!(
+                effect_index as u32, kv.value,
+                "Test failed for particle {} : expected effect index {}, got {}",
+                i, effect_index, kv.value
+            );
+        }
     }
 }

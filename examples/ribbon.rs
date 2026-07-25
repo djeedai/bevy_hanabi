@@ -245,7 +245,7 @@ fn recycle_ribbons(
 
 fn move_head(
     mut query: Query<(&mut Shape, &mut Transform), With<ParticleEffect>>,
-    timer: Res<Time>,
+    timer: Res<Time<EffectSimulation>>,
 ) {
     for (mut shape, mut transform) in query.iter_mut() {
         let time = timer.elapsed_secs();
