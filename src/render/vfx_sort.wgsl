@@ -77,9 +77,6 @@ fn find_effect_from_particle(num_effects: u32, particle_index: u32) -> u32 {
 @compute @workgroup_size(64)
 fn test_find_effect_from_particle(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let tid = global_invocation_id.x;
-    if (tid >= 64) {
-        return;
-    }
     
     let num_particles = arrayLength(&sort_buffer.pairs);
     let num_effects = u32(sort_buffer.count);
@@ -90,6 +87,11 @@ fn test_find_effect_from_particle(@builtin(global_invocation_id) global_invocati
     }
 
     workgroupBarrier();
+    
+    // Only branch after sync
+    if (tid >= 64) {
+        return;
+    }
 
     let particle_per_thread = (num_particles + 63u) >> 6u;
     let first_particle = particle_per_thread * tid;
