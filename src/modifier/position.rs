@@ -349,7 +349,7 @@ impl Modifier for SetPositionCone3dModifier {
 /// The box is axis aligned.
 ///
 /// Particles are moved somewhere inside the volume or on the surface of a
-/// box define by its scale.
+/// box defined by its extent.
 ///
 /// # Attributes
 ///
