@@ -25,12 +25,14 @@ use crate::{
     AlphaMode, EffectAsset, ParticleLayout, TextureLayout,
 };
 
+/// Info about particle spawning for an entire batch of effects.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum BatchSpawnInfo {
     /// Spawn a number of particles uploaded from CPU each frame.
     CpuSpawner {
         /// Total number of particles to spawn for the batch. This is only used
-        /// to calculate the number of compute workgroups to dispatch.
+        /// to calculate the number of compute workgroups to dispatch. This is
+        /// the sum of all spawn counts for all effects in the batch.
         total_spawn_count: u32,
     },
 
@@ -52,15 +54,61 @@ pub(crate) enum BatchSpawnInfo {
 }
 
 impl BatchSpawnInfo {
+    /// Check if this batch uses CPU-based spawning.
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if this instance is a `BatchSpawnInfo::CpuSpawner`.
     #[inline]
     #[must_use]
     pub fn is_cpu(&self) -> bool {
         matches!(self, Self::CpuSpawner { .. })
     }
 
+    /// Check if this batch uses GPU-based spawning.
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if this instance is a `BatchSpawnInfo::GpuSpawner`.
     #[inline]
     #[must_use]
     #[allow(dead_code)]
+    pub fn is_gpu(&self) -> bool {
+        matches!(self, Self::GpuSpawner { .. })
+    }
+
+    /// Retrieve the CPU spawn count, if this batch is CPU-based.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Some(count)` with the total spawn count if this instance is a
+    /// `BatchSpawnInfo::CpuSpawner`. Otherwise returns `None`.
+    #[inline]
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn as_cpu(&self) -> Option<&u32> {
+        if let Self::CpuSpawner { total_spawn_count } = self {
+            Some(total_spawn_count)
+        } else {
+            None
+        }
+    }
+
+    /// Retrieve the CPU spawn count or a default value.
+    ///
+    /// This variant is used as a shortcut to
+    /// `.as_cpu().unwrap_or(<unspecified>)` when filling out GPU buffers,
+    /// where we need a value whatever the case, but will ignore it if GPU
+    /// based.
+    ///
+    /// # Returns
+    ///
+    /// Returns the total spawn count if this instance is a
+    /// `BatchSpawnInfo::CpuSpawner`. Otherwise returns an unspecified value,
+    /// which should be ignored.
+    #[inline]
+    #[must_use]
+    #[allow(unused)]
     pub fn cpu_spawn_count(&self) -> u32 {
         if let Self::CpuSpawner { total_spawn_count } = self {
             *total_spawn_count
@@ -92,7 +140,8 @@ pub(crate) struct BatchEffectData {
 pub(crate) struct EffectBatch {
     /// ID of the [`GpuBatchInfo`] in the global shared array for this batch.
     pub batch_info_id: u32,
-    /// Handle of the underlying effect asset describing the effect.
+    /// Handle of the underlying effect asset describing the effect. The batch
+    /// only contains effect instances of the same asset.
     pub handle: Handle<EffectAsset>,
     /// ID of the particle slab in the [`EffectBuffer`] where all the batched
     /// effects are stored.
@@ -201,6 +250,9 @@ pub(crate) struct Batcher {
     /// Index of the dispatch queue used for indirect fill dispatch and
     /// submitted to [`GpuBufferOperations`].
     pub(super) dispatch_queue_index: Option<u32>,
+    /// Index of the queue which copies post-update alive counts into the prefix
+    /// sum buffer before the ribbon sort prefix sum pass.
+    pub(super) sort_fill_prefix_sum_queue_index: Option<u32>,
     /// Global shared GPU buffer storing the various `BatchInfo` structs for the
     /// active batches. This is dynamically updated each frame based on current
     /// batching, with one entry per batch (= one entry per dispatch/draw).
@@ -230,6 +282,7 @@ impl FromWorld for Batcher {
         Self {
             batches: vec![],
             dispatch_queue_index: None,
+            sort_fill_prefix_sum_queue_index: None,
             batch_info_buffer,
             is_batch_open: false,
             prefix_sum_buffer,
@@ -257,6 +310,7 @@ impl Batcher {
     pub fn clear(&mut self) {
         self.batches.clear();
         self.dispatch_queue_index = None;
+        self.sort_fill_prefix_sum_queue_index = None;
         self.prefix_sum_buffer.clear();
         self.batch_info_buffer.clear();
     }
@@ -269,8 +323,8 @@ impl Batcher {
 
         let batch_info_base = self.batch_info_buffer.len() as u32;
         let batch_info = GpuBatchInfo {
-            total_spawn_count: 0,
-            total_update_count: 0,
+            total_spawn_count: 0,  // set in end_batch()
+            total_update_count: 0, // calculated on GPU
             spawner_base,
             base_particle,
             prefix_sum_offset,
@@ -318,13 +372,19 @@ impl Batcher {
             "Call to end_batch() without begin_batch()"
         );
 
+        // Get the open batch
         let batch = self
             .batch_info_buffer
             .last_mut()
             .expect("No open batch. Missing begin_batch() call?");
+
+        // Record prefix sum
         let end = self.prefix_sum_buffer.len() as u32;
         assert!(end >= batch.prefix_sum_offset);
         batch.prefix_sum_count = end - batch.prefix_sum_offset;
+
+        // Record total number of CPU spawn, to clamp the number of GPU threads
+        batch.total_spawn_count = self.cpu_prefix_sum_value;
 
         self.is_batch_open = false;
     }
@@ -345,19 +405,23 @@ impl Batcher {
     /// merged with a previous batch. Otherwise the input batch was merged with
     /// an existing one, and therefore share its index; in that case `None` is
     /// returned.
+    ///
+    /// Also returns the index of that effect batch in the prefix sum buffer.
     pub fn push(
         &mut self,
         effect_batch: EffectBatch,
         instance_spawn_count: u32,
-    ) -> Option<EffectBatchIndex> {
+    ) -> (Option<EffectBatchIndex>, u32) {
         assert!(effect_batch.effect_data.len() == 1);
+
+        let prefix_sum_index = self.prefix_sum_buffer.len() as u32;
 
         let effect_batch = if let Some(batch) = self.batches.last_mut() {
             let Err(effect_batch) = batch.try_merge(effect_batch) else {
                 // Successfully batched
                 self.add_effect_to_batch(self.cpu_prefix_sum_value);
                 self.cpu_prefix_sum_value += instance_spawn_count;
-                return None;
+                return (None, prefix_sum_index);
             };
             // Failed to merge incompatible batches
             effect_batch
@@ -382,15 +446,17 @@ impl Batcher {
         self.add_effect_to_batch(self.cpu_prefix_sum_value);
         self.cpu_prefix_sum_value += instance_spawn_count;
 
-        Some(EffectBatchIndex(index))
+        (Some(EffectBatchIndex(index)), prefix_sum_index)
     }
 
     #[inline]
+    #[must_use]
     pub fn last(&self) -> Option<&EffectBatch> {
         self.batches.last()
     }
 
     #[inline]
+    #[must_use]
     pub fn last_mut(&mut self) -> Option<&mut EffectBatch> {
         self.batches.last_mut()
     }

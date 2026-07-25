@@ -39,17 +39,17 @@ use crate::{
         queue_init_indirect_workgroup_update, queue_sort_fill_dispatch_ops, report_ready_state,
         start_stop_gpu_debug_capture, update_mesh_locations, Batcher, DebugSettings,
         DispatchIndirectPipeline, DrawEffects, EffectAssetEvents, EffectBindGroups, EffectCache,
-        EffectsMeta, EventCache, GpuBatchInfo, GpuBufferOperations, GpuEffectMetadata,
-        GpuSpawnerParams, HanabiRenderPlugin, InitFillDispatchQueue, ParticlesInitPipeline,
-        ParticlesRenderPipeline, ParticlesUpdatePipeline, PrefixSumPipeline, PropertyBindGroups,
-        PropertyCache, RenderDebugSettings, ShaderCache, SimParams, SortBindGroups,
-        SortFillDispatchQueue, StorageType as _, UtilsPipeline,
+        EffectsMeta, EventCache, GpuBatchInfo, GpuBufferOperations, GpuSpawnerParams,
+        HanabiRenderPlugin, InitFillDispatchQueue, ParticlesInitPipeline, ParticlesRenderPipeline,
+        ParticlesUpdatePipeline, PrefixSumPipeline, PropertyBindGroups, PropertyCache,
+        RenderDebugSettings, ShaderCache, SimParams, SortBindGroups, SortFillDispatchQueue,
+        StorageType as _, UtilsPipeline,
     },
     spawn::{self, Random},
     tick_spawners,
     time::effect_simulation_time_system,
     update_properties_from_asset, EffectSimulation, EffectVisibilityClass, ParticleEffect,
-    SpawnerSettings, ToWgslString,
+    SpawnerSettings,
 };
 
 /// Source code for the `vfx_sort` compute shader.
@@ -126,17 +126,9 @@ impl HanabiPlugin {
             GpuSpawnerParams::padding_code(min_storage_buffer_offset_alignment);
         let batch_info_padding_code =
             GpuBatchInfo::padding_code(min_storage_buffer_offset_alignment);
-        let effect_metadata_padding_code =
-            GpuEffectMetadata::padding_code(min_storage_buffer_offset_alignment);
-        let render_effect_indirect_size =
-            GpuEffectMetadata::aligned_size(min_storage_buffer_offset_alignment);
-        let effect_metadata_stride_code =
-            (render_effect_indirect_size.get() as u32).to_wgsl_string();
         let common_code = include_str!("render/vfx_common.wgsl")
             .replace("{{SPAWNER_PADDING}}", &spawner_padding_code)
-            .replace("{{BATCH_INFO_PADDING}}", &batch_info_padding_code)
-            .replace("{{EFFECT_METADATA_PADDING}}", &effect_metadata_padding_code)
-            .replace("{{EFFECT_METADATA_STRIDE}}", &effect_metadata_stride_code);
+            .replace("{{BATCH_INFO_PADDING}}", &batch_info_padding_code);
         Shader::from_wgsl(
             common_code,
             std::path::Path::new(file!())
@@ -160,14 +152,7 @@ impl HanabiPlugin {
         min_storage_buffer_offset_alignment: u32,
         has_events: bool,
     ) -> Shader {
-        let render_effect_indirect_size =
-            GpuEffectMetadata::aligned_size(min_storage_buffer_offset_alignment);
-        let render_effect_indirect_stride_code =
-            (render_effect_indirect_size.get() as u32).to_wgsl_string();
-        let indirect_code = include_str!("render/vfx_indirect.wgsl").replace(
-            "{{EFFECT_METADATA_STRIDE}}",
-            &render_effect_indirect_stride_code,
-        );
+        let indirect_code = include_str!("render/vfx_indirect.wgsl");
         Shader::from_wgsl(
             indirect_code,
             std::path::Path::new(file!())
@@ -504,7 +489,7 @@ impl Plugin for HanabiPlugin {
                         .before(prepare_bind_groups),
                     prepare_effect_metadata
                         .in_set(EffectSystems::PrepareEffectGpuResources)
-                        // Need DispatchBufferIndices to be allocated
+                        //
                         .after(allocate_effects)
                         // Need the draw indirect args to be allocated
                         .after(update_mesh_locations)
@@ -521,9 +506,13 @@ impl Plugin for HanabiPlugin {
                     // effect metadata buffer has been (re-)allocated to this frame's size.
                     queue_sort_fill_dispatch_ops
                         .in_set(EffectSystems::PrepareEffectGpuResources)
+                        // The prefix sum buffer is allocated and uploaded while batching.
+                        .after(batch_effects)
                         // Need the metadata buffer (re-)allocated so the captured handle and
                         // dynamic offsets are correct and in-bounds
                         .after(prepare_effect_metadata)
+                        // Keep this aligned with other queue submissions that capture GPU buffers.
+                        .after(prepare_gpu_resources)
                         // Must submit into the shared GpuBufferOperations before
                         // queue_init_fill_dispatch_ops uploads its args buffer (end_frame)
                         .before(queue_init_fill_dispatch_ops)

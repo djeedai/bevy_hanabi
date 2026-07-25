@@ -147,8 +147,17 @@ const DRAW_INDEXED_INDIRECT_STRIDE: u32 = 5u;
 
 /// Shared info for a single batch (single shader invocation).
 struct BatchInfo {
+    /// Total number of CPU particles to spawn. This is the sum of all `spawn`
+    /// counts of all effect instances in this batch which spawn CPU-based
+    /// particles. This is uploaded from CPU each frame.
     total_spawn_count: u32,
+    /// Total number of CPU particles to update. This is the sum of all
+    /// `alive_count` of all effect instances in this batch. This is calculated
+    /// on GPU each frame, between the init and update passes.
     total_update_count: u32,
+    /// Start index of the slice of [`GpuSpawnerInfo`] for this batch, into the
+    /// [`EffectsMeta::spawner_buffer`]. The slice length is equal to the number
+    /// of effects instances batched together.
     spawner_base: u32,
     /// Offset to apply to the workgroup thread index to determine the global
     /// particle index in the currently bound slab. This is often (and ideally)
@@ -169,16 +178,6 @@ struct BatchInfo {
     {{BATCH_INFO_PADDING}}
 }
 
-// Effect metadata offsets. Used when accessing a tightly packed array of EffectMetadata
-// as a raw array<u32>, so that we can avoid WGSL struct padding and keep data more compact
-// in the GPU buffer. Each offset corresponds to a field in the EffectMetadata struct.
-// Note that all fields are 4 bytes, so we can index by "number of 4-byte field".
-const EM_OFFSET_CAPACITY: u32 = 0u;
-const EM_OFFSET_ALIVE_COUNT: u32 = 1u;
-const EM_OFFSET_MAX_UPDATE: u32 = 2u;
-const EM_OFFSET_MAX_SPAWN: u32 = 3u;
-const EM_OFFSET_INDIRECT_WRITE_INDEX: u32 = 4u;
-
 /// Metadata describing a single effect instance.
 ///
 /// The metadata describes various effect settings, as well we the location in
@@ -194,7 +193,8 @@ struct EffectMetadata {
     /// when off-screen, in theory this could be greater than instance_count. Currently
     /// we don't have GPU culling, so in practice this remains strictly equal. But we
     /// store it separately 1) because this could change in the future, and 2) because
-    /// the indirect render fields above should really be in their own buffer, not here.
+    /// the indirect render fields above (FIXME: not there anymore) should really be in
+    /// their own buffer, not here.
     alive_count: atomic<u32>,
     /// Maximum number of update threads to run. This is cached from `alive_count`
     /// during the indirect dispatch, so that the update compute pass can cap its
@@ -218,8 +218,6 @@ struct EffectMetadata {
     /// buffer. This avoids having to align those 16-byte structs to the GPU
     /// alignment (at least 32 bytes, even 256 bytes on some).
     init_indirect_dispatch_index: u32,
-    /// Index inside the global array of the spawner struct for this effect instance.
-    //spawner_index: u32,
     /// Offset (in u32 count) of the start of the property block for this
     /// effect. This is ignored if the effect doesn't use properties.
     properties_array_index: u32,
@@ -246,16 +244,7 @@ struct EffectMetadata {
     /// The value loops back after some time, but unless some particle lives
     /// forever there's little chance of repetition.
     particle_counter: atomic<u32>,
-
-    /// Padding for storage buffer alignment. This struct is sometimes bound as part
-    /// of an array, or sometimes individually as a single unit. In the later case,
-    /// we need it to be aligned to the GPU limits of the device. That limit is only
-    /// known at runtime when initializing the WebGPU device.
-    {{EFFECT_METADATA_PADDING}}
 }
-
-/// Stride, in u32 count, between elements of an array<EffectMetadata>.
-const EFFECT_METADATA_STRIDE: u32 = {{EFFECT_METADATA_STRIDE}} / 4u;
 
 var<private> seed : u32 = 0u;
 
