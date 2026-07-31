@@ -56,6 +56,10 @@ use crate::{
 pub(crate) const VFX_SORT_WGSL: Cow<'static, str> =
     Cow::Borrowed(include_str!("render/vfx_sort.wgsl"));
 
+/// Source code for the `vfx_sort_merge` compute shader.
+pub(crate) const VFX_SORT_MERGE_WGSL: Cow<'static, str> =
+    Cow::Borrowed(include_str!("render/vfx_sort_merge.wgsl"));
+
 /// Labels for the Hanabi systems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
 pub enum EffectSystems {
@@ -283,6 +287,7 @@ impl Plugin for HanabiPlugin {
             prefix_sum_shader,
             sort_fill_shader,
             sort_shader,
+            sort_merge_shader,
             sort_copy_shader,
         ) = {
             let align = render_device.limits().min_storage_buffer_offset_alignment;
@@ -305,6 +310,14 @@ impl Plugin for HanabiPlugin {
                     .join("render/vfx_sort.wgsl")
                     .to_string_lossy(),
             );
+            let sort_merge_shader = Shader::from_wgsl(
+                VFX_SORT_MERGE_WGSL,
+                std::path::Path::new(file!())
+                    .parent()
+                    .unwrap()
+                    .join("render/vfx_sort_merge.wgsl")
+                    .to_string_lossy(),
+            );
             let sort_copy_shader = Shader::from_wgsl(
                 include_str!("render/vfx_sort_copy.wgsl"),
                 std::path::Path::new(file!())
@@ -320,6 +333,7 @@ impl Plugin for HanabiPlugin {
             let prefix_sum_shader = assets.add(prefix_sum_shader);
             let sort_fill_shader = assets.add(sort_fill_shader);
             let sort_shader = assets.add(sort_shader);
+            let sort_merge_shader = assets.add(sort_merge_shader);
             let sort_copy_shader = assets.add(sort_copy_shader);
 
             (
@@ -328,6 +342,7 @@ impl Plugin for HanabiPlugin {
                 prefix_sum_shader,
                 sort_fill_shader,
                 sort_shader,
+                sort_merge_shader,
                 sort_copy_shader,
             )
         };
@@ -348,6 +363,7 @@ impl Plugin for HanabiPlugin {
             render_app.world_mut(),
             sort_fill_shader,
             sort_shader,
+            sort_merge_shader,
             sort_copy_shader,
         );
 

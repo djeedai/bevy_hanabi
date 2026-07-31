@@ -10,6 +10,8 @@ struct BufferOperationArgs {
     dst_stride: u32,
     /// Number of u32 elements to process for this operation.
     count: u32,
+    /// Thread group size.
+    thread_group_size: u32,
 }
 
 @group(0) @binding(0) var<uniform> args : BufferOperationArgs;
@@ -59,7 +61,7 @@ fn fill_dispatch_args(@builtin(global_invocation_id) global_invocation_id: vec3<
 
     let src = args.src_offset + thread_index * args.src_stride;
     let dst = args.dst_offset + thread_index * args.dst_stride;
-    let thread_count = src_buffer[src];
+    let thread_count = (src_buffer[src] + args.thread_group_size - 1) / args.thread_group_size;
     let workgroup_count = calc_workground_count(thread_count);
     dst_buffer[dst] = workgroup_count;
     dst_buffer[dst + 1u] = 1u;

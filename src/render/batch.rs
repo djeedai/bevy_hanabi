@@ -128,6 +128,7 @@ pub(crate) struct BatchEffectData {
     pub draw_indirect_buffer_row_index: BufferTableId,
     pub metadata_table_id: BufferTableId,
     pub sort_fill_indirect_dispatch_index: Option<u32>,
+    pub sort_indirect_dispatch_index: Option<u32>,
     /// Offset in bytes of the [`GpuBatchInfo`] into the
     /// [`Batcher::batch_info_buffer`], which contains the location of the
     /// particles to render for this effect instance. Ready for bind group
@@ -143,6 +144,8 @@ pub(crate) struct EffectBatch {
     /// Handle of the underlying effect asset describing the effect. The batch
     /// only contains effect instances of the same asset.
     pub handle: Handle<EffectAsset>,
+    /// Effect instance capacity, in number of particles.
+    pub capacity: u32,
     /// ID of the particle slab in the [`EffectBuffer`] where all the batched
     /// effects are stored.
     ///
@@ -249,10 +252,13 @@ pub(crate) struct Batcher {
     batches: Vec<EffectBatch>,
     /// Index of the dispatch queue used for indirect fill dispatch and
     /// submitted to [`GpuBufferOperations`].
-    pub(super) dispatch_queue_index: Option<u32>,
+    pub(super) fill_dispatch_queue_index: Option<u32>,
     /// Index of the queue which copies post-update alive counts into the prefix
     /// sum buffer before the ribbon sort prefix sum pass.
     pub(super) sort_fill_prefix_sum_queue_index: Option<u32>,
+    /// Index of the dispatch queue used for indirect fill dispatch of the sort
+    /// pass, and submitted to [`GpuBufferOperations`].
+    pub(super) sort_dispatch_queue_index: Option<u32>,
     /// Global shared GPU buffer storing the various `BatchInfo` structs for the
     /// active batches. This is dynamically updated each frame based on current
     /// batching, with one entry per batch (= one entry per dispatch/draw).
@@ -281,8 +287,9 @@ impl FromWorld for Batcher {
         prefix_sum_buffer.set_label(Some("prefix_sum_buffer"));
         Self {
             batches: vec![],
-            dispatch_queue_index: None,
+            fill_dispatch_queue_index: None,
             sort_fill_prefix_sum_queue_index: None,
+            sort_dispatch_queue_index: None,
             batch_info_buffer,
             is_batch_open: false,
             prefix_sum_buffer,
@@ -309,8 +316,9 @@ impl Batcher {
 
     pub fn clear(&mut self) {
         self.batches.clear();
-        self.dispatch_queue_index = None;
+        self.fill_dispatch_queue_index = None;
         self.sort_fill_prefix_sum_queue_index = None;
+        self.sort_dispatch_queue_index = None;
         self.prefix_sum_buffer.clear();
         self.batch_info_buffer.clear();
     }
@@ -758,6 +766,7 @@ impl EffectBatch {
         EffectBatch {
             batch_info_id: u32::MAX, // allocated later once the batch is completed
             handle: extracted_effect.handle.clone(),
+            capacity: extracted_effect.capacity,
             slab_id: input.effect_slice.slab_id,
             spawn_info,
             init_and_update_pipeline_ids: input.init_and_update_pipeline_ids,
@@ -776,6 +785,7 @@ impl EffectBatch {
                 draw_indirect_buffer_row_index,
                 metadata_table_id,
                 sort_fill_indirect_dispatch_index: None,
+                sort_indirect_dispatch_index: None,
                 render_batch_info_offset: u32::MAX,
             }],
             particle_layout: input.effect_slice.particle_layout.clone(),

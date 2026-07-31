@@ -38,41 +38,114 @@ fn compare_greater(kv1: KeyValuePair, kv2: KeyValuePair) -> bool {
 
 @group(0) @binding(0) var<storage, read_write> sort_buffer : SortBuffer;
 
-/// Size of a block of KeyValuePair in workgroup memory.
-const blockSize: u32 = 1024u;
-
 /// Number of items sorted per thread, serially.
 const numItemPerThread: u32 = 16u;
 
 /// Number of threads per workgroup (block).
 const numThreads: u32 = 64u;
 
+/// Size of a block of KeyValuePair in workgroup memory.
+const blockSize: u32 = numThreads * numItemPerThread;  // 1024
+
 // Workgroup has at least 16kB memory (max_compute_workgroup_storage_size).
 // Note that Vulkan on Windows 11 report 16352, not 16384 (so, lower than
 // the default in the wgpu docs).
-var<workgroup> shared_pairs : array<KeyValuePair, blockSize>;
+var<workgroup> shared_pairs : array<KeyValuePair, blockSize>;  // 12 kB
 
-/// Sort locally inside a single workgroup, using workgroup-shared memory.
+/// Offset inside the sort buffer pairs of the source half to read unsorted pairs from.
+var<private> src: u32;
+
+/// Offset inside the sort buffer pairs of the destination half to write sorted pairs to.
+var<private> dst: u32;
+
+/// Sort locally inside a single block (workgroup), using workgroup-shared memory.
 ///
-/// Workgroup has up to 16kB, for 8-byte keys (dual) that's 2k elements. Since
-/// we need 2 arrays for ping-pong, we can do up to 1024 elements at once.
+/// `tid` is the local thread ID inside the block (0..64). The `src` and `dst` offsets are
+/// the starts of blockSize-length memory blocks inside the sort buffer pairs, to read from
+/// and write to, respectively. `total_num_items` is the number of items in the block; this
+/// is typically equal to blockSize, except for the last block. `src == dst` is valid, and
+/// simply sort in-place inside the storage buffer.
 ///
 /// https://moderngpu.github.io/mergesort.html#blocksort
 /// https://moderngpu.github.io/mergesort.html#sortnetworks
-fn block_sort(num_items: u32, tid: u32, data: ptr<function, array<KeyValuePair, numItemPerThread>>) {
-    // Each thread sorts serially its own slice into a local array
+fn block_sort(tid: u32, src: u32, dst: u32, total_num_items: u32) {
+    
     var pairs: array<KeyValuePair, numItemPerThread>;
+
+    // Each thread copies numItemPerThread into a local register array, then sort
+    // that array serially inside the thread, before copying the sorted result
+    // into shared workgroup memory for the block-level merge sort.
+    let num_threads = (total_num_items + numItemPerThread - 1) / numItemPerThread;
     let begin = tid * numItemPerThread;
-    let end = min(num_items, begin + numItemPerThread);
-    for (var i: u32 = begin; i < end; i += 1u) {
-        pairs[i - begin] = sort_buffer.pairs[i];
+    let end = min(total_num_items, begin + numItemPerThread);
+    if (tid < num_threads) {
+        // Copy pairs into register array
+        for (var i: u32 = begin; i < end; i += 1u) {
+            pairs[i - begin] = sort_buffer.pairs[src + i];
+        }
+
+        // Sort array serially inside this thread
+        let num = end - begin;
+        batcher_odd_even_mergesort(&pairs, num);
+
+        // Copy the data into shared workgroup memory
+        for (var i: u32 = begin; i < end; i += 1u) {
+            shared_pairs[i] = pairs[i - begin];
+        }
+    }
+    
+    // Wait for all threads to have sorted their own thread-local values, and written
+    // them into their own slice of shared memory, before we read back shared memory below.
+    workgroupBarrier();
+
+    // shared_pairs[] contains a series of numItemPerThread-length sorted sub-arrays.
+    // Merge-sort in parallel all those sub-arrays into increasibly larger sub-arrays
+    // with increasngly more (= coop) threads collaborating to process each merge.
+    for (var coop: u32 = 2u; coop <= numThreads; coop = coop * 2u) {
+        let list = ~(coop - 1) & tid;
+        let diag = min(total_num_items, numItemPerThread * ((coop - 1) & tid));
+        let start = numItemPerThread * list;
+        let a0 = min(total_num_items, start);
+        let b0 = min(total_num_items, start + numItemPerThread * (coop / 2));
+        let b1 = min(total_num_items, start + numItemPerThread * coop);
+
+        let num_a = b0 - a0;
+        let num_b = b1 - b0;
+        let a_i = calc_merge_path(a0, b0, num_a, num_b, diag);
+
+        // Merge the 2 sorted lists
+        var ia = a0 + a_i;
+        var ib = b0 + diag - a_i;
+        for (var i: u32 = 0; i < numItemPerThread; i += 1u) {
+            if ((ib >= b1) || ((ia < b0) && !compare_greater(shared_pairs[ia], shared_pairs[ib]))) {
+                pairs[i] = shared_pairs[ia];
+                ia += 1u;
+            } else {
+                pairs[i] = shared_pairs[ib];
+                ib += 1u;
+            }
+        }
+
+        // We're about to write back exactly numItemPerThread elements into the shared array.
+        // However by design threads may read more values in either of the two merged lists,
+        // so we need to wait for all co-op threads to finish reading before we can write back.
+        workgroupBarrier();
+
+        // Copy back into shared memory for next iteration
+        for (var i: u32 = 0; i < numItemPerThread; i += 1u) {
+            shared_pairs[begin + i] = pairs[i];
+        }
+
+        // Next iteration (or the final write) need to read back from shared memory, so we need
+        // to wait for all threads to finish writing there.
+        workgroupBarrier();
     }
 
-
-
-    // Merge-sort blocks of 'size' items
-    for (var size: i32 = 2; size <= 512; size *= 2) {
-
+    // Copy sorted items from shared workgroup memory back into sort_buffer
+    if (tid < num_threads) {
+        for (var i: u32 = begin; i < end; i += 1u) {
+            sort_buffer.pairs[dst + i] = shared_pairs[i];
+        }
     }
 }
 
@@ -137,7 +210,18 @@ fn calc_merge_path(offset_a: u32, offset_b: u32, num_a: u32, num_b: u32, diag: u
 /// standards. It's not stable.
 ///
 /// https://en.wikipedia.org/wiki/Batcher_odd%E2%80%93even_mergesort
-fn batcher_odd_even_mergesort(data: ptr<function, array<KeyValuePair, numItemPerThread>>) {
+fn batcher_odd_even_mergesort(data: ptr<function, array<KeyValuePair, numItemPerThread>>, num: u32) {
+    // Pad with elements which always compare greater, so they end up at the end
+    // of the array after all real elements, and when truncated we get back the
+    // sorted original array.
+    for (var i: u32 = num; i < numItemPerThread; i += 1u) {
+        data[i].key = 0xFFFFFFFFu;
+#ifdef HAS_DUAL_KEY
+        data[i].key2 = 0xFFFFFFFFu;
+#endif
+    }
+
+    // Actual numItemPerThread-length sort
     for (var p: u32 = 1; p < numItemPerThread; p += p) {
         for (var k: u32 = p; k >= 1; k = k >> 1) {
             for (var j: u32 = k % p; j + k < numItemPerThread; j += 2 * k) {
@@ -187,6 +271,110 @@ fn find_effect_from_particle(num_effects: u32, particle_index: u32) -> u32 {
     return lo - 1u;
 }
 
+/// Get the number N such that log2(value) == N rounded up.
+fn find_log2(value: u32) -> u32 {
+    var num = 31u - countLeadingZeros(value);
+    if ((value & (value - 1u)) != 0u) {  // not a power of 2
+        num += 1u;
+    }
+    return num;
+}
+
+/// Parallel merge-sort combining a block-level parallel sort followed by a serial mergesort.
+fn block_parallel_merge_sort(thread_id: u32, block_id: u32) {
+    let total_num_items = u32(sort_buffer.count);
+
+    // Loop over all blocks and block-sort each serially (TODO - parallelize this too)
+    let num_blocks = (total_num_items + blockSize - 1) / blockSize;
+    {
+        let offset = block_id * blockSize;
+        let count = min(offset + blockSize, total_num_items) - offset;  // <= blockSize
+        block_sort(thread_id, offset, offset, count);
+    }
+
+    // Wait for all threads to write per-block sorted lists into the storage sort buffer
+    storageBarrier();
+    workgroupBarrier();
+
+    // Recursively merge the blockSize-length sorted lists into a single globally sorted one.
+    // FIXME - parallelize this...
+    if (thread_id == 0 && block_id == 0) {
+        src = 0u;
+        dst = total_num_items;
+        merge_lists_serial(0u, blockSize, blockSize, blockSize, 0u, total_num_items);
+
+        // for (var i: u32 = 0; i < total_num_items; i += 1u) {
+        //     sort_buffer.pairs[total_num_items + i] = sort_buffer.pairs[i];
+        // }
+
+        // src = 0u;
+        // dst = total_num_items;
+        // var left = num_blocks;
+        // while (left > 1u) {
+        //     var step = 1u;
+        //     while (step < left) {
+        //         for (var i: u32 = 0u; i + step < left; i += step * 2u) {
+        //             merge_lists_serial(i, step, i + step, step, src, dst);
+        //         }
+        //         step <<= 1u;
+
+        //         //storageBarrier();
+
+        //         // Swap source/destination lists for next iteration
+        //         let tmp = src;
+        //         src = dst;
+        //         dst = tmp;
+        //     }
+        //     left >>= 1u;
+        // }
+    }
+}
+
+/// Sort each block in parallel on a separate workgroup.
+@compute @workgroup_size(64)
+fn parallel_block_sort(@builtin(local_invocation_index) thread_id: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+    let block_id = workgroup_id.x;  // wgpu doesn't support @builtin(workgroup_index)
+    let total_num_items = u32(sort_buffer.count);
+    
+    // Sort each block independently
+    let offset = block_id * blockSize;
+    let block_num = min(offset + blockSize, total_num_items) - offset;
+    let block_src = src + offset;
+    let block_dst = dst + offset;
+    block_sort(thread_id, block_src, block_dst, block_num);
+}
+
+fn parallel_merge_sort(thread_id: u32, block_id: u32) {
+    let total_num_items = u32(sort_buffer.count);
+    let num_blocks = (total_num_items + blockSize - 1) / blockSize;
+    let num_passes = find_log2(num_blocks);
+
+    // Sort each block independently
+    {
+        let offset = block_id * blockSize;
+        let block_num = min(offset + blockSize, total_num_items) - offset;
+        let block_src = src + offset;
+        let block_dst = dst + offset;
+        block_sort(thread_id, block_src, block_dst, block_num);
+    }
+
+    // Merge-sort blocks into storage buffer by recusrively merging pairs of adacent sorted lists of increasing size
+    src = 0u;
+    dst = total_num_items;
+    for (var ipass: u32 = 0u; ipass < num_passes; ipass += 1u) {
+        let coop = 2u << ipass;
+
+        let list = ~(coop - 1u) & block_id;
+        let diag = min(total_num_items, blockSize * ((coop - 1u) & block_id));
+        let start = blockSize * list;
+        let a0 = min(total_num_items, start);
+        let b0 = min(total_num_items, start + blockSize * (coop / 2u));
+        let b1 = min(total_num_items, start + blockSize * coop);
+
+        // TODO... calc merge path + do the ping-pong merge
+    }
+}
+
 #ifdef TEST
 
 /// Test for find_effect_from_particle().
@@ -229,7 +417,7 @@ fn test_batcher_odd_even_mergesort(@builtin(global_invocation_id) global_invocat
     workgroupBarrier();
 
     // Sort all items in the local array
-    batcher_odd_even_mergesort(&pairs);
+    batcher_odd_even_mergesort(&pairs, numItemPerThread);
 
     workgroupBarrier();
 
@@ -287,83 +475,14 @@ fn test_calc_merge_path(@builtin(global_invocation_id) global_invocation_id: vec
 fn test_block_sort(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let tid = global_invocation_id.x;
     let total_num_items = u32(sort_buffer.count);
+    block_sort(tid, 0u, 0u, total_num_items);
+}
 
-    var pairs: array<KeyValuePair, numItemPerThread>;
-
-    // Each thread copies numItemPerThread into a local register array, then sort
-    // that array serially inside the thread, before copying the sorted result
-    // into shared workgroup memory for the block-level merge sort.
-    let num_threads = (total_num_items + numItemPerThread - 1) / numItemPerThread;
-    let begin = tid * numItemPerThread;
-    let end = min(total_num_items, begin + numItemPerThread);
-    if (tid < num_threads) {
-        // Copy pairs into register array
-        for (var i: u32 = begin; i < end; i += 1u) {
-            pairs[i - begin] = sort_buffer.pairs[i];
-        }
-
-        // Sort array serially inside this thread
-        batcher_odd_even_mergesort(&pairs);
-
-        // Copy the data into shared workgroup memory
-        for (var i: u32 = begin; i < end; i += 1u) {
-            shared_pairs[i] = pairs[i - begin];
-        }
-    }
-    
-    // Wait for all threads to have sorted their own thread-local values, and written
-    // them into their own slice of shared memory, before we read back shared memory below.
-    workgroupBarrier();
-
-    // shared_pairs[] contains a series of numItemPerThread-length sorted sub-arrays.
-    // Merge-sort in parallel all those sub-arrays into increasibly larger sub-arrays
-    // with increasngly more (= coop) threads collaborating to process each merge.
-    for (var coop: u32 = 2u; coop <= numThreads; coop = coop * 2u) {
-        let list = ~(coop - 1) & tid;
-        let diag = min(total_num_items, numItemPerThread * ((coop - 1) & tid));
-        let start = numItemPerThread * list;
-        let a0 = min(total_num_items, start);
-        let b0 = min(total_num_items, start + numItemPerThread * (coop / 2));
-        let b1 = min(total_num_items, start + numItemPerThread * coop);
-
-        let num_a = b0 - a0;
-        let num_b = b1 - b0;
-        let a_i = calc_merge_path(a0, b0, num_a, num_b, diag);
-
-        // Merge the 2 sorted lists
-        var ia = a0 + a_i;
-        var ib = b0 + diag - a_i;
-        for (var i: u32 = 0; i < numItemPerThread; i += 1u) {
-            if ((ib >= b1) || ((ia < b0) && !compare_greater(shared_pairs[ia], shared_pairs[ib]))) {
-                pairs[i] = shared_pairs[ia];
-                ia += 1u;
-            } else {
-                pairs[i] = shared_pairs[ib];
-                ib += 1u;
-            }
-        }
-
-        // We're about to write back exactly numItemPerThread elements into the shared array.
-        // However by design threads may read more values in either of the two merged lists,
-        // so we need to wait for all co-op threads to finish reading before we can write back.
-        workgroupBarrier();
-
-        // Copy back into shared memory for next iteration
-        for (var i: u32 = 0; i < numItemPerThread; i += 1u) {
-            shared_pairs[begin + i] = pairs[i];
-        }
-
-        // Next iteration (or the final write) need to read back from shared memory, so we need
-        // to wait for all threads to finish writing there.
-        workgroupBarrier();
-    }
-
-    // Copy sorted items from shared workgroup memory back into sort_buffer
-    if (tid < num_threads) {
-        for (var i: u32 = begin; i < end; i += 1u) {
-            sort_buffer.pairs[i] = shared_pairs[i];
-        }
-    }
+/// Test for parallel_merge_sort().
+@compute @workgroup_size(64)
+fn test_block_parallel_merge_sort(@builtin(local_invocation_index) thread_id: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+    let block_id = workgroup_id.x;  // wgpu doesn't support @builtin(workgroup_index)
+    block_parallel_merge_sort(thread_id, block_id);
 }
 
 #endif
@@ -375,23 +494,71 @@ fn test_block_sort(@builtin(global_invocation_id) global_invocation_id: vec3<u32
 // https://moderngpu.github.io/segsort.html
 
 /// Naive insertion sort. TODO: replace with something faster.
+// @compute @workgroup_size(64)
+// fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
+//     // Naive single-threaded sort
+//     if (global_invocation_id.x != 0) {
+//         return;
+//     }
+
+//     // Insertion sort
+//     let num_items = sort_buffer.count;
+//     for (var i: i32 = 1; i < num_items; i += 1) {
+//         var kv = sort_buffer.pairs[i];
+//         var j = i;
+//         while (j > 0 && compare_greater(sort_buffer.pairs[j - 1], kv)) {
+//             sort_buffer.pairs[j] = sort_buffer.pairs[j - 1];
+//             j -= 1;
+//         }
+//         sort_buffer.pairs[j] = kv;
+//     }
+
+//     // Clear for next frame
+//     sort_buffer.count = 0;
+// }
+
+/// Slightly less naive sort. Block-sort with 64 threads in parallel, up to 1024 particles.
+/// Beyond that limit, just loop over 1024 particle chunks serially.
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    // Naive single-threaded sort
-    if (global_invocation_id.x != 0) {
-        return;
+fn main(@builtin(local_invocation_index) thread_id: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+    let block_id = workgroup_id.x;  // wgpu doesn't support @builtin(workgroup_index)
+
+    let total_num_items = u32(sort_buffer.count);
+
+    // Loop over all blocks and block-sort each serially (TODO - parallelize this too)
+    let num_blocks = (total_num_items + blockSize - 1) / blockSize;
+    {
+        let offset = block_id * blockSize;
+        let count = min(offset + blockSize, total_num_items) - offset;  // <= blockSize
+        block_sort(thread_id, offset, offset, count);
     }
 
-    // Insertion sort
-    let num_items = sort_buffer.count;
-    for (var i: i32 = 1; i < num_items; i += 1) {
-        var kv = sort_buffer.pairs[i];
-        var j = i;
-        while (j > 0 && compare_greater(sort_buffer.pairs[j - 1], kv)) {
-            sort_buffer.pairs[j] = sort_buffer.pairs[j - 1];
-            j -= 1;
+    // Wait for all threads to write per-block sorted lists into the storage sort buffer
+    storageBarrier();
+
+    // Recursively merge the blockSize-length sorted lists into a single globally sorted one.
+    // FIXME - parallelize this...
+    if (thread_id == 0) {
+        src = 0u;
+        dst = total_num_items;
+        var left = num_blocks;
+        while (left > 1u) {
+            var step = 1u;
+            while (step < left) {
+                for (var i: u32 = 0u; i + step < left; i += step * 2u) {
+                    merge_lists_serial(i, step, i + step, step, src, dst);
+                }
+                step <<= 1u;
+
+                //storageBarrier();
+
+                // Swap source/destination lists for next iteration
+                let tmp = src;
+                src = dst;
+                dst = tmp;
+            }
+            left >>= 1u;
         }
-        sort_buffer.pairs[j] = kv;
     }
 
     // Clear for next frame
