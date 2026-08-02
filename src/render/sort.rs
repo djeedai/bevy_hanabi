@@ -38,6 +38,8 @@ pub(crate) struct GpuMergeParams {
     /// merges two sorted lists, one of this size and the other of this size or
     /// smaller, into a single sorted list.
     pub max_list_size: u32,
+    /// Half of the ping-pong sort buffer to read from for this pass.
+    pub source_buffer: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -145,6 +147,10 @@ pub struct SortBindGroups {
 }
 
 impl SortBindGroups {
+    /// Number of fixed merge parameter entries that select the final source
+    /// half for the sort-copy pass.
+    pub(crate) const COPY_SOURCE_PARAM_COUNT: usize = 2;
+
     /// Size in bytes of the sort buffer.
     ///
     /// This includes the header 'count:u32' field, as well as up to 2 copies of
@@ -182,11 +188,19 @@ impl SortBindGroups {
         let merge_params_align =
             NonZeroU64::new(render_device.limits().min_storage_buffer_offset_alignment as u64)
                 .unwrap();
-        let merge_params_buffer = AlignedBufferVec::<GpuMergeParams>::new(
+        let mut merge_params_buffer = AlignedBufferVec::<GpuMergeParams>::new(
             BufferUsages::STORAGE,
             Some(merge_params_align),
             Some("hanabi:buffer:merge_params".to_string()),
         );
+        // These entries are selected by the copy pass after all merge stages.
+        // Entry 0 selects the first half and entry 1 selects the second half.
+        for source_buffer in 0..Self::COPY_SOURCE_PARAM_COUNT as u32 {
+            merge_params_buffer.push(GpuMergeParams {
+                max_list_size: 0,
+                source_buffer,
+            });
+        }
 
         // Initial room for 256 ribbon sort dispatches; the GpuBuffer grows on demand.
         let indirect_item_size = GpuDispatchIndirectArgs::SHADER_SIZE.get();
@@ -264,6 +278,8 @@ impl SortBindGroups {
                         true,
                         Some(GpuSpawnerParams::aligned_size(alignment)),
                     ),
+                    // @group(0) @binding(4) var<storage, read> merge_params : MergeParams;
+                    storage_buffer_read_only_sized(true, Some(GpuMergeParams::SHADER_SIZE)),
                 ),
             ),
         );
@@ -283,7 +299,7 @@ impl SortBindGroups {
             sort_fill_shader,
             sort_buffer,
             merge_params_buffer,
-            merge_params_changed: false,
+            merge_params_changed: true,
             indirect_args_buffer: indirect_buffer,
             sort_fill_bind_group_layout_descs: default(),
             sort_fill_bind_groups: default(),
@@ -320,16 +336,18 @@ impl SortBindGroups {
         let num_passes = 32 - (num_blocks - 1).leading_zeros(); // log2(n-1) rounded up
 
         // Check if already allocated
-        let existing_num_passes = self.merge_params_buffer.len() as u32;
+        let existing_num_passes =
+            (self.merge_params_buffer.len() - Self::COPY_SOURCE_PARAM_COUNT) as u32;
         if existing_num_passes >= num_passes {
             return;
         }
 
         // Allocate missing entries
         let mut list_size = 1024u32 << existing_num_passes;
-        for _ in existing_num_passes..num_passes {
+        for pass in existing_num_passes..num_passes {
             self.merge_params_buffer.push(GpuMergeParams {
                 max_list_size: list_size,
+                source_buffer: pass % 2,
             });
             list_size = list_size << 1;
         }
@@ -351,6 +369,7 @@ impl SortBindGroups {
             .write_buffer(render_device, render_queue)
         {
             self.sort_merge_bind_group = None;
+            self.sort_copy_bind_groups.clear();
             true
         } else {
             false
@@ -424,6 +443,14 @@ impl SortBindGroups {
         // Validate the sort pipeline
         if !matches!(
             pipeline_cache.get_compute_pipeline_state(self.sort_pipeline_id()),
+            CachedPipelineState::Ok(_)
+        ) {
+            return false;
+        }
+
+        // Validate the sort-merge pipeline.
+        if !matches!(
+            pipeline_cache.get_compute_pipeline_state(self.sort_merge_pipeline_id()),
             CachedPipelineState::Ok(_)
         ) {
             return false;
@@ -651,7 +678,7 @@ impl SortBindGroups {
                     // @group(0) @binding(0) var<storage, read_write> pairs : array<KeyValuePair>;
                     self.sort_buffer.as_entire_binding(),
                     // @group(0) @binding(1) var<storage, read> merge_params : MergeParams;
-                    self.merge_params_buffer.binding().unwrap(),
+                    self.merge_params_buffer.range_binding(0, 1).unwrap(),
                 )),
             );
             self.sort_merge_bind_group = Some(sort_merge_bind_group);
@@ -702,6 +729,8 @@ impl SortBindGroups {
                                 render_device.limits().min_storage_buffer_offset_alignment,
                             )),
                         },
+                        // @group(0) @binding(4) var<storage, read> merge_params : MergeParams;
+                        self.merge_params_buffer.range_binding(0, 1).unwrap(),
                     )),
                 ))
             }
@@ -1379,31 +1408,32 @@ mod gpu_tests {
         let merge_params = (0..num_passes)
             .map(|i| GpuMergeParams {
                 max_list_size: 1024 << i,
+                source_buffer: i % 2,
             })
             .collect::<Vec<_>>();
 
         // Dispatch to GPU
-        let workgroups = UVec3::new(1, 1, 1);
-        let merge_offset = 0; // list_size == 1024
+        let workgroups = [UVec3::new(1, 1, 1); 2];
         let view = test.dispatch(
-            "test_merge",
+            "merge_sort",
             num_particle,
             &values[..],
             &merge_params[..],
-            merge_offset,
-            workgroups,
+            &workgroups,
         );
 
-        // Validate content
+        // Validate that both ping-pong passes produced a globally sorted result
+        // in the first half of the buffer.
         let view_slice: &[DualKeyValuePair] = cast_slice(&view[4..]);
-        // The first 2 lists are merged into the scratch buffer (starting at 3000).
-        view_slice[3000..5048]
-            .windows(2)
-            .for_each(|x| assert!(x[0] <= x[1]));
-        // The rest of the scratch buffer is unmodified.
-        view_slice[5048..]
-            .iter()
-            .for_each(|x| assert_eq!(*x, dummy));
+        let mut expected = values[..num_particle as usize].to_vec();
+        expected.sort();
+        let s = format_slice(&expected[..num_particle as usize]);
+        eprintln!("expected:\n{s}");
+        let s = format_slice(&view_slice[..num_particle as usize]);
+        eprintln!("actual:\n{s}");
+        let s = format_slice(&view_slice[num_particle as usize..]);
+        eprintln!("scratch:\n{s}");
+        assert_eq!(&view_slice[..num_particle as usize], expected.as_slice());
     }
 
     /// Helper for all GPU merge tests.
@@ -1455,8 +1485,9 @@ mod gpu_tests {
         /// The `entry_point` is the compute shader entry point name to execute
         /// (often a test-only entry point). The `count` and `pairs` are the
         /// data of the sort buffer to upload to GPU before dispatching. The
-        /// `merge` data is the merge params content. `workgroups` is
-        /// the number of workgroups to dispatch.
+        /// `merge` data is the merge params content. Each item in `workgroups`
+        /// is the number of workgroups to dispatch for its corresponding
+        /// merge pass.
         ///
         /// # Returns
         ///
@@ -1468,9 +1499,10 @@ mod gpu_tests {
             count: u32,
             pairs: &[DualKeyValuePair],
             merge: &[GpuMergeParams],
-            merge_offset: u32,
-            workgroups: UVec3,
+            workgroups: &[UVec3],
         ) -> BufferView {
+            assert_eq!(merge.len(), workgroups.len());
+
             // Allocate sort buffer
             let sort_byte_size = 4 + pairs.len() as u64 * DualKeyValuePair::SHADER_SIZE.get();
             let sort_buffer = self.device.create_buffer(&BufferDescriptor {
@@ -1519,7 +1551,7 @@ mod gpu_tests {
                 &bind_group_layout,
                 &BindGroupEntries::sequential((
                     sort_buffer.as_entire_binding(),
-                    merge_buffer.binding().unwrap(),
+                    merge_buffer.range_binding(0, 1).unwrap(),
                 )),
             );
             let pipeline_layout = self
@@ -1559,13 +1591,15 @@ mod gpu_tests {
                     label: Some("test"),
                 });
 
-            // Dispatch test
-            {
+            // Each stage needs its own compute pass so the next ping-pong
+            // stage can observe storage-buffer writes from the previous one.
+            for (pass_index, workgroups) in workgroups.iter().enumerate() {
                 let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
                     label: Some(entry_point),
                     timestamp_writes: None,
                 });
                 compute_pass.set_pipeline(&pipeline);
+                let merge_offset = merge_buffer.dynamic_offset(pass_index);
                 compute_pass.set_bind_group(0, &bind_group, &[merge_offset]);
                 compute_pass.dispatch_workgroups(workgroups.x, workgroups.y, workgroups.z);
             }

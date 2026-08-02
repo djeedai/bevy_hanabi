@@ -517,50 +517,15 @@ fn test_block_parallel_merge_sort(@builtin(local_invocation_index) thread_id: u3
 //     sort_buffer.count = 0;
 // }
 
-/// Slightly less naive sort. Block-sort with 64 threads in parallel, up to 1024 particles.
-/// Beyond that limit, just loop over 1024 particle chunks serially.
+/// Block-sort 1024 particles per workgroup. Larger inputs are merged by
+/// vfx_sort_merge.wgsl in subsequent compute passes.
 @compute @workgroup_size(64)
 fn main(@builtin(local_invocation_index) thread_id: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     let block_id = workgroup_id.x;  // wgpu doesn't support @builtin(workgroup_index)
 
     let total_num_items = u32(sort_buffer.count);
 
-    // Loop over all blocks and block-sort each serially (TODO - parallelize this too)
-    let num_blocks = (total_num_items + blockSize - 1) / blockSize;
-    {
-        let offset = block_id * blockSize;
-        let count = min(offset + blockSize, total_num_items) - offset;  // <= blockSize
-        block_sort(thread_id, offset, offset, count);
-    }
-
-    // Wait for all threads to write per-block sorted lists into the storage sort buffer
-    storageBarrier();
-
-    // Recursively merge the blockSize-length sorted lists into a single globally sorted one.
-    // FIXME - parallelize this...
-    if (thread_id == 0) {
-        src = 0u;
-        dst = total_num_items;
-        var left = num_blocks;
-        while (left > 1u) {
-            var step = 1u;
-            while (step < left) {
-                for (var i: u32 = 0u; i + step < left; i += step * 2u) {
-                    merge_lists_serial(i, step, i + step, step, src, dst);
-                }
-                step <<= 1u;
-
-                //storageBarrier();
-
-                // Swap source/destination lists for next iteration
-                let tmp = src;
-                src = dst;
-                dst = tmp;
-            }
-            left >>= 1u;
-        }
-    }
-
-    // Clear for next frame
-    sort_buffer.count = 0;
+    let offset = block_id * blockSize;
+    let count = min(offset + blockSize, total_num_items) - offset;  // <= blockSize
+    block_sort(thread_id, offset, offset, count);
 }

@@ -39,24 +39,18 @@ fn compare_greater(kv1: KeyValuePair, kv2: KeyValuePair) -> bool {
 struct MergeParams {
     /// Maximum number of items per list for this pass.
     max_list_size: u32,
+    /// Half of the ping-pong buffer to read from: 0 for the first half, 1 for
+    /// the second half.
+    source_buffer: u32,
 }
 
 @group(0) @binding(0) var<storage, read_write> sort_buffer : SortBuffer;
 @group(0) @binding(1) var<storage, read> merge_params : MergeParams;
 
-/// Number of items sorted per thread, serially.
-const numItemPerThread: u32 = 16u;
-
-/// Number of threads per workgroup (block).
-const numThreads: u32 = 64u;
-
-/// Size of a block of KeyValuePair in workgroup memory.
-const blockSize: u32 = numThreads * numItemPerThread;  // 1024
-
 /// Merge two sorted lists [a..a+num_a) and [b..b+num_b) into a single sorted list.
 ///
 /// The source elements are read from the sort buffer starting at offsets (src + a)
-/// and (src + b), and the merged list written starting at offset dst.
+/// and (src + b), and the merged list written starting at offset (dst + a).
 fn merge_lists_serial(a: u32, num_a: u32, b: u32, num_b: u32, src: u32, dst: u32) {
     var ia = a;
     var ib = b;
@@ -64,10 +58,10 @@ fn merge_lists_serial(a: u32, num_a: u32, b: u32, num_b: u32, src: u32, dst: u32
     let b_end = b + num_b;
     for (var i: u32 = 0u; i < num_a + num_b; i += 1u) {
         if ((ib >= b_end) || ((ia < a_end) && !compare_greater(sort_buffer.pairs[src + ia], sort_buffer.pairs[src + ib]))) {
-            sort_buffer.pairs[dst + i] = sort_buffer.pairs[src + ia];
+            sort_buffer.pairs[dst + a + i] = sort_buffer.pairs[src + ia];
             ia += 1u;
         } else {
-            sort_buffer.pairs[dst + i] = sort_buffer.pairs[src + ib];
+            sort_buffer.pairs[dst + a + i] = sort_buffer.pairs[src + ib];
             ib += 1u;
         }
     }
@@ -80,36 +74,17 @@ fn merge_sort(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let total_num_items = u32(sort_buffer.count);
     let list_size = merge_params.max_list_size;
     let num_lists = (total_num_items + list_size - 1u) / list_size;
-    // Round down; we skip the last list if the count is odd.
-    let num_merges = num_lists / 2u;
-    if (tid < num_merges) {
+    let num_merge_operations = (num_lists + 1u) / 2u;
+    if (tid < num_merge_operations) {
         // We always merge 2 consecutive lists of up to list_size items. The last list may have
         // less elements, if total_num_items is not a multiple of list_size (which is common).
+        // An unmatched last list is copied unchanged to the other ping-pong half.
         let start_a = tid * list_size * 2u;
         let start_b = start_a + list_size;
-        let end_b = min(start_b + list_size, total_num_items);
-        merge_lists_serial(start_a, list_size, start_b, end_b - start_b, 0u, total_num_items);
+        let num_a = min(list_size, total_num_items - start_a);
+        let num_b = min(list_size, total_num_items - min(start_b, total_num_items));
+        let src = merge_params.source_buffer * total_num_items;
+        let dst = (1u - merge_params.source_buffer) * total_num_items;
+        merge_lists_serial(start_a, num_a, start_b, num_b, src, dst);
     }
 }
-
-#ifdef TEST
-
-@compute @workgroup_size(64)
-fn test_merge(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
-    let tid = global_invocation_id.x;
-    let total_num_items = u32(sort_buffer.count);
-    let list_size = merge_params.max_list_size;
-    let num_lists = (total_num_items + list_size - 1u) / list_size;
-    // Round down; we skip the last list if the count is odd.
-    let num_merges = num_lists / 2u;
-    if (tid < num_merges) {
-        // We always merge 2 consecutive lists of up to list_size items. The last list may have
-        // less elements, if total_num_items is not a multiple of list_size (which is common).
-        let start_a = tid * list_size * 2u;
-        let start_b = start_a + list_size;
-        let end_b = min(start_b + list_size, total_num_items);
-        merge_lists_serial(start_a, list_size, start_b, end_b - start_b, 0u, total_num_items);
-    }
-}
-
-#endif

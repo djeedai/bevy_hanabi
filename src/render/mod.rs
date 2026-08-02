@@ -7843,50 +7843,54 @@ fn simulate(
                     // sorted. Since we don't know (from CPU) the number of particles, and so the
                     // number of required passes, we over-estimate from the total effect capacity.
                     let block_size = 1024; // see shader
-                    if effect_batch.capacity > block_size {
-                        let num_blocks = effect_batch.capacity.div_ceil(block_size);
-                        let num_passes = 32 - (num_blocks - 1).leading_zeros(); // log2(n-1) rounded up
-
-                        let mut compute_pass = HanabiComputePass::new(
-                            "hanabi:sort_merge",
-                            &pipeline_cache,
-                            &mut render_context,
-                        );
-                        compute_pass.push_debug_group("hanabi:sort_merge");
-
+                    let num_blocks = effect_batch.capacity.div_ceil(block_size);
+                    let num_passes = if num_blocks > 1 {
+                        32 - (num_blocks - 1).leading_zeros() // log2(n-1) rounded up
+                    } else {
+                        0
+                    };
+                    if num_passes > 0 {
                         let pipeline_id = sort_bind_groups.sort_merge_pipeline_id();
-                        if compute_pass
-                            .set_cached_compute_pipeline(pipeline_id)
-                            .is_err()
-                        {
-                            compute_pass.insert_debug_marker("ERROR:FailedToSetSortMergePipeline");
-                            compute_pass.pop_debug_group();
-                            return;
-                        }
-
                         let Some(bind_group) = sort_bind_groups.sort_merge_bind_group() else {
                             warn!("Missing sort bind group.");
-                            compute_pass.insert_debug_marker("ERROR:MissingSortMergeBindGroup");
                             return;
                         };
 
                         let mut num_lists = num_blocks;
                         for ipass in 0..num_passes {
-                            let offset = sort_bind_groups
-                                .merge_params_buffer()
-                                .dynamic_offset(ipass as usize);
+                            // A separate compute pass provides the storage-buffer visibility
+                            // guarantee required before the next ping-pong merge stage reads
+                            // this stage's output.
+                            let mut compute_pass = HanabiComputePass::new(
+                                "hanabi:sort_merge",
+                                &pipeline_cache,
+                                &mut render_context,
+                            );
+                            compute_pass.push_debug_group("hanabi:sort_merge");
+                            if compute_pass
+                                .set_cached_compute_pipeline(pipeline_id)
+                                .is_err()
+                            {
+                                compute_pass
+                                    .insert_debug_marker("ERROR:FailedToSetSortMergePipeline");
+                                compute_pass.pop_debug_group();
+                                return;
+                            }
+
+                            let offset = sort_bind_groups.merge_params_buffer().dynamic_offset(
+                                SortBindGroups::COPY_SOURCE_PARAM_COUNT + ipass as usize,
+                            );
                             compute_pass.set_bind_group(0, bind_group, &[offset]);
 
-                            // For now, we use a naive serial mergesort, so we merge each pair of
-                            // lists serially in a single thread.
-                            let num_threads = num_lists / 2;
+                            // For now, each thread serially merges a pair of lists. A final
+                            // unpaired list is copied to the other ping-pong half.
+                            let num_threads = num_lists.div_ceil(2);
                             let num_workgroups = num_threads.div_ceil(64);
                             compute_pass.dispatch_workgroups(num_workgroups, 1, 1);
 
+                            compute_pass.pop_debug_group();
                             num_lists = num_lists.div_ceil(2);
                         }
-
-                        compute_pass.pop_debug_group();
                     }
 
                     // Copy the sorted indices back into the indirect index buffer.
@@ -7930,7 +7934,14 @@ fn simulate(
                             compute_pass.insert_debug_marker("ERROR:MissingSortCopyBindGroup");
                             continue;
                         };
-                        compute_pass.set_bind_group(0, bind_group, &[spawner_offset]);
+                        let copy_source_offset = sort_bind_groups
+                            .merge_params_buffer()
+                            .dynamic_offset(num_passes as usize % 2);
+                        compute_pass.set_bind_group(
+                            0,
+                            bind_group,
+                            &[spawner_offset, copy_source_offset],
+                        );
 
                         compute_pass.dispatch_workgroups_indirect(
                             indirect_args_buffer,
@@ -7939,6 +7950,15 @@ fn simulate(
 
                         compute_pass.pop_debug_group();
                     }
+
+                    // The sort-fill pass uses this counter as an atomic append index. It must
+                    // remain valid through the block-sort, merge, and copy passes, then be
+                    // cleared before sorting the next effect instance.
+                    render_context.command_encoder().clear_buffer(
+                        sort_bind_groups.sort_buffer(),
+                        0,
+                        Some(4),
+                    );
                 }
             }
         }
