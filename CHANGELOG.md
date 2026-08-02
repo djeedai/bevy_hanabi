@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   taking full advantage of all GPU threads to process the init/update of all particles in parallel.
   Batching is still limited to same-effect instances (same `EffectAsset`), and is currently not
   available for GPU particle spawning.
+- Parallelized most of the GPU sort. This dramatically improves performance when using ribbon effects.
 
 ### Fixed
 

@@ -31,7 +31,7 @@ struct RawParticleBuffer {
 
 /// Fill the sorting key-value pair buffer with data to prepare for actual sorting.
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
+fn sort_fill(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let thread_index = global_invocation_id.x;
     let effect_metadata_index = spawner.effect_metadata_index;
     let count = atomicLoad(&effect_metadatas[effect_metadata_index].alive_count); // TODO - atomic not needed

@@ -1123,7 +1123,8 @@ fn create_metadata_init_bind_group_layout_desc(
 ) -> BindGroupLayoutDescriptor {
     let mut entries = Vec::with_capacity(3);
 
-    // @group(3) @binding(0) var<storage, read_write> effect_metadatas : array<EffectMetadata>
+    // @group(3) @binding(0) var<storage, read_write> effect_metadatas :
+    // array<EffectMetadata>
     entries.push(BindGroupLayoutEntry {
         binding: 0,
         visibility: ShaderStages::COMPUTE,
@@ -1187,7 +1188,8 @@ fn create_metadata_update_bind_group_layout_desc(
 ) -> BindGroupLayoutDescriptor {
     let mut entries = Vec::with_capacity(num_event_buffers as usize + 2);
 
-    // @group(3) @binding(0) var<storage, read_write> effect_metadatas : array<EffectMetadata>
+    // @group(3) @binding(0) var<storage, read_write> effect_metadatas :
+    // array<EffectMetadata>
     entries.push(BindGroupLayoutEntry {
         binding: 0,
         visibility: ShaderStages::COMPUTE,

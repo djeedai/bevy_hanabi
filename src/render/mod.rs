@@ -717,6 +717,7 @@ impl InitFillDispatchQueue {
                     dst_offset: dst_start * dst_stride,
                     dst_stride,
                     count,
+                    thread_group_size: 1,
                 };
                 trace!(
                 "enqueue_init_fill(): src:global_child_index={} dst:init_indirect_dispatch_index={} args={:?} src_buffer={:?} dst_buffer={:?}",
@@ -749,6 +750,7 @@ impl InitFillDispatchQueue {
                 dst_offset: dst_start * dst_stride,
                 dst_stride,
                 count,
+                thread_group_size: 1,
             };
             trace!(
             "IFDA::submit(): src:global_child_index={} dst:init_indirect_dispatch_index={} args={:?} src_buffer={:?} dst_buffer={:?}",
@@ -785,8 +787,11 @@ pub(super) struct SortFillDispatchItem {
     /// copied before calculating the sort prefix sum.
     pub prefix_sum_index: u32,
     /// Index of the [`GpuDispatchIndirect`] entry to write the workgroup count
-    /// to.
+    /// to, for the sort-fill pass (1 thread per particle).
     pub sort_fill_indirect_dispatch_index: u32,
+    /// Index of the [`GpuDispatchIndirect`] entry to write the workgroup count
+    /// to, for the sort pass (1 thread per 16-particle group).
+    pub sort_indirect_dispatch_index: u32,
 }
 
 /// Indices of the GPU operation queues needed to prepare a ribbon sort.
@@ -794,8 +799,12 @@ pub(super) struct SortFillDispatchItem {
 pub(super) struct SortFillDispatchQueueIndices {
     /// Queue which copies post-update alive counts into the prefix sum buffer.
     pub alive_count_copy: Option<u32>,
-    /// Queue which creates the indirect sort-fill dispatch arguments.
+    /// Queue which creates the indirect sort-fill dispatch arguments. This uses
+    /// 1 thread per particle, total alive_count threads.
     pub fill_dispatch: Option<u32>,
+    /// Queue which creates the indirect sort dispatch arguments. This uses 1
+    /// thread per 16 particles, total alive_count.div_ceil(16) threads.
+    pub sort_dispatch: Option<u32>,
 }
 
 /// Queue of fill dispatch operations for the ribbon particle sort pass.
@@ -830,11 +839,13 @@ impl SortFillDispatchQueue {
         metadata_table_id: BufferTableId,
         prefix_sum_index: u32,
         sort_fill_indirect_dispatch_index: u32,
+        sort_indirect_dispatch_index: u32,
     ) {
         self.queue.push(SortFillDispatchItem {
             metadata_table_id,
             prefix_sum_index,
             sort_fill_indirect_dispatch_index,
+            sort_indirect_dispatch_index,
         });
     }
 
@@ -871,6 +882,7 @@ impl SortFillDispatchQueue {
 
         let mut alive_count_copy_queue = GpuBufferOperationQueue::new();
         let mut fill_queue = GpuBufferOperationQueue::new();
+        let mut sort_queue = GpuBufferOperationQueue::new();
         for item in &self.queue {
             let src_binding_offset = effect_metadata_buffer.dynamic_offset(item.metadata_table_id);
             debug_assert_eq!(
@@ -879,9 +891,6 @@ impl SortFillDispatchQueue {
                 "Effect metadata offset must be u32-aligned."
             );
             let src_offset = src_binding_offset / 4 + alive_count_offset;
-            let dst_offset = sort_bind_groups
-                .get_indirect_args_byte_offset(item.sort_fill_indirect_dispatch_index)
-                / 4;
             trace!(
                 "queue_sort_alive_count_copy(): src#{:?}@+{}B -> dst#{:?}[{}]",
                 src_buffer.id(),
@@ -889,6 +898,8 @@ impl SortFillDispatchQueue {
                 prefix_sum_buffer.id(),
                 item.prefix_sum_index,
             );
+
+            // Enqueue an op to copy alive_count into the prefix sum buffer
             alive_count_copy_queue.enqueue(
                 GpuBufferOperationType::Copy,
                 GpuBufferOperationArgs {
@@ -897,20 +908,19 @@ impl SortFillDispatchQueue {
                     dst_offset: item.prefix_sum_index,
                     dst_stride: 1,
                     count: 1,
+                    thread_group_size: 1,
                 },
                 src_buffer.clone(),
                 None,
                 prefix_sum_buffer.clone(),
                 None,
             );
-            trace!(
-                "queue_sort_fill_dispatch(): src#{:?}@+{}B ({}B) -> dst#{:?}@+{}B (whole)",
-                src_buffer.id(),
-                src_binding_offset,
-                src_stride,
-                dst_buffer.id(),
-                dst_offset * 4,
-            );
+
+            // Enqueue an op to calculate from alive_count the number of workgroups for the
+            // sort-fill pass
+            let dst_offset = sort_bind_groups
+                .get_indirect_args_byte_offset(item.sort_fill_indirect_dispatch_index)
+                / 4;
             fill_queue.enqueue(
                 GpuBufferOperationType::FillDispatchArgs,
                 GpuBufferOperationArgs {
@@ -919,11 +929,42 @@ impl SortFillDispatchQueue {
                     dst_offset: dst_offset as u32,
                     dst_stride,
                     count: 1,
+                    thread_group_size: 1,
                 },
                 src_buffer.clone(),
                 None,
                 dst_buffer.clone(),
                 None,
+            );
+
+            // Enqueue an op to calculate from alive_count the number of workgroups for the
+            // sort pass
+            let dst_offset = sort_bind_groups
+                .get_indirect_args_byte_offset(item.sort_indirect_dispatch_index)
+                / 4;
+            sort_queue.enqueue(
+                GpuBufferOperationType::FillDispatchArgs,
+                GpuBufferOperationArgs {
+                    src_offset,
+                    src_stride,
+                    dst_offset: dst_offset as u32,
+                    dst_stride,
+                    count: 1,
+                    thread_group_size: 16, // numItemPerThread=16; see shader
+                },
+                src_buffer.clone(),
+                None,
+                dst_buffer.clone(),
+                None,
+            );
+
+            trace!(
+                "queue_sort_fill_dispatch(): src#{:?}@+{}B ({}B) -> dst#{:?}@+{}B (whole)",
+                src_buffer.id(),
+                src_binding_offset,
+                src_stride,
+                dst_buffer.id(),
+                dst_offset * 4,
             );
         }
 
@@ -937,9 +978,15 @@ impl SortFillDispatchQueue {
         } else {
             Some(gpu_buffer_operations.submit(fill_queue))
         };
+        let sort_dispatch = if sort_queue.operation_queue.is_empty() {
+            None
+        } else {
+            Some(gpu_buffer_operations.submit(sort_queue))
+        };
         SortFillDispatchQueueIndices {
             alive_count_copy,
             fill_dispatch,
+            sort_dispatch,
         }
     }
 }
@@ -1223,6 +1270,8 @@ pub(super) struct GpuBufferOperationArgs {
     dst_stride: u32,
     /// Number of u32 elements to process for this operation.
     count: u32,
+    /// Thread group size.
+    thread_group_size: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1320,6 +1369,7 @@ impl GpuBufferOperationQueue {
         dst_buffer: Buffer,
         dst_binding_size: Option<NonZeroU32>,
     ) -> u32 {
+        assert!(args.thread_group_size > 0);
         trace!(
             "Queue {:?} op: args={:?} src_buffer={:?} src_binding_size={:?} dst_buffer={:?} dst_binding_size={:?}",
             op,
@@ -4662,14 +4712,24 @@ pub(crate) fn batch_effects(
         // for ribbon meshing, in order to avoid gaps when some particles in the middle
         // of the ribbon die (since we can't guarantee a linear lifetime through the
         // ribbon).
-        let sort_fill_indirect_dispatch_index =
+        let sort_indirect_dispatch_indices =
             if extracted_effect.layout_flags.contains(LayoutFlags::RIBBONS) {
                 // Allocate a GpuDispatchIndirect entry
                 let sort_fill_indirect_dispatch_index = sort_bind_groups.allocate_indirect_args();
                 effect_batch.effect_data[0].sort_fill_indirect_dispatch_index =
                     Some(sort_fill_indirect_dispatch_index);
 
-                Some(sort_fill_indirect_dispatch_index)
+                let sort_indirect_dispatch_index = sort_bind_groups.allocate_indirect_args();
+                effect_batch.effect_data[0].sort_indirect_dispatch_index =
+                    Some(sort_indirect_dispatch_index);
+
+                // Ensure sort merge passes are allocated, if needed
+                sort_bind_groups.ensure_mergesort_passes(extracted_effect.capacity);
+
+                Some((
+                    sort_fill_indirect_dispatch_index,
+                    sort_indirect_dispatch_index,
+                ))
             } else {
                 None
             };
@@ -4696,11 +4756,14 @@ pub(crate) fn batch_effects(
                 })
                 .insert(TemporaryRenderEntity);
         }
-        if let Some(sort_fill_indirect_dispatch_index) = sort_fill_indirect_dispatch_index {
+        if let Some((sort_fill_indirect_dispatch_index, sort_indirect_dispatch_index)) =
+            sort_indirect_dispatch_indices
+        {
             sort_fill_dispatch_queue.enqueue(
                 cached_effect_metadata.table_id,
                 sort_prefix_sum_index,
                 sort_fill_indirect_dispatch_index,
+                sort_indirect_dispatch_index,
             );
         }
 
@@ -4740,7 +4803,8 @@ pub(crate) fn batch_effects(
     // end_frame() at the tail of the latter. Render set ordering guarantees
     // this begin precedes all submits.
     gpu_buffer_operations.begin_frame();
-    debug_assert!(batcher.dispatch_queue_index.is_none());
+    debug_assert!(batcher.fill_dispatch_queue_index.is_none());
+    debug_assert!(batcher.sort_dispatch_queue_index.is_none());
 
     // Write the entire spawner buffer for this frame, for all effects combined
     if effects_meta
@@ -4770,6 +4834,8 @@ pub(crate) fn batch_effects(
         effects_meta.indirect_spawner_bind_group = None;
         effects_meta.prefix_sum_bind_group = None;
     }
+
+    let _ = sort_bind_groups.write_merge_params(&render_device, &render_queue);
 }
 
 /// Per-buffer bind groups for a GPU effect buffer.
@@ -6193,7 +6259,8 @@ pub(crate) fn queue_sort_fill_dispatch_ops(
     }
 
     debug_assert!(batcher.sort_fill_prefix_sum_queue_index.is_none());
-    debug_assert!(batcher.dispatch_queue_index.is_none());
+    debug_assert!(batcher.fill_dispatch_queue_index.is_none());
+    debug_assert!(batcher.sort_dispatch_queue_index.is_none());
     let Some(prefix_sum_buffer) = batcher.prefix_sum_buffer() else {
         error!("Missing prefix sum buffer for ribbon sort. This is a bug.");
         return;
@@ -6205,7 +6272,8 @@ pub(crate) fn queue_sort_fill_dispatch_ops(
         &mut gpu_buffer_operations,
     );
     batcher.sort_fill_prefix_sum_queue_index = queue_indices.alive_count_copy;
-    batcher.dispatch_queue_index = queue_indices.fill_dispatch;
+    batcher.fill_dispatch_queue_index = queue_indices.fill_dispatch;
+    batcher.sort_dispatch_queue_index = queue_indices.sort_dispatch;
 }
 
 /// Read the queued init fill dispatch operations, batch them together by
@@ -6599,6 +6667,7 @@ pub(crate) fn prepare_bind_groups(
 
             // Bind group @0 of sort pass
             sort_bind_groups.ensure_sort_bind_group(&render_device, &pipeline_cache);
+            sort_bind_groups.ensure_sort_merge_bind_group(&render_device, &pipeline_cache);
 
             // Bind group @0 of sort-copy pass
             let indirect_index_buffer = effect_buffer.indirect_index_buffer();
@@ -7548,8 +7617,8 @@ fn simulate(
         // particles in the batch after their update in the compute update pass. Since
         // particles may die during update, this may be different from the number of
         // particles updated.
-        let Some(queue_index) = batcher.dispatch_queue_index else {
-            warn!("Missing indirect dispatch queue for ribbon sorting.");
+        let Some(queue_index) = batcher.fill_dispatch_queue_index else {
+            warn!("Missing indirect dispatch queue for ribbon sorting (fill).");
             return;
         };
         gpu_buffer_operations.dispatch(
@@ -7557,6 +7626,22 @@ fn simulate(
             &mut render_context,
             &utils_pipeline,
             Some("hanabi:sort_fill_dispatch"),
+        );
+
+        // Compute sort sort dispatch pass - Fill the indirect dispatch structs for any
+        // batch of particles which needs sorting, based on the actual number of alive
+        // particles in the batch after their update in the compute update pass. Since
+        // particles may die during update, this may be different from the number of
+        // particles updated.
+        let Some(queue_index) = batcher.sort_dispatch_queue_index else {
+            warn!("Missing indirect dispatch queue for ribbon sorting (sort).");
+            return;
+        };
+        gpu_buffer_operations.dispatch(
+            queue_index,
+            &mut render_context,
+            &utils_pipeline,
+            Some("hanabi:sort_sort_dispatch"),
         );
 
         // Compute sort pass
@@ -7578,14 +7663,25 @@ fn simulate(
                     continue;
                 };
 
+                // Loop on individual effects instances in the batch. Currently we can't sort an
+                // entire batch at once, only a single instance. This is in part because each
+                // instance already requires 2 keys to sort (RIBBON_ID + AGE), and it's not
+                // clear that adding a third key is faster than doing multiple dispatches.
                 for (effect_index, effect_data) in effect_batch.effect_data.iter().enumerate() {
-                    let Some(indirect_dispatch_index) =
+                    let Some(fill_indirect_dispatch_index) =
                         effect_data.sort_fill_indirect_dispatch_index
                     else {
                         continue;
                     };
-                    let indirect_offset =
-                        sort_bind_groups.get_indirect_args_byte_offset(indirect_dispatch_index);
+                    let Some(sort_indirect_dispatch_index) =
+                        effect_data.sort_indirect_dispatch_index
+                    else {
+                        continue;
+                    };
+                    let fill_indirect_offset = sort_bind_groups
+                        .get_indirect_args_byte_offset(fill_indirect_dispatch_index);
+                    let sort_indirect_offset = sort_bind_groups
+                        .get_indirect_args_byte_offset(sort_indirect_dispatch_index);
 
                     // Fill the sort buffer with the key-value pairs to sort
                     {
@@ -7638,12 +7734,14 @@ fn simulate(
                         };
                         compute_pass.set_bind_group(0, bind_group, &[spawner_offset]);
 
-                        compute_pass
-                            .dispatch_workgroups_indirect(indirect_args_buffer, indirect_offset);
+                        compute_pass.dispatch_workgroups_indirect(
+                            indirect_args_buffer,
+                            fill_indirect_offset,
+                        );
                         compute_pass.pop_debug_group();
                     }
 
-                    // Do the actual sort
+                    // Block-sort particles
                     {
                         let mut compute_pass = HanabiComputePass::new(
                             "hanabi:sort",
@@ -7667,10 +7765,67 @@ fn simulate(
                             continue;
                         };
                         compute_pass.set_bind_group(0, bind_group, &[]);
-                        compute_pass
-                            .dispatch_workgroups_indirect(indirect_args_buffer, indirect_offset);
+                        compute_pass.dispatch_workgroups_indirect(
+                            indirect_args_buffer,
+                            sort_indirect_offset,
+                        );
 
                         compute_pass.pop_debug_group();
+                    }
+
+                    // If the number of particles is larger than the block size (1024), we need to
+                    // dispatch mergesort passes to merge pairs of lists until the full list is
+                    // sorted. Since we don't know (from CPU) the number of particles, and so the
+                    // number of required passes, we over-estimate from the total effect capacity.
+                    let block_size = 1024; // see shader
+                    let num_blocks = effect_batch.capacity.div_ceil(block_size);
+                    let num_passes = if num_blocks > 1 {
+                        32 - (num_blocks - 1).leading_zeros() // log2(n-1) rounded up
+                    } else {
+                        0
+                    };
+                    if num_passes > 0 {
+                        let pipeline_id = sort_bind_groups.sort_merge_pipeline_id();
+                        let Some(bind_group) = sort_bind_groups.sort_merge_bind_group() else {
+                            warn!("Missing sort bind group.");
+                            return;
+                        };
+
+                        let mut num_lists = num_blocks;
+                        for ipass in 0..num_passes {
+                            // A separate compute pass provides the storage-buffer visibility
+                            // guarantee required before the next ping-pong merge stage reads
+                            // this stage's output.
+                            let mut compute_pass = HanabiComputePass::new(
+                                "hanabi:sort_merge",
+                                &pipeline_cache,
+                                &mut render_context,
+                            );
+                            compute_pass.push_debug_group("hanabi:sort_merge");
+                            if compute_pass
+                                .set_cached_compute_pipeline(pipeline_id)
+                                .is_err()
+                            {
+                                compute_pass
+                                    .insert_debug_marker("ERROR:FailedToSetSortMergePipeline");
+                                compute_pass.pop_debug_group();
+                                return;
+                            }
+
+                            let offset = sort_bind_groups.merge_params_buffer().dynamic_offset(
+                                SortBindGroups::COPY_SOURCE_PARAM_COUNT + ipass as usize,
+                            );
+                            compute_pass.set_bind_group(0, bind_group, &[offset]);
+
+                            // For now, each thread serially merges a pair of lists. A final
+                            // unpaired list is copied to the other ping-pong half.
+                            let num_threads = num_lists.div_ceil(2);
+                            let num_workgroups = num_threads.div_ceil(64);
+                            compute_pass.dispatch_workgroups(num_workgroups, 1, 1);
+
+                            compute_pass.pop_debug_group();
+                            num_lists = num_lists.div_ceil(2);
+                        }
                     }
 
                     // Copy the sorted indices back into the indirect index buffer.
@@ -7682,7 +7837,7 @@ fn simulate(
                         );
                         compute_pass.push_debug_group("hanabi:copy_sorted_indices");
 
-                        let pipeline_id = sort_bind_groups.get_sort_copy_pipeline_id();
+                        let pipeline_id = sort_bind_groups.sort_copy_pipeline_id();
                         if compute_pass
                             .set_cached_compute_pipeline(pipeline_id)
                             .is_err()
@@ -7714,13 +7869,31 @@ fn simulate(
                             compute_pass.insert_debug_marker("ERROR:MissingSortCopyBindGroup");
                             continue;
                         };
-                        compute_pass.set_bind_group(0, bind_group, &[spawner_offset]);
+                        let copy_source_offset = sort_bind_groups
+                            .merge_params_buffer()
+                            .dynamic_offset(num_passes as usize % 2);
+                        compute_pass.set_bind_group(
+                            0,
+                            bind_group,
+                            &[spawner_offset, copy_source_offset],
+                        );
 
-                        compute_pass
-                            .dispatch_workgroups_indirect(indirect_args_buffer, indirect_offset);
+                        compute_pass.dispatch_workgroups_indirect(
+                            indirect_args_buffer,
+                            fill_indirect_offset,
+                        );
 
                         compute_pass.pop_debug_group();
                     }
+
+                    // The sort-fill pass uses this counter as an atomic append index. It must
+                    // remain valid through the block-sort, merge, and copy passes, then be
+                    // cleared before sorting the next effect instance.
+                    render_context.command_encoder().clear_buffer(
+                        sort_bind_groups.sort_buffer(),
+                        0,
+                        Some(4),
+                    );
                 }
             }
         }

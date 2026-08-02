@@ -207,7 +207,7 @@ fn create_sort_pipeline(
         label: Some("hanabi:test:sort:pipe"),
         layout: Some(&pl),
         module: &shader,
-        entry_point: Some("main"),
+        entry_point: Some("sort_blocks"),
         cache: None,
         compilation_options: wgpu::PipelineCompilationOptions::default(),
     });
@@ -331,6 +331,11 @@ fn real_ribbon_sort_chain_isolated_per_instance() -> Result<(), Box<dyn std::err
         contents: &padded_slice_content(&spawners, storage_alignment),
         usage: wgpu::BufferUsages::STORAGE,
     });
+    let copy_source_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("hanabi:test:ribbon:copy_source"),
+        contents: cast_slice(&[0_u32, 0]),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
     let sort_buffer = wgpu_device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("hanabi:test:ribbon:sort"),
         size: 4 + 4 * 12,
@@ -373,6 +378,7 @@ fn real_ribbon_sort_chain_isolated_per_instance() -> Result<(), Box<dyn std::err
             storage(1, true, false),
             storage(2, false, false),
             storage(3, true, true),
+            storage(4, true, true),
         ],
     });
     let fill_bg = wgpu_device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -429,6 +435,10 @@ fn real_ribbon_sort_chain_isolated_per_instance() -> Result<(), Box<dyn std::err
                     size: NonZeroU64::new(storage_alignment as u64),
                 }),
             },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: copy_source_buffer.as_entire_binding(),
+            },
         ],
     });
     let fill_pl = wgpu_device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -445,7 +455,7 @@ fn real_ribbon_sort_chain_isolated_per_instance() -> Result<(), Box<dyn std::err
         label: Some("hanabi:test:ribbon:fill"),
         layout: Some(&fill_pl),
         module: &fill_shader,
-        entry_point: Some("main"),
+        entry_point: Some("sort_fill"),
         cache: None,
         compilation_options: wgpu::PipelineCompilationOptions::default(),
     });
@@ -453,7 +463,7 @@ fn real_ribbon_sort_chain_isolated_per_instance() -> Result<(), Box<dyn std::err
         label: Some("hanabi:test:ribbon:copy"),
         layout: Some(&copy_pl),
         module: &copy_shader,
-        entry_point: Some("main"),
+        entry_point: Some("sort_copy"),
         cache: None,
         compilation_options: wgpu::PipelineCompilationOptions::default(),
     });
@@ -501,7 +511,7 @@ fn real_ribbon_sort_chain_isolated_per_instance() -> Result<(), Box<dyn std::err
             pass.set_bind_group(
                 0,
                 &copy_bg,
-                &[(instance * storage_alignment as usize) as u32],
+                &[(instance * storage_alignment as usize) as u32, 0],
             );
             pass.dispatch_workgroups_indirect(
                 &dispatch_buffer,

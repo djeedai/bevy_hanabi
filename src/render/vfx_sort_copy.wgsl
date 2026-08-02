@@ -20,15 +20,21 @@ struct IndirectIndexBuffer {
     data: array<u32>,
 }
 
+struct MergeParams {
+    max_list_size: u32,
+    source_buffer: u32,
+}
+
 @group(0) @binding(0) var<storage, read_write> indirect_index_buffer : IndirectIndexBuffer;
 @group(0) @binding(1) var<storage, read> sort_buffer : SortBuffer;
 // Technically read-only, but the type contains atomic<> fields and wasm is strict about it
 @group(0) @binding(2) var<storage, read_write> effect_metadatas : array<EffectMetadata>;
 @group(0) @binding(3) var<storage, read> spawner : Spawner;
+@group(0) @binding(4) var<storage, read> merge_params : MergeParams;
 
 /// Copy the sorted particle indices back into the effect index buffer.
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
+fn sort_copy(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let row_index = global_invocation_id.x;
     let effect_metadata_index = spawner.effect_metadata_index;
     let count = atomicLoad(&effect_metadatas[effect_metadata_index].alive_count); // TODO - atomic not needed
@@ -42,6 +48,7 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     // in vfx_sort_fill. Sorting is optional and shouldn't influence that ping-pong logic.
     let write_index = effect_metadatas[effect_metadata_index].indirect_write_index;
 
-    let particle_index = sort_buffer.pairs[row_index].value;
+    let source_offset = merge_params.source_buffer * u32(sort_buffer.count);
+    let particle_index = sort_buffer.pairs[source_offset + row_index].value;
     indirect_index_buffer.data[(base_particle + row_index) * 3u + write_index] = particle_index;
 }

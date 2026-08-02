@@ -90,7 +90,7 @@ fn create_head_effect() -> EffectAsset {
     // Spawn a trail of child body particles into the other effect
     let update_spawn_trail = EmitSpawnEventModifier {
         condition: EventEmitCondition::Always,
-        count: writer.lit(5u32).expr(),
+        count: writer.lit(1u32).expr(),
         // We use channel #0; see EffectParent
         child_index: 0,
     };
@@ -170,7 +170,8 @@ fn create_body_effect() -> EffectAsset {
     let module = writer.finish();
 
     // Allocate room for 500 trail particles
-    EffectAsset::new(5000, SpawnerSettings::rate(0.5.into()), module)
+    let dummy = SpawnerSettings::default(); // unused; uses GPU spawn events
+    EffectAsset::new(5000, dummy, module)
         .with_name("worms_bodies")
         // Body particles don't move. No need to integrate anything (particles don't have any
         // VELOCITY attribute anyway, so that would generate a warning).
