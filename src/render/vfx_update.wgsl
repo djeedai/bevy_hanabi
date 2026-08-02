@@ -3,7 +3,8 @@
     EffectMetadata, RenderGroupIndirect, SimParams, Spawner, DrawIndexedIndirectArgs, BatchInfo,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
-    rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
+    rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj,
+    unpack_compressed_transform, unpack_compressed_transform_3x3_transpose
 }
 
 struct Particle {
@@ -72,6 +73,31 @@ fn find_location_from_particle(update_particle_index: u32) -> EffectLocation {
     return EffectLocation(effect_index, base_particle, update_index);
 }
 
+/// Transform a simulation space position into a world space position.
+///
+/// The simulation space depends on the effect's SimulationSpace value, and is either
+/// the effect space (SimulationSpace::Local) or the world space (SimulationSpace::Global).
+fn transform_position_simulation_to_world(sim_position: vec3<f32>) -> vec4<f32> {
+#ifdef LOCAL_SPACE_SIMULATION
+    let transform = unpack_compressed_transform(spawners[spawner_index].transform);
+    return transform * vec4<f32>(sim_position, 1.0);
+#else
+    return vec4<f32>(sim_position, 1.0);
+#endif
+}
+
+fn transform_normal_simulation_to_world(sim_normal: vec3<f32>) -> vec3<f32> {
+#ifdef LOCAL_SPACE_SIMULATION
+    // We use the inverse transpose transform to transform normals.
+    // The inverse transpose is the same as the transposed inverse, so we can
+    // safely use the inverse transform.
+    let transform = unpack_compressed_transform_3x3_transpose(spawners[spawner_index].inverse_transform);
+    return transform * sim_normal;
+#else
+    return sim_normal;
+#endif
+}
+
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
 @group(0) @binding(1) var<storage, read_write> draw_indirect_buffer : array<DrawIndexedIndirectArgs>;
 
@@ -102,6 +128,7 @@ fn find_location_from_particle(update_particle_index: u32) -> EffectLocation {
 
 var<private> effect_metadata_index: u32;
 var<private> properties_array_index: u32;
+var<private> spawner_index: u32;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
@@ -113,7 +140,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
 
     // Find the index of the effect this particle is part of.
     let location = find_location_from_particle(update_particle_index);
-    let spawner = &spawners[batch_info.spawner_base + location.effect_index];
+    spawner_index = batch_info.spawner_base + location.effect_index;
+    let spawner = &spawners[spawner_index];
     effect_metadata_index = (*spawner).effect_metadata_index;
     let base_particle = (*spawner).slab_offset;
 

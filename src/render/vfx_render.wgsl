@@ -3,7 +3,8 @@
     IndirectBuffer, SimParams, Spawner, BatchInfo,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
-    rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj
+    rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj,
+    unpack_compressed_transform, unpack_compressed_transform_3x3_transpose
 }
 
 struct Particle {
@@ -96,27 +97,6 @@ fn get_camera_rotation_effect_space() -> mat3x3<f32> {
 #else
     return view_rot;
 #endif
-}
-
-/// Unpack a compressed transform stored in transposed row-major form.
-fn unpack_compressed_transform(compressed_transform: mat3x4<f32>) -> mat4x4<f32> {
-    return transpose(
-        mat4x4(
-            compressed_transform[0],
-            compressed_transform[1],
-            compressed_transform[2],
-            vec4<f32>(0.0, 0.0, 0.0, 1.0)
-        )
-    );
-}
-
-// Unpacks a compressed transform and transposes is.
-fn unpack_compressed_transform_3x3_transpose(compressed_transform: mat3x4<f32>) -> mat3x3<f32> {
-    return mat3x3(
-        compressed_transform[0].xyz,
-        compressed_transform[1].xyz,
-        compressed_transform[2].xyz,
-    );
 }
 
 /// Transform a simulation space position into a world space position.

@@ -891,6 +891,7 @@ pub trait EvalContext {
         &mut self,
         func_name: &str,
         args: &str,
+        ret: Option<&str>,
         module: &mut Module,
         f: &mut dyn FnMut(&mut Module, &mut dyn EvalContext) -> Result<String, ExprError>,
     ) -> Result<(), ExprError>;
@@ -4184,7 +4185,7 @@ mod tests {
         let func_name = "my_func";
         let args = "arg0: i32, arg1: f32";
         assert!(ctx
-            .make_fn(func_name, args, &mut module, &mut |m, ctx| {
+            .make_fn(func_name, args, None, &mut module, &mut |m, ctx| {
                 m.lit(3.);
                 let v = ctx.make_local_var();
                 assert_eq!(v, "var0");

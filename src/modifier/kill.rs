@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    calc_func_id,
     graph::{EvalContext, ExprError},
     Attribute, BoxedModifier, ExprHandle, Modifier, ModifierContext, Module, ShaderWriter,
 };
@@ -176,6 +177,98 @@ impl Modifier for KillAabbModifier {
 "#,
             expr
         );
+
+        Ok(())
+    }
+}
+
+/// A modifier killing all particles that exit the camera's frustum.
+///
+/// This ensures camera moving off-screen (not visible) are immediately killed,
+/// to avoid simulating them for nothing. The camera frustum is read from the
+/// (unique) camera tagged with the [`HanabiMainCamera`] component; if this
+/// component is missing, this modifier does nothing.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::POSITION`]
+#[derive(Debug, Default, Clone, Copy, Hash, Reflect, Serialize, Deserialize)]
+pub struct KillFrustumModifier {
+    /// Optional distance threshold (defaults to 0) the particle is allowed to
+    /// be at outside the frustum planes before being killed. This ensures that
+    /// _e.g._ a shaking camera won't kill particles at the edge of the screen,
+    /// before moving back to the area where the particle was, which could
+    /// effectively make the user "see" that they disappeared. The value can be
+    /// negative, but this will shrink the frustum inside the view, and will
+    /// kill particles still visible on screen, so is strongly discouraged.
+    pub threshold: Option<ExprHandle>,
+}
+
+impl KillFrustumModifier {
+    /// Create a new instance of an [`KillFrustumModifier`].
+    ///
+    /// The created instance has a default `threshold = 0.0` value.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the distance threshold from the camera frustum plances, that is the
+    /// distance outside of the screen that particles are allowed to be before
+    /// they're killed.
+    pub fn with_threshold(mut self, threshold: impl Into<ExprHandle>) -> Self {
+        self.threshold = Some(threshold.into());
+        self
+    }
+}
+
+impl Modifier for KillFrustumModifier {
+    fn context(&self) -> ModifierContext {
+        ModifierContext::Update
+    }
+
+    fn attributes(&self) -> &[Attribute] {
+        &[Attribute::POSITION]
+    }
+
+    fn boxed_clone(&self) -> BoxedModifier {
+        Box::new(*self)
+    }
+
+    fn apply(&self, module: &mut Module, context: &mut ShaderWriter) -> Result<(), ExprError> {
+        let func_id = calc_func_id(self);
+        let func_name = format!("kill_frustum_{0:016X}", func_id);
+
+        context.make_fn(
+            &func_name,
+            "particle: ptr<function, Particle>",
+            Some("bool"),
+            module,
+            &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
+                let threshold = if let Some(threshold) = self.threshold {
+                    ctx.eval(m, threshold)?
+                } else {
+                    "0.0".to_string()
+                };
+
+                Ok(format!(
+                    r##"    let p = transform_position_simulation_to_world((*particle).{0}).xyz;
+    let threshold = {1};
+    for (var i = 0; i < 6; i += 1) {{
+        if (dot(sim_params.frustum[i].xyz, p) + sim_params.frustum[i].w + threshold <= 0) {{
+            return true;
+        }}
+    }}
+    return false;
+"##,
+                    Attribute::POSITION.name(),
+                    threshold
+                ))
+            },
+        )?;
+
+        context.main_code +=
+            &format!("if ({func_name}(&particle)) {{\n    is_alive = false;\n}}\n");
 
         Ok(())
     }

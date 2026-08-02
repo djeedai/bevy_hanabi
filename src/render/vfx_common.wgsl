@@ -1,6 +1,10 @@
 #define_import_path bevy_hanabi::vfx_common
 
 struct SimParams {
+    /// Frustum planes (xyz,d) of the main Hanabi camera, in world space.
+    frustum: array<vec4<f32>, 6>,
+    /// World space position of the main Hanabi camera.
+    camera_position: vec4<f32>,
     /// Delta time in seconds since last simulation tick.
     delta_time: f32,
     /// Time in seconds since the start of simulation.
@@ -354,4 +358,25 @@ fn rand_normal_vec4(mean: vec4f, std_dev: vec4f) -> vec4f {
 
 fn proj(u: vec3<f32>, v: vec3<f32>) -> vec3<f32> {
     return dot(v, u) / dot(u,u) * u;
+}
+
+/// Unpack a compressed transform stored in transposed row-major form.
+fn unpack_compressed_transform(compressed_transform: mat3x4<f32>) -> mat4x4<f32> {
+    return transpose(
+        mat4x4(
+            compressed_transform[0],
+            compressed_transform[1],
+            compressed_transform[2],
+            vec4<f32>(0.0, 0.0, 0.0, 1.0)
+        )
+    );
+}
+
+// Unpacks a compressed transform and transposes is.
+fn unpack_compressed_transform_3x3_transpose(compressed_transform: mat3x4<f32>) -> mat3x3<f32> {
+    return mat3x3(
+        compressed_transform[0].xyz,
+        compressed_transform[1].xyz,
+        compressed_transform[2].xyz,
+    );
 }

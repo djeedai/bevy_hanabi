@@ -1294,6 +1294,7 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
         real_delta_time: 1.0,
         real_time: 0.0,
         num_effects: 2,
+        ..default()
     };
     let draw_init = [
         GpuDrawIndexedIndirectArgs {
@@ -1633,6 +1634,7 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
         real_delta_time: 1.0,
         real_time: 0.0,
         num_effects: 2,
+        ..default()
     };
     let sim_params_buffer = wgpu_device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("hanabi:test:indirect:sim"),

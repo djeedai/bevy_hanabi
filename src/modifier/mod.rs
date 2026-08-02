@@ -333,6 +333,7 @@ impl EvalContext for ShaderWriter<'_> {
         &mut self,
         func_name: &str,
         args: &str,
+        ret: Option<&str>,
         module: &mut Module,
         f: &mut dyn FnMut(&mut Module, &mut dyn EvalContext) -> Result<String, ExprError>,
     ) -> Result<(), ExprError> {
@@ -352,8 +353,9 @@ impl EvalContext for ShaderWriter<'_> {
         self.extra_code += &ctx.extra_code;
 
         // Append the function itself
+        let ret = ret.map(|x| format!("-> {x} ")).unwrap_or_default();
         self.extra_code += &format!(
-            r##"fn {0}({1}) {{
+            r##"fn {0}({1}) {ret}{{
 {2}{3}}}"##,
             func_name, args, ctx.main_code, body
         );
@@ -521,6 +523,7 @@ impl EvalContext for RenderContext<'_> {
         &mut self,
         func_name: &str,
         args: &str,
+        ret: Option<&str>,
         module: &mut Module,
         f: &mut dyn FnMut(&mut Module, &mut dyn EvalContext) -> Result<String, ExprError>,
     ) -> Result<(), ExprError> {
@@ -538,8 +541,9 @@ impl EvalContext for RenderContext<'_> {
         self.render_extra += &ctx.render_extra;
 
         // Append the function itself
+        let ret = ret.map(|x| format!("-> {x} ")).unwrap_or_default();
         self.render_extra += &format!(
-            r##"fn {0}({1}) {{
+            r##"fn {0}({1}) {ret}{{
             {2};
         }}
         "##,
@@ -741,6 +745,8 @@ pub fn register_modifiers(type_registry: &AppTypeRegistry) {
     {
         let mut type_registry = type_registry.write();
 
+        // mod.rs
+        type_registry.register::<EmitSpawnEventModifier>();
         // accel.rs
         type_registry.register::<AccelModifier>();
         type_registry.register::<RadialAccelModifier>();
@@ -754,6 +760,7 @@ pub fn register_modifiers(type_registry: &AppTypeRegistry) {
         // kill.rs
         type_registry.register::<KillSphereModifier>();
         type_registry.register::<KillAabbModifier>();
+        type_registry.register::<KillFrustumModifier>();
         // output.rs
         type_registry.register::<ParticleTextureModifier>();
         type_registry.register::<SetColorModifier>();

@@ -21,7 +21,7 @@ use bevy::{
     time::{time_system, TimeSystems},
 };
 
-use crate::asset::EffectAssetLoader;
+use crate::{asset::EffectAssetLoader, render::extract_main_view};
 use crate::{
     asset::{DefaultMesh, EffectAsset},
     compile_effects,
@@ -412,6 +412,7 @@ impl Plugin for HanabiPlugin {
                     extract_effects,
                     extract_sim_params,
                     extract_effect_events,
+                    extract_main_view.after(bevy::render::camera::extract_cameras),
                 ));
             })
             .add_systems(

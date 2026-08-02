@@ -5,6 +5,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+- Added `HanabiMainCamera`, a component to tag the "main" camera that Hanabi uses
+  for camera-specific features. Add to exactly one `Camera` to tag it.
+- Added `KillFrustumModifier` to kill particles outside of the main camera frustum.
+
 ### Changed
 
 - Batch same-effect instances. This greatly improves performance when using many instances
@@ -13,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Batching is still limited to same-effect instances (same `EffectAsset`), and is currently not
   available for GPU particle spawning.
 - Parallelized most of the GPU sort. This dramatically improves performance when using ribbon effects.
+- `EvalContext::make_fn()` now takes an optional return token for the function return value.
 
 ### Fixed
 

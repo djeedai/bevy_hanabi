@@ -577,6 +577,29 @@ impl From<&PropertyInstance> for PropertyValue {
     }
 }
 
+/// Marker component to tag the "main" camera.
+///
+/// Various features in Hanabi need a single camera to work with. However, Bevy
+/// doesn't have a concept of a "main" camera. This component solves this and
+/// marks a camera as the "main" one that Hanabi effects will use for camera
+/// related features, like sorting by camera distance (for semi-transparent
+/// particles), reading the depth buffer (_e.g._ for collision), or checking the
+/// camera frustum bounds (_e.g._ for frustum culling).
+///
+/// The component must be added to at most one entity
+/// having a [`Camera`] component. If absent, camera-related features will not
+/// work (but all other features continue to work). If no camera-related feature
+/// is used, adding this component is not required. Generally you want to add it
+/// to the camera that renders the "main view" of your game or application, the
+/// one that defines the final rendered view.
+///
+/// Dynamically switching camera is supported, but note that only one camera per
+/// frame can be tagged (the unique camera tagged at the time of the render
+/// world extraction phase is the camera taken into account). Tagging multiple
+/// camera will result in a system error and break Hanabi rendering.
+#[derive(Default, Clone, Copy, Component)]
+pub struct HanabiMainCamera;
+
 /// The [`VisibilityClass`] used for all particle effects.
 #[derive(Default, Clone, Copy, Component, ExtractComponent)]
 pub struct EffectVisibilityClass;
