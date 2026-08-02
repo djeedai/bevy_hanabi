@@ -34,7 +34,7 @@ struct MergeParams {
 
 /// Copy the sorted particle indices back into the effect index buffer.
 @compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
+fn sort_copy(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
     let row_index = global_invocation_id.x;
     let effect_metadata_index = spawner.effect_metadata_index;
     let count = atomicLoad(&effect_metadatas[effect_metadata_index].alive_count); // TODO - atomic not needed

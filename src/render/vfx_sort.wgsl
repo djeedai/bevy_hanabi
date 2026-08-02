@@ -460,10 +460,11 @@ fn test_block_sort(@builtin(global_invocation_id) global_invocation_id: vec3<u32
 //     sort_buffer.count = 0;
 // }
 
-/// Block-sort 1024 particles per workgroup. Larger inputs are merged by
-/// vfx_sort_merge.wgsl in subsequent compute passes.
+/// Sort particles in blocks of 1024 per workgroup.
+///
+/// Larger inputs are merged by vfx_sort_merge.wgsl in subsequent compute passes.
 @compute @workgroup_size(64)
-fn main(@builtin(local_invocation_index) thread_id: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
+fn sort_blocks(@builtin(local_invocation_index) thread_id: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     let block_id = workgroup_id.x;  // wgpu doesn't support @builtin(workgroup_index)
 
     let total_num_items = u32(sort_buffer.count);

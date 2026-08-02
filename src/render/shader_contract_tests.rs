@@ -207,7 +207,7 @@ fn create_sort_pipeline(
         label: Some("hanabi:test:sort:pipe"),
         layout: Some(&pl),
         module: &shader,
-        entry_point: Some("main"),
+        entry_point: Some("sort_blocks"),
         cache: None,
         compilation_options: wgpu::PipelineCompilationOptions::default(),
     });
@@ -455,7 +455,7 @@ fn real_ribbon_sort_chain_isolated_per_instance() -> Result<(), Box<dyn std::err
         label: Some("hanabi:test:ribbon:fill"),
         layout: Some(&fill_pl),
         module: &fill_shader,
-        entry_point: Some("main"),
+        entry_point: Some("sort_fill"),
         cache: None,
         compilation_options: wgpu::PipelineCompilationOptions::default(),
     });
@@ -463,7 +463,7 @@ fn real_ribbon_sort_chain_isolated_per_instance() -> Result<(), Box<dyn std::err
         label: Some("hanabi:test:ribbon:copy"),
         layout: Some(&copy_pl),
         module: &copy_shader,
-        entry_point: Some("main"),
+        entry_point: Some("sort_copy"),
         cache: None,
         compilation_options: wgpu::PipelineCompilationOptions::default(),
     });

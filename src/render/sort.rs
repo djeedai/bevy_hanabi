@@ -232,7 +232,7 @@ impl SortBindGroups {
             layout: vec![sort_bind_group_layout_desc.clone()],
             shader: sort_shader,
             shader_defs: vec!["HAS_DUAL_KEY".into()],
-            entry_point: Some("main".into()),
+            entry_point: Some("sort_blocks".into()),
             immediate_size: 0,
             zero_initialize_workgroup_memory: false,
         });
@@ -290,7 +290,7 @@ impl SortBindGroups {
                 layout: vec![sort_copy_bind_group_layout_desc.clone()],
                 shader: sort_copy_shader,
                 shader_defs: vec![],
-                entry_point: Some("main".into()),
+                entry_point: Some("sort_copy".into()),
                 immediate_size: 0,
                 zero_initialize_workgroup_memory: false,
             });
@@ -528,7 +528,7 @@ impl SortBindGroups {
                         layout: vec![bind_group_layout_desc.clone()],
                         shader: self.sort_fill_shader.clone(),
                         shader_defs: vec!["HAS_DUAL_KEY".into()],
-                        entry_point: Some("main".into()),
+                        entry_point: Some("sort_fill".into()),
                         immediate_size: 0,
                         zero_initialize_workgroup_memory: false,
                     });
@@ -930,8 +930,9 @@ mod gpu_tests {
         })
     }
 
+    /// Test sorting a single non-full block (less than 1024 elements).
     #[test]
-    fn test_serial_insertion_sort() {
+    fn test_sort_block() {
         let mut test = SortTest::new();
 
         let num_kv = 257u32;
@@ -947,13 +948,13 @@ mod gpu_tests {
 
         // Dispatch to GPU
         let workgroups = UVec3::new(1, 1, 1);
-        let view = test.dispatch("main", num_kv, &expected[..], workgroups);
+        let view = test.dispatch("sort_blocks", num_kv, &expected[..], workgroups);
 
         // Sort locally on CPU
-        expected.sort();
+        expected.sort(); // stable
 
         // Compare results
-        assert_eq!(cast_slice::<_, u32>(&view[..4]), &[0]);
+        assert_eq!(cast_slice::<_, u32>(&view[..4]), &[num_kv]); // unmodified
         let actual = cast_slice::<_, DualKeyValuePair>(&view[4..]);
         assert_eq!(actual, expected.as_slice());
     }
