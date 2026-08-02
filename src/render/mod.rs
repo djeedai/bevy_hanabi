@@ -6834,21 +6834,6 @@ fn draw<'w>(
         &[],
     );
 
-    // // Bind group @2 -- multi-draw variant (set once for all draw calls)
-    // let has_multi_draw = false;
-    // if has_multi_draw {
-    //     let batch_info_aligned_size =
-    // effects_meta.batch_info_buffer.aligned_size();     let batch_info_offset
-    // = effect_batch.batch_info_id * batch_info_aligned_size as u32;
-    //     pass.set_bind_group(
-    //         2,
-    //         property_bind_groups
-    //             .get(effect_batch.property_key.as_ref(), true)
-    //             .unwrap(),
-    //         &[batch_info_offset],
-    //     );
-    // }
-
     // Effect materials (textures and samplers)
     // TODO = move
     let material = Material {
@@ -7225,56 +7210,6 @@ fn simulate(
         // FIXME - Bevy doesn't allow returning custom errors here...
         return;
     };
-
-    // FIXME - need here (or end of last frame) to copy the number of GPU spawn
-    // events into the prefix_sum buffer, before we do the prefix sum pass below.
-    // Currently without this, GPU events are broken.
-
-    // Init prefix sum compute pass
-    //
-    // Calculate the prefix sum of the number of particles to spawn in the init
-    // pass, which is equal to the number of compute threads dispatched.
-    //
-    // FIXME - vfx_prefix_sum updates BatchInfo::total_update_count, and for CPU
-    // init we already upload the prefix sum values calculated from CPU each
-    // frame. The only prefix sum left we don't currently do would be if we
-    // batched GPU spawning, but we don't currently.
-    //
-    // {
-    //     let mut compute_pass = HanabiComputePass::new(
-    //         "hanabi:init_prefix_sum",
-    //         &pipeline_cache,
-    //         &mut render_context,
-    //     );
-
-    //     trace!("record commands for init prefix sum pass...");
-
-    //     if compute_pass
-    //         .set_cached_compute_pipeline(effects_meta.prefix_sum_pipeline_id)
-    //         .is_err()
-    //     {
-    //         // FIXME - Bevy doesn't allow returning custom errors here...
-    //         trace!("ERROR - Failed to set prefix sum compute pipeline. Simulation
-    // aborted.");         return;
-    //     }
-
-    //     // Dispatch one thread per init effect batch.
-    //     const WORKGROUP_SIZE: u32 = 64;
-    //     // Note: This only works because we use the same batches for the init and
-    // update     // passes. A priori there's no reason why we couldn't split
-    // them, since likely     // the batches would be different.
-    //     let total_batch_count = batcher.len() as u32;
-    //     let workgroup_count = total_batch_count.div_ceil(WORKGROUP_SIZE);
-
-    //     // Setup vfx_prefix_sum pass
-    //     compute_pass.set_bind_group(0, prefix_sum_bind_group, &[]);
-    //     compute_pass.dispatch_workgroups(workgroup_count, 1, 1);
-    //     trace!(
-    //         "prefix sum dispatched: total_batch_count={} workgroup_count={}",
-    //         total_batch_count,
-    //         workgroup_count
-    //     );
-    // }
 
     // Compute init pass
     {
