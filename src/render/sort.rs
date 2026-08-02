@@ -930,64 +930,6 @@ mod gpu_tests {
         })
     }
 
-    /// Parallel merge-sort for any length.
-    #[test]
-    fn test_block_parallel_merge_sort() {
-        let mut test = SortTest::new();
-
-        println!("max_block_size = {}", test.max_block_size);
-        let block_size = 1024; // see shader
-        assert!(block_size <= test.max_block_size);
-
-        // Avoid multiples of the block size, try to exercise edge case sizes.
-        let num_kv = 3000;
-        let num_blocks = (num_kv + block_size - 1) / block_size;
-
-        let mut expected = Vec::with_capacity(num_kv as usize * 2);
-        for i in 0..num_kv as usize {
-            // Repeat both keys within each local run to exercise secondary-key
-            // ordering and duplicate-key payload preservation.
-            expected.push(DualKeyValuePair {
-                key: 63 - (i % 64) as u32,
-                key2: (i / 64) as f32,
-                value: i as u32,
-            });
-        }
-        // Scratch buffer
-        for _ in 0..num_kv as usize {
-            expected.push(DualKeyValuePair {
-                key: 0xFF00FF00u32,
-                key2: f32::INFINITY,
-                value: 0xFF00FF00u32,
-            });
-        }
-        let s = format_slice(&expected[..num_kv as usize]);
-        eprintln!("input:\n{s}\n");
-
-        // Dispatch to GPU
-        let workgroups = UVec3::new(num_blocks, 1, 1);
-        let view = test.dispatch(
-            "test_block_parallel_merge_sort",
-            num_kv,
-            &expected[..],
-            workgroups,
-        );
-
-        // Validate content
-        let count_slice: &[u32] = cast_slice(&view[..4]);
-        assert_eq!(count_slice[0], num_kv); // should not be overwritten
-        let actual: &[DualKeyValuePair] = cast_slice(&view[4..]);
-        let s = format_slice(&actual[..num_kv as usize]);
-        eprintln!("output:\n{s}");
-        let s = format_slice(&actual[num_kv as usize..]);
-        eprintln!("scratch:\n{s}");
-        assert!(
-            actual.windows(2).all(|pair| pair[0] <= pair[1]),
-            "local run is not sorted"
-        );
-        assert_eq!(expected.as_slice(), actual);
-    }
-
     #[test]
     fn test_serial_insertion_sort() {
         let mut test = SortTest::new();

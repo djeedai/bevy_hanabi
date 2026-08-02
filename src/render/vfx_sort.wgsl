@@ -280,56 +280,6 @@ fn find_log2(value: u32) -> u32 {
     return num;
 }
 
-/// Parallel merge-sort combining a block-level parallel sort followed by a serial mergesort.
-fn block_parallel_merge_sort(thread_id: u32, block_id: u32) {
-    let total_num_items = u32(sort_buffer.count);
-
-    // Loop over all blocks and block-sort each serially (TODO - parallelize this too)
-    let num_blocks = (total_num_items + blockSize - 1) / blockSize;
-    {
-        let offset = block_id * blockSize;
-        let count = min(offset + blockSize, total_num_items) - offset;  // <= blockSize
-        block_sort(thread_id, offset, offset, count);
-    }
-
-    // Wait for all threads to write per-block sorted lists into the storage sort buffer
-    storageBarrier();
-    workgroupBarrier();
-
-    // Recursively merge the blockSize-length sorted lists into a single globally sorted one.
-    // FIXME - parallelize this...
-    if (thread_id == 0 && block_id == 0) {
-        src = 0u;
-        dst = total_num_items;
-        merge_lists_serial(0u, blockSize, blockSize, blockSize, 0u, total_num_items);
-
-        // for (var i: u32 = 0; i < total_num_items; i += 1u) {
-        //     sort_buffer.pairs[total_num_items + i] = sort_buffer.pairs[i];
-        // }
-
-        // src = 0u;
-        // dst = total_num_items;
-        // var left = num_blocks;
-        // while (left > 1u) {
-        //     var step = 1u;
-        //     while (step < left) {
-        //         for (var i: u32 = 0u; i + step < left; i += step * 2u) {
-        //             merge_lists_serial(i, step, i + step, step, src, dst);
-        //         }
-        //         step <<= 1u;
-
-        //         //storageBarrier();
-
-        //         // Swap source/destination lists for next iteration
-        //         let tmp = src;
-        //         src = dst;
-        //         dst = tmp;
-        //     }
-        //     left >>= 1u;
-        // }
-    }
-}
-
 /// Sort each block in parallel on a separate workgroup.
 @compute @workgroup_size(64)
 fn parallel_block_sort(@builtin(local_invocation_index) thread_id: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
@@ -476,13 +426,6 @@ fn test_block_sort(@builtin(global_invocation_id) global_invocation_id: vec3<u32
     let tid = global_invocation_id.x;
     let total_num_items = u32(sort_buffer.count);
     block_sort(tid, 0u, 0u, total_num_items);
-}
-
-/// Test for parallel_merge_sort().
-@compute @workgroup_size(64)
-fn test_block_parallel_merge_sort(@builtin(local_invocation_index) thread_id: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
-    let block_id = workgroup_id.x;  // wgpu doesn't support @builtin(workgroup_index)
-    block_parallel_merge_sort(thread_id, block_id);
 }
 
 #endif
