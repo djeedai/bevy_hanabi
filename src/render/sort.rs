@@ -349,7 +349,7 @@ impl SortBindGroups {
                 max_list_size: list_size,
                 source_buffer: pass % 2,
             });
-            list_size = list_size << 1;
+            list_size <<= 1;
         }
 
         self.merge_params_changed = true;
