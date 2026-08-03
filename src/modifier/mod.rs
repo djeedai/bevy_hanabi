@@ -775,6 +775,7 @@ pub fn register_modifiers(type_registry: &AppTypeRegistry) {
         type_registry.register::<SetPositionCircleModifier>();
         type_registry.register::<SetPositionSphereModifier>();
         type_registry.register::<SetPositionCone3dModifier>();
+        type_registry.register::<SetPositionBoxModifier>();
         // velocity.rs
         type_registry.register::<SetVelocityCircleModifier>();
         type_registry.register::<SetVelocitySphereModifier>();
