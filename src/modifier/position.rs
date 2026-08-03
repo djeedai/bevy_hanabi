@@ -384,6 +384,7 @@ impl SetPositionBoxModifier {
         context.make_fn(
             &func_name,
             "particle: ptr<function, Particle>",
+            None,
             module,
             &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
                 let center = ctx.eval(m, self.center)?;
