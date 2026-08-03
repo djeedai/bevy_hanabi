@@ -12,21 +12,8 @@ use std::{
 use bevy::core_pipeline::core_2d::{Transparent2d, CORE_2D_DEPTH_FORMAT};
 #[cfg(feature = "2d")]
 use bevy::math::FloatOrd;
-#[cfg(feature = "3d")]
 use bevy::{
-    core_pipeline::{
-        core_3d::{
-            AlphaMask3d, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey, Transparent3d,
-            CORE_3D_DEPTH_FORMAT,
-        },
-        prepass::{OpaqueNoLightmap3dBatchSetKey, OpaqueNoLightmap3dBinKey},
-    },
-    render::{
-        mesh::allocator::MeshSlabs,
-        render_phase::{BinnedPhaseItem, ViewBinnedRenderPhases},
-    },
-};
-use bevy::{
+    camera::primitives::Frustum,
     ecs::{
         change_detection::Tick,
         prelude::*,
@@ -59,6 +46,20 @@ use bevy::{
         Extract, MainWorld,
     },
 };
+#[cfg(feature = "3d")]
+use bevy::{
+    core_pipeline::{
+        core_3d::{
+            AlphaMask3d, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey, Transparent3d,
+            CORE_3D_DEPTH_FORMAT,
+        },
+        prepass::{OpaqueNoLightmap3dBatchSetKey, OpaqueNoLightmap3dBinKey},
+    },
+    render::{
+        mesh::allocator::MeshSlabs,
+        render_phase::{BinnedPhaseItem, ViewBinnedRenderPhases},
+    },
+};
 use bitflags::bitflags;
 use bytemuck::{Pod, Zeroable};
 use effect_cache::{CachedEffect, EffectSlice, SlabState};
@@ -75,8 +76,8 @@ use crate::{
         effect_cache::{AnyDrawIndirectArgs, CachedDrawIndirectArgs, SlabId},
     },
     AlphaMode, Attribute, CompiledParticleEffect, EffectProperties, EffectShaders,
-    EffectSimulation, EffectSpawner, EffectVisibilityClass, ParticleLayout, PropertyLayout,
-    SimulationCondition, TextureLayout,
+    EffectSimulation, EffectSpawner, EffectVisibilityClass, HanabiMainCamera, ParticleLayout,
+    PropertyLayout, SimulationCondition, TextureLayout,
 };
 
 mod aligned_buffer_vec;
@@ -214,8 +215,17 @@ pub(crate) struct SimParams {
 /// GPU representation of [`SimParams`], as well as additional per-frame
 /// effect-independent values.
 #[repr(C)]
+#[repr(align(16))] // vec4<f32>
 #[derive(Debug, Copy, Clone, Pod, Zeroable, ShaderType)]
 struct GpuSimParams {
+    /// Main view/camera frustum planes, for things like frustum culling. Each
+    /// plane is encoded as (normal, distance) over 4 components, in world
+    /// space.
+    frustum: [Vec4; 6],
+    /// World space position of the main view/camera, for things like
+    /// distance-based sorting. The W component is unused (but required for
+    /// padding in WGSL).
+    camera_position: Vec4,
     /// Delta time, in seconds, since last effect system update.
     delta_time: f32,
     /// Current effect system simulation time since startup, in seconds.
@@ -240,11 +250,15 @@ struct GpuSimParams {
     ///
     /// This is only used by the `vfx_indirect` compute shader.
     num_effects: u32,
+
+    pad0: u32,
 }
 
 impl Default for GpuSimParams {
     fn default() -> Self {
         Self {
+            frustum: [Vec4::ZERO; 6],
+            camera_position: Vec4::ZERO,
             delta_time: 0.04,
             time: 0.0,
             virtual_delta_time: 0.04,
@@ -252,6 +266,7 @@ impl Default for GpuSimParams {
             real_delta_time: 0.04,
             real_time: 0.0,
             num_effects: 0,
+            pad0: 0,
         }
     }
 }
@@ -1956,6 +1971,10 @@ pub(crate) struct ParticleUpdatePipelineKey {
     shader: Handle<Shader>,
     /// Particle layout.
     particle_layout: ParticleLayout,
+    /// Key: LOCAL_SPACE_SIMULATION
+    /// The effect is simulated in local space. The particle positions are
+    /// stored in simulation space.
+    local_space_simulation: bool,
     /// Minimum binding size in bytes for the particle layout buffer of the
     /// parent effect, if any.
     /// Key: READ_PARENT_PARTICLE
@@ -1994,6 +2013,9 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
         }
         if key.num_event_buffers > 0 {
             shader_defs.push("EMITS_GPU_SPAWN_EVENTS".into());
+        }
+        if key.local_space_simulation {
+            shader_defs.push("LOCAL_SPACE_SIMULATION".into());
         }
 
         let hash = calc_func_id(&key);
@@ -2929,6 +2951,71 @@ pub(crate) fn extract_sim_params(
         sim_params.real_time,
         sim_params.real_delta_time,
     );
+}
+
+/// Extracted [`HanabiMainCamera`], with additional extracted data.
+///
+/// This component is added inside the render world to the render view
+/// corresponding to the extracted camera of the main camera holding the
+/// [`HanabiMainCamera`] component, if any.
+#[derive(Debug, Component)]
+pub(crate) struct HanabiRenderCamera {
+    /// Main entity the camera/view was extracted from, which contains the
+    /// [`Camera`], the [`HanabiMainCamera`], and the original data extracted.
+    #[allow(dead_code)]
+    pub view: MainEntity,
+    /// Camera position in world space.
+    pub position: Vec3,
+    /// Frustum planes of the camera.
+    pub frustum: [Vec4; 6],
+}
+
+/// Extract camera related data for the main Hanabi view.
+///
+/// The main Hanabi view is the view of the [`Camera`] tagged with the
+/// [`HanabiMainCamera`], if any. That camera and its view data are used for
+/// various features that require a single camera.
+pub(crate) fn extract_main_view(
+    mut commands: Commands,
+    q_views: Extract<
+        Query<
+            (Entity, RenderEntity, &GlobalTransform, &Frustum),
+            (With<Camera>, With<HanabiMainCamera>),
+        >,
+    >,
+    q_render_view: Query<Entity, With<HanabiRenderCamera>>,
+) {
+    #[cfg(feature = "trace")]
+    let _span = bevy::log::info_span!("extract_main_view").entered();
+    trace!("extract_main_view()");
+
+    // Get the unique main view from the main world.
+    let Ok((entity, render_entity, global_transform, frustum)) = q_views.single() else {
+        trace!("No HanabiMainCamera component found (or multiple; this is not allowed).");
+        // Delete any previous (now invalid) render world camera
+        for entity in q_render_view.iter() {
+            commands.entity(entity).remove::<HanabiRenderCamera>();
+        }
+        return;
+    };
+
+    // Ensure uniqueness; delete any previous camera if it's on a different entity
+    // that the expected one.
+    q_render_view.iter().for_each(|e| {
+        if e != render_entity {
+            commands.entity(e).remove::<HanabiRenderCamera>();
+        }
+    });
+
+    let render_camera = HanabiRenderCamera {
+        view: entity.into(),
+        position: global_transform.translation(),
+        frustum: frustum.half_spaces.map(|h| h.normal_d()),
+    };
+    trace!("HanabiRenderCamera: {render_camera:?}");
+
+    let mut commands = commands.entity(render_entity);
+    commands.insert(render_camera);
 }
 
 /// Various GPU limits and aligned sizes computed once and cached.
@@ -3926,6 +4013,10 @@ pub fn prepare_init_update_pipelines(
                 .map(|p| p.children.len() as u32)
                 .unwrap_or_default();
 
+            let local_space_simulation = extracted_effect
+                .layout_flags
+                .contains(LayoutFlags::LOCAL_SPACE_SIMULATION);
+
             // FIXME: currently don't hava a way to determine when this is needed, because
             // we know the number of children per parent only after resolving
             // all parents, but by that point we forgot if this is a newly added
@@ -3945,6 +4036,7 @@ pub fn prepare_init_update_pipelines(
                 ParticleUpdatePipelineKey {
                     shader: extracted_effect.effect_shaders.update.clone(),
                     particle_layout: particle_layout.clone(),
+                    local_space_simulation,
                     parent_particle_layout_min_binding_size,
                     num_event_buffers,
                     particle_bind_group_layout_desc: particle_bind_group_layout_desc.clone(),
@@ -4416,6 +4508,7 @@ pub(crate) fn prepare_batch_inputs(
         Option<&CachedEffectEvents>,
     )>,
     mut sort_bind_groups: ResMut<SortBindGroups>,
+    q_render_camera: Query<&HanabiRenderCamera>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("prepare_batch_inputs").entered();
@@ -4580,7 +4673,16 @@ pub(crate) fn prepare_batch_inputs(
 
     // Update simulation parameters, including the total effect count for this frame
     {
+        let dummy = HanabiRenderCamera {
+            view: Entity::PLACEHOLDER.into(),
+            frustum: default(),
+            position: default(),
+        };
+        let render_camera = q_render_camera.single().unwrap_or(&dummy);
+
         let mut gpu_sim_params: GpuSimParams = sim_params.into();
+        gpu_sim_params.frustum = render_camera.frustum;
+        gpu_sim_params.camera_position = render_camera.position.extend(0.0);
         gpu_sim_params.num_effects = prepared_effect_count;
         trace!(
             "Simulation parameters: time={} delta_time={} virtual_time={} \

@@ -179,6 +179,7 @@ impl Modifier for ConformToSphereModifier {
         context.make_fn(
             &func_name,
             "particle: ptr<function, Particle>",
+            None,
             module,
             &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
                 let origin = ctx.eval(m, self.origin)?;
