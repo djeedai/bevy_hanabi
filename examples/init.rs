@@ -157,6 +157,22 @@ fn setup(
         cube.clone(),
         mat.clone(),
     );
+
+    spawn_effect(
+        &mut commands,
+        "SetPositionBoxModifier".to_string(),
+        3.,
+        Transform::from_translation(Vec3::new(0., 10., 0.)),
+        effects.add(base_effect("SetPositionBoxModifier", |writer| {
+            SetPositionBoxModifier {
+                center: writer.lit(Vec3::ZERO).expr(),
+                extent: writer.lit(Vec3::splat(5.)).expr(),
+                dimension: ShapeDimension::Volume,
+            }
+        })),
+        cube.clone(),
+        mat.clone(),
+    );
 }
 
 fn rotate_effect(time: Res<Time>, mut query: Query<(&RotateSpeed, &mut Transform)>) {

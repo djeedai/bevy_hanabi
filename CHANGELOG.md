@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `SetPositionBoxModifier` to set the particle position randomly inside or
+  at the surface of a cube.
 - Added `HanabiMainCamera`, a component to tag the "main" camera that Hanabi uses
   for camera-specific features. Add to exactly one `Camera` to tag it.
 - Added `KillFrustumModifier` to kill particles outside of the main camera frustum.
