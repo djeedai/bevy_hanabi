@@ -104,12 +104,12 @@ fn create_head_effect() -> EffectAsset {
 
     // Make each particle round.
     let particle_texture_modifier = ParticleTextureModifier {
-        texture_slot: writer.lit(0u32).expr(),
+        texture_slot: 0,
         sample_mapping: ImageSampleMapping::Modulate,
     };
 
     let mut module = writer.finish();
-    module.add_texture_slot("shape");
+    module.add_texture_slot("shape", SlotDimension::D2);
 
     // Allocate room for 100 "head" particles (100 worms)
     EffectAsset::new(100, SpawnerSettings::rate(2.0.into()), module)

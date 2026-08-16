@@ -113,10 +113,8 @@ fn setup(
     // per-particle rotation)
     let rotation_attr = writer.attr(Attribute::F32_0).expr();
 
-    let texture_slot = writer.lit(0u32).expr();
-
     let mut module = writer.finish();
-    module.add_texture_slot("color");
+    module.add_texture_slot("color", SlotDimension::D2);
 
     let effect = effects.add(
         EffectAsset::new(32768, SpawnerSettings::rate(64.0.into()), module)
@@ -129,7 +127,7 @@ fn setup(
             .init(init_rotation)
             .init(init_color)
             .render(ParticleTextureModifier {
-                texture_slot,
+                texture_slot: 0,
                 sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
             .render(OrientModifier {

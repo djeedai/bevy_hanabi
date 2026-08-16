@@ -1041,12 +1041,12 @@ impl TextureLayout {
             entries.push(
                 slot.to_texture_binding_type()
                     .into_bind_group_layout_entry_builder()
-                    .build(tex_index, ShaderStages::COMPUTE | ShaderStages::VERTEX),
+                    .build(tex_index, ShaderStages::COMPUTE | ShaderStages::VERTEX | ShaderStages::FRAGMENT),
             );
             entries.push(
                 slot.to_sampler_binding_type()
                     .into_bind_group_layout_entry_builder()
-                    .build(sampler_index, ShaderStages::COMPUTE | ShaderStages::VERTEX),
+                    .build(sampler_index, ShaderStages::COMPUTE | ShaderStages::VERTEX | ShaderStages::FRAGMENT),
             );
             bind_index += 2;
         }
@@ -1299,10 +1299,9 @@ impl EffectShaderSources {
             "@group(2) @binding(3) var<storage, read> properties : array<Properties>;".to_string()
         };
 
-        // Generate the shader code defining the material bindings for the simulation
-        // (init and update) passes. These occupy the @group(2) @binding(4..) range.
+        // Generate the shader code defining the material bindings. These occupy the @group(2) @binding(4..) range.
         let texture_layout = asset.texture_layout();
-        let sim_material_bindings_code = texture_layout.to_wgsl_binding(2, 4);
+        let material_bindings_code = texture_layout.to_wgsl_binding(2, 4);
 
         // Event buffer bindings for the update pass, if the effect emits GPU events to
         // one or more other effects.
@@ -1410,7 +1409,7 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             .replace("{{INIT_EXTRA}}", &init_extra)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
-            .replace("{{MATERIAL_BINDINGS}}", &sim_material_bindings_code)
+            .replace("{{MATERIAL_BINDINGS}}", &material_bindings_code)
             .replace(
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
                 &init_sim_space_transform_code,
@@ -1492,7 +1491,6 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             alpha_cutoff_code,
             flipbook_scale_code,
             flipbook_row_count_code,
-            render_material_bindings_code,
         ) = {
             let texture_layout = module.texture_layout();
             let mut render_context =
@@ -1544,12 +1542,6 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                 (String::new(), String::new())
             };
 
-            trace!(
-                "Generating material bindings code for layout: {:?}",
-                texture_layout
-            );
-            let material_bindings_code = texture_layout.to_wgsl_binding(3, 0);
-
             (
                 render_context.vertex_code,
                 render_context.fragment_code,
@@ -1557,7 +1549,6 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                 alpha_cutoff_code,
                 flipbook_scale_code,
                 flipbook_row_count_code,
-                material_bindings_code,
             )
         };
 
@@ -1633,7 +1624,7 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             .replace("{{UPDATE_EXTRA}}", &update_extra)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
-            .replace("{{MATERIAL_BINDINGS}}", &sim_material_bindings_code)
+            .replace("{{MATERIAL_BINDINGS}}", &material_bindings_code)
             .replace(
                 "{{EMIT_EVENT_BUFFER_BINDINGS}}",
                 &emit_event_buffer_bindings_code,
@@ -1655,7 +1646,7 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             .replace("{{INPUTS}}", &inputs_code)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
-            .replace("{{MATERIAL_BINDINGS}}", &render_material_bindings_code)
+            .replace("{{MATERIAL_BINDINGS}}", &material_bindings_code)
             .replace("{{VERTEX_MODIFIERS}}", &vertex_code)
             .replace("{{FRAGMENT_MODIFIERS}}", &fragment_code)
             .replace("{{RENDER_EXTRA}}", &render_extra)

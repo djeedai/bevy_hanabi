@@ -5,7 +5,7 @@ use std::{
 
 use bevy::{
     asset::Handle,
-    ecs::{lifecycle::Remove, observer::On, system::Commands, world::Mut},
+    ecs::{lifecycle::Remove, observer::On, query::Without, system::Commands, world::Mut},
     image::Image,
     log::{error, trace},
     platform::collections::{hash_map::EntryRef, HashMap},
@@ -473,6 +473,7 @@ impl PropertyBuffer {
         // needs to be large enough to host at least one struct when bound to a shader,
         // and in WGSL the struct is padded to its align size.
         let size = layout.min_binding_size().get() as u32;
+        assert!(size > 0);
 
         // For now, we expand a single buffer infinitely. TODO to add a limit...
         let offset = self.alloc_aligned(size);
@@ -648,13 +649,13 @@ impl PropertyCache {
         self.bind_group_layout_descs.get(&key)
     }
 
-    pub fn allocate(
+    /// Ensure there's a bind group layout for the property variant with that
+    /// binding size and the given texture layout.
+    pub fn ensure_layout_exists(
         &mut self,
         property_layout: &PropertyLayout,
         texture_layout: &TextureLayout,
-    ) -> CachedEffectProperties {
-        // Ensure there's a bind group layout for the property variant with that binding
-        // size.
+    ) {
         let properties_min_binding_size = if property_layout.is_empty() {
             0
         } else {
@@ -686,17 +687,15 @@ impl PropertyCache {
                 bgl.label = label.into();
 
                 // Append the Properties array binding
-                let mut start_binding = 3;
                 if properties_min_binding_size > 0 {
                     bgl.entries.push(
                         storage_buffer_read_only_sized(false, Some(NonZeroU64::new(properties_min_binding_size as u64).unwrap()))
-                            .build(start_binding, ShaderStages::COMPUTE | ShaderStages::VERTEX),
+                            .build(3, ShaderStages::COMPUTE | ShaderStages::VERTEX | ShaderStages::FRAGMENT),
                     );
-                    start_binding += 1;
                 }
 
                 // Append the texture bindings, if any
-                texture_layout.append_layout_bindings(start_binding, &mut bgl.entries);
+                texture_layout.append_layout_bindings(4, &mut bgl.entries);
 
                 trace!(
                     "-> created bind group layout desc for size {} with {} textures: {:?}",
@@ -707,6 +706,14 @@ impl PropertyCache {
                 bgl
             });
         }
+    }
+
+    pub fn allocate(
+        &mut self,
+        property_layout: &PropertyLayout,
+        texture_layout: &TextureLayout,
+    ) -> CachedEffectProperties {
+        self.ensure_layout_exists(property_layout, texture_layout);
 
         self.buffers
             .iter_mut()
@@ -828,15 +835,6 @@ impl PropertyBindGroupKey {
 
     pub fn has_textures(&self) -> bool {
         !self.texture_layout.layout.is_empty()
-    }
-
-    /// Get the key without any texture; for the render pass, textures are bound
-    /// separately.
-    pub fn for_render(&self) -> Self {
-        Self {
-            texture_layout: default(),
-            ..*self
-        }
     }
 }
 
@@ -980,6 +978,8 @@ impl PropertyBindGroups {
         pipeline_cache: &PipelineCache,
         gpu_images: &RenderAssets<GpuImage>,
     ) -> Result<(), ()> {
+        trace!("PropertyBindGroups::ensure_exists() key={property_key:?}");
+
         let property_buffer = if property_key.has_properties() {
             let Some(property_buffer) = property_cache.get_buffer(property_key.buffer_index) else {
                 error!(
@@ -1083,6 +1083,7 @@ pub(crate) fn allocate_properties(
         &ExtractedProperties,
         Option<&mut CachedEffectProperties>,
     )>,
+    q_noprop_effects: Query<&ExtractedEffect, Without<ExtractedProperties>>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("allocate_properties").entered();
@@ -1143,6 +1144,14 @@ pub(crate) fn allocate_properties(
             );
             commands.entity(entity).insert(cached_effect_properties);
         }
+    }
+
+    // For no-property bind groups, just ensure the layout exists because we will
+    // need it when creating the pipelines.
+    let empty_propert_layout = PropertyLayout::default();
+    for extracted_effect in &q_noprop_effects {
+        property_cache
+            .ensure_layout_exists(&empty_propert_layout, &extracted_effect.texture_layout);
     }
 }
 

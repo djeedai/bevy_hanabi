@@ -2048,48 +2048,6 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
 #[derive(Resource)]
 pub(crate) struct ParticlesRenderPipeline {
     view_layout_desc: BindGroupLayoutDescriptor,
-    material_layout_descs: HashMap<TextureLayout, BindGroupLayoutDescriptor>,
-}
-
-impl ParticlesRenderPipeline {
-    /// Cache a material, creating its bind group layout based on the texture
-    /// layout.
-    pub fn cache_material(&mut self, layout: &TextureLayout) {
-        if layout.layout.is_empty() {
-            return;
-        }
-
-        // FIXME - no current stable API to insert an entry into a HashMap only if it
-        // doesn't exist, and without having to build a key (as opposed to a reference).
-        // So do 2 lookups instead, to avoid having to clone the layout if it's already
-        // cached (which should be the common case).
-        if self.material_layout_descs.contains_key(layout) {
-            return;
-        }
-
-        let mut entries = Vec::with_capacity(layout.layout.len() * 2);
-        layout.append_layout_bindings(0, &mut entries);
-        debug!(
-            "Creating material bind group with {} entries [{:?}] for layout {:?}",
-            entries.len(),
-            entries,
-            layout
-        );
-        let material_bind_group_layout_desc =
-            BindGroupLayoutDescriptor::new("hanabi:material_layout_render", &entries[..]);
-        self.material_layout_descs
-            .insert(layout.clone(), material_bind_group_layout_desc);
-    }
-
-    /// Retrieve a bind group layout for a cached material.
-    pub fn get_material(&self, layout: &TextureLayout) -> Option<&BindGroupLayoutDescriptor> {
-        // Prevent a hash and lookup for the trivial case of an empty layout
-        if layout.layout.is_empty() {
-            return None;
-        }
-
-        self.material_layout_descs.get(layout)
-    }
 }
 
 impl FromWorld for ParticlesRenderPipeline {
@@ -2109,7 +2067,6 @@ impl FromWorld for ParticlesRenderPipeline {
 
         Self {
             view_layout_desc,
-            material_layout_descs: default(),
         }
     }
 }
@@ -2206,19 +2163,15 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             ),
         );
 
-        let mut layout = vec![
+        let layout = vec![
             self.view_layout_desc.clone(),
             particle_bind_group_layout_desc,
             key.spawner_bind_group_layout_desc.clone(),
         ];
+
         let mut shader_defs = vec![];
         if !key.texture_layout.layout.is_empty() {
             shader_defs.push("HAS_MATERIAL".into());
-            if let Some(material_bind_group_layout) = self.get_material(&key.texture_layout) {
-                layout.push(material_bind_group_layout.clone());
-            } else {
-                panic!("Failed to retrieve material bind group layout, cannot specialize render pipeline.");
-            }
         }
 
         let vertex_buffer_layout = key.mesh_layout.as_ref().and_then(|mesh_layout| {
@@ -2760,6 +2713,7 @@ pub(crate) fn extract_effects(
             compiled_effect.textures.len(),
             layout_flags,
         );
+        assert_eq!(texture_layout.layout.len(), compiled_effect.textures.len());
         let new_extracted_effect = ExtractedEffect {
             handle: compiled_effect.asset.clone(),
             particle_layout: asset.particle_layout().clone(),
@@ -3919,8 +3873,9 @@ pub fn prepare_init_update_pipelines(
             )
             .unwrap_or_else(|| {
                 panic!(
-                    "Failed to find spawner@2 bind group layout for property binding size {:?}",
+                    "Failed to find spawner@2 bind group layout for property binding size {:?} and texture layout {:?}",
                     property_layout_min_binding_size,
+                    extracted_effect.texture_layout,
                 )
             });
         trace!(
@@ -5167,8 +5122,6 @@ pub struct EffectBindGroups {
     /// update pass.
     // FIXME - doesn't work with batching; this should be the instance ID
     update_metadata_bind_groups: HashMap<SlabId, CachedBindGroup<UpdateMetadataBindGroupKey>>,
-    /// Map from an effect material to its bind group.
-    material_bind_groups: HashMap<Material, BindGroup>,
 }
 
 impl EffectBindGroups {
@@ -5496,9 +5449,6 @@ fn emit_sorted_draw<T, F>(
             #[cfg(feature = "trace")]
             _span_check_vis.exit();
 
-            // Create and cache the bind group layout for this texture layout
-            render_pipeline.cache_material(&effect_batch.texture_layout);
-
             // FIXME - We draw the entire batch, but part of it may not be visible in this
             // view! We should re-batch for the current view specifically!
 
@@ -5706,9 +5656,6 @@ fn emit_binned_draw<T, F, G>(
             }
             #[cfg(feature = "trace")]
             _span_check_vis.exit();
-
-            // Create and cache the bind group layout for this texture layout
-            render_pipeline.cache_material(&effect_batch.texture_layout);
 
             // FIXME - We draw the entire batch, but part of it may not be visible in this
             // view! We should re-batch for the current view specifically!
@@ -6430,7 +6377,6 @@ pub struct PipelineParams<'w, 's> {
     utils_pipeline: Res<'w, UtilsPipeline>,
     init_pipeline: Res<'w, ParticlesInitPipeline>,
     update_pipeline: Res<'w, ParticlesUpdatePipeline>,
-    render_pipeline: ResMut<'w, ParticlesRenderPipeline>,
     marker: PhantomData<&'s usize>,
 }
 
@@ -6478,7 +6424,6 @@ pub(crate) fn prepare_bind_groups(
     let utils_pipeline = pipelines.utils_pipeline.into_inner();
     let init_pipeline = pipelines.init_pipeline.into_inner();
     let update_pipeline = pipelines.update_pipeline.into_inner();
-    let render_pipeline = pipelines.render_pipeline.into_inner();
 
     // Ensure child_infos@3 bind group for the indirect pass is available if needed.
     // This returns `None` if the buffer is not ready, either because it's not
@@ -6655,27 +6600,6 @@ pub(crate) fn prepare_bind_groups(
             continue;
         }
 
-        // Also create a texture-less bind group for the render pass; in the render
-        // pass, textures from the effect's material are bound separately.
-        if effect_batch.property_key.has_textures() {
-            let property_key = effect_batch.property_key.for_render();
-            if let Err(err) = property_bind_groups.ensure_exists(
-                &property_key,
-                &property_cache,
-                &spawner_buffer,
-                &prefix_sum_buffer,
-                &effect_batch.texture_layout,
-                &effect_batch.textures[..],
-                &batch_info_buffer,
-                &render_device,
-                &pipeline_cache,
-                &gpu_images,
-            ) {
-                error!("Failed to create property bind group for effect batch: {err:?}");
-                continue;
-            }
-        }
-
         // Bind group particle@1 for the simulate compute shaders (init and udpate) to
         // simulate particles.
         if effect_cache
@@ -6806,54 +6730,6 @@ pub(crate) fn prepare_bind_groups(
                 continue;
             }
         }
-
-        // Ensure the particle texture(s) are available as GPU resources and that a bind
-        // group for them exists
-        // FIXME fix this insert+get below
-        if !effect_batch.texture_layout.layout.is_empty() {
-            // This should always be available, as this is cached into the render pipeline
-            // just before we start specializing it.
-            let Some(material_bind_group_layout_desc) =
-                render_pipeline.get_material(&effect_batch.texture_layout)
-            else {
-                error!(
-                    "Failed to find material bind group layout for particle slab #{}",
-                    effect_batch.slab_id.index()
-                );
-                continue;
-            };
-
-            // TODO = move
-            let material = Material {
-                layout: effect_batch.texture_layout.clone(),
-                textures: effect_batch.textures.iter().map(|h| h.id()).collect(),
-            };
-            assert_eq!(material.layout.layout.len(), material.textures.len());
-
-            let mut bind_group_entries = vec![];
-            if !material.append_binding_entries(0, &gpu_images, &mut bind_group_entries) {
-                trace!(
-                    "Temporarily ignoring material {:?} due to missing image(s)",
-                    material
-                );
-                continue;
-            };
-
-            effect_bind_groups
-                .material_bind_groups
-                .entry(material.clone())
-                .or_insert_with(|| {
-                    debug!("Creating material bind group for material {:?}", material);
-                    render_device.create_bind_group(
-                        &format!(
-                            "hanabi:material_bind_group_{}",
-                            material.layout.layout.len()
-                        )[..],
-                        &pipeline_cache.get_bind_group_layout(material_bind_group_layout_desc),
-                        &bind_group_entries[..],
-                    )
-                });
-        }
     }
 }
 
@@ -6955,26 +6831,6 @@ fn draw<'w>(
         &[],
     );
 
-    // Effect materials (textures and samplers)
-    // TODO = move
-    let material = Material {
-        layout: effect_batch.texture_layout.clone(),
-        textures: effect_batch.textures.iter().map(|h| h.id()).collect(),
-    };
-    let has_material = !effect_batch.texture_layout.layout.is_empty();
-    if has_material {
-        if let Some(bind_group) = effect_bind_groups.material_bind_groups.get(&material) {
-            pass.set_bind_group(3, bind_group, &[]);
-        } else {
-            // Texture(s) not ready; skip this drawing for now
-            trace!(
-                "Particle material bind group not available for batch slab_id={}. Skipping draw call.",
-                effect_batch.slab_id.index(),
-            );
-            return;
-        }
-    }
-
     let Some(indirect_buffer) = effects_meta.draw_indirect_args_buffer.buffer() else {
         trace!(
             "The draw indirect buffer containing the indirect draw args is not ready for batch slab_id=#{}. Skipping draw call.",
@@ -7013,12 +6869,9 @@ fn draw<'w>(
                 effect_batch.effect_data.len()
             );
             for effect_data in &effect_batch.effect_data {
-                // Get the key without any texture; for the render pass, textures are bound
-                // separately.
-                let key = effect_batch.property_key.for_render();
                 pass.set_bind_group(
                     2,
-                    property_bind_groups.get(&key, with_prefix_sum).unwrap(),
+                    property_bind_groups.get(&effect_batch.property_key, with_prefix_sum).unwrap(),
                     &[effect_data.render_batch_info_offset],
                 );
                 let draw_indirect_index = effect_data.draw_indirect_buffer_row_index.0;
@@ -7051,12 +6904,9 @@ fn draw<'w>(
                 effect_batch.effect_data.len()
             );
             for effect_data in &effect_batch.effect_data {
-                // Get the key without any texture; for the render pass, textures are bound
-                // separately.
-                let key = effect_batch.property_key.for_render();
                 pass.set_bind_group(
                     2,
-                    property_bind_groups.get(&key, with_prefix_sum).unwrap(),
+                    property_bind_groups.get(&effect_batch.property_key, with_prefix_sum).unwrap(),
                     &[effect_data.render_batch_info_offset],
                 );
                 let draw_indirect_index = effect_data.draw_indirect_buffer_row_index.0;

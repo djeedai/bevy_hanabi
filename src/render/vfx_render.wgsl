@@ -50,11 +50,7 @@ struct VertexOutput {
 @group(2) @binding(1) var<storage, read> batch_info : BatchInfo;
 #endif
 {{PROPERTIES_BINDING}}
-
-// Per-effect bindings
-#ifdef HAS_MATERIAL
 {{MATERIAL_BINDINGS}}
-#endif
 
 /// The resolved effect and particle location.
 ///

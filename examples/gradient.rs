@@ -68,12 +68,9 @@ fn setup(
         speed: writer.lit(2.).expr(),
     };
 
-    // Use texture slot #0 in ParticleTextureModifier
-    let texture_slot = writer.lit(0u32).expr();
-
     // Define that texture slot (giving it a name for convenience)
     let mut module = writer.finish();
-    module.add_texture_slot("color");
+    module.add_texture_slot("color", SlotDimension::D2);
 
     let effect = effects.add(
         EffectAsset::new(32768, SpawnerSettings::rate(1000.0.into()), module)
@@ -83,7 +80,7 @@ fn setup(
             .init(init_age)
             .init(init_lifetime)
             .render(ParticleTextureModifier {
-                texture_slot,
+                texture_slot: 0,
                 sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
             .render(ColorOverLifetimeModifier::new(gradient)),

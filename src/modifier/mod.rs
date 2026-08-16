@@ -858,9 +858,8 @@ pub fn register_modifiers(type_registry: &AppTypeRegistry) {
     });
 
     // output.rs
-    register_reflect_modifier::<ParticleTextureModifier>(type_registry, |module| {
-        let slot = module.lit(0u32);
-        Box::new(ParticleTextureModifier::new(slot))
+    register_reflect_modifier::<ParticleTextureModifier>(type_registry, |_| {
+        Box::new(ParticleTextureModifier::new(0))
     });
     register_reflect_modifier::<SetColorModifier>(type_registry, |_| {
         Box::new(SetColorModifier::new(Vec4::ONE))
@@ -915,6 +914,13 @@ pub fn register_modifiers(type_registry: &AppTypeRegistry) {
             height: module.lit(1.0),
             base_radius: module.lit(1.0),
             top_radius: module.lit(0.0),
+            dimension: ShapeDimension::Surface,
+        })
+    });
+    register_reflect_modifier::<SetPositionBoxModifier>(type_registry, |module| {
+        Box::new(SetPositionBoxModifier {
+            center: module.lit(Vec3::ZERO),
+            extent: module.lit(Vec3::ONE),
             dimension: ShapeDimension::Surface,
         })
     });
@@ -1319,10 +1325,9 @@ fn main() {{
 
     #[test]
     fn validate_render() {
-        let mut base_module = Module::default();
-        let slot_zero = base_module.lit(0u32);
+        let base_module = Module::default();
         let modifiers: &[&dyn RenderModifier] = &[
-            &ParticleTextureModifier::new(slot_zero),
+            &ParticleTextureModifier::new(0),
             &ColorOverLifetimeModifier::default(),
             &SizeOverLifetimeModifier::default(),
             &OrientModifier::new(OrientMode::ParallelCameraDepthPlane),
