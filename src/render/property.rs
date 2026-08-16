@@ -805,9 +805,9 @@ pub struct PropertyBindGroupKey {
 // Note: use by HashMap to turn a key reference into an owned key when inserting
 // an entry. We use the same struct (even if we shouldn't, to avoid
 // TextureLayout cloning) for both.
-impl Into<PropertyBindGroupKey> for &PropertyBindGroupKey {
-    fn into(self) -> PropertyBindGroupKey {
-        self.clone()
+impl From<&PropertyBindGroupKey> for PropertyBindGroupKey {
+    fn from(value: &PropertyBindGroupKey) -> Self {
+        value.clone()
     }
 }
 
@@ -833,6 +833,7 @@ impl PropertyBindGroupKey {
         self.binding_size > 0
     }
 
+    #[allow(dead_code)]
     pub fn has_textures(&self) -> bool {
         !self.texture_layout.layout.is_empty()
     }
@@ -892,9 +893,8 @@ impl PropertyBindGroups {
 
         let align = render_device.limits().min_storage_buffer_offset_alignment;
 
-        let mut entries;
-        if with_prefix_sum {
-            entries = (*BindGroupEntries::sequential((
+        let mut entries = if with_prefix_sum {
+            (*BindGroupEntries::sequential((
                 spawner_buffer.as_entire_binding(),
                 prefix_sum_buffer.as_entire_binding(),
                 BufferBinding {
@@ -903,9 +903,9 @@ impl PropertyBindGroups {
                     size: Some(GpuBatchInfo::aligned_size(align)),
                 },
             )))
-            .to_vec();
+            .to_vec()
         } else {
-            entries = (*BindGroupEntries::with_indices((
+            (*BindGroupEntries::with_indices((
                 (0, spawner_buffer.as_entire_binding()),
                 (
                     1,
@@ -916,8 +916,8 @@ impl PropertyBindGroups {
                     },
                 ),
             )))
-            .to_vec();
-        }
+            .to_vec()
+        };
         if let Some(property_buffer) = property_buffer {
             // @group(2) @binding(3) var<storage, read> properties : array<Properties>
             entries.push(BindGroupEntry {
@@ -931,7 +931,7 @@ impl PropertyBindGroups {
             textures: textures.iter().map(|h| h.id()).collect(),
         };
         assert_eq!(material.layout.layout.len(), material.textures.len());
-        material.append_binding_entries(4, &gpu_images, &mut entries);
+        material.append_binding_entries(4, gpu_images, &mut entries);
 
         trace!("Creating @2 bind group with {} entries:", entries.len());
         for e in &entries {

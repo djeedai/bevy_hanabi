@@ -789,6 +789,7 @@ impl Module {
 ///
 /// [`Graph`]: crate::graph::Graph
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum ExprError {
     /// Expression type error.
     ///
@@ -5302,6 +5303,47 @@ mod tests {
             let mut de = ron::de::Deserializer::from_str("\"#4294967296\"").unwrap();
             let ret = ExprHandle::deserialize(&mut de);
             assert!(ret.is_err());
+        }
+    }
+
+    #[test]
+    fn texture_load_expr() {
+        let mut module = Module::default();
+        let coordinates = module.lit(Vec2::ZERO);
+        let array_index = module.lit(0_u32);
+        let mip_level = module.lit(0_u32);
+
+        let dims = [
+            SlotDimension::D1,
+            SlotDimension::D2,
+            SlotDimension::D2Array,
+            SlotDimension::Cube,
+            SlotDimension::CubeArray,
+            SlotDimension::D3,
+            SlotDimension::DepthD2,
+            SlotDimension::DepthD2Array,
+            SlotDimension::DepthCube,
+            SlotDimension::DepthCubeArray,
+        ];
+        let mips = [None, Some(mip_level)];
+        for dim in &dims {
+            for mip in &mips {
+                let mip = *mip;
+
+                let res = TextureLoadExpr::new(4, *dim, coordinates, None, mip);
+                assert_eq!(
+                    res.is_ok(),
+                    !dim.is_array() && !dim.is_cube(),
+                    "array=false dim={dim:?} res={res:?} mip={mip:?}"
+                );
+
+                let res = TextureLoadExpr::new(4, *dim, coordinates, Some(array_index), mip);
+                assert_eq!(
+                    res.is_ok(),
+                    dim.is_array() && !dim.is_cube(),
+                    "array=true dim={dim:?} res={res:?} mip={mip:?}"
+                );
+            }
         }
     }
 }

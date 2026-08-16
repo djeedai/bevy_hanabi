@@ -76,7 +76,7 @@ fn setup(
                     .to_linear(),
                     _ => panic!(),
                 };
-                data[offset * 4 + 0] = (c.red * 255.0) as u8;
+                data[offset * 4] = (c.red * 255.0) as u8;
                 data[offset * 4 + 1] = (c.green * 255.0) as u8;
                 data[offset * 4 + 2] = (c.blue * 255.0) as u8;
                 data[offset * 4 + 3] = 255;

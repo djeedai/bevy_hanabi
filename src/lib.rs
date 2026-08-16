@@ -825,6 +825,38 @@ impl SlotDimension {
                 | SlotDimension::DepthCubeArray
         )
     }
+
+    /// Convert this slot dimension to a WGSL texture type name.
+    pub fn to_wgsl_texture_type(&self) -> String {
+        match *self {
+            SlotDimension::D1 => "texture_1d<f32>",
+            SlotDimension::D2 => "texture_2d<f32>",
+            SlotDimension::D2Array => "texture_2d_array<f32>",
+            SlotDimension::D3 => "texture_3d<f32>",
+            SlotDimension::Cube => "texture_cube<f32>",
+            SlotDimension::CubeArray => "texture_cube_array<f32>",
+            SlotDimension::DepthD2 => "texture_depth_2d<f32>",
+            SlotDimension::DepthD2Array => "texture_depth_2d_array<f32>",
+            SlotDimension::DepthCube => "texture_depth_cube<f32>",
+            SlotDimension::DepthCubeArray => "texture_depth_cube_array<f32>",
+        }
+        .to_string()
+    }
+
+    /// Convert this slot dimension to a WGSL sampler type.
+    ///
+    /// This returns `sampler_comparison` if [`is_depth()`] is `true`, or
+    /// `sampler` otherwise.
+    ///
+    /// [`is_depth()`]: Self::is_depth
+    pub fn to_wgsl_sampler_type(&self) -> String {
+        if self.is_depth() {
+            "sampler_comparison"
+        } else {
+            "sampler"
+        }
+        .to_string()
+    }
 }
 
 /// Texture slot of a [`Module`].
@@ -877,12 +909,11 @@ impl TextureSlot {
 
         // Cube textures need a number of layer multiple of 6. And non-array ones need
         // exactly 6.
-        if self.dimension.is_cube() {
-            if !self.dimension.is_array() && (array_layer_count != 6) {
-                return false;
-            } else if !array_layer_count.is_multiple_of(6) {
-                return false;
-            }
+        if self.dimension.is_cube()
+            && ((!self.dimension.is_array() && (array_layer_count != 6))
+                || !array_layer_count.is_multiple_of(6))
+        {
+            return false;
         }
 
         // A layer count > 1 requires an array textures or a cube texture
@@ -952,36 +983,6 @@ impl TextureSlot {
             SamplerBindingType::Filtering
         };
         BindingType::Sampler(sampler_binding_type)
-    }
-
-    /// Convert this slot to a WGSL texture type.
-    pub fn to_wgsl_texture_type(&self) -> String {
-        match self.dimension {
-            SlotDimension::D1 => "texture_1d<f32>",
-            SlotDimension::D2 => "texture_2d<f32>",
-            SlotDimension::D2Array => "texture_2d_array<f32>",
-            SlotDimension::D3 => "texture_3d<f32>",
-            SlotDimension::Cube => "texture_cube<f32>",
-            SlotDimension::CubeArray => "texture_cube_array<f32>",
-            SlotDimension::DepthD2 => "texture_depth_2d<f32>",
-            SlotDimension::DepthD2Array => "texture_depth_2d_array<f32>",
-            SlotDimension::DepthCube => "texture_depth_cube<f32>",
-            SlotDimension::DepthCubeArray => "texture_depth_cube_array<f32>",
-        }
-        .to_string()
-    }
-
-    /// Convert this slot to a WGSL sampler type.
-    ///
-    /// This returns `sampler_comparison` if [`SlotDimension::is_depth()`] is
-    /// `true`, or `sampler` otherwise.
-    pub fn to_wgsl_sampler_type(&self) -> String {
-        if self.dimension.is_depth() {
-            "sampler_comparison"
-        } else {
-            "sampler"
-        }
-        .to_string()
     }
 }
 
@@ -1068,8 +1069,8 @@ impl TextureLayout {
         for (slot_index, slot) in self.layout.iter().enumerate() {
             let tex_index = bind_index;
             let sampler_index = bind_index + 1;
-            let texture_type = slot.to_wgsl_texture_type();
-            let sampler_type = slot.to_wgsl_sampler_type();
+            let texture_type = slot.dimension.to_wgsl_texture_type();
+            let sampler_type = slot.dimension.to_wgsl_sampler_type();
             code.push_str(&format!(
                 "@group({group_index}) @binding({tex_index}) var material_texture_{slot_index}: {texture_type};
 @group({group_index}) @binding({sampler_index}) var material_sampler_{slot_index}: {sampler_type};
@@ -3038,5 +3039,83 @@ else { return c1; }
         };
         let accepts = (TextureDimension::D2, LayerMatchFlags::MULTIPLE_OF_SIX, true);
         check_texslot(&slot_depth_cube_array, accepts);
+    }
+
+    #[test]
+    fn slotdim_is() {
+        for dim in [
+            SlotDimension::D1,
+            SlotDimension::D2,
+            SlotDimension::D2Array,
+            SlotDimension::Cube,
+            SlotDimension::CubeArray,
+            SlotDimension::D3,
+            SlotDimension::DepthD2,
+            SlotDimension::DepthD2Array,
+            SlotDimension::DepthCube,
+            SlotDimension::DepthCubeArray,
+        ] {
+            // The canonical WGSL name, which is what the SlotDimentions debug-format to,
+            // happens to always contain "array" if the texture is an array texture, "depth"
+            // if it's used for comparison, and "cube" if it's a cube texture. We use this
+            // as validation.
+            let name = format!("{:?}", dim).to_ascii_lowercase();
+
+            let is_array = name.contains("array");
+            assert_eq!(is_array, dim.is_array());
+
+            let is_depth = name.contains("depth");
+            assert_eq!(is_depth, dim.is_depth());
+
+            let is_cube = name.contains("cube");
+            assert_eq!(is_cube, dim.is_cube());
+        }
+    }
+
+    #[test]
+    fn slotdim_texture_type() {
+        for dim in [
+            SlotDimension::D1,
+            SlotDimension::D2,
+            SlotDimension::D2Array,
+            SlotDimension::Cube,
+            SlotDimension::CubeArray,
+            SlotDimension::D3,
+            SlotDimension::DepthD2,
+            SlotDimension::DepthD2Array,
+            SlotDimension::DepthCube,
+            SlotDimension::DepthCubeArray,
+        ] {
+            let tex = dim.to_wgsl_texture_type();
+
+            let slot_type = format!("{dim:?}")
+                .to_ascii_lowercase()
+                .replace("array", "_array")
+                .replace("depth", "depth_")
+                .replace("d1", "1d")
+                .replace("d2", "2d")
+                .replace("d3", "3d");
+
+            assert_eq!(tex, format!("texture_{slot_type}<f32>"));
+        }
+    }
+
+    #[test]
+    fn slotdim_sampler_type() {
+        for dim in [
+            SlotDimension::D1,
+            SlotDimension::D2,
+            SlotDimension::D2Array,
+            SlotDimension::Cube,
+            SlotDimension::CubeArray,
+            SlotDimension::D3,
+            SlotDimension::DepthD2,
+            SlotDimension::DepthD2Array,
+            SlotDimension::DepthCube,
+            SlotDimension::DepthCubeArray,
+        ] {
+            let sampler = dim.to_wgsl_sampler_type();
+            assert_eq!(sampler.contains("comparison"), dim.is_depth());
+        }
     }
 }
