@@ -209,7 +209,8 @@ impl Modifier for InheritAttributeModifier {
 mod tests {
     use super::SetAttributeModifier;
     use crate::{
-        Attribute, ExprError, ModifierContext, Module, ParticleLayout, PropertyLayout, ShaderWriter,
+        Attribute, ExprError, ModifierContext, Module, ParticleLayout, PropertyLayout,
+        ShaderWriter, TextureLayout,
     };
 
     #[test]
@@ -218,10 +219,15 @@ mod tests {
         let attr = Attribute::POSITION; // vec3<f32>
         let expr = module.lit(3.); // f32
         let attr = SetAttributeModifier::new(attr, expr);
-        let property_layout = PropertyLayout::empty();
-        let particle_layout = ParticleLayout::empty();
-        let mut context =
-            ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
+        let property_layout = PropertyLayout::default();
+        let particle_layout = ParticleLayout::default();
+        let texture_layout = TextureLayout::default();
+        let mut context = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
         assert!(matches!(
             attr.eval(&mut module, &mut context),
             Err(ExprError::TypeError(_))

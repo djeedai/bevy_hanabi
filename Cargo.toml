@@ -165,6 +165,9 @@ name = "puffs"
 [[example]]
 name = "lightning"
 
+[[example]]
+name = "lut"
+
 [[test]]
 name = "empty_effect"
 path = "gpu_tests/empty_effect.rs"

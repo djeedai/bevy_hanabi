@@ -41,7 +41,6 @@ struct VertexOutput {
 
 #ifdef HAS_BATCHED_DRAW
 // Per-batch bindings
-// "spawner" group @2
 @group(2) @binding(0) var<storage, read> spawners : array<Spawner>;
 @group(2) @binding(1) var<storage, read> prefix_sum : array<u32>;
 @group(2) @binding(2) var<storage, read> batch_info : BatchInfo;

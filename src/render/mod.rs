@@ -2068,26 +2068,7 @@ impl ParticlesRenderPipeline {
         }
 
         let mut entries = Vec::with_capacity(layout.layout.len() * 2);
-        let mut index = 0;
-        for _slot in &layout.layout {
-            entries.push(BindGroupLayoutEntry {
-                binding: index,
-                visibility: ShaderStages::FRAGMENT,
-                ty: BindingType::Texture {
-                    multisampled: false,
-                    sample_type: TextureSampleType::Float { filterable: true },
-                    view_dimension: TextureViewDimension::D2,
-                },
-                count: None,
-            });
-            entries.push(BindGroupLayoutEntry {
-                binding: index + 1,
-                visibility: ShaderStages::FRAGMENT,
-                ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                count: None,
-            });
-            index += 2;
-        }
+        layout.append_layout_bindings(0, &mut entries);
         debug!(
             "Creating material bind group with {} entries [{:?}] for layout {:?}",
             entries.len(),
@@ -3931,7 +3912,11 @@ pub fn prepare_init_update_pipelines(
         let property_layout_min_binding_size =
             maybe_cached_properties.map(|cp| cp.property_layout.min_binding_size());
         let spawner_bind_group_layout_desc = property_cache
-            .bind_group_layout_desc(property_layout_min_binding_size, true)
+            .bind_group_layout_desc(
+                property_layout_min_binding_size,
+                true,
+                &extracted_effect.texture_layout,
+            )
             .unwrap_or_else(|| {
                 panic!(
                     "Failed to find spawner@2 bind group layout for property binding size {:?}",
@@ -4794,6 +4779,13 @@ pub(crate) fn batch_effects(
         // batch.
         let spawner_index = effects_meta.allocate_spawner(input.gpu_spawner_params);
 
+        let texture_layout = extracted_effect.texture_layout.clone();
+        let property_key = if let Some(cp) = cached_properties.as_ref() {
+            PropertyBindGroupKey::new(cp, texture_layout)
+        } else {
+            PropertyBindGroupKey::texture_only(texture_layout)
+        };
+
         // Create a single-effect batch candidate. It can be merged with the previous
         // batch if fully compatible.
         let mut effect_batch = EffectBatch::from_input(
@@ -4807,7 +4799,7 @@ pub(crate) fn batch_effects(
             &mut input,
             cached_draw_indirect_args.row,
             cached_effect_metadata.table_id,
-            cached_properties.map(Into::into),
+            property_key,
         );
 
         // If the batch has ribbons, we need to sort the particles by RIBBON_ID and AGE
@@ -4915,7 +4907,7 @@ pub(crate) fn batch_effects(
     {
         // Buffer was reallocated; clear all bind groups referencing the old buffer
         effect_bind_groups.particle_slabs.clear();
-        property_bind_groups.clear(true);
+        property_bind_groups.clear();
         effects_meta.indirect_spawner_bind_group = None;
     }
 
@@ -4923,7 +4915,7 @@ pub(crate) fn batch_effects(
     if batcher.write_batch_info_buffer(&render_device, &render_queue) {
         // Buffer was reallocated; clear all bind groups referencing the old buffer
         effect_bind_groups.particle_slabs.clear();
-        property_bind_groups.clear(true);
+        property_bind_groups.clear();
         effects_meta.indirect_spawner_bind_group = None;
         effects_meta.prefix_sum_bind_group = None;
     }
@@ -4932,7 +4924,7 @@ pub(crate) fn batch_effects(
     if batcher.write_prefix_sum_buffer(&render_device, &render_queue) {
         // Buffer was reallocated; clear all bind groups referencing the old buffer
         effect_bind_groups.particle_slabs.clear();
-        property_bind_groups.clear(true);
+        property_bind_groups.clear();
         effects_meta.indirect_spawner_bind_group = None;
         effects_meta.prefix_sum_bind_group = None;
     }
@@ -4985,40 +4977,49 @@ struct Material {
 
 impl Material {
     /// Get the bind group entries to create a bind group.
-    pub fn make_entries<'a>(
-        &self,
+    pub fn append_binding_entries<'a, 'b>(
+        &'b self,
+        binding_start: u32,
         gpu_images: &'a RenderAssets<GpuImage>,
-    ) -> Result<Vec<BindGroupEntry<'a>>, ()> {
-        if self.textures.is_empty() {
-            return Ok(vec![]);
+        entries: &'b mut Vec<BindGroupEntry<'a>>,
+    ) -> bool {
+        if self.layout.layout.len() != self.textures.len() {
+            return false;
         }
 
-        let entries: Vec<BindGroupEntry<'a>> = self
-            .textures
-            .iter()
-            .enumerate()
-            .flat_map(|(index, id)| {
-                let base_binding = index as u32 * 2;
-                if let Some(gpu_image) = gpu_images.get(*id) {
-                    vec![
-                        BindGroupEntry {
-                            binding: base_binding,
-                            resource: BindingResource::TextureView(&gpu_image.texture_view),
-                        },
-                        BindGroupEntry {
-                            binding: base_binding + 1,
-                            resource: BindingResource::Sampler(&gpu_image.sampler),
-                        },
-                    ]
-                } else {
-                    vec![]
-                }
-            })
-            .collect();
-        if entries.len() == self.textures.len() * 2 {
-            return Ok(entries);
+        if self.textures.is_empty() {
+            return true;
         }
-        Err(())
+
+        let mut index = binding_start;
+        for (slot, asset_id) in self.layout.layout.iter().zip(self.textures.iter()) {
+            let Some(gpu_image) = gpu_images.get(*asset_id) else {
+                return false;
+            };
+            if gpu_image.texture_descriptor.sample_count > 1 {
+                return false;
+            }
+            if !slot.accepts(
+                gpu_image.texture_descriptor.dimension,
+                gpu_image.texture_descriptor.array_layer_count(),
+                gpu_image
+                    .texture_descriptor
+                    .format
+                    .is_depth_stencil_format(),
+            ) {
+                return false;
+            }
+            entries.push(BindGroupEntry {
+                binding: index,
+                resource: BindingResource::TextureView(&gpu_image.texture_view),
+            });
+            entries.push(BindGroupEntry {
+                binding: index + 1,
+                resource: BindingResource::Sampler(&gpu_image.sampler),
+            });
+            index += 2;
+        }
+        true
     }
 }
 
@@ -5543,11 +5544,14 @@ fn emit_sorted_draw<T, F>(
             // have inserted any property in the cache, which would have allocated the
             // proper bind group layout (or the default no-property one).
             let has_multi_draw = false; // TODO?
-            let property_layout_min_binding_size = effect_batch
-                .property_key
-                .map(|key| NonZeroU64::new(key.binding_size as u64).unwrap());
+            let property_layout_min_binding_size =
+                NonZeroU64::new(effect_batch.property_key.binding_size as u64);
             let spawner_bind_group_layout_desc = property_cache
-                .bind_group_layout_desc(property_layout_min_binding_size, has_multi_draw)
+                .bind_group_layout_desc(
+                    property_layout_min_binding_size,
+                    has_multi_draw,
+                    &effect_batch.texture_layout,
+                )
                 .unwrap_or_else(|| {
                     panic!(
                         "Failed to find spawner@2 bind group layout for property binding size {:?}",
@@ -5749,11 +5753,14 @@ fn emit_binned_draw<T, F, G>(
             // have inserted any property in the cache, which would have allocated the
             // proper bind group layout (or the default no-property one).
             let has_multi_draw = false; // TODO?
-            let property_layout_min_binding_size = effect_batch
-                .property_key
-                .map(|key| NonZeroU64::new(key.binding_size as u64).unwrap());
+            let property_layout_min_binding_size =
+                NonZeroU64::new(effect_batch.property_key.binding_size as u64);
             let spawner_bind_group_layout_desc = property_cache
-                .bind_group_layout_desc(property_layout_min_binding_size, has_multi_draw)
+                .bind_group_layout_desc(
+                    property_layout_min_binding_size,
+                    has_multi_draw,
+                    &effect_batch.texture_layout,
+                )
                 .unwrap_or_else(|| {
                     panic!(
                         "Failed to find spawner@2 bind group layout for property binding size {:?}",
@@ -6632,29 +6639,41 @@ pub(crate) fn prepare_bind_groups(
         let _span_buffer = bevy::log::info_span!("create_batch_bind_groups").entered();
 
         // Create the property bind group @2 if needed
-        if let Some(property_key) = &effect_batch.property_key {
+        if let Err(err) = property_bind_groups.ensure_exists(
+            &effect_batch.property_key,
+            &property_cache,
+            &spawner_buffer,
+            &prefix_sum_buffer,
+            &effect_batch.texture_layout,
+            &effect_batch.textures[..],
+            &batch_info_buffer,
+            &render_device,
+            &pipeline_cache,
+            &gpu_images,
+        ) {
+            error!("Failed to create property bind group for effect batch: {err:?}");
+            continue;
+        }
+
+        // Also create a texture-less bind group for the render pass; in the render
+        // pass, textures from the effect's material are bound separately.
+        if effect_batch.property_key.has_textures() {
+            let property_key = effect_batch.property_key.for_render();
             if let Err(err) = property_bind_groups.ensure_exists(
-                property_key,
+                &property_key,
                 &property_cache,
                 &spawner_buffer,
                 &prefix_sum_buffer,
+                &effect_batch.texture_layout,
+                &effect_batch.textures[..],
                 &batch_info_buffer,
                 &render_device,
                 &pipeline_cache,
+                &gpu_images,
             ) {
                 error!("Failed to create property bind group for effect batch: {err:?}");
                 continue;
             }
-        } else if let Err(err) = property_bind_groups.ensure_exists_no_property(
-            &property_cache,
-            &spawner_buffer,
-            &prefix_sum_buffer,
-            &batch_info_buffer,
-            &render_device,
-            &pipeline_cache,
-        ) {
-            error!("Failed to create property bind group for effect batch: {err:?}");
-            continue;
         }
 
         // Bind group particle@1 for the simulate compute shaders (init and udpate) to
@@ -6811,8 +6830,8 @@ pub(crate) fn prepare_bind_groups(
             };
             assert_eq!(material.layout.layout.len(), material.textures.len());
 
-            //let bind_group_entries = material.make_entries(&gpu_images).unwrap();
-            let Ok(bind_group_entries) = material.make_entries(&gpu_images) else {
+            let mut bind_group_entries = vec![];
+            if !material.append_binding_entries(0, &gpu_images, &mut bind_group_entries) {
                 trace!(
                     "Temporarily ignoring material {:?} due to missing image(s)",
                     material
@@ -6994,11 +7013,12 @@ fn draw<'w>(
                 effect_batch.effect_data.len()
             );
             for effect_data in &effect_batch.effect_data {
+                // Get the key without any texture; for the render pass, textures are bound
+                // separately.
+                let key = effect_batch.property_key.for_render();
                 pass.set_bind_group(
                     2,
-                    property_bind_groups
-                        .get(effect_batch.property_key.as_ref(), with_prefix_sum)
-                        .unwrap(),
+                    property_bind_groups.get(&key, with_prefix_sum).unwrap(),
                     &[effect_data.render_batch_info_offset],
                 );
                 let draw_indirect_index = effect_data.draw_indirect_buffer_row_index.0;
@@ -7031,11 +7051,12 @@ fn draw<'w>(
                 effect_batch.effect_data.len()
             );
             for effect_data in &effect_batch.effect_data {
+                // Get the key without any texture; for the render pass, textures are bound
+                // separately.
+                let key = effect_batch.property_key.for_render();
                 pass.set_bind_group(
                     2,
-                    property_bind_groups
-                        .get(effect_batch.property_key.as_ref(), with_prefix_sum)
-                        .unwrap(),
+                    property_bind_groups.get(&key, with_prefix_sum).unwrap(),
                     &[effect_data.render_batch_info_offset],
                 );
                 let draw_indirect_index = effect_data.draw_indirect_buffer_row_index.0;
@@ -7395,7 +7416,7 @@ fn simulate(
             compute_pass.set_bind_group(
                 2,
                 property_bind_groups
-                    .get(effect_batch.property_key.as_ref(), true)
+                    .get(&effect_batch.property_key, true)
                     .unwrap(),
                 &[batch_info_offset],
             );
@@ -7636,7 +7657,7 @@ fn simulate(
             compute_pass.set_bind_group(
                 2,
                 property_bind_groups
-                    .get(effect_batch.property_key.as_ref(), true)
+                    .get(&effect_batch.property_key, true)
                     .unwrap(),
                 &[batch_info_offset],
             );

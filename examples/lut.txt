@@ -1,0 +1,5 @@
+This example shows how to use a texture as a lookup table (LUT).
+
+The effect emits particles whose color is sampled from a texture, based on the particle age and velocity. There are 4 color palettes, stored as 4 layers of a 2D array texture. A property dynamically select which layer to use.
+
+Use the up/down arrows and SPACE key to change the color palette.

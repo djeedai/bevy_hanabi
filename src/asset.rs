@@ -1251,8 +1251,13 @@ mod tests {
         let module = &mut effect.module;
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut init_context =
-            ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut init_context = ShaderWriter::new(
+            ModifierContext::Init,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
         assert!(init_pos_sphere.apply(module, &mut init_context).is_ok());
         assert!(init_vel_sphere.apply(module, &mut init_context).is_ok());
         assert!(init_age.apply(module, &mut init_context).is_ok());
@@ -1263,8 +1268,13 @@ mod tests {
         let drag_mod = LinearDragModifier::constant(module, 3.5);
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut update_context =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut update_context = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
         assert!(accel_mod.apply(module, &mut update_context).is_ok());
         assert!(drag_mod.apply(module, &mut update_context).is_ok());
         assert!(ConformToSphereModifier::new(origin, one, one, one, one)

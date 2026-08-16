@@ -277,7 +277,7 @@ impl Modifier for KillFrustumModifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ParticleLayout, PropertyLayout};
+    use crate::{ParticleLayout, PropertyLayout, TextureLayout};
 
     #[test]
     fn mod_kill_aabb() {
@@ -288,8 +288,13 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut context = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
         assert!(modifier.apply(&mut module, &mut context).is_ok());
 
         assert!(context.main_code.contains("is_alive = false")); // TODO - less

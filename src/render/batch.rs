@@ -168,8 +168,8 @@ pub(crate) struct EffectBatch {
     pub parent_binding_source: Option<BufferBindingSource>,
     /// Event buffers of child effects, if any.
     pub child_event_buffers: Vec<(Entity, BufferBindingSource)>,
-    /// Index of the property buffer, if any.
-    pub property_key: Option<PropertyBindGroupKey>,
+    /// Key for the "property" bind group (including textures).
+    pub property_key: PropertyBindGroupKey,
     /// Index of the first [`GpuSpawnerParams`] entry of the effects in the
     /// batch. Subsequent batched effects have their entries following linearly
     /// after that one.
@@ -745,7 +745,7 @@ impl EffectBatch {
         input: &mut BatchInput,
         draw_indirect_buffer_row_index: BufferTableId,
         metadata_table_id: BufferTableId,
-        property_key: Option<PropertyBindGroupKey>,
+        property_key: PropertyBindGroupKey,
     ) -> EffectBatch {
         assert_eq!(
             input.event_buffer_index.is_some(),

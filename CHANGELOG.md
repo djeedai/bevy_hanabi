@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `HanabiMainCamera`, a component to tag the "main" camera that Hanabi uses
   for camera-specific features. Add to exactly one `Camera` to tag it.
 - Added `KillFrustumModifier` to kill particles outside of the main camera frustum.
+- Added the ability to access the effect's material (the user bound textures) from all passes.
+- Added support for 1D and 3D textures, and 2D array textures, as well as cube textures
+  and depth textures, to the `TextureSampleExpr`. See `SlotDimension` for all supported variants.
+- Added a new `TextureLoadExpr` doing a non-sampling texture load (`textureLoad()` in WGSL).
+  This can be used in all passes (all modifier contexts).
+- Added a new `lut.rs` example that demonstrates using a 2D array texture as a look-up table (LUT).
+  This can be used to approximate any kind of curve or gradient.
 
 ### Changed
 
@@ -22,6 +29,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   available for GPU particle spawning.
 - Parallelized most of the GPU sort. This dramatically improves performance when using ribbon effects.
 - `EvalContext::make_fn()` now takes an optional return token for the function return value.
+- Renamed `TextureSampleExpr::image` to `slot_index`, and changed its type to be a `u32` slot index
+  defined at module build time. Dynamically switching between texture with a slot expression
+  was broken, and is explicitly not supported anymore. If you want to dynamically switch between textures,
+  consider using an array texture instead, which is a better way to achieve the same result.
+- Added `TextureSlot::dimension` to specify the type of texture that a texture slot accepts.
+- Added `TextureSampleExpr::slot_dimension` to specify the type of texture being sampled.
+  This must match the associated slot's `TextureSlot::dimension` when bound.
+- `TextureSamplerExpr` now correctly returns an error if used from any pass but the Render one,
+  instead of generating invalid WGSL code. This is a restriction of the WGSL language itself
+  (sampled texture read, via `textureSample()`, can only be used in the fragment shader).
 
 ### Fixed
 
