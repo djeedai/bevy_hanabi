@@ -2706,7 +2706,7 @@ pub(crate) fn extract_effects(
                 "Instance of effect '{}' on entity {:?} is missing some textures. Layout expected {} textures, but CompiledParticleEffect got {} instead.",
                 asset.name,
                 main_entity,
-                num_expected_tex, 
+                num_expected_tex,
                 compiled_effect.textures.len()
             );
             continue;
@@ -2716,7 +2716,7 @@ pub(crate) fn extract_effects(
                 "Instance of effect '{}' on entity {:?} has too many textures. Layout expected {} textures, but CompiledParticleEffect got {} instead. Ignoring the extra ones.",
                 asset.name,
                 main_entity,
-                num_expected_tex, 
+                num_expected_tex,
                 compiled_effect.textures.len()
             );
             compiled_effect.textures[..num_expected_tex].to_vec()
