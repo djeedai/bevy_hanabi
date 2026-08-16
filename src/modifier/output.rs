@@ -725,15 +725,13 @@ axis_z = cross(axis_x, axis_y);
 ///     .expr();
 /// let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
 ///
-/// let texture_slot = writer.lit(0u32).expr();
-///
 /// let asset = EffectAsset::new(32768, SpawnerSettings::once(32.0.into()), writer.finish())
 ///     .with_name("flipbook")
 ///     .init(init_age)
 ///     .init(init_lifetime)
 ///     .update(update_sprite_index)
 ///     .render(ParticleTextureModifier {
-///         texture_slot,
+///         texture_slot: 0,
 ///         sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
 ///     })
 ///     .render(FlipbookModifier {

@@ -1146,7 +1146,8 @@ impl Expr {
     /// let mut module = Module::default();
     /// # let pl = PropertyLayout::empty();
     /// # let pal = ParticleLayout::default();
-    /// # let mut context = ShaderWriter::new(ModifierContext::Update, &pl, &pal);
+    /// # let tl = TextureLayout::default();
+    /// # let mut context = ShaderWriter::new(ModifierContext::Update, &pl, &pal, &tl);
     /// let handle = module.lit(1.);
     /// let expr = module.get(handle).unwrap();
     /// assert_eq!(Ok("1.".to_string()), expr.eval(&module, &mut context));
