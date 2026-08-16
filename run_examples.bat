@@ -8,7 +8,6 @@ cargo r --example spawn
 cargo r --example multicam
 cargo r --example visibility
 cargo r --example random
-cargo r --example ribbon
 cargo r --example spawn_on_command
 cargo r --example activate
 cargo r --example force_field

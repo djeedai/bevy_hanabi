@@ -1041,12 +1041,18 @@ impl TextureLayout {
             entries.push(
                 slot.to_texture_binding_type()
                     .into_bind_group_layout_entry_builder()
-                    .build(tex_index, ShaderStages::COMPUTE | ShaderStages::VERTEX | ShaderStages::FRAGMENT),
+                    .build(
+                        tex_index,
+                        ShaderStages::COMPUTE | ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                    ),
             );
             entries.push(
                 slot.to_sampler_binding_type()
                     .into_bind_group_layout_entry_builder()
-                    .build(sampler_index, ShaderStages::COMPUTE | ShaderStages::VERTEX | ShaderStages::FRAGMENT),
+                    .build(
+                        sampler_index,
+                        ShaderStages::COMPUTE | ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                    ),
             );
             bind_index += 2;
         }
@@ -1299,7 +1305,8 @@ impl EffectShaderSources {
             "@group(2) @binding(3) var<storage, read> properties : array<Properties>;".to_string()
         };
 
-        // Generate the shader code defining the material bindings. These occupy the @group(2) @binding(4..) range.
+        // Generate the shader code defining the material bindings. These occupy the
+        // @group(2) @binding(4..) range.
         let texture_layout = asset.texture_layout();
         let material_bindings_code = texture_layout.to_wgsl_binding(2, 4);
 

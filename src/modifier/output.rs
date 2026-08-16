@@ -952,9 +952,7 @@ mod tests {
     #[test]
     fn mod_particle_texture() {
         let mut module = Module::default();
-        let slot = module.lit(42u32);
-        // let texture = Handle::<Image>::default();
-        let modifier = ParticleTextureModifier::new(slot);
+        let modifier = ParticleTextureModifier::new(42);
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();

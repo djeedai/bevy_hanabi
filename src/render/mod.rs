@@ -2065,9 +2065,7 @@ impl FromWorld for ParticlesRenderPipeline {
             ),
         );
 
-        Self {
-            view_layout_desc,
-        }
+        Self { view_layout_desc }
     }
 }
 
@@ -2700,8 +2698,33 @@ pub(crate) fn extract_effects(
             .map(|(extracted_effect, b, c, d, e)| (Some(extracted_effect), b, c, d, e))
             .unwrap_or((None, None, None, None, None));
 
-        // Extract general effect data
+        // Validate material
         let texture_layout = asset.module().texture_layout();
+        let num_expected_tex = texture_layout.layout.len();
+        if compiled_effect.textures.len() < num_expected_tex {
+            error!(
+                "Instance of effect '{}' on entity {:?} is missing some textures. Layout expected {} textures, but CompiledParticleEffect got {} instead.",
+                asset.name,
+                main_entity,
+                num_expected_tex, 
+                compiled_effect.textures.len()
+            );
+            continue;
+        }
+        let textures = if compiled_effect.textures.len() > num_expected_tex {
+            trace!(
+                "Instance of effect '{}' on entity {:?} has too many textures. Layout expected {} textures, but CompiledParticleEffect got {} instead. Ignoring the extra ones.",
+                asset.name,
+                main_entity,
+                num_expected_tex, 
+                compiled_effect.textures.len()
+            );
+            compiled_effect.textures[..num_expected_tex].to_vec()
+        } else {
+            compiled_effect.textures.clone()
+        };
+
+        // Extract general effect data
         let layout_flags = compiled_effect.layout_flags;
         let alpha_mode = compiled_effect.alpha_mode;
         trace!(
@@ -2710,17 +2733,16 @@ pub(crate) fn extract_effects(
             main_entity,
             render_entity,
             texture_layout.layout.len(),
-            compiled_effect.textures.len(),
+            textures.len(),
             layout_flags,
         );
-        assert_eq!(texture_layout.layout.len(), compiled_effect.textures.len());
         let new_extracted_effect = ExtractedEffect {
             handle: compiled_effect.asset.clone(),
             particle_layout: asset.particle_layout().clone(),
             capacity: asset.capacity(),
             layout_flags,
             texture_layout,
-            textures: compiled_effect.textures.clone(),
+            textures,
             alpha_mode,
             effect_shaders: effect_shaders.clone(),
             simulation_condition: asset.simulation_condition,
@@ -6871,7 +6893,9 @@ fn draw<'w>(
             for effect_data in &effect_batch.effect_data {
                 pass.set_bind_group(
                     2,
-                    property_bind_groups.get(&effect_batch.property_key, with_prefix_sum).unwrap(),
+                    property_bind_groups
+                        .get(&effect_batch.property_key, with_prefix_sum)
+                        .unwrap(),
                     &[effect_data.render_batch_info_offset],
                 );
                 let draw_indirect_index = effect_data.draw_indirect_buffer_row_index.0;
@@ -6906,7 +6930,9 @@ fn draw<'w>(
             for effect_data in &effect_batch.effect_data {
                 pass.set_bind_group(
                     2,
-                    property_bind_groups.get(&effect_batch.property_key, with_prefix_sum).unwrap(),
+                    property_bind_groups
+                        .get(&effect_batch.property_key, with_prefix_sum)
+                        .unwrap(),
                     &[effect_data.render_batch_info_offset],
                 );
                 let draw_indirect_index = effect_data.draw_indirect_buffer_row_index.0;

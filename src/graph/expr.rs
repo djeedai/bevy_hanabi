@@ -1545,7 +1545,6 @@ impl CastExpr {
     }
 }
 
-
 /// Expression to sample a texture from the effect's material with filtering.
 ///
 /// This supports all texture types supported by [`SlotDimension`]. The texture
@@ -1699,7 +1698,6 @@ impl TextureSampleExpr {
         // Note: do not use to_wgsl_string(), we want an index suffix and not a WGSL
         // literal value.
         let slot_index = self.slot_index;
-        context.mark_texture_slot_used(slot_index);
         if self.slot_dimension.is_array() {
             Ok(format!(
                     "textureSample(material_texture_{slot_index}, material_sampler_{slot_index}, {coordinates}, {array_index})",

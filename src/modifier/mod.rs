@@ -1336,9 +1336,12 @@ fn main() {{
         ];
         for &modifier in modifiers.iter() {
             let mut module = base_module.clone();
+            module.add_texture_slot("tex", crate::SlotDimension::D2);
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
             let texture_layout = module.texture_layout();
+            assert_eq!(texture_layout.layout.len(), 1);
+            let texture_bindinds = texture_layout.to_wgsl_binding(2, 4);
             let mut context =
                 RenderContext::new(&property_layout, &particle_layout, &texture_layout);
             modifier
@@ -1403,6 +1406,7 @@ struct VertexOutput {{
 }};
 
 @group(0) @binding(0) var<uniform> view: View;
+{texture_bindinds}
 
 {render_extra}
 
@@ -1435,11 +1439,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {{
             let res = frontend.parse(&code);
             if let Err(err) = &res {
                 println!(
-                    "Modifier: {:?}",
+                    "Modifier: {:?}\n",
                     modifier.get_represented_type_info().unwrap().type_path()
                 );
-                println!("Code: {:?}", code);
-                println!("Err: {:?}", err);
+                println!("Code: {code:?}\n\nError: {err:?}");
             }
             assert!(res.is_ok());
         }

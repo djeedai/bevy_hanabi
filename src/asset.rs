@@ -1220,7 +1220,6 @@ mod tests {
         let mut module = Module::default();
         let origin = module.lit(Vec3::ZERO);
         let one = module.lit(1.);
-        let slot_zero = module.lit(0u32);
         let init_age = SetAttributeModifier::new(Attribute::AGE, one);
         let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, one);
         let init_pos_sphere = SetPositionSphereModifier {
@@ -1239,7 +1238,7 @@ mod tests {
             //.update(AccelModifier::default())
             .update(LinearDragModifier::new(one))
             .update(ConformToSphereModifier::new(origin, one, one, one, one))
-            .render(ParticleTextureModifier::new(slot_zero))
+            .render(ParticleTextureModifier::new(0))
             .render(ColorOverLifetimeModifier::default())
             .render(SizeOverLifetimeModifier::default())
             .render(OrientModifier::new(OrientMode::ParallelCameraDepthPlane))
@@ -1287,7 +1286,7 @@ mod tests {
         let texture_layout = TextureLayout::default();
         let mut render_context =
             RenderContext::new(&property_layout, &particle_layout, &texture_layout);
-        ParticleTextureModifier::new(slot_zero)
+        ParticleTextureModifier::new(0)
             .apply_render(module, &mut render_context)
             .unwrap();
         ColorOverLifetimeModifier::default()
