@@ -86,6 +86,7 @@ fn find_location_from_particle(update_particle_index: u32) -> EffectLocation {
 @group(2) @binding(1) var<storage, read> prefix_sum : array<u32>;
 @group(2) @binding(2) var<storage, read> batch_info : BatchInfo;
 {{PROPERTIES_BINDING}}
+{{MATERIAL_BINDINGS}}
 
 // "metadata" group @3
 @group(3) @binding(0) var<storage, read_write> effect_metadatas : array<EffectMetadata>;

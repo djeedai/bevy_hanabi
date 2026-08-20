@@ -212,6 +212,8 @@ pub struct ShaderWriter<'a> {
     pub property_layout: &'a PropertyLayout,
     /// Layout of attributes of a particle for the current effect.
     pub particle_layout: &'a ParticleLayout,
+    /// Layout of textures for the current effect.
+    pub texture_layout: &'a TextureLayout,
     /// Modifier context the writer is being used from.
     modifier_context: ModifierContext,
     /// Counter for unique variable names.
@@ -230,12 +232,14 @@ impl<'a> ShaderWriter<'a> {
         modifier_context: ModifierContext,
         property_layout: &'a PropertyLayout,
         particle_layout: &'a ParticleLayout,
+        texture_layout: &'a TextureLayout,
     ) -> Self {
         Self {
             main_code: String::new(),
             extra_code: String::new(),
             property_layout,
             particle_layout,
+            texture_layout,
             modifier_context,
             var_counter: 0,
             expr_cache: Default::default(),
@@ -306,6 +310,10 @@ impl EvalContext for ShaderWriter<'_> {
         self.particle_layout
     }
 
+    fn texture_layout(&self) -> &TextureLayout {
+        self.texture_layout
+    }
+
     fn eval(&mut self, module: &Module, handle: ExprHandle) -> Result<String, ExprError> {
         // On cache hit, don't re-evaluate the expression to prevent any duplicate
         // side-effect.
@@ -343,6 +351,7 @@ impl EvalContext for ShaderWriter<'_> {
             self.modifier_context,
             self.property_layout,
             self.particle_layout,
+            self.texture_layout,
         )
         .with_attribute_pointer();
 
@@ -495,6 +504,10 @@ impl EvalContext for RenderContext<'_> {
         self.particle_layout
     }
 
+    fn texture_layout(&self) -> &TextureLayout {
+        self.texture_layout
+    }
+
     fn eval(&mut self, module: &Module, handle: ExprHandle) -> Result<String, ExprError> {
         // On cache hit, don't re-evaluate the expression to prevent any duplicate
         // side-effect.
@@ -616,6 +629,7 @@ macro_rules! impl_mod_render {
                 Err(ExprError::InvalidModifierContext(
                     context.modifier_context(),
                     ModifierContext::Render,
+                    "",
                 ))
             }
         }
@@ -844,9 +858,8 @@ pub fn register_modifiers(type_registry: &AppTypeRegistry) {
     });
 
     // output.rs
-    register_reflect_modifier::<ParticleTextureModifier>(type_registry, |module| {
-        let slot = module.lit(0u32);
-        Box::new(ParticleTextureModifier::new(slot))
+    register_reflect_modifier::<ParticleTextureModifier>(type_registry, |_| {
+        Box::new(ParticleTextureModifier::new(0))
     });
     register_reflect_modifier::<SetColorModifier>(type_registry, |_| {
         Box::new(SetColorModifier::new(Vec4::ONE))
@@ -901,6 +914,13 @@ pub fn register_modifiers(type_registry: &AppTypeRegistry) {
             height: module.lit(1.0),
             base_radius: module.lit(1.0),
             top_radius: module.lit(0.0),
+            dimension: ShapeDimension::Surface,
+        })
+    });
+    register_reflect_modifier::<SetPositionBoxModifier>(type_registry, |module| {
+        Box::new(SetPositionBoxModifier {
+            center: module.lit(Vec3::ZERO),
+            extent: module.lit(Vec3::ONE),
             dimension: ShapeDimension::Surface,
         })
     });
@@ -1113,8 +1133,13 @@ mod tests {
             assert!(modifier.context().contains(ModifierContext::Init));
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut context =
-                ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
+            let texture_layout = TextureLayout::default();
+            let mut context = ShaderWriter::new(
+                ModifierContext::Init,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
             assert!(modifier.apply(&mut module, &mut context).is_ok());
             let main_code = context.main_code;
             let extra_code = context.extra_code;
@@ -1215,8 +1240,13 @@ fn main() {{
             assert!(modifier.context().contains(ModifierContext::Update));
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut context =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            let texture_layout = TextureLayout::default();
+            let mut context = ShaderWriter::new(
+                ModifierContext::Update,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
             assert!(modifier.apply(&mut module, &mut context).is_ok());
             let update_code = context.main_code;
             let update_extra = context.extra_code;
@@ -1295,10 +1325,9 @@ fn main() {{
 
     #[test]
     fn validate_render() {
-        let mut base_module = Module::default();
-        let slot_zero = base_module.lit(0u32);
+        let base_module = Module::default();
         let modifiers: &[&dyn RenderModifier] = &[
-            &ParticleTextureModifier::new(slot_zero),
+            &ParticleTextureModifier::new(0),
             &ColorOverLifetimeModifier::default(),
             &SizeOverLifetimeModifier::default(),
             &OrientModifier::new(OrientMode::ParallelCameraDepthPlane),
@@ -1307,9 +1336,12 @@ fn main() {{
         ];
         for &modifier in modifiers.iter() {
             let mut module = base_module.clone();
+            module.add_texture_slot("tex", crate::SlotDimension::D2);
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
             let texture_layout = module.texture_layout();
+            assert_eq!(texture_layout.layout.len(), 1);
+            let texture_bindinds = texture_layout.to_wgsl_binding(2, 4);
             let mut context =
                 RenderContext::new(&property_layout, &particle_layout, &texture_layout);
             modifier
@@ -1374,6 +1406,7 @@ struct VertexOutput {{
 }};
 
 @group(0) @binding(0) var<uniform> view: View;
+{texture_bindinds}
 
 {render_extra}
 
@@ -1406,11 +1439,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {{
             let res = frontend.parse(&code);
             if let Err(err) = &res {
                 println!(
-                    "Modifier: {:?}",
+                    "Modifier: {:?}\n",
                     modifier.get_represented_type_info().unwrap().type_path()
                 );
-                println!("Code: {:?}", code);
-                println!("Err: {:?}", err);
+                println!("Code: {code:?}\n\nError: {err:?}");
             }
             assert!(res.is_ok());
         }
@@ -1421,12 +1453,20 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {{
         let mut module = Module::default();
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
+        let texture_layout = TextureLayout::default();
         let x = module.builtin(BuiltInOperator::Rand(ScalarType::Float.into()));
-        let texture_layout = module.texture_layout();
-        let init: &mut dyn EvalContext =
-            &mut ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
-        let update: &mut dyn EvalContext =
-            &mut ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let init: &mut dyn EvalContext = &mut ShaderWriter::new(
+            ModifierContext::Init,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
+        let update: &mut dyn EvalContext = &mut ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
         let render: &mut dyn EvalContext =
             &mut RenderContext::new(&property_layout, &particle_layout, &texture_layout);
         for ctx in [init, update, render] {

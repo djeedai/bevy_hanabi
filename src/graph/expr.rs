@@ -115,7 +115,7 @@ use thiserror::Error;
 use super::Value;
 use crate::{
     Attribute, ModifierContext, ParticleLayout, Property, PropertyLayout, ScalarType,
-    TextureLayout, TextureSlot, ToWgslString, ValueType, VectorType,
+    SlotDimension, TextureLayout, TextureSlot, ToWgslString, ValueType, VectorType,
 };
 
 /// A one-based ID into a collection of a [`Module`].
@@ -474,8 +474,8 @@ impl Module {
     /// # Returns
     ///
     /// The handle of the texture inside this module. This handle is used in
-    /// expressions like the [`TextureSampleExpr`] to reference this texture
-    /// slot.
+    /// expressions like [`TextureSampleExpr`] or [`TextureLoadExpr`] to
+    /// reference this texture slot.
     ///
     /// # Panics
     ///
@@ -484,10 +484,17 @@ impl Module {
     /// slot name.
     ///
     /// [`EffectMaterial`]: crate::EffectMaterial
-    pub fn add_texture_slot(&mut self, name: impl Into<String>) -> TextureHandle {
+    pub fn add_texture_slot(
+        &mut self,
+        name: impl Into<String>,
+        slot_dimension: SlotDimension,
+    ) -> TextureHandle {
         let name = name.into();
         assert!(!self.texture_layout.layout.iter().any(|t| t.name == name));
-        self.texture_layout.layout.push(TextureSlot { name });
+        self.texture_layout.layout.push(TextureSlot {
+            name,
+            dimension: slot_dimension,
+        });
         // SAFETY - We just pushed a new slot into the array, so its length is non-zero.
         #[allow(unsafe_code)]
         unsafe {
@@ -782,6 +789,7 @@ impl Module {
 ///
 /// [`Graph`]: crate::graph::Graph
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
 pub enum ExprError {
     /// Expression type error.
     ///
@@ -820,8 +828,21 @@ pub enum ExprError {
     ///
     /// The operation was expecting a given [`ModifierContext`], but instead
     /// another [`ModifierContext`] was available.
-    #[error("Invalid modifier context {0}, expected {1} instead.")]
-    InvalidModifierContext(ModifierContext, ModifierContext),
+    #[error("Invalid modifier context {0}, expected {1} instead.{2}")]
+    InvalidModifierContext(ModifierContext, ModifierContext, &'static str),
+
+    /// Texture slot index out of bounds.
+    ///
+    /// Some expression attempted to index a texture slot out of bounds.
+    #[error("Texture slot #{0} out of bounds; effect has only {1} slots.")]
+    SlotBoundsError(u32, u32),
+
+    /// Texture slot dimension mismatch.
+    ///
+    /// Some expression expected a slot dimension, but the actual dimension of
+    /// the slot declared in the [`Module`] was different.
+    #[error("Texture slot #{0} has dimension {1:?}, but an expression expected a dimension of {2:?} instead.")]
+    SlotDimensionError(u32, SlotDimension, SlotDimension),
 }
 
 /// Evaluation context for transforming expressions into WGSL code.
@@ -845,6 +866,9 @@ pub trait EvalContext {
 
     /// Get the property layout of the effect.
     fn property_layout(&self) -> &PropertyLayout;
+
+    /// Get the texture layout of the effect.
+    fn texture_layout(&self) -> &TextureLayout;
 
     /// Evaluate an expression, returning its WGSL shader code.
     ///
@@ -988,11 +1012,18 @@ pub enum Expr {
     /// An expression to cast an expression to another type.
     Cast(CastExpr),
 
-    /// Access to textures.
+    /// Access to textures (filtered).
     ///
-    /// An expression to sample a texture from the effect's material. Currently
-    /// only color textures (returning a `vec4<f32>`) are supported.
+    /// An expression to sample a texture from the effect's material, with
+    /// filering (including mip-mapping). This is only valid in the fragment
+    /// shader, during the [`ModifierContext::Render`] pass.
     TextureSample(TextureSampleExpr),
+
+    /// Access to textures (unfiltered).
+    ///
+    /// An expression to load from a texture of the effect's material. All
+    /// textures supported by [`SlotDimension`] are valid.
+    TextureLoad(TextureLoadExpr),
 }
 
 impl Expr {
@@ -1038,7 +1069,7 @@ impl Expr {
                 ..
             } => module.is_const(*first) && module.is_const(*second) && module.is_const(*third),
             Expr::Cast(expr) => module.is_const(expr.inner),
-            Expr::TextureSample(_) => false,
+            Expr::TextureSample(_) | Expr::TextureLoad(_) => false,
         }
     }
 
@@ -1060,7 +1091,7 @@ impl Expr {
             }
             Expr::Ternary { .. } => false,
             Expr::Cast(_) => false,
-            Expr::TextureSample(_) => false,
+            Expr::TextureSample(_) | Expr::TextureLoad(_) => false,
         }
     }
 
@@ -1095,6 +1126,7 @@ impl Expr {
             Expr::Ternary { .. } => None,
             Expr::Cast(expr) => Some(expr.value_type()),
             Expr::TextureSample(expr) => Some(expr.value_type()),
+            Expr::TextureLoad(expr) => Some(expr.value_type()),
         }
     }
 
@@ -1114,7 +1146,8 @@ impl Expr {
     /// let mut module = Module::default();
     /// # let pl = PropertyLayout::empty();
     /// # let pal = ParticleLayout::default();
-    /// # let mut context = ShaderWriter::new(ModifierContext::Update, &pl, &pal);
+    /// # let tl = TextureLayout::default();
+    /// # let mut context = ShaderWriter::new(ModifierContext::Update, &pl, &pal, &tl);
     /// let handle = module.lit(1.);
     /// let expr = module.get(handle).unwrap();
     /// assert_eq!(Ok("1.".to_string()), expr.eval(&module, &mut context));
@@ -1255,6 +1288,7 @@ impl Expr {
                 Ok(format!("{}({})", expr.target.to_wgsl_string(), inner))
             }
             Expr::TextureSample(expr) => expr.eval(module, context),
+            Expr::TextureLoad(expr) => expr.eval(module, context),
         }
     }
 }
@@ -1513,50 +1547,110 @@ impl CastExpr {
     }
 }
 
-/// Expression to sample a texture from the effect's material.
+/// Expression to sample a texture from the effect's material with filtering.
 ///
-/// This currently supports only 4-component textures sampled with [the WGSL
-/// `textureSample()` function], that is all textures which return a `vec4<f32>`
-/// when sampled. This is the case of most color textures, including
-/// single-channel (e.g. red) textures which return zero for missing components,
-/// but excludes depth textures.
+/// This supports all texture types supported by [`SlotDimension`]. The texture
+/// is sampled with [the WGSL `textureSample()` function], and returns a
+/// `vec4<f32>` if the texture is a non-depth texture, or a `f32` if it it; see
+/// [`SlotDimension::is_depth()`]. Note that this read is filtered in all
+/// dimensions, including mip-mapping.
+///
+/// Note that WGSL restricts the use of `textureSample()` to the fragment
+/// shader. Hanabi will emit an error if this expression is used in the
+/// [`ModifierContext::Init`] or [`ModifierContext::Update`]. For
+/// [`ModifierContext::Render`], there's no distinction currently between the
+/// vertex and fragment shader, so Hanabi cannot proactively emit an error if
+/// the expression ends up used in the vertex shader. If you need to read a
+/// texture from any of those forbidden contexts, use [`TextureLoadExpr`]
+/// instead.
 ///
 /// [the WGSL `textureSample()` function]: https://www.w3.org/TR/WGSL/#texturesample
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct TextureSampleExpr {
-    /// The index of the image to sample. This is the texture slot defined in
-    /// the [`Module`]. The texture bound to the slot is defined in the
-    /// [`EffectMaterial`] component.
+    /// The index of the texture slot to sample.
+    ///
+    /// A texture slot is defined in the [`Module`] by calling
+    /// [`Module::add_texture_slot()`]. The texture bound to each slot is
+    /// defined in the [`EffectMaterial`] component.
     ///
     /// [`EffectMaterial`]: crate::EffectMaterial
-    pub image: ExprHandle,
-    /// The coordinates to sample at.
+    pub slot_index: u32,
+    /// The type of texture to sample. This must match the dimension of the
+    /// slot at index `slot_index`.
+    pub slot_dimension: SlotDimension,
+    /// The coordinates to sample at. This is a floating-point scalar or vector,
+    /// depending on the image dimension (1D/2D/3D).
     pub coordinates: ExprHandle,
+    /// Optional array index to load (u32 or i32). Mandatory for loading from
+    /// array textures, and must be `None` for non-array textures. See
+    /// [`SlotDimension::is_array()`].
+    pub array_index: Option<ExprHandle>,
 }
 
 impl TextureSampleExpr {
     /// Create a new texture sample expression.
+    ///
+    /// Not all combinations of slot dimension and array index are supported.
+    /// The `array_index` must be `Some` if [`SlotDimension::is_array`] is
+    /// `true`, and `None` otherwise. This function returns an error if the
+    /// specified combination is invalid. Check the [WGSL specification] of
+    /// the `textureSample()` function for more details.
+    ///
+    /// [WGSL specification]: https://www.w3.org/TR/WGSL/#texturesample
     #[inline]
-    pub fn new(image: ExprHandle, coordinates: ExprHandle) -> Self {
-        Self { image, coordinates }
+    pub fn new(
+        slot_index: u32,
+        slot_dimension: SlotDimension,
+        coordinates: ExprHandle,
+        array_index: Option<ExprHandle>,
+    ) -> Result<Self, ExprError> {
+        if slot_dimension.is_array() {
+            if array_index.is_none() {
+                return Err(ExprError::TypeError(
+                    "TextureSampleExpr with array texture requires an array index".to_string(),
+                ));
+            }
+        } else {
+            if array_index.is_some() {
+                return Err(ExprError::TypeError(
+                    "TextureSampleExpr with non-array texture doesn't support array index"
+                        .to_string(),
+                ));
+            }
+        }
+        Ok(Self {
+            slot_index,
+            slot_dimension,
+            coordinates,
+            array_index,
+        })
     }
 
     /// Get the value type of the expression.
     pub fn value_type(&self) -> ValueType {
-        // FIXME - depth textures return a single f32 when sampled
-        ValueType::Vector(VectorType::VEC4F)
+        if self.slot_dimension.is_depth() {
+            ValueType::Scalar(ScalarType::Float)
+        } else {
+            ValueType::Vector(VectorType::VEC4F)
+        }
     }
 
-    /// Try to evaluate if the texture sample expression is valid.
+    /// Try to evaluate if the texture load expression is valid.
     ///
-    /// This only checks that the expressions exist in the module.
+    /// This checks that the fields are consistent with the slot dimension, and
+    /// the expressions exist in the module.
     pub fn is_valid(&self, module: &Module) -> Option<bool> {
-        let Some(_image) = module.get(self.image) else {
+        if self.slot_dimension.is_array() != self.array_index.is_some() {
+            return Some(false);
+        }
+        if module.get(self.coordinates).is_none() {
             return Some(false);
         };
-        let Some(_coordinates) = module.get(self.coordinates) else {
-            return Some(false);
-        };
+        if let Some(array_index) = self.array_index {
+            if module.get(array_index).is_none() {
+                return Some(false);
+            };
+        }
         Some(true)
     }
 
@@ -1566,13 +1660,253 @@ impl TextureSampleExpr {
         module: &Module,
         context: &mut dyn EvalContext,
     ) -> Result<String, ExprError> {
-        let image = module.try_get(self.image)?;
-        let image = image.eval(module, context)?;
+        // Sampling type texture access can only be used in a fragment shader, so only
+        // in the Render context. This is a WGSL restriction.
+        if context.modifier_context() != ModifierContext::Render {
+            return Err(ExprError::InvalidModifierContext(
+                context.modifier_context(),
+                ModifierContext::Render,
+                " TextureSampleExpr can only be used in a fragment shader. Use TextureLoadExpr instead.",
+            ));
+        }
+
         let coordinates = module.try_get(self.coordinates)?;
         let coordinates = coordinates.eval(module, context)?;
-        Ok(format!(
-            "textureSample(material_texture_{image}, material_sampler_{image}, {coordinates})",
-        ))
+
+        let array_index = if let Some(array_index) = self.array_index {
+            let array_index = module.try_get(array_index)?;
+            array_index.eval(module, context)?
+        } else {
+            // WGSL spec says i32 or u32; both are fine
+            "0".to_string()
+        };
+
+        // Bound-check the slot index
+        let slot_count = context.texture_layout().layout.len() as u32;
+        if self.slot_index >= slot_count {
+            return Err(ExprError::SlotBoundsError(self.slot_index, slot_count));
+        }
+
+        // Validate the expected slot dimension
+        let layout_dimension = context.texture_layout().layout[self.slot_index as usize].dimension;
+        if layout_dimension != self.slot_dimension {
+            return Err(ExprError::SlotDimensionError(
+                self.slot_index,
+                layout_dimension,
+                self.slot_dimension,
+            ));
+        }
+
+        // Note: do not use to_wgsl_string(), we want an index suffix and not a WGSL
+        // literal value.
+        let slot_index = self.slot_index;
+        if self.slot_dimension.is_array() {
+            Ok(format!(
+                    "textureSample(material_texture_{slot_index}, material_sampler_{slot_index}, {coordinates}, {array_index})",
+                ))
+        } else {
+            Ok(format!(
+                    "textureSample(material_texture_{slot_index}, material_sampler_{slot_index}, {coordinates})",
+                ))
+        }
+    }
+}
+
+/// Expression to load a value from a texture of the effect's material, without
+/// filtering.
+///
+/// This supports all texture types supported by [`SlotDimension`]. The texture
+/// is read with [the WGSL `textureLoad()` function], and returns a
+/// `vec4<f32>` if the texture is a non-depth texture, or a `f32` if it it; see
+/// [`SlotDimension::is_depth()`]. Note that this read is unfiltered; this is
+/// the reason why the expression takes an explicit `mip_level`. To use
+/// filering, including mip-mapping, use [`TextureSampleExpr`] instead, but note
+/// that filtered read can only occur in the fragment shader during the
+/// [`ModifierContext::Render`] pass.
+///
+/// Hanabi currently doesn't support "gather"-type loads (loading 4 values at
+/// once with `textureGather()`).
+///
+/// [the WGSL `textureLoad()` function]: https://www.w3.org/TR/WGSL/#textureload
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+pub struct TextureLoadExpr {
+    /// The index of the texture slot to load from.
+    ///
+    /// A texture slot is defined in the [`Module`] by calling
+    /// [`Module::add_texture_slot()`]. The texture bound to each slot is
+    /// defined in the [`EffectMaterial`] component.
+    ///
+    /// [`EffectMaterial`]: crate::EffectMaterial
+    pub slot_index: u32,
+    /// The type of texture to load from. This must match the dimension of the
+    /// slot at index `slot_index`.
+    pub slot_dimension: SlotDimension,
+    /// The coordinates to load at. This is an integral (i32 or u32) scalar or
+    /// vector, depending on the image dimension (1D/2D/3D). Array index and
+    /// mip-map level are specified separately.
+    pub coordinates: ExprHandle,
+    /// Optional array index to load (u32 or i32). Mandatory for loading from
+    /// array textures, and must be `None` for non-array textures.
+    pub array_index: Option<ExprHandle>,
+    /// Optional mip level to load (u32 or i32). Defaults to 0 (full
+    /// resolution).
+    pub mip_level: Option<ExprHandle>,
+}
+
+impl TextureLoadExpr {
+    /// Create a new texture load expression.
+    ///
+    /// Not all combinations of slot dimension and array index / mip-map level
+    /// are supported. Direct loading from cube textures is also not supported
+    /// (only sampled loading, through [`TextureSampleExpr`]). This function
+    /// returns an error if the specified combination is invalid. Check the
+    /// [WGSL specification] of the `textureLoad()` function for more details.
+    ///
+    /// [WGSL specification]: https://www.w3.org/TR/WGSL/#textureload
+    #[inline]
+    pub fn new(
+        slot_index: u32,
+        slot_dimension: SlotDimension,
+        coordinates: ExprHandle,
+        array_index: Option<ExprHandle>,
+        mip_level: Option<ExprHandle>,
+    ) -> Result<Self, ExprError> {
+        if slot_dimension.is_cube() {
+            return Err(ExprError::TypeError(format!(
+                "TextureLoadExpr doesn't support slot dimension {:?}.",
+                slot_dimension
+            )));
+        }
+        if slot_dimension.is_array() {
+            if array_index.is_none() {
+                return Err(ExprError::TypeError(
+                    "TextureLoadExpr with array texture requires an array index".to_string(),
+                ));
+            }
+        } else {
+            if array_index.is_some() {
+                return Err(ExprError::TypeError(
+                    "TextureLoadExpr with non-array texture doesn't support array index"
+                        .to_string(),
+                ));
+            }
+        }
+        Ok(Self {
+            slot_index,
+            slot_dimension,
+            coordinates,
+            array_index,
+            mip_level,
+        })
+    }
+
+    /// Get the value type of the expression.
+    ///
+    /// # Panics
+    ///
+    /// This panics if [`slot_dimension`] is unsupported.
+    ///
+    /// [`slot_dimension`]: Self::slot_dimension
+    pub fn value_type(&self) -> ValueType {
+        assert!(!self.slot_dimension.is_cube());
+        if self.slot_dimension.is_depth() {
+            ValueType::Scalar(ScalarType::Float)
+        } else {
+            ValueType::Vector(VectorType::VEC4F)
+        }
+    }
+
+    /// Try to evaluate if the texture load expression is valid.
+    ///
+    /// This checks that the fields are consistent with the slot dimension, and
+    /// the expressions exist in the module.
+    pub fn is_valid(&self, module: &Module) -> Option<bool> {
+        if !match self.slot_dimension {
+            SlotDimension::D1 | SlotDimension::D2 | SlotDimension::D3 | SlotDimension::DepthD2 => {
+                self.mip_level.is_some() && self.array_index.is_none()
+            }
+            SlotDimension::D2Array | SlotDimension::DepthD2Array => {
+                self.mip_level.is_some() && self.array_index.is_some()
+            }
+            _ => false,
+        } {
+            return Some(false);
+        }
+        if module.get(self.coordinates).is_none() {
+            return Some(false);
+        };
+        if let Some(mip_level) = self.mip_level {
+            if module.get(mip_level).is_none() {
+                return Some(false);
+            };
+        }
+        if let Some(array_index) = self.array_index {
+            if module.get(array_index).is_none() {
+                return Some(false);
+            };
+        }
+        Some(true)
+    }
+
+    /// Evaluate the expression in the given context.
+    pub fn eval(
+        &self,
+        module: &Module,
+        context: &mut dyn EvalContext,
+    ) -> Result<String, ExprError> {
+        let coordinates = module.try_get(self.coordinates)?;
+        let coordinates = coordinates.eval(module, context)?;
+
+        let array_index = if let Some(array_index) = self.array_index {
+            let array_index = module.try_get(array_index)?;
+            array_index.eval(module, context)?
+        } else {
+            // WGSL spec says i32 or u32; both are fine
+            "0".to_string()
+        };
+
+        let mip_level = if let Some(mip_level) = self.mip_level {
+            let mip_level = module.try_get(mip_level)?;
+            mip_level.eval(module, context)?
+        } else {
+            // WGSL spec says i32 or u32; both are fine
+            "0".to_string()
+        };
+
+        // Bound-check the slot index
+        let slot_count = context.texture_layout().layout.len() as u32;
+        if self.slot_index >= slot_count {
+            return Err(ExprError::SlotBoundsError(self.slot_index, slot_count));
+        }
+
+        // Validate the expected slot dimension
+        let layout_dimension = context.texture_layout().layout[self.slot_index as usize].dimension;
+        if layout_dimension != self.slot_dimension {
+            return Err(ExprError::SlotDimensionError(
+                self.slot_index,
+                layout_dimension,
+                self.slot_dimension,
+            ));
+        }
+
+        // Note: do not use to_wgsl_string(), we want an index suffix and not a WGSL
+        // literal value.
+        let slot_index = self.slot_index;
+        match self.slot_dimension {
+            SlotDimension::D1 | SlotDimension::D2 | SlotDimension::D3 | SlotDimension::DepthD2 => {
+                Ok(format!(
+                    "textureLoad(material_texture_{slot_index}, {coordinates}, {mip_level})",
+                ))
+            }
+            SlotDimension::D2Array | SlotDimension::DepthD2Array => {
+                Ok(format!(
+                    "textureLoad(material_texture_{slot_index}, {coordinates}, {array_index}, {mip_level})",
+                ))
+            }
+            _ => Err(ExprError::TypeError(format!(
+                "TextureLoadExpr doesn't support slot dimension {:?}",
+                self.slot_dimension))),
+        }
     }
 }
 
@@ -4164,8 +4498,13 @@ mod tests {
     fn local_var() {
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut ctx =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut ctx = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
         let mut h = HashSet::new();
         for _ in 0..100 {
             let v = ctx.make_local_var();
@@ -4177,8 +4516,13 @@ mod tests {
     fn make_fn() {
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut ctx =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut ctx = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
         let mut module = Module::default();
 
         // Make a function
@@ -4232,9 +4576,14 @@ mod tests {
         let property_layout =
             PropertyLayout::new(&[Property::new("my_prop", ScalarValue::Float(3.))]);
         let particle_layout = ParticleLayout::default();
+        let texture_layout = TextureLayout::default();
         let m = w.finish();
-        let mut context =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let mut context = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
 
         // Evaluate the expression
         let x = m.try_get(x).unwrap();
@@ -4273,8 +4622,13 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut ctx =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut ctx = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
 
         for (expr, op) in [
             (add, "+"),
@@ -4329,8 +4683,13 @@ mod tests {
 
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut ctx =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            let texture_layout = TextureLayout::default();
+            let mut ctx = ShaderWriter::new(
+                ModifierContext::Update,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
 
             let expr = ctx.eval(&m, handle);
             assert!(expr.is_ok());
@@ -4353,8 +4712,13 @@ mod tests {
 
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut ctx =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            let texture_layout = TextureLayout::default();
+            let mut ctx = ShaderWriter::new(
+                ModifierContext::Update,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
 
             let expr = ctx.eval(&m, value);
             assert!(expr.is_ok());
@@ -4375,8 +4739,13 @@ mod tests {
             {
                 let property_layout = PropertyLayout::default();
                 let particle_layout = ParticleLayout::default();
-                let mut ctx =
-                    ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+                let texture_layout = TextureLayout::default();
+                let mut ctx = ShaderWriter::new(
+                    ModifierContext::Update,
+                    &property_layout,
+                    &particle_layout,
+                    &texture_layout,
+                );
 
                 let expr = ctx.eval(&m, value);
                 assert!(expr.is_ok());
@@ -4393,8 +4762,13 @@ mod tests {
 
                 let property_layout = PropertyLayout::default();
                 let particle_layout = ParticleLayout::default();
-                let mut ctx =
-                    ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+                let texture_layout = TextureLayout::default();
+                let mut ctx = ShaderWriter::new(
+                    ModifierContext::Update,
+                    &property_layout,
+                    &particle_layout,
+                    &texture_layout,
+                );
 
                 let expr = ctx.eval(&m, vec);
                 assert!(expr.is_ok());
@@ -4454,8 +4828,13 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut ctx =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut ctx = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
 
         for (expr, op, inner) in [
             (
@@ -4528,8 +4907,13 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut ctx =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut ctx = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
 
         for (expr, op) in [
             (atan2, "atan2"),
@@ -4583,8 +4967,13 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut ctx =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut ctx = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
 
         for (expr, op, third) in [
             (mix, "mix", t),
@@ -4633,8 +5022,13 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut ctx =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut ctx = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
 
         for (expr, cast, target) in [
             (x, cx, ValueType::Vector(VectorType::VEC3I)),
@@ -4659,8 +5053,13 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut ctx =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut ctx = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
 
         let res = ctx.eval(&m, x);
         assert!(res.is_ok());
@@ -4669,9 +5068,13 @@ mod tests {
 
         // Use a different context; it's invalid to reuse a mutated context, as the
         // expression cache will have been generated with the wrong context.
-        let mut ctx =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout)
-                .with_attribute_pointer();
+        let mut ctx = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        )
+        .with_attribute_pointer();
 
         let res = ctx.eval(&m, x);
         assert!(res.is_ok());
@@ -4762,8 +5165,13 @@ mod tests {
         {
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut ctx =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            let texture_layout = TextureLayout::default();
+            let mut ctx = ShaderWriter::new(
+                ModifierContext::Update,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
             let value = ctx.eval(&m, a).unwrap();
             assert_eq!(value, "(var0) + (var0)");
             assert_eq!(ctx.main_code, "let var0 = frand();\n");
@@ -4772,8 +5180,13 @@ mod tests {
         {
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut ctx =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            let texture_layout = TextureLayout::default();
+            let mut ctx = ShaderWriter::new(
+                ModifierContext::Update,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
             let value = ctx.eval(&m, b).unwrap();
             assert_eq!(value, "mix(var0, var0, var0)");
             assert_eq!(ctx.main_code, "let var0 = frand();\n");
@@ -4782,8 +5195,13 @@ mod tests {
         {
             let property_layout = PropertyLayout::default();
             let particle_layout = ParticleLayout::default();
-            let mut ctx =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            let texture_layout = TextureLayout::default();
+            let mut ctx = ShaderWriter::new(
+                ModifierContext::Update,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
             let value = ctx.eval(&m, c).unwrap();
             assert_eq!(value, "abs((var0) + (var0))");
             assert_eq!(ctx.main_code, "let var0 = frand();\n");
@@ -4839,7 +5257,7 @@ mod tests {
             assert_eq!(handle, serde_handle);
         }
 
-        // de -- literatl string
+        // de -- literal string
         {
             let mut de = ron::de::Deserializer::from_str("\"#42\"").unwrap();
             let serde_handle = ExprHandle::deserialize(&mut de).unwrap();
@@ -4886,6 +5304,47 @@ mod tests {
             let mut de = ron::de::Deserializer::from_str("\"#4294967296\"").unwrap();
             let ret = ExprHandle::deserialize(&mut de);
             assert!(ret.is_err());
+        }
+    }
+
+    #[test]
+    fn texture_load_expr() {
+        let mut module = Module::default();
+        let coordinates = module.lit(Vec2::ZERO);
+        let array_index = module.lit(0_u32);
+        let mip_level = module.lit(0_u32);
+
+        let dims = [
+            SlotDimension::D1,
+            SlotDimension::D2,
+            SlotDimension::D2Array,
+            SlotDimension::Cube,
+            SlotDimension::CubeArray,
+            SlotDimension::D3,
+            SlotDimension::DepthD2,
+            SlotDimension::DepthD2Array,
+            SlotDimension::DepthCube,
+            SlotDimension::DepthCubeArray,
+        ];
+        let mips = [None, Some(mip_level)];
+        for dim in &dims {
+            for mip in &mips {
+                let mip = *mip;
+
+                let res = TextureLoadExpr::new(4, *dim, coordinates, None, mip);
+                assert_eq!(
+                    res.is_ok(),
+                    !dim.is_array() && !dim.is_cube(),
+                    "array=false dim={dim:?} res={res:?} mip={mip:?}"
+                );
+
+                let res = TextureLoadExpr::new(4, *dim, coordinates, Some(array_index), mip);
+                assert_eq!(
+                    res.is_ok(),
+                    dim.is_array() && !dim.is_cube(),
+                    "array=true dim={dim:?} res={res:?} mip={mip:?}"
+                );
+            }
         }
     }
 }

@@ -4,7 +4,6 @@ echo Setting RUSTFLAGS to enable unstable web_sys APIs...
 export RUSTFLAGS=--cfg=web_sys_unstable_apis
 
 echo Build all examples for WASM...
-# 3D
 cargo b --release --example lightning --target wasm32-unknown-unknown
 cargo b --release --example firework --target wasm32-unknown-unknown
 cargo b --release --example portal --target wasm32-unknown-unknown
@@ -20,14 +19,13 @@ cargo b --release --example init --target wasm32-unknown-unknown
 cargo b --release --example lifetime --target wasm32-unknown-unknown
 cargo b --release --example ordering --target wasm32-unknown-unknown
 cargo b --release --example ribbon --target wasm32-unknown-unknown
-# 3D + PNG
-cargo b --release --example
+cargo b --release --example gradient --target wasm32-unknown-unknown
 cargo b --release --example circle --target wasm32-unknown-unknown
 cargo b --release --example billboard --target wasm32-unknown-unknown
 cargo b --release --example worms --target wasm32-unknown-unknown
 cargo b --release --example instancing --target wasm32-unknown-unknown
 cargo b --release --example puffs --target wasm32-unknown-unknown
-# 2D
+cargo b --release --example lut --target wasm32-unknown-unknown
 cargo b --release --example 2d --target wasm32-unknown-unknown
 
 echo Bindgen all examples...
@@ -52,6 +50,7 @@ wasm-bindgen --out-name wasm_billboard --out-dir examples/wasm/target --target w
 wasm-bindgen --out-name wasm_worms --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/worms.wasm
 wasm-bindgen --out-name wasm_instancing --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/instancing.wasm
 wasm-bindgen --out-name wasm_puffs --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/puffs.wasm
+wasm-bindgen --out-name wasm_lut --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lut.wasm
 wasm-bindgen --out-name wasm_2d --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/2d.wasm
 
 echo Done. See docs/wasm.md for help on running the examples locally.

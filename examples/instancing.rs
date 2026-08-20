@@ -281,14 +281,12 @@ fn setup(
     let radial_accel =
         RadialAccelModifier::new(writer.lit(Vec3::ZERO).expr(), writer.lit(-3).expr());
 
-    let texture_slot = writer.lit(0u32).expr();
-
     let prop_color = writer.add_property("prop_color", 0xFFFFFFFFu32.into());
     let prop_color = writer.prop(prop_color);
     let update_col = SetAttributeModifier::new(Attribute::COLOR, prop_color.expr());
 
     let mut module = writer.finish();
-    module.add_texture_slot("color");
+    module.add_texture_slot("color", SlotDimension::D2);
 
     let alt_effect = effects.add(
         EffectAsset::new(512, SpawnerSettings::rate(102.0.into()), module)
@@ -300,7 +298,7 @@ fn setup(
             .update(radial_accel)
             .update(update_col)
             .render(ParticleTextureModifier {
-                texture_slot,
+                texture_slot: 0,
                 sample_mapping: ImageSampleMapping::Modulate,
             }),
     );

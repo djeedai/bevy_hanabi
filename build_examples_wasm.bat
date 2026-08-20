@@ -6,7 +6,6 @@ echo Setting RUSTFLAGS to enable unstable web_sys APIs...
 set RUSTFLAGS=--cfg web_sys_unstable_apis --cfg getrandom_backend="wasm_js"
 
 echo Build all examples for WASM...
-REM 3D
 cargo b --release --example lightning --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example firework --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example portal --target wasm32-unknown-unknown --features="bevy/webgpu"
@@ -22,14 +21,13 @@ cargo b --release --example init --target wasm32-unknown-unknown --features="bev
 cargo b --release --example lifetime --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example ordering --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example ribbon --target wasm32-unknown-unknown --features="bevy/webgpu"
-REM 3D + PNG
 cargo b --release --example gradient --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example circle --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example billboard --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example worms --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example instancing --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example puffs --target wasm32-unknown-unknown --features="bevy/webgpu"
-REM 2D
+cargo b --release --example lut --target wasm32-unknown-unknown --features="bevy/webgpu"
 cargo b --release --example 2d --target wasm32-unknown-unknown --features="bevy/webgpu"
 
 wasm-bindgen --out-name wasm_lightning --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lightning.wasm
@@ -53,6 +51,7 @@ wasm-bindgen --out-name wasm_billboard --no-typescript --out-dir examples/wasm/t
 wasm-bindgen --out-name wasm_worms --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/worms.wasm
 wasm-bindgen --out-name wasm_instancing --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/instancing.wasm
 wasm-bindgen --out-name wasm_puffs --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/puffs.wasm
+wasm-bindgen --out-name wasm_lut --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lut.wasm
 wasm-bindgen --out-name wasm_2d --no-typescript --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/2d.wasm
 
 echo Done. See docs/wasm.md for help on running the examples locally.

@@ -112,12 +112,9 @@ fn setup(
         .expr();
     let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
 
-    let texture_slot = writer.lit(0u32).expr();
-    let texture_slot2 = writer.lit(1u32).expr();
-
     let mut module = writer.finish();
-    module.add_texture_slot("color");
-    module.add_texture_slot("shape");
+    module.add_texture_slot("color", SlotDimension::D2);
+    module.add_texture_slot("shape", SlotDimension::D2);
 
     let effect = effects.add(
         EffectAsset::new(
@@ -132,11 +129,11 @@ fn setup(
         .init(init_lifetime)
         .update(update_sprite_index)
         .render(ParticleTextureModifier {
-            texture_slot,
+            texture_slot: 0,
             sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
         })
         .render(ParticleTextureModifier {
-            texture_slot: texture_slot2,
+            texture_slot: 1,
             sample_mapping: ImageSampleMapping::ModulateRGB,
         })
         .render(FlipbookModifier { sprite_grid_size })

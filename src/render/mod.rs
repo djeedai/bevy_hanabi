@@ -2048,67 +2048,6 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
 #[derive(Resource)]
 pub(crate) struct ParticlesRenderPipeline {
     view_layout_desc: BindGroupLayoutDescriptor,
-    material_layout_descs: HashMap<TextureLayout, BindGroupLayoutDescriptor>,
-}
-
-impl ParticlesRenderPipeline {
-    /// Cache a material, creating its bind group layout based on the texture
-    /// layout.
-    pub fn cache_material(&mut self, layout: &TextureLayout) {
-        if layout.layout.is_empty() {
-            return;
-        }
-
-        // FIXME - no current stable API to insert an entry into a HashMap only if it
-        // doesn't exist, and without having to build a key (as opposed to a reference).
-        // So do 2 lookups instead, to avoid having to clone the layout if it's already
-        // cached (which should be the common case).
-        if self.material_layout_descs.contains_key(layout) {
-            return;
-        }
-
-        let mut entries = Vec::with_capacity(layout.layout.len() * 2);
-        let mut index = 0;
-        for _slot in &layout.layout {
-            entries.push(BindGroupLayoutEntry {
-                binding: index,
-                visibility: ShaderStages::FRAGMENT,
-                ty: BindingType::Texture {
-                    multisampled: false,
-                    sample_type: TextureSampleType::Float { filterable: true },
-                    view_dimension: TextureViewDimension::D2,
-                },
-                count: None,
-            });
-            entries.push(BindGroupLayoutEntry {
-                binding: index + 1,
-                visibility: ShaderStages::FRAGMENT,
-                ty: BindingType::Sampler(SamplerBindingType::Filtering),
-                count: None,
-            });
-            index += 2;
-        }
-        debug!(
-            "Creating material bind group with {} entries [{:?}] for layout {:?}",
-            entries.len(),
-            entries,
-            layout
-        );
-        let material_bind_group_layout_desc =
-            BindGroupLayoutDescriptor::new("hanabi:material_layout_render", &entries[..]);
-        self.material_layout_descs
-            .insert(layout.clone(), material_bind_group_layout_desc);
-    }
-
-    /// Retrieve a bind group layout for a cached material.
-    pub fn get_material(&self, layout: &TextureLayout) -> Option<&BindGroupLayoutDescriptor> {
-        // Prevent a hash and lookup for the trivial case of an empty layout
-        if layout.layout.is_empty() {
-            return None;
-        }
-
-        self.material_layout_descs.get(layout)
-    }
 }
 
 impl FromWorld for ParticlesRenderPipeline {
@@ -2126,10 +2065,7 @@ impl FromWorld for ParticlesRenderPipeline {
             ),
         );
 
-        Self {
-            view_layout_desc,
-            material_layout_descs: default(),
-        }
+        Self { view_layout_desc }
     }
 }
 
@@ -2225,19 +2161,15 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             ),
         );
 
-        let mut layout = vec![
+        let layout = vec![
             self.view_layout_desc.clone(),
             particle_bind_group_layout_desc,
             key.spawner_bind_group_layout_desc.clone(),
         ];
+
         let mut shader_defs = vec![];
         if !key.texture_layout.layout.is_empty() {
             shader_defs.push("HAS_MATERIAL".into());
-            if let Some(material_bind_group_layout) = self.get_material(&key.texture_layout) {
-                layout.push(material_bind_group_layout.clone());
-            } else {
-                panic!("Failed to retrieve material bind group layout, cannot specialize render pipeline.");
-            }
         }
 
         let vertex_buffer_layout = key.mesh_layout.as_ref().and_then(|mesh_layout| {
@@ -2766,8 +2698,33 @@ pub(crate) fn extract_effects(
             .map(|(extracted_effect, b, c, d, e)| (Some(extracted_effect), b, c, d, e))
             .unwrap_or((None, None, None, None, None));
 
-        // Extract general effect data
+        // Validate material
         let texture_layout = asset.module().texture_layout();
+        let num_expected_tex = texture_layout.layout.len();
+        if compiled_effect.textures.len() < num_expected_tex {
+            error!(
+                "Instance of effect '{}' on entity {:?} is missing some textures. Layout expected {} textures, but CompiledParticleEffect got {} instead.",
+                asset.name,
+                main_entity,
+                num_expected_tex,
+                compiled_effect.textures.len()
+            );
+            continue;
+        }
+        let textures = if compiled_effect.textures.len() > num_expected_tex {
+            trace!(
+                "Instance of effect '{}' on entity {:?} has too many textures. Layout expected {} textures, but CompiledParticleEffect got {} instead. Ignoring the extra ones.",
+                asset.name,
+                main_entity,
+                num_expected_tex,
+                compiled_effect.textures.len()
+            );
+            compiled_effect.textures[..num_expected_tex].to_vec()
+        } else {
+            compiled_effect.textures.clone()
+        };
+
+        // Extract general effect data
         let layout_flags = compiled_effect.layout_flags;
         let alpha_mode = compiled_effect.alpha_mode;
         trace!(
@@ -2776,7 +2733,7 @@ pub(crate) fn extract_effects(
             main_entity,
             render_entity,
             texture_layout.layout.len(),
-            compiled_effect.textures.len(),
+            textures.len(),
             layout_flags,
         );
         let new_extracted_effect = ExtractedEffect {
@@ -2785,7 +2742,7 @@ pub(crate) fn extract_effects(
             capacity: asset.capacity(),
             layout_flags,
             texture_layout,
-            textures: compiled_effect.textures.clone(),
+            textures,
             alpha_mode,
             effect_shaders: effect_shaders.clone(),
             simulation_condition: asset.simulation_condition,
@@ -3931,11 +3888,16 @@ pub fn prepare_init_update_pipelines(
         let property_layout_min_binding_size =
             maybe_cached_properties.map(|cp| cp.property_layout.min_binding_size());
         let spawner_bind_group_layout_desc = property_cache
-            .bind_group_layout_desc(property_layout_min_binding_size, true)
+            .bind_group_layout_desc(
+                property_layout_min_binding_size,
+                true,
+                &extracted_effect.texture_layout,
+            )
             .unwrap_or_else(|| {
                 panic!(
-                    "Failed to find spawner@2 bind group layout for property binding size {:?}",
+                    "Failed to find spawner@2 bind group layout for property binding size {:?} and texture layout {:?}",
                     property_layout_min_binding_size,
+                    extracted_effect.texture_layout,
                 )
             });
         trace!(
@@ -4794,6 +4756,13 @@ pub(crate) fn batch_effects(
         // batch.
         let spawner_index = effects_meta.allocate_spawner(input.gpu_spawner_params);
 
+        let texture_layout = extracted_effect.texture_layout.clone();
+        let property_key = if let Some(cp) = cached_properties.as_ref() {
+            PropertyBindGroupKey::new(cp, texture_layout)
+        } else {
+            PropertyBindGroupKey::texture_only(texture_layout)
+        };
+
         // Create a single-effect batch candidate. It can be merged with the previous
         // batch if fully compatible.
         let mut effect_batch = EffectBatch::from_input(
@@ -4807,7 +4776,7 @@ pub(crate) fn batch_effects(
             &mut input,
             cached_draw_indirect_args.row,
             cached_effect_metadata.table_id,
-            cached_properties.map(Into::into),
+            property_key,
         );
 
         // If the batch has ribbons, we need to sort the particles by RIBBON_ID and AGE
@@ -4915,7 +4884,7 @@ pub(crate) fn batch_effects(
     {
         // Buffer was reallocated; clear all bind groups referencing the old buffer
         effect_bind_groups.particle_slabs.clear();
-        property_bind_groups.clear(true);
+        property_bind_groups.clear();
         effects_meta.indirect_spawner_bind_group = None;
     }
 
@@ -4923,7 +4892,7 @@ pub(crate) fn batch_effects(
     if batcher.write_batch_info_buffer(&render_device, &render_queue) {
         // Buffer was reallocated; clear all bind groups referencing the old buffer
         effect_bind_groups.particle_slabs.clear();
-        property_bind_groups.clear(true);
+        property_bind_groups.clear();
         effects_meta.indirect_spawner_bind_group = None;
         effects_meta.prefix_sum_bind_group = None;
     }
@@ -4932,7 +4901,7 @@ pub(crate) fn batch_effects(
     if batcher.write_prefix_sum_buffer(&render_device, &render_queue) {
         // Buffer was reallocated; clear all bind groups referencing the old buffer
         effect_bind_groups.particle_slabs.clear();
-        property_bind_groups.clear(true);
+        property_bind_groups.clear();
         effects_meta.indirect_spawner_bind_group = None;
         effects_meta.prefix_sum_bind_group = None;
     }
@@ -4985,40 +4954,49 @@ struct Material {
 
 impl Material {
     /// Get the bind group entries to create a bind group.
-    pub fn make_entries<'a>(
-        &self,
+    pub fn append_binding_entries<'a, 'b>(
+        &'b self,
+        binding_start: u32,
         gpu_images: &'a RenderAssets<GpuImage>,
-    ) -> Result<Vec<BindGroupEntry<'a>>, ()> {
-        if self.textures.is_empty() {
-            return Ok(vec![]);
+        entries: &'b mut Vec<BindGroupEntry<'a>>,
+    ) -> bool {
+        if self.layout.layout.len() != self.textures.len() {
+            return false;
         }
 
-        let entries: Vec<BindGroupEntry<'a>> = self
-            .textures
-            .iter()
-            .enumerate()
-            .flat_map(|(index, id)| {
-                let base_binding = index as u32 * 2;
-                if let Some(gpu_image) = gpu_images.get(*id) {
-                    vec![
-                        BindGroupEntry {
-                            binding: base_binding,
-                            resource: BindingResource::TextureView(&gpu_image.texture_view),
-                        },
-                        BindGroupEntry {
-                            binding: base_binding + 1,
-                            resource: BindingResource::Sampler(&gpu_image.sampler),
-                        },
-                    ]
-                } else {
-                    vec![]
-                }
-            })
-            .collect();
-        if entries.len() == self.textures.len() * 2 {
-            return Ok(entries);
+        if self.textures.is_empty() {
+            return true;
         }
-        Err(())
+
+        let mut index = binding_start;
+        for (slot, asset_id) in self.layout.layout.iter().zip(self.textures.iter()) {
+            let Some(gpu_image) = gpu_images.get(*asset_id) else {
+                return false;
+            };
+            if gpu_image.texture_descriptor.sample_count > 1 {
+                return false;
+            }
+            if !slot.accepts(
+                gpu_image.texture_descriptor.dimension,
+                gpu_image.texture_descriptor.array_layer_count(),
+                gpu_image
+                    .texture_descriptor
+                    .format
+                    .is_depth_stencil_format(),
+            ) {
+                return false;
+            }
+            entries.push(BindGroupEntry {
+                binding: index,
+                resource: BindingResource::TextureView(&gpu_image.texture_view),
+            });
+            entries.push(BindGroupEntry {
+                binding: index + 1,
+                resource: BindingResource::Sampler(&gpu_image.sampler),
+            });
+            index += 2;
+        }
+        true
     }
 }
 
@@ -5166,8 +5144,6 @@ pub struct EffectBindGroups {
     /// update pass.
     // FIXME - doesn't work with batching; this should be the instance ID
     update_metadata_bind_groups: HashMap<SlabId, CachedBindGroup<UpdateMetadataBindGroupKey>>,
-    /// Map from an effect material to its bind group.
-    material_bind_groups: HashMap<Material, BindGroup>,
 }
 
 impl EffectBindGroups {
@@ -5495,9 +5471,6 @@ fn emit_sorted_draw<T, F>(
             #[cfg(feature = "trace")]
             _span_check_vis.exit();
 
-            // Create and cache the bind group layout for this texture layout
-            render_pipeline.cache_material(&effect_batch.texture_layout);
-
             // FIXME - We draw the entire batch, but part of it may not be visible in this
             // view! We should re-batch for the current view specifically!
 
@@ -5543,11 +5516,14 @@ fn emit_sorted_draw<T, F>(
             // have inserted any property in the cache, which would have allocated the
             // proper bind group layout (or the default no-property one).
             let has_multi_draw = false; // TODO?
-            let property_layout_min_binding_size = effect_batch
-                .property_key
-                .map(|key| NonZeroU64::new(key.binding_size as u64).unwrap());
+            let property_layout_min_binding_size =
+                NonZeroU64::new(effect_batch.property_key.binding_size as u64);
             let spawner_bind_group_layout_desc = property_cache
-                .bind_group_layout_desc(property_layout_min_binding_size, has_multi_draw)
+                .bind_group_layout_desc(
+                    property_layout_min_binding_size,
+                    has_multi_draw,
+                    &effect_batch.texture_layout,
+                )
                 .unwrap_or_else(|| {
                     panic!(
                         "Failed to find spawner@2 bind group layout for property binding size {:?}",
@@ -5703,9 +5679,6 @@ fn emit_binned_draw<T, F, G>(
             #[cfg(feature = "trace")]
             _span_check_vis.exit();
 
-            // Create and cache the bind group layout for this texture layout
-            render_pipeline.cache_material(&effect_batch.texture_layout);
-
             // FIXME - We draw the entire batch, but part of it may not be visible in this
             // view! We should re-batch for the current view specifically!
 
@@ -5749,11 +5722,14 @@ fn emit_binned_draw<T, F, G>(
             // have inserted any property in the cache, which would have allocated the
             // proper bind group layout (or the default no-property one).
             let has_multi_draw = false; // TODO?
-            let property_layout_min_binding_size = effect_batch
-                .property_key
-                .map(|key| NonZeroU64::new(key.binding_size as u64).unwrap());
+            let property_layout_min_binding_size =
+                NonZeroU64::new(effect_batch.property_key.binding_size as u64);
             let spawner_bind_group_layout_desc = property_cache
-                .bind_group_layout_desc(property_layout_min_binding_size, has_multi_draw)
+                .bind_group_layout_desc(
+                    property_layout_min_binding_size,
+                    has_multi_draw,
+                    &effect_batch.texture_layout,
+                )
                 .unwrap_or_else(|| {
                     panic!(
                         "Failed to find spawner@2 bind group layout for property binding size {:?}",
@@ -6423,7 +6399,6 @@ pub struct PipelineParams<'w, 's> {
     utils_pipeline: Res<'w, UtilsPipeline>,
     init_pipeline: Res<'w, ParticlesInitPipeline>,
     update_pipeline: Res<'w, ParticlesUpdatePipeline>,
-    render_pipeline: ResMut<'w, ParticlesRenderPipeline>,
     marker: PhantomData<&'s usize>,
 }
 
@@ -6471,7 +6446,6 @@ pub(crate) fn prepare_bind_groups(
     let utils_pipeline = pipelines.utils_pipeline.into_inner();
     let init_pipeline = pipelines.init_pipeline.into_inner();
     let update_pipeline = pipelines.update_pipeline.into_inner();
-    let render_pipeline = pipelines.render_pipeline.into_inner();
 
     // Ensure child_infos@3 bind group for the indirect pass is available if needed.
     // This returns `None` if the buffer is not ready, either because it's not
@@ -6632,26 +6606,17 @@ pub(crate) fn prepare_bind_groups(
         let _span_buffer = bevy::log::info_span!("create_batch_bind_groups").entered();
 
         // Create the property bind group @2 if needed
-        if let Some(property_key) = &effect_batch.property_key {
-            if let Err(err) = property_bind_groups.ensure_exists(
-                property_key,
-                &property_cache,
-                &spawner_buffer,
-                &prefix_sum_buffer,
-                &batch_info_buffer,
-                &render_device,
-                &pipeline_cache,
-            ) {
-                error!("Failed to create property bind group for effect batch: {err:?}");
-                continue;
-            }
-        } else if let Err(err) = property_bind_groups.ensure_exists_no_property(
+        if let Err(err) = property_bind_groups.ensure_exists(
+            &effect_batch.property_key,
             &property_cache,
             &spawner_buffer,
             &prefix_sum_buffer,
+            &effect_batch.texture_layout,
+            &effect_batch.textures[..],
             &batch_info_buffer,
             &render_device,
             &pipeline_cache,
+            &gpu_images,
         ) {
             error!("Failed to create property bind group for effect batch: {err:?}");
             continue;
@@ -6787,54 +6752,6 @@ pub(crate) fn prepare_bind_groups(
                 continue;
             }
         }
-
-        // Ensure the particle texture(s) are available as GPU resources and that a bind
-        // group for them exists
-        // FIXME fix this insert+get below
-        if !effect_batch.texture_layout.layout.is_empty() {
-            // This should always be available, as this is cached into the render pipeline
-            // just before we start specializing it.
-            let Some(material_bind_group_layout_desc) =
-                render_pipeline.get_material(&effect_batch.texture_layout)
-            else {
-                error!(
-                    "Failed to find material bind group layout for particle slab #{}",
-                    effect_batch.slab_id.index()
-                );
-                continue;
-            };
-
-            // TODO = move
-            let material = Material {
-                layout: effect_batch.texture_layout.clone(),
-                textures: effect_batch.textures.iter().map(|h| h.id()).collect(),
-            };
-            assert_eq!(material.layout.layout.len(), material.textures.len());
-
-            //let bind_group_entries = material.make_entries(&gpu_images).unwrap();
-            let Ok(bind_group_entries) = material.make_entries(&gpu_images) else {
-                trace!(
-                    "Temporarily ignoring material {:?} due to missing image(s)",
-                    material
-                );
-                continue;
-            };
-
-            effect_bind_groups
-                .material_bind_groups
-                .entry(material.clone())
-                .or_insert_with(|| {
-                    debug!("Creating material bind group for material {:?}", material);
-                    render_device.create_bind_group(
-                        &format!(
-                            "hanabi:material_bind_group_{}",
-                            material.layout.layout.len()
-                        )[..],
-                        &pipeline_cache.get_bind_group_layout(material_bind_group_layout_desc),
-                        &bind_group_entries[..],
-                    )
-                });
-        }
     }
 }
 
@@ -6936,26 +6853,6 @@ fn draw<'w>(
         &[],
     );
 
-    // Effect materials (textures and samplers)
-    // TODO = move
-    let material = Material {
-        layout: effect_batch.texture_layout.clone(),
-        textures: effect_batch.textures.iter().map(|h| h.id()).collect(),
-    };
-    let has_material = !effect_batch.texture_layout.layout.is_empty();
-    if has_material {
-        if let Some(bind_group) = effect_bind_groups.material_bind_groups.get(&material) {
-            pass.set_bind_group(3, bind_group, &[]);
-        } else {
-            // Texture(s) not ready; skip this drawing for now
-            trace!(
-                "Particle material bind group not available for batch slab_id={}. Skipping draw call.",
-                effect_batch.slab_id.index(),
-            );
-            return;
-        }
-    }
-
     let Some(indirect_buffer) = effects_meta.draw_indirect_args_buffer.buffer() else {
         trace!(
             "The draw indirect buffer containing the indirect draw args is not ready for batch slab_id=#{}. Skipping draw call.",
@@ -6997,7 +6894,7 @@ fn draw<'w>(
                 pass.set_bind_group(
                     2,
                     property_bind_groups
-                        .get(effect_batch.property_key.as_ref(), with_prefix_sum)
+                        .get(&effect_batch.property_key, with_prefix_sum)
                         .unwrap(),
                     &[effect_data.render_batch_info_offset],
                 );
@@ -7034,7 +6931,7 @@ fn draw<'w>(
                 pass.set_bind_group(
                     2,
                     property_bind_groups
-                        .get(effect_batch.property_key.as_ref(), with_prefix_sum)
+                        .get(&effect_batch.property_key, with_prefix_sum)
                         .unwrap(),
                     &[effect_data.render_batch_info_offset],
                 );
@@ -7395,7 +7292,7 @@ fn simulate(
             compute_pass.set_bind_group(
                 2,
                 property_bind_groups
-                    .get(effect_batch.property_key.as_ref(), true)
+                    .get(&effect_batch.property_key, true)
                     .unwrap(),
                 &[batch_info_offset],
             );
@@ -7636,7 +7533,7 @@ fn simulate(
             compute_pass.set_bind_group(
                 2,
                 property_bind_groups
-                    .get(effect_batch.property_key.as_ref(), true)
+                    .get(&effect_batch.property_key, true)
                     .unwrap(),
                 &[batch_info_offset],
             );

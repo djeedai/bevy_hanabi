@@ -72,7 +72,7 @@ pub struct ParticleTextureModifier {
     /// [`EffectMaterial`] component.
     ///
     /// [`EffectMaterial`]: crate::EffectMaterial
-    pub texture_slot: ExprHandle,
+    pub texture_slot: u32,
 
     /// The mapping of the texture image samples to the base particle color.
     pub sample_mapping: ImageSampleMapping,
@@ -80,7 +80,7 @@ pub struct ParticleTextureModifier {
 
 impl ParticleTextureModifier {
     /// Create a new modifier with the default [`ImageSampleMapping`].
-    pub fn new(texture_slot: ExprHandle) -> Self {
+    pub fn new(texture_slot: u32) -> Self {
         Self {
             texture_slot,
             sample_mapping: default(),
@@ -115,13 +115,11 @@ impl ParticleTextureModifier {
     /// Evaluate the modifier to generate the shader code.
     pub fn eval(
         &self,
-        module: &Module,
-        context: &mut dyn EvalContext,
+        _module: &Module,
+        _context: &mut dyn EvalContext,
     ) -> Result<String, ExprError> {
-        let texture_slot = module.try_get(self.texture_slot)?;
-        let texture_slot = texture_slot.eval(module, context)?;
-        let sample_mapping = self.sample_mapping.to_shader_code(&texture_slot[..]);
-
+        let texture_slot = self.texture_slot.to_string();
+        let sample_mapping = self.sample_mapping.to_shader_code(&texture_slot);
         let sample_mapping_name = format!("{:?}", self.sample_mapping);
 
         // Build a switch statement to select the texture/sampler.
@@ -131,17 +129,7 @@ impl ParticleTextureModifier {
         let mut code = String::with_capacity(1024);
         code += &format!(
             "    // ParticleTextureModifier
-    var texColor{texture_slot}: vec4<f32>;
-    switch ({texture_slot}) {{\n"
-        );
-        let count = module.texture_layout().layout.len() as u32;
-        for index in 0..count {
-            let wgsl_index = index.to_wgsl_string();
-            code += &format!("      case {wgsl_index}: {{ texColor{texture_slot} = textureSample(material_texture_{index}, material_sampler_{index}, uv); }}\n");
-        }
-        code += &format!("      default: {{ texColor{texture_slot} = vec4<f32>(0.0); }}\n");
-        code += &format!(
-            "    }}
+    var texColor{texture_slot} = textureSample(material_texture_{texture_slot}, material_sampler_{texture_slot}, uv);
     // Sample mapping: {sample_mapping_name}
     {sample_mapping}"
         );
@@ -737,15 +725,13 @@ axis_z = cross(axis_x, axis_y);
 ///     .expr();
 /// let update_sprite_index = SetAttributeModifier::new(Attribute::SPRITE_INDEX, sprite_index);
 ///
-/// let texture_slot = writer.lit(0u32).expr();
-///
 /// let asset = EffectAsset::new(32768, SpawnerSettings::once(32.0.into()), writer.finish())
 ///     .with_name("flipbook")
 ///     .init(init_age)
 ///     .init(init_lifetime)
 ///     .update(update_sprite_index)
 ///     .render(ParticleTextureModifier {
-///         texture_slot,
+///         texture_slot: 0,
 ///         sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
 ///     })
 ///     .render(FlipbookModifier {
@@ -964,9 +950,7 @@ mod tests {
     #[test]
     fn mod_particle_texture() {
         let mut module = Module::default();
-        let slot = module.lit(42u32);
-        // let texture = Handle::<Image>::default();
-        let modifier = ParticleTextureModifier::new(slot);
+        let modifier = ParticleTextureModifier::new(42);
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();

@@ -1,6 +1,5 @@
 @echo on
 echo Run all examples
-REM 3D
 cargo r --example lightning
 cargo r --example firework
 cargo r --example portal
@@ -16,12 +15,11 @@ cargo r --example init
 cargo r --example lifetime
 cargo r --example ordering
 cargo r --example ribbon
-REM 3D + PNG
 cargo r --example gradient
 cargo r --example circle
 cargo r --example billboard
 cargo r --example worms
 cargo r --example instancing
 cargo r --example puffs
-REM 2D
+cargo r --example lut
 cargo r --example 2d

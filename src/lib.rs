@@ -185,7 +185,10 @@ use bevy::{
     camera::visibility::VisibilityClass,
     platform::collections::{HashMap, HashSet},
     prelude::*,
-    render::{extract_component::ExtractComponent, sync_world::SyncToRenderWorld},
+    render::{
+        extract_component::ExtractComponent, render_resource::IntoBindGroupLayoutEntryBuilder as _,
+        sync_world::SyncToRenderWorld,
+    },
 };
 use rand::{RngExt as _, SeedableRng as _};
 use serde::{Deserialize, Serialize};
@@ -218,6 +221,10 @@ pub use properties::*;
 pub use render::{DebugSettings, LayoutFlags, ShaderCache};
 pub use spawn::{tick_spawners, CpuValue, EffectSpawner, Random, SpawnerSettings};
 pub use time::{EffectSimulation, EffectSimulationTime};
+use wgpu::{
+    BindGroupLayoutEntry, BindingType, SamplerBindingType, ShaderStages, TextureDescriptor,
+    TextureDimension, TextureSampleType, TextureViewDimension,
+};
 
 #[allow(missing_docs)]
 pub mod prelude {
@@ -724,16 +731,259 @@ pub struct EffectMaterial {
     pub images: Vec<Handle<Image>>,
 }
 
+/// Dimension of a texture for a material slot.
+///
+/// This defines the type of WGSL texture read or sampler used, and what format
+/// is expected for the [`Image`] bound to that slot. Image binding is done via
+/// the [`EffectMaterial`] component.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
+#[reflect(Default)]
+pub enum SlotDimension {
+    /// A one dimensional texture. `texture_1d` in WGSL.
+    #[serde(rename = "1d")]
+    D1,
+
+    /// A two dimensional texture. `texture_2d` in WGSL.
+    #[serde(rename = "2d")]
+    #[default]
+    D2,
+
+    /// A two dimensional array texture. `texture_2d_array` in WGSL.
+    #[serde(rename = "2d-array")]
+    D2Array,
+
+    /// A cubemap texture. `texture_cube` in WGSL.
+    #[serde(rename = "cube")]
+    Cube,
+
+    /// A cubemap array texture. `texture_cube_array` in WGSL.
+    #[serde(rename = "cube-array")]
+    CubeArray,
+
+    /// A three dimensional texture. `texture_3d` in WGSL.
+    #[serde(rename = "3d")]
+    D3,
+
+    /// A two dimensional depth texture. `texture_depth_2d`.
+    #[serde(rename = "depth-2d")]
+    DepthD2,
+
+    /// A two dimensional array texture. `texture_depth_2d_array` in WGSL.
+    #[serde(rename = "depth-2d-array")]
+    DepthD2Array,
+
+    /// A cubemap texture. `texture_depth_cube` in WGSL.
+    #[serde(rename = "depth-cube")]
+    DepthCube,
+
+    /// A cubemap array texture. `texture_depth_cube_array` in WGSL.
+    #[serde(rename = "depth-cube-array")]
+    DepthCubeArray,
+}
+
+impl SlotDimension {
+    /// Check if this slot dimension uses an array texture.
+    ///
+    /// Array textures require an addition `array_index` when loading a value or
+    /// sampling the texture. See [`TextureSampleExpr`] and [`TextureLoadExpr`].
+    pub fn is_array(&self) -> bool {
+        matches!(
+            *self,
+            SlotDimension::D2Array
+                | SlotDimension::CubeArray
+                | SlotDimension::DepthD2Array
+                | SlotDimension::DepthCubeArray
+        )
+    }
+
+    /// Check if this slot dimension uses a depth texture.
+    ///
+    /// Depth textures use a comparison sampler, and always return a scalar
+    /// `f32` value. Non-depth textures conversely return a `vec4<f32>`, and use
+    /// an interpolating sampler (and optional mip-map).
+    pub fn is_depth(&self) -> bool {
+        matches!(
+            *self,
+            SlotDimension::DepthD2
+                | SlotDimension::DepthD2Array
+                | SlotDimension::DepthCube
+                | SlotDimension::DepthCubeArray
+        )
+    }
+
+    /// Check if this slot dimension uses a cube texture.
+    ///
+    /// Cube textures have some usage restrictions. In particular, you cannot
+    /// use them with a [`TextureLoadExpr`]. They always need a multiple of 6
+    /// layers (and exactly 6 if not an array).
+    pub fn is_cube(&self) -> bool {
+        matches!(
+            *self,
+            SlotDimension::Cube
+                | SlotDimension::CubeArray
+                | SlotDimension::DepthCube
+                | SlotDimension::DepthCubeArray
+        )
+    }
+
+    /// Convert this slot dimension to a WGSL texture type name.
+    pub fn to_wgsl_texture_type(&self) -> String {
+        match *self {
+            SlotDimension::D1 => "texture_1d<f32>",
+            SlotDimension::D2 => "texture_2d<f32>",
+            SlotDimension::D2Array => "texture_2d_array<f32>",
+            SlotDimension::D3 => "texture_3d<f32>",
+            SlotDimension::Cube => "texture_cube<f32>",
+            SlotDimension::CubeArray => "texture_cube_array<f32>",
+            SlotDimension::DepthD2 => "texture_depth_2d<f32>",
+            SlotDimension::DepthD2Array => "texture_depth_2d_array<f32>",
+            SlotDimension::DepthCube => "texture_depth_cube<f32>",
+            SlotDimension::DepthCubeArray => "texture_depth_cube_array<f32>",
+        }
+        .to_string()
+    }
+
+    /// Convert this slot dimension to a WGSL sampler type.
+    ///
+    /// This returns `sampler_comparison` if [`is_depth()`] is `true`, or
+    /// `sampler` otherwise.
+    ///
+    /// [`is_depth()`]: Self::is_depth
+    pub fn to_wgsl_sampler_type(&self) -> String {
+        if self.is_depth() {
+            "sampler_comparison"
+        } else {
+            "sampler"
+        }
+        .to_string()
+    }
+}
+
 /// Texture slot of a [`Module`].
 ///
 /// A texture slot defines a named bind point where a texture can be attached
-/// and sampled by an effect during rendering. A slot also has an implicit
+/// and read/sampled by an effect during rendering. A slot also has an implicit
 /// unique index corresponding to its position in the [`TextureLayout::layout`]
 /// array of the effect.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Reflect, Serialize, Deserialize)]
 pub struct TextureSlot {
     /// Unique slot name.
     pub name: String,
+    /// Texture dimension the slot uses. This determines the sampler of the slot
+    /// in the WGSL shader.
+    pub dimension: SlotDimension,
+}
+
+impl TextureSlot {
+    /// Check if this slot accepts the given texture type.
+    ///
+    /// - `texture_dimension` determines the cardinality 1D/2D/3D of the texture
+    ///   access.
+    /// - `array_layer_count` is the number of layers of an array texture. It
+    ///   can only be > 1 for a [`SlotDimension`] corresponding to an array
+    ///   texture.
+    /// - `is_depth` determines if the texture is accessed via a comparison
+    ///   sampler as a depth texture. Note that this doesn't mean that the
+    ///   texture must contain values that semantically represent a depth value;
+    ///   the semantic of a texture value is irrelevant for the shader compiler,
+    ///   and only matters for the author.
+    pub fn accepts(
+        &self,
+        texture_dimension: TextureDimension,
+        array_layer_count: u32,
+        is_depth: bool,
+    ) -> bool {
+        let expected_dimension = match self.dimension {
+            SlotDimension::D1 => TextureDimension::D1,
+            SlotDimension::D3 => TextureDimension::D3,
+            _ => TextureDimension::D2,
+        };
+        if texture_dimension != expected_dimension {
+            return false;
+        }
+
+        // Depth slots need a texture with a depth format
+        if self.dimension.is_depth() != is_depth {
+            return false;
+        }
+
+        // Cube textures need a number of layer multiple of 6. And non-array ones need
+        // exactly 6.
+        if self.dimension.is_cube()
+            && ((!self.dimension.is_array() && (array_layer_count != 6))
+                || !array_layer_count.is_multiple_of(6))
+        {
+            return false;
+        }
+
+        // A layer count > 1 requires an array textures or a cube texture
+        if array_layer_count > 1 {
+            self.dimension.is_array() || self.dimension.is_cube()
+        } else {
+            true
+        }
+    }
+
+    /// Get the WGPU binding type [`BindingType`] for a texture bound to this
+    /// slot.
+    ///
+    /// This returns a [`BindingType::Texture`].
+    pub fn to_texture_binding_type(&self) -> BindingType {
+        let (sample_type, view_dimension) = match self.dimension {
+            SlotDimension::D1 => (
+                TextureSampleType::Float { filterable: true },
+                TextureViewDimension::D1,
+            ),
+            SlotDimension::D2 => (
+                TextureSampleType::Float { filterable: true },
+                TextureViewDimension::D2,
+            ),
+            SlotDimension::D2Array => (
+                TextureSampleType::Float { filterable: true },
+                TextureViewDimension::D2Array,
+            ),
+            SlotDimension::D3 => (
+                TextureSampleType::Float { filterable: true },
+                TextureViewDimension::D3,
+            ),
+            SlotDimension::Cube => (
+                TextureSampleType::Float { filterable: true },
+                TextureViewDimension::Cube,
+            ),
+            SlotDimension::CubeArray => (
+                TextureSampleType::Float { filterable: true },
+                TextureViewDimension::CubeArray,
+            ),
+            SlotDimension::DepthD2 => (TextureSampleType::Depth, TextureViewDimension::D2),
+            SlotDimension::DepthD2Array => {
+                (TextureSampleType::Depth, TextureViewDimension::D2Array)
+            }
+            SlotDimension::DepthCube => (TextureSampleType::Depth, TextureViewDimension::Cube),
+            SlotDimension::DepthCubeArray => {
+                (TextureSampleType::Depth, TextureViewDimension::CubeArray)
+            }
+        };
+        BindingType::Texture {
+            sample_type,
+            view_dimension,
+            multisampled: false,
+        }
+    }
+
+    /// Get the WGPU binding type [`BindingType`] for a sampler bound to this
+    /// slot.
+    ///
+    /// This returns a [`BindingType::Sampler`] which is either a
+    /// [`SamplerBindingType::Comparison`] if [`SlotDimension::is_depth()`] is
+    /// `true`, or [`SamplerBindingType::Filtering`] otherwise.
+    pub fn to_sampler_binding_type(&self) -> BindingType {
+        let sampler_binding_type = if self.dimension.is_depth() {
+            SamplerBindingType::Comparison
+        } else {
+            SamplerBindingType::Filtering
+        };
+        BindingType::Sampler(sampler_binding_type)
+    }
 }
 
 /// Texture layout.
@@ -757,6 +1007,78 @@ impl TextureLayout {
     /// to it.
     pub fn get_slot_by_name(&self, name: &str) -> Option<usize> {
         self.layout.iter().position(|slot| slot.name == name)
+    }
+
+    /// Check if the given texture is compatible with the given slot.
+    ///
+    /// This checks that the slot index is valid, and that
+    /// [`TextureSlot::accepts()`] is `true` for that slot.
+    pub fn is_compatible(&self, slot_index: u32, texture_descriptor: &TextureDescriptor) -> bool {
+        if slot_index >= self.layout.len() as u32 {
+            return false;
+        }
+        if texture_descriptor.sample_count > 1 {
+            // Multisampled textures not currently supported by Hanabi
+            return false;
+        }
+        let slot = &self.layout[slot_index as usize];
+        slot.accepts(
+            texture_descriptor.dimension,
+            texture_descriptor.array_layer_count(),
+            texture_descriptor.format.is_depth_stencil_format(),
+        )
+    }
+
+    /// Append the bindings for the textures described by this layout.
+    pub fn append_layout_bindings(
+        &self,
+        start_binding: u32,
+        entries: &mut Vec<BindGroupLayoutEntry>,
+    ) {
+        let mut bind_index = start_binding;
+        for slot in &self.layout {
+            let tex_index = bind_index;
+            let sampler_index = bind_index + 1;
+            entries.push(
+                slot.to_texture_binding_type()
+                    .into_bind_group_layout_entry_builder()
+                    .build(
+                        tex_index,
+                        ShaderStages::COMPUTE | ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                    ),
+            );
+            entries.push(
+                slot.to_sampler_binding_type()
+                    .into_bind_group_layout_entry_builder()
+                    .build(
+                        sampler_index,
+                        ShaderStages::COMPUTE | ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                    ),
+            );
+            bind_index += 2;
+        }
+    }
+
+    /// Generate the WGSL code for the material bindings of this layout.
+    pub fn to_wgsl_binding(&self, group_index: u32, start_index: u32) -> String {
+        if self.layout.is_empty() {
+            return String::new();
+        }
+        let mut code = String::with_capacity(160 * self.layout.len());
+        let mut bind_index = start_index;
+        for (slot_index, slot) in self.layout.iter().enumerate() {
+            let tex_index = bind_index;
+            let sampler_index = bind_index + 1;
+            let texture_type = slot.dimension.to_wgsl_texture_type();
+            let sampler_type = slot.dimension.to_wgsl_sampler_type();
+            code.push_str(&format!(
+                "@group({group_index}) @binding({tex_index}) var material_texture_{slot_index}: {texture_type};
+@group({group_index}) @binding({sampler_index}) var material_sampler_{slot_index}: {sampler_type};
+"
+            ));
+            bind_index += 2;
+        }
+        code
     }
 }
 
@@ -984,6 +1306,11 @@ impl EffectShaderSources {
             "@group(2) @binding(3) var<storage, read> properties : array<Properties>;".to_string()
         };
 
+        // Generate the shader code defining the material bindings. These occupy the
+        // @group(2) @binding(4..) range.
+        let texture_layout = asset.texture_layout();
+        let material_bindings_code = texture_layout.to_wgsl_binding(2, 4);
+
         // Event buffer bindings for the update pass, if the effect emits GPU events to
         // one or more other effects.
         let mut emit_event_buffer_bindings_code = String::with_capacity(256);
@@ -1048,8 +1375,12 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
         // Generate the shader code for the initializing shader
         let (init_code, init_extra, init_sim_space_transform_code, consume_gpu_spawn_events) = {
             // Apply all the init modifiers
-            let mut init_context =
-                ShaderWriter::new(ModifierContext::Init, &property_layout, &particle_layout);
+            let mut init_context = ShaderWriter::new(
+                ModifierContext::Init,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
             for m in asset.init_modifiers() {
                 if let Err(err) = m.apply(&mut module, &mut init_context) {
                     error!(
@@ -1086,6 +1417,7 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             .replace("{{INIT_EXTRA}}", &init_extra)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
+            .replace("{{MATERIAL_BINDINGS}}", &material_bindings_code)
             .replace(
                 "{{SIMULATION_SPACE_TRANSFORM_PARTICLE}}",
                 &init_sim_space_transform_code,
@@ -1098,8 +1430,12 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
 
         // Generate the shader code for the update shader
         let (mut update_code, update_extra, emit_gpu_spawn_events) = {
-            let mut update_context =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            let mut update_context = ShaderWriter::new(
+                ModifierContext::Update,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
             for m in asset.update_modifiers() {
                 if let Err(err) = m.apply(&mut module, &mut update_context) {
                     error!(
@@ -1163,7 +1499,6 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             alpha_cutoff_code,
             flipbook_scale_code,
             flipbook_row_count_code,
-            material_bindings_code,
         ) = {
             let texture_layout = module.texture_layout();
             let mut render_context =
@@ -1215,23 +1550,6 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                 (String::new(), String::new())
             };
 
-            trace!(
-                "Generating material bindings code for layout: {:?}",
-                texture_layout
-            );
-            let mut material_bindings_code = String::new();
-            let mut bind_index = 0;
-            for (slot, _) in texture_layout.layout.iter().enumerate() {
-                let tex_index = bind_index;
-                let sampler_index = bind_index + 1;
-                material_bindings_code.push_str(&format!(
-                    "@group(3) @binding({tex_index}) var material_texture_{slot}: texture_2d<f32>;
-@group(3) @binding({sampler_index}) var material_sampler_{slot}: sampler;
-"
-                ));
-                bind_index += 2;
-            }
-
             (
                 render_context.vertex_code,
                 render_context.fragment_code,
@@ -1239,7 +1557,6 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                 alpha_cutoff_code,
                 flipbook_scale_code,
                 flipbook_row_count_code,
-                material_bindings_code,
             )
         };
 
@@ -1315,6 +1632,7 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             .replace("{{UPDATE_EXTRA}}", &update_extra)
             .replace("{{PROPERTIES}}", &properties_code)
             .replace("{{PROPERTIES_BINDING}}", &properties_binding_code)
+            .replace("{{MATERIAL_BINDINGS}}", &material_bindings_code)
             .replace(
                 "{{EMIT_EVENT_BUFFER_BINDINGS}}",
                 &emit_event_buffer_bindings_code,
@@ -2080,31 +2398,48 @@ else { return c1; }
     fn test_simulation_space_eval() {
         let particle_layout = ParticleLayout::empty();
         let property_layout = PropertyLayout::default();
+        let texture_layout = TextureLayout::default();
         {
             // Local is always available
-            let ctx =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            let ctx = ShaderWriter::new(
+                ModifierContext::Update,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_err());
 
             // Global requires storing the particle's position
             let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
-            let ctx =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            let ctx = ShaderWriter::new(
+                ModifierContext::Update,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_ok());
         }
         {
             // Local is always available
-            let ctx =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            let ctx = ShaderWriter::new(
+                ModifierContext::Update,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_err());
 
             // Global requires storing the particle's position
             let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
-            let ctx =
-                ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+            let ctx = ShaderWriter::new(
+                ModifierContext::Update,
+                &property_layout,
+                &particle_layout,
+                &texture_layout,
+            );
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_ok());
         }
@@ -2585,6 +2920,202 @@ else { return c1; }
                 assert!(compiled_particle_effect.asset.is_strong());
                 assert!(compiled_particle_effect.effect_shader.is_some());
             }
+        }
+    }
+
+    bitflags::bitflags! {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub struct LayerMatchFlags: u8 {
+            const EXACTLY_ONE = (1u8 << 0);
+            const ONE_OR_MORE = (1u8 << 1);
+            const EXACTLY_SIX = (1u8 << 2);
+            const MULTIPLE_OF_SIX = (1u8 << 3);
+        }
+    }
+
+    impl LayerMatchFlags {
+        pub fn accepts(&self, layer: u32) -> bool {
+            match *self {
+                Self::EXACTLY_ONE => layer == 1,
+                Self::ONE_OR_MORE => layer >= 1,
+                Self::EXACTLY_SIX => layer == 6,
+                Self::MULTIPLE_OF_SIX => layer.is_multiple_of(6),
+                _ => panic!(),
+            }
+        }
+    }
+
+    fn check_texslot(slot: &TextureSlot, accepts: (TextureDimension, LayerMatchFlags, bool)) {
+        for dim in [
+            TextureDimension::D1,
+            TextureDimension::D2,
+            TextureDimension::D3,
+        ] {
+            for layer in [1, 2, 6, 14, 18] {
+                for is_depth in [true, false] {
+                    let is_matching =
+                        (dim == accepts.0) && (is_depth == accepts.2) && accepts.1.accepts(layer);
+                    assert_eq!(
+                        slot.accepts(dim, layer, is_depth),
+                        is_matching,
+                        "Expected slot {slot:?} to accept={is_matching} for dim={dim:?}, layer={layer}, is_depth={is_depth}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn texslot_accepts() {
+        let slot_1d = TextureSlot {
+            name: "D1".to_string(),
+            dimension: SlotDimension::D1,
+        };
+        let accepts = (TextureDimension::D1, LayerMatchFlags::EXACTLY_ONE, false);
+        check_texslot(&slot_1d, accepts);
+
+        let slot_2d = TextureSlot {
+            name: "D2".to_string(),
+            dimension: SlotDimension::D2,
+        };
+        let accepts = (TextureDimension::D2, LayerMatchFlags::EXACTLY_ONE, false);
+        check_texslot(&slot_2d, accepts);
+
+        let slot_2d_array = TextureSlot {
+            name: "D2Array".to_string(),
+            dimension: SlotDimension::D2Array,
+        };
+        let accepts = (TextureDimension::D2, LayerMatchFlags::ONE_OR_MORE, false);
+        check_texslot(&slot_2d_array, accepts);
+
+        let slot_cube = TextureSlot {
+            name: "Cube".to_string(),
+            dimension: SlotDimension::Cube,
+        };
+        let accepts = (TextureDimension::D2, LayerMatchFlags::EXACTLY_SIX, false);
+        check_texslot(&slot_cube, accepts);
+
+        let slot_cube_array = TextureSlot {
+            name: "CubeArray".to_string(),
+            dimension: SlotDimension::CubeArray,
+        };
+        let accepts = (
+            TextureDimension::D2,
+            LayerMatchFlags::MULTIPLE_OF_SIX,
+            false,
+        );
+        check_texslot(&slot_cube_array, accepts);
+
+        let slot_3d = TextureSlot {
+            name: "D3".to_string(),
+            dimension: SlotDimension::D3,
+        };
+        let accepts = (TextureDimension::D3, LayerMatchFlags::EXACTLY_ONE, false);
+        check_texslot(&slot_3d, accepts);
+
+        let slot_depth_2d = TextureSlot {
+            name: "DepthD2".to_string(),
+            dimension: SlotDimension::DepthD2,
+        };
+        let accepts = (TextureDimension::D2, LayerMatchFlags::EXACTLY_ONE, true);
+        check_texslot(&slot_depth_2d, accepts);
+
+        let slot_depth_2d_array = TextureSlot {
+            name: "DepthD2Array".to_string(),
+            dimension: SlotDimension::DepthD2Array,
+        };
+        let accepts = (TextureDimension::D2, LayerMatchFlags::ONE_OR_MORE, true);
+        check_texslot(&slot_depth_2d_array, accepts);
+
+        let slot_depth_cube = TextureSlot {
+            name: "DepthCube".to_string(),
+            dimension: SlotDimension::DepthCube,
+        };
+        let accepts = (TextureDimension::D2, LayerMatchFlags::EXACTLY_SIX, true);
+        check_texslot(&slot_depth_cube, accepts);
+
+        let slot_depth_cube_array = TextureSlot {
+            name: "DepthCubeArray".to_string(),
+            dimension: SlotDimension::DepthCubeArray,
+        };
+        let accepts = (TextureDimension::D2, LayerMatchFlags::MULTIPLE_OF_SIX, true);
+        check_texslot(&slot_depth_cube_array, accepts);
+    }
+
+    #[test]
+    fn slotdim_is() {
+        for dim in [
+            SlotDimension::D1,
+            SlotDimension::D2,
+            SlotDimension::D2Array,
+            SlotDimension::Cube,
+            SlotDimension::CubeArray,
+            SlotDimension::D3,
+            SlotDimension::DepthD2,
+            SlotDimension::DepthD2Array,
+            SlotDimension::DepthCube,
+            SlotDimension::DepthCubeArray,
+        ] {
+            // The canonical WGSL name, which is what the SlotDimentions debug-format to,
+            // happens to always contain "array" if the texture is an array texture, "depth"
+            // if it's used for comparison, and "cube" if it's a cube texture. We use this
+            // as validation.
+            let name = format!("{:?}", dim).to_ascii_lowercase();
+
+            let is_array = name.contains("array");
+            assert_eq!(is_array, dim.is_array());
+
+            let is_depth = name.contains("depth");
+            assert_eq!(is_depth, dim.is_depth());
+
+            let is_cube = name.contains("cube");
+            assert_eq!(is_cube, dim.is_cube());
+        }
+    }
+
+    #[test]
+    fn slotdim_texture_type() {
+        for dim in [
+            SlotDimension::D1,
+            SlotDimension::D2,
+            SlotDimension::D2Array,
+            SlotDimension::Cube,
+            SlotDimension::CubeArray,
+            SlotDimension::D3,
+            SlotDimension::DepthD2,
+            SlotDimension::DepthD2Array,
+            SlotDimension::DepthCube,
+            SlotDimension::DepthCubeArray,
+        ] {
+            let tex = dim.to_wgsl_texture_type();
+
+            let slot_type = format!("{dim:?}")
+                .to_ascii_lowercase()
+                .replace("array", "_array")
+                .replace("depth", "depth_")
+                .replace("d1", "1d")
+                .replace("d2", "2d")
+                .replace("d3", "3d");
+
+            assert_eq!(tex, format!("texture_{slot_type}<f32>"));
+        }
+    }
+
+    #[test]
+    fn slotdim_sampler_type() {
+        for dim in [
+            SlotDimension::D1,
+            SlotDimension::D2,
+            SlotDimension::D2Array,
+            SlotDimension::Cube,
+            SlotDimension::CubeArray,
+            SlotDimension::D3,
+            SlotDimension::DepthD2,
+            SlotDimension::DepthD2Array,
+            SlotDimension::DepthCube,
+            SlotDimension::DepthCubeArray,
+        ] {
+            let sampler = dim.to_wgsl_sampler_type();
+            assert_eq!(sampler.contains("comparison"), dim.is_depth());
         }
     }
 }
