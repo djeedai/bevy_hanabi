@@ -282,15 +282,24 @@ pub(crate) fn on_remove_cached_effect_events(
     trigger: On<Remove, CachedEffectEvents>,
     query: Query<(Entity, &CachedEffectEvents)>,
     mut event_cache: ResMut<EventCache>,
+    mut effect_bind_groups: ResMut<EffectBindGroups>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("on_remove_cached_effect_events").entered();
     trace!("on_remove_cached_effect_events");
 
-    if let Ok((entity, cached_effect_event)) = query.get(trigger.event().entity) {
-        // TODO - handle SlabState return value to invalidate property bind groups!!
-        if let Err(err) = event_cache.free(cached_effect_event) {
-            error!("Error while freeing cached events for effect {entity:?}: {err:?}");
+    if let Ok((entity, cached_effect_events)) = query.get(trigger.event().entity) {
+        match event_cache.free(cached_effect_events) {
+            Err(err) => {
+                error!("Error while freeing cached events for effect {entity:?}: {err:?}");
+            }
+            Ok(buffer_state) => {
+                if buffer_state != SlabState::Used {
+                    // Clear bind groups associated with the old buffer
+                    effect_bind_groups.init_metadata_bind_groups.clear();
+                    effect_bind_groups.update_metadata_bind_groups.clear();
+                }
+            }
         }
     };
 }

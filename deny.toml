@@ -42,6 +42,16 @@ deny = [
     { name = "parley", deny-multiple-versions = true },
     { name = "glam", deny-multiple-versions = true },
     { name = "raw-window-handle", deny-multiple-versions = true },
+    # CVE-2026-77651
+    { name = "append-only-vec", version = ">=0.1.9, <0.1.10" },
+    { name = "arrayref", version = ">=0.3.10, <0.3.11" },
+    { name = "internment", version = ">=0.8.7, <0.8.8" },
+    { name = "proc-macro1" },
+    { name = "proc-macro-en" },
+    { name = "aovine" },
+    { name = "arone" },
+    { name = "aronenao" },
+    { name = "tinymember" },
 ]
 
 [sources]

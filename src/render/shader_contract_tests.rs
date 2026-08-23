@@ -1,9 +1,6 @@
 use std::{borrow::Cow, num::NonZeroU64};
 
-use bevy::{
-    prelude::Vec3,
-    render::{render_resource::*, renderer::RenderQueue},
-};
+use bevy::{prelude::Vec3, render::renderer::RenderQueue};
 use bytemuck::{cast_slice, Pod, Zeroable};
 use futures::channel::oneshot;
 use naga_oil::compose::{ComposableModuleDescriptor, Composer, NagaModuleDescriptor};
