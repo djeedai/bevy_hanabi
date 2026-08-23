@@ -3223,17 +3223,9 @@ impl Default for LayoutFlags {
 /// indicates that the effect instance was despawned.
 pub(crate) fn on_remove_cached_effect(
     trigger: On<Remove, CachedEffect>,
-    query: Query<(
-        Entity,
-        &MainEntity,
-        &CachedEffect,
-        Option<&CachedEffectProperties>,
-        Option<&CachedParentInfo>,
-        Option<&CachedEffectEvents>,
-    )>,
+    query: Query<(Entity, &MainEntity, &CachedEffect)>,
     mut effect_cache: ResMut<EffectCache>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
-    mut event_cache: ResMut<EventCache>,
 ) {
     #[cfg(feature = "trace")]
     let _span = bevy::log::info_span!("on_remove_cached_effect").entered();
@@ -3243,33 +3235,9 @@ pub(crate) fn on_remove_cached_effect(
 
     // Fecth the components of the effect being destroyed. Note that the despawn
     // command above is not yet applied, so this query should always succeed.
-    let Ok((
-        render_entity,
-        main_entity,
-        cached_effect,
-        _opt_props,
-        _opt_parent,
-        opt_cached_effect_events,
-    )) = query.get(trigger.event().entity)
-    else {
+    let Ok((render_entity, main_entity, cached_effect)) = query.get(trigger.event().entity) else {
         return;
     };
-
-    // Dealllocate the effect slice in the event buffer, if any.
-    if let Some(cached_effect_events) = opt_cached_effect_events {
-        match event_cache.free(cached_effect_events) {
-            Err(err) => {
-                error!("Error while freeing effect event slice: {err:?}");
-            }
-            Ok(buffer_state) => {
-                if buffer_state != SlabState::Used {
-                    // Clear bind groups associated with the old buffer
-                    effect_bind_groups.init_metadata_bind_groups.clear();
-                    effect_bind_groups.update_metadata_bind_groups.clear();
-                }
-            }
-        }
-    }
 
     // Deallocate the effect slice in the GPU effect buffer, and if this was the
     // last slice, also deallocate the GPU buffer itself.

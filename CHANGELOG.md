@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Fixed a bug where some GPU operations queued with a buffer reference could be reused
   after the buffer was reallocated, leading to use-after-free (stale data) on GPU.
+- Fixed a double-free of a GPU buffer when despawning a particle effect with a child effect. (#510)
 
 ## [0.19.0] 2026-06-27
 
