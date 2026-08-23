@@ -773,7 +773,7 @@ equal to one."
 mod tests {
     use bevy::prelude::*;
 
-    use super::{Node as _, *};
+    use super::{Node, *};
     use crate::{
         EvalContext, ModifierContext, ParticleLayout, PropertyLayout, ShaderWriter, TextureLayout,
     };
