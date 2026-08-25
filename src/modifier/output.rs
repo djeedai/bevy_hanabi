@@ -644,7 +644,8 @@ axis_z = cam_rot[2].xyz;
 let particle_rot_in_cam_space = {};
 let particle_rot_in_cam_space_cos = cos(particle_rot_in_cam_space);
 let particle_rot_in_cam_space_sin = sin(particle_rot_in_cam_space);
-let axis_x0 = normalize(cross(view.world_from_view[1].xyz, axis_z));
+let cam_up = get_camera_rotation_effect_space()[1];
+let axis_x0 = normalize(cross(cam_up, axis_z));
 let axis_y0 = cross(axis_z, axis_x0);
 axis_x = axis_x0 * particle_rot_in_cam_space_cos + axis_y0 * particle_rot_in_cam_space_sin;
 axis_y = axis_x0 * particle_rot_in_cam_space_sin - axis_y0 * particle_rot_in_cam_space_cos;
@@ -653,7 +654,8 @@ axis_y = axis_x0 * particle_rot_in_cam_space_sin - axis_y0 * particle_rot_in_cam
                     );
                 } else {
                     context.vertex_code += r#"axis_z = normalize(get_camera_position_effect_space() - position);
-axis_x = normalize(cross(view.world_from_view[1].xyz, axis_z));
+let cam_up = get_camera_rotation_effect_space()[1];
+axis_x = normalize(cross(cam_up, axis_z));
 axis_y = cross(axis_z, axis_x);
 "#;
                 }
@@ -1131,6 +1133,9 @@ mod tests {
         assert!(context
             .vertex_code
             .contains("get_camera_position_effect_space"));
+        assert!(context
+            .vertex_code
+            .contains("get_camera_rotation_effect_space"));
         assert!(context
             .vertex_code
             .contains("cos(particle_rot_in_cam_space)"));

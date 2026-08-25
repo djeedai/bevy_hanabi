@@ -518,13 +518,36 @@ pub enum SimulationSpace {
 impl SimulationSpace {
     /// Evaluate the simulation space expression.
     ///
-    /// - In the init and udpate contexts, this expression transforms the
-    ///   particle's position from simulation space to storage space.
+    /// - In the init context, [`SimulationSpace::Global`] converts the particle
+    ///   from emitter (spawn) space into simulation space. Local is a no-op.
+    /// - In the update context, this expression transforms the particle's
+    ///   position from simulation space to storage space.
     /// - In the render context, this expression transforms the particle's
     ///   position from simulation space to view space.
     pub fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
         match context.modifier_context() {
-            ModifierContext::Init | ModifierContext::Update => match *self {
+            ModifierContext::Init => match *self {
+                SimulationSpace::Global => {
+                    if !context.particle_layout().contains(Attribute::POSITION) {
+                        return Err(ExprError::GraphEvalError(format!("Global-space simulation requires that the particles have a {} attribute.", Attribute::POSITION.name())));
+                    }
+                    let pos = Attribute::POSITION.name();
+                    let mut code = format!(
+                        "particle.{0} = (transform * vec4<f32>(particle.{0}, 1.0)).xyz;\n",
+                        pos
+                    );
+                    if context.particle_layout().contains(Attribute::VELOCITY) {
+                        let vel = Attribute::VELOCITY.name();
+                        code.push_str(&format!(
+                            "particle.{0} = (transform * vec4<f32>(particle.{0}, 0.0)).xyz;\n",
+                            vel
+                        ));
+                    }
+                    Ok(code)
+                }
+                SimulationSpace::Local => Ok("".to_string()),
+            },
+            ModifierContext::Update => match *self {
                 SimulationSpace::Global => {
                     if !context.particle_layout().contains(Attribute::POSITION) {
                         return Err(ExprError::GraphEvalError(format!("Global-space simulation requires that the particles have a {} attribute.", Attribute::POSITION.name())));
@@ -2451,6 +2474,30 @@ else { return c1; }
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_ok());
         }
+    }
+
+    #[test]
+    fn test_simulation_space_init_spawn_to_sim() {
+        let property_layout = PropertyLayout::default();
+        let texture_layout = TextureLayout::default();
+        let particle_layout = ParticleLayout::new()
+            .append(Attribute::POSITION)
+            .append(Attribute::VELOCITY)
+            .build();
+        let ctx = ShaderWriter::new(
+            ModifierContext::Init,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
+
+        let global = SimulationSpace::Global.eval(&ctx).unwrap();
+        assert!(global.contains("vec4<f32>(particle.position, 1.0)"));
+        assert!(global.contains("vec4<f32>(particle.velocity, 0.0)"));
+        assert!(!global.contains("transform[3]"));
+
+        let local = SimulationSpace::Local.eval(&ctx).unwrap();
+        assert!(local.is_empty());
     }
 
     fn make_test_app() -> App {
