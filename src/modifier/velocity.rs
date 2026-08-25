@@ -52,7 +52,7 @@ impl SetVelocityCircleModifier {
 
         context.make_fn(
             &func_name,
-            "transform: mat4x4<f32>, particle: ptr<function, Particle>",
+            "particle: ptr<function, Particle>",
             None,
             module,
             &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
@@ -63,8 +63,7 @@ impl SetVelocityCircleModifier {
                 Ok(format!(
                     r##"    let delta = (*particle).{0} - ({1});
     let radial = normalize(delta - dot(delta, {2}) * ({2}));
-    let radial_vec4 = transform * vec4<f32>(radial.xyz, 0.0);
-    (*particle).{3} = radial_vec4.xyz * ({4});
+    (*particle).{3} = radial * ({4});
 "##,
                     Attribute::POSITION.name(),
                     center,
@@ -75,7 +74,7 @@ impl SetVelocityCircleModifier {
             },
         )?;
 
-        let code = format!("{}(transform, &particle);\n", func_name);
+        let code = format!("{}(&particle);\n", func_name);
 
         Ok(code)
     }
@@ -196,7 +195,7 @@ impl SetVelocityTangentModifier {
 
         context.make_fn(
             &func_name,
-            "transform: mat4x4<f32>, particle: ptr<function, Particle>",
+            "particle: ptr<function, Particle>",
             None,
             module,
             &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
@@ -207,8 +206,7 @@ impl SetVelocityTangentModifier {
                 Ok(format!(
                     r##"    let radial = (*particle).{0} - ({1});
     let tangent = normalize(cross({2}, radial));
-    let tangent_vec4 = transform * vec4<f32>(tangent.xyz, 0.0);
-    (*particle).{3} = tangent_vec4.xyz * ({4});
+    (*particle).{3} = tangent * ({4});
 "##,
                     Attribute::POSITION.name(),
                     origin,
@@ -219,7 +217,7 @@ impl SetVelocityTangentModifier {
             },
         )?;
 
-        let code = format!("{}(transform, &particle);\n", func_name);
+        let code = format!("{}(&particle);\n", func_name);
 
         Ok(code)
     }

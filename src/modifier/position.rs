@@ -276,7 +276,7 @@ impl SetPositionCone3dModifier {
 
         context.make_fn(
             &func_name,
-            "transform: mat4x4<f32>, particle: ptr<function, Particle>",
+            "particle: ptr<function, Particle>",
             None,
             module,
             &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
@@ -309,9 +309,7 @@ impl SetPositionCone3dModifier {
     let x = r * cost;
     let y = h;
     let z = r * sint;
-    let p = vec3<f32>(x, y, z);
-    let p2 = transform * vec4<f32>(p, 0.0);
-    (*particle).{3} = p2.xyz;
+    (*particle).{3} = vec3<f32>(x, y, z);
 "##,
                     height,
                     top_radius,
@@ -321,7 +319,7 @@ impl SetPositionCone3dModifier {
             },
         )?;
 
-        let code = format!("{}(transform, &particle);\n", func_name);
+        let code = format!("{}(&particle);\n", func_name);
 
         Ok(code)
     }

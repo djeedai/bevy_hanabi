@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a bug where some GPU operations queued with a buffer reference could be reused
   after the buffer was reallocated, leading to use-after-free (stale data) on GPU.
 - Fixed a double-free of a GPU buffer when despawning a particle effect with a child effect. (#510)
+- Fixed camera-oriented particles (`OrientMode::FaceCameraPosition`, `OrientMode::AlongVelocity`)
+  in `SimulationSpace::Local` effects not tracking the camera when the emitter is away from
+  the world origin or rotated.
+- Fixed `SimulationSpace::Local` effects applying the emitter transform twice to
+  `SetPositionCone3dModifier`, `SetVelocityCircleModifier`, and `SetVelocityTangentModifier`.
+  Local-space effects with a rotated, scaled, or off-origin emitter may render differently
+  than before; this is the corrected behavior.
 
 ## [0.19.0] 2026-06-27
 
