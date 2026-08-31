@@ -190,7 +190,6 @@ use bevy::{
         sync_world::SyncToRenderWorld,
     },
 };
-use rand::{RngExt as _, SeedableRng as _};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -2057,18 +2056,38 @@ fn compile_effects(
 ) {
     trace!("compile_effects: {} effect(s)", q_effects.iter().len());
 
+    // Which effects are declared as a parent by another one. Only a parent's
+    // layout is read below, and `EffectAsset::particle_layout()` allocates a
+    // new layout by walking every modifier and every expression of the asset.
+    let parents: HashSet<Entity> = q_effects
+        .iter()
+        .filter_map(|(_, _, _, _, parent, _)| parent.map(|p| p.entity))
+        .collect();
+
     // Loop over all existing effects and collect the valid ones. We do a separate
     // pass because we can't borrow mutably while doing a double lookup on the
     // query. This map is used to lookup valid parents, and filter out effects with
-    // a declared parent but unresolved parent asset.
-    let particle_layouts_and_parents: HashMap<Entity, (ParticleLayout, Option<Entity>)> = q_effects
-        .iter()
-        .filter_map(|(entity, effect, _, _, parent, _)| {
-            effects
-                .get(&effect.handle)
-                .map(|asset| (entity, (asset.particle_layout(), parent.map(|p| p.entity))))
-        })
-        .collect();
+    // a declared parent but unresolved parent asset. With no parent declared
+    // anywhere, neither this map nor the child map below is ever read.
+    let particle_layouts_and_parents: HashMap<Entity, (Option<ParticleLayout>, Option<Entity>)> =
+        if parents.is_empty() {
+            HashMap::default()
+        } else {
+            q_effects
+                .iter()
+                .filter_map(|(entity, effect, _, _, parent, _)| {
+                    effects.get(&effect.handle).map(|asset| {
+                        (
+                            entity,
+                            (
+                                parents.contains(&entity).then(|| asset.particle_layout()),
+                                parent.map(|p| p.entity),
+                            ),
+                        )
+                    })
+                })
+                .collect()
+        };
 
     // Count children
     let mut children: HashMap<Entity, Vec<Entity>> =
@@ -2098,7 +2117,8 @@ fn compile_effects(
 
             // Same for the parent asset, if any.
             let (parent_entity, parent_layout) = if let Some(parent) = &parent {
-                let Some((parent_layout, _)) = particle_layouts_and_parents.get(&parent.entity)
+                let Some((Some(parent_layout), _)) =
+                    particle_layouts_and_parents.get(&parent.entity)
                 else {
                     // There's a parent declared, but not found. Skip the current asset.
                     return None;
@@ -2156,8 +2176,12 @@ fn compile_effects(
             // is re-uploaded each frame, so if it's not changed every frame then
             // there's no randomness anymore, because the uses of the previous frame
             // are "forgotten".
-            let mut rng = rand::rngs::StdRng::seed_from_u64(compiled_effect.prng_seed as u64);
-            compiled_effect.prng_seed = rng.random();
+            // splitmix64, one step. The seed has to differ each frame; it does
+            // not have to be cryptographic.
+            let mut z = (compiled_effect.prng_seed as u64).wrapping_add(0x9E37_79B9_7F4A_7C15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            compiled_effect.prng_seed = (z ^ (z >> 31)) as u32;
         }
     }
 
