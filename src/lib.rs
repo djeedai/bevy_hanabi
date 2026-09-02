@@ -518,10 +518,9 @@ pub enum SimulationSpace {
 impl SimulationSpace {
     /// Evaluate the simulation space expression.
     ///
-    /// - In the init context, [`SimulationSpace::Global`] converts the particle
-    ///   from emitter (spawn) space into simulation space. Local is a no-op.
-    /// - In the update context, this expression transforms the particle's
-    ///   position from simulation space to storage space.
+    /// - Init: [`SimulationSpace::Global`] converts emitter space to simulation
+    ///   space; [`SimulationSpace::Local`] is a no-op.
+    /// - Update: no-op. Particles are already in simulation space.
     /// - In the render context, this expression transforms the particle's
     ///   position from simulation space to view space.
     pub fn eval(&self, context: &dyn EvalContext) -> Result<String, ExprError> {
@@ -547,18 +546,7 @@ impl SimulationSpace {
                 }
                 SimulationSpace::Local => Ok("".to_string()),
             },
-            ModifierContext::Update => match *self {
-                SimulationSpace::Global => {
-                    if !context.particle_layout().contains(Attribute::POSITION) {
-                        return Err(ExprError::GraphEvalError(format!("Global-space simulation requires that the particles have a {} attribute.", Attribute::POSITION.name())));
-                    }
-                    Ok(format!(
-                        "particle.{} += transform[3].xyz;", // TODO: get_view_position()
-                        Attribute::POSITION.name()
-                    ))
-                }
-                SimulationSpace::Local => Ok("".to_string()),
-            },
+            ModifierContext::Update => Ok(String::new()),
             ModifierContext::Render => Ok(match *self {
                 // TODO: cast vec3 -> vec4 auomatically
                 SimulationSpace::Global => "vec4<f32>(local_position, 1.0)",
@@ -2423,9 +2411,9 @@ else { return c1; }
         let property_layout = PropertyLayout::default();
         let texture_layout = TextureLayout::default();
         {
-            // Local is always available
+            // Global init requires storing the particle's position
             let ctx = ShaderWriter::new(
-                ModifierContext::Update,
+                ModifierContext::Init,
                 &property_layout,
                 &particle_layout,
                 &texture_layout,
@@ -2433,10 +2421,9 @@ else { return c1; }
             assert!(SimulationSpace::Local.eval(&ctx).is_ok());
             assert!(SimulationSpace::Global.eval(&ctx).is_err());
 
-            // Global requires storing the particle's position
             let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
             let ctx = ShaderWriter::new(
-                ModifierContext::Update,
+                ModifierContext::Init,
                 &property_layout,
                 &particle_layout,
                 &texture_layout,
@@ -2445,17 +2432,15 @@ else { return c1; }
             assert!(SimulationSpace::Global.eval(&ctx).is_ok());
         }
         {
-            // Local is always available
             let ctx = ShaderWriter::new(
                 ModifierContext::Update,
                 &property_layout,
                 &particle_layout,
                 &texture_layout,
             );
-            assert!(SimulationSpace::Local.eval(&ctx).is_ok());
-            assert!(SimulationSpace::Global.eval(&ctx).is_err());
+            assert_eq!(SimulationSpace::Local.eval(&ctx).unwrap(), "");
+            assert_eq!(SimulationSpace::Global.eval(&ctx).unwrap(), "");
 
-            // Global requires storing the particle's position
             let particle_layout = ParticleLayout::new().append(Attribute::POSITION).build();
             let ctx = ShaderWriter::new(
                 ModifierContext::Update,
@@ -2463,8 +2448,8 @@ else { return c1; }
                 &particle_layout,
                 &texture_layout,
             );
-            assert!(SimulationSpace::Local.eval(&ctx).is_ok());
-            assert!(SimulationSpace::Global.eval(&ctx).is_ok());
+            assert_eq!(SimulationSpace::Local.eval(&ctx).unwrap(), "");
+            assert_eq!(SimulationSpace::Global.eval(&ctx).unwrap(), "");
         }
         {
             // In the render context, the particle position is always available (either
