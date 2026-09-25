@@ -595,6 +595,11 @@ impl AttributeInner {
         Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
     );
 
+    pub const GLOBAL_VELOCITY: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("global_velocity"),
+        Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
+    );
+
     pub const AGE: &'static AttributeInner =
         &AttributeInner::new(Cow::Borrowed("age"), Value::Scalar(ScalarValue::Float(0.)));
 
@@ -1087,6 +1092,19 @@ impl Attribute {
     ///
     /// [simulation space]: crate::SimulationSpace
     pub const VELOCITY: Attribute = Attribute(AttributeInner::VELOCITY);
+
+    /// The particle velocity in [global simulation space].
+    ///
+    /// # Name
+    ///
+    /// `velocity`
+    ///
+    /// # Type
+    ///
+    /// [`VectorType::VEC3F`] representing the XYZ coordinates of the velocity.
+    ///
+    /// [global simulation space]: crate::SimulationSpace::Global
+    pub const GLOBAL_VELOCITY: Attribute = Attribute(AttributeInner::GLOBAL_VELOCITY);
 
     /// The age of the particle.
     ///
