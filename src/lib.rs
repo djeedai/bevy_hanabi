@@ -2572,7 +2572,11 @@ else { return c1; }
         let zero = module.lit(Vec3::ZERO);
         let asset = EffectAsset::new(256, SpawnerSettings::rate(32.0.into()), module)
             .with_simulation_space(SimulationSpace::Local)
-            .init(SetAttributeModifier::new(Attribute::POSITION, zero));
+            .init(SetAttributeModifier::new(Attribute::POSITION, zero))
+            .init(SetAttributeModifier::new(
+                Attribute::GLOBAL_POSITION_OFFSET,
+                zero,
+            ));
         assert_eq!(asset.simulation_space, SimulationSpace::Local);
         let res = EffectShaderSources::generate(&asset, None, 0);
         assert!(res.is_ok());
@@ -2757,7 +2761,11 @@ else { return c1; }
             let mut module = Module::default();
             let init_pos = module.lit(Vec3::ZERO);
             let mut asset = EffectAsset::new(64, spawner, module)
-                .init(SetAttributeModifier::new(Attribute::POSITION, init_pos));
+                .init(SetAttributeModifier::new(Attribute::POSITION, init_pos))
+                .init(SetAttributeModifier::new(
+                    Attribute::GLOBAL_POSITION_OFFSET,
+                    init_pos,
+                ));
             asset.simulation_condition = SimulationCondition::Always;
             let handle = assets.add(asset);
 
@@ -2851,7 +2859,11 @@ else { return c1; }
                 let mut module = Module::default();
                 let init_pos = module.lit(Vec3::ZERO);
                 let mut asset = EffectAsset::new(64, spawner, module)
-                    .init(SetAttributeModifier::new(Attribute::POSITION, init_pos));
+                    .init(SetAttributeModifier::new(Attribute::POSITION, init_pos))
+                    .init(SetAttributeModifier::new(
+                        Attribute::GLOBAL_POSITION_OFFSET,
+                        init_pos,
+                    ));
                 asset.simulation_condition = if test_case.visibility.is_some() {
                     SimulationCondition::WhenVisible
                 } else {
