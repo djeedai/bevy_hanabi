@@ -1474,6 +1474,9 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
         // Insert Euler motion integration if needed.
         let has_position = present_attributes.contains(&Attribute::POSITION);
         let has_velocity = present_attributes.contains(&Attribute::VELOCITY);
+        let has_global_position_offset =
+            present_attributes.contains(&Attribute::GLOBAL_POSITION_OFFSET);
+        let has_global_velocity = present_attributes.contains(&Attribute::GLOBAL_VELOCITY);
         if asset.motion_integration != MotionIntegration::None {
             if has_position && has_velocity {
                 // Note the prepended "\n" to prevent appending to a comment line.
@@ -1495,6 +1498,29 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                             "Attribute::VELOCITY"
                         } else {
                             "Attribute::POSITION"
+                        }
+                    )
+            }
+            if has_global_position_offset && has_global_velocity {
+                // Note the prepended "\n" to prevent appending to a comment line.
+                let code = format!(
+                    "\nparticle.{0} += particle.{1} * sim_params.delta_time;\n",
+                    Attribute::GLOBAL_POSITION_OFFSET.name(),
+                    Attribute::GLOBAL_VELOCITY.name()
+                );
+                if asset.motion_integration == MotionIntegration::PreUpdate {
+                    update_code.insert_str(0, &code);
+                } else {
+                    update_code += &code;
+                }
+            } else {
+                warn!(
+                        "Asset '{}' specifies motion integration but is missing {}. Particles won't move unless the GLOBAL_POSITION_OFFSET attribute is explicitly assigned. Set MotionIntegration::None to remove this warning.",
+                        asset.name,
+                        if has_position {
+                            "Attribute::GLOBAL_VELOCITY"
+                        } else {
+                            "Attribute::GLOBAL_POSITION_OFFSET"
                         }
                     )
             }
