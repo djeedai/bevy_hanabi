@@ -1189,6 +1189,15 @@ impl EffectShaderSources {
             )));
         }
 
+        // Currently the GLOBAL_POSITION_OFFSET attribute is mandatory, as it's always used by the
+        // render shader.
+        if !particle_layout.contains(Attribute::GLOBAL_POSITION_OFFSET) {
+            return Err(ShaderGenerateError::Validate(format!(
+                "The particle layout of asset '{}' is missing the '{}' attribute. Add a modifier using that attribute, for example the SetAttributeModifier.",
+                asset.name, Attribute::GLOBAL_POSITION_OFFSET.name().to_ascii_uppercase()
+            )));
+        }
+
         // Currently ribbon rendering requires AGE, so warn if it's missing because
         // everything will break with some weird error aboud bind groups or whatnot.
         if particle_layout.contains(Attribute::RIBBON_ID)

@@ -125,8 +125,8 @@ fn transform_normal_simulation_to_world(sim_normal: vec3<f32>) -> vec3<f32> {
 /// the effect space (SimulationSpace::Local) or the world space (SimulationSpace::Global).
 /// The clip space is the final [-1:1]^3 space output from the vertex shader, before
 /// perspective divide and viewport transform are applied.
-fn transform_position_simulation_to_clip(sim_position: vec3<f32>) -> vec4<f32> {
-    return view.clip_from_world * transform_position_simulation_to_world(sim_position);
+fn transform_position_simulation_to_clip(sim_position: vec3<f32>, global_position_offset: vec3<f32>) -> vec4<f32> {
+    return view.clip_from_world * (transform_position_simulation_to_world(sim_position) + vec4(global_position_offset, 0.));
 }
 
 fn inverse_transpose_mat3(m: mat3x3<f32>) -> mat3x3<f32> {
@@ -274,7 +274,7 @@ fn vertex(
     // orientation and size of the particle mesh.
     let vpos = vertex_position * size;
     let sim_position = position + axis_x * vpos.x + axis_y * vpos.y + axis_z * vpos.z;
-    out.position = transform_position_simulation_to_clip(sim_position);
+    out.position = transform_position_simulation_to_clip(sim_position, global_position_offset);
 
     out.color = color;
 

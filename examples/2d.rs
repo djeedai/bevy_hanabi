@@ -65,6 +65,10 @@ fn setup(
         radius: writer.lit(0.05).expr(),
         dimension: ShapeDimension::Surface,
     };
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     let init_vel = SetVelocityCircleModifier {
         center: writer.lit(Vec3::ZERO).expr(),
@@ -84,6 +88,7 @@ fn setup(
         EffectAsset::new(4096, spawner, module)
             .with_name("2d")
             .init(init_pos)
+            .init(init_global_pos_offset)
             .init(init_vel)
             .init(init_age)
             .init(init_lifetime)

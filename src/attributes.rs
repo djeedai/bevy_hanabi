@@ -584,6 +584,12 @@ impl AttributeInner {
         Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
     );
 
+    /// Position offset that is always applied in global simulation space
+    pub const GLOBAL_POSITION_OFFSET: &'static AttributeInner = &AttributeInner::new(
+        Cow::Borrowed("global_position_offset"),
+        Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
+    );
+
     pub const VELOCITY: &'static AttributeInner = &AttributeInner::new(
         Cow::Borrowed("velocity"),
         Value::Vector(VectorValue::new_vec3(Vec3::ZERO)),
@@ -1056,6 +1062,19 @@ impl Attribute {
     /// [simulation space]: crate::SimulationSpace
     pub const POSITION: Attribute = Attribute(AttributeInner::POSITION);
 
+    /// The particle position offset in [global simulation space].
+    ///
+    /// # Name
+    ///
+    /// `global_position_offset`
+    ///
+    /// # Type
+    ///
+    /// [`VectorType::VEC3F`] representing the XYZ coordinates of the position offset.
+    ///
+    /// [global simulation space]: crate::SimulationSpace::Global
+    pub const GLOBAL_POSITION_OFFSET: Attribute = Attribute(AttributeInner::GLOBAL_POSITION_OFFSET);
+
     /// The particle velocity in [simulation space].
     ///
     /// # Name
@@ -1471,10 +1490,11 @@ impl Attribute {
     pub const RIBBON_ID: Attribute = Attribute(AttributeInner::RIBBON_ID);
 
     /// Collection of all the existing particle attributes.
-    const ALL: [Attribute; 59] = [
+    const ALL: [Attribute; 60] = [
         Attribute::ID,
         Attribute::PARTICLE_COUNTER,
         Attribute::POSITION,
+        Attribute::GLOBAL_POSITION_OFFSET,
         Attribute::VELOCITY,
         Attribute::AGE,
         Attribute::LIFETIME,
