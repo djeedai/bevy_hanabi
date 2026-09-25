@@ -1517,7 +1517,7 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                 warn!(
                         "Asset '{}' specifies motion integration but is missing {}. Particles won't move unless the GLOBAL_POSITION_OFFSET attribute is explicitly assigned. Set MotionIntegration::None to remove this warning.",
                         asset.name,
-                        if has_position {
+                        if has_global_position_offset {
                             "Attribute::GLOBAL_VELOCITY"
                         } else {
                             "Attribute::GLOBAL_POSITION_OFFSET"
