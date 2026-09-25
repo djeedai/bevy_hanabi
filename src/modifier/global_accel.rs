@@ -70,7 +70,6 @@ impl GlobalAccelModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for GlobalAccelModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update
@@ -157,7 +156,6 @@ impl GlobalRadialAccelModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for GlobalRadialAccelModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update
@@ -181,6 +179,7 @@ impl Modifier for GlobalRadialAccelModifier {
         context.make_fn(
             &func_name,
             "particle: ptr<function, Particle>",
+            None,
             module,
             &mut |m: &mut Module, ctx: &mut dyn EvalContext| -> Result<String, ExprError> {
                 let origin = ctx.eval(m, self.origin)?;
@@ -283,7 +282,6 @@ impl GlobalTangentAccelModifier {
     }
 }
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl Modifier for GlobalTangentAccelModifier {
     fn context(&self) -> ModifierContext {
         ModifierContext::Update
@@ -332,7 +330,7 @@ impl Modifier for GlobalTangentAccelModifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ParticleLayout, Property, PropertyLayout, ToWgslString};
+    use crate::{ParticleLayout, Property, PropertyLayout, TextureLayout, ToWgslString};
 
     #[test]
     fn mod_global_accel() {
@@ -342,8 +340,13 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut context = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
         assert!(modifier.apply(&mut module, &mut context).is_ok());
 
         assert!(context.main_code.contains(&accel.to_wgsl_string()));
@@ -354,12 +357,17 @@ mod tests {
         let mut module = Module::default();
         let property_layout = PropertyLayout::new(&[Property::new("my_prop", 3.)]);
         let particle_layout = ParticleLayout::default();
+        let texture_layout = TextureLayout::default();
 
         let origin = Vec3::new(-1.2, 5.3, -8.5);
         let accel = 6.;
         let modifier = GlobalRadialAccelModifier::constant(&mut module, origin, accel);
-        let mut context =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let mut context = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
         assert!(modifier.apply(&mut module, &mut context).is_ok());
         // TODO: less weak check...
         assert!(context.extra_code.contains(&accel.to_wgsl_string()));
@@ -368,8 +376,12 @@ mod tests {
         let my_prop = module.add_property("my_prop", 3.0.into());
         let accel = module.prop(my_prop);
         let modifier = GlobalRadialAccelModifier::new(origin, accel);
-        let mut context =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let mut context = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
         assert!(modifier.apply(&mut module, &mut context).is_ok());
         // TODO: less weak check...
         assert!(context
@@ -388,8 +400,13 @@ mod tests {
 
         let property_layout = PropertyLayout::default();
         let particle_layout = ParticleLayout::default();
-        let mut context =
-            ShaderWriter::new(ModifierContext::Update, &property_layout, &particle_layout);
+        let texture_layout = TextureLayout::default();
+        let mut context = ShaderWriter::new(
+            ModifierContext::Update,
+            &property_layout,
+            &particle_layout,
+            &texture_layout,
+        );
         assert!(modifier.apply(&mut module, &mut context).is_ok());
 
         // TODO: less weak check...
