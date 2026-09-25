@@ -1508,12 +1508,13 @@ impl Attribute {
     pub const RIBBON_ID: Attribute = Attribute(AttributeInner::RIBBON_ID);
 
     /// Collection of all the existing particle attributes.
-    const ALL: [Attribute; 60] = [
+    const ALL: [Attribute; 61] = [
         Attribute::ID,
         Attribute::PARTICLE_COUNTER,
         Attribute::POSITION,
         Attribute::GLOBAL_POSITION_OFFSET,
         Attribute::VELOCITY,
+        Attribute::GLOBAL_VELOCITY,
         Attribute::AGE,
         Attribute::LIFETIME,
         Attribute::COLOR,
