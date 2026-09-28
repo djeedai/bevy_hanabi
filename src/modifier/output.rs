@@ -365,7 +365,8 @@ impl RenderModifier for ColorOverLifetimeModifier {
 /// - [`Attribute::LIFETIME`]
 #[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
 pub struct ColorMultiplierOverLifetimeModifier {
-    /// The color gradient defining the particle color based on its lifetime.
+    /// The color gradient defining the modulation of the
+    /// particle color based on its lifetime.
     pub gradient: Gradient<Vec4>,
     /// The color blend mode.
     pub blend: ColorBlendMode,
@@ -389,7 +390,6 @@ impl_mod_render!(
     &[Attribute::AGE, Attribute::COLOR, Attribute::LIFETIME]
 );
 
-#[cfg_attr(feature = "serde", typetag::serde)]
 impl RenderModifier for ColorMultiplierOverLifetimeModifier {
     fn apply_render(
         &self,
@@ -409,7 +409,7 @@ impl RenderModifier for ColorMultiplierOverLifetimeModifier {
 
         let op = self.blend.to_assign_operator();
         let multiplier = format!(
-            "{0}(particle.{1} / particle.{2});\n",
+            "{0}(particle.{1} / particle.{2})",
             func_name,
             Attribute::AGE.name(),
             Attribute::LIFETIME.name()
@@ -418,7 +418,14 @@ impl RenderModifier for ColorMultiplierOverLifetimeModifier {
             format!("color {op} color * {multiplier};\n")
         } else {
             let mask = self.mask.to_components();
-            format!("color.{mask} {op} (color * {multiplier}).{mask};\n")
+            let non_mask = match self.blend {
+                ColorBlendMode::Overwrite => {
+                    format!("color.{}", self.mask.complement().to_components())
+                }
+                ColorBlendMode::Add => "0".to_string(),
+                ColorBlendMode::Modulate => "1".to_string(),
+            };
+            format!("color {op} vec4<f32>((color * {multiplier}).{mask}, {non_mask});\n")
         };
 
         context.vertex_code += &s;
