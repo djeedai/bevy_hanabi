@@ -836,11 +836,13 @@ impl RenderModifier for ScreenSpaceSizeModifier {
         // called "size", and which may or may not be the Attribute::SIZE/2
         // attribute(s).
         context.vertex_code += &format!(
-            "let w_cs = transform_position_simulation_to_clip(particle.{0}).w;\n
+            "let w_cs = transform_position_simulation_to_clip(particle.{0}, particle.{1}).w;\n
             let screen_size_pixels = view.viewport.zw;\n
             let projection_scale = vec2<f32>(view.clip_from_view[0][0], view.clip_from_view[1][1]);\n
             size = (size * w_cs * 2.0) / min(screen_size_pixels.x * projection_scale.x, screen_size_pixels.y * projection_scale.y);\n",
-            Attribute::POSITION.name());
+            Attribute::POSITION.name(),
+            Attribute::GLOBAL_POSITION_OFFSET.name(),
+        );
         Ok(())
     }
 
