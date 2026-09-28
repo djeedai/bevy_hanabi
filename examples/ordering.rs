@@ -68,6 +68,10 @@ fn make_firework() -> EffectAsset {
         radius: writer.lit(2.).expr(),
         dimension: ShapeDimension::Volume,
     };
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     // Give a bit of variation by randomizing the initial speed
     let init_vel = SetVelocitySphereModifier {
@@ -78,6 +82,7 @@ fn make_firework() -> EffectAsset {
     EffectAsset::new(2048, SpawnerSettings::rate(128.0.into()), writer.finish())
         .with_name("firework")
         .init(init_pos)
+        .init(init_global_pos_offset)
         .init(init_vel)
         .init(init_age)
         .init(init_lifetime)

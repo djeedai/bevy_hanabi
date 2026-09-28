@@ -107,6 +107,10 @@ fn setup(
         height: writer1.lit(20.).expr(),
         dimension: ShapeDimension::Volume,
     };
+    let init_global_pos_offset1 = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer1.lit(Vec3::ZERO).expr(),
+    };
 
     let init_vel1 = SetVelocitySphereModifier {
         center: writer1.lit(Vec3::ZERO).expr(),
@@ -117,6 +121,7 @@ fn setup(
         EffectAsset::new(32768, SpawnerSettings::rate(500.0.into()), writer1.finish())
             .with_name("emit:rate")
             .init(init_pos1)
+            .init(init_global_pos_offset1)
             // Make spawned particles move away from the emitter origin
             .init(init_vel1)
             .init(init_age1)
@@ -161,6 +166,10 @@ fn setup(
         radius: writer2.lit(5.).expr(),
         dimension: ShapeDimension::Volume,
     };
+    let init_global_pos_offset2 = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer2.lit(Vec3::ZERO).expr(),
+    };
     let init_vel2 = SetVelocitySphereModifier {
         center: writer2.lit(Vec3::ZERO).expr(),
         speed: writer2.lit(2.).expr(),
@@ -173,6 +182,7 @@ fn setup(
         )
         .with_name("emit:once")
         .init(init_pos2)
+        .init(init_global_pos_offset2)
         .init(init_vel2)
         .init(init_age2)
         .init(init_lifetime2)
@@ -223,6 +233,10 @@ fn setup(
         radius: writer3.lit(5.).expr(),
         dimension: ShapeDimension::Volume,
     };
+    let init_global_pos_offset3 = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer3.lit(Vec3::ZERO).expr(),
+    };
 
     let init_vel3 = SetVelocitySphereModifier {
         center: writer3.lit(Vec3::ZERO).expr(),
@@ -237,6 +251,7 @@ fn setup(
         )
         .with_name("emit:burst")
         .init(init_pos3)
+        .init(init_global_pos_offset3)
         .init(init_vel3)
         .init(init_age3)
         .init(init_lifetime3)

@@ -81,6 +81,10 @@ fn setup(
         radius: writer.lit(5.).expr(),
         dimension: ShapeDimension::Volume,
     };
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     let mut asset = EffectAsset::new(
         4096,
@@ -89,6 +93,7 @@ fn setup(
     )
     .with_simulation_condition(SimulationCondition::WhenVisible)
     .init(init_pos)
+    .init(init_global_pos_offset)
     .init(init_velocity)
     .init(init_age)
     .init(init_lifetime)

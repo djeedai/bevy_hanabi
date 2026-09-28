@@ -123,6 +123,10 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         attribute: Attribute::POSITION,
         value: writer.lit(Vec3::ZERO).expr(),
     };
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     let init_age_attr = SetAttributeModifier {
         attribute: Attribute::AGE,
@@ -167,6 +171,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         // when we move the emitter.
         .with_simulation_space(SimulationSpace::Global)
         .init(init_position_attr)
+        .init(init_global_pos_offset)
         .init(init_age_attr)
         .init(init_lifetime_attr)
         .init(init_size_attr)

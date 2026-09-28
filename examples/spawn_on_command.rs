@@ -116,6 +116,11 @@ fn setup(
     let pos = normal.clone() * writer.lit(-BALL_RADIUS) + writer.lit(Vec3::Z * 0.2);
     let init_pos = SetAttributeModifier::new(Attribute::POSITION, pos.expr());
 
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
+
     // Set the velocity to be a random direction mostly along the collision normal,
     // but with some spread. This cheaply ensures that we spawn only particles
     // inside the black background box (or almost; we ignore the edge case around
@@ -136,6 +141,7 @@ fn setup(
         EffectAsset::new(32768, spawner, writer.finish())
             .with_name("spawn_on_command")
             .init(init_pos)
+            .init(init_global_pos_offset)
             .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
