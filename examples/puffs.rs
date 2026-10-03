@@ -2,7 +2,7 @@
 //!
 //! This example creates cartoony smoke puffs out of spherical meshes.
 
-use std::{error::Error, f32::consts::FRAC_PI_2};
+use std::{borrow::Cow, error::Error, f32::consts::FRAC_PI_2};
 
 use bevy::{
     camera::Hdr,
@@ -227,8 +227,8 @@ impl Modifier for LambertianLightingModifier {
         Some(self)
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {

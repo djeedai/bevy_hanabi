@@ -1,6 +1,6 @@
 //! Modifiers to influence the output (rendering) of each particle.
 
-use std::hash::Hash;
+use std::{borrow::Cow, hash::Hash};
 
 use bevy::prelude::*;
 use bitflags::bitflags;
@@ -587,15 +587,15 @@ impl Modifier for OrientModifier {
         Some(self)
     }
 
-    fn attributes(&self) -> &[Attribute] {
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
         // Note: don't required AXIS_X/Y/Z, they're written at the last minute in the
         // render shader alone, so don't need to be stored as part of the particle's
         // layout for simulation.
-        match self.mode {
+        Cow::Borrowed(match self.mode {
             OrientMode::ParallelCameraDepthPlane => &[],
             OrientMode::FaceCameraPosition => &[Attribute::POSITION],
             OrientMode::AlongVelocity => &[Attribute::POSITION, Attribute::VELOCITY],
-        }
+        })
     }
 
     fn boxed_clone(&self) -> BoxedModifier {

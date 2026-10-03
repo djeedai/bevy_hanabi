@@ -5,6 +5,8 @@
 //! per-particle diversity / randomness, as attributes are the only quantities
 //! stored per particle.
 
+use std::borrow::Cow;
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -119,8 +121,8 @@ impl Modifier for SetAttributeModifier {
         ModifierContext::Init | ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        std::slice::from_ref(&self.attribute)
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(std::slice::from_ref(&self.attribute))
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -190,8 +192,8 @@ impl Modifier for InheritAttributeModifier {
         ModifierContext::Init
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        std::slice::from_ref(&self.attribute)
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(std::slice::from_ref(&self.attribute))
     }
 
     fn boxed_clone(&self) -> BoxedModifier {

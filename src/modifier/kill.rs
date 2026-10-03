@@ -3,6 +3,8 @@
 //! These modifiers control the despawning (killing) of particles meeting
 //! specific conditions, like entering or leaving an area in space.
 
+use std::borrow::Cow;
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -66,8 +68,8 @@ impl Modifier for KillSphereModifier {
         ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -146,8 +148,8 @@ impl Modifier for KillAabbModifier {
         ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -227,8 +229,8 @@ impl Modifier for KillFrustumModifier {
         ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
