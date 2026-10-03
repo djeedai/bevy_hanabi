@@ -464,7 +464,7 @@ impl<'a> RenderContext<'a> {
     ///
     /// Returns the unique name of the gradient, to be used as function name in
     /// the shader code.
-    fn add_color_gradient(&mut self, gradient: Gradient<Vec4>) -> String {
+    pub fn add_color_gradient(&mut self, gradient: Gradient<Vec4>) -> String {
         let func_id = calc_func_id(&gradient);
         self.gradients.insert(func_id, gradient);
         let func_name = format!("color_gradient_{0:016X}", func_id);
@@ -477,7 +477,7 @@ impl<'a> RenderContext<'a> {
     ///
     /// Returns the unique name of the gradient, to be used as function name in
     /// the shader code.
-    fn add_size_gradient(&mut self, gradient: Gradient<Vec3>) -> String {
+    pub fn add_size_gradient(&mut self, gradient: Gradient<Vec3>) -> String {
         let func_id = calc_func_id(&gradient);
         self.size_gradients.insert(func_id, gradient);
         let func_name = format!("size_gradient_{0:016X}", func_id);
