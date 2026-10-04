@@ -606,7 +606,7 @@ impl EffectAsset {
         // Build the set of unique attributes required for all modifiers
         let mut set = HashSet::new();
         for modifier in self.modifiers() {
-            for &attr in modifier.attributes() {
+            for &attr in modifier.attributes().as_ref() {
                 set.insert(attr);
             }
         }

@@ -9,6 +9,8 @@
 //! particle.position += particle.velocity * simulation.delta_time;
 //! ```
 
+use std::borrow::Cow;
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -85,8 +87,8 @@ impl Modifier for SetVelocityCircleModifier {
         ModifierContext::Init | ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION, Attribute::VELOCITY]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION, Attribute::VELOCITY])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -144,8 +146,8 @@ impl Modifier for SetVelocitySphereModifier {
         ModifierContext::Init | ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION, Attribute::VELOCITY]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION, Attribute::VELOCITY])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
@@ -228,8 +230,8 @@ impl Modifier for SetVelocityTangentModifier {
         ModifierContext::Init | ModifierContext::Update
     }
 
-    fn attributes(&self) -> &[Attribute] {
-        &[Attribute::POSITION, Attribute::VELOCITY]
+    fn attributes(&self) -> Cow<'_, [Attribute]> {
+        Cow::Borrowed(&[Attribute::POSITION, Attribute::VELOCITY])
     }
 
     fn boxed_clone(&self) -> BoxedModifier {
