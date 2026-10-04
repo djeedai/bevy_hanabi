@@ -351,6 +351,96 @@ impl RenderModifier for ColorOverLifetimeModifier {
     }
 }
 
+/// A modifier modulating each particle's color over its lifetime with a
+/// gradient curve. Similar to [`ColorOverLifetimeModifier`], but instead
+/// of setting the color to the one of the gradient, use it as a multiplier
+/// to the actual color, allowing, for example, the initial color to be random
+/// and still have a color transaction over its lifetime.
+///
+/// # Attributes
+///
+/// This modifier requires the following particle attributes:
+/// - [`Attribute::AGE`]
+/// - [`Attribute::COLOR`]
+/// - [`Attribute::LIFETIME`]
+#[derive(Debug, Default, Clone, PartialEq, Hash, Reflect, Serialize, Deserialize)]
+pub struct ColorMultiplierOverLifetimeModifier {
+    /// The color gradient defining the modulation of the
+    /// particle color based on its lifetime.
+    pub gradient: Gradient<Vec4>,
+    /// The color blend mode.
+    pub blend: ColorBlendMode,
+    /// The blend mask.
+    pub mask: ColorBlendMask,
+}
+
+impl ColorMultiplierOverLifetimeModifier {
+    /// Create a new modifier from a given gradient.
+    pub fn new(gradient: Gradient<Vec4>) -> Self {
+        Self {
+            gradient,
+            blend: default(),
+            mask: default(),
+        }
+    }
+}
+
+impl_mod_render!(
+    ColorMultiplierOverLifetimeModifier,
+    &[Attribute::AGE, Attribute::COLOR, Attribute::LIFETIME]
+);
+
+impl RenderModifier for ColorMultiplierOverLifetimeModifier {
+    fn apply_render(
+        &self,
+        _module: &mut Module,
+        context: &mut RenderContext,
+    ) -> Result<(), ExprError> {
+        let func_name = context.add_color_gradient(self.gradient.clone());
+        context.render_extra += &format!(
+            r#"fn {0}(key: f32) -> vec4<f32> {{
+    {1}
+}}
+
+"#,
+            func_name,
+            self.gradient.to_shader_code("key")
+        );
+
+        let op = self.blend.to_assign_operator();
+        let multiplier = format!(
+            "{0}(particle.{1} / particle.{2})",
+            func_name,
+            Attribute::AGE.name(),
+            Attribute::LIFETIME.name()
+        );
+        let s = if self.mask == ColorBlendMask::RGBA {
+            format!("color {op} color * {multiplier};\n")
+        } else {
+            let mask = self.mask.to_components();
+            let non_mask = match self.blend {
+                ColorBlendMode::Overwrite => {
+                    format!("color.{}", self.mask.complement().to_components())
+                }
+                ColorBlendMode::Add => "0".to_string(),
+                ColorBlendMode::Modulate => "1".to_string(),
+            };
+            format!("color {op} vec4<f32>((color * {multiplier}).{mask}, {non_mask});\n")
+        };
+
+        context.vertex_code += &s;
+        Ok(())
+    }
+
+    fn boxed_render_clone(&self) -> Box<dyn RenderModifier> {
+        Box::new(self.clone())
+    }
+
+    fn as_modifier(&self) -> &dyn Modifier {
+        self
+    }
+}
+
 /// A modifier to set the size of all particles.
 ///
 /// This modifier assigns a _single_ size to all particles. That size can be
