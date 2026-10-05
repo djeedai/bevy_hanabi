@@ -43,6 +43,10 @@ fn create_head_effect() -> EffectAsset {
             * writer.lit(vec3(16.0, 16.0, 0.0)))
         .expr(),
     );
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     // Randomize the initial angle of the particle, storing it in the `F32_0`
     // scratch attribute. Each particle gets a unique angle.
@@ -115,6 +119,7 @@ fn create_head_effect() -> EffectAsset {
     EffectAsset::new(100, SpawnerSettings::rate(2.0.into()), module)
         .with_name("worms_heads")
         .init(init_position_modifier)
+        .init(init_global_pos_offset)
         .init(init_angle_modifier)
         .init(init_age_modifier)
         .init(init_lifetime_modifier)
@@ -134,6 +139,8 @@ fn create_body_effect() -> EffectAsset {
     // Particles inherit the position of their parent (the head particle of the
     // worm, from the other effect)
     let inherit_position_modifier = InheritAttributeModifier::new(Attribute::POSITION);
+    let inherit_global_position_modifier =
+        InheritAttributeModifier::new(Attribute::GLOBAL_POSITION_OFFSET);
 
     // We need to figure out a shared RIBBON_ID for all body particles "attached" to
     // a given head one from the other effect. The obvious choice is the parent's
@@ -177,6 +184,7 @@ fn create_body_effect() -> EffectAsset {
         // VELOCITY attribute anyway, so that would generate a warning).
         .with_motion_integration(MotionIntegration::None)
         .init(inherit_position_modifier)
+        .init(inherit_global_position_modifier)
         .init(init_ribbon_id_modifier)
         .init(init_age_modifier)
         .init(init_lifetime_modifier)

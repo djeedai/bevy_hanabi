@@ -67,6 +67,10 @@ fn make_effect(color: Color) -> EffectAsset {
         radius: writer.lit(2.).expr(),
         dimension: ShapeDimension::Surface,
     };
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     let init_vel = SetVelocitySphereModifier {
         center: writer.lit(Vec3::ZERO).expr(),
@@ -76,6 +80,7 @@ fn make_effect(color: Color) -> EffectAsset {
     EffectAsset::new(32768, SpawnerSettings::rate(5.0.into()), writer.finish())
         .with_name("effect")
         .init(init_pos)
+        .init(init_global_pos_offset)
         .init(init_vel)
         .init(init_age)
         .init(init_lifetime)

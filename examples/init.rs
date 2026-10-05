@@ -40,6 +40,12 @@ where
     let writer = ExprWriter::new();
 
     let init = make_modifier(&writer);
+    // In this demo particles don't move. This silences some warning
+    // about missing the GLOBAL_POSITION_OFFSET attribute.
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     EffectAsset::new(32768, SpawnerSettings::once(COUNT.into()), writer.finish())
         .with_name(name)
@@ -48,6 +54,7 @@ where
         .with_motion_integration(MotionIntegration::None)
         .with_simulation_space(SimulationSpace::Local)
         .init(init)
+        .init(init_global_pos_offset)
         .render(OrientModifier::new(OrientMode::FaceCameraPosition))
         .render(SetColorModifier::new(COLOR))
         .render(SetSizeModifier { size: SIZE.into() })

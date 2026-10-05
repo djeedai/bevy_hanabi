@@ -135,6 +135,10 @@ fn setup(
         radius: writer.lit(1.).expr(),
         dimension: ShapeDimension::Volume,
     };
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     let init_vel = SetVelocitySphereModifier {
         center: writer.lit(Vec3::ZERO).expr(),
@@ -190,6 +194,7 @@ fn setup(
         EffectAsset::new(32768, SpawnerSettings::rate(30.0.into()), module)
             .with_name("lut")
             .init(init_pos)
+            .init(init_global_pos_offset)
             .init(init_vel)
             .init(init_age)
             .init(init_lifetime)

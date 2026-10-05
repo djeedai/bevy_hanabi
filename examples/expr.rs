@@ -74,6 +74,10 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         radius: writer.lit(4.).expr(),
         dimension: ShapeDimension::Surface,
     };
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     let init_vel = SetVelocityTangentModifier {
         origin: writer.lit(Vec3::ZERO).expr(),
@@ -85,6 +89,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         EffectAsset::new(32768, SpawnerSettings::rate(500.0.into()), writer.finish())
             .with_name("whirlwind")
             .init(init_pos)
+            .init(init_global_pos_offset)
             .init(init_age)
             .init(init_lifetime)
             .init(init_vel)

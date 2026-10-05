@@ -1273,8 +1273,14 @@ fn real_vfx_update_contracts() -> Result<(), Box<dyn std::error::Error>> {
 
     let writer = ExprWriter::new();
     let init_pos = SetAttributeModifier::new(Attribute::POSITION, writer.lit(Vec3::ZERO).expr());
+    let init_global_pos_offset = SetAttributeModifier::new(
+        Attribute::GLOBAL_POSITION_OFFSET,
+        writer.lit(Vec3::ZERO).expr(),
+    );
     let module = writer.finish();
-    let asset = EffectAsset::new(8, SpawnerSettings::rate(0.0.into()), module).init(init_pos);
+    let asset = EffectAsset::new(8, SpawnerSettings::rate(0.0.into()), module)
+        .init(init_pos)
+        .init(init_global_pos_offset);
     let sources = EffectShaderSources::generate(&asset, None, 0)?;
     let shader = create_composed_shader_module(
         &device,

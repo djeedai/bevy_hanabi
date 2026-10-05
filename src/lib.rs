@@ -1200,6 +1200,15 @@ impl EffectShaderSources {
             )));
         }
 
+        // Currently the GLOBAL_POSITION_OFFSET attribute is mandatory, as it's always used by the
+        // render shader.
+        if !particle_layout.contains(Attribute::GLOBAL_POSITION_OFFSET) {
+            return Err(ShaderGenerateError::Validate(format!(
+                "The particle layout of asset '{}' is missing the '{}' attribute. Add a modifier using that attribute, for example the SetAttributeModifier.",
+                asset.name, Attribute::GLOBAL_POSITION_OFFSET.name().to_ascii_uppercase()
+            )));
+        }
+
         // Currently ribbon rendering requires AGE, so warn if it's missing because
         // everything will break with some weird error aboud bind groups or whatnot.
         if particle_layout.contains(Attribute::RIBBON_ID)
@@ -1476,6 +1485,9 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
         // Insert Euler motion integration if needed.
         let has_position = present_attributes.contains(&Attribute::POSITION);
         let has_velocity = present_attributes.contains(&Attribute::VELOCITY);
+        let has_global_position_offset =
+            present_attributes.contains(&Attribute::GLOBAL_POSITION_OFFSET);
+        let has_global_velocity = present_attributes.contains(&Attribute::GLOBAL_VELOCITY);
         if asset.motion_integration != MotionIntegration::None {
             if has_position && has_velocity {
                 // Note the prepended "\n" to prevent appending to a comment line.
@@ -1497,6 +1509,29 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
                             "Attribute::VELOCITY"
                         } else {
                             "Attribute::POSITION"
+                        }
+                    )
+            }
+            if has_global_position_offset && has_global_velocity {
+                // Note the prepended "\n" to prevent appending to a comment line.
+                let code = format!(
+                    "\nparticle.{0} += particle.{1} * sim_params.delta_time;\n",
+                    Attribute::GLOBAL_POSITION_OFFSET.name(),
+                    Attribute::GLOBAL_VELOCITY.name()
+                );
+                if asset.motion_integration == MotionIntegration::PreUpdate {
+                    update_code.insert_str(0, &code);
+                } else {
+                    update_code += &code;
+                }
+            } else {
+                warn!(
+                        "Asset '{}' specifies motion integration but is missing {}. Particles won't move unless the GLOBAL_POSITION_OFFSET attribute is explicitly assigned. Set MotionIntegration::None to remove this warning.",
+                        asset.name,
+                        if has_global_position_offset {
+                            "Attribute::GLOBAL_VELOCITY"
+                        } else {
+                            "Attribute::GLOBAL_POSITION_OFFSET"
                         }
                     )
             }
@@ -2569,7 +2604,11 @@ else { return c1; }
         let zero = module.lit(Vec3::ZERO);
         let asset = EffectAsset::new(256, SpawnerSettings::rate(32.0.into()), module)
             .with_simulation_space(SimulationSpace::Local)
-            .init(SetAttributeModifier::new(Attribute::POSITION, zero));
+            .init(SetAttributeModifier::new(Attribute::POSITION, zero))
+            .init(SetAttributeModifier::new(
+                Attribute::GLOBAL_POSITION_OFFSET,
+                zero,
+            ));
         assert_eq!(asset.simulation_space, SimulationSpace::Local);
         let res = EffectShaderSources::generate(&asset, None, 0);
         assert!(res.is_ok());
@@ -2754,7 +2793,11 @@ else { return c1; }
             let mut module = Module::default();
             let init_pos = module.lit(Vec3::ZERO);
             let mut asset = EffectAsset::new(64, spawner, module)
-                .init(SetAttributeModifier::new(Attribute::POSITION, init_pos));
+                .init(SetAttributeModifier::new(Attribute::POSITION, init_pos))
+                .init(SetAttributeModifier::new(
+                    Attribute::GLOBAL_POSITION_OFFSET,
+                    init_pos,
+                ));
             asset.simulation_condition = SimulationCondition::Always;
             let handle = assets.add(asset);
 
@@ -2848,7 +2891,11 @@ else { return c1; }
                 let mut module = Module::default();
                 let init_pos = module.lit(Vec3::ZERO);
                 let mut asset = EffectAsset::new(64, spawner, module)
-                    .init(SetAttributeModifier::new(Attribute::POSITION, init_pos));
+                    .init(SetAttributeModifier::new(Attribute::POSITION, init_pos))
+                    .init(SetAttributeModifier::new(
+                        Attribute::GLOBAL_POSITION_OFFSET,
+                        init_pos,
+                    ));
                 asset.simulation_condition = if test_case.visibility.is_some() {
                     SimulationCondition::WhenVisible
                 } else {

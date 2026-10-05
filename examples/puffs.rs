@@ -132,6 +132,10 @@ fn create_effect(effects: &mut Assets<EffectAsset>) -> Handle<EffectAsset> {
             .add(writer.rand(VectorType::VEC3F) * writer.lit(vec3(0.0, 1.0, 0.0)))
             .expr(),
     );
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     // Set up the age and lifetime.
     let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
@@ -179,6 +183,7 @@ fn create_effect(effects: &mut Assets<EffectAsset>) -> Handle<EffectAsset> {
         .with_name("cartoon explosion")
         .init(init_xz_pos)
         .init(init_y_pos)
+        .init(init_global_pos_offset)
         .init(init_age)
         .init(init_lifetime)
         .init(init_size)

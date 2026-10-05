@@ -241,6 +241,10 @@ fn setup(
         radius: writer.lit(1.).expr(),
         dimension: ShapeDimension::Volume,
     };
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     let init_vel = SetVelocitySphereModifier {
         center: writer.lit(Vec3::ZERO).expr(),
@@ -255,6 +259,7 @@ fn setup(
         EffectAsset::new(512, SpawnerSettings::rate(50.0.into()), writer.finish())
             .with_name("instancing")
             .init(init_pos)
+            .init(init_global_pos_offset)
             .init(init_vel)
             .init(init_age)
             .init(init_lifetime)
@@ -270,6 +275,10 @@ fn setup(
         center: writer.lit(Vec3::ZERO).expr(),
         radius: writer.lit(7.).expr(),
         dimension: ShapeDimension::Volume,
+    };
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
     };
 
     let init_vel = SetVelocityTangentModifier {
@@ -293,6 +302,7 @@ fn setup(
             .with_simulation_space(SimulationSpace::Local)
             .with_name("alternate instancing")
             .init(init_pos)
+            .init(init_global_pos_offset)
             .init(init_vel)
             .init(init_lifetime)
             .update(radial_accel)

@@ -61,6 +61,10 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         radius: writer.lit(4.).expr(),
         dimension: ShapeDimension::Surface,
     };
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     let age = writer.lit(0.).expr();
     let init_age = SetAttributeModifier::new(Attribute::AGE, age);
@@ -81,6 +85,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         EffectAsset::new(16384, SpawnerSettings::rate(5000.0.into()), module)
             .with_name("portal")
             .init(init_pos)
+            .init(init_global_pos_offset)
             .init(init_age)
             .init(init_lifetime)
             .update(update_drag)

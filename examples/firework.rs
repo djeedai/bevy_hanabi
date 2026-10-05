@@ -48,6 +48,10 @@ fn create_rocket_effect() -> EffectAsset {
         radius: writer.lit(30.).expr(),
         dimension: ShapeDimension::Volume,
     };
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     // Give a bit of variation by randomizing the initial speed and direction
     let zero = writer.lit(0.);
@@ -102,6 +106,7 @@ fn create_rocket_effect() -> EffectAsset {
     EffectAsset::new(32, spawner, writer.finish())
         .with_name("rocket")
         .init(init_pos)
+        .init(init_global_pos_offset)
         .init(init_vel)
         .init(init_age)
         .init(init_lifetime)
@@ -128,6 +133,10 @@ fn create_sparkle_trail_effect() -> EffectAsset {
 
     // Inherit the start position from the parent effect (the rocket particle)
     let init_pos = InheritAttributeModifier::new(Attribute::POSITION);
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     // The velocity is random in any direction
     let vel = writer.rand(VectorType::VEC3F);
@@ -163,6 +172,7 @@ fn create_sparkle_trail_effect() -> EffectAsset {
     EffectAsset::new(1000, spawner, writer.finish())
         .with_name("sparkle_trail")
         .init(init_pos)
+        .init(init_global_pos_offset)
         .init(init_vel)
         .init(init_age)
         .init(init_lifetime)
@@ -186,6 +196,10 @@ fn create_trails_effect() -> EffectAsset {
 
     // Inherit the start position from the parent effect (the rocket particle)
     let init_pos = InheritAttributeModifier::new(Attribute::POSITION);
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     // Pull the color from the parent's Attribute::U32_0.
     let init_color = SetAttributeModifier::new(
@@ -232,6 +246,7 @@ fn create_trails_effect() -> EffectAsset {
     EffectAsset::new(10000, spawner, writer.finish())
         .with_name("trail")
         .init(init_pos)
+        .init(init_global_pos_offset)
         .init(init_vel)
         .init(init_age)
         .init(init_lifetime)

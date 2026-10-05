@@ -158,6 +158,10 @@ fn create_bolt_effect() -> EffectAsset {
         writer.lit(4.0) * total_progress.clone() * (writer.lit(1.0) - total_progress.clone());
 
     let position = (x_jitter * weight.clone()).vec3(y_pos, z_jitter * weight.clone());
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
 
     // Tiny age offset ensures stable ribbon ordering (particles spawned same frame)
     let init_age = particle_index.clone().cast(ScalarType::Float) * writer.lit(0.0001);
@@ -177,6 +181,7 @@ fn create_bolt_effect() -> EffectAsset {
         Attribute::POSITION,
         position.expr(),
     ))
+    .init(init_global_pos_offset)
     .init(SetAttributeModifier::new(Attribute::AGE, init_age.expr()))
     .init(SetAttributeModifier::new(
         Attribute::LIFETIME,
@@ -212,6 +217,10 @@ fn create_impact_effect() -> EffectAsset {
     );
 
     let init_pos = writer.lit(Vec3::ZERO).expr();
+    let init_global_pos_offset = SetAttributeModifier {
+        attribute: Attribute::GLOBAL_POSITION_OFFSET,
+        value: writer.lit(Vec3::ZERO).expr(),
+    };
     let init_vel = velocity.expr();
     let init_lifetime = (writer.lit(0.3) + writer.rand(ScalarType::Float) * writer.lit(0.4)).expr();
     let init_size = (writer.lit(0.1) + writer.rand(ScalarType::Float) * writer.lit(0.15)).expr();
@@ -221,6 +230,7 @@ fn create_impact_effect() -> EffectAsset {
     EffectAsset::new(512, SpawnerSettings::once(80.0.into()), writer.finish())
         .with_name("impact_burst")
         .init(SetAttributeModifier::new(Attribute::POSITION, init_pos))
+        .init(init_global_pos_offset)
         .init(SetAttributeModifier::new(Attribute::VELOCITY, init_vel))
         .init(SetAttributeModifier::new(
             Attribute::LIFETIME,
