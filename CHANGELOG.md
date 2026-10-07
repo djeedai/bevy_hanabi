@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Reduced the per-frame CPU cost of `compile_effects`. `EffectAsset::particle_layout()`
+  is no longer called for every effect each frame, only for those used as a parent, and
+  the maps resolving parents are skipped when none is declared. Advancing the per-effect
+  PRNG seed no longer builds a `StdRng`.
 - Batch same-effect instances. This greatly improves performance when using many instances
   of the same effect, by reducing the number of compute jobs dispatched to the GPU, and instead
   taking full advantage of all GPU threads to process the init/update of all particles in parallel.
