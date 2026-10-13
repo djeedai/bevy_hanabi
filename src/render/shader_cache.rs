@@ -11,11 +11,11 @@ use bevy::{
 /// Cache of baked shaders variants.
 ///
 /// Baked shader variants are shaders where the placeholders `{{PLACEHOLDER}}`
-/// present in the WGSL template code have been replaced by actual WGSL code,
+/// present in the WESL template code have been replaced by actual WGSL code,
 /// making them a valid shader from the point of view of the Bevy renderer.
 ///
 /// Shaders present in the cache are allocated [`Shader`] resources. Note that a
-/// [`Shader`] resource _may_ further be preprocessed to replace `#define`
+/// [`Shader`] resource _may_ further be preprocessed to replace `@if`
 /// directives; to this extent, some entries may not be compilable WGSL as is.
 #[derive(Default, Resource)]
 pub struct ShaderCache {
@@ -39,9 +39,9 @@ impl ShaderCache {
             handle.clone()
         } else {
             let hash = bevy::platform::hash::FixedHasher.hash_one(source);
-            let shader = Shader::from_wgsl(
+            let shader = Shader::from_wesl(
                 source.to_string(),
-                format!("hanabi/{}_{}_{}.wgsl", filename, suffix, hash),
+                format!("hanabi/{}_{}_{}.wesl", filename, suffix, hash),
             );
             trace!(
                 "Shader path={} import_path={:?} imports={:?}",

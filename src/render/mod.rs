@@ -66,7 +66,6 @@ use effect_cache::{CachedEffect, EffectSlice, SlabState};
 use event::{CachedChildInfo, CachedEffectEvents, CachedParentInfo, GpuChildInfo};
 use fixedbitset::FixedBitSet;
 use gpu_buffer::GpuBuffer;
-use naga_oil::compose::{Composer, NagaModuleDescriptor};
 
 use crate::{
     asset::{DefaultMesh, EffectAsset},
@@ -1155,6 +1154,7 @@ impl SpecializedComputePipeline for DispatchIndirectPipeline {
         );
 
         ComputePipelineDescriptor {
+            constants: default(),
             label: Some(label.into()),
             layout,
             immediate_size: 0,
@@ -1227,6 +1227,7 @@ impl PrefixSumPipeline {
         trace!("Create prefix sum pipeline");
 
         ComputePipelineDescriptor {
+            constants: default(),
             label: Some("hanabi:compute_pipeline:prefix_sum".into()),
             layout: vec![self.bind_group_layout_desc.clone()],
             immediate_size: 0,
@@ -1704,26 +1705,7 @@ impl FromWorld for UtilsPipeline {
 
         let shader_code = include_str!("vfx_utils.wgsl");
 
-        // Resolve imports. Because we don't insert this shader into Bevy' pipeline
-        // cache, we don't get that part "for free", so we have to do it manually here.
-        let shader_source = {
-            let mut composer = Composer::default();
-
-            let shader_defs = default();
-
-            match composer.make_naga_module(NagaModuleDescriptor {
-                source: shader_code,
-                file_path: "vfx_utils.wgsl",
-                shader_defs,
-                ..Default::default()
-            }) {
-                Ok(naga_module) => ShaderSource::Naga(Cow::Owned(naga_module)),
-                Err(compose_error) => panic!(
-                    "Failed to compose vfx_utils.wgsl, naga_oil returned: {}",
-                    compose_error.emit_to_string(&composer)
-                ),
-            }
-        };
+        let shader_source = ShaderSource::Wgsl(Cow::Borrowed(shader_code));
 
         debug!("Create utils shader module:\n{}", shader_code);
         #[allow(unsafe_code)]
@@ -1922,6 +1904,7 @@ impl SpecializedComputePipeline for ParticlesInitPipeline {
         );
 
         ComputePipelineDescriptor {
+            constants: default(),
             label: Some(label.into()),
             layout: vec![
                 self.sim_params_layout_desc.clone(),
@@ -2029,6 +2012,7 @@ impl SpecializedComputePipeline for ParticlesUpdatePipeline {
         );
 
         ComputePipelineDescriptor {
+            constants: default(),
             label: Some(label.into()),
             layout: vec![
                 self.sim_params_layout_desc.clone(),
@@ -2282,12 +2266,14 @@ impl SpecializedRenderPipeline for ParticlesRenderPipeline {
             layout,
             immediate_size: 0,
             vertex: VertexState {
+                constants: default(),
                 shader: key.shader.clone(),
                 entry_point: Some("vertex".into()),
                 shader_defs: shader_defs.clone(),
                 buffers: vec![vertex_buffer_layout.expect("Vertex buffer layout not present")],
             },
             fragment: Some(FragmentState {
+                constants: default(),
                 shader: key.shader,
                 shader_defs,
                 entry_point: Some("fragment".into()),
@@ -3222,7 +3208,7 @@ impl Default for LayoutFlags {
 /// Observer raised when the [`CachedEffect`] component is removed, which
 /// indicates that the effect instance was despawned.
 pub(crate) fn on_remove_cached_effect(
-    trigger: On<Remove, CachedEffect>,
+    trigger: On<Remove<CachedEffect>>,
     query: Query<(Entity, &MainEntity, &CachedEffect)>,
     mut effect_cache: ResMut<EffectCache>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,
@@ -3265,7 +3251,7 @@ pub(crate) fn on_remove_cached_effect(
 /// Observer raised when the [`CachedEffectMetadata`] component is removed, to
 /// deallocate the GPU resources associated with the indirect draw args.
 pub(crate) fn on_remove_cached_metadata(
-    trigger: On<Remove, CachedEffectMetadata>,
+    trigger: On<Remove<CachedEffectMetadata>>,
     query: Query<&CachedEffectMetadata>,
     mut effects_meta: ResMut<EffectsMeta>,
 ) {
@@ -3284,7 +3270,7 @@ pub(crate) fn on_remove_cached_metadata(
 /// Observer raised when the [`CachedDrawIndirectArgs`] component is removed, to
 /// deallocate the GPU resources associated with the indirect draw args.
 pub(crate) fn on_remove_cached_draw_indirect_args(
-    trigger: On<Remove, CachedDrawIndirectArgs>,
+    trigger: On<Remove<CachedDrawIndirectArgs>>,
     query: Query<&CachedDrawIndirectArgs>,
     mut effects_meta: ResMut<EffectsMeta>,
 ) {
@@ -4307,7 +4293,7 @@ pub(crate) fn propagate_ready_state(
 
             // Recursively update the ready state of its descendants
             if let Some(children) = maybe_children {
-                for (child, child_of) in q_child_effects.iter_many(children) {
+                for (child, child_of) in q_child_effects.iter_many(children).flatten() {
                     assert_eq!(
                         child_of.parent, entity,
                         "Malformed hierarchy. This probably means that your hierarchy has been improperly maintained, or contains a cycle"
@@ -4390,7 +4376,7 @@ unsafe fn propagate_ready_state_recursive(
     let Some(children) = maybe_children else {
         return;
     };
-    for (child, child_of) in q_child_of.iter_many(children) {
+    for (child, child_of) in q_child_of.iter_many(children).flatten() {
         assert_eq!(
         child_of.parent, entity,
         "Malformed hierarchy. This probably means that your hierarchy has been improperly maintained, or contains a cycle"
@@ -4793,7 +4779,7 @@ pub(crate) fn batch_effects(
                     translation,
                     main_entity: *main_entity,
                 })
-                .insert(TemporaryRenderEntity);
+                .insert(TemporaryRenderEntity::default());
         }
         if let Some((sort_fill_indirect_dispatch_index, sort_indirect_dispatch_index)) =
             sort_indirect_dispatch_indices
@@ -5942,7 +5928,7 @@ pub(crate) fn queue_effects(
                 },
                 // Unused for now
                 || OpaqueNoLightmap3dBinKey {
-                    asset_id: AssetId::<Mesh>::invalid().untyped(),
+                    asset_id: AssetId::<Mesh>::default().untyped(),
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
@@ -5984,7 +5970,7 @@ pub(crate) fn queue_effects(
                 },
                 // Unused for now
                 || Opaque3dBinKey {
-                    asset_id: AssetId::<Mesh>::invalid().untyped(),
+                    asset_id: AssetId::<Mesh>::default().untyped(),
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,

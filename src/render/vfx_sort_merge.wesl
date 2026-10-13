@@ -6,10 +6,9 @@
 struct KeyValuePair {
     /// Sorting key.
     key: u32,
-#ifdef HAS_DUAL_KEY
     /// Secondary sorting key. Used for values with equal primary key.
+    @if(HAS_DUAL_KEY)
     key2: u32,
-#endif
     /// Value associated with the sort key(s), generally an index to some other data.
     /// Copied as is and otherwise ignored by the sorting algorithm.
     value: u32,
@@ -28,11 +27,10 @@ fn compare_greater(kv1: KeyValuePair, kv2: KeyValuePair) -> bool {
     if (kv1.key > kv2.key) {
         return true;
     }
-#ifdef HAS_DUAL_KEY
+    @if(HAS_DUAL_KEY)
     if (kv1.key == kv2.key) {
         return kv1.key2 > kv2.key2;
     }
-#endif
     return false;
 }
 

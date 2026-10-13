@@ -3,7 +3,7 @@ name = "bevy_hanabi"
 version = "0.20.0-dev"
 authors = ["Jerome Humbert <djeedai@gmail.com>"]
 edition = "2021"
-rust-version = "1.95.0"
+rust-version = "1.97.1"
 description = "Hanabi GPU particle system for the Bevy game engine"
 repository = "https://github.com/djeedai/bevy_hanabi"
 homepage = "https://github.com/djeedai/bevy_hanabi"
@@ -57,17 +57,14 @@ anyhow = "1.0"
 ron = "0.12"
 bitflags = "2.3"
 thiserror = "2"
-# Same versions as Bevy 0.19 (bevy_render)
-wgpu = { version = "29.0.3", default-features = false, features = [
+# Same versions as Bevy 0.20 (bevy_render)
+wgpu = { version = "30", default-features = false, features = [
   "wgsl",
   "dx12",
   "metal",
   "vulkan",
-  "naga-ir",
   "fragile-send-sync-non-atomic-wasm",
 ] }
-naga = { version = "29.0.3", features = ["wgsl-in"] }
-naga_oil = { version = "0.22", default-features = false, features = ["test_shader"] }
 
 # getrandom requires both 'wasm_js' as a feature AND as a RUSTFLAGS to work on wasm
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -76,7 +73,7 @@ getrandom = { version = "0.4", default-features = false, features = [
 ] }
 
 [dependencies.bevy]
-version = "0.19"
+version = "0.20"
 default-features = false
 features = [
   "bevy_core_pipeline",
@@ -90,9 +87,11 @@ features = [
 all-features = true
 
 [dev-dependencies]
+naga = { version = "30", features = ["wgsl-in"] }
+wesl = { version = "0.6", features = ["naga-ext"] }
 # Enable all features by default in examples to make it easier to run them and to use
 # extra features like text rendering or gizmos, which are example-specific.
-bevy = { version = "0.19", default-features = true }
+bevy = { version = "0.20", default-features = true }
 
 # For procedural texture generation in examples
 noise = "0.9"

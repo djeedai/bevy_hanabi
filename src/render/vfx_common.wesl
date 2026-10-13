@@ -1,5 +1,3 @@
-#define_import_path bevy_hanabi::vfx_common
-
 struct SimParams {
     /// Frustum planes (xyz,d) of the main Hanabi camera, in world space.
     frustum: array<vec4<f32>, 6>,
@@ -101,11 +99,10 @@ struct ChildInfo {
     /// Index of the effect's DispatchIndirectArgs entry in the global init indirect dispatch array.
     init_indirect_dispatch_index: u32,
     /// Number of events in the associated event buffer.
-#ifdef CHILD_INFO_EVENT_COUNT_IS_ATOMIC
+    @if(CHILD_INFO_EVENT_COUNT_IS_ATOMIC)
     event_count: atomic<i32>,
-#else
+    @if(!CHILD_INFO_EVENT_COUNT_IS_ATOMIC)
     event_count: i32,
-#endif
 }
 
 /// Buffer storing all the ChildInfo structs for several effects.
@@ -302,9 +299,9 @@ fn frand4() -> vec4<f32> {
     var r2 = pcg_hash(r1);
     seed = r2;
     var x = to_float01(r0);
-    var r01 = (r0 & 0xff000000u) >> 8u | (r1 & 0x0000ffffu);
+    var r01 = ((r0 & 0xff000000u) >> 8u) | (r1 & 0x0000ffffu);
     var y = to_float01(r01);
-    var r12 = (r1 & 0xffff0000u) >> 8u | (r2 & 0x000000ffu);
+    var r12 = ((r1 & 0xffff0000u) >> 8u) | (r2 & 0x000000ffu);
     var z = to_float01(r12);
     var r22 = r2 >> 8u;
     var w = to_float01(r22);

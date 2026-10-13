@@ -279,7 +279,7 @@ pub(crate) fn allocate_events(
 /// Observer raised when the [`CachedEffectEvents`] component is removed,
 /// which indicates that the effect doesn't use GPU events anymore.
 pub(crate) fn on_remove_cached_effect_events(
-    trigger: On<Remove, CachedEffectEvents>,
+    trigger: On<Remove<CachedEffectEvents>>,
     query: Query<(Entity, &CachedEffectEvents)>,
     mut event_cache: ResMut<EventCache>,
     mut effect_bind_groups: ResMut<EffectBindGroups>,

@@ -228,6 +228,7 @@ impl SortBindGroups {
         );
 
         let sort_pipeline_id = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+            constants: default(),
             label: Some("hanabi:pipeline:sort".into()),
             layout: vec![sort_bind_group_layout_desc.clone()],
             shader: sort_shader,
@@ -250,6 +251,7 @@ impl SortBindGroups {
 
         let sort_merge_pipeline_id =
             pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                constants: default(),
                 label: Some("hanabi:pipeline:sort_merge".into()),
                 layout: vec![sort_merge_bind_group_layout_desc.clone()],
                 shader: sort_merge_shader,
@@ -286,6 +288,7 @@ impl SortBindGroups {
 
         let sort_copy_pipeline_id =
             pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                constants: default(),
                 label: Some("hanabi:pipeline:sort_copy".into()),
                 layout: vec![sort_copy_bind_group_layout_desc.clone()],
                 shader: sort_copy_shader,
@@ -524,6 +527,7 @@ impl SortBindGroups {
                 );
                 let pipeline_id =
                     pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                        constants: default(),
                         label: Some("hanabi:pipeline:sort_fill".into()),
                         layout: vec![bind_group_layout_desc.clone()],
                         shader: self.sort_fill_shader.clone(),
@@ -775,7 +779,7 @@ mod gpu_tests {
     };
 
     use crate::{
-        plugin::{VFX_SORT_MERGE_WGSL, VFX_SORT_WGSL},
+        plugin::{VFX_SORT_MERGE_WESL, VFX_SORT_WESL},
         render::{aligned_buffer_vec::AlignedBufferVec, sort::GpuMergeParams, StorageType},
         test_utils::*,
     };
@@ -1216,7 +1220,10 @@ mod gpu_tests {
             {
                 // Scope get_mapped_range_mut() to force a drop before unmap()
                 {
-                    let mut mapped = sort_buffer.slice(..).get_mapped_range_mut();
+                    let mut mapped = sort_buffer
+                        .slice(..)
+                        .get_mapped_range_mut()
+                        .expect("Buffer must be mapped for writing");
                     mapped.slice(..4).copy_from_slice(cast_slice(&[count]));
                     mapped.slice(4..).copy_from_slice(cast_slice(pairs));
                 }
@@ -1243,10 +1250,12 @@ mod gpu_tests {
                     bind_group_layouts: &[Some(&bind_group_layout)],
                     immediate_size: 0,
                 });
-            let src = VFX_SORT_WGSL
-                .replace("#ifdef HAS_DUAL_KEY", "")
-                .replace("#ifdef TEST", "")
-                .replace("#endif", "");
+            let src = crate::test_utils::compile_wesl(
+                VFX_SORT_WESL.as_ref(),
+                &["HAS_DUAL_KEY", "TEST"],
+                &[],
+            )
+            .unwrap();
             let shader_module =
                 self.device
                     .create_and_validate_shader_module(ShaderModuleDescriptor {
@@ -1317,7 +1326,9 @@ mod gpu_tests {
                 timeout: None,
             });
             let _ = futures::executor::block_on(rx);
-            let view = buffer_slice.get_mapped_range();
+            let view = buffer_slice
+                .get_mapped_range()
+                .expect("Buffer must be mapped for reading");
             assert_eq!(view.len(), byte_size as usize);
             println!("Result buffer downloaded to CPU");
 
@@ -1457,7 +1468,10 @@ mod gpu_tests {
             {
                 // Scope get_mapped_range_mut() to force a drop before unmap()
                 {
-                    let mut mapped = sort_buffer.slice(..).get_mapped_range_mut();
+                    let mut mapped = sort_buffer
+                        .slice(..)
+                        .get_mapped_range_mut()
+                        .expect("Buffer must be mapped for writing");
                     mapped.slice(..4).copy_from_slice(cast_slice(&[count]));
                     mapped.slice(4..).copy_from_slice(cast_slice(pairs));
                 }
@@ -1504,10 +1518,12 @@ mod gpu_tests {
                     bind_group_layouts: &[Some(&bind_group_layout)],
                     immediate_size: 0,
                 });
-            let src = VFX_SORT_MERGE_WGSL
-                .replace("#ifdef HAS_DUAL_KEY", "")
-                .replace("#ifdef TEST", "")
-                .replace("#endif", "");
+            let src = crate::test_utils::compile_wesl(
+                VFX_SORT_MERGE_WESL.as_ref(),
+                &["HAS_DUAL_KEY", "TEST"],
+                &[],
+            )
+            .unwrap();
             let shader_module =
                 self.device
                     .create_and_validate_shader_module(ShaderModuleDescriptor {
@@ -1580,7 +1596,9 @@ mod gpu_tests {
                 timeout: None,
             });
             let _ = futures::executor::block_on(rx);
-            let view = buffer_slice.get_mapped_range();
+            let view = buffer_slice
+                .get_mapped_range()
+                .expect("Buffer must be mapped for reading");
             assert_eq!(view.len(), sort_byte_size as usize);
             println!("Result buffer downloaded to CPU");
 
