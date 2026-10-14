@@ -1,7 +1,10 @@
 //! Example of using random spawner params.
 //! Spawns a random number of particles at random times.
 
-use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
+use bevy::{
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    prelude::*,
+};
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -28,6 +31,7 @@ fn setup(
         Transform::from_translation(Vec3::Z * 100.),
         Camera3d::default(),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     commands.spawn(DirectionalLight {

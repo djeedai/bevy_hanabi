@@ -29,7 +29,11 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use bevy::{camera::Projection, core_pipeline::tonemapping::Tonemapping, prelude::*};
+use bevy::{
+    camera::Projection,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    prelude::*,
+};
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -62,6 +66,7 @@ fn setup(
             ..default()
         }),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     let texture_handle: Handle<Image> = asset_server.load("cloud.png");

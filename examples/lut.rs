@@ -18,7 +18,11 @@
 //! Render pass and use the value there, without storing it, to avoid wasting 4
 //! bytes per particle. This example is for demonstration only.
 
-use bevy::{asset::RenderAssetUsages, core_pipeline::tonemapping::Tonemapping, prelude::*};
+use bevy::{
+    asset::RenderAssetUsages,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    prelude::*,
+};
 use bevy_hanabi::{expr::TextureLoadExpr, prelude::*};
 
 mod utils;
@@ -101,6 +105,7 @@ fn setup(
         Transform::from_translation(Vec3::Z * 100.),
         Camera3d::default(),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     // Some light

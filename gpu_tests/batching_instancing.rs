@@ -3,7 +3,12 @@
 //! Spawns several instances of the same effect asset and runs the app headless.
 //! The test fails on any panic in the batched init/update/render paths.
 
-use bevy::{app::AppExit, core_pipeline::tonemapping::Tonemapping, log::LogPlugin, prelude::*};
+use bevy::{
+    app::AppExit,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    log::LogPlugin,
+    prelude::*,
+};
 use bevy_hanabi::prelude::*;
 
 #[derive(Default, Resource)]
@@ -35,6 +40,7 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<EffectAsset>>) {
             ..default()
         },
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     let mut module = Module::default();

@@ -12,7 +12,10 @@
 //! An impact burst effect spawns radial sparks when the lightning strikes.
 
 use bevy::{
-    camera::Hdr, core_pipeline::tonemapping::Tonemapping, post_process::bloom::Bloom, prelude::*,
+    camera::Hdr,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    post_process::bloom::Bloom,
+    prelude::*,
 };
 use bevy_hanabi::prelude::*;
 
@@ -55,6 +58,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         },
         Hdr,
         Tonemapping::None,
+        DebandDither::Disabled,
         Bloom {
             intensity: 0.3,
             ..default()

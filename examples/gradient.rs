@@ -1,7 +1,9 @@
 use std::f32::consts::PI;
 
 use bevy::{
-    camera::visibility::RenderLayers, camera::Hdr, core_pipeline::tonemapping::Tonemapping,
+    camera::visibility::RenderLayers,
+    camera::Hdr,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
@@ -36,6 +38,7 @@ fn setup(
         Camera3d::default(),
         Hdr,
         Tonemapping::None,
+        DebandDither::Disabled,
         // For this example, we assign to the camera a specific render layer (3)
         // different from the default (0) to demonstrate it works.
         RenderLayers::layer(3),

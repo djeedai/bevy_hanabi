@@ -14,7 +14,10 @@
 //! are despawned when reaching the surface.
 
 use bevy::{
-    camera::ScalingMode, core_pipeline::tonemapping::Tonemapping, prelude::*, text::TextFont,
+    camera::ScalingMode,
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    prelude::*,
+    text::TextFont,
 };
 use bevy_hanabi::prelude::*;
 
@@ -57,6 +60,7 @@ fn setup(
         Projection::Orthographic(projection),
         Camera3d::default(),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     // Blue rectangle mesh for "water"

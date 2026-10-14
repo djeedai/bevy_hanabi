@@ -11,7 +11,10 @@
 //!   quickly, and during 2.25 seconds there's no particle, until the next burst
 //!   spawns some more.
 
-use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
+use bevy::{
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    prelude::*,
+};
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -39,6 +42,7 @@ fn setup(
         Transform::from_translation(Vec3::Z * 180.),
         Camera3d::default(),
         Tonemapping::None,
+        DebandDither::Disabled,
     ));
 
     commands.spawn(DirectionalLight {

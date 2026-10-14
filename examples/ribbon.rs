@@ -20,7 +20,11 @@
 use bevy::camera::Hdr;
 use bevy::math::vec4;
 use bevy::prelude::*;
-use bevy::{core_pipeline::tonemapping::Tonemapping, math::vec3, post_process::bloom::Bloom};
+use bevy::{
+    core_pipeline::tonemapping::{DebandDither, Tonemapping},
+    math::vec3,
+    post_process::bloom::Bloom,
+};
 use bevy_hanabi::prelude::*;
 
 mod utils;
@@ -114,6 +118,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         Camera3d::default(),
         Hdr,
         Tonemapping::None,
+        DebandDither::Disabled,
         Bloom::default(),
     ));
 
