@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Migrated to Bevy 0.20 and wgpu 30. The minimum supported Rust version is now 1.97.1.
 - Migrated generated particle shaders and shader templates to WESL. Custom shader code
   using naga_oil imports or preprocessor directives must use WESL syntax instead.
+  The common shader module is now imported as `bevy_hanabi::render::vfx_common`
+  (previously `bevy_hanabi::vfx_common`).
 
 - Batch same-effect instances. This greatly improves performance when using many instances
   of the same effect, by reducing the number of compute jobs dispatched to the GPU, and instead
