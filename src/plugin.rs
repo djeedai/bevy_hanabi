@@ -149,15 +149,11 @@ impl HanabiPlugin {
         let indirect_code = include_str!("render/vfx_indirect.wesl");
         Shader::from_wesl(
             indirect_code,
-            std::path::Path::new(file!())
-                .parent()
-                .unwrap()
-                .join(format!(
-                    "render/vfx_indirect_{}_{}.wesl",
-                    min_storage_buffer_offset_alignment,
-                    if has_events { "events" } else { "noevent" },
-                ))
-                .to_string_lossy(),
+            embedded_path(&format!(
+                "vfx_indirect_{}_{}",
+                min_storage_buffer_offset_alignment,
+                if has_events { "events" } else { "noevent" },
+            )),
         )
     }
 
@@ -167,15 +163,19 @@ impl HanabiPlugin {
     /// file.
     pub(crate) fn make_prefix_sum_shader() -> Shader {
         let prefix_sum_code = include_str!("render/vfx_prefix_sum.wesl");
-        Shader::from_wesl(
-            prefix_sum_code,
-            std::path::Path::new(file!())
-                .parent()
-                .unwrap()
-                .join("render/vfx_prefix_sum.wesl")
-                .to_string_lossy(),
-        )
+        Shader::from_wesl(prefix_sum_code, embedded_path("vfx_prefix_sum"))
     }
+}
+
+/// Path of one of Hanabi's built-in shaders.
+///
+/// [`Shader::from_wesl`] derives a shader's module path from the path it is
+/// given. Under `embedded://` that is `bevy_hanabi::render::<name>`, the same
+/// for every build; a path from `file!()` would be wherever the source was
+/// compiled, which for a git or registry dependency is an absolute path on the
+/// build machine.
+fn embedded_path(name: &str) -> String {
+    format!("embedded://bevy_hanabi/render/{name}.wesl")
 }
 
 impl Plugin for HanabiPlugin {
@@ -286,35 +286,14 @@ impl Plugin for HanabiPlugin {
             let prefix_sum_shader = HanabiPlugin::make_prefix_sum_shader();
             let sort_fill_shader = Shader::from_wesl(
                 include_str!("render/vfx_sort_fill.wesl"),
-                std::path::Path::new(file!())
-                    .parent()
-                    .unwrap()
-                    .join("render/vfx_sort_fill.wesl")
-                    .to_string_lossy(),
+                embedded_path("vfx_sort_fill"),
             );
-            let sort_shader = Shader::from_wesl(
-                VFX_SORT_WESL,
-                std::path::Path::new(file!())
-                    .parent()
-                    .unwrap()
-                    .join("render/vfx_sort.wesl")
-                    .to_string_lossy(),
-            );
-            let sort_merge_shader = Shader::from_wesl(
-                VFX_SORT_MERGE_WESL,
-                std::path::Path::new(file!())
-                    .parent()
-                    .unwrap()
-                    .join("render/vfx_sort_merge.wesl")
-                    .to_string_lossy(),
-            );
+            let sort_shader = Shader::from_wesl(VFX_SORT_WESL, embedded_path("vfx_sort"));
+            let sort_merge_shader =
+                Shader::from_wesl(VFX_SORT_MERGE_WESL, embedded_path("vfx_sort_merge"));
             let sort_copy_shader = Shader::from_wesl(
                 include_str!("render/vfx_sort_copy.wesl"),
-                std::path::Path::new(file!())
-                    .parent()
-                    .unwrap()
-                    .join("render/vfx_sort_copy.wesl")
-                    .to_string_lossy(),
+                embedded_path("vfx_sort_copy"),
             );
 
             let mut assets = app.world_mut().resource_mut::<Assets<Shader>>();
