@@ -4303,7 +4303,7 @@ pub(crate) fn propagate_ready_state(
 
             // Recursively update the ready state of its descendants
             if let Some(children) = maybe_children {
-                for (child, child_of) in q_child_effects.iter_many(children).flatten() {
+                for (child, child_of) in q_child_effects.iter_many(children).matched() {
                     assert_eq!(
                         child_of.parent, entity,
                         "Malformed hierarchy. This probably means that your hierarchy has been improperly maintained, or contains a cycle"
@@ -4386,7 +4386,7 @@ unsafe fn propagate_ready_state_recursive(
     let Some(children) = maybe_children else {
         return;
     };
-    for (child, child_of) in q_child_of.iter_many(children).flatten() {
+    for (child, child_of) in q_child_of.iter_many(children).matched() {
         assert_eq!(
         child_of.parent, entity,
         "Malformed hierarchy. This probably means that your hierarchy has been improperly maintained, or contains a cycle"
