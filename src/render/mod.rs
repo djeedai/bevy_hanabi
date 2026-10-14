@@ -109,6 +109,16 @@ pub(crate) use sort::SortBindGroups;
 
 use self::batch::EffectBatch;
 
+/// Asset ID put in the bin key of every opaque and alpha-masked effect.
+///
+/// The bin key names a mesh, which an effect does not have. Bevy deprecated
+/// `AssetId::invalid()`, and `AssetId::default()` may be a real asset, so the
+/// effects carry an ID of their own that no mesh has.
+#[cfg(feature = "3d")]
+const EFFECT_BIN_ASSET_ID: AssetId<Mesh> = AssetId::Uuid {
+    uuid: bevy::asset::uuid::uuid!("a36f954d-a51d-484c-bddb-4569f270076a"),
+};
+
 /// Plugin to add systems related to Hanabi rendering.
 #[derive(Debug, Clone, Copy)]
 pub struct HanabiRenderPlugin;
@@ -5928,7 +5938,7 @@ pub(crate) fn queue_effects(
                 },
                 // Unused for now
                 || OpaqueNoLightmap3dBinKey {
-                    asset_id: AssetId::<Mesh>::default().untyped(),
+                    asset_id: EFFECT_BIN_ASSET_ID.untyped(),
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
@@ -5970,7 +5980,7 @@ pub(crate) fn queue_effects(
                 },
                 // Unused for now
                 || Opaque3dBinKey {
-                    asset_id: AssetId::<Mesh>::default().untyped(),
+                    asset_id: EFFECT_BIN_ASSET_ID.untyped(),
                 },
                 #[cfg(feature = "2d")]
                 PipelineMode::Camera3d,
