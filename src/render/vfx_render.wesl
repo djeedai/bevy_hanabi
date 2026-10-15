@@ -1,11 +1,11 @@
-#import bevy_render::view::View
-#import bevy_hanabi::vfx_common::{
+import bevy_render::view::View;
+import bevy_hanabi::render::vfx_common::{
     IndirectBuffer, SimParams, Spawner, BatchInfo,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
     rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj,
     unpack_compressed_transform, unpack_compressed_transform_3x3_transpose
-}
+};
 
 struct Particle {
 {{ATTRIBUTES}}
@@ -20,15 +20,12 @@ struct ParticleBuffer {
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
-#ifdef NEEDS_UV
+    @if(NEEDS_UV)
     @location(1) uv: vec2<f32>,
-#endif
-#ifdef NEEDS_NORMAL
+    @if(NEEDS_NORMAL)
     @location(2) normal: vec3<f32>,
-#endif
-#ifdef NEEDS_PARTICLE_FRAGMENT
+    @if(NEEDS_PARTICLE_FRAGMENT)
     @location(3) slab_particle_index: u32,
-#endif
 }
 
 // Global bindings
@@ -39,16 +36,18 @@ struct VertexOutput {
 @group(1) @binding(0) var<storage, read> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read> indirect_buffer : IndirectBuffer;
 
-#ifdef HAS_BATCHED_DRAW
 // Per-batch bindings
+@if(HAS_BATCHED_DRAW)
 @group(2) @binding(0) var<storage, read> spawners : array<Spawner>;
+@if(HAS_BATCHED_DRAW)
 @group(2) @binding(1) var<storage, read> prefix_sum : array<u32>;
+@if(HAS_BATCHED_DRAW)
 @group(2) @binding(2) var<storage, read> batch_info : BatchInfo;
-#else
 // Per-effect bindings
+@if(!HAS_BATCHED_DRAW)
 @group(2) @binding(0) var<storage, read> spawners : array<Spawner>;
+@if(!HAS_BATCHED_DRAW)
 @group(2) @binding(1) var<storage, read> batch_info : BatchInfo;
-#endif
 {{PROPERTIES_BINDING}}
 {{MATERIAL_BINDINGS}}
 
@@ -64,17 +63,17 @@ var<private> spawner_index: u32;
 
 fn get_camera_position_effect_space() -> vec3<f32> {
     let view_pos = view.world_from_view[3].xyz;
-#ifdef LOCAL_SPACE_SIMULATION
+    @if(LOCAL_SPACE_SIMULATION)
     let inverse_transform = unpack_compressed_transform(spawners[spawner_index].inverse_transform);
+    @if(LOCAL_SPACE_SIMULATION)
     return (inverse_transform * vec4<f32>(view_pos, 1.0)).xyz;
-#else
+    @if(!LOCAL_SPACE_SIMULATION)
     return view_pos;
-#endif
 }
 
 fn get_camera_rotation_effect_space() -> mat3x3<f32> {
     let view_rot = mat3x3(view.world_from_view[0].xyz, view.world_from_view[1].xyz, view.world_from_view[2].xyz);
-#ifdef LOCAL_SPACE_SIMULATION
+    @if(LOCAL_SPACE_SIMULATION)
     let inverse_transform = transpose(
         mat3x3(
             spawners[spawner_index].inverse_transform[0].xyz,
@@ -82,10 +81,10 @@ fn get_camera_rotation_effect_space() -> mat3x3<f32> {
             spawners[spawner_index].inverse_transform[2].xyz,
         )
     );
+    @if(LOCAL_SPACE_SIMULATION)
     return inverse_transform * view_rot;
-#else
+    @if(!LOCAL_SPACE_SIMULATION)
     return view_rot;
-#endif
 }
 
 /// Transform a simulation space position into a world space position.
@@ -93,24 +92,24 @@ fn get_camera_rotation_effect_space() -> mat3x3<f32> {
 /// The simulation space depends on the effect's SimulationSpace value, and is either
 /// the effect space (SimulationSpace::Local) or the world space (SimulationSpace::Global).
 fn transform_position_simulation_to_world(sim_position: vec3<f32>) -> vec4<f32> {
-#ifdef LOCAL_SPACE_SIMULATION
+    @if(LOCAL_SPACE_SIMULATION)
     let transform = unpack_compressed_transform(spawners[spawner_index].transform);
+    @if(LOCAL_SPACE_SIMULATION)
     return transform * vec4<f32>(sim_position, 1.0);
-#else
+    @if(!LOCAL_SPACE_SIMULATION)
     return vec4<f32>(sim_position, 1.0);
-#endif
 }
 
 fn transform_normal_simulation_to_world(sim_normal: vec3<f32>) -> vec3<f32> {
-#ifdef LOCAL_SPACE_SIMULATION
     // We use the inverse transpose transform to transform normals.
     // The inverse transpose is the same as the transposed inverse, so we can
     // safely use the inverse transform.
+    @if(LOCAL_SPACE_SIMULATION)
     let transform = unpack_compressed_transform_3x3_transpose(spawners[spawner_index].inverse_transform);
+    @if(LOCAL_SPACE_SIMULATION)
     return transform * sim_normal;
-#else
+    @if(!LOCAL_SPACE_SIMULATION)
     return sim_normal;
-#endif
 }
 
 /// Transform a simulation space position into a clip space position.
@@ -144,7 +143,6 @@ struct EffectLocation {
     update_index: u32,
 }
 
-#ifdef HAS_BATCHED_DRAW
 /// Find the index of an effect from the index of a particle.
 ///
 /// This uses a binary search on the slab_offset field of the spawners array, which
@@ -154,6 +152,7 @@ struct EffectLocation {
 /// Requirements:
 /// - var<storage, read> batch_info : BatchInfo
 /// - var<storage, read> prefix_sum : array<u32>
+@if(HAS_BATCHED_DRAW)
 fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
     var lo = batch_info.prefix_sum_offset;
     var hi = lo + batch_info.prefix_sum_count;
@@ -176,18 +175,15 @@ fn find_location_from_particle(slab_particle_index: u32) -> EffectLocation {
     let base_particle = spawners[batch_info.spawner_base + effect_offset + effect_index].slab_offset;
     return EffectLocation(effect_index, base_particle, update_index);
 }
-#endif
 
 @vertex
 fn vertex(
     @builtin(instance_index) instance_index: u32,
     @location(0) vertex_position: vec3<f32>,
-#ifdef NEEDS_UV
+    @if(NEEDS_UV)
     @location(1) vertex_uv: vec2<f32>,
-#endif
-#ifdef NEEDS_NORMAL
+    @if(NEEDS_NORMAL)
     @location(2) vertex_normal: vec3<f32>,
-#endif
     // @location(1) vertex_color: u32,
     // @location(1) vertex_velocity: vec3<f32>,
 ) -> VertexOutput {
@@ -195,15 +191,18 @@ fn vertex(
     // rendering is not yet batched, so this really derives into (effect_index = 0,
     // base_particle = batch_info.base_particle), and the binary search is a bit useless
     // until an actual batching is set up.
-#ifdef HAS_BATCHED_DRAW
+    @if(HAS_BATCHED_DRAW)
     effect_location = find_location_from_particle(instance_index);
+    @if(HAS_BATCHED_DRAW)
     spawner_index = batch_info.spawner_base + effect_offset + effect_index;
-#else
+    @if(!HAS_BATCHED_DRAW)
     effect_location.effect_index = 0u;
+    @if(!HAS_BATCHED_DRAW)
     effect_location.base_particle = batch_info.base_particle;
+    @if(!HAS_BATCHED_DRAW)
     effect_location.update_index = instance_index;
+    @if(!HAS_BATCHED_DRAW)
     spawner_index = batch_info.spawner_base;
-#endif
     let spawner = &spawners[spawner_index];
     effect_metadata_index = (*spawner).effect_metadata_index;
     let base_particle = effect_location.base_particle;
@@ -215,54 +214,60 @@ fn vertex(
 
     var out: VertexOutput;
 
-#ifdef NEEDS_PARTICLE_FRAGMENT
+    @if(NEEDS_PARTICLE_FRAGMENT)
     out.slab_particle_index = base_particle + particle_index;
-#endif // NEEDS_PARTICLE_FRAGMENT
 
-#ifdef RIBBONS
     // Discard first instance; we draw from second one, and link to previous one
+    @if(RIBBONS)
     if (instance_index == 0) {
         out.position = vec4(0.0);
         return out;
     }
 
     // Fetch previous particle
+    @if(RIBBONS)
     let prev_index = indirect_buffer.rows[base_particle + instance_index - 1u].particle_index[indirect_read_index];
+    @if(RIBBONS)
     let prev_particle = particle_buffer.particles[base_particle + prev_index];
 
     // Discard this instance if previous one is from a different ribbon. Again,
     // we draw from second one of each ribbon.
+    @if(RIBBONS)
     if (prev_particle.ribbon_id != particle.ribbon_id) {
         out.position = vec4(0.0);
         return out;
     }
-#endif  // RIBBONS
 
-#ifdef NEEDS_UV
     // Compute UVs
+    @if(NEEDS_UV)
     var uv = vertex_uv;
-#ifdef FLIPBOOK
+    @if(NEEDS_UV && FLIPBOOK)
     let row_count = {{FLIPBOOK_ROW_COUNT}};
+    @if(NEEDS_UV && FLIPBOOK)
     let ij = vec2<f32>(f32(particle.sprite_index % row_count), f32(particle.sprite_index / row_count));
+    @if(NEEDS_UV && FLIPBOOK)
     uv = (ij + uv) * {{FLIPBOOK_SCALE}};
-#endif
+    @if(NEEDS_UV)
     out.uv = uv;
-#endif  // NEEDS_UV
 
 {{INPUTS}}
 
 {{VERTEX_MODIFIERS}}
 
-#ifdef RIBBONS
+    @if(RIBBONS)
     var delta = particle.position - prev_particle.position;
 
+    @if(RIBBONS)
     axis_x = normalize(delta);
+    @if(RIBBONS)
     axis_y = normalize(cross(axis_x, axis_z));
+    @if(RIBBONS)
     axis_z = cross(axis_x, axis_y);
 
+    @if(RIBBONS)
     position = mix(particle.position, prev_particle.position, 0.5);
+    @if(RIBBONS)
     size = vec3(length(delta), size.y, 1.0);
-#endif  // RIBBONS
 
     // Expand particle mesh vertex based on particle position ("origin"), and local
     // orientation and size of the particle mesh.
@@ -272,10 +277,10 @@ fn vertex(
 
     out.color = color;
 
-#ifdef NEEDS_NORMAL
+    @if(NEEDS_NORMAL)
     let normal = inverse_transpose_mat3(mat3x3(axis_x, axis_y, axis_z)) * vertex_normal;
+    @if(NEEDS_NORMAL)
     out.normal = transform_normal_simulation_to_world(normal);
-#endif  // NEEDS_NORMAL
 
     return out;
 }
@@ -283,29 +288,24 @@ fn vertex(
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Read fragment inputs
-#ifdef USE_ALPHA_MASK
+    @if(USE_ALPHA_MASK)
     var alpha_cutoff: f32 = {{ALPHA_CUTOFF}};
-#endif
     var color = in.color;
-#ifdef NEEDS_UV
+    @if(NEEDS_UV)
     var uv = in.uv;
-#endif
-#ifdef NEEDS_NORMAL
+    @if(NEEDS_NORMAL)
     var normal = in.normal;
-#endif
-#ifdef NEEDS_PARTICLE_FRAGMENT
+    @if(NEEDS_PARTICLE_FRAGMENT)
     var particle = particle_buffer.particles[in.slab_particle_index];
-#endif // NEEDS_PARTICLE_FRAGMENT
 
 {{FRAGMENT_MODIFIERS}}
 
-#ifdef USE_ALPHA_MASK
+    @if(USE_ALPHA_MASK)
     if color.a >= alpha_cutoff {
         color.a = 1.0;
     } else {
         discard;
     }
-#endif
 
     return color;
 }

@@ -158,7 +158,7 @@ use bevy::{
     reflect::{
         structs::{FieldIter, Struct, StructInfo},
         utility::{GenericTypePathCell, NonGenericTypeInfoCell},
-        ApplyError, FromReflect, FromType, GetTypeRegistration, NamedField, PartialReflect,
+        ApplyError, CreateTypeData, FromReflect, GetTypeRegistration, NamedField, PartialReflect,
         Reflect, ReflectDeserialize, ReflectFromReflect, ReflectMut, ReflectOwned, ReflectRef,
         ReflectSerialize, TypeInfo, TypePath, TypeRegistration, Typed,
     },
@@ -875,9 +875,9 @@ impl Struct for Attribute {
 impl GetTypeRegistration for Attribute {
     fn get_type_registration() -> TypeRegistration {
         let mut registration = TypeRegistration::of::<Self>();
-        registration.insert::<ReflectDeserialize>(FromType::<Self>::from_type());
-        registration.insert::<ReflectSerialize>(FromType::<Self>::from_type());
-        registration.insert::<ReflectFromReflect>(FromType::<Self>::from_type());
+        registration.insert::<ReflectDeserialize>(CreateTypeData::<Self>::create_type_data(()));
+        registration.insert::<ReflectSerialize>(CreateTypeData::<Self>::create_type_data(()));
+        registration.insert::<ReflectFromReflect>(CreateTypeData::<Self>::create_type_data(()));
         registration
     }
 }
@@ -2412,7 +2412,7 @@ mod tests {
                     );
                 }
 
-                let d = s.to_dynamic_struct();
+                let d = s.to_dynamic_struct().unwrap();
                 assert_eq!(
                     TypeRegistration::of::<Attribute>().type_id(),
                     d.get_represented_type_info().unwrap().type_id()

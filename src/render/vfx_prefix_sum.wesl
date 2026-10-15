@@ -1,4 +1,4 @@
-#import bevy_hanabi::vfx_common::{BatchInfo, DispatchIndirectArgs}
+import bevy_hanabi::render::vfx_common::{BatchInfo, DispatchIndirectArgs};
 
 @group(0) @binding(0) var<storage, read_write> batch_infos : array<BatchInfo>;
 @group(0) @binding(1) var<storage, read_write> prefix_sum : array<u32>;

@@ -1,11 +1,11 @@
-#import bevy_hanabi::vfx_common::{
+import bevy_hanabi::render::vfx_common::{
     ChildInfo, ChildInfoBuffer, EventBuffer, DispatchIndirectArgs, IndirectBuffer,
     EffectMetadata, RenderGroupIndirect, SimParams, Spawner, DrawIndexedIndirectArgs, BatchInfo,
     seed, tau, pcg_hash, to_float01, frand, frand2, frand3, frand4,
     rand_uniform_f, rand_uniform_vec2, rand_uniform_vec3, rand_uniform_vec4,
     rand_normal_f, rand_normal_vec2, rand_normal_vec3, rand_normal_vec4, proj,
     unpack_compressed_transform, unpack_compressed_transform_3x3_transpose
-}
+};
 
 struct Particle {
 {{ATTRIBUTES}}
@@ -15,17 +15,14 @@ struct ParticleBuffer {
     particles: array<Particle>,
 }
 
-#ifdef READ_PARENT_PARTICLE
 
-struct ParentParticle {
-    {{PARENT_ATTRIBUTES}}
-}
+{{PARENT_PARTICLE}}
 
+@if(READ_PARENT_PARTICLE)
 struct ParentParticleBuffer {
     particles: array<ParentParticle>,
 }
 
-#endif
 
 {{PROPERTIES}}
 
@@ -78,24 +75,24 @@ fn find_location_from_particle(update_particle_index: u32) -> EffectLocation {
 /// The simulation space depends on the effect's SimulationSpace value, and is either
 /// the effect space (SimulationSpace::Local) or the world space (SimulationSpace::Global).
 fn transform_position_simulation_to_world(sim_position: vec3<f32>) -> vec4<f32> {
-#ifdef LOCAL_SPACE_SIMULATION
+    @if(LOCAL_SPACE_SIMULATION)
     let transform = unpack_compressed_transform(spawners[spawner_index].transform);
+    @if(LOCAL_SPACE_SIMULATION)
     return transform * vec4<f32>(sim_position, 1.0);
-#else
+    @if(!LOCAL_SPACE_SIMULATION)
     return vec4<f32>(sim_position, 1.0);
-#endif
 }
 
 fn transform_normal_simulation_to_world(sim_normal: vec3<f32>) -> vec3<f32> {
-#ifdef LOCAL_SPACE_SIMULATION
     // We use the inverse transpose transform to transform normals.
     // The inverse transpose is the same as the transposed inverse, so we can
     // safely use the inverse transform.
+    @if(LOCAL_SPACE_SIMULATION)
     let transform = unpack_compressed_transform_3x3_transpose(spawners[spawner_index].inverse_transform);
+    @if(LOCAL_SPACE_SIMULATION)
     return transform * sim_normal;
-#else
+    @if(!LOCAL_SPACE_SIMULATION)
     return sim_normal;
-#endif
 }
 
 @group(0) @binding(0) var<uniform> sim_params : SimParams;
@@ -104,9 +101,8 @@ fn transform_normal_simulation_to_world(sim_normal: vec3<f32>) -> vec3<f32> {
 // "particle" group @1
 @group(1) @binding(0) var<storage, read_write> particle_buffer : ParticleBuffer;
 @group(1) @binding(1) var<storage, read_write> indirect_buffer : IndirectBuffer;
-#ifdef READ_PARENT_PARTICLE
+@if(READ_PARENT_PARTICLE)
 @group(1) @binding(2) var<storage, read> parent_particle_buffer : ParentParticleBuffer;
-#endif
 
 // "spawner" group @2
 @group(2) @binding(0) var<storage, read> spawners : array<Spawner>;
@@ -117,15 +113,11 @@ fn transform_normal_simulation_to_world(sim_normal: vec3<f32>) -> vec3<f32> {
 
 // "metadata" group @3
 @group(3) @binding(0) var<storage, read_write> effect_metadatas : array<EffectMetadata>;
-#ifdef EMITS_GPU_SPAWN_EVENTS
 {{EMIT_EVENT_BUFFER_BINDINGS}}
-#endif
 
 {{UPDATE_EXTRA}}
 
-#ifdef EMITS_GPU_SPAWN_EVENTS
 {{EMIT_EVENT_BUFFER_APPEND_FUNCS}}
-#endif
 
 var<private> effect_metadata_index: u32;
 var<private> properties_array_index: u32;
@@ -162,9 +154,8 @@ fn main(@builtin(global_invocation_id) global_invocation_id: vec3<u32>) {
         .rows[base_particle + location.update_index]
         .particle_index[read_index];
 
-#ifdef READ_PARENT_PARTICLE
+    @if(READ_PARENT_PARTICLE)
     let parent_base_particle = (*spawner).parent_slab_offset;
-#endif
 
     // Initialize the PRNG seed
     seed = pcg_hash(particle_index ^ (*spawner).seed);

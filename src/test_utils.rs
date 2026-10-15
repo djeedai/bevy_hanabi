@@ -2,7 +2,7 @@ use std::ops::Sub;
 
 use bevy::prelude::{Quat, Vec2, Vec3, Vec4};
 #[cfg(feature = "gpu_tests")]
-use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+use bevy::render::renderer::{RenderDevice, RenderQueue};
 
 /// Utility trait to compare floating-point values with a tolerance.
 pub(crate) trait AbsDiffEq {
@@ -166,6 +166,7 @@ impl MockRenderer {
                 power_preference: wgpu::PowerPreference::default(),
                 force_fallback_adapter: false,
                 compatible_surface: None,
+                ..Default::default()
             }))
             .expect("Failed to find an appropriate adapter");
 
@@ -182,7 +183,7 @@ impl MockRenderer {
 
         // Turn into Bevy objects
         let device = RenderDevice::from(device);
-        let queue = RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue)));
+        let queue = RenderQueue::new(queue);
 
         Self {
             instance,
@@ -201,4 +202,27 @@ impl MockRenderer {
     pub fn queue(&self) -> RenderQueue {
         self.queue.clone()
     }
+}
+
+/// Compile shader tests with the same conditional-translation defaults as Bevy.
+pub(crate) fn compile_wesl(
+    source: &str,
+    features: &[&str],
+    modules: &[(&str, &str)],
+) -> Result<String, wesl::Error> {
+    let mut resolver = wesl::resolver::VirtualResolver::new();
+    let path = "package::test".parse().unwrap();
+    resolver.add_module(path, source.into());
+    for (path, source) in modules {
+        resolver.add_module(path.parse().unwrap(), (*source).into());
+    }
+    let mut options = wesl::CompileOptions {
+        visibility: false,
+        ..Default::default()
+    };
+    for feature in features {
+        options.features.set(feature, true);
+    }
+    wesl::compile(&"package::test".parse().unwrap(), &options, &resolver)
+        .map(|result| result.to_string())
 }

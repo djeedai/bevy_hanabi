@@ -1,4 +1,4 @@
-#import bevy_hanabi::vfx_common::{EffectMetadata, Spawner}
+import bevy_hanabi::render::vfx_common::{EffectMetadata, Spawner};
 
 /// Key-value pair for sorting, with optional second sort key.
 struct KeyValuePair {

@@ -287,7 +287,8 @@ impl ParticleSlab {
             {
                 let mut mapped = particle_buffer
                     .slice(..particle_capacity_bytes)
-                    .get_mapped_range_mut();
+                    .get_mapped_range_mut()
+                    .expect("Buffer must be mapped for writing");
                 let particle_count_u32 = (particle_capacity_bytes / 4) as usize;
                 let values = vec![0xFFFF_FFFFu32; particle_count_u32];
                 mapped.copy_from_slice(cast_slice(values.as_slice()));
@@ -311,7 +312,8 @@ impl ParticleSlab {
             {
                 let mut mapped = indirect_index_buffer
                     .slice(..indirect_capacity_bytes)
-                    .get_mapped_range_mut();
+                    .get_mapped_range_mut()
+                    .expect("Buffer must be mapped for writing");
                 let mut values = vec![0u32; capacity as usize * 3];
                 let slice: &mut [u32] = values.as_mut_slice();
                 for index in 0..capacity {
