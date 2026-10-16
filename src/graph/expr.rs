@@ -515,6 +515,22 @@ impl Module {
         }
     }
 
+    /// Insert into the given set all attributes referenced by any
+    /// [`Expr::ParentAttribute`] expression present in the module.
+    ///
+    /// Those are the attributes read from the parent particle, which the parent
+    /// effect must store. Pseudo-attributes which don't require any storage,
+    /// like [`Attribute::ID`], are excluded.
+    pub fn gather_parent_attributes(&self, set: &mut HashSet<Attribute>) {
+        for expr in &self.expressions {
+            if let Expr::ParentAttribute(attr) = expr {
+                if attr.attr != Attribute::ID && attr.attr != Attribute::PARTICLE_COUNTER {
+                    set.insert(attr.attr);
+                }
+            }
+        }
+    }
+
     /// Build a literal expression and append it to the module.
     #[inline]
     pub fn lit<V>(&mut self, value: V) -> ExprHandle

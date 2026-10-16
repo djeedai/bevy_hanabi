@@ -1428,6 +1428,28 @@ fn append_spawn_events_{0}(base_child_index: u32, particle_index: u32, count: u3
             )
         };
 
+        // Every attribute read from the parent particle, either with an
+        // InheritAttributeModifier or a parent attribute expression, must be stored by
+        // the parent effect. Otherwise the init shader reads a field missing from the
+        // ParentParticle struct and fails to compile.
+        if let Some(parent_layout) = parent_layout {
+            let mut parent_attributes = HashSet::new();
+            module.gather_parent_attributes(&mut parent_attributes);
+            let mut missing = parent_attributes
+                .into_iter()
+                .filter(|attr| !parent_layout.contains(*attr))
+                .map(|attr| format!("'{}'", attr.name().to_ascii_uppercase()))
+                .collect::<Vec<_>>();
+            if !missing.is_empty() {
+                missing.sort();
+                return Err(ShaderGenerateError::Validate(format!(
+                    "Effect asset '{}' reads the parent particle attribute(s) {}, but the particle layout of its parent effect doesn't contain them. Add a modifier using those attributes to the parent effect, for example the SetAttributeModifier.",
+                    asset.name,
+                    missing.join(", ")
+                )));
+            }
+        }
+
         let init_shader_source = PARTICLES_INIT_SHADER_TEMPLATE
             .replace("{{ATTRIBUTES}}", &attributes_code)
             .replace("{{PARENT_PARTICLE}}", &parent_particle_code)
@@ -2674,6 +2696,61 @@ else { return c1; }
             .validate(&module)
             .unwrap();
         }
+    }
+
+    #[test]
+    fn test_effect_shader_source_parent_attributes() {
+        // Parent effect storing only Attribute::POSITION
+        let mut module = Module::default();
+        let zero = module.lit(Vec3::ZERO);
+        let parent = EffectAsset::new(256, SpawnerSettings::rate(32.0.into()), module)
+            .init(SetAttributeModifier::new(Attribute::POSITION, zero));
+        let parent_layout = parent.particle_layout();
+        assert!(parent_layout.contains(Attribute::POSITION));
+        assert!(!parent_layout.contains(Attribute::COLOR));
+        assert!(!parent_layout.contains(Attribute::U32_0));
+
+        // Child inheriting an attribute stored by its parent
+        let child = EffectAsset::new(256, SpawnerSettings::default(), Module::default())
+            .init(InheritAttributeModifier::new(Attribute::POSITION));
+        let res = EffectShaderSources::generate(&child, Some(&parent_layout), 0);
+        assert!(res.is_ok());
+
+        // Child inheriting an attribute not stored by its parent
+        let child = EffectAsset::new(256, SpawnerSettings::default(), Module::default())
+            .with_name("child")
+            .init(InheritAttributeModifier::new(Attribute::POSITION))
+            .init(InheritAttributeModifier::new(Attribute::COLOR));
+        let res = EffectShaderSources::generate(&child, Some(&parent_layout), 0);
+        let Err(ShaderGenerateError::Validate(msg)) = res else {
+            panic!("Expected a validation error, got {:?}", res);
+        };
+        assert!(msg.contains("'child'"));
+        assert!(msg.contains("'COLOR'"));
+        assert!(!msg.contains("'POSITION'"));
+
+        // Child reading with an expression an attribute not stored by its parent
+        let writer = ExprWriter::new();
+        let color = writer.parent_attr(Attribute::U32_0).expr();
+        let child = EffectAsset::new(256, SpawnerSettings::default(), writer.finish())
+            .with_name("child")
+            .init(InheritAttributeModifier::new(Attribute::POSITION))
+            .init(SetAttributeModifier::new(Attribute::COLOR, color));
+        let res = EffectShaderSources::generate(&child, Some(&parent_layout), 0);
+        let Err(ShaderGenerateError::Validate(msg)) = res else {
+            panic!("Expected a validation error, got {:?}", res);
+        };
+        assert!(msg.contains("'child'"));
+        assert!(msg.contains("'U32_0'"));
+
+        // Pseudo-attributes are always available on the parent
+        let writer = ExprWriter::new();
+        let id = writer.parent_attr(Attribute::ID).expr();
+        let child = EffectAsset::new(256, SpawnerSettings::default(), writer.finish())
+            .init(InheritAttributeModifier::new(Attribute::POSITION))
+            .init(SetAttributeModifier::new(Attribute::U32_0, id));
+        let res = EffectShaderSources::generate(&child, Some(&parent_layout), 0);
+        assert!(res.is_ok());
     }
 
     // Regression test for #343
