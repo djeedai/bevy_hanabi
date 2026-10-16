@@ -166,10 +166,10 @@ fn spawn_demo_ui(mut commands: Commands, demo: Res<Demo>) {
             Projection::Orthographic(OrthographicProjection::default_2d()),
             Camera {
                 order: 1000, // render UI above everything
-                clear_color: ClearColorConfig::None,
+                clear_color: ClearColorConfig::Custom(Color::NONE),
                 output_mode: CameraOutputMode::Write {
                     blend_state: Some(BlendState::ALPHA_BLENDING),
-                    clear_color: ClearColorConfig::None,
+                    clear_color: ClearColorConfig::Custom(Color::NONE),
                 },
                 ..default()
             },
