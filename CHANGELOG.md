@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This can be used in all passes (all modifier contexts).
 - Added a new `lut.rs` example that demonstrates using a 2D array texture as a look-up table (LUT).
   This can be used to approximate any kind of curve or gradient.
+- Added `Module::gather_parent_attributes()`, the counterpart of `gather_attributes()`
+  for `Expr::ParentAttribute` expressions.
 
 ### Changed
 
@@ -56,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SetPositionCone3dModifier`, `SetVelocityCircleModifier`, and `SetVelocityTangentModifier`.
   Local-space effects with a rotated, scaled, or off-origin emitter may render differently
   than before; this is the corrected behavior.
+- Fixed a child effect reading a parent attribute (with `InheritAttributeModifier` or
+  `ExprWriter::parent_attr()`) that its parent doesn't store generating an init shader
+  that fails to compile. `EffectShaderSources::generate()` now returns a validation error
+  naming the effect and the missing attributes.
 
 ## [0.19.0] 2026-06-27
 
