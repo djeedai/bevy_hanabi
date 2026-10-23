@@ -13,9 +13,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("gradient.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("gradient", DEMO_DESC, install, effects)
-}
+declare_demo!("gradient");
 
 fn effects() -> Vec<EffectAsset> {
     let mut gradient = bevy_hanabi::Gradient::new();

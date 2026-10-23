@@ -12,9 +12,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("random.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("random", DEMO_DESC, install, effects)
-}
+declare_demo!("random");
 
 fn effects() -> Vec<EffectAsset> {
     vec![create_effect()]

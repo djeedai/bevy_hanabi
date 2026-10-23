@@ -14,9 +14,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("multicam.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("multicam", DEMO_DESC, install, effects)
-}
+declare_demo!("multicam");
 
 fn effects() -> Vec<EffectAsset> {
     vec![

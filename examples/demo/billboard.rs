@@ -41,9 +41,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("billboard.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("billboard", DEMO_DESC, install, effects)
-}
+declare_demo!("billboard");
 
 fn effects() -> Vec<EffectAsset> {
     let writer = ExprWriter::new();

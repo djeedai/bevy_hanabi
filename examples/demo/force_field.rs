@@ -25,9 +25,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("force_field.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("force_field", DEMO_DESC, install, effects)
-}
+declare_demo!("force_field");
 
 fn effects() -> Vec<EffectAsset> {
     let mut gradient = bevy_hanabi::Gradient::new();

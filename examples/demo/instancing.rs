@@ -186,9 +186,7 @@ impl InstanceManager {
     }
 }
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("instancing", DEMO_DESC, install, effects)
-}
+declare_demo!("instancing");
 
 fn effects() -> Vec<EffectAsset> {
     let writer = ExprWriter::new();

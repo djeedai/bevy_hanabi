@@ -19,18 +19,37 @@ use utils::AppExitIntoResult;
 #[derive(Component, Clone)]
 pub(crate) struct DemoInfo {
     id: &'static str,
-    description: &'static str,
     effects: Vec<Handle<EffectAsset>>,
 }
 
-pub(crate) trait Demo: Send + Sync {
-    fn id(&self) -> &'static str;
-    fn description(&self) -> &'static str;
-    fn register(&self, app: &mut App);
-    /// Return the named effects the demo uses. The demo host inserts them into
-    /// [`Assets<EffectAsset>`] and stores their handles on the demo entity.
-    /// This is also used for generating and validating serialized effects.
-    fn effects(&self) -> Vec<EffectAsset>;
+#[derive(Component, Clone, Copy)]
+pub(crate) struct Demo {
+    install: fn(&mut App),
+    effects: fn() -> Vec<EffectAsset>,
+}
+
+impl Demo {
+    const fn new(install: fn(&mut App), effects: fn() -> Vec<EffectAsset>) -> Self {
+        Self { install, effects }
+    }
+}
+
+#[derive(Component, Clone, Copy)]
+pub(crate) struct DemoName(pub(crate) &'static str);
+
+#[derive(Component, Clone, Copy)]
+pub(crate) struct DemoDescription(pub(crate) &'static str);
+
+macro_rules! declare_demo {
+    ($name:literal) => {
+        pub(crate) fn insert_demo(world: &mut World) {
+            world.spawn((
+                super::Demo::new(install, effects),
+                super::DemoName($name),
+                super::DemoDescription(DEMO_DESC),
+            ));
+        }
+    };
 }
 
 macro_rules! declare_demos {
@@ -40,8 +59,8 @@ macro_rules! declare_demos {
             mod $module;
         )*
 
-        fn demos() -> Vec<Box<dyn Demo>> {
-            vec![$(Box::new($module::register()),)*]
+        fn insert_demos(world: &mut World) {
+            $($module::insert_demo(world);)*
         }
     };
 }
@@ -75,48 +94,6 @@ declare_demos! {
 #[path = "demo/texutils.rs"]
 mod texutils;
 
-/// Simple concrete type to implement the [`Demo`] trait.
-pub(crate) struct DemoRegistration {
-    id: &'static str,
-    description: &'static str,
-    register: fn(&mut App),
-    effects: fn() -> Vec<EffectAsset>,
-}
-
-impl DemoRegistration {
-    pub(crate) fn new(
-        id: &'static str,
-        description: &'static str,
-        register: fn(&mut App),
-        effects: fn() -> Vec<EffectAsset>,
-    ) -> Self {
-        Self {
-            id,
-            description,
-            register,
-            effects,
-        }
-    }
-}
-
-impl Demo for DemoRegistration {
-    fn id(&self) -> &'static str {
-        self.id
-    }
-
-    fn description(&self) -> &'static str {
-        self.description
-    }
-
-    fn register(&self, app: &mut App) {
-        (self.register)(app);
-    }
-
-    fn effects(&self) -> Vec<EffectAsset> {
-        (self.effects)()
-    }
-}
-
 pub(crate) fn demo_effect(
     demos: &Query<&DemoInfo>,
     demo_id: &'static str,
@@ -130,11 +107,19 @@ pub(crate) fn demo_effect(
         .clone()
 }
 
-/// Register all demos with the given app.
-fn register_demos(app: &mut App, demos: Vec<Box<dyn Demo>>) {
-    for demo in demos {
-        let handles = demo
-            .effects()
+/// Install demo systems and preload their effects from the demo entities.
+fn install_demos(app: &mut App) {
+    let demos = {
+        let world = app.world_mut();
+        let mut query = world.query::<(Entity, &Demo, &DemoName)>();
+        query
+            .iter(world)
+            .map(|(entity, demo, name)| (entity, *demo, *name))
+            .collect::<Vec<_>>()
+    };
+
+    for (entity, demo, name) in demos {
+        let handles = (demo.effects)()
             .into_iter()
             .map(|effect| {
                 app.world_mut()
@@ -142,15 +127,11 @@ fn register_demos(app: &mut App, demos: Vec<Box<dyn Demo>>) {
                     .add(effect)
             })
             .collect();
-        demo.register(app);
-        app.world_mut().spawn((
-            Name::new(demo.id()),
-            DemoInfo {
-                id: demo.id(),
-                description: demo.description(),
-                effects: handles,
-            },
-        ));
+        (demo.install)(app);
+        app.world_mut().entity_mut(entity).insert(DemoInfo {
+            id: name.0,
+            effects: handles,
+        });
     }
 }
 
@@ -227,13 +208,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
-    let demos = demos();
     let selected = selected_demo
         .map(|id| {
-            demos
-                .iter()
-                .find(|demo| demo.id() == id)
-                .map(|demo| demo.id().to_string())
+            let mut world = World::new();
+            insert_demos(&mut world);
+            let mut query = world.query::<&DemoName>();
+            query
+                .iter(&world)
+                .find(|demo| demo.0 == id)
+                .map(|demo| demo.0.to_string())
                 .ok_or_else(|| format!("unknown demo ID: {id}"))
         })
         .transpose()?;
@@ -241,6 +224,7 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
     let mut app = utils::DemoApp::new("Demo Browser")
         .with_desc("Select a demo from the menu.")
         .build();
+    insert_demos(app.world_mut());
     app.world_mut().resource_mut::<utils::Demo>().show_ui = false;
     app.insert_resource(DemoSelection { id: None });
 
@@ -266,7 +250,7 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
     .add_systems(Update, sync_demo_info.before(utils::update_demo_ui))
     .add_observer(choose_demo);
 
-    register_demos(&mut app, demos);
+    install_demos(&mut app);
     app.world_mut().resource_mut::<DemoSelection>().id = selected;
 
     app.run().into_result()
@@ -296,14 +280,16 @@ fn parse_cli() -> Result<CliMode, Box<dyn Error>> {
             [mode, id] if mode == "--demo" => Ok(CliMode::Run(Some(id.to_string()))),
             [flag] if flag == "--help" || flag == "-h" => {
                 println!("Usage: cargo run --example demo [-- --demo <ID> | --write-effects | --check-effects]");
-                println!(
-                    "Available demos: {}",
-                    demos()
-                        .iter()
-                        .map(|demo| demo.id())
+                println!("Available demos: {}", {
+                    let mut world = World::new();
+                    insert_demos(&mut world);
+                    let mut query = world.query::<&DemoName>();
+                    query
+                        .iter(&world)
+                        .map(|demo| demo.0)
                         .collect::<Vec<_>>()
                         .join(", ")
-                );
+                });
                 std::process::exit(0);
             }
             [arg, ..] => Err(format!("invalid arguments starting with {arg}").into()),
@@ -323,7 +309,7 @@ fn return_to_menu_on_esc(input: Res<ButtonInput<KeyCode>>, mut selection: ResMut
 
 fn sync_demo_info(
     selection: Res<DemoSelection>,
-    demos: Query<&DemoInfo>,
+    demos: Query<(&DemoName, Option<&DemoDescription>)>,
     mut demo: ResMut<utils::Demo>,
 ) {
     let Some(id) = selection.id.as_deref() else {
@@ -335,14 +321,16 @@ fn sync_demo_info(
     if !selection.is_changed() && demo.show_ui {
         return;
     }
-    if let Some(entry) = demos.iter().find(|entry| entry.id == id) {
-        demo.name = entry.id.to_string();
-        demo.desc = entry.description.to_string();
+    if let Some((name, description)) = demos.iter().find(|(name, _)| name.0 == id) {
+        demo.name = name.0.to_string();
+        demo.desc = description
+            .map_or("", |description| description.0)
+            .to_string();
         demo.show_ui = true;
     }
 }
 
-fn spawn_menu(mut commands: Commands, demos: Query<&DemoInfo>) {
+fn spawn_menu(mut commands: Commands, demos: Query<&DemoName>) {
     commands
         .spawn((
             Node {
@@ -394,11 +382,11 @@ fn spawn_menu(mut commands: Commands, demos: Query<&DemoInfo>) {
                             },
                             BackgroundColor(Color::srgb(0.12, 0.16, 0.24)),
                             Hovered::default(),
-                            MenuButton(demo.id),
+                            MenuButton(demo.0),
                         ))
                         .with_children(|button| {
                             button.spawn((
-                                Text::new(demo.id),
+                                Text::new(demo.0),
                                 TextFont::from_font_size(16.),
                                 TextColor(Color::WHITE),
                             ));
@@ -410,7 +398,7 @@ fn spawn_menu(mut commands: Commands, demos: Query<&DemoInfo>) {
 
 fn spawn_menu_if_missing(
     commands: Commands,
-    demos: Query<&DemoInfo>,
+    demos: Query<&DemoName>,
     menu: Query<(), With<MenuRoot>>,
 ) {
     if menu.is_empty() {
@@ -587,7 +575,8 @@ fn headless_app() -> App {
     .register_type::<EffectAsset>()
     .register_type::<SpawnerSettings>();
     register_modifiers(app.world().resource::<AppTypeRegistry>());
-    register_demos(&mut app, demos());
+    insert_demos(app.world_mut());
+    install_demos(&mut app);
     app
 }
 
@@ -623,15 +612,24 @@ mod tests {
     }
 
     #[test]
-    fn every_demo_effect_has_a_name() {
-        for demo in demos() {
-            let effects = demo.effects();
-            assert!(!effects.is_empty(), "demo '{}' has no effects", demo.id());
+    fn demo_entities_have_metadata_and_named_effects() {
+        let mut world = World::new();
+        insert_demos(&mut world);
+        let mut query = world.query::<(&Demo, &DemoName, &DemoDescription)>();
+        for (demo, name, description) in query.iter(&world) {
+            assert!(!name.0.trim().is_empty(), "demo has no name");
+            assert!(
+                !description.0.trim().is_empty(),
+                "demo '{}' has no description",
+                name.0
+            );
+            let effects = (demo.effects)();
+            assert!(!effects.is_empty(), "demo '{}' has no effects", name.0);
             for effect in effects {
                 assert!(
                     !effect.name.trim().is_empty(),
                     "demo '{}' has an unnamed effect",
-                    demo.id()
+                    name.0
                 );
             }
         }
@@ -646,9 +644,14 @@ mod tests {
             let mut query = world.query::<&DemoInfo>();
             query.iter(world).cloned().collect::<Vec<_>>()
         };
+        let demo_count = {
+            let world = app.world_mut();
+            let mut query = world.query::<&Demo>();
+            query.iter(world).count()
+        };
         let assets = app.world().resource::<Assets<EffectAsset>>();
 
-        assert_eq!(demo_infos.len(), demos().len());
+        assert_eq!(demo_infos.len(), demo_count);
         for demo in demo_infos {
             assert!(
                 !demo.effects.is_empty(),

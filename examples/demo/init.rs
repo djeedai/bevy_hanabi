@@ -21,9 +21,7 @@ const DEMO_DESC: &str = include_str!("init.txt");
 #[derive(Component)]
 struct RotateSpeed(pub f32);
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("init", DEMO_DESC, install, effects)
-}
+declare_demo!("init");
 
 fn effects() -> Vec<EffectAsset> {
     vec![

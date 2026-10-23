@@ -22,9 +22,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("lifetime.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("lifetime", DEMO_DESC, install, effects)
-}
+declare_demo!("lifetime");
 
 fn effects() -> Vec<EffectAsset> {
     let lifetime1 = 12.;

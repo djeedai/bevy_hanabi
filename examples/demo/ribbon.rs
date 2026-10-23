@@ -84,9 +84,7 @@ const RIBBON_DESPAWN_AFTER: f32 = 10.0;
 // successive ribbons appear at distinct positions instead of overlapping.
 const RIBBON_PHASE_STEP: f32 = 0.7;
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("ribbon", DEMO_DESC, install, effects)
-}
+declare_demo!("ribbon");
 
 fn effects() -> Vec<EffectAsset> {
     vec![create_effect()]

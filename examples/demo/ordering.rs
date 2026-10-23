@@ -22,9 +22,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("ordering.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("ordering", DEMO_DESC, install, effects)
-}
+declare_demo!("ordering");
 
 fn effects() -> Vec<EffectAsset> {
     vec![make_firework()]

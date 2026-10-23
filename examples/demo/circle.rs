@@ -15,9 +15,7 @@ use crate::texutils::make_anim_img;
 
 const DEMO_DESC: &str = include_str!("circle.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("circle", DEMO_DESC, install, effects)
-}
+declare_demo!("circle");
 
 fn effects() -> Vec<EffectAsset> {
     let sprite_grid_size = UVec2::new(8, 8);

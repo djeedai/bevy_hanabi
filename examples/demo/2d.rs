@@ -9,9 +9,7 @@ const DEMO_DESC: &str = include_str!("2d.txt");
 #[derive(Component)]
 struct ReferenceSquare;
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("2d", DEMO_DESC, install, effects)
-}
+declare_demo!("2d");
 
 fn effects() -> Vec<EffectAsset> {
     // Create a color gradient for the particles

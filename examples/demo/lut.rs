@@ -31,9 +31,7 @@ use wgpu::{Extent3d, TextureFormat};
 
 const DEMO_DESC: &str = include_str!("lut.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("lut", DEMO_DESC, install, effects)
-}
+declare_demo!("lut");
 
 fn effects() -> Vec<EffectAsset> {
     vec![create_effect()]

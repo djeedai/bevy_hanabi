@@ -6,9 +6,7 @@ use crate::utils;
 
 const DEMO_DESC: &str = include_str!("spawn.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("spawn", DEMO_DESC, install, effects)
-}
+declare_demo!("spawn");
 
 fn effects() -> Vec<EffectAsset> {
     let mut color_gradient1 = bevy_hanabi::Gradient::new();

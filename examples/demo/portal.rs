@@ -22,9 +22,7 @@ use bevy_hanabi::prelude::*;
 
 const DEMO_DESC: &str = include_str!("portal.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("portal", DEMO_DESC, install, effects)
-}
+declare_demo!("portal");
 
 fn effects() -> Vec<EffectAsset> {
     vec![create_effect()]

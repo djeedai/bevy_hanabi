@@ -18,9 +18,7 @@ use bevy_hanabi::prelude::*;
 
 const DEMO_DESC: &str = include_str!("expr.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("expr", DEMO_DESC, install, effects)
-}
+declare_demo!("expr");
 
 fn effects() -> Vec<EffectAsset> {
     let mut color_gradient = bevy_hanabi::Gradient::new();

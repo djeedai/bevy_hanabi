@@ -16,9 +16,7 @@ use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("spawn_on_command.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("spawn_on_command", DEMO_DESC, install, effects)
-}
+declare_demo!("spawn_on_command");
 
 fn effects() -> Vec<EffectAsset> {
     vec![create_effect()]

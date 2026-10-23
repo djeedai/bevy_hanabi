@@ -20,9 +20,7 @@ use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("worms.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("worms", DEMO_DESC, install, effects)
-}
+declare_demo!("worms");
 
 fn effects() -> Vec<EffectAsset> {
     vec![create_head_effect(), create_body_effect()]

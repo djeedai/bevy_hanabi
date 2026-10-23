@@ -32,9 +32,7 @@ struct LambertianLightingModifier {
 // The position of the light in the scene.
 static LIGHT_POSITION: Vec3 = vec3(-20.0, 40.0, 5.0);
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("puffs", DEMO_DESC, install, effects)
-}
+declare_demo!("puffs");
 
 fn effects() -> Vec<EffectAsset> {
     vec![create_effect()]

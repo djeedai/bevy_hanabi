@@ -29,9 +29,7 @@ const MAX_SPREAD: f32 = 1.5;
 const BURST_INTERVAL: f32 = 1.5;
 const GROUND_Y: f32 = -15.0;
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("lightning", DEMO_DESC, install, effects)
-}
+declare_demo!("lightning");
 
 fn effects() -> Vec<EffectAsset> {
     vec![create_bolt_effect(), create_impact_effect()]

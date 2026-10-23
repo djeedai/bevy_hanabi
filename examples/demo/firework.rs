@@ -28,9 +28,7 @@ use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("firework.txt");
 
-pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("firework", DEMO_DESC, install, effects)
-}
+declare_demo!("firework");
 
 fn effects() -> Vec<EffectAsset> {
     vec![
