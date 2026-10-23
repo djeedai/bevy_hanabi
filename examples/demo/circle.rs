@@ -5,12 +5,9 @@
 
 use std::f32::consts::FRAC_PI_2;
 
-use bevy::{
-    core_pipeline::tonemapping::{DebandDither, Tonemapping},
-    prelude::*,
-};
-use bevy_hanabi::prelude::*;
 use super::DemoCommands as Commands;
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
+use bevy_hanabi::prelude::*;
 
 use crate::utils;
 
@@ -19,36 +16,11 @@ use crate::texutils::make_anim_img;
 const DEMO_DESC: &str = include_str!("circle.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("circle", DEMO_DESC, install)
+    super::DemoRegistration::new("circle", DEMO_DESC, install, effects)
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("circle")));
-}
-
-fn setup(
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-    mut effects: ResMut<Assets<EffectAsset>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((
-        Transform::from_xyz(3.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
-        Camera3d::default(),
-        Tonemapping::None,
-        DebandDither::Disabled,
-    ));
-
-    // Procedurally create a sprite sheet representing an animated texture
-    let sprite_size = UVec2::new(64, 64);
+fn effects() -> Vec<EffectAsset> {
     let sprite_grid_size = UVec2::new(8, 8);
-    let anim_img = make_anim_img(sprite_size, sprite_grid_size, Vec3::new(0.1, 0.1, 0.1));
-    let texture_handle = images.add(anim_img);
-
-    // Also use a serialized asset
-    let texture_handle2 = asset_server.load("ramp.png");
 
     // The sprites form a grid, with a total animation frame count equal to the
     // number of sprites.
@@ -118,33 +90,61 @@ fn setup(
     module.add_texture_slot("color", SlotDimension::D2);
     module.add_texture_slot("shape", SlotDimension::D2);
 
-    let effect = effects.add(
-        EffectAsset::new(
-            32768,
-            SpawnerSettings::burst(32.0.into(), 8.0.into()),
-            module,
-        )
-        .with_name("circle")
-        .init(init_pos)
-        .init(init_vel)
-        .init(init_age)
-        .init(init_lifetime)
-        .update(update_sprite_index)
-        .render(ParticleTextureModifier {
-            texture_slot: 0,
-            sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
-        })
-        .render(ParticleTextureModifier {
-            texture_slot: 1,
-            sample_mapping: ImageSampleMapping::ModulateRGB,
-        })
-        .render(FlipbookModifier { sprite_grid_size })
-        .render(ColorOverLifetimeModifier::new(gradient))
-        .render(SizeOverLifetimeModifier {
-            gradient: bevy_hanabi::Gradient::constant([0.5; 3].into()),
-            screen_space_size: false,
-        }),
-    );
+    vec![EffectAsset::new(
+        32768,
+        SpawnerSettings::burst(32.0.into(), 8.0.into()),
+        module,
+    )
+    .with_name("circle")
+    .init(init_pos)
+    .init(init_vel)
+    .init(init_age)
+    .init(init_lifetime)
+    .update(update_sprite_index)
+    .render(ParticleTextureModifier {
+        texture_slot: 0,
+        sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
+    })
+    .render(ParticleTextureModifier {
+        texture_slot: 1,
+        sample_mapping: ImageSampleMapping::ModulateRGB,
+    })
+    .render(FlipbookModifier { sprite_grid_size })
+    .render(ColorOverLifetimeModifier::new(gradient))
+    .render(SizeOverLifetimeModifier {
+        gradient: bevy_hanabi::Gradient::constant([0.5; 3].into()),
+        screen_space_size: false,
+    })]
+}
+
+fn install(app: &mut App) {
+    app.add_systems(Update, setup.run_if(super::selected_once("circle")));
+}
+
+fn setup(
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    demos: Query<&super::DemoInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.spawn((
+        Transform::from_xyz(3.0, 3.0, 5.0).looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
+
+    // Procedurally create a sprite sheet representing an animated texture
+    let sprite_size = UVec2::new(64, 64);
+    let sprite_grid_size = UVec2::new(8, 8);
+    let anim_img = make_anim_img(sprite_size, sprite_grid_size, Vec3::new(0.1, 0.1, 0.1));
+    let texture_handle = images.add(anim_img);
+
+    // Also use a serialized asset
+    let texture_handle2 = asset_server.load("ramp.png");
+
+    let effect = super::demo_effect(&demos, "circle", 0);
 
     // The ground
     commands.spawn((

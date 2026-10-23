@@ -11,51 +11,22 @@
 //!   quickly, and during 2.25 seconds there's no particle, until the next burst
 //!   spawns some more.
 
+use super::DemoCommands as Commands;
 use bevy::{
     core_pipeline::tonemapping::{DebandDither, Tonemapping},
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
-use super::DemoCommands as Commands;
 
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("lifetime.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("lifetime", DEMO_DESC, install)
+    super::DemoRegistration::new("lifetime", DEMO_DESC, install, effects)
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("lifetime")));
-}
-
-fn setup(
-    mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((
-        Transform::from_translation(Vec3::Z * 180.),
-        Camera3d::default(),
-        Tonemapping::None,
-        DebandDither::Disabled,
-    ));
-
-    commands.spawn(DirectionalLight {
-        color: Color::WHITE,
-        // Crank the illuminance way (too) high to make the reference cube clearly visible
-        illuminance: 100000.,
-        shadow_maps_enabled: false,
-        ..Default::default()
-    });
-
-    let cube = meshes.add(Cuboid {
-        half_size: Vec3::splat(0.5),
-    });
-    let mat = materials.add(utils::COLOR_PURPLE);
-
+fn effects() -> Vec<EffectAsset> {
     let lifetime1 = 12.;
     let lifetime2 = 3.;
     let lifetime3 = 0.75;
@@ -82,34 +53,17 @@ fn setup(
         center: writer1.lit(Vec3::ZERO).expr(),
         speed: writer1.lit(2.).expr(),
     };
-    let effect1 = effects.add(
-        EffectAsset::new(
-            512,
-            SpawnerSettings::burst(50.0.into(), period.into()),
-            writer1.finish(),
-        )
-        .with_name("emit:burst")
-        .init(init_pos1)
-        .init(init_vel1)
-        .init(init_age1)
-        .init(init_lifetime1)
-        .render(ColorOverLifetimeModifier::new(gradient1)),
-    );
-
-    commands
-        .spawn((
-            Name::new("burst 12s"),
-            ParticleEffect::new(effect1),
-            Transform::from_translation(Vec3::new(-50., 0., 0.)),
-        ))
-        .with_children(|p| {
-            // Reference cube to visualize the emit origin
-            p.spawn((
-                Mesh3d(cube.clone()),
-                MeshMaterial3d(mat.clone()),
-                Name::new("source"),
-            ));
-        });
+    let effect1 = EffectAsset::new(
+        512,
+        SpawnerSettings::burst(50.0.into(), period.into()),
+        writer1.finish(),
+    )
+    .with_name("emit:burst")
+    .init(init_pos1)
+    .init(init_vel1)
+    .init(init_age1)
+    .init(init_lifetime1)
+    .render(ColorOverLifetimeModifier::new(gradient1));
 
     let mut gradient2 = bevy_hanabi::Gradient::new();
     gradient2.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
@@ -129,34 +83,17 @@ fn setup(
         center: writer2.lit(Vec3::ZERO).expr(),
         speed: writer2.lit(2.).expr(),
     };
-    let effect2 = effects.add(
-        EffectAsset::new(
-            512,
-            SpawnerSettings::burst(50.0.into(), period.into()),
-            writer2.finish(),
-        )
-        .with_name("emit:burst")
-        .init(init_pos2)
-        .init(init_vel2)
-        .init(init_age2)
-        .init(init_lifetime2)
-        .render(ColorOverLifetimeModifier::new(gradient2)),
-    );
-
-    commands
-        .spawn((
-            Name::new("burst 3s"),
-            ParticleEffect::new(effect2),
-            Transform::from_translation(Vec3::new(0., 0., 0.)),
-        ))
-        .with_children(|p| {
-            // Reference cube to visualize the emit origin
-            p.spawn((
-                Mesh3d(cube.clone()),
-                MeshMaterial3d(mat.clone()),
-                Name::new("source"),
-            ));
-        });
+    let effect2 = EffectAsset::new(
+        512,
+        SpawnerSettings::burst(50.0.into(), period.into()),
+        writer2.finish(),
+    )
+    .with_name("emit:burst")
+    .init(init_pos2)
+    .init(init_vel2)
+    .init(init_age2)
+    .init(init_lifetime2)
+    .render(ColorOverLifetimeModifier::new(gradient2));
 
     let mut gradient3 = bevy_hanabi::Gradient::new();
     gradient3.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
@@ -176,19 +113,85 @@ fn setup(
         center: writer3.lit(Vec3::ZERO).expr(),
         speed: writer3.lit(2.).expr(),
     };
-    let effect3 = effects.add(
-        EffectAsset::new(
-            512,
-            SpawnerSettings::burst(50.0.into(), period.into()),
-            writer3.finish(),
-        )
-        .with_name("emit:burst")
-        .init(init_pos3)
-        .init(init_vel3)
-        .init(init_age3)
-        .init(init_lifetime3)
-        .render(ColorOverLifetimeModifier::new(gradient3)),
-    );
+    let effect3 = EffectAsset::new(
+        512,
+        SpawnerSettings::burst(50.0.into(), period.into()),
+        writer3.finish(),
+    )
+    .with_name("emit:burst")
+    .init(init_pos3)
+    .init(init_vel3)
+    .init(init_age3)
+    .init(init_lifetime3)
+    .render(ColorOverLifetimeModifier::new(gradient3));
+
+    vec![effect1, effect2, effect3]
+}
+
+fn install(app: &mut App) {
+    app.add_systems(Update, setup.run_if(super::selected_once("lifetime")));
+}
+
+fn setup(
+    mut commands: Commands,
+    demos: Query<&super::DemoInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 180.),
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
+
+    commands.spawn(DirectionalLight {
+        color: Color::WHITE,
+        // Crank the illuminance way (too) high to make the reference cube clearly visible
+        illuminance: 100000.,
+        shadow_maps_enabled: false,
+        ..Default::default()
+    });
+
+    let cube = meshes.add(Cuboid {
+        half_size: Vec3::splat(0.5),
+    });
+    let mat = materials.add(utils::COLOR_PURPLE);
+
+    let effect1 = super::demo_effect(&demos, "lifetime", 0);
+
+    commands
+        .spawn((
+            Name::new("burst 12s"),
+            ParticleEffect::new(effect1),
+            Transform::from_translation(Vec3::new(-50., 0., 0.)),
+        ))
+        .with_children(|p| {
+            // Reference cube to visualize the emit origin
+            p.spawn((
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(mat.clone()),
+                Name::new("source"),
+            ));
+        });
+
+    let effect2 = super::demo_effect(&demos, "lifetime", 1);
+
+    commands
+        .spawn((
+            Name::new("burst 3s"),
+            ParticleEffect::new(effect2),
+            Transform::from_translation(Vec3::new(0., 0., 0.)),
+        ))
+        .with_children(|p| {
+            // Reference cube to visualize the emit origin
+            p.spawn((
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(mat.clone()),
+                Name::new("source"),
+            ));
+        });
+
+    let effect3 = super::demo_effect(&demos, "lifetime", 2);
 
     commands
         .spawn((

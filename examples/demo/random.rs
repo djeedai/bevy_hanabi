@@ -13,7 +13,11 @@ use crate::utils;
 const DEMO_DESC: &str = include_str!("random.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("random", DEMO_DESC, install)
+    super::DemoRegistration::new("random", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![create_effect()]
 }
 
 fn install(app: &mut App) {
@@ -22,7 +26,7 @@ fn install(app: &mut App) {
 
 fn setup(
     mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
+    demos: Query<&super::DemoInfo>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -46,6 +50,21 @@ fn setup(
     });
     let mat = materials.add(utils::COLOR_PURPLE);
 
+    let effect = super::demo_effect(&demos, "random", 0);
+
+    commands
+        .spawn((
+            Name::new("emit:random"),
+            ParticleEffect::new(effect),
+            Transform::from_translation(Vec3::new(0., 0., 0.)),
+        ))
+        .with_children(|p| {
+            // Reference cube to visualize the emit origin
+            p.spawn((Mesh3d(cube.clone()), MeshMaterial3d(mat.clone())));
+        });
+}
+
+fn create_effect() -> EffectAsset {
     let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.0, 0.0, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.0, 0.0, 1.0, 0.0));
@@ -72,29 +91,16 @@ fn setup(
         speed: writer.lit(2.).expr(),
     };
 
-    let effect = effects.add(
-        EffectAsset::new(
-            32768,
-            SpawnerSettings::burst(CpuValue::Uniform((1., 100.)), CpuValue::Uniform((1., 4.))),
-            writer.finish(),
-        )
-        .with_name("emit:burst")
-        .init(init_pos)
-        .init(init_vel)
-        .init(init_age)
-        .init(init_lifetime)
-        .update(update_accel)
-        .render(ColorOverLifetimeModifier::new(gradient)),
-    );
-
-    commands
-        .spawn((
-            Name::new("emit:random"),
-            ParticleEffect::new(effect),
-            Transform::from_translation(Vec3::new(0., 0., 0.)),
-        ))
-        .with_children(|p| {
-            // Reference cube to visualize the emit origin
-            p.spawn((Mesh3d(cube.clone()), MeshMaterial3d(mat.clone())));
-        });
+    EffectAsset::new(
+        32768,
+        SpawnerSettings::burst(CpuValue::Uniform((1., 100.)), CpuValue::Uniform((1., 4.))),
+        writer.finish(),
+    )
+    .with_name("emit:burst")
+    .init(init_pos)
+    .init(init_vel)
+    .init(init_age)
+    .init(init_lifetime)
+    .update(update_accel)
+    .render(ColorOverLifetimeModifier::new(gradient))
 }

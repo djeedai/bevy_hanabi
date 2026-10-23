@@ -1,29 +1,36 @@
-use bevy::prelude::*;
-use bevy::ui_widgets::{Activate, Button};
-use bevy::{ecs::system::SystemParam, picking::hover::Hovered};
-use bevy_hanabi::prelude::*;
+use std::collections::HashMap;
 use std::error::Error;
 use std::ops::{Deref, DerefMut};
 #[cfg(not(target_arch = "wasm32"))]
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
 
+use bevy::prelude::*;
+use bevy::ui_widgets::{Activate, Button};
+use bevy::{ecs::system::SystemParam, picking::hover::Hovered};
+use bevy_hanabi::prelude::*;
+
 mod utils;
 use utils::AppExitIntoResult;
 
-#[derive(Clone)]
-struct DemoInfo {
+#[derive(Component, Clone)]
+pub(crate) struct DemoInfo {
     id: &'static str,
     description: &'static str,
+    effects: Vec<Handle<EffectAsset>>,
 }
 
 pub(crate) trait Demo: Send + Sync {
     fn id(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn register(&self, app: &mut App);
+    /// Return the named effects the demo uses. The demo host inserts them into
+    /// [`Assets<EffectAsset>`] and stores their handles on the demo entity.
+    /// This is also used for generating and validating serialized effects.
+    fn effects(&self) -> Vec<EffectAsset>;
 }
 
 macro_rules! declare_demos {
@@ -73,14 +80,21 @@ pub(crate) struct DemoRegistration {
     id: &'static str,
     description: &'static str,
     register: fn(&mut App),
+    effects: fn() -> Vec<EffectAsset>,
 }
 
 impl DemoRegistration {
-    pub(crate) fn new(id: &'static str, description: &'static str, register: fn(&mut App)) -> Self {
+    pub(crate) fn new(
+        id: &'static str,
+        description: &'static str,
+        register: fn(&mut App),
+        effects: fn() -> Vec<EffectAsset>,
+    ) -> Self {
         Self {
             id,
             description,
             register,
+            effects,
         }
     }
 }
@@ -97,25 +111,46 @@ impl Demo for DemoRegistration {
     fn register(&self, app: &mut App) {
         (self.register)(app);
     }
+
+    fn effects(&self) -> Vec<EffectAsset> {
+        (self.effects)()
+    }
 }
 
-/// Catalog of all registered demos.
-#[derive(Resource, Default)]
-struct DemoCatalog(Vec<DemoInfo>);
+pub(crate) fn demo_effect(
+    demos: &Query<&DemoInfo>,
+    demo_id: &'static str,
+    index: usize,
+) -> Handle<EffectAsset> {
+    demos
+        .iter()
+        .find(|demo| demo.id == demo_id)
+        .and_then(|demo| demo.effects.get(index))
+        .unwrap_or_else(|| panic!("missing effect #{index} for demo '{demo_id}'"))
+        .clone()
+}
 
 /// Register all demos with the given app.
 fn register_demos(app: &mut App, demos: Vec<Box<dyn Demo>>) {
-    app.insert_resource(DemoCatalog(
-        demos
-            .iter()
-            .map(|demo| DemoInfo {
+    for demo in demos {
+        let handles = demo
+            .effects()
+            .into_iter()
+            .map(|effect| {
+                app.world_mut()
+                    .resource_mut::<Assets<EffectAsset>>()
+                    .add(effect)
+            })
+            .collect();
+        demo.register(app);
+        app.world_mut().spawn((
+            Name::new(demo.id()),
+            DemoInfo {
                 id: demo.id(),
                 description: demo.description(),
-            })
-            .collect(),
-    ));
-    for demo in demos {
-        demo.register(app);
+                effects: handles,
+            },
+        ));
     }
 }
 
@@ -131,7 +166,6 @@ struct MenuCamera;
 #[derive(Resource, Default)]
 pub(crate) struct DemoSelection {
     id: Option<String>,
-    artifact_mode: bool,
 }
 
 #[derive(Component)]
@@ -163,9 +197,7 @@ impl DerefMut for DemoCommands<'_, '_> {
 }
 
 pub(crate) fn selected_demo(id: &'static str) -> impl Fn(Res<DemoSelection>) -> bool + Clone {
-    move |selection: Res<DemoSelection>| {
-        selection.id.as_deref() == Some(id) && !selection.artifact_mode
-    }
+    move |selection: Res<DemoSelection>| selection.id.as_deref() == Some(id)
 }
 
 pub(crate) fn selected_once(
@@ -210,10 +242,7 @@ fn run_demo_app(selected_demo: Option<String>) -> Result<(), Box<dyn Error>> {
         .with_desc("Select a demo from the menu.")
         .build();
     app.world_mut().resource_mut::<utils::Demo>().show_ui = false;
-    app.insert_resource(DemoSelection {
-        id: None,
-        artifact_mode: false,
-    });
+    app.insert_resource(DemoSelection { id: None });
 
     app.add_systems(
         Startup,
@@ -294,7 +323,7 @@ fn return_to_menu_on_esc(input: Res<ButtonInput<KeyCode>>, mut selection: ResMut
 
 fn sync_demo_info(
     selection: Res<DemoSelection>,
-    catalog: Res<DemoCatalog>,
+    demos: Query<&DemoInfo>,
     mut demo: ResMut<utils::Demo>,
 ) {
     let Some(id) = selection.id.as_deref() else {
@@ -306,14 +335,14 @@ fn sync_demo_info(
     if !selection.is_changed() && demo.show_ui {
         return;
     }
-    if let Some(entry) = catalog.0.iter().find(|entry| entry.id == id) {
+    if let Some(entry) = demos.iter().find(|entry| entry.id == id) {
         demo.name = entry.id.to_string();
         demo.desc = entry.description.to_string();
         demo.show_ui = true;
     }
 }
 
-fn spawn_menu(mut commands: Commands, catalog: Res<DemoCatalog>) {
+fn spawn_menu(mut commands: Commands, demos: Query<&DemoInfo>) {
     commands
         .spawn((
             Node {
@@ -352,7 +381,7 @@ fn spawn_menu(mut commands: Commands, catalog: Res<DemoCatalog>) {
                     ..default()
                 })
                 .with_children(|grid| {
-                    for demo in &catalog.0 {
+                    for demo in &demos {
                         grid.spawn((
                             Button,
                             Node {
@@ -381,11 +410,11 @@ fn spawn_menu(mut commands: Commands, catalog: Res<DemoCatalog>) {
 
 fn spawn_menu_if_missing(
     commands: Commands,
-    catalog: Res<DemoCatalog>,
+    demos: Query<&DemoInfo>,
     menu: Query<(), With<MenuRoot>>,
 ) {
     if menu.is_empty() {
-        spawn_menu(commands, catalog);
+        spawn_menu(commands, demos);
     }
 }
 
@@ -440,28 +469,24 @@ fn process_effect_artifacts(write: bool) -> Result<(), Box<dyn Error>> {
     let mut app = headless_app();
     let mut generated = Vec::new();
     let mut expected_files = HashSet::new();
-    let demos = app.world().resource::<DemoCatalog>().0.clone();
+    let demo_infos = {
+        let world = app.world_mut();
+        let mut query = world.query::<&DemoInfo>();
+        query.iter(world).cloned().collect::<Vec<_>>()
+    };
+    let assets = app.world().resource::<Assets<EffectAsset>>();
 
-    for demo in &demos {
-        let before = app
-            .world()
-            .resource::<Assets<EffectAsset>>()
-            .iter()
-            .map(|(id, _)| id)
-            .collect::<HashSet<_>>();
-        app.world_mut().resource_mut::<DemoSelection>().id = Some(demo.id.to_string());
-        app.world_mut()
-            .resource_mut::<DemoSelection>()
-            .artifact_mode = true;
-        app.world_mut().run_schedule(Update);
-
+    for demo in &demo_infos {
         let type_registry = app.world().resource::<AppTypeRegistry>().clone();
         let type_registry = type_registry.read();
-        let assets = app.world().resource::<Assets<EffectAsset>>();
-        let mut effects = assets
+        let mut effects = demo
+            .effects
             .iter()
-            .filter(|(id, _)| !before.contains(id))
-            .map(|(_, effect)| {
+            .enumerate()
+            .map(|(index, handle)| {
+                let effect = assets.get(handle).ok_or_else(|| {
+                    format!("demo '{}' effect {index} was not registered", demo.id)
+                })?;
                 let serialized = effect.serialize(&type_registry)?;
                 EffectAsset::deserialize(&serialized, &type_registry)?;
                 Ok((effect.name.clone(), serialized))
@@ -513,7 +538,7 @@ fn process_effect_artifacts(write: bool) -> Result<(), Box<dyn Error>> {
         }
     }
     if !write {
-        for demo in &demos {
+        for demo in &demo_infos {
             let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("examples/effects")
                 .join(demo.id);
@@ -595,6 +620,49 @@ mod tests {
             .with_children(|parent| {
                 parent.spawn(Name::new("demo child"));
             });
+    }
+
+    #[test]
+    fn every_demo_effect_has_a_name() {
+        for demo in demos() {
+            let effects = demo.effects();
+            assert!(!effects.is_empty(), "demo '{}' has no effects", demo.id());
+            for effect in effects {
+                assert!(
+                    !effect.name.trim().is_empty(),
+                    "demo '{}' has an unnamed effect",
+                    demo.id()
+                );
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn registered_demos_store_handles_to_preloaded_effects() {
+        let mut app = headless_app();
+        let demo_infos = {
+            let world = app.world_mut();
+            let mut query = world.query::<&DemoInfo>();
+            query.iter(world).cloned().collect::<Vec<_>>()
+        };
+        let assets = app.world().resource::<Assets<EffectAsset>>();
+
+        assert_eq!(demo_infos.len(), demos().len());
+        for demo in demo_infos {
+            assert!(
+                !demo.effects.is_empty(),
+                "demo '{}' registered no effects",
+                demo.id
+            );
+            for handle in demo.effects {
+                assert!(
+                    assets.get(&handle).is_some(),
+                    "demo '{}' references an effect that was not preloaded",
+                    demo.id
+                );
+            }
+        }
     }
 
     #[test]

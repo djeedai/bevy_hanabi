@@ -15,7 +15,15 @@ use crate::utils;
 const DEMO_DESC: &str = include_str!("multicam.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("multicam", DEMO_DESC, install)
+    super::DemoRegistration::new("multicam", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![
+        make_effect(utils::COLOR_RED),
+        make_effect(utils::COLOR_GREEN),
+        make_effect(utils::COLOR_BLUE),
+    ]
 }
 
 fn install(app: &mut App) {
@@ -91,7 +99,7 @@ fn make_effect(color: Color) -> EffectAsset {
 
 fn setup(
     mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
+    demos: Query<&super::DemoInfo>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     window: Single<&Window, With<bevy::window::PrimaryWindow>>,
@@ -154,7 +162,7 @@ fn setup(
     let mat = materials.add(utils::COLOR_PURPLE);
     let ground_mat = materials.add(utils::COLOR_OLIVE);
 
-    let effect1 = effects.add(make_effect(utils::COLOR_RED));
+    let effect1 = super::demo_effect(&demos, "multicam", 0);
 
     // Ground plane to make it easier to see the different cameras
     commands.spawn((
@@ -184,7 +192,7 @@ fn setup(
             ));
         });
 
-    let effect2 = effects.add(make_effect(utils::COLOR_GREEN));
+    let effect2 = super::demo_effect(&demos, "multicam", 1);
 
     commands
         .spawn((
@@ -203,7 +211,7 @@ fn setup(
             ));
         });
 
-    let effect3 = effects.add(make_effect(utils::COLOR_BLUE));
+    let effect3 = super::demo_effect(&demos, "multicam", 2);
 
     commands
         .spawn((

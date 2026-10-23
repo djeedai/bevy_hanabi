@@ -10,38 +10,10 @@ const DEMO_DESC: &str = include_str!("2d.txt");
 struct ReferenceSquare;
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("2d", DEMO_DESC, install)
+    super::DemoRegistration::new("2d", DEMO_DESC, install, effects)
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("2d")))
-        .add_systems(Update, update_plane.run_if(super::selected_demo("2d")));
-}
-
-fn setup(
-    mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    // Spawn a 2D camera
-    let mut proj = OrthographicProjection::default_2d();
-    proj.scale = 1.0;
-    proj.scaling_mode = ScalingMode::FixedVertical {
-        viewport_height: 1.,
-    };
-    commands.spawn((Camera2d, Projection::Orthographic(proj)));
-
-    // Spawn a reference white square in the center of the screen at Z=0
-    commands.spawn((
-        Mesh2d(meshes.add(Rectangle {
-            half_size: Vec2::splat(0.1),
-        })),
-        MeshMaterial2d(materials.add(ColorMaterial::from(Color::WHITE))),
-        ReferenceSquare,
-        Name::new("square"),
-    ));
-
+fn effects() -> Vec<EffectAsset> {
     // Create a color gradient for the particles
     let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
@@ -71,12 +43,12 @@ fn setup(
     let mut module = writer.finish();
 
     let round = RoundModifier::constant(&mut module, 2.0 / 3.0);
-
-    // Create a new effect asset spawning 30 particles per second from a circle
-    // and slowly fading from blue-ish to transparent over their lifetime.
-    // By default the asset spawns the particles at Z=0.
     let spawner = SpawnerSettings::rate(30.0.into());
-    let effect = effects.add(
+
+    vec![
+        // Create a new effect asset spawning 30 particles per second from a circle
+        // and slowly fading from blue-ish to transparent over their lifetime.
+        // By default the asset spawns the particles at Z=0.
         EffectAsset::new(4096, spawner, module)
             .with_name("2d")
             .init(init_pos)
@@ -89,7 +61,39 @@ fn setup(
             })
             .render(ColorOverLifetimeModifier::new(gradient))
             .render(round),
-    );
+    ]
+}
+
+fn install(app: &mut App) {
+    app.add_systems(Update, setup.run_if(super::selected_once("2d")))
+        .add_systems(Update, update_plane.run_if(super::selected_demo("2d")));
+}
+
+fn setup(
+    mut commands: Commands,
+    demos: Query<&super::DemoInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    // Spawn a 2D camera
+    let mut proj = OrthographicProjection::default_2d();
+    proj.scale = 1.0;
+    proj.scaling_mode = ScalingMode::FixedVertical {
+        viewport_height: 1.,
+    };
+    commands.spawn((Camera2d, Projection::Orthographic(proj)));
+
+    // Spawn a reference white square in the center of the screen at Z=0
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle {
+            half_size: Vec2::splat(0.1),
+        })),
+        MeshMaterial2d(materials.add(ColorMaterial::from(Color::WHITE))),
+        ReferenceSquare,
+        Name::new("square"),
+    ));
+
+    let effect = super::demo_effect(&demos, "2d", 0);
 
     // Spawn an instance of the particle effect, and override its Z layer to
     // be above the reference white square previously spawned.

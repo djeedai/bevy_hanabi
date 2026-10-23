@@ -85,7 +85,11 @@ const RIBBON_DESPAWN_AFTER: f32 = 10.0;
 const RIBBON_PHASE_STEP: f32 = 0.7;
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("ribbon", DEMO_DESC, install)
+    super::DemoRegistration::new("ribbon", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![create_effect()]
 }
 
 fn install(app: &mut App) {
@@ -110,20 +114,7 @@ struct RibbonSpawner {
 #[derive(Component)]
 struct DespawnAfter(Timer);
 
-fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
-    commands.spawn((
-        Transform::from_translation(Vec3::new(0., 0., 50.)),
-        Camera {
-            clear_color: Color::BLACK.into(),
-            ..default()
-        },
-        Camera3d::default(),
-        Hdr,
-        Tonemapping::None,
-        DebandDither::Disabled,
-        Bloom::default(),
-    ));
-
+fn create_effect() -> EffectAsset {
     let writer = ExprWriter::new();
 
     let init_position_attr = SetAttributeModifier {
@@ -164,7 +155,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     let spawner = SpawnerSettings::rate(RIBBON_SPAWN_RATE.into());
 
-    let effect = EffectAsset::new(PARTICLE_CAPACITY, spawner, writer.finish())
+    EffectAsset::new(PARTICLE_CAPACITY, spawner, writer.finish())
         .with_name("ribbon")
         // Disable motion integration; particles stay where spawned, the illusion of movement is
         // created by the ribbon and the particles spawning and dying, as well as the fact the
@@ -182,12 +173,26 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
             gradient: bevy_hanabi::Gradient::linear(Vec3::ONE, Vec3::ZERO),
             ..default()
         })
-        .render(render_color);
+        .render(render_color)
+}
+
+fn setup(mut commands: Commands, demos: Query<&super::DemoInfo>) {
+    commands.spawn((
+        Transform::from_translation(Vec3::new(0., 0., 50.)),
+        Camera {
+            clear_color: Color::BLACK.into(),
+            ..default()
+        },
+        Camera3d::default(),
+        Hdr,
+        Tonemapping::None,
+        Bloom::default(),
+    ));
 
     // The ribbons share a single effect asset; each spawned instance is an
     // independent effect, only the immutable asset is reused.
     commands.insert_resource(RibbonSpawner {
-        effect: effects.add(effect),
+        effect: super::demo_effect(&demos, "ribbon", 0),
         timer: Timer::from_seconds(RIBBON_SPAWN_INTERVAL, TimerMode::Repeating),
         next: 0,
         shapes: vec![

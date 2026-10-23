@@ -7,6 +7,7 @@
 //! acceleration varies based on the simulation time by building an expression
 //! based on [`ExprWriter::time()`] then assigned to the [`AccelModifier`].
 
+use super::DemoCommands as Commands;
 use bevy::{
     camera::Hdr,
     core_pipeline::tonemapping::{DebandDither, Tonemapping},
@@ -14,32 +15,14 @@ use bevy::{
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
-use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("expr.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("expr", DEMO_DESC, install)
+    super::DemoRegistration::new("expr", DEMO_DESC, install, effects)
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("expr")));
-}
-
-fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
-    commands.spawn((
-        Transform::from_translation(Vec3::new(3., 12., 20.)).looking_at(Vec3::Y * 5., Vec3::Y),
-        Camera3d::default(),
-        Camera {
-            clear_color: Color::BLACK.into(),
-            ..default()
-        },
-        Hdr,
-        Tonemapping::None,
-        DebandDither::Disabled,
-        Bloom::default(),
-    ));
-
+fn effects() -> Vec<EffectAsset> {
     let mut color_gradient = bevy_hanabi::Gradient::new();
     color_gradient.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
     color_gradient.add_key(0.7, Vec4::new(0.0, 0.0, 4.0, 1.0));
@@ -82,7 +65,7 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         speed: writer.lit(3.).expr(),
     };
 
-    let effect = effects.add(
+    vec![
         EffectAsset::new(32768, SpawnerSettings::rate(500.0.into()), writer.finish())
             .with_name("whirlwind")
             .init(init_pos)
@@ -96,7 +79,27 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
                 screen_space_size: false,
             })
             .render(OrientModifier::new(OrientMode::AlongVelocity)),
-    );
+    ]
+}
+
+fn install(app: &mut App) {
+    app.add_systems(Update, setup.run_if(super::selected_once("expr")));
+}
+
+fn setup(mut commands: Commands, demos: Query<&super::DemoInfo>) {
+    commands.spawn((
+        Transform::from_translation(Vec3::new(3., 12., 20.)).looking_at(Vec3::Y * 5., Vec3::Y),
+        Camera3d::default(),
+        Camera {
+            clear_color: Color::BLACK.into(),
+            ..default()
+        },
+        Hdr,
+        Tonemapping::None,
+        Bloom::default(),
+    ));
+
+    let effect = super::demo_effect(&demos, "expr", 0);
 
     commands.spawn((Name::new("whirlwind"), ParticleEffect::new(effect)));
 }

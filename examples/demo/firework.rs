@@ -29,7 +29,15 @@ use super::DemoCommands as Commands;
 const DEMO_DESC: &str = include_str!("firework.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("firework", DEMO_DESC, install)
+    super::DemoRegistration::new("firework", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![
+        create_rocket_effect(),
+        create_sparkle_trail_effect(),
+        create_trails_effect(),
+    ]
 }
 
 fn install(app: &mut App) {
@@ -250,7 +258,7 @@ fn create_trails_effect() -> EffectAsset {
         .render(orient)
 }
 
-fn setup(mut commands: Commands, effects: ResMut<Assets<EffectAsset>>) {
+fn setup(mut commands: Commands, demos: Query<&super::DemoInfo>) {
     // Camera
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 20., 50.)),
@@ -268,18 +276,18 @@ fn setup(mut commands: Commands, effects: ResMut<Assets<EffectAsset>>) {
         },
     ));
 
-    create_effect(commands, effects);
+    create_effect(commands, demos);
 }
 
-fn create_effect(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
+fn create_effect(mut commands: Commands, demos: Query<&super::DemoInfo>) {
     // Rocket
-    let rocket_effect = effects.add(create_rocket_effect());
+    let rocket_effect = super::demo_effect(&demos, "firework", 0);
     let rocket_entity = commands
         .spawn((Name::new("rocket"), ParticleEffect::new(rocket_effect)))
         .id();
 
     // Sparkle trail
-    let sparkle_trail_effect = effects.add(create_sparkle_trail_effect());
+    let sparkle_trail_effect = super::demo_effect(&demos, "firework", 1);
     commands.spawn((
         Name::new("sparkle_trail"),
         ParticleEffect::new(sparkle_trail_effect),
@@ -289,7 +297,7 @@ fn create_effect(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>
     ));
 
     // Trails
-    let trails_effect = effects.add(create_trails_effect());
+    let trails_effect = super::demo_effect(&demos, "firework", 2);
     commands.spawn((
         Name::new("trails"),
         ParticleEffect::new(trails_effect),

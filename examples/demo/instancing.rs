@@ -9,12 +9,9 @@
 
 #![allow(dead_code)]
 
-use bevy::{
-    core_pipeline::tonemapping::{DebandDither, Tonemapping},
-    prelude::*,
-};
-use bevy_hanabi::prelude::*;
 use super::DemoCommands as Commands;
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
+use bevy_hanabi::prelude::*;
 use rand::RngExt;
 
 use crate::utils;
@@ -190,51 +187,10 @@ impl InstanceManager {
 }
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("instancing", DEMO_DESC, install)
+    super::DemoRegistration::new("instancing", DEMO_DESC, install, effects)
 }
 
-fn install(app: &mut App) {
-    app.insert_resource(InstanceManager::new(5, 4))
-        .add_systems(Update, setup.run_if(super::selected_once("instancing")))
-        .add_systems(
-            Update,
-            (keyboard_input_system, update_color_via_property)
-                .run_if(super::selected_demo("instancing")),
-        );
-}
-
-fn setup(
-    mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut my_effect: ResMut<InstanceManager>,
-    asset_server: Res<AssetServer>,
-) {
-    info!("Usage: Press the SPACE key to spawn more instances, and the DELETE key to remove an existing instance.");
-
-    my_effect.despawn_all(&mut commands);
-
-    commands.spawn((
-        Transform::from_translation(Vec3::Z * 180.),
-        Camera3d::default(),
-        Tonemapping::None,
-        DebandDither::Disabled,
-    ));
-
-    commands.spawn(DirectionalLight {
-        color: Color::WHITE,
-        // Crank the illuminance way (too) high to make the reference cube clearly visible
-        illuminance: 100000.,
-        shadow_maps_enabled: false,
-        ..Default::default()
-    });
-
-    let mesh = meshes.add(Cuboid {
-        half_size: Vec3::splat(0.5),
-    });
-    let mat = materials.add(utils::COLOR_PURPLE);
-
+fn effects() -> Vec<EffectAsset> {
     let writer = ExprWriter::new();
 
     let age = writer.lit(0.).expr();
@@ -258,15 +214,13 @@ fn setup(
     let prop_color = writer.prop(prop_color);
     let update_col = SetAttributeModifier::new(Attribute::COLOR, prop_color.expr());
 
-    let effect = effects.add(
-        EffectAsset::new(512, SpawnerSettings::rate(50.0.into()), writer.finish())
-            .with_name("instancing")
-            .init(init_pos)
-            .init(init_vel)
-            .init(init_age)
-            .init(init_lifetime)
-            .update(update_col),
-    );
+    let effect = EffectAsset::new(512, SpawnerSettings::rate(50.0.into()), writer.finish())
+        .with_name("instancing")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_age)
+        .init(init_lifetime)
+        .update(update_col);
 
     let writer = ExprWriter::new();
 
@@ -295,20 +249,64 @@ fn setup(
     let mut module = writer.finish();
     module.add_texture_slot("color", SlotDimension::D2);
 
-    let alt_effect = effects.add(
-        EffectAsset::new(512, SpawnerSettings::rate(102.0.into()), module)
-            .with_simulation_space(SimulationSpace::Local)
-            .with_name("alternate instancing")
-            .init(init_pos)
-            .init(init_vel)
-            .init(init_lifetime)
-            .update(radial_accel)
-            .update(update_col)
-            .render(ParticleTextureModifier {
-                texture_slot: 0,
-                sample_mapping: ImageSampleMapping::Modulate,
-            }),
-    );
+    let alt_effect = EffectAsset::new(512, SpawnerSettings::rate(102.0.into()), module)
+        .with_simulation_space(SimulationSpace::Local)
+        .with_name("alternate instancing")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_lifetime)
+        .update(radial_accel)
+        .update(update_col)
+        .render(ParticleTextureModifier {
+            texture_slot: 0,
+            sample_mapping: ImageSampleMapping::Modulate,
+        });
+    vec![effect, alt_effect]
+}
+
+fn install(app: &mut App) {
+    app.insert_resource(InstanceManager::new(5, 4))
+        .add_systems(Update, setup.run_if(super::selected_once("instancing")))
+        .add_systems(
+            Update,
+            (keyboard_input_system, update_color_via_property)
+                .run_if(super::selected_demo("instancing")),
+        );
+}
+
+fn setup(
+    mut commands: Commands,
+    demos: Query<&super::DemoInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut my_effect: ResMut<InstanceManager>,
+    asset_server: Res<AssetServer>,
+) {
+    info!("Usage: Press the SPACE key to spawn more instances, and the DELETE key to remove an existing instance.");
+
+    my_effect.despawn_all(&mut commands);
+
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 180.),
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
+
+    commands.spawn(DirectionalLight {
+        color: Color::WHITE,
+        // Crank the illuminance way (too) high to make the reference cube clearly visible
+        illuminance: 100000.,
+        shadow_maps_enabled: false,
+        ..Default::default()
+    });
+
+    let mesh = meshes.add(Cuboid {
+        half_size: Vec3::splat(0.5),
+    });
+    let mat = materials.add(utils::COLOR_PURPLE);
+
+    let effect = super::demo_effect(&demos, "instancing", 0);
+    let alt_effect = super::demo_effect(&demos, "instancing", 1);
 
     // Store the effects for later reference
     my_effect.effect = effect;

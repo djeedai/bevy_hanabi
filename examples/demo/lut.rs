@@ -32,7 +32,11 @@ use wgpu::{Extent3d, TextureFormat};
 const DEMO_DESC: &str = include_str!("lut.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("lut", DEMO_DESC, install)
+    super::DemoRegistration::new("lut", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![create_effect()]
 }
 
 fn install(app: &mut App) {
@@ -43,7 +47,7 @@ fn install(app: &mut App) {
 fn setup(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-    mut effects: ResMut<Assets<EffectAsset>>,
+    demos: Query<&super::DemoInfo>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -123,6 +127,26 @@ fn setup(
     });
     let mat = materials.add(utils::COLOR_PURPLE);
 
+    let effect = super::demo_effect(&demos, "lut", 0);
+
+    commands
+        .spawn((
+            Name::new("emit:random"),
+            ParticleEffect::new(effect),
+            Transform::from_translation(Vec3::new(0., 0., 0.)),
+            EffectProperties::default(),
+            EffectMaterial {
+                // Assign our LUT image to texture slot #0
+                images: vec![image],
+            },
+        ))
+        .with_children(|p| {
+            // Reference cube to visualize the emit origin
+            p.spawn((Mesh3d(cube), MeshMaterial3d(mat)));
+        });
+}
+
+fn create_effect() -> EffectAsset {
     let writer = ExprWriter::new();
 
     let age = writer.lit(0.).expr();
@@ -190,32 +214,14 @@ fn setup(
     let mut module = writer.finish();
     let _ = module.add_texture_slot("lut", SlotDimension::D2Array);
 
-    let effect = effects.add(
-        EffectAsset::new(32768, SpawnerSettings::rate(30.0.into()), module)
-            .with_name("lut")
-            .init(init_pos)
-            .init(init_vel)
-            .init(init_age)
-            .init(init_lifetime)
-            .update(update_drag)
-            .update(update_lut),
-    );
-
-    commands
-        .spawn((
-            Name::new("emit:random"),
-            ParticleEffect::new(effect),
-            Transform::from_translation(Vec3::new(0., 0., 0.)),
-            EffectProperties::default(),
-            EffectMaterial {
-                // Assign our LUT image to texture slot #0
-                images: vec![image],
-            },
-        ))
-        .with_children(|p| {
-            // Reference cube to visualize the emit origin
-            p.spawn((Mesh3d(cube), MeshMaterial3d(mat)));
-        });
+    EffectAsset::new(32768, SpawnerSettings::rate(30.0.into()), module)
+        .with_name("lut")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_age)
+        .init(init_lifetime)
+        .update(update_drag)
+        .update(update_lut)
 }
 
 fn update(

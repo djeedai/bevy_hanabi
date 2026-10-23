@@ -21,7 +21,11 @@ use super::DemoCommands as Commands;
 const DEMO_DESC: &str = include_str!("worms.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("worms", DEMO_DESC, install)
+    super::DemoRegistration::new("worms", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![create_head_effect(), create_body_effect()]
 }
 
 fn install(app: &mut App) {
@@ -184,7 +188,7 @@ fn create_body_effect() -> EffectAsset {
 fn setup(
     mut commands: Commands,
     asset_server: ResMut<AssetServer>,
-    mut effects: ResMut<Assets<EffectAsset>>,
+    demos: Query<&super::DemoInfo>,
 ) {
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 25.)),
@@ -201,8 +205,7 @@ fn setup(
 
     let circle: Handle<Image> = asset_server.load("circle.png");
 
-    let head_effect = create_head_effect();
-    let head_effect = effects.add(head_effect);
+    let head_effect = super::demo_effect(&demos, "worms", 0);
 
     let head_entity = commands
         .spawn((
@@ -214,8 +217,7 @@ fn setup(
         ))
         .id();
 
-    let body_effect = create_body_effect();
-    let body_effect = effects.add(body_effect);
+    let body_effect = super::demo_effect(&demos, "worms", 1);
 
     commands.spawn((
         Name::new("worms_bodies"),

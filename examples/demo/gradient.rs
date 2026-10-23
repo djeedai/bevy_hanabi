@@ -1,5 +1,6 @@
 use std::f32::consts::PI;
 
+use super::DemoCommands as Commands;
 use bevy::{
     camera::visibility::RenderLayers,
     camera::Hdr,
@@ -7,43 +8,16 @@ use bevy::{
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
-use super::DemoCommands as Commands;
 
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("gradient.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("gradient", DEMO_DESC, install)
+    super::DemoRegistration::new("gradient", DEMO_DESC, install, effects)
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("gradient")))
-        .add_systems(Update, update.run_if(super::selected_demo("gradient")));
-}
-
-fn setup(
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    // Spawn a camera. For this example, we also demonstrate that we can use an HDR
-    // camera.
-    commands.spawn((
-        Transform::from_translation(Vec3::Z * 100.),
-        Camera3d::default(),
-        Hdr,
-        Tonemapping::None,
-        DebandDither::Disabled,
-        // For this example, we assign to the camera a specific render layer (3)
-        // different from the default (0) to demonstrate it works.
-        RenderLayers::layer(3),
-    ));
-
-    let texture_handle: Handle<Image> = asset_server.load("cloud.png");
-
+fn effects() -> Vec<EffectAsset> {
     let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.5, 0.5, 0.5, 1.0));
     gradient.add_key(0.1, Vec4::new(0.5, 0.5, 0.0, 1.0));
@@ -73,7 +47,7 @@ fn setup(
     let mut module = writer.finish();
     module.add_texture_slot("color", SlotDimension::D2);
 
-    let effect = effects.add(
+    vec![
         EffectAsset::new(32768, SpawnerSettings::rate(1000.0.into()), module)
             .with_name("gradient")
             .init(init_pos)
@@ -85,7 +59,37 @@ fn setup(
                 sample_mapping: ImageSampleMapping::ModulateOpacityFromR,
             })
             .render(ColorOverLifetimeModifier::new(gradient)),
-    );
+    ]
+}
+
+fn install(app: &mut App) {
+    app.add_systems(Update, setup.run_if(super::selected_once("gradient")))
+        .add_systems(Update, update.run_if(super::selected_demo("gradient")));
+}
+
+fn setup(
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    demos: Query<&super::DemoInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    // Spawn a camera. For this example, we also demonstrate that we can use an HDR
+    // camera.
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 100.),
+        Camera3d::default(),
+        Hdr,
+        Tonemapping::None,
+        // For this example, we assign to the camera a specific render layer (3)
+        // different from the default (0) to demonstrate it works.
+        RenderLayers::layer(3),
+    ));
+
+    let texture_handle: Handle<Image> = asset_server.load("cloud.png");
+
+    // Define that texture slot (giving it a name for convenience)
+    let effect = super::demo_effect(&demos, "gradient", 0);
 
     commands
         .spawn((

@@ -26,96 +26,10 @@ use crate::utils;
 const DEMO_DESC: &str = include_str!("force_field.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("force_field", DEMO_DESC, install)
+    super::DemoRegistration::new("force_field", DEMO_DESC, install, effects)
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("force_field")))
-        .add_systems(
-            Update,
-            (spawn_on_click, move_repulsor).run_if(super::selected_demo("force_field")),
-        );
-}
-
-const BALL_RADIUS: f32 = 0.05;
-
-#[derive(Component)]
-struct RepulsorMarker(pub bool);
-
-const ATTRACTOR_POS: Vec3 = Vec3::new(0.01, 0.0, 0.0);
-const REPULSOR_POS: Vec3 = Vec3::new(0.3, 0.5, 0.0);
-
-fn setup(
-    mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let mut projection = OrthographicProjection::default_3d();
-    projection.scaling_mode = bevy::camera::ScalingMode::FixedVertical {
-        viewport_height: 5.,
-    };
-    commands.spawn((
-        Transform::from_translation(Vec3::Z * 10.),
-        Camera3d::default(),
-        Projection::Orthographic(projection),
-        Tonemapping::None,
-        DebandDither::Disabled,
-    ));
-
-    commands.spawn((PointLight::default(), Transform::from_xyz(4.0, 5.0, 4.0)));
-    commands.spawn((PointLight::default(), Transform::from_xyz(4.0, -5.0, -4.0)));
-
-    // Visual marker for attractor sphere
-    commands.spawn((
-        Transform::from_translation(ATTRACTOR_POS),
-        Mesh3d(meshes.add(Mesh::from(Sphere {
-            radius: BALL_RADIUS * 2.0,
-        }))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: utils::COLOR_YELLOW,
-            unlit: false,
-            ..Default::default()
-        })),
-    ));
-
-    // Visual marker for repulsor sphere
-    commands.spawn((
-        Transform::from_translation(REPULSOR_POS),
-        Mesh3d(meshes.add(Mesh::from(Sphere {
-            radius: BALL_RADIUS * 1.0,
-        }))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: utils::COLOR_PURPLE,
-            unlit: false,
-            ..Default::default()
-        })),
-        RepulsorMarker(true),
-    ));
-
-    // "allow" box
-    commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(6., 4., 6.))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::linear_rgba(0., 0.7, 0., 0.05),
-            unlit: true,
-            alpha_mode: bevy::prelude::AlphaMode::Blend,
-            ..Default::default()
-        })),
-    ));
-
-    // "forbid" sphere
-    commands.spawn((
-        Transform::from_translation(Vec3::new(-2., 1., 0.1)),
-        Mesh3d(meshes.add(Sphere { radius: 0.6 })),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::linear_rgba(0.7, 0., 0., 0.2),
-            unlit: true,
-            alpha_mode: bevy::prelude::AlphaMode::Blend,
-            ..Default::default()
-        })),
-    ));
-
+fn effects() -> Vec<EffectAsset> {
     let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(0.0, 1.0, 1.0, 1.0));
     gradient.add_key(1.0, Vec4::new(0.0, 1.0, 1.0, 0.0));
@@ -193,23 +107,111 @@ fn setup(
     };
 
     // Force field effects
-    let effect = effects.add(
-        EffectAsset::new(32768, spawner, writer.finish())
-            .with_name("force_field")
-            .init(init_pos)
-            .init(init_vel)
-            .init(init_age)
-            .init(init_lifetime)
-            .update(update_attractor)
-            .update(update_repulsor)
-            .update(allow_zone)
-            .update(deny_zone)
-            .render(SizeOverLifetimeModifier {
-                gradient: bevy_hanabi::Gradient::constant(Vec3::splat(0.05)),
-                screen_space_size: false,
-            })
-            .render(ColorOverLifetimeModifier::new(gradient)),
-    );
+    vec![EffectAsset::new(32768, spawner, writer.finish())
+        .with_name("force_field")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_age)
+        .init(init_lifetime)
+        .update(update_attractor)
+        .update(update_repulsor)
+        .update(allow_zone)
+        .update(deny_zone)
+        .render(SizeOverLifetimeModifier {
+            gradient: bevy_hanabi::Gradient::constant(Vec3::splat(0.05)),
+            screen_space_size: false,
+        })
+        .render(ColorOverLifetimeModifier::new(gradient))]
+}
+
+fn install(app: &mut App) {
+    app.add_systems(Update, setup.run_if(super::selected_once("force_field")))
+        .add_systems(
+            Update,
+            (spawn_on_click, move_repulsor).run_if(super::selected_demo("force_field")),
+        );
+}
+
+const BALL_RADIUS: f32 = 0.05;
+
+#[derive(Component)]
+struct RepulsorMarker(pub bool);
+
+const ATTRACTOR_POS: Vec3 = Vec3::new(0.01, 0.0, 0.0);
+const REPULSOR_POS: Vec3 = Vec3::new(0.3, 0.5, 0.0);
+
+fn setup(
+    mut commands: Commands,
+    demos: Query<&super::DemoInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let mut projection = OrthographicProjection::default_3d();
+    projection.scaling_mode = bevy::camera::ScalingMode::FixedVertical {
+        viewport_height: 5.,
+    };
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 10.),
+        Camera3d::default(),
+        Projection::Orthographic(projection),
+        Tonemapping::None,
+        DebandDither::Disabled,
+    ));
+
+    commands.spawn((PointLight::default(), Transform::from_xyz(4.0, 5.0, 4.0)));
+    commands.spawn((PointLight::default(), Transform::from_xyz(4.0, -5.0, -4.0)));
+
+    // Visual marker for attractor sphere
+    commands.spawn((
+        Transform::from_translation(ATTRACTOR_POS),
+        Mesh3d(meshes.add(Mesh::from(Sphere {
+            radius: BALL_RADIUS * 2.0,
+        }))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: utils::COLOR_YELLOW,
+            unlit: false,
+            ..Default::default()
+        })),
+    ));
+
+    // Visual marker for repulsor sphere
+    commands.spawn((
+        Transform::from_translation(REPULSOR_POS),
+        Mesh3d(meshes.add(Mesh::from(Sphere {
+            radius: BALL_RADIUS * 1.0,
+        }))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: utils::COLOR_PURPLE,
+            unlit: false,
+            ..Default::default()
+        })),
+        RepulsorMarker(true),
+    ));
+
+    // "allow" box
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(6., 4., 6.))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::linear_rgba(0., 0.7, 0., 0.05),
+            unlit: true,
+            alpha_mode: bevy::prelude::AlphaMode::Blend,
+            ..Default::default()
+        })),
+    ));
+
+    // "forbid" sphere
+    commands.spawn((
+        Transform::from_translation(Vec3::new(-2., 1., 0.1)),
+        Mesh3d(meshes.add(Sphere { radius: 0.6 })),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::linear_rgba(0.7, 0., 0., 0.2),
+            unlit: true,
+            alpha_mode: bevy::prelude::AlphaMode::Blend,
+            ..Default::default()
+        })),
+    ));
+
+    let effect = super::demo_effect(&demos, "force_field", 0);
 
     commands.spawn((ParticleEffect::new(effect), EffectProperties::default()));
 }

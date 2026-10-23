@@ -23,7 +23,11 @@ use crate::utils;
 const DEMO_DESC: &str = include_str!("ordering.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("ordering", DEMO_DESC, install)
+    super::DemoRegistration::new("ordering", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![make_firework()]
 }
 
 fn install(app: &mut App) {
@@ -96,7 +100,7 @@ fn make_firework() -> EffectAsset {
 
 fn setup(
     mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
+    demos: Query<&super::DemoInfo>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -113,7 +117,7 @@ fn setup(
         Bloom::default(),
     ));
 
-    let effect1 = effects.add(make_firework());
+    let effect1 = super::demo_effect(&demos, "ordering", 0);
 
     commands.spawn((
         Name::new("firework"),

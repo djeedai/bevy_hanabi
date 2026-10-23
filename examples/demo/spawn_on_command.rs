@@ -17,7 +17,11 @@ use super::DemoCommands as Commands;
 const DEMO_DESC: &str = include_str!("spawn_on_command.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("spawn_on_command", DEMO_DESC, install)
+    super::DemoRegistration::new("spawn_on_command", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![create_effect()]
 }
 
 fn install(app: &mut App) {
@@ -41,7 +45,7 @@ const BALL_RADIUS: f32 = 0.05;
 
 fn setup(
     mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
+    demos: Query<&super::DemoInfo>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -85,6 +89,15 @@ fn setup(
         Name::new("ball"),
     ));
 
+    let effect = super::demo_effect(&demos, "spawn_on_command", 0);
+    commands.spawn((
+        ParticleEffect::new(effect),
+        EffectProperties::default(),
+        Name::new("effect"),
+    ));
+}
+
+fn create_effect() -> EffectAsset {
     let spawner = SpawnerSettings::once(100.0.into())
         // Disable starting emitting particles when the EffectSpawner is instantiated. We want
         // complete control, and only emit when reset() is called.
@@ -139,27 +152,19 @@ fn setup(
     let velocity = (normal + tangent * spread * writer.lit(5.0)).normalized() * speed;
     let init_vel = SetAttributeModifier::new(Attribute::VELOCITY, velocity.expr());
 
-    let effect = effects.add(
-        EffectAsset::new(32768, spawner, writer.finish())
-            .with_name("spawn_on_command")
-            .init(init_pos)
-            .init(init_vel)
-            .init(init_age)
-            .init(init_lifetime)
-            .init(init_color)
-            .update(update_drag)
-            // Set a size of 3 (logical) pixels, constant in screen space, independent of projection
-            .render(SetSizeModifier {
-                size: Vec3::splat(3.).into(),
-            })
-            .render(ScreenSpaceSizeModifier),
-    );
-
-    commands.spawn((
-        ParticleEffect::new(effect),
-        EffectProperties::default(),
-        Name::new("effect"),
-    ));
+    EffectAsset::new(32768, spawner, writer.finish())
+        .with_name("spawn_on_command")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_age)
+        .init(init_lifetime)
+        .init(init_color)
+        .update(update_drag)
+        // Set a size of 3 (logical) pixels, constant in screen space, independent of projection
+        .render(SetSizeModifier {
+            size: Vec3::splat(3.).into(),
+        })
+        .render(ScreenSpaceSizeModifier)
 }
 
 fn update(

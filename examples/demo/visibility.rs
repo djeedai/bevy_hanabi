@@ -12,52 +12,19 @@
 
 use std::time::Duration;
 
-use bevy::{
-    core_pipeline::tonemapping::{DebandDither, Tonemapping},
-    prelude::*,
-};
-use bevy_hanabi::prelude::*;
 use super::DemoCommands as Commands;
+use bevy::{core_pipeline::tonemapping::Tonemapping, prelude::*};
+use bevy_hanabi::prelude::*;
 
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("visibility.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("visibility", DEMO_DESC, install)
+    super::DemoRegistration::new("visibility", DEMO_DESC, install, effects)
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("visibility")))
-        .add_systems(Update, update.run_if(super::selected_demo("visibility")));
-}
-
-fn setup(
-    mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((
-        Transform::from_translation(Vec3::Z * 100.),
-        Camera3d::default(),
-        Tonemapping::None,
-        DebandDither::Disabled,
-    ));
-
-    commands.spawn(DirectionalLight {
-        color: Color::WHITE,
-        // Crank the illuminance way (too) high to make the reference cube clearly visible
-        illuminance: 100000.,
-        shadow_maps_enabled: false,
-        ..Default::default()
-    });
-
-    let cube = meshes.add(Cuboid {
-        half_size: Vec3::splat(0.5),
-    });
-    let mat = materials.add(utils::COLOR_PURPLE);
-
+fn effects() -> Vec<EffectAsset> {
     let mut gradient = bevy_hanabi::Gradient::new();
     gradient.add_key(0.0, Vec4::new(1.0, 0.0, 0.0, 1.0));
     gradient.add_key(0.25, Vec4::new(0.0, 1.0, 0.0, 1.0));
@@ -97,7 +64,45 @@ fn setup(
     .init(init_lifetime)
     //.update(AccelModifier::constant(Vec3::new(0., 2., 0.)))
     .render(ColorOverLifetimeModifier::new(gradient));
-    let effect1 = effects.add(asset.clone());
+    let effect1 = asset.clone().with_name("sim-when-visible");
+
+    asset.simulation_condition = SimulationCondition::Always;
+    let effect2 = asset.with_name("sim-always");
+
+    vec![effect1, effect2]
+}
+
+fn install(app: &mut App) {
+    app.add_systems(Update, setup.run_if(super::selected_once("visibility")))
+        .add_systems(Update, update.run_if(super::selected_demo("visibility")));
+}
+
+fn setup(
+    mut commands: Commands,
+    demos: Query<&super::DemoInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 100.),
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
+
+    commands.spawn(DirectionalLight {
+        color: Color::WHITE,
+        // Crank the illuminance way (too) high to make the reference cube clearly visible
+        illuminance: 100000.,
+        shadow_maps_enabled: false,
+        ..Default::default()
+    });
+
+    let cube = meshes.add(Cuboid {
+        half_size: Vec3::splat(0.5),
+    });
+    let mat = materials.add(utils::COLOR_PURPLE);
+
+    let effect1 = super::demo_effect(&demos, "visibility", 0);
 
     // Reference cube to visualize the emit origin
     commands
@@ -110,8 +115,7 @@ fn setup(
             p.spawn((Name::new("WhenVisible"), ParticleEffect::new(effect1)));
         });
 
-    asset.simulation_condition = SimulationCondition::Always;
-    let effect2 = effects.add(asset);
+    let effect2 = super::demo_effect(&demos, "visibility", 1);
 
     // Reference cube to visualize the emit origin
     commands

@@ -11,6 +11,7 @@
 //! lifetime, give a subtle effect of particles appearing to fall down right
 //! before they disappear, like sparkles fading away.
 
+use super::DemoCommands as Commands;
 use bevy::{
     camera::Hdr,
     core_pipeline::tonemapping::{DebandDither, Tonemapping},
@@ -18,32 +19,22 @@ use bevy::{
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
-use super::DemoCommands as Commands;
 
 const DEMO_DESC: &str = include_str!("portal.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("portal", DEMO_DESC, install)
+    super::DemoRegistration::new("portal", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![create_effect()]
 }
 
 fn install(app: &mut App) {
     app.add_systems(Update, setup.run_if(super::selected_once("portal")));
 }
 
-fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
-    commands.spawn((
-        Transform::from_translation(Vec3::new(0., 0., 25.)),
-        Camera {
-            clear_color: Color::BLACK.into(),
-            ..default()
-        },
-        Camera3d::default(),
-        Hdr,
-        Tonemapping::None,
-        DebandDither::Disabled,
-        Bloom::default(),
-    ));
-
+fn create_effect() -> EffectAsset {
     let mut color_gradient1 = bevy_hanabi::Gradient::new();
     color_gradient1.add_key(0.0, Vec4::new(4.0, 4.0, 4.0, 1.0));
     color_gradient1.add_key(0.1, Vec4::new(4.0, 4.0, 0.0, 1.0));
@@ -78,22 +69,35 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
 
     let tangent_accel = TangentAccelModifier::constant(&mut module, Vec3::ZERO, Vec3::Z, 30.);
 
-    let effect1 = effects.add(
-        EffectAsset::new(16384, SpawnerSettings::rate(5000.0.into()), module)
-            .with_name("portal")
-            .init(init_pos)
-            .init(init_age)
-            .init(init_lifetime)
-            .update(update_drag)
-            .update(tangent_accel)
-            .render(ColorOverLifetimeModifier::new(color_gradient1))
-            .render(SizeOverLifetimeModifier {
-                gradient: size_gradient1,
-                screen_space_size: false,
-            })
-            .render(OrientModifier::new(OrientMode::AlongVelocity)),
-    );
+    EffectAsset::new(16384, SpawnerSettings::rate(5000.0.into()), module)
+        .with_name("portal")
+        .init(init_pos)
+        .init(init_age)
+        .init(init_lifetime)
+        .update(update_drag)
+        .update(tangent_accel)
+        .render(ColorOverLifetimeModifier::new(color_gradient1))
+        .render(SizeOverLifetimeModifier {
+            gradient: size_gradient1,
+            screen_space_size: false,
+        })
+        .render(OrientModifier::new(OrientMode::AlongVelocity))
+}
 
+fn setup(mut commands: Commands, demos: Query<&super::DemoInfo>) {
+    commands.spawn((
+        Transform::from_translation(Vec3::new(0., 0., 25.)),
+        Camera {
+            clear_color: Color::BLACK.into(),
+            ..default()
+        },
+        Camera3d::default(),
+        Hdr,
+        Tonemapping::None,
+        Bloom::default(),
+    ));
+
+    let effect1 = super::demo_effect(&demos, "portal", 0);
     commands.spawn((
         Name::new("portal"),
         ParticleEffect::new(effect1),

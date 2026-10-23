@@ -27,7 +27,60 @@ use crate::utils;
 const DEMO_DESC: &str = include_str!("activate.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("activate", DEMO_DESC, install)
+    super::DemoRegistration::new("activate", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    let mut gradient = bevy_hanabi::Gradient::new();
+    gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
+    gradient.add_key(1.0, Vec4::new(0.5, 0.5, 1.0, 0.0));
+
+    let spawner = SpawnerSettings::rate(30.0.into()).with_starts_active(false);
+
+    let writer = ExprWriter::new();
+
+    let age = writer.lit(0.).expr();
+    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
+
+    let lifetime = writer.lit(5.).expr();
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let init_pos = SetPositionSphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        radius: writer.lit(0.05).expr(),
+        dimension: ShapeDimension::Surface,
+    };
+
+    let init_vel = SetVelocitySphereModifier {
+        center: writer.lit(Vec3::ZERO).expr(),
+        speed: writer.lit(0.1).expr(),
+    };
+
+    let buoyancy = writer.lit(Vec3::Y * 0.2).expr();
+    let update_buoyancy = AccelModifier::new(buoyancy);
+
+    // Kill particles getting out of water
+    let center = writer.lit(Vec3::Y * -2.02).expr();
+    let half_size = writer.lit(Vec3::splat(2.0)).expr();
+    let allow_zone = KillAabbModifier::new(center, half_size);
+
+    let mut module = writer.finish();
+
+    let round = RoundModifier::constant(&mut module, 1.0);
+
+    vec![EffectAsset::new(32768, spawner, module)
+        .with_name("activate")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_age)
+        .init(init_lifetime)
+        .update(update_buoyancy)
+        .update(allow_zone)
+        .render(SetSizeModifier {
+            size: Vec3::splat(0.02).into(),
+        })
+        .render(ColorOverLifetimeModifier::new(gradient))
+        .render(round)]
 }
 
 fn install(app: &mut App) {
@@ -45,7 +98,7 @@ struct Ball {
 
 fn setup(
     mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
+    demos: Query<&super::DemoInfo>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -87,58 +140,7 @@ fn setup(
         Name::new("ball"),
     ));
 
-    let mut gradient = bevy_hanabi::Gradient::new();
-    gradient.add_key(0.0, Vec4::new(0.5, 0.5, 1.0, 1.0));
-    gradient.add_key(1.0, Vec4::new(0.5, 0.5, 1.0, 0.0));
-
-    let spawner = SpawnerSettings::rate(30.0.into()).with_starts_active(false);
-
-    let writer = ExprWriter::new();
-
-    let age = writer.lit(0.).expr();
-    let init_age = SetAttributeModifier::new(Attribute::AGE, age);
-
-    let lifetime = writer.lit(5.).expr();
-    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
-
-    let init_pos = SetPositionSphereModifier {
-        center: writer.lit(Vec3::ZERO).expr(),
-        radius: writer.lit(0.05).expr(),
-        dimension: ShapeDimension::Surface,
-    };
-
-    let init_vel = SetVelocitySphereModifier {
-        center: writer.lit(Vec3::ZERO).expr(),
-        speed: writer.lit(0.1).expr(),
-    };
-
-    let buoyancy = writer.lit(Vec3::Y * 0.2).expr();
-    let update_buoyancy = AccelModifier::new(buoyancy);
-
-    // Kill particles getting out of water
-    let center = writer.lit(Vec3::Y * -2.02).expr();
-    let half_size = writer.lit(Vec3::splat(2.0)).expr();
-    let allow_zone = KillAabbModifier::new(center, half_size);
-
-    let mut module = writer.finish();
-
-    let round = RoundModifier::constant(&mut module, 1.0);
-
-    let effect = effects.add(
-        EffectAsset::new(32768, spawner, module)
-            .with_name("activate")
-            .init(init_pos)
-            .init(init_vel)
-            .init(init_age)
-            .init(init_lifetime)
-            .update(update_buoyancy)
-            .update(allow_zone)
-            .render(SetSizeModifier {
-                size: Vec3::splat(0.02).into(),
-            })
-            .render(ColorOverLifetimeModifier::new(gradient))
-            .render(round),
-    );
+    let effect = super::demo_effect(&demos, "activate", 0);
 
     ball.with_children(|node| {
         node.spawn((ParticleEffect::new(effect), Name::new("effect")));

@@ -29,50 +29,23 @@
 
 use std::f32::consts::FRAC_PI_2;
 
+use super::DemoCommands as Commands;
 use bevy::{
     camera::Projection,
     core_pipeline::tonemapping::{DebandDither, Tonemapping},
     prelude::*,
 };
 use bevy_hanabi::prelude::*;
-use super::DemoCommands as Commands;
 
 use crate::utils;
 
 const DEMO_DESC: &str = include_str!("billboard.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("billboard", DEMO_DESC, install)
+    super::DemoRegistration::new("billboard", DEMO_DESC, install, effects)
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("billboard")))
-        .add_systems(
-            Update,
-            rotate_camera.run_if(super::selected_demo("billboard")),
-        );
-}
-
-fn setup(
-    asset_server: Res<AssetServer>,
-    mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((
-        Transform::from_xyz(3.0, 3.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
-        Camera3d::default(),
-        Projection::Perspective(PerspectiveProjection {
-            fov: 120.0,
-            ..default()
-        }),
-        Tonemapping::None,
-        DebandDither::Disabled,
-    ));
-
-    let texture_handle: Handle<Image> = asset_server.load("cloud.png");
-
+fn effects() -> Vec<EffectAsset> {
     let writer = ExprWriter::new();
 
     let age = writer.lit(0.).expr();
@@ -123,7 +96,7 @@ fn setup(
     let mut module = writer.finish();
     module.add_texture_slot("color", SlotDimension::D2);
 
-    let effect = effects.add(
+    vec![
         EffectAsset::new(32768, SpawnerSettings::rate(64.0.into()), module)
             .with_name("billboard")
             .with_alpha_mode(bevy_hanabi::AlphaMode::Mask(alpha_cutoff))
@@ -145,7 +118,37 @@ fn setup(
                 gradient: bevy_hanabi::Gradient::constant([0.2; 3].into()),
                 screen_space_size: false,
             }),
-    );
+    ]
+}
+
+fn install(app: &mut App) {
+    app.add_systems(Update, setup.run_if(super::selected_once("billboard")))
+        .add_systems(
+            Update,
+            rotate_camera.run_if(super::selected_demo("billboard")),
+        );
+}
+
+fn setup(
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    demos: Query<&super::DemoInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.spawn((
+        Transform::from_xyz(3.0, 3.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            fov: 120.0,
+            ..default()
+        }),
+        Tonemapping::None,
+    ));
+
+    let texture_handle: Handle<Image> = asset_server.load("cloud.png");
+
+    let effect = super::demo_effect(&demos, "billboard", 0);
 
     // The ground
     commands.spawn((

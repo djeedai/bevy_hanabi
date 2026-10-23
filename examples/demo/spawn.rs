@@ -7,52 +7,10 @@ use crate::utils;
 const DEMO_DESC: &str = include_str!("spawn.txt");
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("spawn", DEMO_DESC, install)
+    super::DemoRegistration::new("spawn", DEMO_DESC, install, effects)
 }
 
-fn install(app: &mut App) {
-    app.add_systems(Update, setup.run_if(super::selected_once("spawn")))
-        .add_systems(Update, update_accel.run_if(super::selected_demo("spawn")));
-}
-
-/// A simple marker component to identify the effect using a swaying
-/// property-based acceleration that the `update_accel()` system will control at
-/// runtime. This is attached to the first effect.
-#[derive(Component)]
-struct SwayingRuntimeAccel;
-
-/// A simple marker component to identify the effect using a dynamic
-/// property-based acceleration that the `update_accel()` system will control at
-/// runtime. This is attached to the third effect.
-#[derive(Component)]
-struct DynamicRuntimeAccel;
-
-fn setup(
-    mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((
-        Transform::from_translation(Vec3::Z * 100.),
-        Camera3d::default(),
-        Tonemapping::None,
-        DebandDither::Disabled,
-    ));
-
-    commands.spawn(DirectionalLight {
-        color: Color::WHITE,
-        // Crank the illuminance way (too) high to make the reference cube clearly visible
-        illuminance: 100000.,
-        shadow_maps_enabled: false,
-        ..default()
-    });
-
-    let cube = meshes.add(Cuboid {
-        half_size: Vec3::splat(0.5),
-    });
-    let mat = materials.add(utils::COLOR_PURPLE);
-
+fn effects() -> Vec<EffectAsset> {
     let mut color_gradient1 = bevy_hanabi::Gradient::new();
     color_gradient1.add_key(0.0, Vec4::splat(1.0));
     color_gradient1.add_key(0.1, Vec4::new(1.0, 1.0, 0.0, 1.0));
@@ -90,38 +48,18 @@ fn setup(
         speed: writer1.lit(10.).expr(),
     };
 
-    let effect1 = effects.add(
-        EffectAsset::new(32768, SpawnerSettings::rate(500.0.into()), writer1.finish())
-            .with_name("emit:rate")
-            .init(init_pos1)
-            // Make spawned particles move away from the emitter origin
-            .init(init_vel1)
-            .init(init_age1)
-            .init(init_lifetime1)
-            .update(update_accel1)
-            .render(ColorOverLifetimeModifier::new(color_gradient1))
-            .render(SizeOverLifetimeModifier {
-                gradient: size_gradient1,
-                screen_space_size: false,
-            }),
-    );
-
-    commands
-        .spawn((
-            Name::new("emit:rate"),
-            ParticleEffect::new(effect1),
-            EffectProperties::default(),
-            Transform::from_translation(Vec3::new(-30., 0., 0.))
-                .with_rotation(Quat::from_rotation_z(1.)),
-            SwayingRuntimeAccel,
-        ))
-        .with_children(|p| {
-            // Reference cube to visualize the emit origin
-            p.spawn((
-                Mesh3d(cube.clone()),
-                MeshMaterial3d(mat.clone()),
-                Name::new("source"),
-            ));
+    let effect1 = EffectAsset::new(32768, SpawnerSettings::rate(500.0.into()), writer1.finish())
+        .with_name("emit:rate")
+        .init(init_pos1)
+        // Make spawned particles move away from the emitter origin
+        .init(init_vel1)
+        .init(init_age1)
+        .init(init_lifetime1)
+        .update(update_accel1)
+        .render(ColorOverLifetimeModifier::new(color_gradient1))
+        .render(SizeOverLifetimeModifier {
+            gradient: size_gradient1,
+            screen_space_size: false,
         });
 
     let mut gradient2 = bevy_hanabi::Gradient::new();
@@ -142,34 +80,17 @@ fn setup(
         center: writer2.lit(Vec3::ZERO).expr(),
         speed: writer2.lit(2.).expr(),
     };
-    let effect2 = effects.add(
-        EffectAsset::new(
-            32768,
-            SpawnerSettings::once(1000.0.into()),
-            writer2.finish(),
-        )
-        .with_name("emit:once")
-        .init(init_pos2)
-        .init(init_vel2)
-        .init(init_age2)
-        .init(init_lifetime2)
-        .render(ColorOverLifetimeModifier::new(gradient2)),
-    );
-
-    commands
-        .spawn((
-            Name::new("emit:once"),
-            ParticleEffect::new(effect2),
-            Transform::from_translation(Vec3::new(0., 0., 0.)),
-        ))
-        .with_children(|p| {
-            // Reference cube to visualize the emit origin
-            p.spawn((
-                Mesh3d(cube.clone()),
-                MeshMaterial3d(mat.clone()),
-                Name::new("source"),
-            ));
-        });
+    let effect2 = EffectAsset::new(
+        32768,
+        SpawnerSettings::once(1000.0.into()),
+        writer2.finish(),
+    )
+    .with_name("emit:once")
+    .init(init_pos2)
+    .init(init_vel2)
+    .init(init_age2)
+    .init(init_lifetime2)
+    .render(ColorOverLifetimeModifier::new(gradient2));
 
     // Note: same as gradient2, will yield shared render shader between effects #2
     // and #3
@@ -206,21 +127,103 @@ fn setup(
         speed: writer3.lit(2.).expr(),
     };
 
-    let effect3 = effects.add(
-        EffectAsset::new(
-            32768,
-            SpawnerSettings::burst(400.0.into(), 3.0.into()),
-            writer3.finish(),
-        )
-        .with_name("emit:burst")
-        .init(init_pos3)
-        .init(init_vel3)
-        .init(init_age3)
-        .init(init_lifetime3)
-        .init(init_size3)
-        .update(update_accel3)
-        .render(ColorOverLifetimeModifier::new(gradient3)),
-    );
+    let effect3 = EffectAsset::new(
+        32768,
+        SpawnerSettings::burst(400.0.into(), 3.0.into()),
+        writer3.finish(),
+    )
+    .with_name("emit:burst")
+    .init(init_pos3)
+    .init(init_vel3)
+    .init(init_age3)
+    .init(init_lifetime3)
+    .init(init_size3)
+    .update(update_accel3)
+    .render(ColorOverLifetimeModifier::new(gradient3));
+
+    vec![effect1, effect2, effect3]
+}
+
+fn install(app: &mut App) {
+    app.add_systems(Update, setup.run_if(super::selected_once("spawn")))
+        .add_systems(Update, update_accel.run_if(super::selected_demo("spawn")));
+}
+
+/// A simple marker component to identify the effect using a swaying
+/// property-based acceleration that the `update_accel()` system will control at
+/// runtime. This is attached to the first effect.
+#[derive(Component)]
+struct SwayingRuntimeAccel;
+
+/// A simple marker component to identify the effect using a dynamic
+/// property-based acceleration that the `update_accel()` system will control at
+/// runtime. This is attached to the third effect.
+#[derive(Component)]
+struct DynamicRuntimeAccel;
+
+fn setup(
+    mut commands: Commands,
+    demos: Query<&super::DemoInfo>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.spawn((
+        Transform::from_translation(Vec3::Z * 100.),
+        Camera3d::default(),
+        Tonemapping::None,
+    ));
+
+    commands.spawn(DirectionalLight {
+        color: Color::WHITE,
+        // Crank the illuminance way (too) high to make the reference cube clearly visible
+        illuminance: 100000.,
+        shadow_maps_enabled: false,
+        ..default()
+    });
+
+    let cube = meshes.add(Cuboid {
+        half_size: Vec3::splat(0.5),
+    });
+    let mat = materials.add(utils::COLOR_PURPLE);
+
+    let effect1 = super::demo_effect(&demos, "spawn", 0);
+
+    commands
+        .spawn((
+            Name::new("emit:rate"),
+            ParticleEffect::new(effect1),
+            EffectProperties::default(),
+            Transform::from_translation(Vec3::new(-30., 0., 0.))
+                .with_rotation(Quat::from_rotation_z(1.)),
+            SwayingRuntimeAccel,
+        ))
+        .with_children(|p| {
+            // Reference cube to visualize the emit origin
+            p.spawn((
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(mat.clone()),
+                Name::new("source"),
+            ));
+        });
+
+    let effect2 = super::demo_effect(&demos, "spawn", 1);
+
+    commands
+        .spawn((
+            Name::new("emit:once"),
+            ParticleEffect::new(effect2),
+            Transform::from_translation(Vec3::new(0., 0., 0.)),
+        ))
+        .with_children(|p| {
+            // Reference cube to visualize the emit origin
+            p.spawn((
+                Mesh3d(cube.clone()),
+                MeshMaterial3d(mat.clone()),
+                Name::new("source"),
+            ));
+        });
+
+    let effect3 = super::demo_effect(&demos, "spawn", 2);
 
     commands
         .spawn((

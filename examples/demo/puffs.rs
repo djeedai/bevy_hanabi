@@ -33,7 +33,11 @@ struct LambertianLightingModifier {
 static LIGHT_POSITION: Vec3 = vec3(-20.0, 40.0, 5.0);
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("puffs", DEMO_DESC, install)
+    super::DemoRegistration::new("puffs", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![create_effect()]
 }
 
 fn install(app: &mut App) {
@@ -59,7 +63,7 @@ fn install(app: &mut App) {
 fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    mut effects: ResMut<Assets<EffectAsset>>,
+    demos: Query<&super::DemoInfo>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut ambient_light: ResMut<GlobalAmbientLight>,
@@ -114,7 +118,7 @@ fn setup(
     let mesh = meshes.add(SphereMeshBuilder::new(0.5, SphereKind::Ico { subdivisions: 4 }).build());
 
     // Create the effect asset.
-    let effect = create_effect(&mut effects);
+    let effect = super::demo_effect(&demos, "puffs", 0);
 
     // Spawn the effect.
     commands.spawn((
@@ -125,7 +129,7 @@ fn setup(
 }
 
 // Builds the smoke puffs.
-fn create_effect(effects: &mut Assets<EffectAsset>) -> Handle<EffectAsset> {
+fn create_effect() -> EffectAsset {
     let writer = ExprWriter::new();
 
     // Position the particle laterally within a small radius.
@@ -183,22 +187,20 @@ fn create_effect(effects: &mut Assets<EffectAsset>) -> Handle<EffectAsset> {
     let module = writer.finish();
 
     // Add the effect.
-    effects.add(
-        EffectAsset::new(
-            256,
-            SpawnerSettings::burst(16.0.into(), 0.45.into()),
-            module,
-        )
-        .with_name("cartoon explosion")
-        .init(init_xz_pos)
-        .init(init_y_pos)
-        .init(init_age)
-        .init(init_lifetime)
-        .init(init_size)
-        .init(init_velocity)
-        .update(update_size)
-        .render(render_lambertian),
+    EffectAsset::new(
+        256,
+        SpawnerSettings::burst(16.0.into(), 0.45.into()),
+        module,
     )
+    .with_name("cartoon explosion")
+    .init(init_xz_pos)
+    .init(init_y_pos)
+    .init(init_age)
+    .init(init_lifetime)
+    .init(init_size)
+    .init(init_velocity)
+    .update(update_size)
+    .render(render_lambertian)
 }
 
 // A system that plays the running animation once the fox loads.

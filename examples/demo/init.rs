@@ -22,7 +22,40 @@ const DEMO_DESC: &str = include_str!("init.txt");
 struct RotateSpeed(pub f32);
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("init", DEMO_DESC, install)
+    super::DemoRegistration::new("init", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![
+        base_effect("SetPositionCircleModifier", |writer| {
+            SetPositionCircleModifier {
+                center: writer.lit(Vec3::ZERO).expr(),
+                axis: writer.lit(Vec3::Z).expr(),
+                radius: writer.lit(5.).expr(),
+                dimension: ShapeDimension::Volume,
+            }
+        }),
+        base_effect("SetPositionSphereModifier", |writer| {
+            SetPositionSphereModifier {
+                center: writer.lit(Vec3::ZERO).expr(),
+                radius: writer.lit(5.).expr(),
+                dimension: ShapeDimension::Volume,
+            }
+        }),
+        base_effect("SetPositionCone3dModifier", |writer| {
+            SetPositionCone3dModifier {
+                height: writer.lit(10.).expr(),
+                base_radius: writer.lit(1.).expr(),
+                top_radius: writer.lit(4.).expr(),
+                dimension: ShapeDimension::Volume,
+            }
+        }),
+        base_effect("SetPositionBoxModifier", |writer| SetPositionBoxModifier {
+            center: writer.lit(Vec3::ZERO).expr(),
+            extent: writer.lit(Vec3::splat(5.)).expr(),
+            dimension: ShapeDimension::Volume,
+        }),
+    ]
 }
 
 fn install(app: &mut App) {
@@ -86,7 +119,7 @@ const COUNT: f32 = 500_f32;
 
 fn setup(
     mut commands: Commands,
-    mut effects: ResMut<Assets<EffectAsset>>,
+    demos: Query<&super::DemoInfo>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -115,14 +148,7 @@ fn setup(
         "SetPositionCircleModifier".to_string(),
         3.,
         Transform::from_translation(Vec3::new(-20., 0., 0.)),
-        effects.add(base_effect("SetPositionCircleModifier", |writer| {
-            SetPositionCircleModifier {
-                center: writer.lit(Vec3::ZERO).expr(),
-                axis: writer.lit(Vec3::Z).expr(),
-                radius: writer.lit(5.).expr(),
-                dimension: ShapeDimension::Volume,
-            }
-        })),
+        super::demo_effect(&demos, "init", 0),
         cube.clone(),
         mat.clone(),
     );
@@ -132,13 +158,7 @@ fn setup(
         "SetPositionSphereModifier".to_string(),
         3.,
         Transform::from_translation(Vec3::new(0., 0., 0.)),
-        effects.add(base_effect("SetPositionSphereModifier", |writer| {
-            SetPositionSphereModifier {
-                center: writer.lit(Vec3::ZERO).expr(),
-                radius: writer.lit(5.).expr(),
-                dimension: ShapeDimension::Volume,
-            }
-        })),
+        super::demo_effect(&demos, "init", 1),
         cube.clone(),
         mat.clone(),
     );
@@ -148,14 +168,7 @@ fn setup(
         "SetPositionCone3dModifier".to_string(),
         3.,
         Transform::from_translation(Vec3::new(20., 0., 0.)),
-        effects.add(base_effect("SetPositionCone3dModifier", |writer| {
-            SetPositionCone3dModifier {
-                height: writer.lit(10.).expr(),
-                base_radius: writer.lit(1.).expr(),
-                top_radius: writer.lit(4.).expr(),
-                dimension: ShapeDimension::Volume,
-            }
-        })),
+        super::demo_effect(&demos, "init", 2),
         cube.clone(),
         mat.clone(),
     );
@@ -165,13 +178,7 @@ fn setup(
         "SetPositionBoxModifier".to_string(),
         3.,
         Transform::from_translation(Vec3::new(0., 10., 0.)),
-        effects.add(base_effect("SetPositionBoxModifier", |writer| {
-            SetPositionBoxModifier {
-                center: writer.lit(Vec3::ZERO).expr(),
-                extent: writer.lit(Vec3::splat(5.)).expr(),
-                dimension: ShapeDimension::Volume,
-            }
-        })),
+        super::demo_effect(&demos, "init", 3),
         cube.clone(),
         mat.clone(),
     );

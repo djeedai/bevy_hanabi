@@ -30,7 +30,11 @@ const BURST_INTERVAL: f32 = 1.5;
 const GROUND_Y: f32 = -15.0;
 
 pub(crate) fn register() -> impl super::Demo {
-    super::DemoRegistration::new("lightning", DEMO_DESC, install)
+    super::DemoRegistration::new("lightning", DEMO_DESC, install, effects)
+}
+
+fn effects() -> Vec<EffectAsset> {
+    vec![create_bolt_effect(), create_impact_effect()]
 }
 
 fn install(app: &mut App) {
@@ -49,7 +53,7 @@ struct LightningTimer {
 #[derive(Component)]
 struct ImpactEffect;
 
-fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
+fn setup(mut commands: Commands, demos: Query<&super::DemoInfo>) {
     commands.spawn((
         Transform::from_translation(Vec3::new(0., 0., 60.)).looking_at(Vec3::ZERO, Vec3::Y),
         Camera3d::default(),
@@ -66,8 +70,8 @@ fn setup(mut commands: Commands, mut effects: ResMut<Assets<EffectAsset>>) {
         },
     ));
 
-    let bolt_handle = effects.add(create_bolt_effect());
-    let impact_handle = effects.add(create_impact_effect());
+    let bolt_handle = super::demo_effect(&demos, "lightning", 0);
+    let impact_handle = super::demo_effect(&demos, "lightning", 1);
 
     // Start timer near completion so first strike happens quickly
     let mut timer = Timer::from_seconds(BURST_INTERVAL, TimerMode::Repeating);
