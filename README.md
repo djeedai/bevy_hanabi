@@ -126,7 +126,9 @@ commands.spawn((
 
 See the [`examples/`](https://github.com/djeedai/bevy_hanabi/tree/ea57ad23be55a098b9d9446425f1909a8e88f6fc/examples) folder.
 
-A web demo (using the WebAssembly target) showing all examples is availabe in the [`examples/wasm/`](https://github.com/djeedai/bevy_hanabi/tree/ea57ad23be55a098b9d9446425f1909a8e88f6fc/examples/wasm) folder. You can open `index.html` in any browser to see a GIF of all the examples. Running the actual WebAssembly example however requires serving the files with an HTTP server. If you have NodeJS installed, you can do that for example by running `npx http-server examples/wasm`.
+All examples run from one executable: `cargo run --example demo` opens an interactive menu, and `cargo run --example demo -- --demo firework` directly selects a demo to open. On WebAssembly, build with `build_examples_wasm.sh` (or `.bat`) and serve `examples/wasm/`; the same interactive menu lets you choose a demo in the browser.
+
+The source-generated effect files under `examples/effects/` can be regenerated with `cargo run --example demo -- --write-effects` and checked without modifying them with `cargo run --example demo -- --check-effects`. This shows how effects are serialized and deserialized.
 
 Note for Linux users: The examples build with the `bevy/x11` feature by default to enable support for the X11 display server. If you want to use the Wayland display server instead, add the `bevy/wayland` feature.
 
@@ -210,7 +212,7 @@ This list contains the major fixed features provided by 🎆 Hanabi. Beyond that
 🎆 Bevy Hanabi supports the following cargo features:
 
 | Feature | Default | Description |
-|---|:-:|---|
+| --- | :-: | --- |
 | `2d` | ✔ | Enable rendering through 2D cameras ([`Camera2d`](https://docs.rs/bevy/0.19/bevy/core_pipeline/core_2d/struct.Camera2d.html)) |
 | `3d` | ✔ | Enable rendering through 3D cameras ([`Camera3d`](https://docs.rs/bevy/0.19/bevy/core_pipeline/core_3d/struct.Camera3d.html)) |
 

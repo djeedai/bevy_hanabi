@@ -1,0 +1,59 @@
+(
+  name: "SetPositionBoxModifier",
+  capacity: 32768,
+  spawner: (
+    count: Single(500.0),
+    spawn_duration: Single(0.0),
+    period: Single(0.0),
+    cycle_count: 1,
+    starts_active: true,
+    emit_on_start: true,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Local,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::position::SetPositionBoxModifier": (
+        center: "#1",
+        extent: "#2",
+        dimension: Volume,
+      ),
+    },
+  ],
+  update_modifiers: [],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::OrientModifier": (
+        mode: FaceCameraPosition,
+        rotation: None,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::SetColorModifier": (
+        color: Single((0.7, 0.7, 1.0, 1.0)),
+        blend: Overwrite,
+        mask: (15),
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::SetSizeModifier": (
+        size: Single((0.1, 0.1, 0.1)),
+      ),
+    },
+  ],
+  motion_integration: r#None,
+  module: (
+    expressions: [
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Vector(Vec3((5.0, 5.0, 5.0)))),
+    ],
+    properties: [],
+    texture_layout: (
+      layout: [],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)

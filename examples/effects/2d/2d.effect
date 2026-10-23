@@ -1,0 +1,104 @@
+(
+  name: "2d",
+  capacity: 4096,
+  spawner: (
+    count: Single(30.0),
+    spawn_duration: Single(1.0),
+    period: Single(1.0),
+    cycle_count: 0,
+    starts_active: true,
+    emit_on_start: true,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Global,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::position::SetPositionCircleModifier": (
+        center: "#3",
+        axis: "#4",
+        radius: "#5",
+        dimension: Surface,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::velocity::SetVelocityCircleModifier": (
+        center: "#6",
+        axis: "#7",
+        speed: "#8",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "age",
+        value: "#1",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#2",
+      ),
+    },
+  ],
+  update_modifiers: [],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::SizeOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (0.02, 0.02, 0.02),
+            ),
+          ],
+        ),
+        screen_space_size: false,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::ColorOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (0.5, 0.5, 1.0, 1.0),
+            ),
+            (
+              ratio: 1.0,
+              value: (0.5, 0.5, 1.0, 0.0),
+            ),
+          ],
+        ),
+        blend: Overwrite,
+        mask: (15),
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::RoundModifier": (
+        roundness: "#9",
+      ),
+    },
+  ],
+  motion_integration: PostUpdate,
+  module: (
+    expressions: [
+      Literal(Scalar(Float(0.0))),
+      Literal(Scalar(Float(5.0))),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Vector(Vec3((0.0, 0.0, 1.0)))),
+      Literal(Scalar(Float(0.05))),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Vector(Vec3((0.0, 0.0, 1.0)))),
+      Literal(Scalar(Float(0.1))),
+      Literal(Scalar(Float(0.6666667))),
+    ],
+    properties: [],
+    texture_layout: (
+      layout: [],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)

@@ -1,0 +1,191 @@
+(
+  name: "force_field",
+  capacity: 32768,
+  spawner: (
+    count: Single(30.0),
+    spawn_duration: Single(0.0),
+    period: Single(0.0),
+    cycle_count: 1,
+    starts_active: true,
+    emit_on_start: false,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Global,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::position::SetPositionSphereModifier": (
+        center: "#8",
+        radius: "#9",
+        dimension: Surface,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::velocity::SetVelocitySphereModifier": (
+        center: "#10",
+        speed: "#15",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "age",
+        value: "#1",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#2",
+      ),
+    },
+  ],
+  update_modifiers: [
+    {
+      "bevy_hanabi::modifier::force::ConformToSphereModifier": (
+        origin: "#21",
+        radius: "#22",
+        influence_dist: "#23",
+        attraction_accel: "#24",
+        max_attraction_speed: "#25",
+        shell_half_thickness: Some("#27"),
+        sticky_factor: Some("#26"),
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::force::ConformToSphereModifier": (
+        origin: "#17",
+        radius: "#18",
+        influence_dist: "#19",
+        attraction_accel: "#16",
+        max_attraction_speed: "#20",
+        shell_half_thickness: None,
+        sticky_factor: None,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::kill::KillAabbModifier": (
+        center: "#3",
+        half_size: "#4",
+        kill_inside: false,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::kill::KillSphereModifier": (
+        center: "#5",
+        sqr_radius: "#7",
+        kill_inside: true,
+      ),
+    },
+  ],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::SizeOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (0.05, 0.05, 0.05),
+            ),
+          ],
+        ),
+        screen_space_size: false,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::ColorOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (0.0, 1.0, 1.0, 1.0),
+            ),
+            (
+              ratio: 1.0,
+              value: (0.0, 1.0, 1.0, 0.0),
+            ),
+          ],
+        ),
+        blend: Overwrite,
+        mask: (15),
+      ),
+    },
+  ],
+  motion_integration: PostUpdate,
+  module: (
+    expressions: [
+      Literal(Scalar(Float(0.0))),
+      Literal(Scalar(Float(10.0))),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Vector(Vec3((3.0, 2.0, 3.0)))),
+      Literal(Vector(Vec3((-2.0, 1.0, 0.0)))),
+      Literal(Scalar(Float(0.6))),
+      Binary(
+        op: Mul,
+        left: "#6",
+        right: "#6",
+      ),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Scalar(Float(0.05))),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      BuiltIn((
+        operator: Rand(Scalar(Float)),
+      )),
+      Literal(Scalar(Float(0.2))),
+      Binary(
+        op: Mul,
+        left: "#11",
+        right: "#12",
+      ),
+      Literal(Scalar(Float(0.1))),
+      Binary(
+        op: Add,
+        left: "#13",
+        right: "#14",
+      ),
+      Property(1),
+      Property(2),
+      Literal(Scalar(Float(0.05))),
+      Literal(Scalar(Float(0.5))),
+      Literal(Scalar(Float(10.0))),
+      Literal(Vector(Vec3((0.01, 0.0, 0.0)))),
+      Literal(Scalar(Float(0.3))),
+      Literal(Scalar(Float(5.0))),
+      Property(3),
+      Property(4),
+      Property(5),
+      Property(6),
+    ],
+    properties: [
+      (
+        name: "repulsor_accel",
+        default_value: Scalar(Float(-15.0)),
+      ),
+      (
+        name: "repulsor_position",
+        default_value: Vector(Vec3((0.3, 0.5, 0.0))),
+      ),
+      (
+        name: "attraction_accel",
+        default_value: Scalar(Float(20.0)),
+      ),
+      (
+        name: "max_attraction_speed",
+        default_value: Scalar(Float(5.0)),
+      ),
+      (
+        name: "sticky_factor",
+        default_value: Scalar(Float(2.0)),
+      ),
+      (
+        name: "shell_half_thickness",
+        default_value: Scalar(Float(0.1)),
+      ),
+    ],
+    texture_layout: (
+      layout: [],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)

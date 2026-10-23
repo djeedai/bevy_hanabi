@@ -112,6 +112,10 @@ jobs:
         env:
           RUSTFLAGS: --cfg getrandom_backend="wasm_js"
         run: cargo check --target wasm32-unknown-unknown --no-default-features --features 2d,3d
+      - name: Check unified demo
+        env:
+          RUSTFLAGS: --cfg getrandom_backend="wasm_js"
+        run: cargo check --example demo --target wasm32-unknown-unknown --no-default-features --features "2d,3d,bevy/webgpu"
 
   msrv:
     runs-on: ubuntu-latest
@@ -164,19 +168,19 @@ jobs:
           for example in .github/example-run/3d/*.ron; do
             example_name=$(basename "$example" .ron)
             echo "running $example_name - $(date)"
-            time CI_TESTING_CONFIG="$example" cargo run --example "$example_name" --features "bevy/bevy_ci_testing"
+            time CI_TESTING_CONFIG="$example" cargo run --example demo --features "bevy/bevy_ci_testing" -- --demo "$example_name"
             sleep 1
           done
           for example in .github/example-run/3dpng/*.ron; do
             example_name=$(basename "$example" .ron)
             echo "running $example_name - $(date)"
-            time CI_TESTING_CONFIG="$example" cargo run --example "$example_name" --features "bevy/bevy_ci_testing"
+            time CI_TESTING_CONFIG="$example" cargo run --example demo --features "bevy/bevy_ci_testing" -- --demo "$example_name"
             sleep 1
           done
           for example in .github/example-run/2d/*.ron; do
             example_name=$(basename "$example" .ron)
             echo "running $example_name - $(date)"
-            time CI_TESTING_CONFIG="$example" cargo run --example "$example_name" --features "bevy/bevy_ci_testing"
+            time CI_TESTING_CONFIG="$example" cargo run --example demo --features "bevy/bevy_ci_testing" -- --demo "$example_name"
             sleep 1
           done
         env:
@@ -208,6 +212,10 @@ jobs:
           components: rustfmt, clippy
       - name: Check format
         run: cargo fmt --all -- --check
+        env:
+          CARGO_INCREMENTAL: 0
+      - name: Check committed effect files
+        run: cargo run --example demo -- --check-effects
         env:
           CARGO_INCREMENTAL: 0
       - name: Check lints

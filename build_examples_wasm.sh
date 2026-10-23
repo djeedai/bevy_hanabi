@@ -1,58 +1,16 @@
-echo Check that wasm-bindgen -V returns 0.2.125, otherwise cargo install wasm-bindgen-cli --version 0.2.125
+#!/usr/bin/env sh
+set -eu
 
-echo Setting RUSTFLAGS to enable unstable web_sys APIs...
-export RUSTFLAGS=--cfg=web_sys_unstable_apis
+wasm_bindgen_version=0.2.125
+if ! wasm-bindgen --version | grep -q "$wasm_bindgen_version"; then
+    echo "Install wasm-bindgen-cli $wasm_bindgen_version" >&2
+    exit 1
+fi
 
-echo Build all examples for WASM...
-cargo b --release --example lightning --target wasm32-unknown-unknown
-cargo b --release --example firework --target wasm32-unknown-unknown
-cargo b --release --example portal --target wasm32-unknown-unknown
-cargo b --release --example expr --target wasm32-unknown-unknown
-cargo b --release --example spawn --target wasm32-unknown-unknown
-cargo b --release --example multicam --target wasm32-unknown-unknown
-cargo b --release --example visibility --target wasm32-unknown-unknown
-cargo b --release --example random --target wasm32-unknown-unknown
-cargo b --release --example spawn_on_command --target wasm32-unknown-unknown
-cargo b --release --example activate --target wasm32-unknown-unknown
-cargo b --release --example force_field --target wasm32-unknown-unknown
-cargo b --release --example init --target wasm32-unknown-unknown
-cargo b --release --example lifetime --target wasm32-unknown-unknown
-cargo b --release --example ordering --target wasm32-unknown-unknown
-cargo b --release --example ribbon --target wasm32-unknown-unknown
-cargo b --release --example gradient --target wasm32-unknown-unknown
-cargo b --release --example circle --target wasm32-unknown-unknown
-cargo b --release --example billboard --target wasm32-unknown-unknown
-cargo b --release --example worms --target wasm32-unknown-unknown
-cargo b --release --example instancing --target wasm32-unknown-unknown
-cargo b --release --example puffs --target wasm32-unknown-unknown
-cargo b --release --example lut --target wasm32-unknown-unknown
-cargo b --release --example 2d --target wasm32-unknown-unknown
-
-echo Bindgen all examples...
-wasm-bindgen --out-name wasm_lightning --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lightning.wasm
-wasm-bindgen --out-name wasm_firework --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/firework.wasm
-wasm-bindgen --out-name wasm_portal --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/portal.wasm
-wasm-bindgen --out-name wasm_expr --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/expr.wasm
-wasm-bindgen --out-name wasm_spawn --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/spawn.wasm
-wasm-bindgen --out-name wasm_multicam --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/multicam.wasm
-wasm-bindgen --out-name wasm_visibility --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/visibility.wasm
-wasm-bindgen --out-name wasm_random --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/random.wasm
-wasm-bindgen --out-name wasm_spawn_on_command --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/spawn_on_command.wasm
-wasm-bindgen --out-name wasm_activate --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/activate.wasm
-wasm-bindgen --out-name wasm_force_field --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/force_field.wasm
-wasm-bindgen --out-name wasm_init --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/init.wasm
-wasm-bindgen --out-name wasm_lifetime --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lifetime.wasm
-wasm-bindgen --out-name wasm_ordering --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/ordering.wasm
-wasm-bindgen --out-name wasm_ribbon --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/ribbon.wasm
-wasm-bindgen --out-name wasm_gradient --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/gradient.wasm
-wasm-bindgen --out-name wasm_circle --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/circle.wasm
-wasm-bindgen --out-name wasm_billboard --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/billboard.wasm
-wasm-bindgen --out-name wasm_worms --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/worms.wasm
-wasm-bindgen --out-name wasm_instancing --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/instancing.wasm
-wasm-bindgen --out-name wasm_puffs --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/puffs.wasm
-wasm-bindgen --out-name wasm_lut --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/lut.wasm
-wasm-bindgen --out-name wasm_2d --out-dir examples/wasm/target --target web target/wasm32-unknown-unknown/release/examples/2d.wasm
-
-echo Done. See docs/wasm.md for help on running the examples locally.
-
-export RUSTFLAGS=
+export RUSTFLAGS="${RUSTFLAGS:-} --cfg=web_sys_unstable_apis"
+cargo build --release --example demo --target wasm32-unknown-unknown --features bevy/webgpu
+wasm-bindgen \
+    --out-name wasm_demo \
+    --out-dir examples/wasm/target \
+    --target web \
+    target/wasm32-unknown-unknown/release/examples/demo.wasm

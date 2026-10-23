@@ -1,0 +1,141 @@
+(
+  name: "firework",
+  capacity: 2048,
+  spawner: (
+    count: Single(128.0),
+    spawn_duration: Single(1.0),
+    period: Single(1.0),
+    cycle_count: 0,
+    starts_active: true,
+    emit_on_start: true,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Global,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::position::SetPositionSphereModifier": (
+        center: "#9",
+        radius: "#10",
+        dimension: Volume,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::velocity::SetVelocitySphereModifier": (
+        center: "#11",
+        speed: "#16",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "age",
+        value: "#3",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#6",
+      ),
+    },
+  ],
+  update_modifiers: [
+    {
+      "bevy_hanabi::modifier::force::LinearDragModifier": (
+        drag: "#8",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::accel::AccelModifier": (
+        accel: "#7",
+      ),
+    },
+  ],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::ColorOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (4.0, 4.0, 4.0, 1.0),
+            ),
+            (
+              ratio: 1.0,
+              value: (4.0, 4.0, 4.0, 0.0),
+            ),
+          ],
+        ),
+        blend: Overwrite,
+        mask: (15),
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::SizeOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (1.0, 1.0, 1.0),
+            ),
+            (
+              ratio: 0.1,
+              value: (1.0, 1.0, 1.0),
+            ),
+            (
+              ratio: 1.0,
+              value: (0.0, 0.0, 0.0),
+            ),
+          ],
+        ),
+        screen_space_size: false,
+      ),
+    },
+  ],
+  motion_integration: PostUpdate,
+  module: (
+    expressions: [
+      Literal(Scalar(Float(0.0))),
+      Literal(Scalar(Float(0.2))),
+      Binary(
+        op: UniformRand,
+        left: "#1",
+        right: "#2",
+      ),
+      Literal(Scalar(Float(2.0))),
+      Literal(Scalar(Float(3.0))),
+      Binary(
+        op: UniformRand,
+        left: "#4",
+        right: "#5",
+      ),
+      Literal(Vector(Vec3((-0.0, -8.0, -0.0)))),
+      Literal(Scalar(Float(5.0))),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Scalar(Float(2.0))),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      BuiltIn((
+        operator: Rand(Scalar(Float)),
+      )),
+      Literal(Scalar(Float(20.0))),
+      Binary(
+        op: Mul,
+        left: "#12",
+        right: "#13",
+      ),
+      Literal(Scalar(Float(60.0))),
+      Binary(
+        op: Add,
+        left: "#14",
+        right: "#15",
+      ),
+    ],
+    properties: [],
+    texture_layout: (
+      layout: [],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)

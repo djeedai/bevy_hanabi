@@ -1,0 +1,214 @@
+(
+  name: "impact_burst",
+  capacity: 512,
+  spawner: (
+    count: Single(80.0),
+    spawn_duration: Single(0.0),
+    period: Single(0.0),
+    cycle_count: 1,
+    starts_active: true,
+    emit_on_start: true,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Global,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "position",
+        value: "#19",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "velocity",
+        value: "#18",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#24",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "size",
+        value: "#29",
+      ),
+    },
+  ],
+  update_modifiers: [
+    {
+      "bevy_hanabi::modifier::force::LinearDragModifier": (
+        drag: "#30",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::accel::AccelModifier": (
+        accel: "#31",
+      ),
+    },
+  ],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::ColorOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (25.0, 28.0, 35.0, 1.0),
+            ),
+            (
+              ratio: 0.15,
+              value: (18.0, 20.0, 30.0, 1.0),
+            ),
+            (
+              ratio: 0.4,
+              value: (8.0, 12.0, 25.0, 0.8),
+            ),
+            (
+              ratio: 0.7,
+              value: (3.0, 5.0, 18.0, 0.4),
+            ),
+            (
+              ratio: 1.0,
+              value: (0.0, 0.0, 8.0, 0.0),
+            ),
+          ],
+        ),
+        blend: Overwrite,
+        mask: (15),
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::SizeOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (1.0, 1.0, 1.0),
+            ),
+            (
+              ratio: 0.3,
+              value: (0.8, 0.8, 0.8),
+            ),
+            (
+              ratio: 1.0,
+              value: (0.0, 0.0, 0.0),
+            ),
+          ],
+        ),
+        screen_space_size: false,
+      ),
+    },
+  ],
+  motion_integration: PostUpdate,
+  module: (
+    expressions: [
+      BuiltIn((
+        operator: Rand(Scalar(Float)),
+      )),
+      Literal(Scalar(Float(6.2831855))),
+      Binary(
+        op: Mul,
+        left: "#1",
+        right: "#2",
+      ),
+      Literal(Scalar(Float(15.0))),
+      BuiltIn((
+        operator: Rand(Scalar(Float)),
+      )),
+      Literal(Scalar(Float(25.0))),
+      Binary(
+        op: Mul,
+        left: "#5",
+        right: "#6",
+      ),
+      Binary(
+        op: Add,
+        left: "#4",
+        right: "#7",
+      ),
+      Unary(
+        op: Cos,
+        expr: "#3",
+      ),
+      Binary(
+        op: Mul,
+        left: "#9",
+        right: "#8",
+      ),
+      Literal(Scalar(Float(5.0))),
+      BuiltIn((
+        operator: Rand(Scalar(Float)),
+      )),
+      Literal(Scalar(Float(15.0))),
+      Binary(
+        op: Mul,
+        left: "#12",
+        right: "#13",
+      ),
+      Binary(
+        op: Add,
+        left: "#11",
+        right: "#14",
+      ),
+      Unary(
+        op: Sin,
+        expr: "#3",
+      ),
+      Binary(
+        op: Mul,
+        left: "#16",
+        right: "#8",
+      ),
+      Ternary(
+        op: Vec3,
+        first: "#10",
+        second: "#15",
+        third: "#17",
+      ),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Scalar(Float(0.3))),
+      BuiltIn((
+        operator: Rand(Scalar(Float)),
+      )),
+      Literal(Scalar(Float(0.4))),
+      Binary(
+        op: Mul,
+        left: "#21",
+        right: "#22",
+      ),
+      Binary(
+        op: Add,
+        left: "#20",
+        right: "#23",
+      ),
+      Literal(Scalar(Float(0.1))),
+      BuiltIn((
+        operator: Rand(Scalar(Float)),
+      )),
+      Literal(Scalar(Float(0.15))),
+      Binary(
+        op: Mul,
+        left: "#26",
+        right: "#27",
+      ),
+      Binary(
+        op: Add,
+        left: "#25",
+        right: "#28",
+      ),
+      Literal(Scalar(Float(2.0))),
+      Literal(Vector(Vec3((0.0, -40.0, 0.0)))),
+    ],
+    properties: [],
+    texture_layout: (
+      layout: [],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)

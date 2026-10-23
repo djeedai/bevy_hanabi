@@ -1,0 +1,167 @@
+(
+  name: "whirlwind",
+  capacity: 32768,
+  spawner: (
+    count: Single(500.0),
+    spawn_duration: Single(1.0),
+    period: Single(1.0),
+    cycle_count: 0,
+    starts_active: true,
+    emit_on_start: true,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Global,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::position::SetPositionCircleModifier": (
+        center: "#18",
+        axis: "#19",
+        radius: "#20",
+        dimension: Surface,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "age",
+        value: "#1",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#4",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::velocity::SetVelocityTangentModifier": (
+        origin: "#21",
+        axis: "#22",
+        speed: "#23",
+      ),
+    },
+  ],
+  update_modifiers: [
+    {
+      "bevy_hanabi::modifier::accel::AccelModifier": (
+        accel: "#17",
+      ),
+    },
+  ],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::ColorOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (4.0, 4.0, 4.0, 1.0),
+            ),
+            (
+              ratio: 0.7,
+              value: (0.0, 0.0, 4.0, 1.0),
+            ),
+            (
+              ratio: 1.0,
+              value: (0.0, 0.0, 0.0, 0.0),
+            ),
+          ],
+        ),
+        blend: Overwrite,
+        mask: (15),
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::SizeOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.3,
+              value: (0.2, 0.02, 1.0),
+            ),
+            (
+              ratio: 1.0,
+              value: (0.0, 0.0, 0.0),
+            ),
+          ],
+        ),
+        screen_space_size: false,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::OrientModifier": (
+        mode: AlongVelocity,
+        rotation: None,
+      ),
+    },
+  ],
+  motion_integration: PostUpdate,
+  module: (
+    expressions: [
+      Literal(Scalar(Float(0.0))),
+      Literal(Scalar(Float(2.5))),
+      Literal(Scalar(Float(3.5))),
+      Binary(
+        op: UniformRand,
+        left: "#2",
+        right: "#3",
+      ),
+      Attribute((
+        attr: "position",
+      )),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Binary(
+        op: Sub,
+        left: "#5",
+        right: "#6",
+      ),
+      Unary(
+        op: Normalize,
+        expr: "#7",
+      ),
+      Literal(Vector(Vec3((0.0, 4.0, 0.0)))),
+      BuiltIn((
+        operator: Time,
+      )),
+      Unary(
+        op: Sin,
+        expr: "#10",
+      ),
+      Literal(Scalar(Float(6.0))),
+      Binary(
+        op: Mul,
+        left: "#11",
+        right: "#12",
+      ),
+      Literal(Scalar(Float(6.0))),
+      Binary(
+        op: Sub,
+        left: "#13",
+        right: "#14",
+      ),
+      Binary(
+        op: Mul,
+        left: "#8",
+        right: "#15",
+      ),
+      Binary(
+        op: Add,
+        left: "#16",
+        right: "#9",
+      ),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Vector(Vec3((0.0, 1.0, 0.0)))),
+      Literal(Scalar(Float(4.0))),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Vector(Vec3((0.0, 1.0, 0.0)))),
+      Literal(Scalar(Float(3.0))),
+    ],
+    properties: [],
+    texture_layout: (
+      layout: [],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)

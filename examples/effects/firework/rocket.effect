@@ -1,0 +1,173 @@
+(
+  name: "rocket",
+  capacity: 32,
+  spawner: (
+    count: Uniform((1.0, 3.0)),
+    spawn_duration: Single(1.0),
+    period: Single(1.0),
+    cycle_count: 0,
+    starts_active: true,
+    emit_on_start: true,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Global,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::position::SetPositionCircleModifier": (
+        center: "#1",
+        axis: "#2",
+        radius: "#3",
+        dimension: Volume,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "velocity",
+        value: "#8",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "age",
+        value: "#9",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#20",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "u32_0",
+        value: "#17",
+      ),
+    },
+  ],
+  update_modifiers: [
+    {
+      "bevy_hanabi::modifier::force::LinearDragModifier": (
+        drag: "#22",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::accel::AccelModifier": (
+        accel: "#21",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::EmitSpawnEventModifier": (
+        condition: Always,
+        count: "#23",
+        child_index: 0,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::EmitSpawnEventModifier": (
+        condition: OnDie,
+        count: "#24",
+        child_index: 1,
+      ),
+    },
+  ],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::ColorOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (1.0, 1.0, 1.0, 1.0),
+            ),
+          ],
+        ),
+        blend: Overwrite,
+        mask: (15),
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::SizeOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (0.1, 0.1, 0.1),
+            ),
+          ],
+        ),
+        screen_space_size: false,
+      ),
+    },
+  ],
+  motion_integration: PostUpdate,
+  module: (
+    expressions: [
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Vector(Vec3((0.0, 1.0, 0.0)))),
+      Literal(Scalar(Float(30.0))),
+      Literal(Scalar(Float(0.0))),
+      Literal(Scalar(Float(140.0))),
+      Literal(Scalar(Float(160.0))),
+      Binary(
+        op: UniformRand,
+        left: "#5",
+        right: "#6",
+      ),
+      Ternary(
+        op: Vec3,
+        first: "#4",
+        second: "#7",
+        third: "#4",
+      ),
+      Literal(Scalar(Float(0.0))),
+      BuiltIn((
+        operator: Rand(Vector((
+          elem_type: Float,
+          count: 3,
+        ))),
+      )),
+      Literal(Scalar(Float(0.9))),
+      Binary(
+        op: Mul,
+        left: "#10",
+        right: "#11",
+      ),
+      Literal(Scalar(Float(0.1))),
+      Binary(
+        op: Add,
+        left: "#12",
+        right: "#13",
+      ),
+      Literal(Scalar(Float(1.0))),
+      Binary(
+        op: Vec4XyzW,
+        left: "#14",
+        right: "#15",
+      ),
+      Unary(
+        op: Pack4x8unorm,
+        expr: "#16",
+      ),
+      Literal(Scalar(Float(0.8))),
+      Literal(Scalar(Float(1.2))),
+      Binary(
+        op: UniformRand,
+        left: "#18",
+        right: "#19",
+      ),
+      Literal(Vector(Vec3((-0.0, -16.0, -0.0)))),
+      Literal(Scalar(Float(4.0))),
+      Literal(Scalar(Uint(5))),
+      Literal(Scalar(Uint(1000))),
+    ],
+    properties: [],
+    texture_layout: (
+      layout: [],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)

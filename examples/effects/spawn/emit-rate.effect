@@ -1,0 +1,128 @@
+(
+  name: "emit:rate",
+  capacity: 32768,
+  spawner: (
+    count: Single(500.0),
+    spawn_duration: Single(1.0),
+    period: Single(1.0),
+    cycle_count: 0,
+    starts_active: true,
+    emit_on_start: true,
+  ),
+  z_layer_2d: 0.0,
+  simulation_space: Global,
+  simulation_condition: WhenVisible,
+  prng_seed: 0,
+  init_modifiers: [
+    {
+      "bevy_hanabi::modifier::position::SetPositionCone3dModifier": (
+        height: "#6",
+        base_radius: "#4",
+        top_radius: "#5",
+        dimension: Volume,
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::velocity::SetVelocitySphereModifier": (
+        center: "#7",
+        speed: "#8",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "age",
+        value: "#1",
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::attr::SetAttributeModifier": (
+        attribute: "lifetime",
+        value: "#2",
+      ),
+    },
+  ],
+  update_modifiers: [
+    {
+      "bevy_hanabi::modifier::accel::AccelModifier": (
+        accel: "#3",
+      ),
+    },
+  ],
+  render_modifiers: [
+    {
+      "bevy_hanabi::modifier::output::ColorOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (1.0, 1.0, 1.0, 1.0),
+            ),
+            (
+              ratio: 0.1,
+              value: (1.0, 1.0, 0.0, 1.0),
+            ),
+            (
+              ratio: 0.4,
+              value: (1.0, 0.0, 0.0, 1.0),
+            ),
+            (
+              ratio: 1.0,
+              value: (0.0, 0.0, 0.0, 0.0),
+            ),
+          ],
+        ),
+        blend: Overwrite,
+        mask: (15),
+      ),
+    },
+    {
+      "bevy_hanabi::modifier::output::SizeOverLifetimeModifier": (
+        gradient: (
+          keys: [
+            (
+              ratio: 0.0,
+              value: (0.1, 0.1, 0.1),
+            ),
+            (
+              ratio: 0.5,
+              value: (0.5, 0.5, 0.5),
+            ),
+            (
+              ratio: 0.8,
+              value: (0.08, 0.08, 0.08),
+            ),
+            (
+              ratio: 1.0,
+              value: (0.0, 0.0, 0.0),
+            ),
+          ],
+        ),
+        screen_space_size: false,
+      ),
+    },
+  ],
+  motion_integration: PostUpdate,
+  module: (
+    expressions: [
+      Literal(Scalar(Float(0.0))),
+      Literal(Scalar(Float(5.0))),
+      Property(1),
+      Literal(Scalar(Float(0.0))),
+      Literal(Scalar(Float(10.0))),
+      Literal(Scalar(Float(20.0))),
+      Literal(Vector(Vec3((0.0, 0.0, 0.0)))),
+      Literal(Scalar(Float(10.0))),
+    ],
+    properties: [
+      (
+        name: "my_accel",
+        default_value: Vector(Vec3((0.0, 3.0, 0.0))),
+      ),
+    ],
+    texture_layout: (
+      layout: [],
+    ),
+  ),
+  alpha_mode: Blend,
+  mesh: None,
+)
